@@ -192,6 +192,13 @@ struct App {
     started: Option<Instant>,
     /// Answer from an open file dialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    /// Generation of the folder watcher; opening another folder ends the old thread.
+    watching: Arc<AtomicUsize>,
+    /// The watcher saw the folder change.
+    changed_tx: mpsc::Sender<()>,
+    changed_rx: mpsc::Receiver<()>,
+    /// The folder changed while a listing was running; list again when it is done.
+    stale: bool,
     /// View → Hide File List: only the image, as in full screen but in a window.
     hide_tools: bool,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
@@ -296,6 +303,8 @@ struct Config {
     confirm_delete: bool,
     /// Slideshow in random order.
     random: bool,
+    /// Re-read the folder when files are added, removed or renamed.
+    auto_refresh: bool,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool,
 }
@@ -310,6 +319,7 @@ impl Default for Config {
             confirm_delete: true,
             random: false,
             enlarge: true,
+            auto_refresh: true,
         }
     }
 }
@@ -331,6 +341,7 @@ impl Config {
                 "confirm_delete" => c.confirm_delete = value == "true",
                 "random" => c.random = value == "true",
                 "enlarge" => c.enlarge = value == "true",
+                "auto_refresh" => c.auto_refresh = value == "true",
                 _ => {}
             }
         }
@@ -346,14 +357,15 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nauto_refresh={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
             self.trash,
             self.confirm_delete,
             self.random,
-            self.enlarge
+            self.enlarge,
+            self.auto_refresh
         );
         write_atomic(&p, &text);
     }
@@ -414,6 +426,25 @@ fn thousands(n: usize) -> String {
         }
         out.push(c);
     }
+    out
+}
+
+/// The shuffled `old` order without files that are gone, followed by new files in random order.
+fn merge_shuffled(old: &[OsString], new: Vec<OsString>) -> Vec<OsString> {
+    let old_set: HashSet<&OsString> = old.iter().collect();
+    let new_set: HashSet<&OsString> = new.iter().collect();
+    let mut added: Vec<OsString> = new
+        .iter()
+        .filter(|f| !old_set.contains(f))
+        .cloned()
+        .collect();
+    shuffle(&mut added);
+    let mut out: Vec<OsString> = old
+        .iter()
+        .filter(|f| new_set.contains(f))
+        .cloned()
+        .collect();
+    out.extend(added);
     out
 }
 
@@ -525,6 +556,7 @@ impl App {
         }
         let (notices_tx, notices) = mpsc::channel();
         let (freed_tx, freed_rx) = mpsc::channel();
+        let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
             notices,
@@ -554,6 +586,10 @@ impl App {
             started: Some(Instant::now()),
             dialog: None,
             hide_tools: false,
+            watching: Arc::new(AtomicUsize::new(0)),
+            changed_tx,
+            changed_rx,
+            stale: false,
             paused: false,
             back: Vec::new(),
             forward: Vec::new(),
@@ -596,9 +632,19 @@ impl App {
         self.random = false;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
+        self.list(ctx);
+        self.watch(ctx);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+            "{} — glimt",
+            dir.display()
+        )));
+    }
+
+    /// Read the folder (and then the sizes) in the background; `receive_listing` merges it in.
+    fn list(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
-        let (list_dir, ctx2) = (dir.clone(), ctx.clone());
+        let (list_dir, ctx2) = (self.dir.clone(), ctx.clone());
         std::thread::spawn(move || {
             // The receiver is gone if another folder was opened meanwhile; then we stop.
             if tx.send(list_folder(&list_dir)).is_err() {
@@ -625,10 +671,33 @@ impl App {
         self.listing = Some(rx);
         self.size_rx = Some(size_rx);
         self.total_size = 0;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{} — glimt",
-            dir.display()
-        )));
+        self.stale = false;
+    }
+
+    /// Poll the folder's modification time once a second in the background (one `stat`, no
+    /// repaint unless it changed). Adding, removing or renaming a file changes it.
+    /// The thread ends when another folder is opened.
+    fn watch(&mut self, ctx: &egui::Context) {
+        let generation = self.watching.fetch_add(1, Ordering::Relaxed) + 1;
+        let (watching, tx, ctx, dir) = (
+            self.watching.clone(),
+            self.changed_tx.clone(),
+            ctx.clone(),
+            self.dir.clone(),
+        );
+        std::thread::spawn(move || {
+            let mtime = || std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+            let mut last = mtime();
+            while watching.load(Ordering::Relaxed) == generation {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                let now = mtime();
+                if now != last && watching.load(Ordering::Relaxed) == generation {
+                    last = now;
+                    let _ = tx.send(());
+                    ctx.request_repaint();
+                }
+            }
+        });
     }
 
     /// The file shown, or the folder when it has no images.
@@ -653,7 +722,13 @@ impl App {
         };
         self.listing = None;
         self.subdirs = dirs;
-        self.random = false;
+        // A refresh during random order keeps the order, so Previous still goes back
+        // through the images that were shown.
+        let files = if self.random {
+            merge_shuffled(&self.files, files)
+        } else {
+            files
+        };
         let shown = self.files.get(self.cur).cloned();
         self.replace_files(ctx, files, shown);
     }
@@ -1104,7 +1179,12 @@ impl App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
             Action::HideTools => self.hide_tools = !self.hide_tools,
-            Action::Refresh => self.open(ctx, self.location()),
+            Action::Refresh => {
+                self.slots.clear();
+                self.pending.clear();
+                self.errors.clear();
+                self.list(ctx);
+            }
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
             // Resuming gives the shown image the full delay again.
@@ -1157,6 +1237,12 @@ impl eframe::App for App {
         self.receive(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
+        if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
+            self.stale = true;
+        }
+        if self.stale && self.listing.is_none() {
+            self.list(ctx);
+        }
         while let Ok(msg) = self.notices.try_recv() {
             // Deleting failed, so the file probably still exists: re-read the folder so the list is right.
             self.open(ctx, self.location());
@@ -1283,6 +1369,13 @@ impl eframe::App for App {
                     self.config.save();
                 }
                 ui.separator();
+                let auto = egui::Checkbox::new(
+                    &mut self.config.auto_refresh,
+                    "Refresh the folder when files change",
+                );
+                if ui.add(auto).changed() {
+                    self.config.save();
+                }
                 let remember = egui::Checkbox::new(
                     &mut self.config.remember_dir,
                     "Start in the last used folder",
@@ -1603,6 +1696,13 @@ mod tests {
     }
 
     #[test]
+    fn merge_keeps_shuffled_order() {
+        let names = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let merged = super::merge_shuffled(&names(&["c", "a", "b"]), names(&["a", "b", "d"]));
+        assert_eq!(merged, names(&["a", "b", "d"]));
+    }
+
+    #[test]
     fn shuffle_keeps_all_elements() {
         let mut v: Vec<u32> = (0..100).collect();
         super::shuffle(&mut v);
@@ -1636,6 +1736,9 @@ mod tests {
         assert!(Config::parse("remember_dir=true").remember_dir);
         assert!(!Config::default().random && Config::parse("random=true").random);
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
+        assert!(
+            Config::default().auto_refresh && !Config::parse("auto_refresh=false").auto_refresh
+        );
         assert_eq!(
             super::parse_last_dir("last_dir=/tmp/a b\n"),
             Some("/tmp/a b".into())
