@@ -31,12 +31,24 @@ The binary is `target/release/glimt`. It is self-contained, so you can copy it a
 install -Dm755 target/release/glimt ~/.local/bin/glimt
 ```
 
+### Optional features
+
+Extra file types are optional features, so the default build stays small:
+
+| Feature | Adds | Needs at runtime |
+|---|---|---|
+| `video` | Video files in the list with a preview frame; Enter plays them | `ffmpeg` (previews), a player or the default application |
+
+```sh
+cargo build --release --features video
+```
+
 ### Before committing
 
 ```sh
 cargo fmt
-cargo clippy --release -- -D warnings
-cargo test --release
+cargo clippy --release --all-features -- -D warnings
+cargo test --release --all-features
 ```
 
 ### Portable build (older distributions)
