@@ -15,7 +15,9 @@ use std::time::Instant;
 const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
 /// Standard antall bilder som holdes dekodet på hver side av det viste.
 const DEFAULT_AHEAD: usize = 2;
-const DEFAULT_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+/// Standard sekunder mellom bildene i lysbildefremvisning.
+const DEFAULT_DELAY: u64 = 3;
+const MAX_DELAY: u64 = 60;
 
 struct Decoded {
     idx: usize,
@@ -64,7 +66,6 @@ struct App {
     slideshow: Option<Instant>,
     /// Fillista er stokket for tilfeldig fremvisning.
     random: bool,
-    delay: std::time::Duration,
 }
 
 fn list_images(dir: &Path) -> Vec<PathBuf> {
@@ -95,12 +96,15 @@ fn config_path() -> Option<PathBuf> {
 #[derive(Debug, PartialEq)]
 struct Config {
     preload: usize,
+    /// Sekunder mellom bildene i lysbildefremvisning.
+    delay: u64,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Config {
             preload: DEFAULT_AHEAD,
+            delay: DEFAULT_DELAY,
         }
     }
 }
@@ -110,8 +114,14 @@ impl Config {
         let mut c = Config::default();
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
             let value = value.trim();
-            if key.trim() == "preload" {
-                c.preload = value.parse().map_or(c.preload, |n: usize| n.min(20));
+            match key.trim() {
+                "preload" => c.preload = value.parse().map_or(c.preload, |n: usize| n.min(20)),
+                "delay" => {
+                    c.delay = value
+                        .parse()
+                        .map_or(c.delay, |n: u64| n.clamp(1, MAX_DELAY))
+                }
+                _ => {}
             }
         }
         c
@@ -125,7 +135,7 @@ impl Config {
 
     fn save(&self) {
         let Some(p) = config_path() else { return };
-        let text = format!("preload={}\n", self.preload);
+        let text = format!("preload={}\ndelay={}\n", self.preload, self.delay);
         let result =
             std::fs::create_dir_all(p.parent().unwrap()).and_then(|_| std::fs::write(&p, text));
         if let Err(e) = result {
@@ -243,7 +253,6 @@ impl App {
             config,
             slideshow: None,
             random: false,
-            delay: DEFAULT_DELAY,
             limits,
             jobs,
             done,
@@ -386,9 +395,9 @@ impl App {
         };
         let name = file.file_name().unwrap_or_default().to_string_lossy();
         let show = match (self.slideshow.is_some(), self.random) {
-            (true, true) => "🔀 ",
-            (true, false) => "▶ ",
-            _ => "",
+            (true, true) => format!("🔀 {} s · ", self.config.delay),
+            (true, false) => format!("▶ {} s · ", self.config.delay),
+            _ => String::new(),
         };
         let (n, total) = (self.cur + 1, self.files.len());
         let title = format!("{show}{name} ({n}/{total}) — glimt");
@@ -403,7 +412,8 @@ impl App {
             return;
         }
         let next = (self.cur + 1) % self.files.len();
-        let left = self.delay.saturating_sub(last.elapsed());
+        let delay = std::time::Duration::from_secs(self.config.delay);
+        let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
         } else if !self.pending.contains(&(next, false)) {
@@ -496,6 +506,17 @@ impl App {
             } else {
                 self.start_slideshow(ctx, random);
             }
+        }
+        // ↑/↓ justerer tiden mens fremvisningen går.
+        let step = pressed(Key::ArrowUp) as i64 - pressed(Key::ArrowDown) as i64;
+        if self.slideshow.is_some() && step != 0 {
+            self.config.delay = self
+                .config
+                .delay
+                .saturating_add_signed(step)
+                .clamp(1, MAX_DELAY);
+            self.config.save();
+            self.title(ctx);
         }
         if pressed(Key::Escape) {
             if self.slideshow.is_some() {
@@ -593,6 +614,14 @@ impl eframe::App for App {
                 ui.weak(format!(
                     "Opptil ≈ {mb} MB med bilder i skjermoppløsning {w}×{h}"
                 ));
+                ui.separator();
+                ui.label("Lysbildefremvisning (S = i rekkefølge, R = tilfeldig, ↑/↓ = tid):");
+                let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
+                    .text("sekunder per bilde");
+                if ui.add(delay).changed() {
+                    self.config.save();
+                    self.title(ctx);
+                }
             });
         self.show_settings = open;
 
@@ -751,6 +780,8 @@ mod tests {
         use super::Config;
         assert_eq!(Config::parse("# kommentar\npreload= 5\n").preload, 5);
         assert_eq!(Config::parse("preload=99").preload, 20);
+        assert_eq!(Config::parse("delay=0").delay, 1);
+        assert_eq!(Config::parse("delay=7").delay, 7);
         assert_eq!(Config::parse("preload=x\nukjent=1"), Config::default());
     }
 }
