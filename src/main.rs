@@ -659,6 +659,8 @@ struct Config {
     remember_window: bool,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool,
+    /// Window title "Glimt - image name" instead of "image name - Glimt".
+    app_name_first: bool,
 }
 
 impl Default for Config {
@@ -682,6 +684,7 @@ impl Default for Config {
             background: [0, 0, 0],
             remember_window: true,
             inhibit_screensaver: true,
+            app_name_first: false,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -716,6 +719,7 @@ impl Config {
                 "path_bar" => c.path_bar = value == "true",
                 "remember_window" => c.remember_window = value == "true",
                 "inhibit_screensaver" => c.inhibit_screensaver = value == "true",
+                "app_name_first" => c.app_name_first = value == "true",
                 "background" => {
                     let hex = value.trim_start_matches('#');
                     if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
@@ -742,7 +746,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -759,6 +763,7 @@ impl Config {
             self.path_bar,
             self.remember_window,
             self.inhibit_screensaver,
+            self.app_name_first,
             self.background[0],
             self.background[1],
             self.background[2],
@@ -1219,10 +1224,7 @@ impl App {
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         self.list(ctx);
         self.watch(ctx);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{} — Glimt",
-            dir.display()
-        )));
+        self.title(ctx);
     }
 
     /// Read the folder (and then the sizes) in the background; `receive_listing` merges it in.
@@ -1398,10 +1400,7 @@ impl App {
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
             self.cur = 0;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                "{} — Glimt",
-                self.dir.display()
-            )));
+            self.title(ctx);
         } else {
             self.go(ctx, cur.min(self.files.len() - 1));
         }
@@ -1737,23 +1736,17 @@ impl App {
         self.title(ctx);
     }
 
+    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no images.
     fn title(&self, ctx: &egui::Context) {
-        let Some(file) = self.files.get(self.cur) else {
-            return;
+        let name = match self.files.get(self.cur) {
+            Some(file) => file.to_string_lossy().into_owned(),
+            None => self.dir.display().to_string(),
         };
-        let name = file.to_string_lossy();
-        let show = match (self.slideshow.is_some(), self.random) {
-            (true, _) if self.paused => "⏸ ".to_owned(),
-            (true, true) => format!("🔀 {} s · ", self.config.delay),
-            (true, false) => format!("▶ {} s · ", self.config.delay),
-            _ => String::new(),
+        let title = if self.config.app_name_first {
+            format!("Glimt - {name}")
+        } else {
+            format!("{name} - Glimt")
         };
-        let (n, total) = (self.cur + 1, self.files.len());
-        let marked = match self.selected.len() {
-            0 => String::new(),
-            m => format!(" · {m} selected"),
-        };
-        let title = format!("{show}{name} ({n}/{total}){marked} — Glimt");
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
@@ -2587,6 +2580,14 @@ impl eframe::App for App {
                 if window.changed() || inhibit.changed() {
                     self.config.save();
                 }
+                let order = ui.checkbox(
+                    &mut self.config.app_name_first,
+                    "Window title \"Glimt - image name\" (off: \"image name - Glimt\")",
+                );
+                if order.changed() {
+                    self.config.save();
+                    self.title(ctx);
+                }
                 ui.separator();
                 ui.label("Deleting:");
                 let trash = egui::Checkbox::new(&mut self.config.trash, "Delete moves to trash");
@@ -3136,6 +3137,8 @@ mod tests {
         assert!(Config::default().remember_window && Config::default().inhibit_screensaver);
         assert!(!Config::parse("remember_window=false").remember_window);
         assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
+        assert!(!Config::default().app_name_first);
+        assert!(Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(super::egui::vec2(1000.0, 700.5)),
             pos: Some(super::egui::pos2(10.0, -20.0)),
