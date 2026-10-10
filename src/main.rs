@@ -1,4 +1,4 @@
-//! glimt: a fast, memory-frugal image viewer.
+//! Glimt: a fast, memory-frugal image viewer.
 //!
 //! Images are decoded in background threads to the size of the image area; full resolution
 //! is decoded only when the user zooms past what that covers. Only a small window around
@@ -310,10 +310,14 @@ fn state_path() -> Option<PathBuf> {
 }
 
 fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
+    Some(xdg_dir(var, home_fallback, "glimt")?.join(name))
+}
+
+fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
     let base = std::env::var_os(var)
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))?;
-    Some(base.join("glimt").join(name))
+    Some(base.join(app))
 }
 
 fn parse_last_dir(state: &str) -> Option<PathBuf> {
@@ -774,7 +778,7 @@ impl App {
         self.list(ctx);
         self.watch(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-            "{} — glimt",
+            "{} — Glimt",
             dir.display()
         )));
     }
@@ -953,7 +957,7 @@ impl App {
         if self.files.is_empty() {
             self.cur = 0;
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                "{} — glimt",
+                "{} — Glimt",
                 self.dir.display()
             )));
         } else {
@@ -1266,7 +1270,7 @@ impl App {
             0 => String::new(),
             m => format!(" · {m} selected"),
         };
-        let title = format!("{show}{name} ({n}/{total}){marked} — glimt");
+        let title = format!("{show}{name} ({n}/{total}){marked} — Glimt");
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
@@ -2008,7 +2012,7 @@ fn main() -> eframe::Result {
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("glimt")
+            .with_title("Glimt")
             .with_inner_size([1280.0, 800.0]),
         ..Default::default()
     };

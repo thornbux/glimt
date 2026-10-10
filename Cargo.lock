@@ -744,15 +744,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glimt"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "fast_image_resize",
- "image",
-]
-
-[[package]]
 name = "gethostname"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -820,6 +811,15 @@ dependencies = [
  "skrifa",
  "smallvec",
  "vello_common",
+]
+
+[[package]]
+name = "glimt"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "fast_image_resize",
+ "image",
 ]
 
 [[package]]
