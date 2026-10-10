@@ -74,12 +74,17 @@ struct App {
     notices_tx: mpsc::Sender<String>,
     notices: mpsc::Receiver<String>,
     notice: Option<String>,
-    /// Filstørrelser, beregnet i bakgrunnen etter mappelesingen (til statuslinja).
-    sizes: HashMap<PathBuf, u64>,
-    /// Summen av `sizes` for filene i lista, oppdatert inkrementelt.
+    /// Samlet størrelse på bildene i mappa, summert i bakgrunnen etter mappelesingen.
+    /// Bare summer sendes (ingen tabell per fil), så minnebruken ikke vokser med mappa.
     total_size: u64,
-    /// Bolker med størrelser fra bakgrunnen; `None` når alle er mottatt.
-    size_rx: Option<mpsc::Receiver<Vec<(PathBuf, u64)>>>,
+    /// Delsummer fra bakgrunnen; `None` når alle er mottatt.
+    size_rx: Option<mpsc::Receiver<u64>>,
+    /// Byte frigjort av slettinger i bakgrunnen.
+    freed_tx: mpsc::Sender<u64>,
+    freed_rx: mpsc::Receiver<u64>,
+    /// Størrelse på de merkede filene; beregnes i bakgrunnen når merkingen endres.
+    selected_size: Option<u64>,
+    selected_rx: Option<mpsc::Receiver<u64>>,
     /// Mappelesing i bakgrunnen: (undermapper, bilder).
     listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<PathBuf>)>>,
     /// Rull trevisningen til gjeldende bilde ved neste tegning.
@@ -90,14 +95,18 @@ struct App {
     random: bool,
 }
 
+fn is_image(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str());
+    ext.is_some_and(|e| EXTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
 /// Én gjennomgang av mappa: (undermapper, bilder), begge sortert på navn.
 /// Filtypen kommer fra katalogoppføringen, så det blir ingen `stat` per fil (bare symlenker slås opp).
 fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        let ext = path.extension().and_then(|e| e.to_str());
-        if ext.is_some_and(|e| EXTS.contains(&e.to_ascii_lowercase().as_str())) {
+        if is_image(&path) {
             images.push(path);
         } else if !entry.file_name().as_encoded_bytes().starts_with(b".")
             && entry
@@ -210,6 +219,15 @@ fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usiz
     map.into_iter()
         .filter_map(|(i, v)| Some((shifted(i, removed)?, v)))
         .collect()
+}
+
+/// Summen av filstørrelsene (én stat per fil); filer som ikke kan leses telles ikke.
+fn total_size(paths: &[PathBuf]) -> u64 {
+    paths
+        .iter()
+        .filter_map(|p| p.metadata().ok())
+        .map(|m| m.len())
+        .sum()
 }
 
 /// Størrelse som i filbehandleren: «850 kB», «2,3 MB», «1,2 GB» (desimal, norsk komma).
@@ -330,6 +348,7 @@ impl App {
             });
         }
         let (notices_tx, notices) = mpsc::channel();
+        let (freed_tx, freed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
             notices,
@@ -359,9 +378,12 @@ impl App {
             started: Some(Instant::now()),
             dialog: None,
             listing: None,
-            sizes: HashMap::new(),
             total_size: 0,
             size_rx: None,
+            freed_tx,
+            freed_rx,
+            selected_size: None,
+            selected_rx: None,
             scroll_to_cur: true,
         };
         app.open(&cc.egui_ctx, path);
@@ -397,20 +419,23 @@ impl App {
         let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2) = (dir.clone(), ctx.clone());
         std::thread::spawn(move || {
-            let (dirs, files) = list_folder(&list_dir);
-            let paths = files.clone();
             // Mottakeren er borte hvis en annen mappe er åpnet i mellomtiden; da stopper vi.
-            if tx.send((dirs, files)).is_err() {
+            if tx.send(list_folder(&list_dir)).is_err() {
                 return;
             }
             ctx2.request_repaint();
-            // Størrelsene (én stat per fil) etterpå, i bolker, så statuslinja fylles ut gradvis.
-            for chunk in paths.chunks(10_000) {
-                let sizes = chunk
-                    .iter()
-                    .filter_map(|p| Some((p.clone(), p.metadata().ok()?.len())))
-                    .collect();
-                if size_tx.send(sizes).is_err() {
+            // Størrelsene etterpå: les mappa én gang til og summer fra katalogoppføringene, i
+            // bolker, så statuslinja fylles ut gradvis uten en kopi av hele fillista i minnet.
+            let images = std::fs::read_dir(&list_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| is_image(&e.path()));
+            let mut sizes = images
+                .filter_map(|e| Some(e.metadata().ok()?.len()))
+                .peekable();
+            while sizes.peek().is_some() {
+                if size_tx.send(sizes.by_ref().take(10_000).sum()).is_err() {
                     return;
                 }
                 ctx2.request_repaint();
@@ -418,7 +443,6 @@ impl App {
         });
         self.listing = Some(rx);
         self.size_rx = Some(size_rx);
-        self.sizes.clear();
         self.total_size = 0;
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
             "{} — glimt",
@@ -466,11 +490,12 @@ impl App {
         let targets = self.delete_targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.files[i].clone()).collect();
         self.remove_indices(ctx, &targets);
-        for p in &paths {
-            self.total_size -= self.sizes.remove(p).unwrap_or(0);
-        }
         let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
+        let freed_tx = self.freed_tx.clone();
         std::thread::spawn(move || {
+            // Størrelsen leses før sletting, så statuslinja kan trekke den fra.
+            let _ = freed_tx.send(total_size(&paths));
+            ctx.request_repaint();
             let mut errors = Vec::new();
             if trash {
                 // Mange filer per gio-kall, så tusenvis av filer ikke blir tusenvis av prosesser.
@@ -527,21 +552,47 @@ impl App {
     }
 
     fn receive_sizes(&mut self) {
+        while let Ok(freed) = self.freed_rx.try_recv() {
+            // ponytail: sletting mens summen fortsatt beregnes kan gi et lite avvik.
+            self.total_size = self.total_size.saturating_sub(freed);
+        }
+        if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
+            self.selected_size = Some(size);
+            self.selected_rx = None;
+        }
         let Some(rx) = &self.size_rx else { return };
         loop {
             match rx.try_recv() {
-                Ok(chunk) => {
-                    for (path, size) in chunk {
-                        // ponytail: en fil slettet før størrelsen kom telles med; ufarlig avvik.
-                        self.total_size += size;
-                        self.sizes.insert(path, size);
-                    }
-                }
+                Ok(sum) => self.total_size += sum,
                 Err(mpsc::TryRecvError::Empty) => return,
                 Err(mpsc::TryRecvError::Disconnected) => break,
             }
         }
         self.size_rx = None;
+    }
+
+    /// Kalles når merkingen endres: oppdater tittelen og beregn størrelsen i bakgrunnen.
+    fn selection_changed(&mut self, ctx: &egui::Context) {
+        self.title(ctx);
+        self.selected_size = None;
+        self.selected_rx = None;
+        if self.selected.is_empty() {
+            return;
+        }
+        let paths: Vec<PathBuf> = self
+            .selected
+            .iter()
+            .map(|&i| self.files[i].clone())
+            .collect();
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            // Mottakeren er borte hvis merkingen er endret igjen; da forkastes svaret.
+            if tx.send(total_size(&paths)).is_ok() {
+                ctx.request_repaint();
+            }
+        });
+        self.selected_rx = Some(rx);
     }
 
     /// Bytt fillista og gå til `shown` (ellers første bilde). Teksturen som vises nå beholdes
@@ -992,14 +1043,11 @@ impl eframe::App for App {
                         format!("{} bilder ({size})", thousands(n))
                     };
                     if !self.selected.is_empty() {
-                        // ponytail: summeres per frame; cache ved behov hvis enorme merkinger blir trege.
-                        let sum: u64 = self
-                            .selected
-                            .iter()
-                            .filter_map(|&i| self.sizes.get(self.files.get(i)?))
-                            .sum();
                         let m = thousands(self.selected.len());
-                        left += &format!(", {m} merket ({})", human_size(sum));
+                        let size = self
+                            .selected_size
+                            .map_or("beregner…".to_owned(), human_size);
+                        left += &format!(", {m} merket ({size})");
                     }
                     ui.label(left);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1083,13 +1131,15 @@ impl eframe::App for App {
                                     if !self.selected.remove(&i) {
                                         self.selected.insert(i);
                                     }
-                                    self.title(ctx);
+                                    self.selection_changed(ctx);
                                 } else if m.shift {
                                     // Shift+klikk: merk området fra bildet som vises.
                                     self.selected.extend(i.min(self.cur)..=i.max(self.cur));
-                                    self.title(ctx);
+                                    self.selection_changed(ctx);
                                 } else {
                                     self.selected.clear();
+                                    self.selected_size = None;
+                                    self.selected_rx = None;
                                     go_to = Some(i);
                                 }
                             }
