@@ -2409,12 +2409,6 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::CopyPathUnquoted);
                     });
                     ui.menu_button("Edit", |ui| {
-                        let rotate = egui::Button::selectable(
-                            self.config.exif_rotate,
-                            "Auto Rotate Using EXIF",
-                        );
-                        menu_button(ui, act, rotate, Action::ExifRotate);
-                        ui.separator();
                         menu_item(ui, act, Action::Preferences);
                     });
                     ui.menu_button("View", |ui| {
