@@ -42,6 +42,7 @@ struct App {
     /// Antall bilder forhåndslastet på hver side (Innstillinger).
     ahead: Arc<AtomicUsize>,
     show_settings: bool,
+    config: Config,
     /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
     /// (bildeindeks, full oppløsning, fil)
@@ -90,19 +91,46 @@ fn config_path() -> Option<PathBuf> {
     Some(base.join("glimt").join("config"))
 }
 
-fn parse_preload(config: &str) -> Option<usize> {
-    config
-        .lines()
-        .find_map(|l| l.strip_prefix("preload=")?.trim().parse().ok())
+/// Innstillinger, lagret som `nøkkel=verdi`-linjer. Ukjente eller ugyldige linjer ignoreres.
+#[derive(Debug, PartialEq)]
+struct Config {
+    preload: usize,
 }
 
-// ponytail: fila har én nøkkel og skrives hel; gå over til en struct når flere innstillinger kommer.
-fn save_preload(n: usize) {
-    let Some(p) = config_path() else { return };
-    let result = std::fs::create_dir_all(p.parent().unwrap())
-        .and_then(|_| std::fs::write(&p, format!("preload={n}\n")));
-    if let Err(e) = result {
-        eprintln!("kunne ikke lagre {}: {e}", p.display());
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            preload: DEFAULT_AHEAD,
+        }
+    }
+}
+
+impl Config {
+    fn parse(text: &str) -> Self {
+        let mut c = Config::default();
+        for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
+            let value = value.trim();
+            if key.trim() == "preload" {
+                c.preload = value.parse().map_or(c.preload, |n: usize| n.min(20));
+            }
+        }
+        c
+    }
+
+    fn load() -> Self {
+        config_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map_or_else(Config::default, |text| Config::parse(&text))
+    }
+
+    fn save(&self) {
+        let Some(p) = config_path() else { return };
+        let text = format!("preload={}\n", self.preload);
+        let result =
+            std::fs::create_dir_all(p.parent().unwrap()).and_then(|_| std::fs::write(&p, text));
+        if let Err(e) = result {
+            eprintln!("kunne ikke lagre {}: {e}", p.display());
+        }
     }
 }
 
@@ -160,12 +188,8 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
 impl App {
     fn new(cc: &eframe::CreationContext, path: PathBuf) -> Self {
         let current = Arc::new(AtomicUsize::new(0));
-        let preload = config_path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|c| parse_preload(&c))
-            .unwrap_or(DEFAULT_AHEAD)
-            .min(20);
-        let ahead = Arc::new(AtomicUsize::new(preload));
+        let config = Config::load();
+        let ahead = Arc::new(AtomicUsize::new(config.preload));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
         let (done_tx, done) = mpsc::channel();
@@ -216,6 +240,7 @@ impl App {
             current,
             ahead,
             show_settings: false,
+            config,
             slideshow: None,
             random: false,
             delay: DEFAULT_DELAY,
@@ -560,7 +585,8 @@ impl eframe::App for App {
                 if ui.add(slider).changed() {
                     self.ahead.store(n, Ordering::Relaxed);
                     self.refill();
-                    save_preload(n);
+                    self.config.preload = n;
+                    self.config.save();
                 }
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
@@ -721,9 +747,10 @@ mod tests {
     }
 
     #[test]
-    fn parses_preload_from_config() {
-        assert_eq!(super::parse_preload("# kommentar\npreload= 5\n"), Some(5));
-        assert_eq!(super::parse_preload("preload=x"), None);
-        assert_eq!(super::parse_preload(""), None);
+    fn parses_config() {
+        use super::Config;
+        assert_eq!(Config::parse("# kommentar\npreload= 5\n").preload, 5);
+        assert_eq!(Config::parse("preload=99").preload, 20);
+        assert_eq!(Config::parse("preload=x\nukjent=1"), Config::default());
     }
 }
