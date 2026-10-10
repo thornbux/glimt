@@ -811,6 +811,10 @@ impl App {
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
         self.scroll_to_cur = true;
+        // Every image gets the full delay, also when the user moves back or forward by hand.
+        if self.slideshow.is_some() {
+            self.slideshow = Some(Instant::now());
+        }
         self.refill();
         self.title(ctx);
     }
