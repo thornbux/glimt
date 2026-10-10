@@ -504,6 +504,8 @@ struct App {
     deleting: HashSet<OsString>,
     deleted_tx: mpsc::Sender<Vec<PathBuf>>,
     deleted_rx: mpsc::Receiver<Vec<PathBuf>>,
+    /// Background deletes, copies and moves still running, for the busy pointer.
+    busy: Arc<AtomicUsize>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1424,6 +1426,7 @@ impl App {
             deleting: HashSet::new(),
             deleted_tx,
             deleted_rx,
+            busy: Arc::new(AtomicUsize::new(0)),
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1597,6 +1600,8 @@ impl App {
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
+        let busy = self.busy.clone();
+        busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
@@ -1630,6 +1635,7 @@ impl App {
                 let _ = tx.send(format!("Delete failed ({} errors): {first}", errors.len()));
             }
             let _ = deleted_tx.send(paths);
+            busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
     }
@@ -1805,6 +1811,8 @@ impl App {
         }
         let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
+        let busy = self.busy.clone();
+        busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
             if !keep && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
@@ -1832,6 +1840,7 @@ impl App {
                 let verb = if keep { "Copy" } else { "Move" };
                 let _ = tx.send(format!("{verb} failed ({} errors): {first}", errors.len()));
             }
+            busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
     }
@@ -2651,6 +2660,14 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         self.receive_deleted();
+        // Busy pointer while the folder is read, files are deleted, copied or moved, or the
+        // shown image is still being decoded.
+        let decoding = !self.files.is_empty()
+            && !self.slots.contains_key(&self.cur)
+            && !self.errors.contains_key(&self.cur);
+        if self.listing.is_some() || decoding || self.busy.load(Ordering::Relaxed) > 0 {
+            ctx.set_cursor_icon(egui::CursorIcon::Progress);
+        }
         if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
             self.stale = true;
         }
