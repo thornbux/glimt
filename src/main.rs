@@ -28,6 +28,9 @@ const MAX_DELAY: u64 = 60;
 const THUMB: egui::Vec2 = egui::vec2(96.0, 72.0);
 /// Thumbnail jobs further than this from the visible rows are skipped.
 const THUMB_MARGIN: usize = 20;
+/// Width of the size and date columns in the file list (points).
+const DATE_WIDTH: f32 = 140.0;
+const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
 /// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
 const MAX_THUMBS: usize = 600;
 
@@ -495,6 +498,8 @@ struct App {
     window: WindowState,
     /// The screen saver inhibitor running while in full screen.
     inhibitor: Option<std::process::Child>,
+    /// File list size and date columns: (bytes, mtime) by file name.
+    details: HashMap<OsString, (u64, i64)>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -665,6 +670,8 @@ struct Config {
     inhibit_screensaver: bool,
     /// Window title "Glimt - image name" instead of "image name - Glimt".
     app_name_first: bool,
+    /// File list with size and date columns, as in Geeqie.
+    file_details: bool,
 }
 
 impl Default for Config {
@@ -691,6 +698,7 @@ impl Default for Config {
             remember_window: true,
             inhibit_screensaver: true,
             app_name_first: false,
+            file_details: false,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -728,6 +736,7 @@ impl Config {
                 "remember_window" => c.remember_window = value == "true",
                 "inhibit_screensaver" => c.inhibit_screensaver = value == "true",
                 "app_name_first" => c.app_name_first = value == "true",
+                "file_details" => c.file_details = value == "true",
                 "background" => {
                     let hex = value.trim_start_matches('#');
                     if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
@@ -754,7 +763,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -774,6 +783,7 @@ impl Config {
             self.remember_window,
             self.inhibit_screensaver,
             self.app_name_first,
+            self.file_details,
             self.background[0],
             self.background[1],
             self.background[2],
@@ -907,6 +917,46 @@ fn total_size(paths: &[PathBuf]) -> u64 {
 }
 
 /// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units).
+#[repr(C)]
+struct Tm {
+    sec: i32,
+    min: i32,
+    hour: i32,
+    mday: i32,
+    mon: i32,
+    year: i32,
+    wday: i32,
+    yday: i32,
+    isdst: i32,
+    gmtoff: i64,
+    zone: *const std::ffi::c_char,
+}
+
+unsafe extern "C" {
+    fn localtime_r(time: *const i64, tm: *mut Tm) -> *mut Tm;
+}
+
+/// Seconds since 1970 as local "2026-10-11 00:34:12".
+fn local_time(secs: i64) -> String {
+    // SAFETY: Tm matches glibc's struct tm on 64-bit Linux, and both pointers are valid.
+    let tm = unsafe {
+        let mut tm: Tm = std::mem::zeroed();
+        if localtime_r(&secs, &mut tm).is_null() {
+            return String::new();
+        }
+        tm
+    };
+    format!(
+        "{}-{:02}-{:02} {:02}:{:02}:{:02}",
+        tm.year + 1900,
+        tm.mon + 1,
+        tm.mday,
+        tm.hour,
+        tm.min,
+        tm.sec
+    )
+}
+
 fn human_size(bytes: u64) -> String {
     let (value, unit) = match bytes {
         b if b >= 1_000_000_000 => (b as f64 / 1e9, "GB"),
@@ -1199,6 +1249,7 @@ impl App {
             path_text: String::new(),
             window: WindowState::default(),
             inhibitor: None,
+            details: HashMap::new(),
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1471,6 +1522,7 @@ impl App {
     ) {
         let slot = self.slots.remove(&self.cur);
         self.files = files;
+        self.details.clear();
         self.selected.clear();
         self.slots.clear();
         self.pending.clear();
@@ -1990,7 +2042,7 @@ impl App {
     }
 
     /// A file list row with a thumbnail; true when clicked.
-    fn thumb_row(&mut self, ui: &mut egui::Ui, i: usize, height: f32, marked: bool) -> bool {
+    fn file_row(&mut self, ui: &mut egui::Ui, i: usize, height: f32, marked: bool) -> bool {
         let size = egui::vec2(ui.available_width(), height);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
         let visuals = ui.visuals();
@@ -2008,8 +2060,16 @@ impl App {
             visuals.text_color()
         };
         let name = &self.files[i];
-        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(2.0, 2.0), THUMB);
-        match self.thumbs.get(name) {
+        let thumbs = self.config.thumbnails;
+        let frame = egui::Rect::from_min_size(
+            rect.min + egui::vec2(2.0, 2.0),
+            if thumbs {
+                THUMB
+            } else {
+                egui::vec2(0.0, height)
+            },
+        );
+        match self.thumbs.get(name).filter(|_| thumbs) {
             Some(Some(tex)) => {
                 // Fit the box, but never enlarge.
                 let px = tex.size_vec2() / ui.ctx().pixels_per_point();
@@ -2019,20 +2079,61 @@ impl App {
                 ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
             }
             Some(None) => {}
+            None if !thumbs => {}
             None => {
                 if self.thumbs_pending.insert(name.clone()) {
                     let _ = self.thumb_jobs.send((i, self.path(i)));
                 }
             }
         }
-        ui.painter().text(
-            egui::pos2(frame.right() + 8.0, rect.center().y),
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let gap = if thumbs { 8.0 } else { 2.0 };
+        let mut name_rect = rect.with_min_x(frame.right() + gap);
+        if self.config.file_details {
+            // Size and date columns at the right, as in Geeqie; the name is cut off before them.
+            name_rect.max.x -= DETAILS_WIDTH;
+            let (bytes, mtime) = self.file_details(i);
+            let y = rect.center().y;
+            let size_right = name_rect.max.x + DETAILS_WIDTH - DATE_WIDTH - 8.0;
+            let p = ui.painter();
+            p.text(
+                egui::pos2(size_right, y),
+                egui::Align2::RIGHT_CENTER,
+                thousands(bytes as usize),
+                font.clone(),
+                text_color,
+            );
+            p.text(
+                egui::pos2(rect.max.x - DATE_WIDTH, y),
+                egui::Align2::LEFT_CENTER,
+                local_time(mtime),
+                font.clone(),
+                text_color,
+            );
+        }
+        ui.painter().with_clip_rect(name_rect).text(
+            egui::pos2(name_rect.min.x, rect.center().y),
             egui::Align2::LEFT_CENTER,
             self.files[i].to_string_lossy(),
-            egui::TextStyle::Body.resolve(ui.style()),
+            font,
             text_color,
         );
         response.clicked()
+    }
+
+    /// Size and modification time of file `i`, from the cache or one stat.
+    /// ponytail: stat in the UI thread, once per visible file; move to a thread if network
+    /// folders make scrolling stutter.
+    fn file_details(&mut self, i: usize) -> (u64, i64) {
+        if let Some(&d) = self.details.get(&self.files[i]) {
+            return d;
+        }
+        let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
+            use std::os::unix::fs::MetadataExt;
+            (m.len(), m.mtime())
+        });
+        self.details.insert(self.files[i].clone(), d);
+        d
     }
 
     /// Drop thumbnails far from view once there are many, so memory stays flat in huge folders.
@@ -2539,6 +2640,13 @@ impl eframe::App for App {
                 {
                     self.set_thumbnails(show);
                 }
+                let details = egui::Checkbox::new(
+                    &mut self.config.file_details,
+                    "Show file size and date in the file list",
+                );
+                if ui.add(details).changed() {
+                    self.config.save();
+                }
                 let save = egui::Checkbox::new(
                     &mut self.config.save_thumbnails,
                     "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
@@ -2759,9 +2867,16 @@ impl eframe::App for App {
         // Left side as in Geeqie: one-level folder tree at the top, file names below.
         let (mut open_dir, mut go_to) = (None, None);
         if !bare {
+            // Room for a name next to the size and date columns.
+            let min = if self.config.file_details {
+                DETAILS_WIDTH + 120.0
+            } else {
+                80.0
+            };
             egui::Panel::left("left")
                 .resizable(true)
                 .default_size(240.0)
+                .min_size(min)
                 .show(ui, |ui| {
                     if self.config.path_bar {
                         self.path_field(ui);
@@ -2823,8 +2938,8 @@ impl eframe::App for App {
                         }
                         for i in rows {
                             let marked = i == self.cur || self.selected.contains(&i);
-                            let clicked = if thumbs {
-                                self.thumb_row(ui, i, row_h, marked)
+                            let clicked = if thumbs || self.config.file_details {
+                                self.file_row(ui, i, row_h, marked)
                             } else {
                                 let name = self.files[i].to_string_lossy();
                                 ui.selectable_label(marked, name).clicked()
@@ -3099,6 +3214,13 @@ mod tests {
     }
 
     #[test]
+    fn formats_local_time() {
+        let t = super::local_time(1_700_000_000);
+        assert_eq!(t.len(), "2023-11-14 22:13:20".len(), "{t}");
+        assert!(t.starts_with("2023-11-1"), "{t}");
+    }
+
+    #[test]
     fn trashes_without_gio() {
         let base = std::env::temp_dir().join("glimt-test-trash");
         let _ = std::fs::remove_dir_all(&base);
@@ -3178,6 +3300,7 @@ mod tests {
         assert!(!Config::parse("remember_window=false").remember_window);
         assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
         assert!(!Config::default().app_name_first);
+        assert!(!Config::default().file_details && Config::parse("file_details=true").file_details);
         assert!(Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(super::egui::vec2(1000.0, 700.5)),
