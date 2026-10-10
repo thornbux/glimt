@@ -16,11 +16,6 @@ const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
 /// Antall bilder som holdes dekodet på hver side av det viste.
 const AHEAD: usize = 2;
 
-struct Job {
-    idx: usize,
-    full: bool,
-}
-
 struct Decoded {
     idx: usize,
     full: bool,
@@ -40,7 +35,8 @@ struct App {
     current: Arc<AtomicUsize>,
     /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
-    jobs: mpsc::Sender<Job>,
+    /// (bildeindeks, full oppløsning)
+    jobs: mpsc::Sender<(usize, bool)>,
     done: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
@@ -91,7 +87,7 @@ impl App {
         let files = Arc::new(files);
         let current = Arc::new(AtomicUsize::new(start));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
-        let (jobs, job_rx) = mpsc::channel::<Job>();
+        let (jobs, job_rx) = mpsc::channel::<(usize, bool)>();
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
@@ -106,16 +102,16 @@ impl App {
             );
             std::thread::spawn(move || {
                 loop {
-                    let Ok(job) = job_rx.lock().unwrap().recv() else { return };
+                    let Ok((idx, full)) = job_rx.lock().unwrap().recv() else { return };
                     // Avbrudd: hopp over bilder brukeren allerede har bladd forbi.
                     let cur = current.load(Ordering::Relaxed);
-                    if job.idx.abs_diff(cur) > AHEAD || (job.full && job.idx != cur) {
-                        let _ = done_tx.send(Decoded { idx: job.idx, full: job.full, result: Err(String::new()) });
+                    if idx.abs_diff(cur) > AHEAD || (full && idx != cur) {
+                        let _ = done_tx.send(Decoded { idx, full, result: Err(String::new()) });
                         continue;
                     }
-                    let max = limits.lock().unwrap()[job.full as usize];
-                    let result = decode(&files[job.idx], max);
-                    let _ = done_tx.send(Decoded { idx: job.idx, full: job.full, result });
+                    let max = limits.lock().unwrap()[full as usize];
+                    let result = decode(&files[idx], max);
+                    let _ = done_tx.send(Decoded { idx, full, result });
                     ctx.request_repaint();
                 }
             });
@@ -141,7 +137,7 @@ impl App {
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
         if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
-            let _ = self.jobs.send(Job { idx, full });
+            let _ = self.jobs.send((idx, full));
         }
     }
 
