@@ -33,6 +33,10 @@ enum Action {
     Prev,
     Next,
     Last,
+    Back,
+    Forward,
+    Home,
+    Up,
     SelectAll,
     SelectNone,
     InvertSelection,
@@ -182,6 +186,9 @@ struct App {
     started: Option<Instant>,
     /// Answer from an open file dialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
+    back: Vec<PathBuf>,
+    forward: Vec<PathBuf>,
     /// Error messages from background tasks (deleting), and the one shown now.
     notices_tx: mpsc::Sender<String>,
     notices: mpsc::Receiver<String>,
@@ -536,6 +543,8 @@ impl App {
             pan: egui::Vec2::ZERO,
             started: Some(Instant::now()),
             dialog: None,
+            back: Vec::new(),
+            forward: Vec::new(),
             listing: None,
             total_size: 0,
             size_rx: None,
@@ -608,6 +617,21 @@ impl App {
             "{} — glimt",
             dir.display()
         )));
+    }
+
+    /// The file shown, or the folder when it has no images.
+    fn location(&self) -> PathBuf {
+        match self.files.get(self.cur) {
+            Some(name) => self.dir.join(name),
+            None => self.dir.clone(),
+        }
+    }
+
+    /// Open `path` as a new step in the Back/Forward history.
+    fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.back.push(self.location());
+        self.forward.clear();
+        self.open(ctx, path);
     }
 
     /// Take the folder listing if it is ready, waiting up to `wait`.
@@ -1008,6 +1032,28 @@ impl App {
             Action::Prev => self.go(ctx, self.cur.saturating_sub(1)),
             Action::Next => self.go(ctx, (self.cur + 1).min(last)),
             Action::Last => self.go(ctx, last),
+            Action::Back | Action::Forward => {
+                let here = self.location();
+                let (from, to) = if action == Action::Back {
+                    (&mut self.back, &mut self.forward)
+                } else {
+                    (&mut self.forward, &mut self.back)
+                };
+                if let Some(path) = from.pop() {
+                    to.push(here);
+                    self.open(ctx, path);
+                }
+            }
+            Action::Home => {
+                if let Some(home) = std::env::var_os("HOME") {
+                    self.visit(ctx, home.into());
+                }
+            }
+            Action::Up => {
+                if let Some(parent) = self.dir.parent() {
+                    self.visit(ctx, parent.to_path_buf());
+                }
+            }
             Action::SelectAll => {
                 self.selected = (0..self.files.len()).collect();
                 self.selection_changed(ctx);
@@ -1090,18 +1136,14 @@ impl eframe::App for App {
         self.receive_sizes();
         while let Ok(msg) = self.notices.try_recv() {
             // Deleting failed, so the file probably still exists: re-read the folder so the list is right.
-            let keep = match self.files.get(self.cur) {
-                Some(name) => self.dir.join(name),
-                None => self.dir.clone(),
-            };
-            self.open(ctx, keep);
+            self.open(ctx, self.location());
             self.notice = Some(msg);
         }
         self.slideshow_tick(ctx);
         if let Some(Ok(picked)) = self.dialog.as_ref().map(mpsc::Receiver::try_recv) {
             self.dialog = None;
             if let Some(path) = picked {
-                self.open(ctx, path);
+                self.visit(ctx, path);
             }
         }
 
@@ -1130,6 +1172,11 @@ impl eframe::App for App {
                         menu_item(ui, act, "Previous Image", Action::Prev);
                         menu_item(ui, act, "Next Image", Action::Next);
                         menu_item(ui, act, "Last Image", Action::Last);
+                        ui.separator();
+                        menu_item(ui, act, "Back", Action::Back);
+                        menu_item(ui, act, "Forward", Action::Forward);
+                        menu_item(ui, act, "Home", Action::Home);
+                        menu_item(ui, act, "Up", Action::Up);
                     });
                     ui.menu_button("Select", |ui| {
                         menu_item(ui, act, "Select All", Action::SelectAll);
@@ -1372,7 +1419,7 @@ impl eframe::App for App {
         }
         self.scroll_to_cur = false;
         if let Some(d) = open_dir {
-            self.open(ctx, d);
+            self.visit(ctx, d);
         } else if let Some(i) = go_to {
             self.go(ctx, i);
         }
