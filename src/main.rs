@@ -597,27 +597,36 @@ impl eframe::App for App {
             }
         }
 
-        egui::Panel::top("meny").show(ui, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("Fil", |ui| {
-                    if ui.button("Åpne fil…").clicked() {
-                        self.pick(ctx, false);
-                    }
-                    if ui.button("Åpne mappe…").clicked() {
-                        self.pick(ctx, true);
-                    }
-                    ui.separator();
-                    if ui.button("Lukk").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                });
-                ui.menu_button("Rediger", |ui| {
-                    if ui.button("Innstillinger…").clicked() {
-                        self.show_settings = true;
-                    }
+        // Fullskjerm som i Geeqie: bare bildet, ingen meny eller paneler.
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+        if !fullscreen {
+            egui::Panel::top("meny").show(ui, |ui| {
+                egui::MenuBar::new().ui(ui, |ui| {
+                    ui.menu_button("Fil", |ui| {
+                        if ui.button("Åpne fil…").clicked() {
+                            self.pick(ctx, false);
+                        }
+                        if ui.button("Åpne mappe…").clicked() {
+                            self.pick(ctx, true);
+                        }
+                        ui.separator();
+                        if ui.button("Lukk").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                    ui.menu_button("Rediger", |ui| {
+                        if ui.button("Innstillinger…").clicked() {
+                            self.show_settings = true;
+                        }
+                    });
+                    ui.menu_button("Visning", |ui| {
+                        if ui.button("Fullskjerm (F, F11, Esc ut)").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                        }
+                    });
                 });
             });
-        });
+        }
 
         let mut open = self.show_settings;
         egui::Window::new("Innstillinger")
@@ -660,59 +669,65 @@ impl eframe::App for App {
 
         // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
         let (mut open_dir, mut go_to) = (None, None);
-        egui::Panel::left("venstre")
-            .resizable(true)
-            .default_size(240.0)
-            .show(ui, |ui| {
-                egui::Panel::top("mapper")
-                    .resizable(true)
-                    .default_size(200.0)
-                    .show(ui, |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("mapper")
-                            .auto_shrink(false)
-                            .show(ui, |ui| {
-                                if let Some(parent) = self.dir.parent().map(Path::to_path_buf)
-                                    && ui.selectable_label(false, "⬆ ..").clicked()
-                                {
-                                    open_dir = Some(parent);
-                                }
-                                for d in &self.subdirs {
-                                    let name = d.file_name().unwrap_or_default().to_string_lossy();
-                                    if ui.selectable_label(false, format!("📁 {name}")).clicked()
+        if !fullscreen {
+            egui::Panel::left("venstre")
+                .resizable(true)
+                .default_size(240.0)
+                .show(ui, |ui| {
+                    egui::Panel::top("mapper")
+                        .resizable(true)
+                        .default_size(200.0)
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("mapper")
+                                .auto_shrink(false)
+                                .show(ui, |ui| {
+                                    if let Some(parent) = self.dir.parent().map(Path::to_path_buf)
+                                        && ui.selectable_label(false, "⬆ ..").clicked()
                                     {
-                                        open_dir = Some(d.clone());
+                                        open_dir = Some(parent);
                                     }
-                                }
-                            });
-                    });
-                // Bare synlige rader tegnes, så lista er like rask med 10 som med 300 000 filer.
-                let row_h = ui.spacing().interact_size.y;
-                let pitch = row_h + ui.spacing().item_spacing.y;
-                let mut area = egui::ScrollArea::vertical()
-                    .id_salt("filer")
-                    .auto_shrink(false);
-                if self.scroll_to_cur {
-                    // Rull bare når gjeldende bilde er utenfor synsfeltet, og legg det midt i.
-                    let (top, view) = (self.cur as f32 * pitch, ui.available_height());
-                    let off = egui::scroll_area::State::load(ctx, ui.make_persistent_id("filer"))
-                        .map_or(0.0, |s| s.offset.y);
-                    if top < off || top + pitch > off + view {
-                        area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
-                    }
-                }
-                area.show_rows(ui, row_h, self.files.len(), |ui, rows| {
-                    for i in rows {
-                        let name = self.files[i]
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy();
-                        if ui.selectable_label(i == self.cur, name).clicked() {
-                            go_to = Some(i);
+                                    for d in &self.subdirs {
+                                        let name =
+                                            d.file_name().unwrap_or_default().to_string_lossy();
+                                        if ui
+                                            .selectable_label(false, format!("📁 {name}"))
+                                            .clicked()
+                                        {
+                                            open_dir = Some(d.clone());
+                                        }
+                                    }
+                                });
+                        });
+                    // Bare synlige rader tegnes, så lista er like rask med 10 som med 300 000 filer.
+                    let row_h = ui.spacing().interact_size.y;
+                    let pitch = row_h + ui.spacing().item_spacing.y;
+                    let mut area = egui::ScrollArea::vertical()
+                        .id_salt("filer")
+                        .auto_shrink(false);
+                    if self.scroll_to_cur {
+                        // Rull bare når gjeldende bilde er utenfor synsfeltet, og legg det midt i.
+                        let (top, view) = (self.cur as f32 * pitch, ui.available_height());
+                        let off =
+                            egui::scroll_area::State::load(ctx, ui.make_persistent_id("filer"))
+                                .map_or(0.0, |s| s.offset.y);
+                        if top < off || top + pitch > off + view {
+                            area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
                         }
                     }
+                    area.show_rows(ui, row_h, self.files.len(), |ui, rows| {
+                        for i in rows {
+                            let name = self.files[i]
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy();
+                            if ui.selectable_label(i == self.cur, name).clicked() {
+                                go_to = Some(i);
+                            }
+                        }
+                    });
                 });
-            });
+        }
         self.scroll_to_cur = false;
         if let Some(d) = open_dir {
             self.open(ctx, d);
