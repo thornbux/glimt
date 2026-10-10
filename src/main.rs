@@ -500,6 +500,10 @@ struct App {
     inhibitor: Option<std::process::Child>,
     /// File list size and date columns: (bytes, mtime) by file name.
     details: HashMap<OsString, (u64, i64)>,
+    /// Names being deleted in the background; kept out of refreshed listings until done.
+    deleting: HashSet<OsString>,
+    deleted_tx: mpsc::Sender<Vec<PathBuf>>,
+    deleted_rx: mpsc::Receiver<Vec<PathBuf>>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1347,6 +1351,7 @@ impl App {
         });
         let (notices_tx, notices) = mpsc::channel();
         let (freed_tx, freed_rx) = mpsc::channel();
+        let (deleted_tx, deleted_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
@@ -1411,6 +1416,9 @@ impl App {
             window: WindowState::default(),
             inhibitor: None,
             details: HashMap::new(),
+            deleting: HashSet::new(),
+            deleted_tx,
+            deleted_rx,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1439,6 +1447,7 @@ impl App {
             .and_then(Path::file_name)
             .map(OsString::from);
         self.subdirs.clear();
+        self.deleting.clear();
         self.random = false;
         self.thumbs.clear();
         self.thumbs_pending.clear();
@@ -1534,6 +1543,11 @@ impl App {
         };
         self.listing = None;
         self.subdirs = dirs;
+        // Files still being deleted in the background must not come back with a refresh.
+        let mut files = files;
+        if !self.deleting.is_empty() {
+            files.retain(|f| !self.deleting.contains(f));
+        }
         // A refresh during random order keeps the order, so Previous still goes back
         // through the images that were shown.
         let files = if self.random {
@@ -1573,9 +1587,11 @@ impl App {
     fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
         let targets = self.targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        self.deleting
+            .extend(targets.iter().map(|&i| self.files[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let freed_tx = self.freed_tx.clone();
+        let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
@@ -1607,8 +1623,9 @@ impl App {
             }
             if let Some(first) = errors.first() {
                 let _ = tx.send(format!("Delete failed ({} errors): {first}", errors.len()));
-                ctx.request_repaint();
             }
+            let _ = deleted_tx.send(paths);
+            ctx.request_repaint();
         });
     }
 
@@ -1632,6 +1649,14 @@ impl App {
             self.title(ctx);
         } else {
             self.go(ctx, cur.min(self.files.len() - 1));
+        }
+    }
+
+    fn receive_deleted(&mut self) {
+        for paths in self.deleted_rx.try_iter() {
+            for p in paths.iter().filter(|p| p.parent() == Some(&self.dir)) {
+                self.deleting.remove(p.file_name().unwrap_or_default());
+            }
         }
     }
 
@@ -2618,6 +2643,7 @@ impl eframe::App for App {
         self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
+        self.receive_deleted();
         if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
             self.stale = true;
         }
