@@ -67,6 +67,7 @@ enum Action {
     ZoomFit,
     FullScreen,
     HideTools,
+    Toolbar,
     Thumbnails,
     ExifPanel,
     Refresh,
@@ -118,6 +119,7 @@ impl Action {
             ZoomFit => "Zoom to Fit",
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
+            Toolbar => "Show Toolbar",
             Thumbnails => "Show Thumbnails",
             ExifPanel => "Show EXIF Panel",
             Refresh => "Refresh",
@@ -329,13 +331,31 @@ fn menu_button(
     mut button: egui::Button,
     action: Action,
 ) {
-    if let Some(&(_, mods, key)) = SHORTCUTS.iter().find(|s| s.0 == action) {
-        let text = ui
-            .ctx()
-            .format_shortcut(&egui::KeyboardShortcut::new(mods, key));
+    if let Some(text) = shortcut_text(ui.ctx(), action) {
         button = button.shortcut_text(text);
     }
     if ui.add(button).clicked() {
+        *act = Some(action);
+    }
+}
+
+/// The first shortcut of an action, as shown in menus ("Ctrl+K").
+fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
+    let &(_, mods, key) = SHORTCUTS.iter().find(|s| s.0 == action)?;
+    Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
+}
+
+/// A toolbar button with the action's name and shortcut as tooltip.
+fn tool_button(ui: &mut egui::Ui, act: &mut Option<Action>, icon: &str, action: Action, on: bool) {
+    let tip = match shortcut_text(ui.ctx(), action) {
+        Some(keys) => format!("{} ({keys})", action.label()),
+        None => action.label().to_owned(),
+    };
+    if ui
+        .add(egui::Button::selectable(on, icon))
+        .on_hover_text(tip)
+        .clicked()
+    {
         *act = Some(action);
     }
 }
@@ -462,6 +482,8 @@ struct App {
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Size in bytes of the shown file, for the status bar.
     cur_size: Option<(PathBuf, u64)>,
+    /// The folder path in the toolbar, as typed.
+    path_text: String,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -573,6 +595,8 @@ struct Config {
     save_thumbnails: bool,
     /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
     exif_panel: bool,
+    /// Toolbar under the menu, as in Geeqie.
+    toolbar: bool,
 }
 
 impl Default for Config {
@@ -590,6 +614,7 @@ impl Default for Config {
             // Off while Glimt is in development, so testing leaves no files behind; on for release.
             save_thumbnails: false,
             exif_panel: false,
+            toolbar: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -619,6 +644,7 @@ impl Config {
                 "thumbnails" => c.thumbnails = value == "true",
                 "save_thumbnails" => c.save_thumbnails = value == "true",
                 "exif_panel" => c.exif_panel = value == "true",
+                "toolbar" => c.toolbar = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -638,7 +664,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -650,6 +676,7 @@ impl Config {
             self.thumbnails,
             self.save_thumbnails,
             self.exif_panel,
+            self.toolbar,
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -1069,6 +1096,7 @@ impl App {
             exif_asked: None,
             exif: None,
             cur_size: None,
+            path_text: String::new(),
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1724,6 +1752,49 @@ impl App {
         }
     }
 
+    /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow, preferences and the folder path.
+    fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        egui::Panel::top("toolbar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                tool_button(ui, act, "⬅", Action::Back, false);
+                tool_button(ui, act, "➡", Action::Forward, false);
+                tool_button(ui, act, "⬆", Action::Up, false);
+                tool_button(ui, act, "🏠", Action::Home, false);
+                tool_button(ui, act, "🔄", Action::Refresh, false);
+                ui.separator();
+                tool_button(ui, act, "➕", Action::ZoomIn, false);
+                tool_button(ui, act, "➖", Action::ZoomOut, false);
+                tool_button(ui, act, "1:1", Action::Zoom1To1, false);
+                tool_button(ui, act, "⛶", Action::ZoomFit, self.zoom.is_none());
+                ui.separator();
+                tool_button(ui, act, "🖼", Action::Thumbnails, self.config.thumbnails);
+                let show = if self.slideshow.is_some() {
+                    "⏹"
+                } else {
+                    "▶"
+                };
+                tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
+                tool_button(ui, act, "⚙", Action::Preferences, false);
+                ui.separator();
+                // The folder path; Enter opens what was typed.
+                let edit =
+                    egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
+                let response = ui.add(edit);
+                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let path = PathBuf::from(self.path_text.trim());
+                    if path.exists() {
+                        self.visit(ui.ctx(), path);
+                    } else {
+                        self.notice = Some(format!("No such folder: {}", path.display()));
+                    }
+                }
+                if !response.has_focus() {
+                    self.path_text = self.dir.display().to_string();
+                }
+            });
+        });
+    }
+
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
     fn exif_panel(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.cur);
@@ -2001,6 +2072,10 @@ impl App {
             Action::Preferences => self.show_settings = true,
             Action::Help => self.show_help = !self.show_help,
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::Toolbar => {
+                self.config.toolbar = !self.config.toolbar;
+                self.config.save();
+            }
             Action::ExifPanel => {
                 self.config.exif_panel = !self.config.exif_panel;
                 self.config.save();
@@ -2116,7 +2191,11 @@ impl eframe::App for App {
         }
 
         // Shortcuts go to the dialogs while one is open.
-        let mut act = (!self.dialog_open()).then(|| Self::shortcut(ctx)).flatten();
+        // ... and to the text field while one has focus (the toolbar's folder path).
+        let typing = ctx.egui_wants_keyboard_input();
+        let mut act = (!self.dialog_open() && !typing)
+            .then(|| Self::shortcut(ctx))
+            .flatten();
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let bare = fullscreen || self.hide_tools;
@@ -2178,6 +2257,9 @@ impl eframe::App for App {
                         });
                         menu_item(ui, act, Action::FullScreen);
                         menu_item(ui, act, Action::HideTools);
+                        let toolbar =
+                            egui::Button::selectable(self.config.toolbar, Action::Toolbar.label());
+                        menu_button(ui, act, toolbar, Action::Toolbar);
                         let thumbs = egui::Button::selectable(
                             self.config.thumbnails,
                             Action::Thumbnails.label(),
@@ -2210,6 +2292,9 @@ impl eframe::App for App {
                     ui.menu_button("Help", |ui| menu_item(ui, act, Action::Help));
                 });
             });
+            if self.config.toolbar {
+                self.toolbar(ui, &mut act);
+            }
         }
         if let Some(action) = act {
             self.run(ctx, action);
@@ -2823,6 +2908,7 @@ mod tests {
         assert!(Config::default().thumbnails && !Config::parse("thumbnails=false").thumbnails);
         assert!(!Config::default().save_thumbnails);
         assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
+        assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
         assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
