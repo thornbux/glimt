@@ -1,8 +1,8 @@
-//! glimt: rask og minnegjerrig bildefremviser.
+//! glimt: a fast, memory-frugal image viewer.
 //!
-//! Bilder dekodes i bakgrunnstråder til skjermstørrelse; full oppløsning hentes bare
-//! når brukeren zoomer forbi det skjermversjonen dekker. Bare et lite vindu rundt
-//! gjeldende bilde holdes i minnet.
+//! Images are decoded in background threads to the size of the image area; full resolution
+//! is decoded only when the user zooms past what that covers. Only a small window around
+//! the current image is kept in memory.
 
 use eframe::egui;
 use image::ImageDecoder;
@@ -14,92 +14,92 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
 const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
-/// Standard antall bilder som holdes dekodet på hver side av det viste.
+/// Default number of images kept decoded on each side of the shown one.
 const DEFAULT_AHEAD: usize = 2;
-/// Standard sekunder mellom bildene i lysbildefremvisning.
+/// Default seconds between images in a slideshow.
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
 
 unsafe extern "C" {
-    /// glibc: gi frigjort heap-minne tilbake til operativsystemet.
+    /// glibc: return freed heap memory to the operating system.
     fn malloc_trim(pad: usize) -> i32;
 }
 
 struct Decoded {
     idx: usize,
     full: bool,
-    /// Filen jobben gjaldt; avviser resultater fra en mappe som er byttet ut.
+    /// The file the job was for; rejects results from a folder that has since been replaced.
     path: PathBuf,
-    /// `None` = hoppet over fordi brukeren har bladd forbi.
+    /// `None` = skipped because the user has already moved past it.
     result: Option<Result<(egui::ColorImage, [usize; 2]), String>>,
 }
 
 struct Slot {
     tex: egui::TextureHandle,
-    /// Filen teksturen er laget fra; avgjør om den kan beholdes når fillista byttes.
+    /// The file the texture was made from; decides whether it can be kept when the file list changes.
     path: PathBuf,
     full: bool,
-    /// Originalstørrelse etter EXIF-rotasjon.
+    /// Original size after EXIF rotation.
     orig: [usize; 2],
 }
 
 struct App {
     dir: PathBuf,
     subdirs: Vec<PathBuf>,
-    /// Bildene i `dir`, bare filnavnet (hele stien lages ved behov med `path`): sparer minne
-    /// i store mapper, der stien ellers ville gjentas for hver fil.
+    /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
+    /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
     cur: usize,
     current: Arc<AtomicUsize>,
-    /// Antall bilder forhåndslastet på hver side (Innstillinger).
+    /// Number of images preloaded on each side (Preferences).
     ahead: Arc<AtomicUsize>,
     show_settings: bool,
-    /// Bekreftelsesdialog for permanent sletting er åpen.
+    /// The confirmation dialog for permanent deletion is open.
     confirm: bool,
-    /// Skala fra forrige frame (fysiske piksler per bildepiksel), til zoom-prosenten i statuslinja.
+    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
     last_scale: f32,
-    /// Sist viste bilde; vises videre til det neste er dekodet, så blaing aldri gir svart skjerm.
+    /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
-    /// Merkede filer (Ctrl/Shift+klikk i fillista) som Delete gjelder.
+    /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
     selected: std::collections::BTreeSet<usize>,
     config: Config,
-    /// Maks dekodestørrelse i fysiske piksler: [bildeområdet i vinduet, maks teksturside].
+    /// Max decode size in physical pixels: [image area in the window, max texture side].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
-    /// (bildeindeks, full oppløsning, fil)
+    /// (image index, full resolution, file)
     jobs: mpsc::Sender<(usize, bool, PathBuf)>,
     done: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
     errors: HashMap<usize, String>,
-    /// Fysiske skjermpiksler per originalpiksel; `None` = tilpass til vinduet.
+    /// Physical screen pixels per original pixel; `None` = fit to window.
     zoom: Option<f32>,
     pan: egui::Vec2,
-    /// Startet ved oppstart; tas ut når første bilde vises.
+    /// Set at startup; taken when the first image is shown.
     started: Option<Instant>,
-    /// Svar fra en åpen fildialog (zenity).
+    /// Answer from an open file dialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
-    /// Feilmeldinger fra bakgrunnsoppgaver (sletting), og den som vises nå.
+    /// Error messages from background tasks (deleting), and the one shown now.
     notices_tx: mpsc::Sender<String>,
     notices: mpsc::Receiver<String>,
     notice: Option<String>,
-    /// Samlet størrelse på bildene i mappa, summert i bakgrunnen etter mappelesingen.
-    /// Bare summer sendes (ingen tabell per fil), så minnebruken ikke vokser med mappa.
+    /// Total size of the images in the folder, summed in the background after listing.
+    /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
-    /// Delsummer fra bakgrunnen; `None` når alle er mottatt.
+    /// Partial sums from the background; `None` once all have arrived.
     size_rx: Option<mpsc::Receiver<u64>>,
-    /// Byte frigjort av slettinger i bakgrunnen.
+    /// Bytes freed by deletions in the background.
     freed_tx: mpsc::Sender<u64>,
     freed_rx: mpsc::Receiver<u64>,
-    /// Størrelse på de merkede filene; beregnes i bakgrunnen når merkingen endres.
+    /// Size of the selected files; computed in the background when the selection changes.
     selected_size: Option<u64>,
     selected_rx: Option<mpsc::Receiver<u64>>,
-    /// Mappelesing i bakgrunnen: (undermapper, bilder).
+    /// Folder listing in the background: (subfolders, images).
     listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
-    /// Rull trevisningen til gjeldende bilde ved neste tegning.
+    /// Scroll the file list to the current image on the next frame.
     scroll_to_cur: bool,
-    /// Lysbildefremvisning: når forrige bilde ble vist; `None` = av.
+    /// Slideshow: when the previous image was shown; `None` = off.
     slideshow: Option<Instant>,
-    /// Fillista er stokket for tilfeldig fremvisning.
+    /// The file list is shuffled for a random slideshow.
     random: bool,
 }
 
@@ -108,8 +108,8 @@ fn is_image(path: &Path) -> bool {
     ext.is_some_and(|e| EXTS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// Én gjennomgang av mappa: (undermapper, filnavn på bildene), begge sortert på navn.
-/// Filtypen kommer fra katalogoppføringen, så det blir ingen `stat` per fil (bare symlenker slås opp).
+/// One pass over the folder: (subfolders, image file names), both sorted by name.
+/// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
 fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -125,23 +125,23 @@ fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<OsString>) {
         }
     }
     sort_by_name(&mut dirs);
-    images.sort_unstable(); // bytevis på Unix
+    images.sort_unstable(); // byte-wise on Unix
     (dirs, images)
 }
 
-/// Stier i samme mappe: bytevis sammenligning av hele stien gir navnerekkefølge, og er
-/// ~9× raskere enn Path::cmp/file_name(), som tolker stien på nytt i hver sammenligning.
+/// Paths in the same folder: byte-wise comparison of the whole path gives name order, and is
+/// ~9× faster than Path::cmp/file_name(), which re-parses the path in every comparison.
 fn sort_by_name(paths: &mut [PathBuf]) {
     paths.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
 }
 
-/// `$XDG_CONFIG_HOME/glimt/config`, ellers `~/.config/glimt/config`.
+/// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
 fn config_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "config")
 }
 
-/// `$XDG_STATE_HOME/glimt/state`, ellers `~/.local/state/glimt/state`.
-/// Tilstand (som siste mappe) er ikke innstillinger, og hører hjemme her etter XDG.
+/// `$XDG_STATE_HOME/glimt/state`, otherwise `~/.local/state/glimt/state`.
+/// State (such as the last folder) is not configuration, and belongs here according to XDG.
 fn state_path() -> Option<PathBuf> {
     xdg_file("XDG_STATE_HOME", ".local/state", "state")
 }
@@ -161,17 +161,17 @@ fn parse_last_dir(state: &str) -> Option<PathBuf> {
     })
 }
 
-/// Innstillinger, lagret som `nøkkel=verdi`-linjer. Ukjente eller ugyldige linjer ignoreres.
+/// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
 #[derive(Debug, PartialEq)]
 struct Config {
     preload: usize,
-    /// Sekunder mellom bildene i lysbildefremvisning.
+    /// Seconds between images in a slideshow.
     delay: u64,
-    /// Start i mappa fra forrige gang når ingen mappe er gitt på kommandolinja.
+    /// Start in the last used folder when no folder is given on the command line.
     remember_dir: bool,
-    /// Sletting flytter til papirkurven (standard); ellers slettes fila permanent.
+    /// Deleting moves to the trash (default); otherwise the file is deleted permanently.
     trash: bool,
-    /// Spør før permanent sletting.
+    /// Ask before deleting permanently.
     confirm_delete: bool,
 }
 
@@ -224,8 +224,8 @@ impl Config {
     }
 }
 
-/// Skriv til en midlertidig fil og gi den nytt navn, så fila aldri blir halvskrevet ved krasj.
-/// Prosess-ID i navnet, så flere samtidige økter ikke skriver til samme midlertidige fil.
+/// Write to a temporary file and rename it, so the file is never half-written after a crash.
+/// The process ID is in the name, so concurrent sessions never write to the same temporary file.
 fn write_atomic(path: &Path, text: &str) {
     let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
     let result = std::fs::create_dir_all(path.parent().unwrap())
@@ -237,19 +237,19 @@ fn write_atomic(path: &Path, text: &str) {
     }
 }
 
-/// Ny indeks for `i` når de (sorterte) indeksene i `removed` fjernes fra lista; `None` hvis `i` selv fjernes.
+/// New index for `i` when the (sorted) indices in `removed` are taken out of the list; `None` if `i` itself is removed.
 fn shifted(i: usize, removed: &[usize]) -> Option<usize> {
     removed.binary_search(&i).err().map(|before| i - before)
 }
 
-/// Fjern oppføringene for `removed` (sortert) og flytt resten ned tilsvarende.
+/// Drop the entries for `removed` (sorted) and shift the rest down accordingly.
 fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {
     map.into_iter()
         .filter_map(|(i, v)| Some((shifted(i, removed)?, v)))
         .collect()
 }
 
-/// Summen av filstørrelsene (én stat per fil); filer som ikke kan leses telles ikke.
+/// Sum of the file sizes (one stat per file); unreadable files are not counted.
 fn total_size(paths: &[PathBuf]) -> u64 {
     paths
         .iter()
@@ -258,7 +258,7 @@ fn total_size(paths: &[PathBuf]) -> u64 {
         .sum()
 }
 
-/// Størrelse som i filbehandleren: «850 kB», «2,3 MB», «1,2 GB» (desimal, norsk komma).
+/// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units).
 fn human_size(bytes: u64) -> String {
     let (value, unit) = match bytes {
         b if b >= 1_000_000_000 => (b as f64 / 1e9, "GB"),
@@ -269,7 +269,7 @@ fn human_size(bytes: u64) -> String {
     format!("{value:.1} {unit}")
 }
 
-/// Heltall med mellomrom som tusenskille: 300000 → «300 000».
+/// Integer with comma thousands separators: 300000 → "300,000".
 fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::new();
@@ -282,7 +282,7 @@ fn thousands(n: usize) -> String {
     out
 }
 
-/// Fisher–Yates med xorshift seedet fra std sin tilfeldige hash-nøkkel (ingen rand-avhengighet).
+/// Fisher–Yates with xorshift seeded from std's random hash key (no rand dependency).
 fn shuffle<T>(v: &mut [T]) {
     use std::hash::{BuildHasher, Hasher};
     let mut x = std::collections::hash_map::RandomState::new()
@@ -314,7 +314,7 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
         let w = ((img.width() as f64 * scale).round() as u32).max(1);
         let h = ((img.height() as f64 * scale).round() as u32).max(1);
         let mut small = image::DynamicImage::new(w, h, img.color());
-        // SIMD-nedskalering; image sin thumbnail brukte ~150–330 ms på 12 MP.
+        // SIMD downscaling; image's thumbnail took ~150–330 ms on 12 MP.
         let opts = fast_image_resize::ResizeOptions::new().resize_alg(
             fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
         );
@@ -361,7 +361,7 @@ impl App {
                     let Ok((idx, full, path)) = job_rx.lock().unwrap().recv() else {
                         return;
                     };
-                    // Avbrudd: hopp over bilder brukeren allerede har bladd forbi.
+                    // Cancellation: skip images the user has already moved past.
                     let cur = current.load(Ordering::Relaxed);
                     if idx.abs_diff(cur) > ahead.load(Ordering::Relaxed) || (full && idx != cur) {
                         let _ = done_tx.send(Decoded {
@@ -380,9 +380,9 @@ impl App {
                         path,
                         result,
                     });
-                    // glibc gir ikke frigjort minne fra trådenes malloc-arenaer tilbake av seg selv;
-                    // dekoding etterlater flere bildestore buffere per tråd.
-                    // SAFETY: malloc_trim har ingen forutsetninger utover en fungerende glibc-malloc.
+                    // glibc does not return freed memory from the threads' malloc arenas on its own;
+                    // decoding leaves several image-sized buffers per thread.
+                    // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
                     unsafe { malloc_trim(0) };
                     ctx.request_repaint();
                 }
@@ -428,12 +428,12 @@ impl App {
             scroll_to_cur: true,
         };
         app.open(&cc.egui_ctx, path);
-        // Små mapper er lest før første frame; store holder ikke oppstarten igjen mer enn 50 ms.
+        // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
         app.receive_listing(&cc.egui_ctx, std::time::Duration::from_millis(50));
         app
     }
 
-    /// Åpne en mappe, eller mappa til en fil med den fila valgt.
+    /// Open a folder, or the folder of a file with that file shown.
     fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
         let (dir, file) = if path.is_dir() {
             (path, None)
@@ -446,9 +446,9 @@ impl App {
                 Some(path),
             )
         };
-        // Kanonisk sti én gang her, så ⬆ .. og «husk mappa» ikke trenger systemkall senere.
+        // Canonical path once here, so ⬆ .. and "remember folder" need no system calls later.
         let dir = dir.canonicalize().unwrap_or(dir);
-        // Vis en oppgitt fil med en gang; mappa leses i bakgrunnen og fletter inn lista etterpå.
+        // Show a given file at once; the folder is listed in the background and the list merged in afterwards.
         let shown = file
             .as_deref()
             .and_then(Path::file_name)
@@ -461,13 +461,13 @@ impl App {
         let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2) = (dir.clone(), ctx.clone());
         std::thread::spawn(move || {
-            // Mottakeren er borte hvis en annen mappe er åpnet i mellomtiden; da stopper vi.
+            // The receiver is gone if another folder was opened meanwhile; then we stop.
             if tx.send(list_folder(&list_dir)).is_err() {
                 return;
             }
             ctx2.request_repaint();
-            // Størrelsene etterpå: les mappa én gang til og summer fra katalogoppføringene, i
-            // bolker, så statuslinja fylles ut gradvis uten en kopi av hele fillista i minnet.
+            // Sizes afterwards: read the folder once more and sum from the directory entries in
+            // chunks, so the status bar fills in gradually without a copy of the whole list in memory.
             let images = std::fs::read_dir(&list_dir)
                 .into_iter()
                 .flatten()
@@ -492,7 +492,7 @@ impl App {
         )));
     }
 
-    /// Ta imot mappelista hvis den er klar, eventuelt etter å ha ventet opptil `wait`.
+    /// Take the folder listing if it is ready, waiting up to `wait`.
     fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
         let Some(Ok((dirs, files))) = self.listing.as_ref().map(|rx| rx.recv_timeout(wait)) else {
             return;
@@ -504,9 +504,7 @@ impl App {
         self.replace_files(ctx, files, shown);
     }
 
-    /// Slett gjeldende bilde: ut av lista med en gang (naboenes teksturer beholdes, så neste
-    /// bilde vises uten ny dekoding), og flytt fila til papirkurven i bakgrunnen.
-    /// Delete-tasten / Fil → Slett: til papirkurven med en gang, permanent etter bekreftelse.
+    /// Delete key / File → Delete: to the trash at once, permanently after confirmation.
     fn request_delete(&mut self, ctx: &egui::Context) {
         if self.files.is_empty() {
             return;
@@ -518,7 +516,7 @@ impl App {
         }
     }
 
-    /// Sletting gjelder de merkede filene, ellers bildet som vises. Sortert.
+    /// Deleting acts on the selected files, otherwise on the shown image. Sorted.
     fn delete_targets(&self) -> Vec<usize> {
         if self.selected.is_empty() {
             vec![self.cur]
@@ -534,12 +532,12 @@ impl App {
         let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
         let freed_tx = self.freed_tx.clone();
         std::thread::spawn(move || {
-            // Størrelsen leses før sletting, så statuslinja kan trekke den fra.
+            // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
             ctx.request_repaint();
             let mut errors = Vec::new();
             if trash {
-                // Mange filer per gio-kall, så tusenvis av filer ikke blir tusenvis av prosesser.
+                // Many files per gio call, so thousands of files do not become thousands of processes.
                 for chunk in paths.chunks(500) {
                     match std::process::Command::new("gio")
                         .arg("trash")
@@ -566,8 +564,8 @@ impl App {
         });
     }
 
-    /// Fjern de (sorterte) indeksene fra lista i én gjennomgang og flytt indeksbasert tilstand
-    /// tilsvarende. Naboenes teksturer beholdes, så neste bilde vises uten ny dekoding.
+    /// Remove the (sorted) indices from the list in one pass and shift index-based state
+    /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
     fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
         let mut idx = 0;
         self.files.retain(|_| {
@@ -577,9 +575,9 @@ impl App {
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.errors = without_indices(std::mem::take(&mut self.errors), removed);
         self.selected.clear();
-        // Jobber i arbeid har gamle indekser og avvises på filsti; refill ber om dem på nytt.
+        // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
-        // Neste gjenværende fil etter den som ble vist (eller den siste).
+        // The next remaining file after the shown one (or the last).
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
             self.cur = 0;
@@ -594,7 +592,7 @@ impl App {
 
     fn receive_sizes(&mut self) {
         while let Ok(freed) = self.freed_rx.try_recv() {
-            // ponytail: sletting mens summen fortsatt beregnes kan gi et lite avvik.
+            // ponytail: deleting while the sum is still being computed can make it slightly off.
             self.total_size = self.total_size.saturating_sub(freed);
         }
         if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
@@ -612,7 +610,7 @@ impl App {
         self.size_rx = None;
     }
 
-    /// Kalles når merkingen endres: oppdater tittelen og beregn størrelsen i bakgrunnen.
+    /// Called when the selection changes: update the title and compute the size in the background.
     fn selection_changed(&mut self, ctx: &egui::Context) {
         self.title(ctx);
         self.selected_size = None;
@@ -624,7 +622,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            // Mottakeren er borte hvis merkingen er endret igjen; da forkastes svaret.
+            // The receiver is gone if the selection changed again; then the answer is dropped.
             if tx.send(total_size(&paths)).is_ok() {
                 ctx.request_repaint();
             }
@@ -632,9 +630,9 @@ impl App {
         self.selected_rx = Some(rx);
     }
 
-    /// Bytt fillista og gå til `shown` (ellers første bilde). Teksturen som vises nå beholdes
-    /// hvis den er laget fra samme fil. All indeksbasert tilstand nullstilles; jobber i arbeid
-    /// avvises på filsti når de kommer.
+    /// Replace the file list and go to `shown` (otherwise the first image). The texture shown now
+    /// is kept if it was made from the same file. All index-based state is reset; jobs in flight
+    /// are rejected by path when they arrive.
     fn replace_files(
         &mut self,
         ctx: &egui::Context,
@@ -656,7 +654,7 @@ impl App {
         self.go(ctx, cur);
     }
 
-    /// Vis zenitys fildialog i en egen tråd så vinduet ikke fryser.
+    /// Run zenity's file dialog in its own thread so the window does not freeze.
     fn pick(&mut self, ctx: &egui::Context, folder: bool) {
         use std::os::unix::ffi::OsStringExt;
         let (tx, rx) = mpsc::channel();
@@ -682,12 +680,12 @@ impl App {
         self.dialog = Some(rx);
     }
 
-    /// Hele stien til bilde `i`.
+    /// Full path of image `i`.
     fn path(&self, i: usize) -> PathBuf {
         self.dir.join(&self.files[i])
     }
 
-    /// Er `path` bilde nummer `i` i lista? (Uten å bygge stien.)
+    /// Is `path` image number `i` in the list? (Without building the path.)
     fn is_file(&self, i: usize, path: &Path) -> bool {
         self.files.get(i).is_some_and(|name| {
             path.parent() == Some(self.dir.as_path()) && path.file_name() == Some(name.as_os_str())
@@ -715,7 +713,7 @@ impl App {
         self.title(ctx);
     }
 
-    /// Stokk fillista (gjeldende bilde først) eller sorter den tilbake, og behold bildet som vises.
+    /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
     fn set_random(&mut self, ctx: &egui::Context, on: bool) {
         if self.files.is_empty() {
             return;
@@ -767,8 +765,8 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
-    /// Bytt bilde når tiden er ute. Venter på et forhåndslastet bilde som fortsatt
-    /// dekodes, så fremvisningen ikke viser svart skjerm.
+    /// Switch image when the time is up. Waits for a preloaded image that is still
+    /// decoding, so the slideshow never shows a black screen.
     fn slideshow_tick(&mut self, ctx: &egui::Context) {
         let Some(last) = self.slideshow else { return };
         if self.files.is_empty() {
@@ -780,7 +778,7 @@ impl App {
         if !left.is_zero() {
             ctx.request_repaint_after(left);
         } else if self.random && next == 0 && self.files.len() > 2 {
-            // Ny runde: stokk på nytt i stedet for å gjenta samme rekkefølge.
+            // New round: shuffle again instead of repeating the same order.
             self.set_random(ctx, true);
         } else if !self.pending.contains(&(next, false)) {
             self.go(ctx, next);
@@ -788,8 +786,8 @@ impl App {
         }
     }
 
-    /// Kast teksturer utenfor forhåndslastingsvinduet, og fullversjoner av andre bilder
-    /// enn det viste; be om de som mangler.
+    /// Drop textures outside the preload window, and full-resolution versions of images other
+    /// than the shown one; request the missing ones.
     fn refill(&mut self) {
         if self.files.is_empty() {
             return;
@@ -816,7 +814,7 @@ impl App {
                 && (!d.full || d.idx == self.cur);
             match d.result {
                 Some(Ok((img, orig))) if wanted => {
-                    // En skjermversjon skal ikke erstatte en fullversjon som allerede er lastet.
+                    // A screen-size version must not replace a full-resolution one already loaded.
                     if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
                         continue;
                     }
@@ -852,7 +850,7 @@ impl App {
         use egui::Key;
         let last = self.files.len().saturating_sub(1);
         let pressed = |k| ctx.input(|i| i.key_pressed(k));
-        // ↑/↓ blar i fillista som i Geeqie; under lysbildefremvisning justerer de tiden i stedet.
+        // ↑/↓ move through the file list as in Geeqie; during a slideshow they adjust the delay instead.
         let (down, up) = match self.slideshow {
             None => (pressed(Key::ArrowDown), pressed(Key::ArrowUp)),
             Some(_) => (false, false),
@@ -870,7 +868,7 @@ impl App {
         if pressed(Key::F) || pressed(Key::F11) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
         }
-        // S = i rekkefølge, R = tilfeldig; samme tast igjen stopper, den andre bytter modus.
+        // S = in order, R = random; the same key again stops, the other switches mode.
         if pressed(Key::S) || pressed(Key::R) {
             let random = pressed(Key::R);
             if self.slideshow.is_some() && self.random == random {
@@ -879,7 +877,7 @@ impl App {
                 self.start_slideshow(ctx, random);
             }
         }
-        // ↑/↓ justerer tiden mens fremvisningen går.
+        // ↑/↓ adjust the delay while the slideshow runs.
         let step = pressed(Key::ArrowUp) as i64 - pressed(Key::ArrowDown) as i64;
         if self.slideshow.is_some() && step != 0 {
             self.config.delay = self
@@ -925,9 +923,9 @@ impl App {
 }
 
 impl eframe::App for App {
-    /// Siste mappe skrives én gang ved avslutning, ikke ved hvert mappebytte.
+    /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // ponytail: stien lagres som UTF-8 (tapsfritt for vanlige stier); bytt til OsString-bytes ved behov.
+        // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
         if self.config.remember_dir
             && let Some(p) = state_path()
         {
@@ -944,7 +942,7 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         while let Ok(msg) = self.notices.try_recv() {
-            // Sletting feilet, så fila finnes trolig fortsatt: les mappa på nytt så lista stemmer.
+            // Deleting failed, so the file probably still exists: re-read the folder so the list is right.
             let keep = match self.files.get(self.cur) {
                 Some(name) => self.dir.join(name),
                 None => self.dir.clone(),
@@ -960,10 +958,10 @@ impl eframe::App for App {
             }
         }
 
-        // Fullskjerm som i Geeqie: bare bildet, ingen meny eller paneler.
+        // Full screen as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         if !fullscreen {
-            egui::Panel::top("meny").show(ui, |ui| {
+            egui::Panel::top("menu").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button("File", |ui| {
                         if ui.button("Open File…").clicked() {
@@ -1046,7 +1044,7 @@ impl eframe::App for App {
                 many => format!("{} files", many.len()),
             };
             let mut delete = false;
-            let modal = egui::Modal::new(egui::Id::new("bekreft-sletting")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
                 ui.label(format!("Permanently delete {what}?"));
                 ui.weak("This cannot be undone.");
                 ui.horizontal(|ui| {
@@ -1066,7 +1064,7 @@ impl eframe::App for App {
         }
         self.show_settings = open;
 
-        // Statuslinje som i Geeqie: antall bilder og merkede til venstre, gjeldende bilde til høyre.
+        // Status bar as in Geeqie: image and selection counts on the left, current image on the right.
         if !fullscreen {
             egui::Panel::bottom("status").show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1103,23 +1101,23 @@ impl eframe::App for App {
             });
         }
 
-        // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
+        // Left side as in Geeqie: one-level folder tree at the top, file names below.
         let (mut open_dir, mut go_to) = (None, None);
         if !fullscreen {
-            egui::Panel::left("venstre")
+            egui::Panel::left("left")
                 .resizable(true)
                 .default_size(240.0)
                 .show(ui, |ui| {
-                    egui::Panel::top("mapper")
+                    egui::Panel::top("folders")
                         .resizable(true)
                         .default_size(200.0)
                         .show(ui, |ui| {
-                            // Rad 0 er ⬆ .. (når det finnes en foreldermappe), resten undermapper.
+                            // Row 0 is ⬆ .. (when there is a parent folder), the rest are subfolders.
                             let up = self.dir.parent().map(Path::to_path_buf);
                             let rows = up.is_some() as usize + self.subdirs.len();
                             let row_h = ui.spacing().interact_size.y;
                             egui::ScrollArea::vertical()
-                                .id_salt("mapper")
+                                .id_salt("folders")
                                 .auto_shrink(false)
                                 .show_rows(ui, row_h, rows, |ui, range| {
                                     for row in range {
@@ -1137,17 +1135,17 @@ impl eframe::App for App {
                                     }
                                 });
                         });
-                    // Bare synlige rader tegnes, så lista er like rask med 10 som med 300 000 filer.
+                    // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
                     let row_h = ui.spacing().interact_size.y;
                     let pitch = row_h + ui.spacing().item_spacing.y;
                     let mut area = egui::ScrollArea::vertical()
-                        .id_salt("filer")
+                        .id_salt("files")
                         .auto_shrink(false);
                     if self.scroll_to_cur {
-                        // Rull bare når gjeldende bilde er utenfor synsfeltet, og legg det midt i.
+                        // Scroll only when the current image is out of view, and centre it.
                         let (top, view) = (self.cur as f32 * pitch, ui.available_height());
                         let off =
-                            egui::scroll_area::State::load(ctx, ui.make_persistent_id("filer"))
+                            egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
                                 .map_or(0.0, |s| s.offset.y);
                         if top < off || top + pitch > off + view {
                             area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
@@ -1160,7 +1158,7 @@ impl eframe::App for App {
                             if ui.selectable_label(marked, name).clicked() {
                                 let m = ui.input(|i| i.modifiers);
                                 if m.command {
-                                    // Ctrl+klikk: merk/avmerk (bildet som vises tas med første gang).
+                                    // Ctrl+click: toggle selection (the shown image is included the first time).
                                     if self.selected.is_empty() {
                                         self.selected.insert(self.cur);
                                     }
@@ -1169,7 +1167,7 @@ impl eframe::App for App {
                                     }
                                     self.selection_changed(ctx);
                                 } else if m.shift {
-                                    // Shift+klikk: merk området fra bildet som vises.
+                                    // Shift+click: select the range from the shown image.
                                     self.selected.extend(i.min(self.cur)..=i.max(self.cur));
                                     self.selection_changed(ctx);
                                 } else {
@@ -1194,8 +1192,8 @@ impl eframe::App for App {
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
             .show(ui, |ui| {
                 let area = ui.max_rect();
-                // Dekod til bildeområdet, ikke hele skjermen: et lite vindu på en 4K-skjerm
-                // trenger en brøkdel av minnet (3840×2160 er 33 MB per bilde).
+                // Decode to the image area, not the whole screen: a small window on a 4K screen
+                // needs a fraction of the memory (3840×2160 is 33 MB per image).
                 let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 self.limits.lock().unwrap()[0] = view;
                 let response = ui.allocate_rect(area, egui::Sense::click_and_drag());
@@ -1204,7 +1202,7 @@ impl eframe::App for App {
                         .min(area.height() * ppp / s.orig[1] as f32)
                         .min(1.0)
                 });
-                // Taster går til innstillingsvinduet mens det er åpent.
+                // Keys go to the preferences window while it is open.
                 if !self.show_settings && !self.confirm {
                     self.keys(ctx, fit);
                 }
@@ -1217,8 +1215,8 @@ impl eframe::App for App {
                 let scale = self.zoom.unwrap_or(fit);
                 self.last_scale = scale;
 
-                // For liten tekstur: i «tilpass» er vinduet gjort større, så dekod på nytt i
-                // vindusstørrelse (forrige tekstur vises imens); ved zoom hentes full oppløsning.
+                // Texture too small: in fit mode the window has grown, so decode again at window
+                // size (the previous texture is shown meanwhile); when zoomed, load full resolution.
                 let too_small = self.slots.get(&self.cur).is_some_and(|s| {
                     let needed = (s.orig[0] as f32 * scale).min(s.orig[0] as f32);
                     !s.full && (s.tex.size()[0] as f32) + 1.0 < needed
@@ -1354,14 +1352,14 @@ mod tests {
         assert_eq!(
             std::fs::read_dir(&dir).unwrap().count(),
             1,
-            "ingen .tmp-filer igjen"
+            "no .tmp files left"
         );
     }
 
     #[test]
     fn parses_config() {
         use super::Config;
-        assert_eq!(Config::parse("# kommentar\npreload= 5\n").preload, 5);
+        assert_eq!(Config::parse("# comment\npreload= 5\n").preload, 5);
         assert_eq!(Config::parse("preload=99").preload, 20);
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
@@ -1372,6 +1370,6 @@ mod tests {
             Some("/tmp/a b".into())
         );
         assert_eq!(super::parse_last_dir("last_dir=\n"), None);
-        assert_eq!(Config::parse("preload=x\nukjent=1"), Config::default());
+        assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
     }
 }
