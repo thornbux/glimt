@@ -201,11 +201,20 @@ impl Config {
         if let Some(dir) = &self.last_dir {
             text += &format!("last_dir={}\n", dir.display());
         }
-        let result =
-            std::fs::create_dir_all(p.parent().unwrap()).and_then(|_| std::fs::write(&p, text));
-        if let Err(e) = result {
-            eprintln!("kunne ikke lagre {}: {e}", p.display());
-        }
+        write_atomic(&p, &text);
+    }
+}
+
+/// Skriv til en midlertidig fil og gi den nytt navn, så fila aldri blir halvskrevet ved krasj.
+/// Prosess-ID i navnet, så flere samtidige økter ikke skriver til samme midlertidige fil.
+fn write_atomic(path: &Path, text: &str) {
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    let result = std::fs::create_dir_all(path.parent().unwrap())
+        .and_then(|_| std::fs::write(&tmp, text))
+        .and_then(|_| std::fs::rename(&tmp, path));
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&tmp);
+        eprintln!("kunne ikke lagre {}: {e}", path.display());
     }
 }
 
@@ -1296,6 +1305,20 @@ mod tests {
         assert_ne!(v, (0..100).collect::<Vec<_>>());
         v.sort();
         assert_eq!(v, (0..100).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn writes_atomically() {
+        let dir = std::env::temp_dir().join("glimt-test-atomic");
+        let path = dir.join("config");
+        super::write_atomic(&path, "a=1\n");
+        super::write_atomic(&path, "a=2\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "a=2\n");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "ingen .tmp-filer igjen"
+        );
     }
 
     #[test]
