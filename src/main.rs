@@ -68,6 +68,7 @@ enum Action {
     FullScreen,
     HideTools,
     Toolbar,
+    PathBar,
     Thumbnails,
     ExifPanel,
     Refresh,
@@ -120,6 +121,7 @@ impl Action {
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
             Toolbar => "Show Toolbar",
+            PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
             ExifPanel => "Show EXIF Panel",
             Refresh => "Refresh",
@@ -605,6 +607,8 @@ struct Config {
     /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
     /// Read at startup only, since glibc must be set before threads start.
     low_memory: bool,
+    /// Folder path above the folder list.
+    path_bar: bool,
 }
 
 impl Default for Config {
@@ -624,6 +628,7 @@ impl Default for Config {
             exif_panel: false,
             toolbar: true,
             low_memory: true,
+            path_bar: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -655,6 +660,7 @@ impl Config {
                 "exif_panel" => c.exif_panel = value == "true",
                 "toolbar" => c.toolbar = value == "true",
                 "low_memory" => c.low_memory = value == "true",
+                "path_bar" => c.path_bar = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -674,7 +680,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -688,6 +694,7 @@ impl Config {
             self.exif_panel,
             self.toolbar,
             self.low_memory,
+            self.path_bar,
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -1768,7 +1775,13 @@ impl App {
         let edit = egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
         let response = ui.add(edit);
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let path = PathBuf::from(self.path_text.trim());
+            let text = self.path_text.trim();
+            let path = match (text.strip_prefix('~'), std::env::var_os("HOME")) {
+                (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
+                    PathBuf::from(home).join(rest.trim_start_matches('/'))
+                }
+                _ => PathBuf::from(text),
+            };
             if path.exists() {
                 self.visit(ui.ctx(), path);
             } else {
@@ -2084,6 +2097,10 @@ impl App {
             Action::Preferences => self.show_settings = true,
             Action::Help => self.show_help = !self.show_help,
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::PathBar => {
+                self.config.path_bar = !self.config.path_bar;
+                self.config.save();
+            }
             Action::Toolbar => {
                 self.config.toolbar = !self.config.toolbar;
                 self.config.save();
@@ -2272,6 +2289,9 @@ impl eframe::App for App {
                         let toolbar =
                             egui::Button::selectable(self.config.toolbar, Action::Toolbar.label());
                         menu_button(ui, act, toolbar, Action::Toolbar);
+                        let path =
+                            egui::Button::selectable(self.config.path_bar, Action::PathBar.label());
+                        menu_button(ui, act, path, Action::PathBar);
                         let thumbs = egui::Button::selectable(
                             self.config.thumbnails,
                             Action::Thumbnails.label(),
@@ -2390,6 +2410,11 @@ impl eframe::App for App {
                     self.config.save();
                 }
                 ui.separator();
+                let toolbar = ui.checkbox(&mut self.config.toolbar, "Show the toolbar");
+                let path = ui.checkbox(&mut self.config.path_bar, "Show the folder path");
+                if toolbar.changed() || path.changed() {
+                    self.config.save();
+                }
                 let exif = egui::Checkbox::new(
                     &mut self.config.exif_panel,
                     "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
@@ -2560,7 +2585,9 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(240.0)
                 .show(ui, |ui| {
-                    self.path_field(ui);
+                    if self.config.path_bar {
+                        self.path_field(ui);
+                    }
                     egui::Panel::top("folders")
                         .resizable(true)
                         .default_size(200.0)
@@ -2938,6 +2965,7 @@ mod tests {
         assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
         assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
+        assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
         assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
