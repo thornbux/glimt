@@ -192,7 +192,7 @@ impl App {
 
     fn keys(&mut self, ctx: &egui::Context, fit: f32) {
         use egui::Key;
-        let (n, last) = (self.files.len(), self.files.len().saturating_sub(1));
+        let last = self.files.len().saturating_sub(1);
         let pressed = |k| ctx.input(|i| i.key_pressed(k));
         if pressed(Key::ArrowRight) || pressed(Key::Space) || pressed(Key::PageDown) {
             self.go(ctx, (self.cur + 1).min(last));
@@ -200,7 +200,7 @@ impl App {
             self.go(ctx, self.cur.saturating_sub(1));
         } else if pressed(Key::Home) {
             self.go(ctx, 0);
-        } else if pressed(Key::End) && n > 0 {
+        } else if pressed(Key::End) {
             self.go(ctx, last);
         }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
