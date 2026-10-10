@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
 mod exif;
+mod help;
 mod search;
 mod thumbs;
 #[cfg(feature = "video")]
@@ -84,6 +85,9 @@ enum Action {
     Escape,
     NewWindow,
     Help,
+    Shortcuts,
+    KeyboardMap,
+    About,
 }
 
 impl Action {
@@ -136,7 +140,10 @@ impl Action {
             Slower => "Slower",
             Escape => "Stop Slideshow, Leave Full Screen",
             NewWindow => "New Window",
-            Help => "Help",
+            Help => "Help Manual",
+            Shortcuts => "Keyboard Shortcuts",
+            KeyboardMap => "Keyboard Map",
+            About => "About Glimt",
         }
     }
 }
@@ -409,7 +416,7 @@ struct App {
     /// Workers apply EXIF orientation (Preferences, Alt+X).
     rotate: Arc<AtomicBool>,
     show_settings: bool,
-    show_help: bool,
+    help: Option<help::Page>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm: Option<bool>,
     /// Open text dialog and the text typed so far.
@@ -1382,7 +1389,7 @@ impl App {
             ahead,
             rotate,
             show_settings: false,
-            show_help: false,
+            help: None,
             confirm: None,
             prompt: None,
             selected: Default::default(),
@@ -2437,67 +2444,6 @@ impl App {
         })
     }
 
-    /// Shortcuts, mouse use and the differences from Geeqie (F1).
-    fn help_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_help;
-        egui::Window::new("Help")
-            .open(&mut open)
-            .collapsible(false)
-            .default_height(500.0)
-            .show(ctx, |ui| {
-                ui.heading(format!("Glimt {}", env!("CARGO_PKG_VERSION")));
-                ui.label("A fast image viewer inspired by Geeqie.");
-                ui.weak("MIT License, © 2026 Hans-Henry Jakobsen");
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::CollapsingHeader::new("Keyboard and mouse")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            // Every shortcut of an action on one row, in menu order.
-                            let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
-                            for &(action, mods, key) in SHORTCUTS {
-                                if action == Action::Play && !cfg!(feature = "video") {
-                                    continue;
-                                }
-                                let text =
-                                    ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key));
-                                match rows.iter_mut().find(|r| r.0 == action) {
-                                    Some(row) => row.1.push(text),
-                                    None => rows.push((action, vec![text])),
-                                }
-                            }
-                            rows.sort_by_key(|r| r.0 as usize);
-                            egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
-                                for (action, keys) in rows {
-                                    ui.label(keys.join(", "));
-                                    ui.label(action.label());
-                                    ui.end_row();
-                                }
-                                for (what, does) in MOUSE {
-                                    ui.label(*what);
-                                    ui.label(*does);
-                                    ui.end_row();
-                                }
-                            });
-                        });
-                    egui::CollapsingHeader::new("Differences from Geeqie").show(ui, |ui| {
-                        egui::Grid::new("differences").striped(true).show(ui, |ui| {
-                            ui.strong("");
-                            ui.strong("Glimt");
-                            ui.strong("Geeqie");
-                            ui.end_row();
-                            for (what, glimt, geeqie) in DIFFERENCES {
-                                ui.label(*what);
-                                ui.label(*glimt);
-                                ui.label(*geeqie);
-                                ui.end_row();
-                            }
-                        });
-                    });
-                });
-            });
-        self.show_help = open;
-    }
-
     fn zoom_by(&mut self, factor: f32) {
         self.zoom = Some((self.zoom.unwrap_or(self.last_scale) * factor).clamp(0.02, 32.0));
     }
@@ -2583,7 +2529,10 @@ impl App {
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
-            Action::Help => self.show_help = !self.show_help,
+            Action::Help => self.help = Some(help::Page::Manual),
+            Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
+            Action::KeyboardMap => self.help = Some(help::Page::Keymap),
+            Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::PathBar => {
                 self.config.path_bar = !self.config.path_bar;
@@ -2658,7 +2607,7 @@ impl App {
             }
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
             Action::Escape => {
-                self.show_help = false;
+                self.help = None;
                 if self.slideshow.is_some() {
                     self.stop_slideshow(ctx);
                 }
@@ -2835,7 +2784,13 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::NewWindow);
                         menu_item(ui, act, Action::CloseWindow);
                     });
-                    ui.menu_button("Help", |ui| menu_item(ui, act, Action::Help));
+                    ui.menu_button("Help", |ui| {
+                        menu_item(ui, act, Action::Help);
+                        menu_item(ui, act, Action::Shortcuts);
+                        menu_item(ui, act, Action::KeyboardMap);
+                        ui.separator();
+                        menu_item(ui, act, Action::About);
+                    });
                 });
             });
             if self.config.toolbar {
@@ -3108,7 +3063,7 @@ impl eframe::App for App {
             }
         }
         self.show_settings = open;
-        self.help_window(ctx);
+        help::window(ctx, &mut self.help);
 
         // Status bar as in Geeqie: image and selection counts on the left, current image on the right.
         if !bare {
