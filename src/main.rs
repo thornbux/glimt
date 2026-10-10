@@ -26,6 +26,7 @@ enum Action {
     OpenFile,
     OpenFolder,
     NewFolder,
+    Rename,
     Delete,
     DeletePermanently,
     CloseWindow,
@@ -82,6 +83,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Delete, NONE, Key::Delete),
         (Delete, CTRL, Key::D),
         (NewFolder, CTRL, Key::F),
+        (Rename, CTRL, Key::R),
         (CloseWindow, CTRL, Key::W),
         (Quit, CTRL, Key::Q),
         (First, NONE, Key::Home),
@@ -123,6 +125,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 #[derive(Clone, Copy)]
 enum Prompt {
     NewFolder,
+    /// Rename the shown image.
+    Rename,
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
@@ -1022,10 +1026,15 @@ impl App {
         let target = self.dir.join(text);
         let result = match prompt {
             Prompt::NewFolder => std::fs::create_dir(&target),
+            // rename() would silently replace an existing file.
+            Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
+            Prompt::Rename if self.files.is_empty() => return,
+            Prompt::Rename => std::fs::rename(self.path(self.cur), &target),
         };
-        match result {
-            Ok(()) => self.list(ctx),
-            Err(e) => self.notice = Some(format!("{}: {e}", target.display())),
+        match (result, prompt) {
+            (Ok(()), Prompt::NewFolder) => self.list(ctx),
+            (Ok(()), Prompt::Rename) => self.open(ctx, target),
+            (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
         }
     }
 
@@ -1240,6 +1249,11 @@ impl App {
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
+            Action::Rename => {
+                if let Some(name) = self.files.get(self.cur) {
+                    self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
+                }
+            }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => {
                 let started = std::env::current_exe()
@@ -1352,6 +1366,7 @@ impl eframe::App for App {
                         menu_item(ui, act, "Open File…", Action::OpenFile);
                         menu_item(ui, act, "Open Folder…", Action::OpenFolder);
                         menu_item(ui, act, "New Folder…", Action::NewFolder);
+                        menu_item(ui, act, "Rename…", Action::Rename);
                         ui.separator();
                         menu_item(ui, act, "Delete…", Action::Delete);
                         menu_item(ui, act, "Delete Permanently…", Action::DeletePermanently);
@@ -1497,6 +1512,7 @@ impl eframe::App for App {
         if let Some((prompt, mut text)) = self.prompt.take() {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:",
+                Prompt::Rename => "New file name:",
             };
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::new("prompt")).show(ctx, |ui| {
