@@ -15,6 +15,7 @@ use std::time::Instant;
 const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
 /// Standard antall bilder som holdes dekodet på hver side av det viste.
 const DEFAULT_AHEAD: usize = 2;
+const DEFAULT_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 
 struct Decoded {
     idx: usize,
@@ -58,6 +59,9 @@ struct App {
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
     /// Rull trevisningen til gjeldende bilde ved neste tegning.
     scroll_to_cur: bool,
+    /// Lysbildefremvisning: når forrige bilde ble vist; `None` = av.
+    slideshow: Option<Instant>,
+    delay: std::time::Duration,
 }
 
 fn list_images(dir: &Path) -> Vec<PathBuf> {
@@ -195,6 +199,8 @@ impl App {
             current,
             ahead,
             show_settings: false,
+            slideshow: None,
+            delay: DEFAULT_DELAY,
             limits,
             jobs,
             done,
@@ -288,13 +294,35 @@ impl App {
         self.pan = egui::Vec2::ZERO;
         self.scroll_to_cur = true;
         self.refill();
-        let cur = self.cur;
-        let name = self.files[cur]
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy();
-        let title = format!("{name} ({}/{}) — glimt", cur + 1, self.files.len());
+        self.title(ctx);
+    }
+
+    fn title(&self, ctx: &egui::Context) {
+        let Some(file) = self.files.get(self.cur) else {
+            return;
+        };
+        let name = file.file_name().unwrap_or_default().to_string_lossy();
+        let show = if self.slideshow.is_some() { "▶ " } else { "" };
+        let (n, total) = (self.cur + 1, self.files.len());
+        let title = format!("{show}{name} ({n}/{total}) — glimt");
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+    }
+
+    /// Bytt bilde når tiden er ute. Venter på et forhåndslastet bilde som fortsatt
+    /// dekodes, så fremvisningen ikke viser svart skjerm.
+    fn slideshow_tick(&mut self, ctx: &egui::Context) {
+        let Some(last) = self.slideshow else { return };
+        if self.files.is_empty() {
+            return;
+        }
+        let next = (self.cur + 1) % self.files.len();
+        let left = self.delay.saturating_sub(last.elapsed());
+        if !left.is_zero() {
+            ctx.request_repaint_after(left);
+        } else if !self.pending.contains(&(next, false)) {
+            self.go(ctx, next);
+            self.slideshow = Some(Instant::now());
+        }
     }
 
     /// Kast teksturer utenfor forhåndslastingsvinduet, og fullversjoner av andre bilder
@@ -373,8 +401,15 @@ impl App {
         if pressed(Key::F) || pressed(Key::F11) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
         }
+        if pressed(Key::S) {
+            self.slideshow = self.slideshow.is_none().then(Instant::now);
+            self.title(ctx);
+        }
         if pressed(Key::Escape) {
-            if fullscreen {
+            if self.slideshow.is_some() {
+                self.slideshow = None;
+                self.title(ctx);
+            } else if fullscreen {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -417,6 +452,7 @@ impl eframe::App for App {
             [max_side, max_side],
         ];
         self.receive(ctx);
+        self.slideshow_tick(ctx);
         if let Some(Ok(picked)) = self.dialog.as_ref().map(mpsc::Receiver::try_recv) {
             self.dialog = None;
             if let Some(path) = picked {
