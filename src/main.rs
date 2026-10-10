@@ -48,8 +48,8 @@ struct App {
     /// Fysiske skjermpiksler per originalpiksel; `None` = tilpass til vinduet.
     zoom: Option<f32>,
     pan: egui::Vec2,
-    started: Instant,
-    first_shown: bool,
+    /// Startet ved oppstart; tas ut når første bilde vises.
+    started: Option<Instant>,
 }
 
 fn list_images(dir: &Path) -> Vec<PathBuf> {
@@ -132,8 +132,7 @@ impl App {
             errors: HashMap::new(),
             zoom: None,
             pan: egui::Vec2::ZERO,
-            started: Instant::now(),
-            first_shown: false,
+            started: Some(Instant::now()),
         };
         app.go(&cc.egui_ctx, start);
         app
@@ -183,9 +182,8 @@ impl App {
                     }
                     let tex = ctx.load_texture(format!("img{}", d.idx), img, egui::TextureOptions::LINEAR);
                     self.slots.insert(d.idx, Slot { tex, full: d.full, orig });
-                    if d.idx == self.cur && !self.first_shown {
-                        self.first_shown = true;
-                        eprintln!("første bilde: {} ms", self.started.elapsed().as_millis());
+                    if d.idx == self.cur && let Some(t) = self.started.take() {
+                        eprintln!("første bilde: {} ms", t.elapsed().as_millis());
                     }
                 }
                 Err(e) if !e.is_empty() => {
