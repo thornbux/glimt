@@ -396,31 +396,43 @@ impl eframe::App for App {
             });
         });
 
-        // Mappetre i ett nivå: opp, undermapper, bilder.
+        // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
         // ponytail: tegner alle rader; bytt til ScrollArea::show_rows hvis mapper med titusenvis av bilder blir trege.
         let (mut open_dir, mut go_to) = (None, None);
-        egui::Panel::left("tre")
+        egui::Panel::left("venstre")
             .resizable(true)
             .default_size(240.0)
             .show(ui, |ui| {
+                egui::Panel::top("mapper")
+                    .resizable(true)
+                    .default_size(200.0)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("mapper")
+                            .auto_shrink(false)
+                            .show(ui, |ui| {
+                                if let Some(parent) = self
+                                    .dir
+                                    .canonicalize()
+                                    .ok()
+                                    .and_then(|d| d.parent().map(Path::to_path_buf))
+                                    && ui.selectable_label(false, "⬆ ..").clicked()
+                                {
+                                    open_dir = Some(parent);
+                                }
+                                for d in &self.subdirs {
+                                    let name = d.file_name().unwrap_or_default().to_string_lossy();
+                                    if ui.selectable_label(false, format!("📁 {name}")).clicked()
+                                    {
+                                        open_dir = Some(d.clone());
+                                    }
+                                }
+                            });
+                    });
                 egui::ScrollArea::vertical()
+                    .id_salt("filer")
                     .auto_shrink(false)
                     .show(ui, |ui| {
-                        if let Some(parent) = self
-                            .dir
-                            .canonicalize()
-                            .ok()
-                            .and_then(|d| d.parent().map(Path::to_path_buf))
-                            && ui.selectable_label(false, "⬆ ..").clicked()
-                        {
-                            open_dir = Some(parent);
-                        }
-                        for d in &self.subdirs {
-                            let name = d.file_name().unwrap_or_default().to_string_lossy();
-                            if ui.selectable_label(false, format!("📁 {name}")).clicked() {
-                                open_dir = Some(d.clone());
-                            }
-                        }
                         for (i, f) in self.files.iter().enumerate() {
                             let name = f.file_name().unwrap_or_default().to_string_lossy();
                             let row = ui.selectable_label(i == self.cur, name);
