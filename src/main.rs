@@ -33,6 +33,11 @@ enum Action {
     Prev,
     Next,
     Last,
+    SelectAll,
+    SelectNone,
+    InvertSelection,
+    CopyPath,
+    CopyPathUnquoted,
     Preferences,
     ZoomIn,
     ZoomOut,
@@ -48,6 +53,10 @@ enum Action {
 const NONE: egui::Modifiers = egui::Modifiers::NONE;
 const SHIFT: egui::Modifiers = egui::Modifiers::SHIFT;
 const CTRL: egui::Modifiers = egui::Modifiers::COMMAND;
+const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
+    shift: true,
+    ..egui::Modifiers::COMMAND
+};
 
 /// Geeqie's default shortcuts; the first one for an action is shown in the menu.
 /// egui ignores an extra Shift when matching, so Shift combinations come before the plain key.
@@ -70,6 +79,9 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Next, NONE, Key::ArrowRight),
         (Next, NONE, Key::ArrowDown),
         (Last, NONE, Key::End),
+        (SelectNone, CTRL_SHIFT, Key::A),
+        (InvertSelection, CTRL_SHIFT, Key::I),
+        (SelectAll, CTRL, Key::A),
         (Preferences, CTRL, Key::O),
         (ZoomIn, NONE, Key::Equals),
         (ZoomIn, NONE, Key::Plus),
@@ -606,8 +618,8 @@ impl App {
         }
     }
 
-    /// Deleting acts on the selected files, otherwise on the shown image. Sorted.
-    fn delete_targets(&self) -> Vec<usize> {
+    /// File operations act on the selected files, otherwise on the shown image. Sorted.
+    fn targets(&self) -> Vec<usize> {
         if self.selected.is_empty() {
             vec![self.cur]
         } else {
@@ -616,7 +628,7 @@ impl App {
     }
 
     fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
-        let targets = self.delete_targets();
+        let targets = self.targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
@@ -977,6 +989,30 @@ impl App {
             Action::Prev => self.go(ctx, self.cur.saturating_sub(1)),
             Action::Next => self.go(ctx, (self.cur + 1).min(last)),
             Action::Last => self.go(ctx, last),
+            Action::SelectAll => {
+                self.selected = (0..self.files.len()).collect();
+                self.selection_changed(ctx);
+            }
+            Action::SelectNone => {
+                self.selected.clear();
+                self.selection_changed(ctx);
+            }
+            Action::InvertSelection => {
+                let n = self.files.len();
+                self.selected = (0..n).filter(|i| !self.selected.contains(i)).collect();
+                self.selection_changed(ctx);
+            }
+            Action::CopyPath | Action::CopyPathUnquoted if !self.files.is_empty() => {
+                let quote = action == Action::CopyPath;
+                let paths: Vec<String> = self
+                    .targets()
+                    .iter()
+                    .map(|&i| self.path(i).to_string_lossy().into_owned())
+                    .map(|p| if quote { format!("\"{p}\"") } else { p })
+                    .collect();
+                ctx.copy_text(paths.join(" "));
+            }
+            Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
@@ -1075,6 +1111,14 @@ impl eframe::App for App {
                         menu_item(ui, act, "Next Image", Action::Next);
                         menu_item(ui, act, "Last Image", Action::Last);
                     });
+                    ui.menu_button("Select", |ui| {
+                        menu_item(ui, act, "Select All", Action::SelectAll);
+                        menu_item(ui, act, "Select None", Action::SelectNone);
+                        menu_item(ui, act, "Invert Selection", Action::InvertSelection);
+                        ui.separator();
+                        menu_item(ui, act, "Copy Path to Clipboard", Action::CopyPath);
+                        menu_item(ui, act, "Copy Path (Unquoted)", Action::CopyPathUnquoted);
+                    });
                     ui.menu_button("Edit", |ui| {
                         menu_item(ui, act, "Preferences…", Action::Preferences);
                     });
@@ -1158,7 +1202,7 @@ impl eframe::App for App {
             });
 
         if self.confirm {
-            let what = match self.delete_targets().as_slice() {
+            let what = match self.targets().as_slice() {
                 [i] => format!("\"{}\"", self.files[*i].to_string_lossy()),
                 many => format!("{} files", many.len()),
             };
