@@ -1887,15 +1887,16 @@ impl App {
         if self.files.is_empty() {
             return;
         }
+        self.random = on;
+        if !on {
+            // Back to the chosen sort order; listing keeps the shown image.
+            self.list(ctx);
+            return;
+        }
         let mut files = std::mem::take(&mut self.files);
         let shown = files[self.cur].clone();
-        if on {
-            files.swap(0, self.cur);
-            shuffle(&mut files[1..]);
-        } else {
-            files.sort_unstable();
-        }
-        self.random = on;
+        files.swap(0, self.cur);
+        shuffle(&mut files[1..]);
         self.replace_files(ctx, files, Some(shown));
     }
 
@@ -2122,10 +2123,9 @@ impl App {
         });
         if changed {
             self.config.save();
-            // A random slideshow keeps its order; the new one applies when it ends.
-            if !self.random {
-                self.list(ctx);
-            }
+            // A chosen order replaces a shuffled one (kept after a random slideshow).
+            self.random = false;
+            self.list(ctx);
         }
     }
 
