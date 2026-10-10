@@ -48,6 +48,7 @@ enum Action {
     Zoom1To1,
     ZoomFit,
     FullScreen,
+    HideTools,
     Refresh,
     Slideshow,
     RandomOrder,
@@ -98,6 +99,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F),
         (FullScreen, NONE, Key::V),
         (FullScreen, NONE, Key::F11),
+        (HideTools, CTRL, Key::H),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
         (RandomOrder, NONE, Key::R),
@@ -188,6 +190,8 @@ struct App {
     started: Option<Instant>,
     /// Answer from an open file dialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    /// View → Hide File List: only the image, as in full screen but in a window.
+    hide_tools: bool,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
@@ -545,6 +549,7 @@ impl App {
             pan: egui::Vec2::ZERO,
             started: Some(Instant::now()),
             dialog: None,
+            hide_tools: false,
             back: Vec::new(),
             forward: Vec::new(),
             listing: None,
@@ -1091,6 +1096,7 @@ impl App {
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
+            Action::HideTools => self.hide_tools = !self.hide_tools,
             Action::Refresh => self.open(ctx, self.location()),
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
@@ -1154,9 +1160,10 @@ impl eframe::App for App {
         let mut act = (!self.show_settings && !self.confirm)
             .then(|| Self::shortcut(ctx))
             .flatten();
-        // Full screen as in Geeqie: only the image, no menu or panels.
+        // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        if !fullscreen {
+        let bare = fullscreen || self.hide_tools;
+        if !bare {
             egui::Panel::top("menu").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     let act = &mut act;
@@ -1200,6 +1207,7 @@ impl eframe::App for App {
                             menu_item(ui, act, "Zoom to Fit", Action::ZoomFit);
                         });
                         menu_item(ui, act, "Full Screen", Action::FullScreen);
+                        menu_item(ui, act, "Hide File List", Action::HideTools);
                         menu_item(ui, act, "Refresh", Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
@@ -1305,7 +1313,7 @@ impl eframe::App for App {
         self.show_settings = open;
 
         // Status bar as in Geeqie: image and selection counts on the left, current image on the right.
-        if !fullscreen {
+        if !bare {
             egui::Panel::bottom("status").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let n = self.files.len();
@@ -1343,7 +1351,7 @@ impl eframe::App for App {
 
         // Left side as in Geeqie: one-level folder tree at the top, file names below.
         let (mut open_dir, mut go_to) = (None, None);
-        if !fullscreen {
+        if !bare {
             egui::Panel::left("left")
                 .resizable(true)
                 .default_size(240.0)
