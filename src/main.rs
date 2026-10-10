@@ -543,6 +543,142 @@ fn list_folder(dir: &Path, videos: bool) -> (Vec<PathBuf>, Vec<OsString>) {
     (dirs, images)
 }
 
+/// File list order, as in Geeqie's sort menu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Sort {
+    Name,
+    /// Numbers in names compared by value: "img2" before "img10".
+    Number,
+    /// Modification time.
+    Date,
+    Created,
+    ExifOriginal,
+    ExifDigitized,
+    Size,
+}
+
+impl Sort {
+    const ALL: [Sort; 7] = [
+        Sort::Name,
+        Sort::Number,
+        Sort::Date,
+        Sort::Created,
+        Sort::ExifOriginal,
+        Sort::ExifDigitized,
+        Sort::Size,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Sort::Name => "Sort by name",
+            Sort::Number => "Sort by number",
+            Sort::Date => "Sort by date",
+            Sort::Created => "Sort by file creation date",
+            Sort::ExifOriginal => "Sort by EXIF date original",
+            Sort::ExifDigitized => "Sort by EXIF date digitized",
+            Sort::Size => "Sort by size",
+        }
+    }
+
+    /// The config value.
+    fn key(self) -> &'static str {
+        match self {
+            Sort::Name => "name",
+            Sort::Number => "number",
+            Sort::Date => "date",
+            Sort::Created => "created",
+            Sort::ExifOriginal => "exif_original",
+            Sort::ExifDigitized => "exif_digitized",
+            Sort::Size => "size",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SortOrder {
+    by: Sort,
+    ascending: bool,
+    /// Case-sensitive names ("B" before "a").
+    case: bool,
+}
+
+/// Sort file names in `dir`. Everything but name and number needs a stat (or EXIF) per file,
+/// so this runs in the listing thread; ties fall back to the name.
+fn sort_files(dir: &Path, files: &mut [OsString], order: SortOrder) {
+    let name = |f: &OsString| {
+        let s = f.to_string_lossy();
+        if order.case {
+            s.into_owned()
+        } else {
+            s.to_lowercase()
+        }
+    };
+    let meta = |f: &OsString| std::fs::metadata(dir.join(f)).ok();
+    let secs = |t: std::io::Result<std::time::SystemTime>| {
+        t.ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos())
+    };
+    match order.by {
+        // Files are listed byte-wise, which is case-sensitive name order.
+        Sort::Name if order.case => {}
+        Sort::Name => files.sort_by_cached_key(name),
+        Sort::Number => {
+            files.sort_by_cached_key(name);
+            files.sort_by(|a, b| natural_cmp(&name(a), &name(b)));
+        }
+        Sort::Date => files.sort_by_cached_key(|f| (meta(f).map(|m| secs(m.modified())), name(f))),
+        Sort::Created => files.sort_by_cached_key(|f| {
+            // Not every file system records creation time; then the modification time.
+            let m = meta(f);
+            let t = m
+                .as_ref()
+                .map(|m| secs(m.created().or_else(|_| m.modified())));
+            (t, name(f))
+        }),
+        Sort::Size => files.sort_by_cached_key(|f| (meta(f).map(|m| m.len()), name(f))),
+        Sort::ExifOriginal | Sort::ExifDigitized => {
+            let digitized = order.by == Sort::ExifDigitized;
+            // Files without the date last.
+            files.sort_by_cached_key(|f| {
+                let date = exif::date(&dir.join(f), digitized);
+                (date.is_none(), date, name(f))
+            })
+        }
+    }
+    if !order.ascending {
+        files.reverse();
+    }
+}
+
+/// Compare with runs of digits by value, so "img2" comes before "img10".
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (mut a, mut b) = (a, b);
+    loop {
+        let (Some(ca), Some(cb)) = (a.chars().next(), b.chars().next()) else {
+            return a.len().cmp(&b.len());
+        };
+        if ca.is_ascii_digit() && cb.is_ascii_digit() {
+            let end_a = a.find(|c: char| !c.is_ascii_digit()).unwrap_or(a.len());
+            let end_b = b.find(|c: char| !c.is_ascii_digit()).unwrap_or(b.len());
+            let (na, nb) = (
+                a[..end_a].trim_start_matches('0'),
+                b[..end_b].trim_start_matches('0'),
+            );
+            let ord = na.len().cmp(&nb.len()).then(na.cmp(nb));
+            if ord.is_ne() {
+                return ord;
+            }
+            (a, b) = (&a[end_a..], &b[end_b..]);
+        } else {
+            if ca != cb {
+                return ca.cmp(&cb);
+            }
+            (a, b) = (&a[ca.len_utf8()..], &b[cb.len_utf8()..]);
+        }
+    }
+}
+
 /// Paths in the same folder: byte-wise comparison of the whole path gives name order, and is
 /// ~9× faster than Path::cmp/file_name(), which re-parses the path in every comparison.
 fn sort_by_name(paths: &mut [PathBuf]) {
@@ -672,6 +808,9 @@ struct Config {
     app_name_first: bool,
     /// File list with size and date columns, as in Geeqie.
     file_details: bool,
+    sort: Sort,
+    sort_ascending: bool,
+    sort_case: bool,
 }
 
 impl Default for Config {
@@ -699,6 +838,9 @@ impl Default for Config {
             inhibit_screensaver: true,
             app_name_first: false,
             file_details: false,
+            sort: Sort::Name,
+            sort_ascending: true,
+            sort_case: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -737,6 +879,14 @@ impl Config {
                 "inhibit_screensaver" => c.inhibit_screensaver = value == "true",
                 "app_name_first" => c.app_name_first = value == "true",
                 "file_details" => c.file_details = value == "true",
+                "sort" => {
+                    c.sort = Sort::ALL
+                        .into_iter()
+                        .find(|s| s.key() == value)
+                        .unwrap_or(c.sort)
+                }
+                "sort_ascending" => c.sort_ascending = value == "true",
+                "sort_case" => c.sort_case = value == "true",
                 "background" => {
                     let hex = value.trim_start_matches('#');
                     if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
@@ -754,6 +904,14 @@ impl Config {
         c
     }
 
+    fn sort_order(&self) -> SortOrder {
+        SortOrder {
+            by: self.sort,
+            ascending: self.sort_ascending,
+            case: self.sort_case,
+        }
+    }
+
     fn load() -> Self {
         config_path()
             .and_then(|p| std::fs::read_to_string(p).ok())
@@ -763,7 +921,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nsort={}\nsort_ascending={}\nsort_case={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -784,6 +942,9 @@ impl Config {
             self.inhibit_screensaver,
             self.app_name_first,
             self.file_details,
+            self.sort.key(),
+            self.sort_ascending,
+            self.sort_case,
             self.background[0],
             self.background[1],
             self.background[2],
@@ -1293,9 +1454,12 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2, videos) = (self.dir.clone(), ctx.clone(), self.config.videos);
+        let order = self.config.sort_order();
         std::thread::spawn(move || {
+            let (dirs, mut files) = list_folder(&list_dir, videos);
+            sort_files(&list_dir, &mut files, order);
             // The receiver is gone if another folder was opened meanwhile; then we stop.
-            if tx.send(list_folder(&list_dir, videos)).is_err() {
+            if tx.send((dirs, files)).is_err() {
                 return;
             }
             ctx2.request_repaint();
@@ -1894,6 +2058,34 @@ impl App {
                     self.errors.insert(d.idx, e);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Geeqie's sort menu in the status bar.
+    fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let mut changed = false;
+        ui.menu_button(format!("{} ⏷", self.config.sort.label()), |ui| {
+            for sort in Sort::ALL {
+                if ui
+                    .selectable_label(self.config.sort == sort, sort.label())
+                    .clicked()
+                {
+                    self.config.sort = sort;
+                    changed = true;
+                }
+            }
+            ui.separator();
+            changed |= ui
+                .checkbox(&mut self.config.sort_ascending, "Ascending")
+                .changed();
+            changed |= ui.checkbox(&mut self.config.sort_case, "Case").changed();
+        });
+        if changed {
+            self.config.save();
+            // A random slideshow keeps its order; the new one applies when it ends.
+            if !self.random {
+                self.list(ctx);
             }
         }
     }
@@ -2832,6 +3024,8 @@ impl eframe::App for App {
                             .map_or("calculating…".to_owned(), human_size);
                         left += &format!(", {m} selected ({size})");
                     }
+                    self.sort_menu(ctx, ui);
+                    ui.separator();
                     ui.label(left);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if n == 0 {
@@ -3214,6 +3408,23 @@ mod tests {
     }
 
     #[test]
+    fn sorts_numbers_by_value() {
+        use std::cmp::Ordering::*;
+        assert_eq!(super::natural_cmp("img2.jpg", "img10.jpg"), Less);
+        assert_eq!(super::natural_cmp("img010", "img10"), Equal);
+        assert_eq!(super::natural_cmp("a", "a1"), Less);
+        let mut v: Vec<std::ffi::OsString> =
+            ["b10", "B2", "a1", "b9"].iter().map(Into::into).collect();
+        let order = super::SortOrder {
+            by: super::Sort::Number,
+            ascending: false,
+            case: false,
+        };
+        super::sort_files(std::path::Path::new("."), &mut v, order);
+        assert_eq!(v, ["b10", "b9", "B2", "a1"]);
+    }
+
+    #[test]
     fn formats_local_time() {
         let t = super::local_time(1_700_000_000);
         assert_eq!(t.len(), "2023-11-14 22:13:20".len(), "{t}");
@@ -3301,6 +3512,12 @@ mod tests {
         assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
         assert!(!Config::default().app_name_first);
         assert!(!Config::default().file_details && Config::parse("file_details=true").file_details);
+        let c = Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case=false");
+        assert_eq!(
+            (c.sort, c.sort_ascending, c.sort_case),
+            (super::Sort::ExifDigitized, false, false)
+        );
+        assert_eq!(Config::parse("sort=nonsense").sort, super::Sort::Name);
         assert!(Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(super::egui::vec2(1000.0, 700.5)),

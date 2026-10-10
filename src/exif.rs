@@ -5,13 +5,50 @@ use std::path::Path;
 
 /// (label, value) rows for the panel, in display order; empty if the file has no EXIF.
 pub fn read(path: &Path) -> Vec<(&'static str, String)> {
+    raw(path).map_or_else(Vec::new, |raw| parse(&raw))
+}
+
+/// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text.
+pub fn date(path: &Path, digitized: bool) -> Option<String> {
+    let raw = raw(path)?;
+    let (t, _, exif, _) = ifds(&raw)?;
+    let tag = if digitized { 0x9004 } else { 0x9003 };
+    t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
+}
+
+fn raw(path: &Path) -> Option<Vec<u8>> {
     use image::ImageDecoder;
-    let raw = image::ImageReader::open(path)
+    image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
+        .ok()?
+        .into_decoder()
+        .ok()?
+        .exif_metadata()
         .ok()
-        .and_then(|r| r.into_decoder().ok())
-        .and_then(|mut d| d.exif_metadata().ok().flatten());
-    raw.map_or_else(Vec::new, |raw| parse(&raw))
+        .flatten()
+}
+
+type Ifd = Vec<(u16, Entry)>;
+
+/// The TIFF block with its IFD0, Exif and GPS directories.
+fn ifds(raw: &[u8]) -> Option<(Tiff<'_>, Ifd, Ifd, Ifd)> {
+    let data = raw.strip_prefix(b"Exif\0\0").unwrap_or(raw);
+    let little = match data.get(..2) {
+        Some(b"II") => true,
+        Some(b"MM") => false,
+        _ => return None,
+    };
+    let t = Tiff { data, little };
+    let ifd0 = t.ifd(t.u32(4)? as usize);
+    let sub = |tag: u16| {
+        let e = ifd0.iter().find(|(t2, _)| *t2 == tag)?.1;
+        Some(t.ifd(t.int(e)? as usize))
+    };
+    let (exif, gps) = (
+        sub(0x8769).unwrap_or_default(),
+        sub(0x8825).unwrap_or_default(),
+    );
+    Some((t, ifd0, exif, gps))
 }
 
 struct Tiff<'a> {
@@ -99,25 +136,9 @@ impl Tiff<'_> {
 }
 
 fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
-    let data = raw.strip_prefix(b"Exif\0\0").unwrap_or(raw);
-    let little = match data.get(..2) {
-        Some(b"II") => true,
-        Some(b"MM") => false,
-        _ => return Vec::new(),
-    };
-    let t = Tiff { data, little };
-    let Some(ifd0) = t.u32(4) else {
+    let Some((t, ifd0, exif, gps)) = ifds(raw) else {
         return Vec::new();
     };
-    let ifd0 = t.ifd(ifd0 as usize);
-    let sub = |tag: u16| {
-        let e = ifd0.iter().find(|(t2, _)| *t2 == tag)?.1;
-        Some(t.ifd(t.int(e)? as usize))
-    };
-    let (exif, gps) = (
-        sub(0x8769).unwrap_or_default(),
-        sub(0x8825).unwrap_or_default(),
-    );
     let get = |ifd: &[(u16, Entry)], tag: u16| ifd.iter().find(|(t2, _)| *t2 == tag).map(|e| e.1);
 
     let mut rows = Vec::new();
