@@ -57,6 +57,7 @@ enum Action {
     Faster,
     Slower,
     Escape,
+    NewWindow,
 }
 
 const NONE: egui::Modifiers = egui::Modifiers::NONE;
@@ -112,6 +113,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Slower, CTRL, Key::Minus),
         (Escape, NONE, Key::Escape),
         (Escape, NONE, Key::Q),
+        (NewWindow, CTRL, Key::N),
     ]
 };
 
@@ -1205,6 +1207,16 @@ impl App {
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
+            // A separate process: windows share nothing but the config file.
+            Action::NewWindow => {
+                let started = std::env::current_exe()
+                    .and_then(|exe| std::process::Command::new(exe).arg(self.location()).spawn());
+                match started {
+                    // Reap the child when it exits, so it does not linger as a zombie.
+                    Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+                    Err(e) => self.notice = Some(format!("Could not open a new window: {e}")),
+                }
+            }
             Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
@@ -1366,6 +1378,10 @@ impl eframe::App for App {
                         menu_item(ui, act, "Slower", Action::Slower);
                         let random = egui::Button::selectable(self.config.random, "Random Order");
                         menu_button(ui, act, random, Action::RandomOrder);
+                    });
+                    ui.menu_button("Window", |ui| {
+                        menu_item(ui, act, "New Window", Action::NewWindow);
+                        menu_item(ui, act, "Close Window", Action::CloseWindow);
                     });
                 });
             });
