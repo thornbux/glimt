@@ -30,6 +30,8 @@ struct Decoded {
 
 struct Slot {
     tex: egui::TextureHandle,
+    /// Filen teksturen er laget fra; avgjør om den kan beholdes når fillista byttes.
+    path: PathBuf,
     full: bool,
     /// Originalstørrelse etter EXIF-rotasjon.
     orig: [usize; 2],
@@ -60,6 +62,8 @@ struct App {
     started: Option<Instant>,
     /// Svar fra en åpen fildialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    /// Mappelesing i bakgrunnen: (undermapper, bilder).
+    listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<PathBuf>)>>,
     /// Rull trevisningen til gjeldende bilde ved neste tegning.
     scroll_to_cur: bool,
     /// Lysbildefremvisning: når forrige bilde ble vist; `None` = av.
@@ -85,11 +89,15 @@ fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             dirs.push(path);
         }
     }
-    // Alle ligger i samme mappe, så bytevis sammenligning av hele stien gir navnerekkefølge.
-    // Det er ~9× raskere enn Path::cmp/file_name(), som tolker stien på nytt i hver sammenligning.
-    dirs.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
-    images.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
+    sort_by_name(&mut dirs);
+    sort_by_name(&mut images);
     (dirs, images)
+}
+
+/// Stier i samme mappe: bytevis sammenligning av hele stien gir navnerekkefølge, og er
+/// ~9× raskere enn Path::cmp/file_name(), som tolker stien på nytt i hver sammenligning.
+fn sort_by_name(paths: &mut [PathBuf]) {
+    paths.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
 }
 
 /// `$XDG_CONFIG_HOME/glimt/config`, ellers `~/.config/glimt/config`.
@@ -280,9 +288,12 @@ impl App {
             pan: egui::Vec2::ZERO,
             started: Some(Instant::now()),
             dialog: None,
+            listing: None,
             scroll_to_cur: true,
         };
         app.open(&cc.egui_ctx, path);
+        // Små mapper er lest før første frame; store holder ikke oppstarten igjen mer enn 50 ms.
+        app.receive_listing(&cc.egui_ctx, std::time::Duration::from_millis(50));
         app
     }
 
@@ -301,21 +312,57 @@ impl App {
         };
         // Kanonisk sti én gang her, så ⬆ .. og «husk mappa» ikke trenger systemkall senere.
         let dir = dir.canonicalize().unwrap_or(dir);
-        (self.subdirs, self.files) = list_folder(&dir);
+        // Vis en oppgitt fil med en gang; mappa leses i bakgrunnen og fletter inn lista etterpå.
+        let shown = file
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|n| dir.join(n));
+        self.subdirs.clear();
         self.random = false;
-        self.slots.clear();
-        self.pending.clear();
-        self.errors.clear();
-        let name = file.as_deref().and_then(Path::file_name);
-        let start = name
-            .and_then(|n| self.files.iter().position(|p| p.file_name() == Some(n)))
-            .unwrap_or(0);
+        self.replace_files(ctx, shown.iter().cloned().collect(), shown);
+        let (tx, rx) = mpsc::channel();
+        let (list_dir, ctx2) = (dir.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            // Mottakeren er borte hvis en annen mappe er åpnet i mellomtiden; da forkastes svaret.
+            let _ = tx.send(list_folder(&list_dir));
+            ctx2.request_repaint();
+        });
+        self.listing = Some(rx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
             "{} — glimt",
             dir.display()
         )));
         self.dir = dir;
-        self.go(ctx, start);
+    }
+
+    /// Ta imot mappelista hvis den er klar, eventuelt etter å ha ventet opptil `wait`.
+    fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
+        let Some(Ok((dirs, files))) = self.listing.as_ref().map(|rx| rx.recv_timeout(wait)) else {
+            return;
+        };
+        self.listing = None;
+        self.subdirs = dirs;
+        self.random = false;
+        let shown = self.files.get(self.cur).cloned();
+        self.replace_files(ctx, files, shown);
+    }
+
+    /// Bytt fillista og gå til `shown` (ellers første bilde). Teksturen som vises nå beholdes
+    /// hvis den er laget fra samme fil. All indeksbasert tilstand nullstilles; jobber i arbeid
+    /// avvises på filsti når de kommer.
+    fn replace_files(&mut self, ctx: &egui::Context, files: Vec<PathBuf>, shown: Option<PathBuf>) {
+        let slot = self.slots.remove(&self.cur);
+        self.files = files;
+        self.slots.clear();
+        self.pending.clear();
+        self.errors.clear();
+        let cur = shown
+            .and_then(|p| self.files.iter().position(|f| *f == p))
+            .unwrap_or(0);
+        if let Some(slot) = slot.filter(|s| self.files.get(cur) == Some(&s.path)) {
+            self.slots.insert(cur, slot);
+        }
+        self.go(ctx, cur);
     }
 
     /// Vis zenitys fildialog i en egen tråd så vinduet ikke fryser.
@@ -369,22 +416,16 @@ impl App {
         if self.files.is_empty() {
             return;
         }
-        let path = self.files[self.cur].clone();
-        let slot = self.slots.remove(&self.cur);
+        let mut files = std::mem::take(&mut self.files);
+        let shown = files[self.cur].clone();
         if on {
-            self.files.swap(0, self.cur);
-            shuffle(&mut self.files[1..]);
+            files.swap(0, self.cur);
+            shuffle(&mut files[1..]);
         } else {
-            self.files.sort();
+            sort_by_name(&mut files);
         }
         self.random = on;
-        self.slots.clear();
-        self.pending.clear();
-        let cur = self.files.iter().position(|f| *f == path).unwrap_or(0);
-        if let Some(slot) = slot {
-            self.slots.insert(cur, slot);
-        }
-        self.go(ctx, cur);
+        self.replace_files(ctx, files, Some(shown));
     }
 
     fn start_slideshow(&mut self, ctx: &egui::Context, random: bool) {
@@ -480,6 +521,7 @@ impl App {
                         d.idx,
                         Slot {
                             tex,
+                            path: d.path,
                             full: d.full,
                             orig,
                         },
@@ -490,7 +532,7 @@ impl App {
                         eprintln!("første bilde: {} ms", t.elapsed().as_millis());
                     }
                 }
-                Some(Err(e)) => {
+                Some(Err(e)) if wanted => {
                     self.errors.insert(d.idx, e);
                 }
                 _ => {}
@@ -589,6 +631,7 @@ impl eframe::App for App {
             [max_side, max_side],
         ];
         self.receive(ctx);
+        self.receive_listing(ctx, std::time::Duration::ZERO);
         self.slideshow_tick(ctx);
         if let Some(Ok(picked)) = self.dialog.as_ref().map(mpsc::Receiver::try_recv) {
             self.dialog = None;
@@ -771,7 +814,12 @@ impl eframe::App for App {
                     egui::Image::new(&slot.tex).paint_at(ui, rect);
                 } else {
                     let text = if self.files.is_empty() {
-                        "Ingen bilder i mappa".to_owned()
+                        if self.listing.is_some() {
+                            "Leser mappa…"
+                        } else {
+                            "Ingen bilder i mappa"
+                        }
+                        .to_owned()
                     } else if let Some(e) = self.errors.get(&self.cur) {
                         format!("Kunne ikke åpne {}:\n{e}", self.files[self.cur].display())
                     } else {
