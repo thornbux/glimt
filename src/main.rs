@@ -310,7 +310,18 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
     img.apply_orientation(orientation);
     let orig = [img.width() as usize, img.height() as usize];
     if img.width() > max[0] || img.height() > max[1] {
-        img = img.thumbnail(max[0], max[1]);
+        let scale = (max[0] as f64 / img.width() as f64).min(max[1] as f64 / img.height() as f64);
+        let w = ((img.width() as f64 * scale).round() as u32).max(1);
+        let h = ((img.height() as f64 * scale).round() as u32).max(1);
+        let mut small = image::DynamicImage::new(w, h, img.color());
+        // SIMD-nedskalering; image sin thumbnail brukte ~150–330 ms på 12 MP.
+        let opts = fast_image_resize::ResizeOptions::new().resize_alg(
+            fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
+        );
+        fast_image_resize::Resizer::new()
+            .resize(&img, &mut small, &opts)
+            .map_err(|e| e.to_string())?;
+        img = small;
     }
     let rgba = img.into_rgba8();
     let size = [rgba.width() as usize, rgba.height() as usize];
