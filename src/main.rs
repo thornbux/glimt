@@ -251,9 +251,8 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| {
             let area = ui.max_rect();
             let response = ui.allocate_rect(area, egui::Sense::drag());
-            let orig = self.slots.get(&self.cur).map(|s| s.orig);
-            let fit = orig.map_or(1.0, |o| {
-                (area.width() * ppp / o[0] as f32).min(area.height() * ppp / o[1] as f32).min(1.0)
+            let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
+                (area.width() * ppp / s.orig[0] as f32).min(area.height() * ppp / s.orig[1] as f32).min(1.0)
             });
             self.keys(ctx, fit);
             if response.dragged() {
