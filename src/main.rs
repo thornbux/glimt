@@ -48,7 +48,6 @@ struct App {
     /// Fysiske skjermpiksler per originalpiksel; `None` = tilpass til vinduet.
     zoom: Option<f32>,
     pan: egui::Vec2,
-    fullscreen: bool,
     started: Instant,
     first_shown: bool,
 }
@@ -133,7 +132,6 @@ impl App {
             errors: HashMap::new(),
             zoom: None,
             pan: egui::Vec2::ZERO,
-            fullscreen: false,
             started: Instant::now(),
             first_shown: false,
         };
@@ -211,13 +209,12 @@ impl App {
         } else if pressed(Key::End) && n > 0 {
             self.go(ctx, last);
         }
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         if pressed(Key::F) || pressed(Key::F11) {
-            self.fullscreen = !self.fullscreen;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
         }
         if pressed(Key::Escape) {
-            if self.fullscreen {
-                self.fullscreen = false;
+            if fullscreen {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
