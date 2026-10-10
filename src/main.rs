@@ -739,7 +739,7 @@ impl eframe::App for App {
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
             .show(ui, |ui| {
                 let area = ui.max_rect();
-                let response = ui.allocate_rect(area, egui::Sense::drag());
+                let response = ui.allocate_rect(area, egui::Sense::click_and_drag());
                 let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
                     (area.width() * ppp / s.orig[0] as f32)
                         .min(area.height() * ppp / s.orig[1] as f32)
@@ -751,6 +751,9 @@ impl eframe::App for App {
                 }
                 if response.dragged() {
                     self.pan += response.drag_delta();
+                }
+                if response.double_clicked() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
                 }
                 let scale = self.zoom.unwrap_or(fit);
 
