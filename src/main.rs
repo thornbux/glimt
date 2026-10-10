@@ -25,6 +25,7 @@ const MAX_DELAY: u64 = 60;
 enum Action {
     OpenFile,
     OpenFolder,
+    NewFolder,
     Delete,
     DeletePermanently,
     CloseWindow,
@@ -80,6 +81,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (DeletePermanently, SHIFT, Key::Delete),
         (Delete, NONE, Key::Delete),
         (Delete, CTRL, Key::D),
+        (NewFolder, CTRL, Key::F),
         (CloseWindow, CTRL, Key::W),
         (Quit, CTRL, Key::Q),
         (First, NONE, Key::Home),
@@ -116,6 +118,12 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (NewWindow, CTRL, Key::N),
     ]
 };
+
+/// What the one-line text dialog is asking for.
+#[derive(Clone, Copy)]
+enum Prompt {
+    NewFolder,
+}
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
 fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, label: &str, action: Action) {
@@ -179,6 +187,8 @@ struct App {
     show_settings: bool,
     /// The confirmation dialog for permanent deletion is open.
     confirm: bool,
+    /// Open text dialog and the text typed so far.
+    prompt: Option<(Prompt, String)>,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
     last_scale: f32,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
@@ -595,6 +605,7 @@ impl App {
             rotate,
             show_settings: false,
             confirm: false,
+            prompt: None,
             selected: Default::default(),
             last_drawn: None,
             last_scale: 1.0,
@@ -997,6 +1008,27 @@ impl App {
         self.title(ctx);
     }
 
+    /// Preferences or a modal dialog is open: keys go there.
+    fn dialog_open(&self) -> bool {
+        self.show_settings || self.confirm || self.prompt.is_some()
+    }
+
+    /// The text dialog was answered with `text`.
+    fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
+        if text.is_empty() || text.contains('/') || text == "." || text == ".." {
+            self.notice = Some(format!("Not a valid name: \"{text}\""));
+            return;
+        }
+        let target = self.dir.join(text);
+        let result = match prompt {
+            Prompt::NewFolder => std::fs::create_dir(&target),
+        };
+        match result {
+            Ok(()) => self.list(ctx),
+            Err(e) => self.notice = Some(format!("{}: {e}", target.display())),
+        }
+    }
+
     /// Decode everything again with or without EXIF rotation.
     fn set_exif_rotate(&mut self, on: bool) {
         self.config.exif_rotate = on;
@@ -1207,6 +1239,7 @@ impl App {
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
+            Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => {
                 let started = std::env::current_exe()
@@ -1307,9 +1340,7 @@ impl eframe::App for App {
         }
 
         // Shortcuts go to the dialogs while one is open.
-        let mut act = (!self.show_settings && !self.confirm)
-            .then(|| Self::shortcut(ctx))
-            .flatten();
+        let mut act = (!self.dialog_open()).then(|| Self::shortcut(ctx)).flatten();
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let bare = fullscreen || self.hide_tools;
@@ -1320,6 +1351,7 @@ impl eframe::App for App {
                     ui.menu_button("File", |ui| {
                         menu_item(ui, act, "Open File…", Action::OpenFile);
                         menu_item(ui, act, "Open Folder…", Action::OpenFolder);
+                        menu_item(ui, act, "New Folder…", Action::NewFolder);
                         ui.separator();
                         menu_item(ui, act, "Delete…", Action::Delete);
                         menu_item(ui, act, "Delete Permanently…", Action::DeletePermanently);
@@ -1461,6 +1493,32 @@ impl eframe::App for App {
                     self.config.save();
                 }
             });
+
+        if let Some((prompt, mut text)) = self.prompt.take() {
+            let title = match prompt {
+                Prompt::NewFolder => "New folder name:",
+            };
+            let mut answer = None;
+            let modal = egui::Modal::new(egui::Id::new("prompt")).show(ctx, |ui| {
+                ui.label(title);
+                let edit = ui.text_edit_singleline(&mut text);
+                edit.request_focus();
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.horizontal(|ui| {
+                    if ui.button("OK (Enter)").clicked() || enter {
+                        answer = Some(text.clone());
+                    }
+                    if ui.button("Cancel (Esc)").clicked() {
+                        ui.close();
+                    }
+                });
+            });
+            if let Some(text) = answer {
+                self.answer_prompt(ctx, prompt, text.trim());
+            } else if !modal.should_close() {
+                self.prompt = Some((prompt, text));
+            }
+        }
 
         if self.confirm {
             let what = match self.targets().as_slice() {
@@ -1632,7 +1690,7 @@ impl eframe::App for App {
                         .min(max_fit)
                 });
                 let wheel = ctx.input(|i| i.zoom_delta() * (1.0 + i.smooth_scroll_delta.y / 400.0));
-                if wheel != 1.0 && !self.show_settings && !self.confirm {
+                if wheel != 1.0 && !self.dialog_open() {
                     self.zoom = Some((self.zoom.unwrap_or(fit) * wheel).clamp(0.02, 32.0));
                 }
                 if response.dragged() {
