@@ -667,7 +667,6 @@ impl eframe::App for App {
         self.show_settings = open;
 
         // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
-        // ponytail: tegner alle rader; bytt til ScrollArea::show_rows hvis mapper med titusenvis av bilder blir trege.
         let (mut open_dir, mut go_to) = (None, None);
         egui::Panel::left("venstre")
             .resizable(true)
@@ -699,21 +698,32 @@ impl eframe::App for App {
                                 }
                             });
                     });
-                egui::ScrollArea::vertical()
+                // Bare synlige rader tegnes, så lista er like rask med 10 som med 300 000 filer.
+                let row_h = ui.spacing().interact_size.y;
+                let pitch = row_h + ui.spacing().item_spacing.y;
+                let mut area = egui::ScrollArea::vertical()
                     .id_salt("filer")
-                    .auto_shrink(false)
-                    .show(ui, |ui| {
-                        for (i, f) in self.files.iter().enumerate() {
-                            let name = f.file_name().unwrap_or_default().to_string_lossy();
-                            let row = ui.selectable_label(i == self.cur, name);
-                            if row.clicked() {
-                                go_to = Some(i);
-                            }
-                            if i == self.cur && self.scroll_to_cur {
-                                row.scroll_to_me(None);
-                            }
+                    .auto_shrink(false);
+                if self.scroll_to_cur {
+                    // Rull bare når gjeldende bilde er utenfor synsfeltet, og legg det midt i.
+                    let (top, view) = (self.cur as f32 * pitch, ui.available_height());
+                    let off = egui::scroll_area::State::load(ctx, ui.make_persistent_id("filer"))
+                        .map_or(0.0, |s| s.offset.y);
+                    if top < off || top + pitch > off + view {
+                        area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
+                    }
+                }
+                area.show_rows(ui, row_h, self.files.len(), |ui, rows| {
+                    for i in rows {
+                        let name = self.files[i]
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy();
+                        if ui.selectable_label(i == self.cur, name).clicked() {
+                            go_to = Some(i);
                         }
-                    });
+                    }
+                });
             });
         self.scroll_to_cur = false;
         if let Some(d) = open_dir {
