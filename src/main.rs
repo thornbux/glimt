@@ -19,6 +19,11 @@ const DEFAULT_AHEAD: usize = 2;
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
 
+unsafe extern "C" {
+    /// glibc: gi frigjort heap-minne tilbake til operativsystemet.
+    fn malloc_trim(pad: usize) -> i32;
+}
+
 struct Decoded {
     idx: usize,
     full: bool,
@@ -361,6 +366,10 @@ impl App {
                         path,
                         result,
                     });
+                    // glibc gir ikke frigjort minne fra trådenes malloc-arenaer tilbake av seg selv;
+                    // dekoding etterlater flere bildestore buffere per tråd.
+                    // SAFETY: malloc_trim har ingen forutsetninger utover en fungerende glibc-malloc.
+                    unsafe { malloc_trim(0) };
                     ctx.request_repaint();
                 }
             });
