@@ -1763,7 +1763,24 @@ impl App {
         }
     }
 
-    /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow, preferences and the folder path.
+    /// The folder path above the folder list, as in Geeqie; Enter opens what was typed.
+    fn path_field(&mut self, ui: &mut egui::Ui) {
+        let edit = egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
+        let response = ui.add(edit);
+        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            let path = PathBuf::from(self.path_text.trim());
+            if path.exists() {
+                self.visit(ui.ctx(), path);
+            } else {
+                self.notice = Some(format!("No such folder: {}", path.display()));
+            }
+        }
+        if !response.has_focus() {
+            self.path_text = self.dir.display().to_string();
+        }
+    }
+
+    /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
     fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1786,22 +1803,6 @@ impl App {
                 };
                 tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
                 tool_button(ui, act, "⚙", Action::Preferences, false);
-                ui.separator();
-                // The folder path; Enter opens what was typed.
-                let edit =
-                    egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
-                let response = ui.add(edit);
-                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let path = PathBuf::from(self.path_text.trim());
-                    if path.exists() {
-                        self.visit(ui.ctx(), path);
-                    } else {
-                        self.notice = Some(format!("No such folder: {}", path.display()));
-                    }
-                }
-                if !response.has_focus() {
-                    self.path_text = self.dir.display().to_string();
-                }
             });
         });
     }
@@ -2559,6 +2560,7 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(240.0)
                 .show(ui, |ui| {
+                    self.path_field(ui);
                     egui::Panel::top("folders")
                         .resizable(true)
                         .default_size(200.0)
