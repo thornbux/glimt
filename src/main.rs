@@ -13,6 +13,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
+#[cfg(feature = "video")]
+mod video;
+
 const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
 /// Default number of images kept decoded on each side of the shown one.
 const DEFAULT_AHEAD: usize = 2;
@@ -266,9 +269,24 @@ struct App {
     random: bool,
 }
 
-fn is_image(path: &Path) -> bool {
+fn has_ext(path: &Path, exts: &[&str]) -> bool {
     let ext = path.extension().and_then(|e| e.to_str());
-    ext.is_some_and(|e| EXTS.contains(&e.to_ascii_lowercase().as_str()))
+    ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+#[cfg(feature = "video")]
+fn is_video(path: &Path) -> bool {
+    has_ext(path, video::EXTS)
+}
+
+#[cfg(not(feature = "video"))]
+fn is_video(_: &Path) -> bool {
+    false
+}
+
+/// Shown in the file list: an image, or a video with the video feature.
+fn is_listed(path: &Path) -> bool {
+    has_ext(path, EXTS) || is_video(path)
 }
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
@@ -277,7 +295,7 @@ fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        if is_image(&path) {
+        if is_listed(&path) {
             images.push(entry.file_name());
         } else if !entry.file_name().as_encoded_bytes().starts_with(b".")
             && entry
@@ -598,6 +616,10 @@ fn decode(
     max: [u32; 2],
     rotate: bool,
 ) -> Result<(egui::ColorImage, [usize; 2]), String> {
+    #[cfg(feature = "video")]
+    if is_video(path) {
+        return fit(video::preview(path)?, max);
+    }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
@@ -610,6 +632,14 @@ fn decode(
     if rotate {
         img.apply_orientation(orientation);
     }
+    fit(img, max)
+}
+
+/// Scale down to fit within `max`; returns the texture image and the original size.
+fn fit(
+    mut img: image::DynamicImage,
+    max: [u32; 2],
+) -> Result<(egui::ColorImage, [usize; 2]), String> {
     let orig = [img.width() as usize, img.height() as usize];
     if img.width() > max[0] || img.height() > max[1] {
         let scale = (max[0] as f64 / img.width() as f64).min(max[1] as f64 / img.height() as f64);
@@ -800,7 +830,7 @@ impl App {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter(|e| is_image(&e.path()));
+                .filter(|e| is_listed(&e.path()));
             let mut sizes = images
                 .filter_map(|e| Some(e.metadata().ok()?.len()))
                 .peekable();
