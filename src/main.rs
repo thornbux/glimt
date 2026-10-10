@@ -424,6 +424,92 @@ fn write_atomic(path: &Path, text: &str) {
     }
 }
 
+/// Trash for systems without gio: the freedesktop.org home trash,
+/// `$XDG_DATA_HOME/Trash`, otherwise `~/.local/share/Trash`.
+fn trash_without_gio(paths: &[PathBuf]) -> Vec<String> {
+    let trash = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .map(|d| d.join("Trash"));
+    // The spec wants local time; `date` saves a time zone dependency.
+    let date = std::process::Command::new("date")
+        .arg("+%Y-%m-%dT%H:%M:%S")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default();
+    match trash {
+        Some(trash) => trash_into(&trash, paths, &date),
+        None => vec!["no trash folder: HOME is not set".into()],
+    }
+}
+
+/// Move `paths` into the trash folder `trash`; returns the errors.
+/// ponytail: home trash only; files on other file systems fail (rename across devices) instead
+/// of going to `$topdir/.Trash-$uid`.
+fn trash_into(trash: &Path, paths: &[PathBuf], date: &str) -> Vec<String> {
+    let (files, info) = (trash.join("files"), trash.join("info"));
+    if let Err(e) = std::fs::create_dir_all(&files).and_then(|_| std::fs::create_dir_all(&info)) {
+        return vec![format!("{}: {e}", trash.display())];
+    }
+    paths
+        .iter()
+        .filter_map(|path| {
+            let e = trash_one(&files, &info, path, date).err()?;
+            Some(format!("{}: {e}", path.display()))
+        })
+        .collect()
+}
+
+fn trash_one(files: &Path, info: &Path, path: &Path, date: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let path = std::path::absolute(path)?;
+    let name = path.file_name().ok_or(std::io::ErrorKind::InvalidInput)?;
+    for n in 1.. {
+        let mut entry = name.to_os_string();
+        if n > 1 {
+            entry.push(format!(".{n}"));
+        }
+        let mut info_name = entry.clone();
+        info_name.push(".trashinfo");
+        let info_path = info.join(info_name);
+        // Creating the .trashinfo exclusively reserves the name, as the spec says.
+        let open = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&info_path);
+        let mut f = match open {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            other => other?,
+        };
+        if files.join(&entry).exists() {
+            let _ = std::fs::remove_file(&info_path);
+            continue;
+        }
+        let path_url = percent_encode(&path);
+        let result = write!(f, "[Trash Info]\nPath={path_url}\nDeletionDate={date}\n")
+            .and_then(|_| std::fs::rename(&path, files.join(&entry)));
+        if result.is_err() {
+            let _ = std::fs::remove_file(&info_path);
+        }
+        return result;
+    }
+    unreachable!()
+}
+
+/// Percent-encode a path for `.trashinfo` (RFC 2396), keeping `/` and unreserved bytes.
+fn percent_encode(path: &Path) -> String {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    bytes
+        .iter()
+        .map(|&b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 /// New index for `i` when the (sorted) indices in `removed` are taken out of the list; `None` if `i` itself is removed.
 fn shifted(i: usize, removed: &[usize]) -> Option<usize> {
     removed.binary_search(&i).err().map(|before| i - before)
@@ -829,6 +915,9 @@ impl App {
                     {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => errors.push(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            errors.extend(trash_without_gio(chunk));
+                        }
                         Err(e) => errors.push(e.to_string()),
                     }
                 }
@@ -1970,6 +2059,29 @@ mod tests {
         assert_eq!(super::thousands(1000), "1,000");
         assert_eq!(super::thousands(300000), "300,000");
         assert_eq!(super::thousands(1234567), "1,234,567");
+    }
+
+    #[test]
+    fn trashes_without_gio() {
+        let base = std::env::temp_dir().join("glimt-test-trash");
+        let _ = std::fs::remove_dir_all(&base);
+        let (a, b, trash) = (base.join("a"), base.join("b"), base.join("Trash"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let paths = [a.join("x y.png"), b.join("x y.png")];
+        for p in &paths {
+            std::fs::write(p, "").unwrap();
+        }
+        let errors = super::trash_into(&trash, &paths, "2026-10-10T12:00:00");
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!paths[0].exists() && !paths[1].exists());
+        assert!(trash.join("files/x y.png").exists() && trash.join("files/x y.png.2").exists());
+        let info = std::fs::read_to_string(trash.join("info/x y.png.2.trashinfo")).unwrap();
+        let expected = format!(
+            "[Trash Info]\nPath={}/b/x%20y.png\nDeletionDate=2026-10-10T12:00:00\n",
+            base.display()
+        );
+        assert_eq!(info, expected);
     }
 
     #[test]
