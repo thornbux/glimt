@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
 const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
-/// Antall bilder som holdes dekodet på hver side av det viste.
-const AHEAD: usize = 2;
+/// Standard antall bilder som holdes dekodet på hver side av det viste.
+const DEFAULT_AHEAD: usize = 2;
 
 struct Decoded {
     idx: usize,
@@ -38,6 +38,9 @@ struct App {
     files: Vec<PathBuf>,
     cur: usize,
     current: Arc<AtomicUsize>,
+    /// Antall bilder forhåndslastet på hver side (Innstillinger).
+    ahead: Arc<AtomicUsize>,
+    show_settings: bool,
     /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
     /// (bildeindeks, full oppløsning, fil)
@@ -112,14 +115,16 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
 impl App {
     fn new(cc: &eframe::CreationContext, path: PathBuf) -> Self {
         let current = Arc::new(AtomicUsize::new(0));
+        let ahead = Arc::new(AtomicUsize::new(DEFAULT_AHEAD));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
         for _ in 0..workers {
-            let (current, limits, job_rx, done_tx, ctx) = (
+            let (current, ahead, limits, job_rx, done_tx, ctx) = (
                 current.clone(),
+                ahead.clone(),
                 limits.clone(),
                 job_rx.clone(),
                 done_tx.clone(),
@@ -132,7 +137,7 @@ impl App {
                     };
                     // Avbrudd: hopp over bilder brukeren allerede har bladd forbi.
                     let cur = current.load(Ordering::Relaxed);
-                    if idx.abs_diff(cur) > AHEAD || (full && idx != cur) {
+                    if idx.abs_diff(cur) > ahead.load(Ordering::Relaxed) || (full && idx != cur) {
                         let _ = done_tx.send(Decoded {
                             idx,
                             full,
@@ -159,6 +164,8 @@ impl App {
             files: Vec::new(),
             cur: 0,
             current,
+            ahead,
+            show_settings: false,
             limits,
             jobs,
             done,
@@ -251,19 +258,8 @@ impl App {
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
         self.scroll_to_cur = true;
+        self.refill();
         let cur = self.cur;
-        // Kast teksturer utenfor vinduet, og fullversjoner av andre bilder enn det viste.
-        self.slots
-            .retain(|&i, s| i.abs_diff(cur) <= AHEAD && (!s.full || i == cur));
-        self.request(cur, false);
-        for d in 1..=AHEAD {
-            if cur + d < self.files.len() {
-                self.request(cur + d, false);
-            }
-            if let Some(i) = cur.checked_sub(d) {
-                self.request(i, false);
-            }
-        }
         let name = self.files[cur]
             .file_name()
             .unwrap_or_default()
@@ -272,11 +268,31 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
+    /// Kast teksturer utenfor forhåndslastingsvinduet, og fullversjoner av andre bilder
+    /// enn det viste; be om de som mangler.
+    fn refill(&mut self) {
+        if self.files.is_empty() {
+            return;
+        }
+        let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed));
+        self.slots
+            .retain(|&i, s| i.abs_diff(cur) <= ahead && (!s.full || i == cur));
+        self.request(cur, false);
+        for d in 1..=ahead {
+            if cur + d < self.files.len() {
+                self.request(cur + d, false);
+            }
+            if let Some(i) = cur.checked_sub(d) {
+                self.request(i, false);
+            }
+        }
+    }
+
     fn receive(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.done.try_recv() {
             self.pending.remove(&(d.idx, d.full));
             let wanted = self.files.get(d.idx) == Some(&d.path)
-                && d.idx.abs_diff(self.cur) <= AHEAD
+                && d.idx.abs_diff(self.cur) <= self.ahead.load(Ordering::Relaxed)
                 && (!d.full || d.idx == self.cur);
             match d.result {
                 Some(Ok((img, orig))) if wanted => {
@@ -393,8 +409,34 @@ impl eframe::App for App {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+                ui.menu_button("Rediger", |ui| {
+                    if ui.button("Innstillinger…").clicked() {
+                        self.show_settings = true;
+                    }
+                });
             });
         });
+
+        let mut open = self.show_settings;
+        egui::Window::new("Innstillinger")
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                let mut n = self.ahead.load(Ordering::Relaxed);
+                let slider = egui::Slider::new(&mut n, 0..=20).text("bilder på hver side");
+                ui.label("Forhåndslast neste og forrige bilde:");
+                if ui.add(slider).changed() {
+                    self.ahead.store(n, Ordering::Relaxed);
+                    self.refill();
+                }
+                let [w, h] = self.limits.lock().unwrap()[0];
+                let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
+                ui.weak(format!(
+                    "Opptil ≈ {mb} MB med bilder i skjermoppløsning {w}×{h}"
+                ));
+            });
+        self.show_settings = open;
 
         // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
         // ponytail: tegner alle rader; bytt til ScrollArea::show_rows hvis mapper med titusenvis av bilder blir trege.
@@ -462,7 +504,10 @@ impl eframe::App for App {
                         .min(area.height() * ppp / s.orig[1] as f32)
                         .min(1.0)
                 });
-                self.keys(ctx, fit);
+                // Taster går til innstillingsvinduet mens det er åpent.
+                if !self.show_settings {
+                    self.keys(ctx, fit);
+                }
                 if response.dragged() {
                     self.pan += response.drag_delta();
                 }
