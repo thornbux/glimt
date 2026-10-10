@@ -92,7 +92,9 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
         .map_err(|e| e.to_string())?
         .into_decoder()
         .map_err(|e| e.to_string())?;
-    let orientation = dec.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+    let orientation = dec
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
     img.apply_orientation(orientation);
     let orig = [img.width() as usize, img.height() as usize];
@@ -101,7 +103,10 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
     }
     let rgba = img.into_rgba8();
     let size = [rgba.width() as usize, rgba.height() as usize];
-    Ok((egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()), orig))
+    Ok((
+        egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
+        orig,
+    ))
 }
 
 impl App {
@@ -122,16 +127,28 @@ impl App {
             );
             std::thread::spawn(move || {
                 loop {
-                    let Ok((idx, full, path)) = job_rx.lock().unwrap().recv() else { return };
+                    let Ok((idx, full, path)) = job_rx.lock().unwrap().recv() else {
+                        return;
+                    };
                     // Avbrudd: hopp over bilder brukeren allerede har bladd forbi.
                     let cur = current.load(Ordering::Relaxed);
                     if idx.abs_diff(cur) > AHEAD || (full && idx != cur) {
-                        let _ = done_tx.send(Decoded { idx, full, path, result: None });
+                        let _ = done_tx.send(Decoded {
+                            idx,
+                            full,
+                            path,
+                            result: None,
+                        });
                         continue;
                     }
                     let max = limits.lock().unwrap()[full as usize];
                     let result = Some(decode(&path, max));
-                    let _ = done_tx.send(Decoded { idx, full, path, result });
+                    let _ = done_tx.send(Decoded {
+                        idx,
+                        full,
+                        path,
+                        result,
+                    });
                     ctx.request_repaint();
                 }
             });
@@ -163,7 +180,13 @@ impl App {
         let (dir, file) = if path.is_dir() {
             (path, None)
         } else {
-            (path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf(), Some(path))
+            (
+                path.parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new("."))
+                    .to_path_buf(),
+                Some(path),
+            )
         };
         self.files = list_images(&dir);
         self.subdirs = list_dirs(&dir);
@@ -172,9 +195,16 @@ impl App {
         self.errors.clear();
         let start = file
             .and_then(|f| f.canonicalize().ok())
-            .and_then(|f| self.files.iter().position(|p| p.canonicalize().ok().as_ref() == Some(&f)))
+            .and_then(|f| {
+                self.files
+                    .iter()
+                    .position(|p| p.canonicalize().ok().as_ref() == Some(&f))
+            })
             .unwrap_or(0);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} — glimt", dir.display())));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+            "{} — glimt",
+            dir.display()
+        )));
         self.dir = dir;
         self.go(ctx, start);
     }
@@ -223,7 +253,8 @@ impl App {
         self.scroll_to_cur = true;
         let cur = self.cur;
         // Kast teksturer utenfor vinduet, og fullversjoner av andre bilder enn det viste.
-        self.slots.retain(|&i, s| i.abs_diff(cur) <= AHEAD && (!s.full || i == cur));
+        self.slots
+            .retain(|&i, s| i.abs_diff(cur) <= AHEAD && (!s.full || i == cur));
         self.request(cur, false);
         for d in 1..=AHEAD {
             if cur + d < self.files.len() {
@@ -233,7 +264,10 @@ impl App {
                 self.request(i, false);
             }
         }
-        let name = self.files[cur].file_name().unwrap_or_default().to_string_lossy();
+        let name = self.files[cur]
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
         let title = format!("{name} ({}/{}) — glimt", cur + 1, self.files.len());
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
@@ -250,9 +284,22 @@ impl App {
                     if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
                         continue;
                     }
-                    let tex = ctx.load_texture(format!("img{}", d.idx), img, egui::TextureOptions::LINEAR);
-                    self.slots.insert(d.idx, Slot { tex, full: d.full, orig });
-                    if d.idx == self.cur && let Some(t) = self.started.take() {
+                    let tex = ctx.load_texture(
+                        format!("img{}", d.idx),
+                        img,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.slots.insert(
+                        d.idx,
+                        Slot {
+                            tex,
+                            full: d.full,
+                            orig,
+                        },
+                    );
+                    if d.idx == self.cur
+                        && let Some(t) = self.started.take()
+                    {
                         eprintln!("første bilde: {} ms", t.elapsed().as_millis());
                     }
                 }
@@ -314,7 +361,11 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        let screen = ctx.input(|i| i.viewport().monitor_size.unwrap_or(i.viewport_rect().size()));
+        let screen = ctx.input(|i| {
+            i.viewport()
+                .monitor_size
+                .unwrap_or(i.viewport_rect().size())
+        });
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         *self.limits.lock().unwrap() = [
             [(screen.x * ppp) as u32, (screen.y * ppp) as u32],
@@ -348,31 +399,40 @@ impl eframe::App for App {
         // Mappetre i ett nivå: opp, undermapper, bilder.
         // ponytail: tegner alle rader; bytt til ScrollArea::show_rows hvis mapper med titusenvis av bilder blir trege.
         let (mut open_dir, mut go_to) = (None, None);
-        egui::Panel::left("tre").resizable(true).default_size(240.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                if let Some(parent) = self.dir.canonicalize().ok().and_then(|d| d.parent().map(Path::to_path_buf))
-                    && ui.selectable_label(false, "⬆ ..").clicked()
-                {
-                    open_dir = Some(parent);
-                }
-                for d in &self.subdirs {
-                    let name = d.file_name().unwrap_or_default().to_string_lossy();
-                    if ui.selectable_label(false, format!("📁 {name}")).clicked() {
-                        open_dir = Some(d.clone());
-                    }
-                }
-                for (i, f) in self.files.iter().enumerate() {
-                    let name = f.file_name().unwrap_or_default().to_string_lossy();
-                    let row = ui.selectable_label(i == self.cur, name);
-                    if row.clicked() {
-                        go_to = Some(i);
-                    }
-                    if i == self.cur && self.scroll_to_cur {
-                        row.scroll_to_me(None);
-                    }
-                }
+        egui::Panel::left("tre")
+            .resizable(true)
+            .default_size(240.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        if let Some(parent) = self
+                            .dir
+                            .canonicalize()
+                            .ok()
+                            .and_then(|d| d.parent().map(Path::to_path_buf))
+                            && ui.selectable_label(false, "⬆ ..").clicked()
+                        {
+                            open_dir = Some(parent);
+                        }
+                        for d in &self.subdirs {
+                            let name = d.file_name().unwrap_or_default().to_string_lossy();
+                            if ui.selectable_label(false, format!("📁 {name}")).clicked() {
+                                open_dir = Some(d.clone());
+                            }
+                        }
+                        for (i, f) in self.files.iter().enumerate() {
+                            let name = f.file_name().unwrap_or_default().to_string_lossy();
+                            let row = ui.selectable_label(i == self.cur, name);
+                            if row.clicked() {
+                                go_to = Some(i);
+                            }
+                            if i == self.cur && self.scroll_to_cur {
+                                row.scroll_to_me(None);
+                            }
+                        }
+                    });
             });
-        });
         self.scroll_to_cur = false;
         if let Some(d) = open_dir {
             self.open(ctx, d);
@@ -380,49 +440,68 @@ impl eframe::App for App {
             self.go(ctx, i);
         }
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| {
-            let area = ui.max_rect();
-            let response = ui.allocate_rect(area, egui::Sense::drag());
-            let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
-                (area.width() * ppp / s.orig[0] as f32).min(area.height() * ppp / s.orig[1] as f32).min(1.0)
-            });
-            self.keys(ctx, fit);
-            if response.dragged() {
-                self.pan += response.drag_delta();
-            }
-            let scale = self.zoom.unwrap_or(fit);
-
-            if let Some(slot) = self.slots.get(&self.cur) {
-                // Skjermversjonen holder ikke ved denne zoomen: hent full oppløsning.
-                if !slot.full && scale > slot.tex.size()[0] as f32 / slot.orig[0] as f32 + 1e-3 {
-                    self.request(self.cur, true);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+            .show(ui, |ui| {
+                let area = ui.max_rect();
+                let response = ui.allocate_rect(area, egui::Sense::drag());
+                let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
+                    (area.width() * ppp / s.orig[0] as f32)
+                        .min(area.height() * ppp / s.orig[1] as f32)
+                        .min(1.0)
+                });
+                self.keys(ctx, fit);
+                if response.dragged() {
+                    self.pan += response.drag_delta();
                 }
-                let slot = &self.slots[&self.cur];
-                let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
-                let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
-                egui::Image::new(&slot.tex).paint_at(ui, rect);
-            } else {
-                let text = if self.files.is_empty() {
-                    "Ingen bilder i mappa".to_owned()
-                } else if let Some(e) = self.errors.get(&self.cur) {
-                    format!("Kunne ikke åpne {}:\n{e}", self.files[self.cur].display())
+                let scale = self.zoom.unwrap_or(fit);
+
+                if let Some(slot) = self.slots.get(&self.cur) {
+                    // Skjermversjonen holder ikke ved denne zoomen: hent full oppløsning.
+                    if !slot.full && scale > slot.tex.size()[0] as f32 / slot.orig[0] as f32 + 1e-3
+                    {
+                        self.request(self.cur, true);
+                    }
+                    let slot = &self.slots[&self.cur];
+                    let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
+                    let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
+                    egui::Image::new(&slot.tex).paint_at(ui, rect);
                 } else {
-                    String::new()
-                };
-                ui.painter().text(area.center(), egui::Align2::CENTER_CENTER, text,
-                    egui::FontId::proportional(16.0), egui::Color32::GRAY);
-            }
-        });
+                    let text = if self.files.is_empty() {
+                        "Ingen bilder i mappa".to_owned()
+                    } else if let Some(e) = self.errors.get(&self.cur) {
+                        format!("Kunne ikke åpne {}:\n{e}", self.files[self.cur].display())
+                    } else {
+                        String::new()
+                    };
+                    ui.painter().text(
+                        area.center(),
+                        egui::Align2::CENTER_CENTER,
+                        text,
+                        egui::FontId::proportional(16.0),
+                        egui::Color32::GRAY,
+                    );
+                }
+            });
     }
 }
 
 fn main() -> eframe::Result {
-    let arg = std::env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| ".".into());
+    let arg = std::env::args_os()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| ".".into());
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("glimt").with_inner_size([1280.0, 800.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_title("glimt")
+            .with_inner_size([1280.0, 800.0]),
         ..Default::default()
     };
-    eframe::run_native("glimt", options, Box::new(move |cc| Ok(Box::new(App::new(cc, arg)))))
+    eframe::run_native(
+        "glimt",
+        options,
+        Box::new(move |cc| Ok(Box::new(App::new(cc, arg)))),
+    )
 }
 
 #[cfg(test)]
@@ -431,7 +510,9 @@ mod tests {
     fn lists_folder_and_decodes_to_screen_size() {
         let dir = std::env::temp_dir().join("glimt-test");
         std::fs::create_dir_all(&dir).unwrap();
-        image::RgbImage::new(400, 200).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(400, 200)
+            .save(dir.join("a.png"))
+            .unwrap();
         std::fs::write(dir.join("notes.txt"), "").unwrap();
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".hidden")).unwrap();
