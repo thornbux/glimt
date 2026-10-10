@@ -363,7 +363,12 @@ fn tool_button(ui: &mut egui::Ui, act: &mut Option<Action>, icon: &str, action: 
 unsafe extern "C" {
     /// glibc: return freed heap memory to the operating system.
     fn malloc_trim(pad: usize) -> i32;
+    /// glibc: set a malloc parameter.
+    fn mallopt(param: i32, value: i32) -> i32;
 }
+
+/// glibc's M_ARENA_MAX.
+const M_ARENA_MAX: i32 = -8;
 
 struct Decoded {
     idx: usize,
@@ -597,6 +602,9 @@ struct Config {
     exif_panel: bool,
     /// Toolbar under the menu, as in Geeqie.
     toolbar: bool,
+    /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
+    /// Read at startup only, since glibc must be set before threads start.
+    low_memory: bool,
 }
 
 impl Default for Config {
@@ -615,6 +623,7 @@ impl Default for Config {
             save_thumbnails: false,
             exif_panel: false,
             toolbar: true,
+            low_memory: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -645,6 +654,7 @@ impl Config {
                 "save_thumbnails" => c.save_thumbnails = value == "true",
                 "exif_panel" => c.exif_panel = value == "true",
                 "toolbar" => c.toolbar = value == "true",
+                "low_memory" => c.low_memory = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -664,7 +674,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -677,6 +687,7 @@ impl Config {
             self.save_thumbnails,
             self.exif_panel,
             self.toolbar,
+            self.low_memory,
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -2370,6 +2381,14 @@ impl eframe::App for App {
                     self.config.save();
                 }
                 ui.separator();
+                let low = egui::Checkbox::new(
+                    &mut self.config.low_memory,
+                    "Use less memory (decoding up to ~8 % slower; after restart)",
+                );
+                if ui.add(low).changed() {
+                    self.config.save();
+                }
+                ui.separator();
                 let exif = egui::Checkbox::new(
                     &mut self.config.exif_panel,
                     "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
@@ -2784,6 +2803,13 @@ impl eframe::App for App {
 }
 
 fn main() -> eframe::Result {
+    // One malloc arena for all threads. With one per thread, freed image buffers stayed in
+    // each decode thread's arena: 91 instead of 29 MB of own memory in a folder of
+    // screenshots, while decoding is at most a few percent slower.
+    if Config::load().low_memory {
+        // SAFETY: called before any other thread exists.
+        unsafe { mallopt(M_ARENA_MAX, 1) };
+    }
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -2909,6 +2935,7 @@ mod tests {
         assert!(!Config::default().save_thumbnails);
         assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
+        assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
         assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
