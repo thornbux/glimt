@@ -89,8 +89,9 @@ musl-based distributions (Alpine) are not supported, because the viewer calls gl
 |---|---|
 | Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
 | Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
+| Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` (`~/.cache/thumbnails/normal`), shared with other programs |
 
-Both are plain `key=value` text files written atomically.
+The first two are plain `key=value` text files written atomically.
 
 ## Supported formats
 

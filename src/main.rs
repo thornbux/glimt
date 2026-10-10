@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
+mod thumbs;
 #[cfg(feature = "video")]
 mod video;
 
@@ -22,6 +23,12 @@ const DEFAULT_AHEAD: usize = 2;
 /// Default seconds between images in a slideshow.
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
+/// Thumbnail box in the file list, in points (Geeqie's default 96×72).
+const THUMB: egui::Vec2 = egui::vec2(96.0, 72.0);
+/// Thumbnail jobs further than this from the visible rows are skipped.
+const THUMB_MARGIN: usize = 20;
+/// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
+const MAX_THUMBS: usize = 600;
 
 /// Everything the user can do from a menu or a shortcut.
 #[derive(Clone, Copy, PartialEq)]
@@ -59,6 +66,7 @@ enum Action {
     ZoomFit,
     FullScreen,
     HideTools,
+    Thumbnails,
     Refresh,
     Slideshow,
     Pause,
@@ -108,6 +116,7 @@ impl Action {
             ZoomFit => "Zoom to Fit",
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
+            Thumbnails => "Show Thumbnails",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
             Pause => "Pause Slideshow",
@@ -170,6 +179,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::V),
         (FullScreen, NONE, Key::F11),
         (HideTools, CTRL, Key::H),
+        (Thumbnails, NONE, Key::T),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
         (Pause, NONE, Key::P),
@@ -291,6 +301,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "Thumbnail cache",
+        "The shared ~/.cache/thumbnails; new ones are saved only if the setting is on",
+        "Own cache, or the shared one",
     ),
     (
         "Refresh on change",
@@ -420,6 +435,17 @@ struct App {
     paused: bool,
     /// The file list is shuffled for a random slideshow.
     random: bool,
+    /// File list thumbnails by file name; `None` = could not be made.
+    thumbs: HashMap<OsString, Option<egui::TextureHandle>>,
+    thumbs_pending: HashSet<OsString>,
+    /// (image index, file)
+    thumb_jobs: mpsc::Sender<(usize, PathBuf)>,
+    /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
+    thumbs_done: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+    /// First and last visible row of the file list, for skipping stale thumbnail jobs.
+    thumb_view: Arc<[AtomicUsize; 2]>,
+    /// Workers write new thumbnails to the shared cache (Preferences).
+    save_thumbs: Arc<AtomicBool>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -525,6 +551,10 @@ struct Config {
     enlarge: bool,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
     wheel_zoom: bool,
+    /// Thumbnails in the file list (T).
+    thumbnails: bool,
+    /// Write new thumbnails to the shared cache (~/.cache/thumbnails).
+    save_thumbnails: bool,
 }
 
 impl Default for Config {
@@ -538,6 +568,9 @@ impl Default for Config {
             random: false,
             enlarge: true,
             wheel_zoom: true,
+            thumbnails: true,
+            // Off while Glimt is in development, so testing leaves no files behind; on for release.
+            save_thumbnails: false,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -564,6 +597,8 @@ impl Config {
                 "random" => c.random = value == "true",
                 "enlarge" => c.enlarge = value == "true",
                 "wheel_zoom" => c.wheel_zoom = value == "true",
+                "thumbnails" => c.thumbnails = value == "true",
+                "save_thumbnails" => c.save_thumbnails = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -583,7 +618,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -592,6 +627,8 @@ impl Config {
             self.random,
             self.enlarge,
             self.wheel_zoom,
+            self.thumbnails,
+            self.save_thumbnails,
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -784,9 +821,16 @@ fn decode(
     max: [u32; 2],
     rotate: bool,
 ) -> Result<(egui::ColorImage, [usize; 2]), String> {
+    let img = load(path, rotate)?;
+    let orig = [img.width() as usize, img.height() as usize];
+    Ok((color_image(shrink(img, max)?), orig))
+}
+
+/// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`.
+fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     #[cfg(feature = "video")]
     if is_video(path) {
-        return fit(video::preview(path)?, max);
+        return video::preview(path);
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
@@ -800,15 +844,11 @@ fn decode(
     if rotate {
         img.apply_orientation(orientation);
     }
-    fit(img, max)
+    Ok(img)
 }
 
-/// Scale down to fit within `max`; returns the texture image and the original size.
-fn fit(
-    mut img: image::DynamicImage,
-    max: [u32; 2],
-) -> Result<(egui::ColorImage, [usize; 2]), String> {
-    let orig = [img.width() as usize, img.height() as usize];
+/// Scale down to fit within `max`.
+fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicImage, String> {
     if img.width() > max[0] || img.height() > max[1] {
         let scale = (max[0] as f64 / img.width() as f64).min(max[1] as f64 / img.height() as f64);
         let w = ((img.width() as f64 * scale).round() as u32).max(1);
@@ -821,14 +861,15 @@ fn fit(
         fast_image_resize::Resizer::new()
             .resize(&img, &mut small, &opts)
             .map_err(|e| e.to_string())?;
-        img = small;
+        return Ok(small);
     }
+    Ok(img)
+}
+
+fn color_image(img: image::DynamicImage) -> egui::ColorImage {
     let rgba = img.into_rgba8();
     let size = [rgba.width() as usize, rgba.height() as usize];
-    Ok((
-        egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
-        orig,
-    ))
+    egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw())
 }
 
 impl App {
@@ -893,6 +934,42 @@ impl App {
                 }
             });
         }
+        // Thumbnails have their own workers, so scrolling the list never delays the shown image.
+        let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
+        let (thumbs_tx, thumbs_done) = mpsc::channel();
+        let thumb_rx = Arc::new(Mutex::new(thumb_rx));
+        let thumb_view = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+        let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
+        for _ in 0..2 {
+            let (rx, tx, view, rotate, save, ctx) = (
+                thumb_rx.clone(),
+                thumbs_tx.clone(),
+                thumb_view.clone(),
+                rotate.clone(),
+                save_thumbs.clone(),
+                cc.egui_ctx.clone(),
+            );
+            std::thread::spawn(move || {
+                loop {
+                    let Ok((idx, path)) = rx.lock().unwrap().recv() else {
+                        return;
+                    };
+                    let [first, last] = [0, 1].map(|i| view[i].load(Ordering::Relaxed));
+                    let result =
+                        (idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN).then(|| {
+                            let (rotate, save) =
+                                (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
+                            thumbs::thumbnail(&path, rotate, save)
+                                .ok()
+                                .map(|img| color_image(img.into()))
+                        });
+                    let _ = tx.send((path, result));
+                    // SAFETY: as for the image workers above.
+                    unsafe { malloc_trim(0) };
+                    ctx.request_repaint();
+                }
+            });
+        }
         let (notices_tx, notices) = mpsc::channel();
         let (freed_tx, freed_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
@@ -944,6 +1021,12 @@ impl App {
             selected_size: None,
             selected_rx: None,
             scroll_to_cur: true,
+            thumbs: HashMap::new(),
+            thumbs_pending: HashSet::new(),
+            thumb_jobs,
+            thumbs_done,
+            thumb_view,
+            save_thumbs,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -973,6 +1056,8 @@ impl App {
             .map(OsString::from);
         self.subdirs.clear();
         self.random = false;
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         self.list(ctx);
@@ -1456,6 +1541,16 @@ impl App {
     }
 
     /// Decode everything again with or without EXIF rotation.
+    fn set_thumbnails(&mut self, on: bool) {
+        self.config.thumbnails = on;
+        self.config.save();
+        if !on {
+            self.thumbs.clear();
+            self.thumbs_pending.clear();
+        }
+        self.scroll_to_cur = true;
+    }
+
     fn set_exif_rotate(&mut self, on: bool) {
         self.config.exif_rotate = on;
         self.config.save();
@@ -1585,6 +1680,82 @@ impl App {
                 _ => {}
             }
         }
+    }
+
+    fn receive_thumbs(&mut self, ctx: &egui::Context) {
+        while let Ok((path, result)) = self.thumbs_done.try_recv() {
+            let (Some(name), true) = (path.file_name(), path.parent() == Some(&self.dir)) else {
+                continue;
+            };
+            self.thumbs_pending.remove(name);
+            if let Some(img) = result {
+                let tex = img.map(|img| {
+                    ctx.load_texture(
+                        format!("thumb {}", path.display()),
+                        img,
+                        egui::TextureOptions::LINEAR,
+                    )
+                });
+                self.thumbs.insert(name.to_owned(), tex);
+            }
+        }
+    }
+
+    /// A file list row with a thumbnail; true when clicked.
+    fn thumb_row(&mut self, ui: &mut egui::Ui, i: usize, height: f32, marked: bool) -> bool {
+        let size = egui::vec2(ui.available_width(), height);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        let visuals = ui.visuals();
+        if marked || response.hovered() {
+            let fill = if marked {
+                visuals.selection.bg_fill
+            } else {
+                visuals.widgets.hovered.weak_bg_fill
+            };
+            ui.painter().rect_filled(rect, 2.0, fill);
+        }
+        let text_color = if marked {
+            visuals.selection.stroke.color
+        } else {
+            visuals.text_color()
+        };
+        let name = &self.files[i];
+        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(2.0, 2.0), THUMB);
+        match self.thumbs.get(name) {
+            Some(Some(tex)) => {
+                // Fit the box, but never enlarge.
+                let px = tex.size_vec2() / ui.ctx().pixels_per_point();
+                let scale = (THUMB.x / px.x).min(THUMB.y / px.y).min(1.0);
+                let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+                let at = egui::Rect::from_center_size(frame.center(), px * scale);
+                ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
+            }
+            Some(None) => {}
+            None => {
+                if self.thumbs_pending.insert(name.clone()) {
+                    let _ = self.thumb_jobs.send((i, self.path(i)));
+                }
+            }
+        }
+        ui.painter().text(
+            egui::pos2(frame.right() + 8.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            self.files[i].to_string_lossy(),
+            egui::TextStyle::Body.resolve(ui.style()),
+            text_color,
+        );
+        response.clicked()
+    }
+
+    /// Drop thumbnails far from view once there are many, so memory stays flat in huge folders.
+    fn trim_thumbs(&mut self, first: usize, last: usize) {
+        if self.thumbs.len() <= MAX_THUMBS {
+            return;
+        }
+        let keep =
+            first.saturating_sub(MAX_THUMBS / 3)..(last + MAX_THUMBS / 3).min(self.files.len());
+        let keep: HashSet<&OsString> = self.files[keep].iter().collect();
+        self.thumbs.retain(|name, _| keep.contains(name));
     }
 
     /// The action for a shortcut pressed this frame, if any.
@@ -1752,6 +1923,7 @@ impl App {
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
             Action::Help => self.show_help = !self.show_help,
+            Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Rename => {
                 if let Some(name) = self.files.get(self.cur) {
@@ -1837,6 +2009,7 @@ impl eframe::App for App {
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.limits.lock().unwrap()[1] = [max_side, max_side];
         self.receive(ctx);
+        self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
@@ -1924,6 +2097,11 @@ impl eframe::App for App {
                         });
                         menu_item(ui, act, Action::FullScreen);
                         menu_item(ui, act, Action::HideTools);
+                        let thumbs = egui::Button::selectable(
+                            self.config.thumbnails,
+                            Action::Thumbnails.label(),
+                        );
+                        menu_button(ui, act, thumbs, Action::Thumbnails);
                         menu_item(ui, act, Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
@@ -2001,6 +2179,23 @@ impl eframe::App for App {
                     "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
                 );
                 if ui.add(wheel).changed() {
+                    self.config.save();
+                }
+                ui.separator();
+                let mut show = self.config.thumbnails;
+                if ui
+                    .checkbox(&mut show, "Show thumbnails in the file list (T)")
+                    .changed()
+                {
+                    self.set_thumbnails(show);
+                }
+                let save = egui::Checkbox::new(
+                    &mut self.config.save_thumbnails,
+                    "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
+                );
+                if ui.add(save).changed() {
+                    self.save_thumbs
+                        .store(self.config.save_thumbnails, Ordering::Relaxed);
                     self.config.save();
                 }
                 ui.separator();
@@ -2177,7 +2372,12 @@ impl eframe::App for App {
                                 });
                         });
                     // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
-                    let row_h = ui.spacing().interact_size.y;
+                    let thumbs = self.config.thumbnails;
+                    let row_h = if thumbs {
+                        THUMB.y + 4.0
+                    } else {
+                        ui.spacing().interact_size.y
+                    };
                     let pitch = row_h + ui.spacing().item_spacing.y;
                     let mut area = egui::ScrollArea::vertical()
                         .id_salt("files")
@@ -2193,10 +2393,21 @@ impl eframe::App for App {
                         }
                     }
                     area.show_rows(ui, row_h, self.files.len(), |ui, rows| {
+                        if thumbs {
+                            let last = rows.end.saturating_sub(1);
+                            self.thumb_view[0].store(rows.start, Ordering::Relaxed);
+                            self.thumb_view[1].store(last, Ordering::Relaxed);
+                            self.trim_thumbs(rows.start, last);
+                        }
                         for i in rows {
-                            let name = self.files[i].to_string_lossy();
                             let marked = i == self.cur || self.selected.contains(&i);
-                            if ui.selectable_label(marked, name).clicked() {
+                            let clicked = if thumbs {
+                                self.thumb_row(ui, i, row_h, marked)
+                            } else {
+                                let name = self.files[i].to_string_lossy();
+                                ui.selectable_label(marked, name).clicked()
+                            };
+                            if clicked {
                                 let m = ui.input(|i| i.modifiers);
                                 if m.command {
                                     // Ctrl+click: toggle selection (the shown image is included the first time).
@@ -2494,6 +2705,9 @@ mod tests {
         assert!(!Config::default().random && Config::parse("random=true").random);
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
         assert!(Config::default().wheel_zoom && !Config::parse("wheel_zoom=false").wheel_zoom);
+        assert!(Config::default().thumbnails && !Config::parse("thumbnails=false").thumbnails);
+        assert!(!Config::default().save_thumbnails);
+        assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
         assert_eq!(
