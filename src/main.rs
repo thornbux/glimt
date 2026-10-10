@@ -34,6 +34,7 @@ struct Slot {
 
 struct App {
     dir: PathBuf,
+    subdirs: Vec<PathBuf>,
     files: Vec<PathBuf>,
     cur: usize,
     current: Arc<AtomicUsize>,
@@ -52,6 +53,8 @@ struct App {
     started: Option<Instant>,
     /// Svar fra en åpen fildialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    /// Rull trevisningen til gjeldende bilde ved neste tegning.
+    scroll_to_cur: bool,
 }
 
 fn list_images(dir: &Path) -> Vec<PathBuf> {
@@ -65,6 +68,19 @@ fn list_images(dir: &Path) -> Vec<PathBuf> {
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| EXTS.contains(&e.to_ascii_lowercase().as_str()))
         })
+        .collect();
+    v.sort();
+    v
+}
+
+fn list_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
         .collect();
     v.sort();
     v
@@ -122,6 +138,7 @@ impl App {
         }
         let mut app = App {
             dir: PathBuf::new(),
+            subdirs: Vec::new(),
             files: Vec::new(),
             cur: 0,
             current,
@@ -135,6 +152,7 @@ impl App {
             pan: egui::Vec2::ZERO,
             started: Some(Instant::now()),
             dialog: None,
+            scroll_to_cur: true,
         };
         app.open(&cc.egui_ctx, path);
         app
@@ -148,6 +166,7 @@ impl App {
             (path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf(), Some(path))
         };
         self.files = list_images(&dir);
+        self.subdirs = list_dirs(&dir);
         self.slots.clear();
         self.pending.clear();
         self.errors.clear();
@@ -201,6 +220,7 @@ impl App {
         self.current.store(self.cur, Ordering::Relaxed);
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
+        self.scroll_to_cur = true;
         let cur = self.cur;
         // Kast teksturer utenfor vinduet, og fullversjoner av andre bilder enn det viste.
         self.slots.retain(|&i, s| i.abs_diff(cur) <= AHEAD && (!s.full || i == cur));
@@ -325,6 +345,41 @@ impl eframe::App for App {
             });
         });
 
+        // Mappetre i ett nivå: opp, undermapper, bilder.
+        // ponytail: tegner alle rader; bytt til ScrollArea::show_rows hvis mapper med titusenvis av bilder blir trege.
+        let (mut open_dir, mut go_to) = (None, None);
+        egui::Panel::left("tre").resizable(true).default_size(240.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                if let Some(parent) = self.dir.canonicalize().ok().and_then(|d| d.parent().map(Path::to_path_buf))
+                    && ui.selectable_label(false, "⬆ ..").clicked()
+                {
+                    open_dir = Some(parent);
+                }
+                for d in &self.subdirs {
+                    let name = d.file_name().unwrap_or_default().to_string_lossy();
+                    if ui.selectable_label(false, format!("📁 {name}")).clicked() {
+                        open_dir = Some(d.clone());
+                    }
+                }
+                for (i, f) in self.files.iter().enumerate() {
+                    let name = f.file_name().unwrap_or_default().to_string_lossy();
+                    let row = ui.selectable_label(i == self.cur, name);
+                    if row.clicked() {
+                        go_to = Some(i);
+                    }
+                    if i == self.cur && self.scroll_to_cur {
+                        row.scroll_to_me(None);
+                    }
+                }
+            });
+        });
+        self.scroll_to_cur = false;
+        if let Some(d) = open_dir {
+            self.open(ctx, d);
+        } else if let Some(i) = go_to {
+            self.go(ctx, i);
+        }
+
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| {
             let area = ui.max_rect();
             let response = ui.allocate_rect(area, egui::Sense::drag());
@@ -373,12 +428,15 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn lists_images_and_decodes_to_screen_size() {
+    fn lists_folder_and_decodes_to_screen_size() {
         let dir = std::env::temp_dir().join("glimt-test");
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(400, 200).save(dir.join("a.png")).unwrap();
         std::fs::write(dir.join("notes.txt"), "").unwrap();
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(dir.join(".hidden")).unwrap();
         assert_eq!(super::list_images(&dir), vec![dir.join("a.png")]);
+        assert_eq!(super::list_dirs(&dir), vec![dir.join("sub")]);
         let (img, orig) = super::decode(&dir.join("a.png"), [100, 100]).unwrap();
         assert_eq!((img.size, orig), ([100, 50], [400, 200]));
     }
