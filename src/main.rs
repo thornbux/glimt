@@ -7,6 +7,7 @@
 use eframe::egui;
 use image::ImageDecoder;
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -45,7 +46,9 @@ struct Slot {
 struct App {
     dir: PathBuf,
     subdirs: Vec<PathBuf>,
-    files: Vec<PathBuf>,
+    /// Bildene i `dir`, bare filnavnet (hele stien lages ved behov med `path`): sparer minne
+    /// i store mapper, der stien ellers ville gjentas for hver fil.
+    files: Vec<OsString>,
     cur: usize,
     current: Arc<AtomicUsize>,
     /// Antall bilder forhåndslastet på hver side (Innstillinger).
@@ -91,7 +94,7 @@ struct App {
     selected_size: Option<u64>,
     selected_rx: Option<mpsc::Receiver<u64>>,
     /// Mappelesing i bakgrunnen: (undermapper, bilder).
-    listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<PathBuf>)>>,
+    listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
     /// Rull trevisningen til gjeldende bilde ved neste tegning.
     scroll_to_cur: bool,
     /// Lysbildefremvisning: når forrige bilde ble vist; `None` = av.
@@ -105,14 +108,14 @@ fn is_image(path: &Path) -> bool {
     ext.is_some_and(|e| EXTS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// Én gjennomgang av mappa: (undermapper, bilder), begge sortert på navn.
+/// Én gjennomgang av mappa: (undermapper, filnavn på bildene), begge sortert på navn.
 /// Filtypen kommer fra katalogoppføringen, så det blir ingen `stat` per fil (bare symlenker slås opp).
-fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
+fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
         if is_image(&path) {
-            images.push(path);
+            images.push(entry.file_name());
         } else if !entry.file_name().as_encoded_bytes().starts_with(b".")
             && entry
                 .file_type()
@@ -122,7 +125,7 @@ fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
         }
     }
     sort_by_name(&mut dirs);
-    sort_by_name(&mut images);
+    images.sort_unstable(); // bytevis på Unix
     (dirs, images)
 }
 
@@ -438,9 +441,10 @@ impl App {
         let shown = file
             .as_deref()
             .and_then(Path::file_name)
-            .map(|n| dir.join(n));
+            .map(OsString::from);
         self.subdirs.clear();
         self.random = false;
+        self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
@@ -475,7 +479,6 @@ impl App {
             "{} — glimt",
             dir.display()
         )));
-        self.dir = dir;
     }
 
     /// Ta imot mappelista hvis den er klar, eventuelt etter å ha ventet opptil `wait`.
@@ -515,7 +518,7 @@ impl App {
 
     fn delete_targets_now(&mut self, ctx: &egui::Context) {
         let targets = self.delete_targets();
-        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.files[i].clone()).collect();
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         self.remove_indices(ctx, &targets);
         let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
         let freed_tx = self.freed_tx.clone();
@@ -606,11 +609,7 @@ impl App {
         if self.selected.is_empty() {
             return;
         }
-        let paths: Vec<PathBuf> = self
-            .selected
-            .iter()
-            .map(|&i| self.files[i].clone())
-            .collect();
+        let paths: Vec<PathBuf> = self.selected.iter().map(|&i| self.path(i)).collect();
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -625,7 +624,12 @@ impl App {
     /// Bytt fillista og gå til `shown` (ellers første bilde). Teksturen som vises nå beholdes
     /// hvis den er laget fra samme fil. All indeksbasert tilstand nullstilles; jobber i arbeid
     /// avvises på filsti når de kommer.
-    fn replace_files(&mut self, ctx: &egui::Context, files: Vec<PathBuf>, shown: Option<PathBuf>) {
+    fn replace_files(
+        &mut self,
+        ctx: &egui::Context,
+        files: Vec<OsString>,
+        shown: Option<OsString>,
+    ) {
         let slot = self.slots.remove(&self.cur);
         self.files = files;
         self.selected.clear();
@@ -635,7 +639,7 @@ impl App {
         let cur = shown
             .and_then(|p| self.files.iter().position(|f| *f == p))
             .unwrap_or(0);
-        if let Some(slot) = slot.filter(|s| self.files.get(cur) == Some(&s.path)) {
+        if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
             self.slots.insert(cur, slot);
         }
         self.go(ctx, cur);
@@ -667,10 +671,22 @@ impl App {
         self.dialog = Some(rx);
     }
 
+    /// Hele stien til bilde `i`.
+    fn path(&self, i: usize) -> PathBuf {
+        self.dir.join(&self.files[i])
+    }
+
+    /// Er `path` bilde nummer `i` i lista? (Uten å bygge stien.)
+    fn is_file(&self, i: usize, path: &Path) -> bool {
+        self.files.get(i).is_some_and(|name| {
+            path.parent() == Some(self.dir.as_path()) && path.file_name() == Some(name.as_os_str())
+        })
+    }
+
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
         if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
-            let _ = self.jobs.send((idx, full, self.files[idx].clone()));
+            let _ = self.jobs.send((idx, full, self.path(idx)));
         }
     }
 
@@ -699,7 +715,7 @@ impl App {
             files.swap(0, self.cur);
             shuffle(&mut files[1..]);
         } else {
-            sort_by_name(&mut files);
+            files.sort_unstable();
         }
         self.random = on;
         self.replace_files(ctx, files, Some(shown));
@@ -725,7 +741,7 @@ impl App {
         let Some(file) = self.files.get(self.cur) else {
             return;
         };
-        let name = file.file_name().unwrap_or_default().to_string_lossy();
+        let name = file.to_string_lossy();
         let show = match (self.slideshow.is_some(), self.random) {
             (true, true) => format!("🔀 {} s · ", self.config.delay),
             (true, false) => format!("▶ {} s · ", self.config.delay),
@@ -784,7 +800,7 @@ impl App {
     fn receive(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.done.try_recv() {
             self.pending.remove(&(d.idx, d.full));
-            let wanted = self.files.get(d.idx) == Some(&d.path)
+            let wanted = self.is_file(d.idx, &d.path)
                 && d.idx.abs_diff(self.cur) <= self.ahead.load(Ordering::Relaxed)
                 && (!d.full || d.idx == self.cur);
             match d.result {
@@ -918,11 +934,10 @@ impl eframe::App for App {
         self.receive_sizes();
         while let Ok(msg) = self.notices.try_recv() {
             // Sletting feilet, så fila finnes trolig fortsatt: les mappa på nytt så lista stemmer.
-            let keep = self
-                .files
-                .get(self.cur)
-                .cloned()
-                .unwrap_or_else(|| self.dir.clone());
+            let keep = match self.files.get(self.cur) {
+                Some(name) => self.dir.join(name),
+                None => self.dir.clone(),
+            };
             self.open(ctx, keep);
             self.notice = Some(msg);
         }
@@ -1018,13 +1033,7 @@ impl eframe::App for App {
 
         if self.confirm {
             let what = match self.delete_targets().as_slice() {
-                [i] => format!(
-                    "«{}»",
-                    self.files[*i]
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                ),
+                [i] => format!("«{}»", self.files[*i].to_string_lossy()),
                 many => format!("{} filer", many.len()),
             };
             let mut delete = false;
@@ -1137,10 +1146,7 @@ impl eframe::App for App {
                     }
                     area.show_rows(ui, row_h, self.files.len(), |ui, rows| {
                         for i in rows {
-                            let name = self.files[i]
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy();
+                            let name = self.files[i].to_string_lossy();
                             let marked = i == self.cur || self.selected.contains(&i);
                             if ui.selectable_label(marked, name).clicked() {
                                 let m = ui.input(|i| i.modifiers);
@@ -1238,7 +1244,7 @@ impl eframe::App for App {
                         }
                         .to_owned()
                     } else if let Some(e) = self.errors.get(&self.cur) {
-                        format!("Kunne ikke åpne {}:\n{e}", self.files[self.cur].display())
+                        format!("Kunne ikke åpne {}:\n{e}", self.path(self.cur).display())
                     } else {
                         String::new()
                     };
@@ -1291,7 +1297,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".hidden")).unwrap();
         let (dirs, images) = super::list_folder(&dir);
-        assert_eq!(images, vec![dir.join("a.png")]);
+        assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
         let (img, orig) = super::decode(&dir.join("a.png"), [100, 100]).unwrap();
         assert_eq!((img.size, orig), ([100, 50], [400, 200]));
