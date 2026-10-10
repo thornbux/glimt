@@ -45,6 +45,7 @@ enum Action {
     ZoomFit,
     FullScreen,
     Slideshow,
+    RandomOrder,
     Faster,
     Slower,
     Escape,
@@ -58,7 +59,8 @@ const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
     ..egui::Modifiers::COMMAND
 };
 
-/// Geeqie's default shortcuts; the first one for an action is shown in the menu.
+/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh).
+/// The first one for an action is shown in the menu.
 /// egui ignores an extra Shift when matching, so Shift combinations come before the plain key.
 const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use Action::*;
@@ -92,6 +94,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::V),
         (FullScreen, NONE, Key::F11),
         (Slideshow, NONE, Key::S),
+        (RandomOrder, NONE, Key::R),
         (Faster, CTRL, Key::Equals),
         (Slower, CTRL, Key::Minus),
         (Escape, NONE, Key::Escape),
@@ -101,7 +104,15 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
 fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, label: &str, action: Action) {
-    let mut button = egui::Button::new(label);
+    menu_button(ui, act, egui::Button::new(label), action);
+}
+
+fn menu_button(
+    ui: &mut egui::Ui,
+    act: &mut Option<Action>,
+    mut button: egui::Button,
+    action: Action,
+) {
     if let Some(&(_, mods, key)) = SHORTCUTS.iter().find(|s| s.0 == action) {
         let text = ui
             .ctx()
@@ -1034,6 +1045,7 @@ impl App {
             }
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
+            Action::RandomOrder => self.set_random_order(ctx, !self.config.random),
             Action::Faster | Action::Slower => {
                 let step = if action == Action::Faster { -1 } else { 1 };
                 self.config.delay = self
@@ -1147,10 +1159,8 @@ impl eframe::App for App {
                         menu_item(ui, act, label, Action::Slideshow);
                         menu_item(ui, act, "Faster", Action::Faster);
                         menu_item(ui, act, "Slower", Action::Slower);
-                        let mut random = self.config.random;
-                        if ui.checkbox(&mut random, "Random Order").changed() {
-                            self.set_random_order(ctx, random);
-                        }
+                        let random = egui::Button::selectable(self.config.random, "Random Order");
+                        menu_button(ui, act, random, Action::RandomOrder);
                     });
                 });
             });
@@ -1178,7 +1188,7 @@ impl eframe::App for App {
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
                 ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
                 ui.separator();
-                ui.label("Slideshow (S, Ctrl+= faster, Ctrl+- slower):");
+                ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
                 let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
                     .text("seconds per image");
                 if ui.add(delay).changed() {
