@@ -10,6 +10,7 @@ eframe = { version = "0.36.2", default-features = false, features = ["default_fo
 fast_image_resize = { version = "6.1.0", default-features = false, features = ["image"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff"] }
 png = "0.18.1"
+winit = { version = "0.30.13", default-features = false, features = ["wayland-csd-adwaita"] }
 
 [features]
 # Video previews via the ffmpeg program and playing in an external player.
