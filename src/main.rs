@@ -460,6 +460,8 @@ struct App {
     exif_done: mpsc::Receiver<(PathBuf, Vec<(&'static str, String)>)>,
     exif_asked: Option<PathBuf>,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
+    /// Size in bytes of the shown file, for the status bar.
+    cur_size: Option<(PathBuf, u64)>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1066,6 +1068,7 @@ impl App {
             exif_done,
             exif_asked: None,
             exif: None,
+            cur_size: None,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -2415,13 +2418,30 @@ impl eframe::App for App {
                     }
                     ui.label(left);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(slot) = self.slots.get(&self.cur) {
-                            let [w, h] = slot.orig;
-                            let zoom = (self.last_scale * 100.0).round();
-                            ui.label(format!("{w}×{h}  {zoom} %"));
+                        if n == 0 {
+                            return;
                         }
-                        if n > 0 {
-                            ui.label(format!("{}/{}", thousands(self.cur + 1), thousands(n)));
+                        // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom.
+                        let path = self.path(self.cur);
+                        if self.cur_size.as_ref().is_none_or(|c| c.0 != path) {
+                            // ponytail: one stat in the UI thread per image change; move it to
+                            // a thread if slow network folders make browsing stutter.
+                            let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+                            self.cur_size = Some((path, bytes));
+                        }
+                        let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
+                        let place = format!("[{}/{}]", thousands(self.cur + 1), thousands(n));
+                        let bytes = format!("{} bytes", thousands(bytes as usize));
+                        match self.slots.get(&self.cur) {
+                            Some(slot) => {
+                                let [w, h] = slot.orig;
+                                ui.label(format!("{} %", (self.last_scale * 100.0).round()));
+                                ui.separator();
+                                ui.label(format!("( {w} x {h} ) {bytes} {place}"));
+                            }
+                            None => {
+                                ui.label(format!("{bytes} {place}"));
+                            }
                         }
                     });
                 });
