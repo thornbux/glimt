@@ -20,6 +20,87 @@ const DEFAULT_AHEAD: usize = 2;
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
 
+/// Everything the user can do from a menu or a shortcut.
+#[derive(Clone, Copy, PartialEq)]
+enum Action {
+    OpenFile,
+    OpenFolder,
+    Delete,
+    DeletePermanently,
+    CloseWindow,
+    Quit,
+    First,
+    Prev,
+    Next,
+    Last,
+    Preferences,
+    ZoomIn,
+    ZoomOut,
+    Zoom1To1,
+    ZoomFit,
+    FullScreen,
+    Slideshow,
+    Faster,
+    Slower,
+    Escape,
+}
+
+const NONE: egui::Modifiers = egui::Modifiers::NONE;
+const SHIFT: egui::Modifiers = egui::Modifiers::SHIFT;
+const CTRL: egui::Modifiers = egui::Modifiers::COMMAND;
+
+/// Geeqie's default shortcuts; the first one for an action is shown in the menu.
+/// egui ignores an extra Shift when matching, so Shift combinations come before the plain key.
+const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
+    use Action::*;
+    use egui::Key;
+    &[
+        (DeletePermanently, SHIFT, Key::Delete),
+        (Delete, NONE, Key::Delete),
+        (Delete, CTRL, Key::D),
+        (CloseWindow, CTRL, Key::W),
+        (Quit, CTRL, Key::Q),
+        (First, NONE, Key::Home),
+        (Prev, NONE, Key::Backspace),
+        (Prev, NONE, Key::PageUp),
+        (Prev, NONE, Key::ArrowLeft),
+        (Prev, NONE, Key::ArrowUp),
+        (Next, NONE, Key::Space),
+        (Next, NONE, Key::PageDown),
+        (Next, NONE, Key::ArrowRight),
+        (Next, NONE, Key::ArrowDown),
+        (Last, NONE, Key::End),
+        (Preferences, CTRL, Key::O),
+        (ZoomIn, NONE, Key::Equals),
+        (ZoomIn, NONE, Key::Plus),
+        (ZoomOut, NONE, Key::Minus),
+        (Zoom1To1, NONE, Key::Z),
+        (ZoomFit, NONE, Key::X),
+        (FullScreen, NONE, Key::F),
+        (FullScreen, NONE, Key::V),
+        (FullScreen, NONE, Key::F11),
+        (Slideshow, NONE, Key::S),
+        (Faster, CTRL, Key::Equals),
+        (Slower, CTRL, Key::Minus),
+        (Escape, NONE, Key::Escape),
+        (Escape, NONE, Key::Q),
+    ]
+};
+
+/// A menu entry showing the action's shortcut; sets `act` when clicked.
+fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, label: &str, action: Action) {
+    let mut button = egui::Button::new(label);
+    if let Some(&(_, mods, key)) = SHORTCUTS.iter().find(|s| s.0 == action) {
+        let text = ui
+            .ctx()
+            .format_shortcut(&egui::KeyboardShortcut::new(mods, key));
+        button = button.shortcut_text(text);
+    }
+    if ui.add(button).clicked() {
+        *act = Some(action);
+    }
+}
+
 unsafe extern "C" {
     /// glibc: return freed heap memory to the operating system.
     fn malloc_trim(pad: usize) -> i32;
@@ -173,6 +254,8 @@ struct Config {
     trash: bool,
     /// Ask before deleting permanently.
     confirm_delete: bool,
+    /// Slideshow in random order.
+    random: bool,
 }
 
 impl Default for Config {
@@ -183,6 +266,7 @@ impl Default for Config {
             remember_dir: false,
             trash: true,
             confirm_delete: true,
+            random: false,
         }
     }
 }
@@ -202,6 +286,7 @@ impl Config {
                 "remember_dir" => c.remember_dir = value == "true",
                 "trash" => c.trash = value == "true",
                 "confirm_delete" => c.confirm_delete = value == "true",
+                "random" => c.random = value == "true",
                 _ => {}
             }
         }
@@ -217,8 +302,13 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\n",
-            self.preload, self.delay, self.remember_dir, self.trash, self.confirm_delete
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\n",
+            self.preload,
+            self.delay,
+            self.remember_dir,
+            self.trash,
+            self.confirm_delete,
+            self.random
         );
         write_atomic(&p, &text);
     }
@@ -504,15 +594,15 @@ impl App {
         self.replace_files(ctx, files, shown);
     }
 
-    /// Delete key / File → Delete: to the trash at once, permanently after confirmation.
-    fn request_delete(&mut self, ctx: &egui::Context) {
+    /// To the trash at once, permanently after confirmation.
+    fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
         if self.files.is_empty() {
             return;
         }
-        if !self.config.trash && self.config.confirm_delete {
+        if !trash && self.config.confirm_delete {
             self.confirm = true;
         } else {
-            self.delete_targets_now(ctx);
+            self.delete_targets_now(ctx, trash);
         }
     }
 
@@ -525,11 +615,11 @@ impl App {
         }
     }
 
-    fn delete_targets_now(&mut self, ctx: &egui::Context) {
+    fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
         let targets = self.delete_targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         self.remove_indices(ctx, &targets);
-        let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let freed_tx = self.freed_tx.clone();
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
@@ -730,12 +820,22 @@ impl App {
         self.replace_files(ctx, files, Some(shown));
     }
 
-    fn start_slideshow(&mut self, ctx: &egui::Context, random: bool) {
-        if random != self.random {
-            self.set_random(ctx, random);
+    fn start_slideshow(&mut self, ctx: &egui::Context) {
+        if self.config.random != self.random {
+            self.set_random(ctx, self.config.random);
         }
         self.slideshow = Some(Instant::now());
         self.title(ctx);
+    }
+
+    /// Random order changed in the menu or preferences: reshuffle now if a slideshow runs.
+    fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
+        self.config.random = on;
+        self.config.save();
+        if self.slideshow.is_some() {
+            self.set_random(ctx, on);
+            self.title(ctx);
+        }
     }
 
     fn stop_slideshow(&mut self, ctx: &egui::Context) {
@@ -846,78 +946,69 @@ impl App {
         }
     }
 
-    fn keys(&mut self, ctx: &egui::Context, fit: f32) {
-        use egui::Key;
+    /// The action for a shortcut pressed this frame, if any.
+    fn shortcut(ctx: &egui::Context) -> Option<Action> {
+        ctx.input_mut(|i| {
+            SHORTCUTS
+                .iter()
+                .find(|&&(_, mods, key)| {
+                    i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))
+                })
+                .map(|s| s.0)
+        })
+    }
+
+    fn zoom_by(&mut self, factor: f32) {
+        self.zoom = Some((self.zoom.unwrap_or(self.last_scale) * factor).clamp(0.02, 32.0));
+    }
+
+    fn run(&mut self, ctx: &egui::Context, action: Action) {
         let last = self.files.len().saturating_sub(1);
-        let pressed = |k| ctx.input(|i| i.key_pressed(k));
-        // ↑/↓ move through the file list as in Geeqie; during a slideshow they adjust the delay instead.
-        let (down, up) = match self.slideshow {
-            None => (pressed(Key::ArrowDown), pressed(Key::ArrowUp)),
-            Some(_) => (false, false),
-        };
-        if pressed(Key::ArrowRight) || pressed(Key::Space) || pressed(Key::PageDown) || down {
-            self.go(ctx, (self.cur + 1).min(last));
-        } else if pressed(Key::ArrowLeft) || pressed(Key::Backspace) || pressed(Key::PageUp) || up {
-            self.go(ctx, self.cur.saturating_sub(1));
-        } else if pressed(Key::Home) {
-            self.go(ctx, 0);
-        } else if pressed(Key::End) {
-            self.go(ctx, last);
-        }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        if pressed(Key::F) || pressed(Key::F11) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
-        }
-        // S = in order, R = random; the same key again stops, the other switches mode.
-        if pressed(Key::S) || pressed(Key::R) {
-            let random = pressed(Key::R);
-            if self.slideshow.is_some() && self.random == random {
-                self.stop_slideshow(ctx);
-            } else {
-                self.start_slideshow(ctx, random);
+        match action {
+            Action::OpenFile => self.pick(ctx, false),
+            Action::OpenFolder => self.pick(ctx, true),
+            Action::Delete => self.request_delete(ctx, self.config.trash),
+            Action::DeletePermanently => self.request_delete(ctx, false),
+            Action::CloseWindow | Action::Quit => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
-        }
-        // ↑/↓ adjust the delay while the slideshow runs.
-        let step = pressed(Key::ArrowUp) as i64 - pressed(Key::ArrowDown) as i64;
-        if self.slideshow.is_some() && step != 0 {
-            self.config.delay = self
-                .config
-                .delay
-                .saturating_add_signed(step)
-                .clamp(1, MAX_DELAY);
-            self.config.save();
-            self.title(ctx);
-        }
-        if pressed(Key::Delete) {
-            self.request_delete(ctx);
-        }
-        if pressed(Key::Escape) {
-            if self.slideshow.is_some() {
-                self.stop_slideshow(ctx);
-            } else if fullscreen {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            Action::First => self.go(ctx, 0),
+            Action::Prev => self.go(ctx, self.cur.saturating_sub(1)),
+            Action::Next => self.go(ctx, (self.cur + 1).min(last)),
+            Action::Last => self.go(ctx, last),
+            Action::Preferences => self.show_settings = true,
+            Action::ZoomIn => self.zoom_by(1.25),
+            Action::ZoomOut => self.zoom_by(0.8),
+            Action::Zoom1To1 => self.zoom = Some(1.0),
+            Action::ZoomFit => {
+                self.zoom = None;
+                self.pan = egui::Vec2::ZERO;
             }
-        }
-        if pressed(Key::Num1) {
-            self.zoom = Some(1.0);
-        }
-        if pressed(Key::Num0) || pressed(Key::Z) {
-            self.zoom = None;
-            self.pan = egui::Vec2::ZERO;
-        }
-        let step = if pressed(Key::Plus) || pressed(Key::Equals) {
-            1.25
-        } else if pressed(Key::Minus) {
-            0.8
-        } else {
-            1.0
-        };
-        let wheel = ctx.input(|i| i.zoom_delta() * (1.0 + i.smooth_scroll_delta.y / 400.0));
-        let factor = step * wheel;
-        if factor != 1.0 {
-            self.zoom = Some((self.zoom.unwrap_or(fit) * factor).clamp(0.02, 32.0));
+            Action::FullScreen => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
+            }
+            Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
+            Action::Slideshow => self.start_slideshow(ctx),
+            Action::Faster | Action::Slower => {
+                let step = if action == Action::Faster { -1 } else { 1 };
+                self.config.delay = self
+                    .config
+                    .delay
+                    .saturating_add_signed(step)
+                    .clamp(1, MAX_DELAY);
+                self.config.save();
+                self.title(ctx);
+            }
+            // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
+            Action::Escape => {
+                if self.slideshow.is_some() {
+                    self.stop_slideshow(ctx);
+                }
+                if fullscreen {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+                }
+            }
         }
     }
 }
@@ -958,38 +1049,62 @@ impl eframe::App for App {
             }
         }
 
+        // Shortcuts go to the dialogs while one is open.
+        let mut act = (!self.show_settings && !self.confirm)
+            .then(|| Self::shortcut(ctx))
+            .flatten();
         // Full screen as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         if !fullscreen {
             egui::Panel::top("menu").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
+                    let act = &mut act;
                     ui.menu_button("File", |ui| {
-                        if ui.button("Open File…").clicked() {
-                            self.pick(ctx, false);
-                        }
-                        if ui.button("Open Folder…").clicked() {
-                            self.pick(ctx, true);
-                        }
-                        if ui.button("Delete (Del)").clicked() {
-                            self.request_delete(ctx);
-                        }
+                        menu_item(ui, act, "Open File…", Action::OpenFile);
+                        menu_item(ui, act, "Open Folder…", Action::OpenFolder);
                         ui.separator();
-                        if ui.button("Close").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
+                        menu_item(ui, act, "Delete…", Action::Delete);
+                        menu_item(ui, act, "Delete Permanently…", Action::DeletePermanently);
+                        ui.separator();
+                        menu_item(ui, act, "Close Window", Action::CloseWindow);
+                        menu_item(ui, act, "Quit", Action::Quit);
+                    });
+                    ui.menu_button("Go", |ui| {
+                        menu_item(ui, act, "First Image", Action::First);
+                        menu_item(ui, act, "Previous Image", Action::Prev);
+                        menu_item(ui, act, "Next Image", Action::Next);
+                        menu_item(ui, act, "Last Image", Action::Last);
                     });
                     ui.menu_button("Edit", |ui| {
-                        if ui.button("Preferences…").clicked() {
-                            self.show_settings = true;
-                        }
+                        menu_item(ui, act, "Preferences…", Action::Preferences);
                     });
                     ui.menu_button("View", |ui| {
-                        if ui.button("Full Screen (F, F11, Esc to exit)").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                        ui.menu_button("Zoom", |ui| {
+                            menu_item(ui, act, "Zoom In", Action::ZoomIn);
+                            menu_item(ui, act, "Zoom Out", Action::ZoomOut);
+                            menu_item(ui, act, "Zoom 1:1", Action::Zoom1To1);
+                            menu_item(ui, act, "Zoom to Fit", Action::ZoomFit);
+                        });
+                        menu_item(ui, act, "Full Screen", Action::FullScreen);
+                        ui.separator();
+                        let label = if self.slideshow.is_some() {
+                            "Stop Slideshow"
+                        } else {
+                            "Start Slideshow"
+                        };
+                        menu_item(ui, act, label, Action::Slideshow);
+                        menu_item(ui, act, "Faster", Action::Faster);
+                        menu_item(ui, act, "Slower", Action::Slower);
+                        let mut random = self.config.random;
+                        if ui.checkbox(&mut random, "Random Order").changed() {
+                            self.set_random_order(ctx, random);
                         }
                     });
                 });
             });
+        }
+        if let Some(action) = act {
+            self.run(ctx, action);
         }
 
         let mut open = self.show_settings;
@@ -1011,12 +1126,16 @@ impl eframe::App for App {
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
                 ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
                 ui.separator();
-                ui.label("Slideshow (S = in order, R = random, ↑/↓ = delay):");
+                ui.label("Slideshow (S, Ctrl+= faster, Ctrl+- slower):");
                 let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
                     .text("seconds per image");
                 if ui.add(delay).changed() {
                     self.config.save();
                     self.title(ctx);
+                }
+                let mut random = self.config.random;
+                if ui.checkbox(&mut random, "Random order").changed() {
+                    self.set_random_order(ctx, random);
                 }
                 ui.separator();
                 let remember = egui::Checkbox::new(
@@ -1027,13 +1146,13 @@ impl eframe::App for App {
                     self.config.save();
                 }
                 ui.separator();
-                ui.label("Deleting (Del key):");
-                let trash = egui::Checkbox::new(&mut self.config.trash, "Move to trash");
+                ui.label("Deleting:");
+                let trash = egui::Checkbox::new(&mut self.config.trash, "Delete moves to trash");
                 let confirm = egui::Checkbox::new(
                     &mut self.config.confirm_delete,
                     "Confirm permanent deletion",
                 );
-                if ui.add(trash).changed() | ui.add_enabled(!self.config.trash, confirm).changed() {
+                if ui.add(trash).changed() | ui.add(confirm).changed() {
                     self.config.save();
                 }
             });
@@ -1057,7 +1176,7 @@ impl eframe::App for App {
             });
             if delete {
                 self.confirm = false;
-                self.delete_targets_now(ctx);
+                self.delete_targets_now(ctx, false);
             } else if modal.should_close() {
                 self.confirm = false;
             }
@@ -1202,9 +1321,9 @@ impl eframe::App for App {
                         .min(area.height() * ppp / s.orig[1] as f32)
                         .min(1.0)
                 });
-                // Keys go to the preferences window while it is open.
-                if !self.show_settings && !self.confirm {
-                    self.keys(ctx, fit);
+                let wheel = ctx.input(|i| i.zoom_delta() * (1.0 + i.smooth_scroll_delta.y / 400.0));
+                if wheel != 1.0 && !self.show_settings && !self.confirm {
+                    self.zoom = Some((self.zoom.unwrap_or(fit) * wheel).clamp(0.02, 32.0));
                 }
                 if response.dragged() {
                     self.pan += response.drag_delta();
@@ -1365,6 +1484,7 @@ mod tests {
         assert_eq!(Config::parse("delay=7").delay, 7);
         assert!(Config::default().trash && !Config::parse("trash=false").trash);
         assert!(Config::parse("remember_dir=true").remember_dir);
+        assert!(!Config::default().random && Config::parse("random=true").random);
         assert_eq!(
             super::parse_last_dir("last_dir=/tmp/a b\n"),
             Some("/tmp/a b".into())
