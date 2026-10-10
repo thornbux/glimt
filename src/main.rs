@@ -815,6 +815,8 @@ struct Config {
     sort: Sort,
     sort_ascending: bool,
     sort_case: bool,
+    /// Toolbar icon size: 0 small, 1 medium, 2 large.
+    toolbar_icons: usize,
 }
 
 impl Default for Config {
@@ -845,6 +847,7 @@ impl Default for Config {
             sort: Sort::Name,
             sort_ascending: true,
             sort_case: true,
+            toolbar_icons: 0,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -891,6 +894,7 @@ impl Config {
                 }
                 "sort_ascending" => c.sort_ascending = value == "true",
                 "sort_case" => c.sort_case = value == "true",
+                "toolbar_icons" => c.toolbar_icons = value.parse().map_or(0, |n: usize| n.min(2)),
                 "background" => {
                     let hex = value.trim_start_matches('#');
                     if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
@@ -925,7 +929,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nsort={}\nsort_ascending={}\nsort_case={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nsort={}\nsort_ascending={}\nsort_case={}\ntoolbar_icons={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -949,6 +953,7 @@ impl Config {
             self.sort.key(),
             self.sort_ascending,
             self.sort_case,
+            self.toolbar_icons,
             self.background[0],
             self.background[1],
             self.background[2],
@@ -2179,7 +2184,9 @@ impl App {
 
     /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
     fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        let size = [14.0, 20.0, 28.0][self.config.toolbar_icons.min(2)];
         egui::Panel::top("toolbar").show(ui, |ui| {
+            ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
             ui.horizontal(|ui| {
                 tool_button(ui, act, "⬅", Action::Back, false);
                 tool_button(ui, act, "➡", Action::Forward, false);
@@ -2888,6 +2895,17 @@ impl eframe::App for App {
                 if toolbar.changed() || path.changed() {
                     self.config.save();
                 }
+                ui.horizontal(|ui| {
+                    ui.label("Toolbar icons:");
+                    for (n, label) in ["Small", "Medium", "Large"].into_iter().enumerate() {
+                        if ui
+                            .radio_value(&mut self.config.toolbar_icons, n, label)
+                            .changed()
+                        {
+                            self.config.save();
+                        }
+                    }
+                });
                 let exif = egui::Checkbox::new(
                     &mut self.config.exif_panel,
                     "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
@@ -3544,6 +3562,9 @@ mod tests {
             (super::Sort::ExifDigitized, false, false)
         );
         assert_eq!(Config::parse("sort=nonsense").sort, super::Sort::Name);
+        assert_eq!(Config::default().toolbar_icons, 0);
+        assert_eq!(Config::parse("toolbar_icons=1").toolbar_icons, 1);
+        assert_eq!(Config::parse("toolbar_icons=9").toolbar_icons, 2);
         assert!(Config::parse("app_name_first=true").app_name_first);
         let win = super::WindowState {
             size: Some(super::egui::vec2(1000.0, 700.5)),
