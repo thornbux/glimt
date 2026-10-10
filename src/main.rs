@@ -936,7 +936,7 @@ impl App {
         self.go(ctx, cur);
     }
 
-    /// Run zenity's file dialog in its own thread so the window does not freeze.
+    /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
     fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
         let (tx, rx) = mpsc::channel();
@@ -947,22 +947,45 @@ impl App {
             Pick::CopyTo(_) => "Copy to Folder",
             Pick::MoveTo(_) => "Move to Folder",
         };
+        let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
-            let mut cmd = std::process::Command::new("zenity");
-            cmd.arg("--file-selection").arg("--title").arg(title);
-            cmd.arg("--filename").arg(start);
-            if folder {
-                cmd.arg("--directory");
-            }
-            let picked = cmd
-                .output()
-                .map_err(|e| eprintln!("zenity: {e}"))
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|mut o| {
+            let zenity = || {
+                let mut cmd = std::process::Command::new("zenity");
+                cmd.arg("--file-selection").arg("--title").arg(title);
+                cmd.arg("--filename").arg(&start);
+                if folder {
+                    cmd.arg("--directory");
+                }
+                cmd.output()
+            };
+            // KDE desktops often have kdialog but not zenity.
+            let kdialog = || {
+                let mode = if folder {
+                    "--getexistingdirectory"
+                } else {
+                    "--getopenfilename"
+                };
+                let mut cmd = std::process::Command::new("kdialog");
+                cmd.arg("--title").arg(title).arg(mode).arg(&start);
+                cmd.output()
+            };
+            let output = match zenity() {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => kdialog(),
+                other => other,
+            };
+            let picked = match output {
+                Err(e) => {
+                    let _ =
+                        notices.send(format!("No file dialog (install zenity or kdialog): {e}"));
+                    None
+                }
+                // Cancel exits with status 1 in both.
+                Ok(o) if !o.status.success() => None,
+                Ok(mut o) => {
                     o.stdout.pop_if(|b| *b == b'\n');
-                    PathBuf::from(std::ffi::OsString::from_vec(o.stdout))
-                });
+                    Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
+                }
+            };
             let _ = tx.send(picked);
             ctx.request_repaint();
         });
