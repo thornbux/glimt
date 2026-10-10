@@ -67,6 +67,58 @@ enum Action {
     Slower,
     Escape,
     NewWindow,
+    Help,
+}
+
+impl Action {
+    /// The name shown in menus and in the help window.
+    fn label(self) -> &'static str {
+        use Action::*;
+        match self {
+            OpenFile => "Open File…",
+            OpenFolder => "Open Folder…",
+            NewFolder => "New Folder…",
+            Rename => "Rename…",
+            Copy => "Copy…",
+            Move => "Move…",
+            OpenWith => "Open With Default App",
+            Play => "Play Video",
+            Delete => "Delete…",
+            DeletePermanently => "Delete Permanently…",
+            CloseWindow => "Close Window",
+            Quit => "Quit",
+            First => "First Image",
+            Prev => "Previous Image",
+            Next => "Next Image",
+            Last => "Last Image",
+            Back => "Back",
+            Forward => "Forward",
+            Home => "Home",
+            Up => "Up",
+            SelectAll => "Select All",
+            SelectNone => "Select None",
+            InvertSelection => "Invert Selection",
+            CopyPath => "Copy Path to Clipboard",
+            CopyPathUnquoted => "Copy Path (Unquoted)",
+            Preferences => "Preferences…",
+            ExifRotate => "Auto Rotate Using EXIF",
+            ZoomIn => "Zoom In",
+            ZoomOut => "Zoom Out",
+            Zoom1To1 => "Zoom 1:1",
+            ZoomFit => "Zoom to Fit",
+            FullScreen => "Full Screen",
+            HideTools => "Hide File List",
+            Refresh => "Refresh",
+            Slideshow => "Start/Stop Slideshow",
+            Pause => "Pause Slideshow",
+            RandomOrder => "Random Order",
+            Faster => "Faster",
+            Slower => "Slower",
+            Escape => "Stop Slideshow, Leave Full Screen",
+            NewWindow => "New Window",
+            Help => "Help",
+        }
+    }
 }
 
 const NONE: egui::Modifiers = egui::Modifiers::NONE;
@@ -128,6 +180,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Escape, NONE, Key::Escape),
         (Escape, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
+        (Help, NONE, Key::F1),
     ]
 };
 
@@ -147,9 +200,99 @@ enum Prompt {
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
-fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, label: &str, action: Action) {
-    menu_button(ui, act, egui::Button::new(label), action);
+fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
+    menu_button(ui, act, egui::Button::new(action.label()), action);
 }
+
+/// Mouse use, for the help window.
+const MOUSE: &[(&str, &str)] = &[
+    ("Mouse wheel", "Zoom"),
+    ("Drag", "Move a zoomed image"),
+    ("Double-click", "Full Screen"),
+    ("Ctrl+click in the list", "Select or unselect a file"),
+];
+
+/// Where Glimt differs from Geeqie: what, Glimt, Geeqie. Shown in the Help Manual (F1).
+const DIFFERENCES: &[(&str, &str, &str)] = &[
+    (
+        "R",
+        "Toggles random order in the slideshow, also while it runs",
+        "Refresh",
+    ),
+    ("Refresh", "F5", "R"),
+    (
+        "Random order",
+        "R, the View menu and Preferences",
+        "Only in Preferences",
+    ),
+    (
+        "Arrow keys",
+        "←/↑ previous, →/↓ next image",
+        "Scroll a zoomed image, move in the file list",
+    ),
+    ("Mouse wheel", "Zooms", "Next or previous image"),
+    (
+        "Esc / Q",
+        "Stops the slideshow and leaves full screen; never quits",
+        "Leaves full screen",
+    ),
+    (
+        "Slideshow delay",
+        "Whole seconds 1–60, Ctrl+= / Ctrl+- change it by 1 s",
+        "Tenths of a second, Faster/Slower change it by 0.5 s",
+    ),
+    (
+        "Browsing in a slideshow",
+        "The new image gets the full delay",
+        "",
+    ),
+    (
+        "Stopping a random slideshow",
+        "The order is kept, so Previous goes back through the shown images",
+        "",
+    ),
+    (
+        "Small images",
+        "\"Enlarge small images to fit the window\", on by default",
+        "\"Allow enlargement\"",
+    ),
+    (
+        "Close Window (Ctrl+W)",
+        "Same as Quit (one window per process)",
+        "Closes one of several windows",
+    ),
+    (
+        "Keypad /, *, +, -",
+        "Not supported",
+        "Zoom 1:1, fit, in, out",
+    ),
+    ("1–6, Ctrl+1–6", "Not used (no marks yet)", "Marks"),
+    (
+        "Rename (Ctrl+R)",
+        "Only the shown image",
+        "Selected files, with a pattern for several",
+    ),
+    (
+        "Open With",
+        "The default application",
+        "Choose an application",
+    ),
+    (
+        "Copy, Move (Ctrl+C, Ctrl+M)",
+        "Target folder from a file dialog; never overwrites",
+        "Own dialog",
+    ),
+    (
+        "New Window (Ctrl+N)",
+        "A new process in the same folder",
+        "A new window in the same process, saved layouts",
+    ),
+    (
+        "Refresh on change",
+        "Setting, on by default; checks the folder once a second",
+        "Setting",
+    ),
+];
 
 fn menu_button(
     ui: &mut egui::Ui,
@@ -206,6 +349,7 @@ struct App {
     /// Workers apply EXIF orientation (Preferences, Alt+X).
     rotate: Arc<AtomicBool>,
     show_settings: bool,
+    show_help: bool,
     /// The confirmation dialog for permanent deletion is open.
     confirm: bool,
     /// Open text dialog and the text typed so far.
@@ -752,6 +896,7 @@ impl App {
             ahead,
             rotate,
             show_settings: false,
+            show_help: false,
             confirm: false,
             prompt: None,
             selected: Default::default(),
@@ -1447,6 +1592,67 @@ impl App {
         })
     }
 
+    /// Shortcuts, mouse use and the differences from Geeqie (F1).
+    fn help_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_help;
+        egui::Window::new("Help")
+            .open(&mut open)
+            .collapsible(false)
+            .default_height(500.0)
+            .show(ctx, |ui| {
+                ui.heading(format!("Glimt {}", env!("CARGO_PKG_VERSION")));
+                ui.label("A fast image viewer inspired by Geeqie.");
+                ui.weak("MIT License, © 2026 Hans-Henry Jakobsen");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::CollapsingHeader::new("Keyboard and mouse")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            // Every shortcut of an action on one row, in menu order.
+                            let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
+                            for &(action, mods, key) in SHORTCUTS {
+                                if action == Action::Play && !cfg!(feature = "video") {
+                                    continue;
+                                }
+                                let text =
+                                    ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key));
+                                match rows.iter_mut().find(|r| r.0 == action) {
+                                    Some(row) => row.1.push(text),
+                                    None => rows.push((action, vec![text])),
+                                }
+                            }
+                            rows.sort_by_key(|r| r.0 as usize);
+                            egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
+                                for (action, keys) in rows {
+                                    ui.label(keys.join(", "));
+                                    ui.label(action.label());
+                                    ui.end_row();
+                                }
+                                for (what, does) in MOUSE {
+                                    ui.label(*what);
+                                    ui.label(*does);
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                    egui::CollapsingHeader::new("Differences from Geeqie").show(ui, |ui| {
+                        egui::Grid::new("differences").striped(true).show(ui, |ui| {
+                            ui.strong("");
+                            ui.strong("Glimt");
+                            ui.strong("Geeqie");
+                            ui.end_row();
+                            for (what, glimt, geeqie) in DIFFERENCES {
+                                ui.label(*what);
+                                ui.label(*glimt);
+                                ui.label(*geeqie);
+                                ui.end_row();
+                            }
+                        });
+                    });
+                });
+            });
+        self.show_help = open;
+    }
+
     fn zoom_by(&mut self, factor: f32) {
         self.zoom = Some((self.zoom.unwrap_or(self.last_scale) * factor).clamp(0.02, 32.0));
     }
@@ -1532,6 +1738,7 @@ impl App {
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
+            Action::Help => self.show_help = !self.show_help,
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Rename => {
                 if let Some(name) = self.files.get(self.cur) {
@@ -1588,6 +1795,7 @@ impl App {
             }
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
             Action::Escape => {
+                self.show_help = false;
                 if self.slideshow.is_some() {
                     self.stop_slideshow(ctx);
                 }
@@ -1650,40 +1858,40 @@ impl eframe::App for App {
                 egui::MenuBar::new().ui(ui, |ui| {
                     let act = &mut act;
                     ui.menu_button("File", |ui| {
-                        menu_item(ui, act, "Open File…", Action::OpenFile);
-                        menu_item(ui, act, "Open Folder…", Action::OpenFolder);
-                        menu_item(ui, act, "New Folder…", Action::NewFolder);
-                        menu_item(ui, act, "Copy…", Action::Copy);
-                        menu_item(ui, act, "Move…", Action::Move);
-                        menu_item(ui, act, "Rename…", Action::Rename);
-                        menu_item(ui, act, "Open With Default App", Action::OpenWith);
+                        menu_item(ui, act, Action::OpenFile);
+                        menu_item(ui, act, Action::OpenFolder);
+                        menu_item(ui, act, Action::NewFolder);
+                        menu_item(ui, act, Action::Copy);
+                        menu_item(ui, act, Action::Move);
+                        menu_item(ui, act, Action::Rename);
+                        menu_item(ui, act, Action::OpenWith);
                         #[cfg(feature = "video")]
-                        menu_item(ui, act, "Play Video", Action::Play);
+                        menu_item(ui, act, Action::Play);
                         ui.separator();
-                        menu_item(ui, act, "Delete…", Action::Delete);
-                        menu_item(ui, act, "Delete Permanently…", Action::DeletePermanently);
+                        menu_item(ui, act, Action::Delete);
+                        menu_item(ui, act, Action::DeletePermanently);
                         ui.separator();
-                        menu_item(ui, act, "Close Window", Action::CloseWindow);
-                        menu_item(ui, act, "Quit", Action::Quit);
+                        menu_item(ui, act, Action::CloseWindow);
+                        menu_item(ui, act, Action::Quit);
                     });
                     ui.menu_button("Go", |ui| {
-                        menu_item(ui, act, "First Image", Action::First);
-                        menu_item(ui, act, "Previous Image", Action::Prev);
-                        menu_item(ui, act, "Next Image", Action::Next);
-                        menu_item(ui, act, "Last Image", Action::Last);
+                        menu_item(ui, act, Action::First);
+                        menu_item(ui, act, Action::Prev);
+                        menu_item(ui, act, Action::Next);
+                        menu_item(ui, act, Action::Last);
                         ui.separator();
-                        menu_item(ui, act, "Back", Action::Back);
-                        menu_item(ui, act, "Forward", Action::Forward);
-                        menu_item(ui, act, "Home", Action::Home);
-                        menu_item(ui, act, "Up", Action::Up);
+                        menu_item(ui, act, Action::Back);
+                        menu_item(ui, act, Action::Forward);
+                        menu_item(ui, act, Action::Home);
+                        menu_item(ui, act, Action::Up);
                     });
                     ui.menu_button("Select", |ui| {
-                        menu_item(ui, act, "Select All", Action::SelectAll);
-                        menu_item(ui, act, "Select None", Action::SelectNone);
-                        menu_item(ui, act, "Invert Selection", Action::InvertSelection);
+                        menu_item(ui, act, Action::SelectAll);
+                        menu_item(ui, act, Action::SelectNone);
+                        menu_item(ui, act, Action::InvertSelection);
                         ui.separator();
-                        menu_item(ui, act, "Copy Path to Clipboard", Action::CopyPath);
-                        menu_item(ui, act, "Copy Path (Unquoted)", Action::CopyPathUnquoted);
+                        menu_item(ui, act, Action::CopyPath);
+                        menu_item(ui, act, Action::CopyPathUnquoted);
                     });
                     ui.menu_button("Edit", |ui| {
                         let rotate = egui::Button::selectable(
@@ -1692,36 +1900,37 @@ impl eframe::App for App {
                         );
                         menu_button(ui, act, rotate, Action::ExifRotate);
                         ui.separator();
-                        menu_item(ui, act, "Preferences…", Action::Preferences);
+                        menu_item(ui, act, Action::Preferences);
                     });
                     ui.menu_button("View", |ui| {
                         ui.menu_button("Zoom", |ui| {
-                            menu_item(ui, act, "Zoom In", Action::ZoomIn);
-                            menu_item(ui, act, "Zoom Out", Action::ZoomOut);
-                            menu_item(ui, act, "Zoom 1:1", Action::Zoom1To1);
-                            menu_item(ui, act, "Zoom to Fit", Action::ZoomFit);
+                            menu_item(ui, act, Action::ZoomIn);
+                            menu_item(ui, act, Action::ZoomOut);
+                            menu_item(ui, act, Action::Zoom1To1);
+                            menu_item(ui, act, Action::ZoomFit);
                         });
-                        menu_item(ui, act, "Full Screen", Action::FullScreen);
-                        menu_item(ui, act, "Hide File List", Action::HideTools);
-                        menu_item(ui, act, "Refresh", Action::Refresh);
+                        menu_item(ui, act, Action::FullScreen);
+                        menu_item(ui, act, Action::HideTools);
+                        menu_item(ui, act, Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
                             "Stop Slideshow"
                         } else {
                             "Start Slideshow"
                         };
-                        menu_item(ui, act, label, Action::Slideshow);
+                        menu_button(ui, act, egui::Button::new(label), Action::Slideshow);
                         let pause = egui::Button::selectable(self.paused, "Pause Slideshow");
                         menu_button(ui, act, pause, Action::Pause);
-                        menu_item(ui, act, "Faster", Action::Faster);
-                        menu_item(ui, act, "Slower", Action::Slower);
+                        menu_item(ui, act, Action::Faster);
+                        menu_item(ui, act, Action::Slower);
                         let random = egui::Button::selectable(self.config.random, "Random Order");
                         menu_button(ui, act, random, Action::RandomOrder);
                     });
                     ui.menu_button("Window", |ui| {
-                        menu_item(ui, act, "New Window", Action::NewWindow);
-                        menu_item(ui, act, "Close Window", Action::CloseWindow);
+                        menu_item(ui, act, Action::NewWindow);
+                        menu_item(ui, act, Action::CloseWindow);
                     });
+                    ui.menu_button("Help", |ui| menu_item(ui, act, Action::Help));
                 });
             });
         }
@@ -1874,6 +2083,7 @@ impl eframe::App for App {
             }
         }
         self.show_settings = open;
+        self.help_window(ctx);
 
         // Status bar as in Geeqie: image and selection counts on the left, current image on the right.
         if !bare {
@@ -2019,7 +2229,7 @@ impl eframe::App for App {
                         .min(max_fit)
                 });
                 let wheel = ctx.input(|i| i.zoom_delta() * (1.0 + i.smooth_scroll_delta.y / 400.0));
-                if wheel != 1.0 && !self.dialog_open() {
+                if wheel != 1.0 && response.hovered() && !self.dialog_open() {
                     self.zoom = Some((self.zoom.unwrap_or(fit) * wheel).clamp(0.02, 32.0));
                 }
                 if response.dragged() {
