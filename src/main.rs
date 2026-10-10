@@ -76,6 +76,30 @@ fn list_images(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
+/// `$XDG_CONFIG_HOME/glimt/config`, ellers `~/.config/glimt/config`.
+fn config_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("glimt").join("config"))
+}
+
+fn parse_preload(config: &str) -> Option<usize> {
+    config
+        .lines()
+        .find_map(|l| l.strip_prefix("preload=")?.trim().parse().ok())
+}
+
+// ponytail: fila har én nøkkel og skrives hel; gå over til en struct når flere innstillinger kommer.
+fn save_preload(n: usize) {
+    let Some(p) = config_path() else { return };
+    let result = std::fs::create_dir_all(p.parent().unwrap())
+        .and_then(|_| std::fs::write(&p, format!("preload={n}\n")));
+    if let Err(e) = result {
+        eprintln!("kunne ikke lagre {}: {e}", p.display());
+    }
+}
+
 fn list_dirs(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
@@ -115,7 +139,12 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
 impl App {
     fn new(cc: &eframe::CreationContext, path: PathBuf) -> Self {
         let current = Arc::new(AtomicUsize::new(0));
-        let ahead = Arc::new(AtomicUsize::new(DEFAULT_AHEAD));
+        let preload = config_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|c| parse_preload(&c))
+            .unwrap_or(DEFAULT_AHEAD)
+            .min(20);
+        let ahead = Arc::new(AtomicUsize::new(preload));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
         let (done_tx, done) = mpsc::channel();
@@ -429,6 +458,7 @@ impl eframe::App for App {
                 if ui.add(slider).changed() {
                     self.ahead.store(n, Ordering::Relaxed);
                     self.refill();
+                    save_preload(n);
                 }
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
@@ -577,5 +607,12 @@ mod tests {
         assert_eq!(super::list_dirs(&dir), vec![dir.join("sub")]);
         let (img, orig) = super::decode(&dir.join("a.png"), [100, 100]).unwrap();
         assert_eq!((img.size, orig), ([100, 50], [400, 200]));
+    }
+
+    #[test]
+    fn parses_preload_from_config() {
+        assert_eq!(super::parse_preload("# kommentar\npreload= 5\n"), Some(5));
+        assert_eq!(super::parse_preload("preload=x"), None);
+        assert_eq!(super::parse_preload(""), None);
     }
 }
