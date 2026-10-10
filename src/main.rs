@@ -1308,10 +1308,16 @@ impl App {
                         .arg("open")
                         .arg(&path)
                         .output();
+                    let out = match out {
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                            std::process::Command::new("xdg-open").arg(&path).output()
+                        }
+                        other => other,
+                    };
                     match out {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                        Err(e) => drop(tx.send(format!("gio open: {e}"))),
+                        Err(e) => drop(tx.send(format!("Open With (gio, xdg-open): {e}"))),
                     }
                 });
             }
