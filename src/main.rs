@@ -129,10 +129,28 @@ fn sort_by_name(paths: &mut [PathBuf]) {
 
 /// `$XDG_CONFIG_HOME/glimt/config`, ellers `~/.config/glimt/config`.
 fn config_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
+    xdg_file("XDG_CONFIG_HOME", ".config", "config")
+}
+
+/// `$XDG_STATE_HOME/glimt/state`, ellers `~/.local/state/glimt/state`.
+/// Tilstand (som siste mappe) er ikke innstillinger, og hører hjemme her etter XDG.
+fn state_path() -> Option<PathBuf> {
+    xdg_file("XDG_STATE_HOME", ".local/state", "state")
+}
+
+fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
+    let base = std::env::var_os(var)
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("glimt").join("config"))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))?;
+    Some(base.join("glimt").join(name))
+}
+
+fn parse_last_dir(state: &str) -> Option<PathBuf> {
+    state.lines().find_map(|l| {
+        l.strip_prefix("last_dir=")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    })
 }
 
 /// Innstillinger, lagret som `nøkkel=verdi`-linjer. Ukjente eller ugyldige linjer ignoreres.
@@ -143,7 +161,6 @@ struct Config {
     delay: u64,
     /// Start i mappa fra forrige gang når ingen mappe er gitt på kommandolinja.
     remember_dir: bool,
-    last_dir: Option<PathBuf>,
     /// Sletting flytter til papirkurven (standard); ellers slettes fila permanent.
     trash: bool,
     /// Spør før permanent sletting.
@@ -156,7 +173,6 @@ impl Default for Config {
             preload: DEFAULT_AHEAD,
             delay: DEFAULT_DELAY,
             remember_dir: false,
-            last_dir: None,
             trash: true,
             confirm_delete: true,
         }
@@ -178,7 +194,6 @@ impl Config {
                 "remember_dir" => c.remember_dir = value == "true",
                 "trash" => c.trash = value == "true",
                 "confirm_delete" => c.confirm_delete = value == "true",
-                "last_dir" if !value.is_empty() => c.last_dir = Some(value.into()),
                 _ => {}
             }
         }
@@ -193,14 +208,10 @@ impl Config {
 
     fn save(&self) {
         let Some(p) = config_path() else { return };
-        // ponytail: stien lagres som UTF-8 (tapsfritt for vanlige stier); bytt til OsString-bytes ved behov.
-        let mut text = format!(
+        let text = format!(
             "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\n",
             self.preload, self.delay, self.remember_dir, self.trash, self.confirm_delete
         );
-        if let Some(dir) = &self.last_dir {
-            text += &format!("last_dir={}\n", dir.display());
-        }
         write_atomic(&p, &text);
     }
 }
@@ -307,10 +318,8 @@ impl App {
         let config = Config::load();
         let path = path
             .or_else(|| {
-                config
-                    .last_dir
-                    .clone()
-                    .filter(|d| config.remember_dir && d.is_dir())
+                let state = std::fs::read_to_string(state_path()?).ok()?;
+                parse_last_dir(&state).filter(|d| config.remember_dir && d.is_dir())
             })
             .unwrap_or_else(|| ".".into());
         let ahead = Arc::new(AtomicUsize::new(config.preload));
@@ -882,9 +891,11 @@ impl App {
 impl eframe::App for App {
     /// Siste mappe skrives én gang ved avslutning, ikke ved hvert mappebytte.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if self.config.remember_dir {
-            self.config.last_dir = Some(self.dir.clone());
-            self.config.save();
+        // ponytail: stien lagres som UTF-8 (tapsfritt for vanlige stier); bytt til OsString-bytes ved behov.
+        if self.config.remember_dir
+            && let Some(p) = state_path()
+        {
+            write_atomic(&p, &format!("last_dir={}\n", self.dir.display()));
         }
     }
 
@@ -1329,9 +1340,12 @@ mod tests {
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
         assert!(Config::default().trash && !Config::parse("trash=false").trash);
-        let c = Config::parse("remember_dir=true\nlast_dir=/tmp/a b\n");
-        assert!(c.remember_dir);
-        assert_eq!(c.last_dir, Some("/tmp/a b".into()));
+        assert!(Config::parse("remember_dir=true").remember_dir);
+        assert_eq!(
+            super::parse_last_dir("last_dir=/tmp/a b\n"),
+            Some("/tmp/a b".into())
+        );
+        assert_eq!(super::parse_last_dir("last_dir=\n"), None);
         assert_eq!(Config::parse("preload=x\nukjent=1"), Config::default());
     }
 }
