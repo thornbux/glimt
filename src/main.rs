@@ -609,6 +609,8 @@ struct Config {
     low_memory: bool,
     /// Folder path above the folder list.
     path_bar: bool,
+    /// Colour behind the image (sRGB), stored as #rrggbb.
+    background: [u8; 3],
 }
 
 impl Default for Config {
@@ -629,6 +631,7 @@ impl Default for Config {
             toolbar: true,
             low_memory: true,
             path_bar: true,
+            background: [0, 0, 0],
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -661,6 +664,13 @@ impl Config {
                 "toolbar" => c.toolbar = value == "true",
                 "low_memory" => c.low_memory = value == "true",
                 "path_bar" => c.path_bar = value == "true",
+                "background" => {
+                    let hex = value.trim_start_matches('#');
+                    if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
+                        let [_, r, g, b] = rgb.to_be_bytes();
+                        c.background = [r, g, b];
+                    }
+                }
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -680,7 +690,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -695,6 +705,9 @@ impl Config {
             self.toolbar,
             self.low_memory,
             self.path_bar,
+            self.background[0],
+            self.background[1],
+            self.background[2],
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -2370,6 +2383,19 @@ impl eframe::App for App {
                 {
                     self.set_exif_rotate(rotate);
                 }
+                ui.horizontal(|ui| {
+                    if ui
+                        .color_edit_button_srgb(&mut self.config.background)
+                        .changed()
+                    {
+                        self.config.save();
+                    }
+                    ui.label("Background behind the image");
+                    if self.config.background != [0, 0, 0] && ui.small_button("Black").clicked() {
+                        self.config.background = [0, 0, 0];
+                        self.config.save();
+                    }
+                });
                 let enlarge = egui::Checkbox::new(
                     &mut self.config.enlarge,
                     "Enlarge small images to fit the window",
@@ -2690,7 +2716,10 @@ impl eframe::App for App {
 
         let mut wheel_step = None;
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+            .frame(egui::Frame::NONE.fill({
+                let [r, g, b] = self.config.background;
+                egui::Color32::from_rgb(r, g, b)
+            }))
             .show(ui, |ui| {
                 let area = ui.max_rect();
                 // Decode to the image area, not the whole screen: a small window on a 4K screen
@@ -2966,6 +2995,12 @@ mod tests {
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
         assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
         assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
+        assert_eq!(Config::default().background, [0, 0, 0]);
+        assert_eq!(
+            Config::parse("background=#1a2B3c").background,
+            [0x1a, 0x2b, 0x3c]
+        );
+        assert_eq!(Config::parse("background=#12").background, [0, 0, 0]);
         assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
