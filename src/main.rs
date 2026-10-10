@@ -1026,6 +1026,7 @@ impl App {
         let target = self.dir.join(text);
         let result = match prompt {
             Prompt::NewFolder => std::fs::create_dir(&target),
+            Prompt::Rename if self.files.get(self.cur) == Some(&OsString::from(text)) => return,
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::Rename if self.files.is_empty() => return,
