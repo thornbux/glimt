@@ -29,6 +29,7 @@ enum Action {
     Rename,
     Copy,
     Move,
+    OpenWith,
     Delete,
     DeletePermanently,
     CloseWindow,
@@ -1276,6 +1277,22 @@ impl App {
                 self.pick(ctx, true, purpose);
             }
             Action::Copy | Action::Move => {}
+            // ponytail: the default application only; an app chooser (`gio mime`) if wanted.
+            Action::OpenWith if !self.files.is_empty() => {
+                let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
+                std::thread::spawn(move || {
+                    let out = std::process::Command::new("gio")
+                        .arg("open")
+                        .arg(&path)
+                        .output();
+                    match out {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                        Err(e) => drop(tx.send(format!("gio open: {e}"))),
+                    }
+                });
+            }
+            Action::OpenWith => {}
             Action::Delete => self.request_delete(ctx, self.config.trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::CloseWindow | Action::Quit => {
@@ -1456,6 +1473,7 @@ impl eframe::App for App {
                         menu_item(ui, act, "Copy…", Action::Copy);
                         menu_item(ui, act, "Move…", Action::Move);
                         menu_item(ui, act, "Rename…", Action::Rename);
+                        menu_item(ui, act, "Open With Default App", Action::OpenWith);
                         ui.separator();
                         menu_item(ui, act, "Delete…", Action::Delete);
                         menu_item(ui, act, "Delete Permanently…", Action::DeletePermanently);
