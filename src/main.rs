@@ -46,6 +46,8 @@ struct App {
     /// Antall bilder forhåndslastet på hver side (Innstillinger).
     ahead: Arc<AtomicUsize>,
     show_settings: bool,
+    /// Bekreftelsesdialog for permanent sletting er åpen.
+    confirm: bool,
     config: Config,
     /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
@@ -121,6 +123,10 @@ struct Config {
     /// Start i mappa fra forrige gang når ingen mappe er gitt på kommandolinja.
     remember_dir: bool,
     last_dir: Option<PathBuf>,
+    /// Sletting flytter til papirkurven (standard); ellers slettes fila permanent.
+    trash: bool,
+    /// Spør før permanent sletting.
+    confirm_delete: bool,
 }
 
 impl Default for Config {
@@ -130,6 +136,8 @@ impl Default for Config {
             delay: DEFAULT_DELAY,
             remember_dir: false,
             last_dir: None,
+            trash: true,
+            confirm_delete: true,
         }
     }
 }
@@ -147,6 +155,8 @@ impl Config {
                         .map_or(c.delay, |n: u64| n.clamp(1, MAX_DELAY))
                 }
                 "remember_dir" => c.remember_dir = value == "true",
+                "trash" => c.trash = value == "true",
+                "confirm_delete" => c.confirm_delete = value == "true",
                 "last_dir" if !value.is_empty() => c.last_dir = Some(value.into()),
                 _ => {}
             }
@@ -164,8 +174,8 @@ impl Config {
         let Some(p) = config_path() else { return };
         // ponytail: stien lagres som UTF-8 (tapsfritt for vanlige stier); bytt til OsString-bytes ved behov.
         let mut text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\n",
-            self.preload, self.delay, self.remember_dir
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\n",
+            self.preload, self.delay, self.remember_dir, self.trash, self.confirm_delete
         );
         if let Some(dir) = &self.last_dir {
             text += &format!("last_dir={}\n", dir.display());
@@ -291,6 +301,7 @@ impl App {
             current,
             ahead,
             show_settings: false,
+            confirm: false,
             config,
             slideshow: None,
             random: false,
@@ -365,22 +376,41 @@ impl App {
 
     /// Slett gjeldende bilde: ut av lista med en gang (naboenes teksturer beholdes, så neste
     /// bilde vises uten ny dekoding), og flytt fila til papirkurven i bakgrunnen.
+    /// Delete-tasten / Fil → Slett: til papirkurven med en gang, permanent etter bekreftelse.
+    fn request_delete(&mut self, ctx: &egui::Context) {
+        if self.files.is_empty() {
+            return;
+        }
+        if !self.config.trash && self.config.confirm_delete {
+            self.confirm = true;
+        } else {
+            self.delete_current(ctx);
+        }
+    }
+
     fn delete_current(&mut self, ctx: &egui::Context) {
         let Some(path) = self.files.get(self.cur).cloned() else {
             return;
         };
         self.remove_current(ctx);
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
         std::thread::spawn(move || {
-            let result = std::process::Command::new("gio")
-                .arg("trash")
-                .arg("--")
-                .arg(&path)
-                .output();
-            let err = match result {
-                Ok(o) if o.status.success() => return,
-                Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_owned(),
-                Err(e) => e.to_string(),
+            let err = if trash {
+                match std::process::Command::new("gio")
+                    .arg("trash")
+                    .arg("--")
+                    .arg(&path)
+                    .output()
+                {
+                    Ok(o) if o.status.success() => return,
+                    Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_owned(),
+                    Err(e) => e.to_string(),
+                }
+            } else {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => return,
+                    Err(e) => e.to_string(),
+                }
             };
             let _ = tx.send(format!("Kunne ikke slette {}: {err}", path.display()));
             ctx.request_repaint();
@@ -638,7 +668,7 @@ impl App {
             self.title(ctx);
         }
         if pressed(Key::Delete) {
-            self.delete_current(ctx);
+            self.request_delete(ctx);
         }
         if pressed(Key::Escape) {
             if self.slideshow.is_some() {
@@ -726,7 +756,7 @@ impl eframe::App for App {
                             self.pick(ctx, true);
                         }
                         if ui.button("Slett (Delete)").clicked() {
-                            self.delete_current(ctx);
+                            self.request_delete(ctx);
                         }
                         ui.separator();
                         if ui.button("Lukk").clicked() {
@@ -783,7 +813,43 @@ impl eframe::App for App {
                 if ui.add(remember).changed() {
                     self.config.save();
                 }
+                ui.separator();
+                ui.label("Sletting (Delete):");
+                let trash = egui::Checkbox::new(&mut self.config.trash, "Flytt til papirkurven");
+                let confirm = egui::Checkbox::new(
+                    &mut self.config.confirm_delete,
+                    "Bekreft permanent sletting",
+                );
+                if ui.add(trash).changed() | ui.add_enabled(!self.config.trash, confirm).changed() {
+                    self.config.save();
+                }
             });
+
+        if self.confirm {
+            let name = self
+                .files
+                .get(self.cur)
+                .and_then(|f| f.file_name())
+                .unwrap_or_default();
+            let mut delete = false;
+            let modal = egui::Modal::new(egui::Id::new("bekreft-sletting")).show(ctx, |ui| {
+                ui.label(format!("Slette «{}» permanent?", name.to_string_lossy()));
+                ui.weak("Dette kan ikke angres.");
+                ui.horizontal(|ui| {
+                    delete = ui.button("Slett (Enter)").clicked()
+                        || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Avbryt (Esc)").clicked() {
+                        ui.close();
+                    }
+                });
+            });
+            if delete {
+                self.confirm = false;
+                self.delete_current(ctx);
+            } else if modal.should_close() {
+                self.confirm = false;
+            }
+        }
         self.show_settings = open;
 
         // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
@@ -867,7 +933,7 @@ impl eframe::App for App {
                         .min(1.0)
                 });
                 // Taster går til innstillingsvinduet mens det er åpent.
-                if !self.show_settings {
+                if !self.show_settings && !self.confirm {
                     self.keys(ctx, fit);
                 }
                 if response.dragged() {
@@ -979,6 +1045,7 @@ mod tests {
         assert_eq!(Config::parse("preload=99").preload, 20);
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
+        assert!(Config::default().trash && Config::parse("trash=false").trash == false);
         let c = Config::parse("remember_dir=true\nlast_dir=/tmp/a b\n");
         assert!(c.remember_dir);
         assert_eq!(c.last_dir, Some("/tmp/a b".into()));
