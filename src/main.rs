@@ -48,6 +48,8 @@ struct App {
     show_settings: bool,
     /// Bekreftelsesdialog for permanent sletting er åpen.
     confirm: bool,
+    /// Merkede filer (Ctrl/Shift+klikk i fillista) som Delete gjelder.
+    selected: std::collections::BTreeSet<usize>,
     config: Config,
     /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
@@ -188,11 +190,15 @@ impl Config {
     }
 }
 
-/// Fjern oppføringen for `removed` og flytt høyere indekser ett hakk ned.
-fn without_index<T>(map: HashMap<usize, T>, removed: usize) -> HashMap<usize, T> {
+/// Ny indeks for `i` når de (sorterte) indeksene i `removed` fjernes fra lista; `None` hvis `i` selv fjernes.
+fn shifted(i: usize, removed: &[usize]) -> Option<usize> {
+    removed.binary_search(&i).err().map(|before| i - before)
+}
+
+/// Fjern oppføringene for `removed` (sortert) og flytt resten ned tilsvarende.
+fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {
     map.into_iter()
-        .filter(|&(i, _)| i != removed)
-        .map(|(i, v)| (if i > removed { i - 1 } else { i }, v))
+        .filter_map(|(i, v)| Some((shifted(i, removed)?, v)))
         .collect()
 }
 
@@ -302,6 +308,7 @@ impl App {
             ahead,
             show_settings: false,
             confirm: false,
+            selected: Default::default(),
             config,
             slideshow: None,
             random: false,
@@ -384,47 +391,69 @@ impl App {
         if !self.config.trash && self.config.confirm_delete {
             self.confirm = true;
         } else {
-            self.delete_current(ctx);
+            self.delete_targets_now(ctx);
         }
     }
 
-    fn delete_current(&mut self, ctx: &egui::Context) {
-        let Some(path) = self.files.get(self.cur).cloned() else {
-            return;
-        };
-        self.remove_current(ctx);
+    /// Sletting gjelder de merkede filene, ellers bildet som vises. Sortert.
+    fn delete_targets(&self) -> Vec<usize> {
+        if self.selected.is_empty() {
+            vec![self.cur]
+        } else {
+            self.selected.iter().copied().collect()
+        }
+    }
+
+    fn delete_targets_now(&mut self, ctx: &egui::Context) {
+        let targets = self.delete_targets();
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.files[i].clone()).collect();
+        self.remove_indices(ctx, &targets);
         let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
         std::thread::spawn(move || {
-            let err = if trash {
-                match std::process::Command::new("gio")
-                    .arg("trash")
-                    .arg("--")
-                    .arg(&path)
-                    .output()
-                {
-                    Ok(o) if o.status.success() => return,
-                    Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_owned(),
-                    Err(e) => e.to_string(),
+            let mut errors = Vec::new();
+            if trash {
+                // Mange filer per gio-kall, så tusenvis av filer ikke blir tusenvis av prosesser.
+                for chunk in paths.chunks(500) {
+                    match std::process::Command::new("gio")
+                        .arg("trash")
+                        .arg("--")
+                        .args(chunk)
+                        .output()
+                    {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => errors.push(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
+                        Err(e) => errors.push(e.to_string()),
+                    }
                 }
             } else {
-                match std::fs::remove_file(&path) {
-                    Ok(()) => return,
-                    Err(e) => e.to_string(),
+                for path in &paths {
+                    if let Err(e) = std::fs::remove_file(path) {
+                        errors.push(format!("{}: {e}", path.display()));
+                    }
                 }
-            };
-            let _ = tx.send(format!("Kunne ikke slette {}: {err}", path.display()));
-            ctx.request_repaint();
+            }
+            if let Some(first) = errors.first() {
+                let _ = tx.send(format!("Sletting feilet ({} feil): {first}", errors.len()));
+                ctx.request_repaint();
+            }
         });
     }
 
-    /// Fjern gjeldende bilde fra lista og flytt indeksbasert tilstand ett hakk ned.
-    fn remove_current(&mut self, ctx: &egui::Context) {
-        let cur = self.cur;
-        self.files.remove(cur);
-        self.slots = without_index(std::mem::take(&mut self.slots), cur);
-        self.errors = without_index(std::mem::take(&mut self.errors), cur);
+    /// Fjern de (sorterte) indeksene fra lista i én gjennomgang og flytt indeksbasert tilstand
+    /// tilsvarende. Naboenes teksturer beholdes, så neste bilde vises uten ny dekoding.
+    fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
+        let mut idx = 0;
+        self.files.retain(|_| {
+            idx += 1;
+            removed.binary_search(&(idx - 1)).is_err()
+        });
+        self.slots = without_indices(std::mem::take(&mut self.slots), removed);
+        self.errors = without_indices(std::mem::take(&mut self.errors), removed);
+        self.selected.clear();
         // Jobber i arbeid har gamle indekser og avvises på filsti; refill ber om dem på nytt.
         self.pending.clear();
+        // Neste gjenværende fil etter den som ble vist (eller den siste).
+        let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
             self.cur = 0;
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
@@ -442,6 +471,7 @@ impl App {
     fn replace_files(&mut self, ctx: &egui::Context, files: Vec<PathBuf>, shown: Option<PathBuf>) {
         let slot = self.slots.remove(&self.cur);
         self.files = files;
+        self.selected.clear();
         self.slots.clear();
         self.pending.clear();
         self.errors.clear();
@@ -545,7 +575,11 @@ impl App {
             _ => String::new(),
         };
         let (n, total) = (self.cur + 1, self.files.len());
-        let title = format!("{show}{name} ({n}/{total}) — glimt");
+        let marked = match self.selected.len() {
+            0 => String::new(),
+            m => format!(" · {m} merket"),
+        };
+        let title = format!("{show}{name} ({n}/{total}){marked} — glimt");
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
@@ -826,14 +860,19 @@ impl eframe::App for App {
             });
 
         if self.confirm {
-            let name = self
-                .files
-                .get(self.cur)
-                .and_then(|f| f.file_name())
-                .unwrap_or_default();
+            let what = match self.delete_targets().as_slice() {
+                [i] => format!(
+                    "«{}»",
+                    self.files[*i]
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                ),
+                many => format!("{} filer", many.len()),
+            };
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("bekreft-sletting")).show(ctx, |ui| {
-                ui.label(format!("Slette «{}» permanent?", name.to_string_lossy()));
+                ui.label(format!("Slette {what} permanent?"));
                 ui.weak("Dette kan ikke angres.");
                 ui.horizontal(|ui| {
                     delete = ui.button("Slett (Enter)").clicked()
@@ -845,7 +884,7 @@ impl eframe::App for App {
             });
             if delete {
                 self.confirm = false;
-                self.delete_current(ctx);
+                self.delete_targets_now(ctx);
             } else if modal.should_close() {
                 self.confirm = false;
             }
@@ -908,8 +947,26 @@ impl eframe::App for App {
                                 .file_name()
                                 .unwrap_or_default()
                                 .to_string_lossy();
-                            if ui.selectable_label(i == self.cur, name).clicked() {
-                                go_to = Some(i);
+                            let marked = i == self.cur || self.selected.contains(&i);
+                            if ui.selectable_label(marked, name).clicked() {
+                                let m = ui.input(|i| i.modifiers);
+                                if m.command {
+                                    // Ctrl+klikk: merk/avmerk (bildet som vises tas med første gang).
+                                    if self.selected.is_empty() {
+                                        self.selected.insert(self.cur);
+                                    }
+                                    if !self.selected.remove(&i) {
+                                        self.selected.insert(i);
+                                    }
+                                    self.title(ctx);
+                                } else if m.shift {
+                                    // Shift+klikk: merk området fra bildet som vises.
+                                    self.selected.extend(i.min(self.cur)..=i.max(self.cur));
+                                    self.title(ctx);
+                                } else {
+                                    self.selected.clear();
+                                    go_to = Some(i);
+                                }
                             }
                         }
                     });
@@ -1023,10 +1080,10 @@ mod tests {
     }
 
     #[test]
-    fn without_index_shifts_down() {
-        let map = std::collections::HashMap::from([(3, 'a'), (4, 'b'), (5, 'c')]);
-        let expected = std::collections::HashMap::from([(3, 'a'), (4, 'c')]);
-        assert_eq!(super::without_index(map, 4), expected);
+    fn without_indices_shifts_down() {
+        let map = std::collections::HashMap::from([(1, 'a'), (2, 'b'), (4, 'c'), (6, 'd')]);
+        let expected = std::collections::HashMap::from([(1, 'a'), (3, 'd')]);
+        assert_eq!(super::without_indices(map, &[2, 4, 5]), expected);
     }
 
     #[test]
@@ -1045,7 +1102,7 @@ mod tests {
         assert_eq!(Config::parse("preload=99").preload, 20);
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
-        assert!(Config::default().trash && Config::parse("trash=false").trash == false);
+        assert!(Config::default().trash && !Config::parse("trash=false").trash);
         let c = Config::parse("remember_dir=true\nlast_dir=/tmp/a b\n");
         assert!(c.remember_dir);
         assert_eq!(c.last_dir, Some("/tmp/a b".into()));
