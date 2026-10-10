@@ -854,11 +854,10 @@ impl App {
         }
     }
 
+    /// A random order is kept after stopping, so Previous still goes back through the images
+    /// that were shown; reopening the folder sorts it again.
     fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow = None;
-        if self.random {
-            self.set_random(ctx, false);
-        }
         self.title(ctx);
     }
 
