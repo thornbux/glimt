@@ -27,6 +27,8 @@ enum Action {
     OpenFolder,
     NewFolder,
     Rename,
+    Copy,
+    Move,
     Delete,
     DeletePermanently,
     CloseWindow,
@@ -84,6 +86,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Delete, CTRL, Key::D),
         (NewFolder, CTRL, Key::F),
         (Rename, CTRL, Key::R),
+        (Copy, CTRL, Key::C),
+        (Move, CTRL, Key::M),
         (CloseWindow, CTRL, Key::W),
         (Quit, CTRL, Key::Q),
         (First, NONE, Key::Home),
@@ -120,6 +124,13 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (NewWindow, CTRL, Key::N),
     ]
 };
+
+/// What a zenity file dialog was opened for.
+enum Pick {
+    Open,
+    CopyTo(Vec<PathBuf>),
+    MoveTo(Vec<PathBuf>),
+}
 
 /// What the one-line text dialog is asking for.
 #[derive(Clone, Copy)]
@@ -214,7 +225,7 @@ struct App {
     /// Set at startup; taken when the first image is shown.
     started: Option<Instant>,
     /// Answer from an open file dialog (zenity).
-    dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     /// Generation of the folder watcher; opening another folder ends the old thread.
     watching: Arc<AtomicUsize>,
     /// The watcher saw the folder change.
@@ -925,13 +936,20 @@ impl App {
     }
 
     /// Run zenity's file dialog in its own thread so the window does not freeze.
-    fn pick(&mut self, ctx: &egui::Context, folder: bool) {
+    fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
         let (tx, rx) = mpsc::channel();
         let (ctx, start) = (ctx.clone(), self.dir.join(""));
+        let title = match purpose {
+            Pick::Open if folder => "Open Folder",
+            Pick::Open => "Open File",
+            Pick::CopyTo(_) => "Copy to Folder",
+            Pick::MoveTo(_) => "Move to Folder",
+        };
         std::thread::spawn(move || {
             let mut cmd = std::process::Command::new("zenity");
-            cmd.arg("--file-selection").arg("--filename").arg(start);
+            cmd.arg("--file-selection").arg("--title").arg(title);
+            cmd.arg("--filename").arg(start);
             if folder {
                 cmd.arg("--directory");
             }
@@ -947,7 +965,57 @@ impl App {
             let _ = tx.send(picked);
             ctx.request_repaint();
         });
-        self.dialog = Some(rx);
+        self.dialog = Some((purpose, rx));
+    }
+
+    /// Copy or move `paths` into `dest` in the background. Existing files are never
+    /// overwritten; a move across file systems falls back to copy + delete.
+    fn transfer(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>, dest: PathBuf, keep: bool) {
+        if !keep {
+            // Moved out of the shown folder: out of the list at once, as when deleting.
+            let names: HashSet<&std::ffi::OsStr> = paths
+                .iter()
+                .filter(|p| p.parent() == Some(self.dir.as_path()))
+                .filter_map(|p| p.file_name())
+                .collect();
+            let gone: Vec<usize> = (0..self.files.len())
+                .filter(|&i| names.contains(self.files[i].as_os_str()))
+                .collect();
+            if dest != self.dir {
+                self.remove_indices(ctx, &gone);
+            }
+        }
+        let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
+        let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
+        std::thread::spawn(move || {
+            if !keep && same_dir {
+                let _ = freed_tx.send(total_size(&paths));
+            }
+            let mut errors = Vec::new();
+            for path in &paths {
+                let target = dest.join(path.file_name().unwrap_or_default());
+                let result = if target.exists() {
+                    Err(std::io::ErrorKind::AlreadyExists.into())
+                } else if keep {
+                    std::fs::copy(path, &target).map(drop)
+                } else {
+                    std::fs::rename(path, &target).or_else(|e| {
+                        if e.kind() != std::io::ErrorKind::CrossesDevices {
+                            return Err(e);
+                        }
+                        std::fs::copy(path, &target).and_then(|_| std::fs::remove_file(path))
+                    })
+                };
+                if let Err(e) = result {
+                    errors.push(format!("{}: {e}", target.display()));
+                }
+            }
+            if let Some(first) = errors.first() {
+                let verb = if keep { "Copy" } else { "Move" };
+                let _ = tx.send(format!("{verb} failed ({} errors): {first}", errors.len()));
+            }
+            ctx.request_repaint();
+        });
     }
 
     /// Full path of image `i`.
@@ -1174,6 +1242,12 @@ impl App {
     /// The action for a shortcut pressed this frame, if any.
     fn shortcut(ctx: &egui::Context) -> Option<Action> {
         ctx.input_mut(|i| {
+            // egui-winit turns Ctrl+C into a Copy event instead of a key press.
+            let copies = i.events.len();
+            i.events.retain(|e| !matches!(e, egui::Event::Copy));
+            if i.events.len() < copies {
+                return Some(Action::Copy);
+            }
             SHORTCUTS
                 .iter()
                 .find(|&&(_, mods, key)| {
@@ -1191,8 +1265,17 @@ impl App {
         let last = self.files.len().saturating_sub(1);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         match action {
-            Action::OpenFile => self.pick(ctx, false),
-            Action::OpenFolder => self.pick(ctx, true),
+            Action::OpenFile => self.pick(ctx, false, Pick::Open),
+            Action::OpenFolder => self.pick(ctx, true, Pick::Open),
+            Action::Copy | Action::Move if !self.files.is_empty() => {
+                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+                let purpose = match action {
+                    Action::Copy => Pick::CopyTo(paths),
+                    _ => Pick::MoveTo(paths),
+                };
+                self.pick(ctx, true, purpose);
+            }
+            Action::Copy | Action::Move => {}
             Action::Delete => self.request_delete(ctx, self.config.trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::CloseWindow | Action::Quit => {
@@ -1347,10 +1430,13 @@ impl eframe::App for App {
             self.notice = Some(msg);
         }
         self.slideshow_tick(ctx);
-        if let Some(Ok(picked)) = self.dialog.as_ref().map(mpsc::Receiver::try_recv) {
-            self.dialog = None;
-            if let Some(path) = picked {
-                self.visit(ctx, path);
+        if let Some(Ok(picked)) = self.dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
+            let (purpose, _) = self.dialog.take().unwrap();
+            match (purpose, picked) {
+                (_, None) => {}
+                (Pick::Open, Some(path)) => self.visit(ctx, path),
+                (Pick::CopyTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, true),
+                (Pick::MoveTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, false),
             }
         }
 
@@ -1367,6 +1453,8 @@ impl eframe::App for App {
                         menu_item(ui, act, "Open File…", Action::OpenFile);
                         menu_item(ui, act, "Open Folder…", Action::OpenFolder);
                         menu_item(ui, act, "New Folder…", Action::NewFolder);
+                        menu_item(ui, act, "Copy…", Action::Copy);
+                        menu_item(ui, act, "Move…", Action::Move);
                         menu_item(ui, act, "Rename…", Action::Rename);
                         ui.separator();
                         menu_item(ui, act, "Delete…", Action::Delete);
