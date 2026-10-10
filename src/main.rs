@@ -33,6 +33,7 @@ enum Action {
     Copy,
     Move,
     OpenWith,
+    Play,
     Delete,
     DeletePermanently,
     CloseWindow,
@@ -123,6 +124,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (RandomOrder, NONE, Key::R),
         (Faster, CTRL, Key::Equals),
         (Slower, CTRL, Key::Minus),
+        (Play, NONE, Key::Enter),
         (Escape, NONE, Key::Escape),
         (Escape, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
@@ -1227,6 +1229,37 @@ impl App {
         self.title(ctx);
     }
 
+    /// Open the shown file in `player` (a command line), or in the default application when
+    /// `player` is empty. Runs in its own thread, which waits for the program to exit.
+    fn launch(&self, player: &str) {
+        if self.files.is_empty() {
+            return;
+        }
+        let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
+        let mut words: Vec<String> = player.split_whitespace().map(String::from).collect();
+        std::thread::spawn(move || {
+            let run = |cmd: &str, args: &[String]| {
+                let out = std::process::Command::new(cmd)
+                    .args(args)
+                    .arg(&path)
+                    .output();
+                out.map_err(|e| format!("{cmd}: {e}"))
+            };
+            let out = if words.is_empty() {
+                // gio is part of glib; xdg-open covers systems without it.
+                run("gio", &["open".into()]).or_else(|_| run("xdg-open", &[]))
+            } else {
+                let cmd = words.remove(0);
+                run(&cmd, &words)
+            };
+            match out {
+                Ok(o) if o.status.success() => {}
+                Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                Err(e) => drop(tx.send(e)),
+            }
+        });
+    }
+
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
         self.show_settings || self.confirm || self.prompt.is_some()
@@ -1424,27 +1457,15 @@ impl App {
             }
             Action::Copy | Action::Move => {}
             // ponytail: the default application only; an app chooser (`gio mime`) if wanted.
-            Action::OpenWith if !self.files.is_empty() => {
-                let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
-                std::thread::spawn(move || {
-                    let out = std::process::Command::new("gio")
-                        .arg("open")
-                        .arg(&path)
-                        .output();
-                    let out = match out {
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                            std::process::Command::new("xdg-open").arg(&path).output()
-                        }
-                        other => other,
-                    };
-                    match out {
-                        Ok(o) if o.status.success() => {}
-                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                        Err(e) => drop(tx.send(format!("Open With (gio, xdg-open): {e}"))),
-                    }
-                });
+            Action::OpenWith => self.launch(""),
+            // Enter: videos play in a player (images have nothing to play).
+            Action::Play =>
+            {
+                #[cfg(feature = "video")]
+                if is_video(&self.location()) {
+                    self.launch("");
+                }
             }
-            Action::OpenWith => {}
             Action::Delete => self.request_delete(ctx, self.config.trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::CloseWindow | Action::Quit => {
@@ -1626,6 +1647,8 @@ impl eframe::App for App {
                         menu_item(ui, act, "Move…", Action::Move);
                         menu_item(ui, act, "Rename…", Action::Rename);
                         menu_item(ui, act, "Open With Default App", Action::OpenWith);
+                        #[cfg(feature = "video")]
+                        menu_item(ui, act, "Play Video", Action::Play);
                         ui.separator();
                         menu_item(ui, act, "Delete…", Action::Delete);
                         menu_item(ui, act, "Delete Permanently…", Action::DeletePermanently);
@@ -2023,6 +2046,20 @@ impl eframe::App for App {
                         text,
                         egui::FontId::proportional(16.0),
                         egui::Color32::GRAY,
+                    );
+                }
+                #[cfg(feature = "video")]
+                if self
+                    .files
+                    .get(self.cur)
+                    .is_some_and(|f| is_video(Path::new(f)))
+                {
+                    ui.painter().text(
+                        area.center_top() + egui::vec2(0.0, 16.0),
+                        egui::Align2::CENTER_TOP,
+                        "▶ Video: press Enter to play",
+                        egui::FontId::proportional(16.0),
+                        egui::Color32::LIGHT_GRAY,
                     );
                 }
                 if let Some(notice) = &self.notice {
