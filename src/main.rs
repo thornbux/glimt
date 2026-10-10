@@ -206,7 +206,8 @@ fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
 
 /// Mouse use, for the help window.
 const MOUSE: &[(&str, &str)] = &[
-    ("Mouse wheel", "Zoom"),
+    ("Mouse wheel", "Zoom, or next/previous image (Preferences)"),
+    ("Ctrl+mouse wheel", "Zoom"),
     ("Drag", "Move a zoomed image"),
     ("Double-click", "Full Screen"),
     ("Ctrl+click in the list", "Select or unselect a file"),
@@ -230,7 +231,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "←/↑ previous, →/↓ next image",
         "Scroll a zoomed image, move in the file list",
     ),
-    ("Mouse wheel", "Zooms", "Next or previous image"),
+    (
+        "Mouse wheel",
+        "Zooms by default; a setting makes it go to the next or previous image",
+        "Next or previous image",
+    ),
     (
         "Esc / Q",
         "Stops the slideshow and leaves full screen; never quits",
@@ -356,6 +361,8 @@ struct App {
     prompt: Option<(Prompt, String)>,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
     last_scale: f32,
+    /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
+    wheel: f32,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
@@ -516,6 +523,8 @@ struct Config {
     auto_refresh: bool,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool,
+    /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
+    wheel_zoom: bool,
 }
 
 impl Default for Config {
@@ -528,6 +537,7 @@ impl Default for Config {
             confirm_delete: true,
             random: false,
             enlarge: true,
+            wheel_zoom: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -553,6 +563,7 @@ impl Config {
                 "confirm_delete" => c.confirm_delete = value == "true",
                 "random" => c.random = value == "true",
                 "enlarge" => c.enlarge = value == "true",
+                "wheel_zoom" => c.wheel_zoom = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -572,7 +583,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -580,6 +591,7 @@ impl Config {
             self.confirm_delete,
             self.random,
             self.enlarge,
+            self.wheel_zoom,
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -902,6 +914,7 @@ impl App {
             selected: Default::default(),
             last_drawn: None,
             last_scale: 1.0,
+            wheel: 0.0,
             config,
             slideshow: None,
             random: false,
@@ -1983,6 +1996,13 @@ impl eframe::App for App {
                 if ui.add(enlarge).changed() {
                     self.config.save();
                 }
+                let wheel = egui::Checkbox::new(
+                    &mut self.config.wheel_zoom,
+                    "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
+                );
+                if ui.add(wheel).changed() {
+                    self.config.save();
+                }
                 ui.separator();
                 let auto = egui::Checkbox::new(
                     &mut self.config.auto_refresh,
@@ -2209,6 +2229,7 @@ impl eframe::App for App {
             self.go(ctx, i);
         }
 
+        let mut wheel_step = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
             .show(ui, |ui| {
@@ -2228,9 +2249,41 @@ impl eframe::App for App {
                         .min(area.height() * ppp / s.orig[1] as f32)
                         .min(max_fit)
                 });
-                let wheel = ctx.input(|i| i.zoom_delta() * (1.0 + i.smooth_scroll_delta.y / 400.0));
-                if wheel != 1.0 && response.hovered() && !self.dialog_open() {
-                    self.zoom = Some((self.zoom.unwrap_or(fit) * wheel).clamp(0.02, 32.0));
+                if response.hovered() && !self.dialog_open() {
+                    // egui turns Ctrl+wheel into zoom_delta, so it zooms in both modes.
+                    let (mut factor, scroll, notches) = ctx.input(|i| {
+                        let notches: f32 = i
+                            .events
+                            .iter()
+                            .filter_map(|e| match e {
+                                egui::Event::MouseWheel {
+                                    unit,
+                                    delta,
+                                    modifiers,
+                                    ..
+                                } if !modifiers.command => Some(match unit {
+                                    egui::MouseWheelUnit::Point => delta.y / 50.0,
+                                    _ => delta.y,
+                                }),
+                                _ => None,
+                            })
+                            .sum();
+                        (i.zoom_delta(), i.smooth_scroll_delta.y, notches)
+                    });
+                    if self.config.wheel_zoom {
+                        factor *= 1.0 + scroll / 400.0;
+                    } else {
+                        // One notch is one image; touchpad deltas add up to a notch.
+                        self.wheel += notches;
+                        if self.wheel.abs() >= 1.0 {
+                            let up = self.wheel > 0.0;
+                            wheel_step = Some(if up { Action::Prev } else { Action::Next });
+                            self.wheel = 0.0;
+                        }
+                    }
+                    if factor != 1.0 {
+                        self.zoom = Some((self.zoom.unwrap_or(fit) * factor).clamp(0.02, 32.0));
+                    }
                 }
                 if response.dragged() {
                     self.pan += response.drag_delta();
@@ -2313,6 +2366,9 @@ impl eframe::App for App {
                     );
                 }
             });
+        if let Some(action) = wheel_step {
+            self.run(ctx, action);
+        }
     }
 }
 
@@ -2437,6 +2493,7 @@ mod tests {
         assert!(Config::parse("remember_dir=true").remember_dir);
         assert!(!Config::default().random && Config::parse("random=true").random);
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
+        assert!(Config::default().wheel_zoom && !Config::parse("wheel_zoom=false").wheel_zoom);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
         assert_eq!(
