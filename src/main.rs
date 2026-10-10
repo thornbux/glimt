@@ -61,6 +61,8 @@ struct App {
     scroll_to_cur: bool,
     /// Lysbildefremvisning: når forrige bilde ble vist; `None` = av.
     slideshow: Option<Instant>,
+    /// Fillista er stokket for tilfeldig fremvisning.
+    random: bool,
     delay: std::time::Duration,
 }
 
@@ -101,6 +103,21 @@ fn save_preload(n: usize) {
         .and_then(|_| std::fs::write(&p, format!("preload={n}\n")));
     if let Err(e) = result {
         eprintln!("kunne ikke lagre {}: {e}", p.display());
+    }
+}
+
+/// Fisher–Yates med xorshift seedet fra std sin tilfeldige hash-nøkkel (ingen rand-avhengighet).
+fn shuffle<T>(v: &mut [T]) {
+    use std::hash::{BuildHasher, Hasher};
+    let mut x = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish()
+        | 1;
+    for i in (1..v.len()).rev() {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        v.swap(i, (x % (i as u64 + 1)) as usize);
     }
 }
 
@@ -200,6 +217,7 @@ impl App {
             ahead,
             show_settings: false,
             slideshow: None,
+            random: false,
             delay: DEFAULT_DELAY,
             limits,
             jobs,
@@ -231,6 +249,7 @@ impl App {
             )
         };
         self.files = list_images(&dir);
+        self.random = false;
         self.subdirs = list_dirs(&dir);
         self.slots.clear();
         self.pending.clear();
@@ -297,12 +316,55 @@ impl App {
         self.title(ctx);
     }
 
+    /// Stokk fillista (gjeldende bilde først) eller sorter den tilbake, og behold bildet som vises.
+    fn set_random(&mut self, ctx: &egui::Context, on: bool) {
+        if self.files.is_empty() {
+            return;
+        }
+        let path = self.files[self.cur].clone();
+        let slot = self.slots.remove(&self.cur);
+        if on {
+            self.files.swap(0, self.cur);
+            shuffle(&mut self.files[1..]);
+        } else {
+            self.files.sort();
+        }
+        self.random = on;
+        self.slots.clear();
+        self.pending.clear();
+        let cur = self.files.iter().position(|f| *f == path).unwrap_or(0);
+        if let Some(slot) = slot {
+            self.slots.insert(cur, slot);
+        }
+        self.go(ctx, cur);
+    }
+
+    fn start_slideshow(&mut self, ctx: &egui::Context, random: bool) {
+        if random != self.random {
+            self.set_random(ctx, random);
+        }
+        self.slideshow = Some(Instant::now());
+        self.title(ctx);
+    }
+
+    fn stop_slideshow(&mut self, ctx: &egui::Context) {
+        self.slideshow = None;
+        if self.random {
+            self.set_random(ctx, false);
+        }
+        self.title(ctx);
+    }
+
     fn title(&self, ctx: &egui::Context) {
         let Some(file) = self.files.get(self.cur) else {
             return;
         };
         let name = file.file_name().unwrap_or_default().to_string_lossy();
-        let show = if self.slideshow.is_some() { "▶ " } else { "" };
+        let show = match (self.slideshow.is_some(), self.random) {
+            (true, true) => "🔀 ",
+            (true, false) => "▶ ",
+            _ => "",
+        };
         let (n, total) = (self.cur + 1, self.files.len());
         let title = format!("{show}{name} ({n}/{total}) — glimt");
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
@@ -401,14 +463,18 @@ impl App {
         if pressed(Key::F) || pressed(Key::F11) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
         }
-        if pressed(Key::S) {
-            self.slideshow = self.slideshow.is_none().then(Instant::now);
-            self.title(ctx);
+        // S = i rekkefølge, R = tilfeldig; samme tast igjen stopper, den andre bytter modus.
+        if pressed(Key::S) || pressed(Key::R) {
+            let random = pressed(Key::R);
+            if self.slideshow.is_some() && self.random == random {
+                self.stop_slideshow(ctx);
+            } else {
+                self.start_slideshow(ctx, random);
+            }
         }
         if pressed(Key::Escape) {
             if self.slideshow.is_some() {
-                self.slideshow = None;
-                self.title(ctx);
+                self.stop_slideshow(ctx);
             } else if fullscreen {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
             } else {
@@ -643,6 +709,15 @@ mod tests {
         assert_eq!(super::list_dirs(&dir), vec![dir.join("sub")]);
         let (img, orig) = super::decode(&dir.join("a.png"), [100, 100]).unwrap();
         assert_eq!((img.size, orig), ([100, 50], [400, 200]));
+    }
+
+    #[test]
+    fn shuffle_keeps_all_elements() {
+        let mut v: Vec<u32> = (0..100).collect();
+        super::shuffle(&mut v);
+        assert_ne!(v, (0..100).collect::<Vec<_>>());
+        v.sort();
+        assert_eq!(v, (0..100).collect::<Vec<_>>());
     }
 
     #[test]
