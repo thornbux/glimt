@@ -678,23 +678,25 @@ impl eframe::App for App {
                         .resizable(true)
                         .default_size(200.0)
                         .show(ui, |ui| {
+                            // Rad 0 er ⬆ .. (når det finnes en foreldermappe), resten undermapper.
+                            let up = self.dir.parent().map(Path::to_path_buf);
+                            let rows = up.is_some() as usize + self.subdirs.len();
+                            let row_h = ui.spacing().interact_size.y;
                             egui::ScrollArea::vertical()
                                 .id_salt("mapper")
                                 .auto_shrink(false)
-                                .show(ui, |ui| {
-                                    if let Some(parent) = self.dir.parent().map(Path::to_path_buf)
-                                        && ui.selectable_label(false, "⬆ ..").clicked()
-                                    {
-                                        open_dir = Some(parent);
-                                    }
-                                    for d in &self.subdirs {
-                                        let name =
-                                            d.file_name().unwrap_or_default().to_string_lossy();
-                                        if ui
-                                            .selectable_label(false, format!("📁 {name}"))
-                                            .clicked()
-                                        {
-                                            open_dir = Some(d.clone());
+                                .show_rows(ui, row_h, rows, |ui, range| {
+                                    for row in range {
+                                        let (label, target) = match (row, &up) {
+                                            (0, Some(parent)) => ("⬆ ..".to_owned(), parent),
+                                            _ => {
+                                                let d = &self.subdirs[row - up.is_some() as usize];
+                                                let name = d.file_name().unwrap_or_default();
+                                                (format!("📁 {}", name.to_string_lossy()), d)
+                                            }
+                                        };
+                                        if ui.selectable_label(false, label).clicked() {
+                                            open_dir = Some(target.clone());
                                         }
                                     }
                                 });
