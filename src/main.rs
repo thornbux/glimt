@@ -74,6 +74,12 @@ struct App {
     notices_tx: mpsc::Sender<String>,
     notices: mpsc::Receiver<String>,
     notice: Option<String>,
+    /// Filstørrelser, beregnet i bakgrunnen etter mappelesingen (til statuslinja).
+    sizes: HashMap<PathBuf, u64>,
+    /// Summen av `sizes` for filene i lista, oppdatert inkrementelt.
+    total_size: u64,
+    /// Bolker med størrelser fra bakgrunnen; `None` når alle er mottatt.
+    size_rx: Option<mpsc::Receiver<Vec<(PathBuf, u64)>>>,
     /// Mappelesing i bakgrunnen: (undermapper, bilder).
     listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<PathBuf>)>>,
     /// Rull trevisningen til gjeldende bilde ved neste tegning.
@@ -204,6 +210,17 @@ fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usiz
     map.into_iter()
         .filter_map(|(i, v)| Some((shifted(i, removed)?, v)))
         .collect()
+}
+
+/// Størrelse som i filbehandleren: «850 kB», «2,3 MB», «1,2 GB» (desimal, norsk komma).
+fn human_size(bytes: u64) -> String {
+    let (value, unit) = match bytes {
+        b if b >= 1_000_000_000 => (b as f64 / 1e9, "GB"),
+        b if b >= 1_000_000 => (b as f64 / 1e6, "MB"),
+        b if b >= 1_000 => (b as f64 / 1e3, "kB"),
+        b => return format!("{b} B"),
+    };
+    format!("{value:.1} {unit}").replace('.', ",")
 }
 
 /// Heltall med mellomrom som tusenskille: 300000 → «300 000».
@@ -342,6 +359,9 @@ impl App {
             started: Some(Instant::now()),
             dialog: None,
             listing: None,
+            sizes: HashMap::new(),
+            total_size: 0,
+            size_rx: None,
             scroll_to_cur: true,
         };
         app.open(&cc.egui_ctx, path);
@@ -374,13 +394,32 @@ impl App {
         self.random = false;
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         let (tx, rx) = mpsc::channel();
+        let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2) = (dir.clone(), ctx.clone());
         std::thread::spawn(move || {
-            // Mottakeren er borte hvis en annen mappe er åpnet i mellomtiden; da forkastes svaret.
-            let _ = tx.send(list_folder(&list_dir));
+            let (dirs, files) = list_folder(&list_dir);
+            let paths = files.clone();
+            // Mottakeren er borte hvis en annen mappe er åpnet i mellomtiden; da stopper vi.
+            if tx.send((dirs, files)).is_err() {
+                return;
+            }
             ctx2.request_repaint();
+            // Størrelsene (én stat per fil) etterpå, i bolker, så statuslinja fylles ut gradvis.
+            for chunk in paths.chunks(10_000) {
+                let sizes = chunk
+                    .iter()
+                    .filter_map(|p| Some((p.clone(), p.metadata().ok()?.len())))
+                    .collect();
+                if size_tx.send(sizes).is_err() {
+                    return;
+                }
+                ctx2.request_repaint();
+            }
         });
         self.listing = Some(rx);
+        self.size_rx = Some(size_rx);
+        self.sizes.clear();
+        self.total_size = 0;
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
             "{} — glimt",
             dir.display()
@@ -427,6 +466,9 @@ impl App {
         let targets = self.delete_targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.files[i].clone()).collect();
         self.remove_indices(ctx, &targets);
+        for p in &paths {
+            self.total_size -= self.sizes.remove(p).unwrap_or(0);
+        }
         let (tx, ctx, trash) = (self.notices_tx.clone(), ctx.clone(), self.config.trash);
         std::thread::spawn(move || {
             let mut errors = Vec::new();
@@ -482,6 +524,24 @@ impl App {
         } else {
             self.go(ctx, cur.min(self.files.len() - 1));
         }
+    }
+
+    fn receive_sizes(&mut self) {
+        let Some(rx) = &self.size_rx else { return };
+        loop {
+            match rx.try_recv() {
+                Ok(chunk) => {
+                    for (path, size) in chunk {
+                        // ponytail: en fil slettet før størrelsen kom telles med; ufarlig avvik.
+                        self.total_size += size;
+                        self.sizes.insert(path, size);
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => return,
+                Err(mpsc::TryRecvError::Disconnected) => break,
+            }
+        }
+        self.size_rx = None;
     }
 
     /// Bytt fillista og gå til `shown` (ellers første bilde). Teksturen som vises nå beholdes
@@ -783,6 +843,7 @@ impl eframe::App for App {
         ];
         self.receive(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
+        self.receive_sizes();
         while let Ok(msg) = self.notices.try_recv() {
             // Sletting feilet, så fila finnes trolig fortsatt: les mappa på nytt så lista stemmer.
             let keep = self
@@ -920,13 +981,25 @@ impl eframe::App for App {
             egui::Panel::bottom("status").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let n = self.files.len();
+                    let size = if self.size_rx.is_some() {
+                        "beregner…".to_owned()
+                    } else {
+                        human_size(self.total_size)
+                    };
                     let mut left = if self.listing.is_some() {
                         "Leser mappa…".to_owned()
                     } else {
-                        format!("{} bilder", thousands(n))
+                        format!("{} bilder ({size})", thousands(n))
                     };
                     if !self.selected.is_empty() {
-                        left += &format!(", {} merket", thousands(self.selected.len()));
+                        // ponytail: summeres per frame; cache ved behov hvis enorme merkinger blir trege.
+                        let sum: u64 = self
+                            .selected
+                            .iter()
+                            .filter_map(|&i| self.sizes.get(self.files.get(i)?))
+                            .sum();
+                        let m = thousands(self.selected.len());
+                        left += &format!(", {m} merket ({})", human_size(sum));
                     }
                     ui.label(left);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1148,6 +1221,14 @@ mod tests {
         let map = std::collections::HashMap::from([(1, 'a'), (2, 'b'), (4, 'c'), (6, 'd')]);
         let expected = std::collections::HashMap::from([(1, 'a'), (3, 'd')]);
         assert_eq!(super::without_indices(map, &[2, 4, 5]), expected);
+    }
+
+    #[test]
+    fn formats_sizes() {
+        assert_eq!(super::human_size(512), "512 B");
+        assert_eq!(super::human_size(850_000), "850,0 kB");
+        assert_eq!(super::human_size(2_345_678), "2,3 MB");
+        assert_eq!(super::human_size(1_200_000_000), "1,2 GB");
     }
 
     #[test]
