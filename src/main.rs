@@ -60,7 +60,7 @@ struct App {
     /// Merkede filer (Ctrl/Shift+klikk i fillista) som Delete gjelder.
     selected: std::collections::BTreeSet<usize>,
     config: Config,
-    /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
+    /// Maks dekodestørrelse i fysiske piksler: [bildeområdet i vinduet, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
     /// (bildeindeks, full oppløsning, fil)
     jobs: mpsc::Sender<(usize, bool, PathBuf)>,
@@ -911,16 +911,8 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        let screen = ctx.input(|i| {
-            i.viewport()
-                .monitor_size
-                .unwrap_or(i.viewport_rect().size())
-        });
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
-        *self.limits.lock().unwrap() = [
-            [(screen.x * ppp) as u32, (screen.y * ppp) as u32],
-            [max_side, max_side],
-        ];
+        self.limits.lock().unwrap()[1] = [max_side, max_side];
         self.receive(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
@@ -994,7 +986,7 @@ impl eframe::App for App {
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
                 ui.weak(format!(
-                    "Opptil ≈ {mb} MB med bilder i skjermoppløsning {w}×{h}"
+                    "Opptil ≈ {mb} MB med bilder i vindusstørrelse {w}×{h}"
                 ));
                 ui.separator();
                 ui.label("Lysbildefremvisning (S = i rekkefølge, R = tilfeldig, ↑/↓ = tid):");
@@ -1187,6 +1179,10 @@ impl eframe::App for App {
             .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
             .show(ui, |ui| {
                 let area = ui.max_rect();
+                // Dekod til bildeområdet, ikke hele skjermen: et lite vindu på en 4K-skjerm
+                // trenger en brøkdel av minnet (3840×2160 er 33 MB per bilde).
+                let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
+                self.limits.lock().unwrap()[0] = view;
                 let response = ui.allocate_rect(area, egui::Sense::click_and_drag());
                 let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
                     (area.width() * ppp / s.orig[0] as f32)
@@ -1206,13 +1202,19 @@ impl eframe::App for App {
                 let scale = self.zoom.unwrap_or(fit);
                 self.last_scale = scale;
 
+                // For liten tekstur: i «tilpass» er vinduet gjort større, så dekod på nytt i
+                // vindusstørrelse (forrige tekstur vises imens); ved zoom hentes full oppløsning.
+                let too_small = self.slots.get(&self.cur).is_some_and(|s| {
+                    let needed = (s.orig[0] as f32 * scale).min(s.orig[0] as f32);
+                    !s.full && (s.tex.size()[0] as f32) + 1.0 < needed
+                });
+                if too_small && self.zoom.is_none() {
+                    self.slots.remove(&self.cur);
+                    self.request(self.cur, false);
+                } else if too_small {
+                    self.request(self.cur, true);
+                }
                 if let Some(slot) = self.slots.get(&self.cur) {
-                    // Skjermversjonen holder ikke ved denne zoomen: hent full oppløsning.
-                    if !slot.full && scale > slot.tex.size()[0] as f32 / slot.orig[0] as f32 + 1e-3
-                    {
-                        self.request(self.cur, true);
-                    }
-                    let slot = &self.slots[&self.cur];
                     let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
                     let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
                     egui::Image::new(&slot.tex).paint_at(ui, rect);
