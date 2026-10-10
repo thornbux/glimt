@@ -19,6 +19,8 @@ const AHEAD: usize = 2;
 struct Decoded {
     idx: usize,
     full: bool,
+    /// Filen jobben gjaldt; avviser resultater fra en mappe som er byttet ut.
+    path: PathBuf,
     /// `None` = hoppet over fordi brukeren har bladd forbi.
     result: Option<Result<(egui::ColorImage, [usize; 2]), String>>,
 }
@@ -31,13 +33,14 @@ struct Slot {
 }
 
 struct App {
-    files: Arc<Vec<PathBuf>>,
+    dir: PathBuf,
+    files: Vec<PathBuf>,
     cur: usize,
     current: Arc<AtomicUsize>,
     /// Maks dekodestørrelse i fysiske piksler: [skjerm, maks teksturside].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
-    /// (bildeindeks, full oppløsning)
-    jobs: mpsc::Sender<(usize, bool)>,
+    /// (bildeindeks, full oppløsning, fil)
+    jobs: mpsc::Sender<(usize, bool, PathBuf)>,
     done: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
@@ -47,6 +50,8 @@ struct App {
     pan: egui::Vec2,
     /// Startet ved oppstart; tas ut når første bilde vises.
     started: Option<Instant>,
+    /// Svar fra en åpen fildialog (zenity).
+    dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
 }
 
 fn list_images(dir: &Path) -> Vec<PathBuf> {
@@ -84,17 +89,15 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext, files: Vec<PathBuf>, start: usize) -> Self {
-        let files = Arc::new(files);
-        let current = Arc::new(AtomicUsize::new(start));
+    fn new(cc: &eframe::CreationContext, path: PathBuf) -> Self {
+        let current = Arc::new(AtomicUsize::new(0));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
-        let (jobs, job_rx) = mpsc::channel::<(usize, bool)>();
+        let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
         for _ in 0..workers {
-            let (files, current, limits, job_rx, done_tx, ctx) = (
-                files.clone(),
+            let (current, limits, job_rx, done_tx, ctx) = (
                 current.clone(),
                 limits.clone(),
                 job_rx.clone(),
@@ -103,23 +106,24 @@ impl App {
             );
             std::thread::spawn(move || {
                 loop {
-                    let Ok((idx, full)) = job_rx.lock().unwrap().recv() else { return };
+                    let Ok((idx, full, path)) = job_rx.lock().unwrap().recv() else { return };
                     // Avbrudd: hopp over bilder brukeren allerede har bladd forbi.
                     let cur = current.load(Ordering::Relaxed);
                     if idx.abs_diff(cur) > AHEAD || (full && idx != cur) {
-                        let _ = done_tx.send(Decoded { idx, full, result: None });
+                        let _ = done_tx.send(Decoded { idx, full, path, result: None });
                         continue;
                     }
                     let max = limits.lock().unwrap()[full as usize];
-                    let result = Some(decode(&files[idx], max));
-                    let _ = done_tx.send(Decoded { idx, full, result });
+                    let result = Some(decode(&path, max));
+                    let _ = done_tx.send(Decoded { idx, full, path, result });
                     ctx.request_repaint();
                 }
             });
         }
         let mut app = App {
-            files,
-            cur: start,
+            dir: PathBuf::new(),
+            files: Vec::new(),
+            cur: 0,
             current,
             limits,
             jobs,
@@ -130,15 +134,62 @@ impl App {
             zoom: None,
             pan: egui::Vec2::ZERO,
             started: Some(Instant::now()),
+            dialog: None,
         };
-        app.go(&cc.egui_ctx, start);
+        app.open(&cc.egui_ctx, path);
         app
+    }
+
+    /// Åpne en mappe, eller mappa til en fil med den fila valgt.
+    fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let (dir, file) = if path.is_dir() {
+            (path, None)
+        } else {
+            (path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf(), Some(path))
+        };
+        self.files = list_images(&dir);
+        self.slots.clear();
+        self.pending.clear();
+        self.errors.clear();
+        let start = file
+            .and_then(|f| f.canonicalize().ok())
+            .and_then(|f| self.files.iter().position(|p| p.canonicalize().ok().as_ref() == Some(&f)))
+            .unwrap_or(0);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} — glimt", dir.display())));
+        self.dir = dir;
+        self.go(ctx, start);
+    }
+
+    /// Vis zenitys fildialog i en egen tråd så vinduet ikke fryser.
+    fn pick(&mut self, ctx: &egui::Context, folder: bool) {
+        use std::os::unix::ffi::OsStringExt;
+        let (tx, rx) = mpsc::channel();
+        let (ctx, start) = (ctx.clone(), self.dir.join(""));
+        std::thread::spawn(move || {
+            let mut cmd = std::process::Command::new("zenity");
+            cmd.arg("--file-selection").arg("--filename").arg(start);
+            if folder {
+                cmd.arg("--directory");
+            }
+            let picked = cmd
+                .output()
+                .map_err(|e| eprintln!("zenity: {e}"))
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|mut o| {
+                    o.stdout.pop_if(|b| *b == b'\n');
+                    PathBuf::from(std::ffi::OsString::from_vec(o.stdout))
+                });
+            let _ = tx.send(picked);
+            ctx.request_repaint();
+        });
+        self.dialog = Some(rx);
     }
 
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
         if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
-            let _ = self.jobs.send((idx, full));
+            let _ = self.jobs.send((idx, full, self.files[idx].clone()));
         }
     }
 
@@ -170,7 +221,9 @@ impl App {
     fn receive(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.done.try_recv() {
             self.pending.remove(&(d.idx, d.full));
-            let wanted = d.idx.abs_diff(self.cur) <= AHEAD && (!d.full || d.idx == self.cur);
+            let wanted = self.files.get(d.idx) == Some(&d.path)
+                && d.idx.abs_diff(self.cur) <= AHEAD
+                && (!d.full || d.idx == self.cur);
             match d.result {
                 Some(Ok((img, orig))) if wanted => {
                     // En skjermversjon skal ikke erstatte en fullversjon som allerede er lastet.
@@ -248,6 +301,29 @@ impl eframe::App for App {
             [max_side, max_side],
         ];
         self.receive(ctx);
+        if let Some(Ok(picked)) = self.dialog.as_ref().map(mpsc::Receiver::try_recv) {
+            self.dialog = None;
+            if let Some(path) = picked {
+                self.open(ctx, path);
+            }
+        }
+
+        egui::Panel::top("meny").show(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("Fil", |ui| {
+                    if ui.button("Åpne fil…").clicked() {
+                        self.pick(ctx, false);
+                    }
+                    if ui.button("Åpne mappe…").clicked() {
+                        self.pick(ctx, true);
+                    }
+                    ui.separator();
+                    if ui.button("Lukk").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
+        });
 
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| {
             let area = ui.max_rect();
@@ -287,21 +363,11 @@ impl eframe::App for App {
 
 fn main() -> eframe::Result {
     let arg = std::env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| ".".into());
-    let (dir, file) = if arg.is_dir() {
-        (arg, None)
-    } else {
-        (arg.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf(), Some(arg))
-    };
-    let files = list_images(&dir);
-    let start = file
-        .and_then(|f| f.canonicalize().ok())
-        .and_then(|f| files.iter().position(|p| p.canonicalize().ok().as_ref() == Some(&f)))
-        .unwrap_or(0);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("glimt").with_inner_size([1280.0, 800.0]),
         ..Default::default()
     };
-    eframe::run_native("glimt", options, Box::new(move |cc| Ok(Box::new(App::new(cc, files, start)))))
+    eframe::run_native("glimt", options, Box::new(move |cc| Ok(Box::new(App::new(cc, arg)))))
 }
 
 #[cfg(test)]
