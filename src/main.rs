@@ -48,6 +48,7 @@ enum Action {
     Zoom1To1,
     ZoomFit,
     FullScreen,
+    Refresh,
     Slideshow,
     RandomOrder,
     Faster,
@@ -63,7 +64,7 @@ const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
     ..egui::Modifiers::COMMAND
 };
 
-/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh).
+/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh).
 /// The first one for an action is shown in the menu.
 /// egui ignores an extra Shift when matching, so Shift combinations come before the plain key.
 const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
@@ -97,6 +98,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F),
         (FullScreen, NONE, Key::V),
         (FullScreen, NONE, Key::F11),
+        (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
         (RandomOrder, NONE, Key::R),
         (Faster, CTRL, Key::Equals),
@@ -1089,6 +1091,7 @@ impl App {
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
+            Action::Refresh => self.open(ctx, self.location()),
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
             Action::RandomOrder => self.set_random_order(ctx, !self.config.random),
@@ -1197,6 +1200,7 @@ impl eframe::App for App {
                             menu_item(ui, act, "Zoom to Fit", Action::ZoomFit);
                         });
                         menu_item(ui, act, "Full Screen", Action::FullScreen);
+                        menu_item(ui, act, "Refresh", Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
                             "Stop Slideshow"
