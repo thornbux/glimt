@@ -286,18 +286,18 @@ fn is_video(_: &Path) -> bool {
     false
 }
 
-/// Shown in the file list: an image, or a video with the video feature.
-fn is_listed(path: &Path) -> bool {
-    has_ext(path, EXTS) || is_video(path)
+/// Shown in the file list: an image, or a video with the video feature and `videos` on.
+fn is_listed(path: &Path, videos: bool) -> bool {
+    has_ext(path, EXTS) || (videos && is_video(path))
 }
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
 /// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
-fn list_folder(dir: &Path) -> (Vec<PathBuf>, Vec<OsString>) {
+fn list_folder(dir: &Path, videos: bool) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        if is_listed(&path) {
+        if is_listed(&path, videos) {
             images.push(entry.file_name());
         } else if !entry.file_name().as_encoded_bytes().starts_with(b".")
             && entry
@@ -364,6 +364,10 @@ struct Config {
     random: bool,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
     exif_rotate: bool,
+    /// Video feature: list video files.
+    videos: bool,
+    /// Video feature: command line that plays a video; empty = the default application.
+    video_player: String,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
@@ -382,6 +386,8 @@ impl Default for Config {
             enlarge: true,
             auto_refresh: true,
             exif_rotate: true,
+            videos: true,
+            video_player: String::new(),
         }
     }
 }
@@ -405,6 +411,8 @@ impl Config {
                 "enlarge" => c.enlarge = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
+                "videos" => c.videos = value == "true",
+                "video_player" => c.video_player = value.to_owned(),
                 _ => {}
             }
         }
@@ -420,7 +428,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nauto_refresh={}\nexif_rotate={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -429,7 +437,9 @@ impl Config {
             self.random,
             self.enlarge,
             self.auto_refresh,
-            self.exif_rotate
+            self.exif_rotate,
+            self.videos,
+            self.video_player
         );
         write_atomic(&p, &text);
     }
@@ -819,10 +829,10 @@ impl App {
     fn list(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
-        let (list_dir, ctx2) = (self.dir.clone(), ctx.clone());
+        let (list_dir, ctx2, videos) = (self.dir.clone(), ctx.clone(), self.config.videos);
         std::thread::spawn(move || {
             // The receiver is gone if another folder was opened meanwhile; then we stop.
-            if tx.send(list_folder(&list_dir)).is_err() {
+            if tx.send(list_folder(&list_dir, videos)).is_err() {
                 return;
             }
             ctx2.request_repaint();
@@ -832,7 +842,7 @@ impl App {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter(|e| is_listed(&e.path()));
+                .filter(|e| is_listed(&e.path(), videos));
             let mut sizes = images
                 .filter_map(|e| Some(e.metadata().ok()?.len()))
                 .peekable();
@@ -1463,7 +1473,7 @@ impl App {
             {
                 #[cfg(feature = "video")]
                 if is_video(&self.location()) {
-                    self.launch("");
+                    self.launch(&self.config.video_player);
                 }
             }
             Action::Delete => self.request_delete(ctx, self.config.trash),
@@ -1789,6 +1799,27 @@ impl eframe::App for App {
                 if ui.add(trash).changed() | ui.add(confirm).changed() {
                     self.config.save();
                 }
+                #[cfg(feature = "video")]
+                {
+                    ui.separator();
+                    ui.label("Video (needs ffmpeg for previews):");
+                    let videos = egui::Checkbox::new(
+                        &mut self.config.videos,
+                        "Show videos in the file list",
+                    );
+                    if ui.add(videos).changed() {
+                        self.config.save();
+                        self.list(ctx);
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Player (Enter):");
+                        let player = egui::TextEdit::singleline(&mut self.config.video_player)
+                            .hint_text("default application");
+                        if ui.add(player).changed() {
+                            self.config.save();
+                        }
+                    });
+                }
             });
 
         if let Some((prompt, mut text)) = self.prompt.take() {
@@ -2102,7 +2133,7 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), "").unwrap();
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".hidden")).unwrap();
-        let (dirs, images) = super::list_folder(&dir);
+        let (dirs, images) = super::list_folder(&dir, true);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
         let (img, orig) = super::decode(&dir.join("a.png"), [100, 100], true).unwrap();
@@ -2197,6 +2228,11 @@ mod tests {
         assert!(!Config::default().random && Config::parse("random=true").random);
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
+        assert!(Config::default().videos && !Config::parse("videos=false").videos);
+        assert_eq!(
+            Config::parse("video_player= mpv --fs ").video_player,
+            "mpv --fs"
+        );
         assert!(
             Config::default().auto_refresh && !Config::parse("auto_refresh=false").auto_refresh
         );
