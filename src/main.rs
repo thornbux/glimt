@@ -438,6 +438,9 @@ impl App {
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
+        } else if self.random && next == 0 && self.files.len() > 2 {
+            // Ny runde: stokk på nytt i stedet for å gjenta samme rekkefølge.
+            self.set_random(ctx, true);
         } else if !self.pending.contains(&(next, false)) {
             self.go(ctx, next);
             self.slideshow = Some(Instant::now());
