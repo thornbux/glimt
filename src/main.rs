@@ -233,7 +233,7 @@ fn write_atomic(path: &Path, text: &str) {
         .and_then(|_| std::fs::rename(&tmp, path));
     if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
-        eprintln!("kunne ikke lagre {}: {e}", path.display());
+        eprintln!("could not save {}: {e}", path.display());
     }
 }
 
@@ -266,7 +266,7 @@ fn human_size(bytes: u64) -> String {
         b if b >= 1_000 => (b as f64 / 1e3, "kB"),
         b => return format!("{b} B"),
     };
-    format!("{value:.1} {unit}").replace('.', ",")
+    format!("{value:.1} {unit}")
 }
 
 /// Heltall med mellomrom som tusenskille: 300000 → «300 000».
@@ -275,7 +275,7 @@ fn thousands(n: usize) -> String {
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(' ');
+            out.push(',');
         }
         out.push(c);
     }
@@ -560,7 +560,7 @@ impl App {
                 }
             }
             if let Some(first) = errors.first() {
-                let _ = tx.send(format!("Sletting feilet ({} feil): {first}", errors.len()));
+                let _ = tx.send(format!("Delete failed ({} errors): {first}", errors.len()));
                 ctx.request_repaint();
             }
         });
@@ -761,7 +761,7 @@ impl App {
         let (n, total) = (self.cur + 1, self.files.len());
         let marked = match self.selected.len() {
             0 => String::new(),
-            m => format!(" · {m} merket"),
+            m => format!(" · {m} selected"),
         };
         let title = format!("{show}{name} ({n}/{total}){marked} — glimt");
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
@@ -837,7 +837,7 @@ impl App {
                     if d.idx == self.cur
                         && let Some(t) = self.started.take()
                     {
-                        eprintln!("første bilde: {} ms", t.elapsed().as_millis());
+                        eprintln!("first image: {} ms", t.elapsed().as_millis());
                     }
                 }
                 Some(Err(e)) if wanted => {
@@ -965,28 +965,28 @@ impl eframe::App for App {
         if !fullscreen {
             egui::Panel::top("meny").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
-                    ui.menu_button("Fil", |ui| {
-                        if ui.button("Åpne fil…").clicked() {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Open File…").clicked() {
                             self.pick(ctx, false);
                         }
-                        if ui.button("Åpne mappe…").clicked() {
+                        if ui.button("Open Folder…").clicked() {
                             self.pick(ctx, true);
                         }
-                        if ui.button("Slett (Delete)").clicked() {
+                        if ui.button("Delete (Del)").clicked() {
                             self.request_delete(ctx);
                         }
                         ui.separator();
-                        if ui.button("Lukk").clicked() {
+                        if ui.button("Close").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
-                    ui.menu_button("Rediger", |ui| {
-                        if ui.button("Innstillinger…").clicked() {
+                    ui.menu_button("Edit", |ui| {
+                        if ui.button("Preferences…").clicked() {
                             self.show_settings = true;
                         }
                     });
-                    ui.menu_button("Visning", |ui| {
-                        if ui.button("Fullskjerm (F, F11, Esc ut)").clicked() {
+                    ui.menu_button("View", |ui| {
+                        if ui.button("Full Screen (F, F11, Esc to exit)").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
                         }
                     });
@@ -995,14 +995,14 @@ impl eframe::App for App {
         }
 
         let mut open = self.show_settings;
-        egui::Window::new("Innstillinger")
+        egui::Window::new("Preferences")
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
             .show(ctx, |ui| {
                 let mut n = self.ahead.load(Ordering::Relaxed);
-                let slider = egui::Slider::new(&mut n, 0..=20).text("bilder på hver side");
-                ui.label("Forhåndslast neste og forrige bilde:");
+                let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
+                ui.label("Preload next and previous images:");
                 if ui.add(slider).changed() {
                     self.ahead.store(n, Ordering::Relaxed);
                     self.refill();
@@ -1011,13 +1011,11 @@ impl eframe::App for App {
                 }
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
-                ui.weak(format!(
-                    "Opptil ≈ {mb} MB med bilder i vindusstørrelse {w}×{h}"
-                ));
+                ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
                 ui.separator();
-                ui.label("Lysbildefremvisning (S = i rekkefølge, R = tilfeldig, ↑/↓ = tid):");
+                ui.label("Slideshow (S = in order, R = random, ↑/↓ = delay):");
                 let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
-                    .text("sekunder per bilde");
+                    .text("seconds per image");
                 if ui.add(delay).changed() {
                     self.config.save();
                     self.title(ctx);
@@ -1025,17 +1023,17 @@ impl eframe::App for App {
                 ui.separator();
                 let remember = egui::Checkbox::new(
                     &mut self.config.remember_dir,
-                    "Start i mappa fra forrige gang",
+                    "Start in the last used folder",
                 );
                 if ui.add(remember).changed() {
                     self.config.save();
                 }
                 ui.separator();
-                ui.label("Sletting (Delete):");
-                let trash = egui::Checkbox::new(&mut self.config.trash, "Flytt til papirkurven");
+                ui.label("Deleting (Del key):");
+                let trash = egui::Checkbox::new(&mut self.config.trash, "Move to trash");
                 let confirm = egui::Checkbox::new(
                     &mut self.config.confirm_delete,
-                    "Bekreft permanent sletting",
+                    "Confirm permanent deletion",
                 );
                 if ui.add(trash).changed() | ui.add_enabled(!self.config.trash, confirm).changed() {
                     self.config.save();
@@ -1044,17 +1042,17 @@ impl eframe::App for App {
 
         if self.confirm {
             let what = match self.delete_targets().as_slice() {
-                [i] => format!("«{}»", self.files[*i].to_string_lossy()),
-                many => format!("{} filer", many.len()),
+                [i] => format!("\"{}\"", self.files[*i].to_string_lossy()),
+                many => format!("{} files", many.len()),
             };
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("bekreft-sletting")).show(ctx, |ui| {
-                ui.label(format!("Slette {what} permanent?"));
-                ui.weak("Dette kan ikke angres.");
+                ui.label(format!("Permanently delete {what}?"));
+                ui.weak("This cannot be undone.");
                 ui.horizontal(|ui| {
-                    delete = ui.button("Slett (Enter)").clicked()
+                    delete = ui.button("Delete (Enter)").clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button("Avbryt (Esc)").clicked() {
+                    if ui.button("Cancel (Esc)").clicked() {
                         ui.close();
                     }
                 });
@@ -1074,21 +1072,21 @@ impl eframe::App for App {
                 ui.horizontal(|ui| {
                     let n = self.files.len();
                     let size = if self.size_rx.is_some() {
-                        "beregner…".to_owned()
+                        "calculating…".to_owned()
                     } else {
                         human_size(self.total_size)
                     };
                     let mut left = if self.listing.is_some() {
-                        "Leser mappa…".to_owned()
+                        "Reading folder…".to_owned()
                     } else {
-                        format!("{} bilder ({size})", thousands(n))
+                        format!("{} images ({size})", thousands(n))
                     };
                     if !self.selected.is_empty() {
                         let m = thousands(self.selected.len());
                         let size = self
                             .selected_size
-                            .map_or("beregner…".to_owned(), human_size);
-                        left += &format!(", {m} merket ({size})");
+                            .map_or("calculating…".to_owned(), human_size);
+                        left += &format!(", {m} selected ({size})");
                     }
                     ui.label(left);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1249,13 +1247,13 @@ impl eframe::App for App {
                 } else {
                     let text = if self.files.is_empty() {
                         if self.listing.is_some() {
-                            "Leser mappa…"
+                            "Reading folder…"
                         } else {
-                            "Ingen bilder i mappa"
+                            "No images in folder"
                         }
                         .to_owned()
                     } else if let Some(e) = self.errors.get(&self.cur) {
-                        format!("Kunne ikke åpne {}:\n{e}", self.path(self.cur).display())
+                        format!("Could not open {}:\n{e}", self.path(self.cur).display())
                     } else {
                         String::new()
                     };
@@ -1324,17 +1322,17 @@ mod tests {
     #[test]
     fn formats_sizes() {
         assert_eq!(super::human_size(512), "512 B");
-        assert_eq!(super::human_size(850_000), "850,0 kB");
-        assert_eq!(super::human_size(2_345_678), "2,3 MB");
-        assert_eq!(super::human_size(1_200_000_000), "1,2 GB");
+        assert_eq!(super::human_size(850_000), "850.0 kB");
+        assert_eq!(super::human_size(2_345_678), "2.3 MB");
+        assert_eq!(super::human_size(1_200_000_000), "1.2 GB");
     }
 
     #[test]
     fn formats_thousands() {
         assert_eq!(super::thousands(7), "7");
-        assert_eq!(super::thousands(1000), "1 000");
-        assert_eq!(super::thousands(300000), "300 000");
-        assert_eq!(super::thousands(1234567), "1 234 567");
+        assert_eq!(super::thousands(1000), "1,000");
+        assert_eq!(super::thousands(300000), "300,000");
+        assert_eq!(super::thousands(1234567), "1,234,567");
     }
 
     #[test]
