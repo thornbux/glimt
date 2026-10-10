@@ -48,6 +48,8 @@ struct App {
     show_settings: bool,
     /// Bekreftelsesdialog for permanent sletting er åpen.
     confirm: bool,
+    /// Sist viste bilde; vises videre til det neste er dekodet, så blaing aldri gir svart skjerm.
+    last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// Merkede filer (Ctrl/Shift+klikk i fillista) som Delete gjelder.
     selected: std::collections::BTreeSet<usize>,
     config: Config,
@@ -309,6 +311,7 @@ impl App {
             show_settings: false,
             confirm: false,
             selected: Default::default(),
+            last_drawn: None,
             config,
             slideshow: None,
             random: false,
@@ -1016,6 +1019,17 @@ impl eframe::App for App {
                     let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
                     let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
                     egui::Image::new(&slot.tex).paint_at(ui, rect);
+                    self.last_drawn = Some((slot.tex.clone(), slot.orig));
+                } else if let Some((tex, orig)) = &self.last_drawn
+                    && !self.files.is_empty()
+                    && !self.errors.contains_key(&self.cur)
+                {
+                    let size = egui::vec2(orig[0] as f32, orig[1] as f32);
+                    let fit = (area.width() * ppp / size.x)
+                        .min(area.height() * ppp / size.y)
+                        .min(1.0);
+                    let rect = egui::Rect::from_center_size(area.center(), size * fit / ppp);
+                    egui::Image::new(tex).paint_at(ui, rect);
                 } else {
                     let text = if self.files.is_empty() {
                         if self.listing.is_some() {
