@@ -491,6 +491,10 @@ struct App {
     cur_size: Option<(PathBuf, u64)>,
     /// The folder path in the toolbar, as typed.
     path_text: String,
+    /// Window geometry seen in the last frame, saved at exit.
+    window: WindowState,
+    /// The screen saver inhibitor running while in full screen.
+    inhibitor: Option<std::process::Child>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -563,11 +567,51 @@ fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
 }
 
 fn parse_last_dir(state: &str) -> Option<PathBuf> {
+    state_value(state, "last_dir").map(PathBuf::from)
+}
+
+fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
     state.lines().find_map(|l| {
-        l.strip_prefix("last_dir=")
+        l.strip_prefix(key)?
+            .strip_prefix('=')
             .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
     })
+}
+
+/// Window geometry saved at exit (points): size, position (not on Wayland, where apps cannot
+/// see or set it) and maximized.
+#[derive(Debug, Default, PartialEq)]
+struct WindowState {
+    size: Option<egui::Vec2>,
+    pos: Option<egui::Pos2>,
+    maximized: bool,
+}
+
+impl WindowState {
+    fn parse(state: &str) -> Self {
+        let pair = |key| {
+            let (a, b) = state_value(state, key)?.split_once(',')?;
+            Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))
+        };
+        WindowState {
+            size: pair("window_size")
+                .filter(|&(w, h)| w >= 200.0 && h >= 150.0)
+                .map(|(w, h)| egui::vec2(w, h)),
+            pos: pair("window_pos").map(|(x, y)| egui::pos2(x, y)),
+            maximized: state_value(state, "maximized") == Some("true"),
+        }
+    }
+
+    fn to_text(&self) -> String {
+        let mut text = format!("maximized={}\n", self.maximized);
+        if let Some(s) = self.size {
+            text += &format!("window_size={},{}\n", s.x, s.y);
+        }
+        if let Some(p) = self.pos {
+            text += &format!("window_pos={},{}\n", p.x, p.y);
+        }
+        text
+    }
 }
 
 /// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
@@ -611,6 +655,10 @@ struct Config {
     path_bar: bool,
     /// Colour behind the image (sRGB), stored as #rrggbb.
     background: [u8; 3],
+    /// Restore the window's size, position and maximized state at startup.
+    remember_window: bool,
+    /// Keep the screen saver off while in full screen.
+    inhibit_screensaver: bool,
 }
 
 impl Default for Config {
@@ -632,6 +680,8 @@ impl Default for Config {
             low_memory: true,
             path_bar: true,
             background: [0, 0, 0],
+            remember_window: true,
+            inhibit_screensaver: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -664,6 +714,8 @@ impl Config {
                 "toolbar" => c.toolbar = value == "true",
                 "low_memory" => c.low_memory = value == "true",
                 "path_bar" => c.path_bar = value == "true",
+                "remember_window" => c.remember_window = value == "true",
+                "inhibit_screensaver" => c.inhibit_screensaver = value == "true",
                 "background" => {
                     let hex = value.trim_start_matches('#');
                     if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
@@ -690,7 +742,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -705,6 +757,8 @@ impl Config {
             self.toolbar,
             self.low_memory,
             self.path_bar,
+            self.remember_window,
+            self.inhibit_screensaver,
             self.background[0],
             self.background[1],
             self.background[2],
@@ -1128,6 +1182,8 @@ impl App {
             exif: None,
             cur_size: None,
             path_text: String::new(),
+            window: WindowState::default(),
+            inhibitor: None,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1783,6 +1839,45 @@ impl App {
         }
     }
 
+    /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
+    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
+    fn inhibit(&mut self, on: bool) {
+        if on == self.inhibitor.is_some() {
+            return;
+        }
+        if let Some(mut child) = self.inhibitor.take() {
+            let _ = child.kill();
+            std::thread::spawn(move || child.wait());
+            return;
+        }
+        let commands: [&[&str]; 2] = [
+            &[
+                "gnome-session-inhibit",
+                "--inhibit",
+                "idle",
+                "--reason",
+                "Glimt full screen",
+                "cat",
+            ],
+            &[
+                "systemd-inhibit",
+                "--what=idle",
+                "--who=Glimt",
+                "--why=Full screen",
+                "cat",
+            ],
+        ];
+        self.inhibitor = commands.iter().find_map(|c| {
+            std::process::Command::new(c[0])
+                .args(&c[1..])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok()
+        });
+    }
+
     /// The folder path above the folder list, as in Geeqie; Enter opens what was typed.
     fn path_field(&mut self, ui: &mut egui::Ui) {
         let edit = egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
@@ -2194,11 +2289,17 @@ impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
-        if self.config.remember_dir
-            && let Some(p) = state_path()
-        {
-            write_atomic(&p, &format!("last_dir={}\n", self.dir.display()));
+        let mut state = String::new();
+        if self.config.remember_dir {
+            state += &format!("last_dir={}\n", self.dir.display());
         }
+        if self.config.remember_window {
+            state += &self.window.to_text();
+        }
+        if let Some(p) = state_path().filter(|_| !state.is_empty()) {
+            write_atomic(&p, &state);
+        }
+        self.inhibit(false);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -2241,6 +2342,18 @@ impl eframe::App for App {
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let bare = fullscreen || self.hide_tools;
+        self.inhibit(fullscreen && self.config.inhibit_screensaver);
+        // Geometry of the normal window only, so leaving full screen or maximized restores it.
+        let (inner, outer, maximized) = ctx.input(|i| {
+            let v = i.viewport();
+            (v.inner_rect, v.outer_rect, v.maximized.unwrap_or(false))
+        });
+        self.window.maximized = maximized;
+        if !fullscreen && !maximized {
+            self.window.size = inner.map(|r| r.size()).or(self.window.size);
+            // Wayland reports no position.
+            self.window.pos = outer.map(|r| r.min).or(self.window.pos);
+        }
         if !bare {
             egui::Panel::top("menu").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
@@ -2461,6 +2574,17 @@ impl eframe::App for App {
                     "Start in the last used folder",
                 );
                 if ui.add(remember).changed() {
+                    self.config.save();
+                }
+                let window = ui.checkbox(
+                    &mut self.config.remember_window,
+                    "Remember the window size and position",
+                );
+                let inhibit = ui.checkbox(
+                    &mut self.config.inhibit_screensaver,
+                    "Keep the screen saver off in full screen",
+                );
+                if window.changed() || inhibit.changed() {
                     self.config.save();
                 }
                 ui.separator();
@@ -2869,10 +2993,23 @@ fn main() -> eframe::Result {
         unsafe { mallopt(M_ARENA_MAX, 1) };
     }
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Glimt")
+        .with_inner_size([1280.0, 800.0]);
+    if Config::load().remember_window
+        && let Some(state) = state_path().and_then(|p| std::fs::read_to_string(p).ok())
+    {
+        let win = WindowState::parse(&state);
+        if let Some(size) = win.size {
+            viewport = viewport.with_inner_size(size);
+        }
+        if let Some(pos) = win.pos {
+            viewport = viewport.with_position(pos);
+        }
+        viewport = viewport.with_maximized(win.maximized);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Glimt")
-            .with_inner_size([1280.0, 800.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -2996,6 +3133,17 @@ mod tests {
         assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
         assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
         assert_eq!(Config::default().background, [0, 0, 0]);
+        assert!(Config::default().remember_window && Config::default().inhibit_screensaver);
+        assert!(!Config::parse("remember_window=false").remember_window);
+        assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
+        let win = super::WindowState {
+            size: Some(super::egui::vec2(1000.0, 700.5)),
+            pos: Some(super::egui::pos2(10.0, -20.0)),
+            maximized: true,
+        };
+        let text = format!("last_dir=/x\n{}", win.to_text());
+        assert_eq!(super::WindowState::parse(&text), win);
+        assert_eq!(super::WindowState::parse("window_size=5,5\n").size, None);
         assert_eq!(
             Config::parse("background=#1a2B3c").background,
             [0x1a, 0x2b, 0x3c]
