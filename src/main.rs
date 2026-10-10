@@ -668,9 +668,14 @@ impl App {
         use egui::Key;
         let last = self.files.len().saturating_sub(1);
         let pressed = |k| ctx.input(|i| i.key_pressed(k));
-        if pressed(Key::ArrowRight) || pressed(Key::Space) || pressed(Key::PageDown) {
+        // ↑/↓ blar i fillista som i Geeqie; under lysbildefremvisning justerer de tiden i stedet.
+        let (down, up) = match self.slideshow {
+            None => (pressed(Key::ArrowDown), pressed(Key::ArrowUp)),
+            Some(_) => (false, false),
+        };
+        if pressed(Key::ArrowRight) || pressed(Key::Space) || pressed(Key::PageDown) || down {
             self.go(ctx, (self.cur + 1).min(last));
-        } else if pressed(Key::ArrowLeft) || pressed(Key::Backspace) || pressed(Key::PageUp) {
+        } else if pressed(Key::ArrowLeft) || pressed(Key::Backspace) || pressed(Key::PageUp) || up {
             self.go(ctx, self.cur.saturating_sub(1));
         } else if pressed(Key::Home) {
             self.go(ctx, 0);
