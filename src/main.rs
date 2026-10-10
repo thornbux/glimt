@@ -268,6 +268,8 @@ struct Config {
     confirm_delete: bool,
     /// Slideshow in random order.
     random: bool,
+    /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
+    enlarge: bool,
 }
 
 impl Default for Config {
@@ -279,6 +281,7 @@ impl Default for Config {
             trash: true,
             confirm_delete: true,
             random: false,
+            enlarge: true,
         }
     }
 }
@@ -299,6 +302,7 @@ impl Config {
                 "trash" => c.trash = value == "true",
                 "confirm_delete" => c.confirm_delete = value == "true",
                 "random" => c.random = value == "true",
+                "enlarge" => c.enlarge = value == "true",
                 _ => {}
             }
         }
@@ -314,13 +318,14 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
             self.trash,
             self.confirm_delete,
-            self.random
+            self.random,
+            self.enlarge
         );
         write_atomic(&p, &text);
     }
@@ -1185,6 +1190,14 @@ impl eframe::App for App {
                     self.set_random_order(ctx, random);
                 }
                 ui.separator();
+                let enlarge = egui::Checkbox::new(
+                    &mut self.config.enlarge,
+                    "Enlarge small images to fit the window",
+                );
+                if ui.add(enlarge).changed() {
+                    self.config.save();
+                }
+                ui.separator();
                 let remember = egui::Checkbox::new(
                     &mut self.config.remember_dir,
                     "Start in the last used folder",
@@ -1363,10 +1376,15 @@ impl eframe::App for App {
                 let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 self.limits.lock().unwrap()[0] = view;
                 let response = ui.allocate_rect(area, egui::Sense::click_and_drag());
+                let max_fit = if self.config.enlarge {
+                    f32::INFINITY
+                } else {
+                    1.0
+                };
                 let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
                     (area.width() * ppp / s.orig[0] as f32)
                         .min(area.height() * ppp / s.orig[1] as f32)
-                        .min(1.0)
+                        .min(max_fit)
                 });
                 let wheel = ctx.input(|i| i.zoom_delta() * (1.0 + i.smooth_scroll_delta.y / 400.0));
                 if wheel != 1.0 && !self.show_settings && !self.confirm {
@@ -1405,7 +1423,7 @@ impl eframe::App for App {
                     let size = egui::vec2(orig[0] as f32, orig[1] as f32);
                     let fit = (area.width() * ppp / size.x)
                         .min(area.height() * ppp / size.y)
-                        .min(1.0);
+                        .min(max_fit);
                     let rect = egui::Rect::from_center_size(area.center(), size * fit / ppp);
                     egui::Image::new(tex).paint_at(ui, rect);
                 } else {
@@ -1532,6 +1550,7 @@ mod tests {
         assert!(Config::default().trash && !Config::parse("trash=false").trash);
         assert!(Config::parse("remember_dir=true").remember_dir);
         assert!(!Config::default().random && Config::parse("random=true").random);
+        assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
         assert_eq!(
             super::parse_last_dir("last_dir=/tmp/a b\n"),
             Some("/tmp/a b".into())
