@@ -51,6 +51,7 @@ enum Action {
     HideTools,
     Refresh,
     Slideshow,
+    Pause,
     RandomOrder,
     Faster,
     Slower,
@@ -102,6 +103,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (HideTools, CTRL, Key::H),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
+        (Pause, NONE, Key::P),
         (RandomOrder, NONE, Key::R),
         (Faster, CTRL, Key::Equals),
         (Slower, CTRL, Key::Minus),
@@ -216,6 +218,8 @@ struct App {
     scroll_to_cur: bool,
     /// Slideshow: when the previous image was shown; `None` = off.
     slideshow: Option<Instant>,
+    /// Slideshow paused (P): stays on the image until resumed.
+    paused: bool,
     /// The file list is shuffled for a random slideshow.
     random: bool,
 }
@@ -550,6 +554,7 @@ impl App {
             started: Some(Instant::now()),
             dialog: None,
             hide_tools: false,
+            paused: false,
             back: Vec::new(),
             forward: Vec::new(),
             listing: None,
@@ -905,6 +910,7 @@ impl App {
     /// that were shown; reopening the folder sorts it again.
     fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow = None;
+        self.paused = false;
         self.title(ctx);
     }
 
@@ -914,6 +920,7 @@ impl App {
         };
         let name = file.to_string_lossy();
         let show = match (self.slideshow.is_some(), self.random) {
+            (true, _) if self.paused => "⏸ ".to_owned(),
             (true, true) => format!("🔀 {} s · ", self.config.delay),
             (true, false) => format!("▶ {} s · ", self.config.delay),
             _ => String::new(),
@@ -931,7 +938,7 @@ impl App {
     /// decoding, so the slideshow never shows a black screen.
     fn slideshow_tick(&mut self, ctx: &egui::Context) {
         let Some(last) = self.slideshow else { return };
-        if self.files.is_empty() {
+        if self.files.is_empty() || self.paused {
             return;
         }
         let next = (self.cur + 1) % self.files.len();
@@ -1100,6 +1107,13 @@ impl App {
             Action::Refresh => self.open(ctx, self.location()),
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
+            // Resuming gives the shown image the full delay again.
+            Action::Pause if self.slideshow.is_some() => {
+                self.paused = !self.paused;
+                self.slideshow = Some(Instant::now());
+                self.title(ctx);
+            }
+            Action::Pause => {}
             Action::RandomOrder => self.set_random_order(ctx, !self.config.random),
             Action::Faster | Action::Slower => {
                 let step = if action == Action::Faster { -1 } else { 1 };
@@ -1216,6 +1230,8 @@ impl eframe::App for App {
                             "Start Slideshow"
                         };
                         menu_item(ui, act, label, Action::Slideshow);
+                        let pause = egui::Button::selectable(self.paused, "Pause Slideshow");
+                        menu_button(ui, act, pause, Action::Pause);
                         menu_item(ui, act, "Faster", Action::Faster);
                         menu_item(ui, act, "Slower", Action::Slower);
                         let random = egui::Button::selectable(self.config.random, "Random Order");
