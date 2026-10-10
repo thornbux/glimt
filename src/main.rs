@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
 mod exif;
+mod search;
 mod thumbs;
 #[cfg(feature = "video")]
 mod video;
@@ -506,6 +507,10 @@ struct App {
     deleted_rx: mpsc::Receiver<Vec<PathBuf>>,
     /// Background deletes, copies and moves still running, for the busy pointer.
     busy: Arc<AtomicUsize>,
+    /// File name search above the file list, and the matching files best first while it has
+    /// at least three letters.
+    search: String,
+    matches: Option<Vec<usize>>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -819,6 +824,8 @@ struct Config {
     sort_case: bool,
     /// Toolbar icon size: 0 small, 1 medium, 2 large.
     toolbar_icons: usize,
+    /// File name search above the file list.
+    search_bar: bool,
 }
 
 impl Default for Config {
@@ -850,6 +857,7 @@ impl Default for Config {
             sort_ascending: true,
             sort_case: true,
             toolbar_icons: 0,
+            search_bar: true,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -896,6 +904,7 @@ impl Config {
                 }
                 "sort_ascending" => c.sort_ascending = value == "true",
                 "sort_case" => c.sort_case = value == "true",
+                "search_bar" => c.search_bar = value == "true",
                 "toolbar_icons" => c.toolbar_icons = value.parse().map_or(0, |n: usize| n.min(2)),
                 "background" => {
                     let hex = value.trim_start_matches('#');
@@ -931,7 +940,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nsort={}\nsort_ascending={}\nsort_case={}\ntoolbar_icons={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nsort={}\nsort_ascending={}\nsort_case={}\ntoolbar_icons={}\nsearch_bar={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -956,6 +965,7 @@ impl Config {
             self.sort_ascending,
             self.sort_case,
             self.toolbar_icons,
+            self.search_bar,
             self.background[0],
             self.background[1],
             self.background[2],
@@ -1427,6 +1437,8 @@ impl App {
             deleted_tx,
             deleted_rx,
             busy: Arc::new(AtomicUsize::new(0)),
+            search: String::new(),
+            matches: None,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1651,6 +1663,7 @@ impl App {
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.errors = without_indices(std::mem::take(&mut self.errors), removed);
         self.selected.clear();
+        self.update_search();
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
         // The next remaining file after the shown one (or the last).
@@ -1733,6 +1746,7 @@ impl App {
         if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
             self.slots.insert(cur, slot);
         }
+        self.update_search();
         self.go(ctx, cur);
     }
 
@@ -2354,6 +2368,29 @@ impl App {
         response.clicked()
     }
 
+    /// Fuzzy search box above the file list.
+    fn search_field(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if !self.search.is_empty() && ui.small_button("✖").clicked() {
+                self.search.clear();
+                self.update_search();
+                self.scroll_to_cur = true;
+            }
+            let edit = egui::TextEdit::singleline(&mut self.search)
+                .hint_text("Search file names (3+ letters)")
+                .desired_width(f32::INFINITY);
+            if ui.add(edit).changed() {
+                self.update_search();
+            }
+        });
+    }
+
+    /// Run the search again; file indices change when the list does.
+    fn update_search(&mut self) {
+        let query = self.search.trim();
+        self.matches = (query.chars().count() >= 3).then(|| search::matches(&self.files, query));
+    }
+
     /// Size and modification time of file `i`, from the cache or one stat.
     /// ponytail: stat in the UI thread, once per visible file; move to a thread if network
     /// folders make scrolling stutter.
@@ -2912,7 +2949,13 @@ impl eframe::App for App {
                     ui.separator();
                     let toolbar = ui.checkbox(&mut self.config.toolbar, "Show the toolbar");
                     let path = ui.checkbox(&mut self.config.path_bar, "Show the folder path");
-                    if toolbar.changed() || path.changed() {
+                    let search =
+                        ui.checkbox(&mut self.config.search_bar, "Show the file name search");
+                    if search.changed() && !self.config.search_bar {
+                        self.search.clear();
+                        self.update_search();
+                    }
+                    if toolbar.changed() || path.changed() || search.changed() {
                         self.config.save();
                     }
                     ui.horizontal(|ui| {
@@ -3082,6 +3125,9 @@ impl eframe::App for App {
                     } else {
                         format!("{} images ({size})", thousands(n))
                     };
+                    if let Some(found) = &self.matches {
+                        left += &format!(", {} found", thousands(found.len()));
+                    }
                     if !self.selected.is_empty() {
                         let m = thousands(self.selected.len());
                         let size = self
@@ -3167,6 +3213,15 @@ impl eframe::App for App {
                                     }
                                 });
                         });
+                    if self.config.search_bar {
+                        self.search_field(ui);
+                    }
+                    // The rows shown: the search matches, or all files.
+                    let count = self.matches.as_ref().map_or(self.files.len(), Vec::len);
+                    let row_of = |i: usize, m: &Option<Vec<usize>>| match m {
+                        Some(m) => m.iter().position(|&x| x == i),
+                        None => Some(i),
+                    };
                     // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
                     let thumbs = self.config.thumbnails;
                     let row_h = if thumbs {
@@ -3178,9 +3233,11 @@ impl eframe::App for App {
                     let mut area = egui::ScrollArea::vertical()
                         .id_salt("files")
                         .auto_shrink(false);
-                    if self.scroll_to_cur {
+                    if self.scroll_to_cur
+                        && let Some(row) = row_of(self.cur, &self.matches)
+                    {
                         // Scroll only when the current image is out of view, and centre it.
-                        let (top, view) = (self.cur as f32 * pitch, ui.available_height());
+                        let (top, view) = (row as f32 * pitch, ui.available_height());
                         let off =
                             egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
                                 .map_or(0.0, |s| s.offset.y);
@@ -3188,14 +3245,20 @@ impl eframe::App for App {
                             area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
                         }
                     }
-                    area.show_rows(ui, row_h, self.files.len(), |ui, rows| {
-                        if thumbs {
-                            let last = rows.end.saturating_sub(1);
-                            self.thumb_view[0].store(rows.start, Ordering::Relaxed);
+                    area.show_rows(ui, row_h, count, |ui, rows| {
+                        let shown: Vec<usize> = match &self.matches {
+                            Some(m) => m[rows].to_vec(),
+                            None => rows.collect(),
+                        };
+                        if thumbs
+                            && let (Some(&first), Some(&last)) =
+                                (shown.iter().min(), shown.iter().max())
+                        {
+                            self.thumb_view[0].store(first, Ordering::Relaxed);
                             self.thumb_view[1].store(last, Ordering::Relaxed);
-                            self.trim_thumbs(rows.start, last);
+                            self.trim_thumbs(first, last);
                         }
-                        for i in rows {
+                        for i in shown {
                             let marked = i == self.cur || self.selected.contains(&i);
                             let clicked = if thumbs || self.config.file_details {
                                 self.file_row(ui, i, row_h, marked)
@@ -3215,8 +3278,19 @@ impl eframe::App for App {
                                     }
                                     self.selection_changed(ctx);
                                 } else if m.shift {
-                                    // Shift+click: select the range from the shown image.
-                                    self.selected.extend(i.min(self.cur)..=i.max(self.cur));
+                                    // Shift+click: select the rows from the shown image.
+                                    match (&self.matches, row_of(self.cur, &self.matches)) {
+                                        (Some(m), Some(c)) => {
+                                            let r = row_of(i, &self.matches).unwrap_or(c);
+                                            self.selected.extend(&m[r.min(c)..=r.max(c)]);
+                                        }
+                                        (Some(_), None) => {
+                                            self.selected.insert(i);
+                                        }
+                                        (None, _) => {
+                                            self.selected.extend(i.min(self.cur)..=i.max(self.cur))
+                                        }
+                                    }
                                     self.selection_changed(ctx);
                                 } else {
                                     self.selected.clear();
@@ -3584,6 +3658,7 @@ mod tests {
         );
         assert_eq!(Config::parse("sort=nonsense").sort, super::Sort::Name);
         assert_eq!(Config::default().toolbar_icons, 0);
+        assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);
         assert_eq!(Config::parse("toolbar_icons=1").toolbar_icons, 1);
         assert_eq!(Config::parse("toolbar_icons=9").toolbar_icons, 2);
         assert!(Config::parse("app_name_first=true").app_name_first);
