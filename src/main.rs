@@ -2218,8 +2218,13 @@ impl App {
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => {
-                let started = std::env::current_exe()
-                    .and_then(|exe| std::process::Command::new(exe).arg(self.location()).spawn());
+                // After an update (or a rebuild) Linux reports the running binary as
+                // "/path/glimt (deleted)"; the new one is at the same path.
+                let started = std::env::current_exe().and_then(|exe| {
+                    let exe = exe.to_string_lossy();
+                    let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
+                    std::process::Command::new(exe).arg(self.location()).spawn()
+                });
                 match started {
                     // Reap the child when it exits, so it does not linger as a zombie.
                     Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
