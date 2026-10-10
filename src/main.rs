@@ -406,8 +406,8 @@ struct App {
     rotate: Arc<AtomicBool>,
     show_settings: bool,
     show_help: bool,
-    /// The confirmation dialog for permanent deletion is open.
-    confirm: bool,
+    /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
+    confirm: Option<bool>,
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
@@ -626,6 +626,10 @@ struct Config {
     trash: bool,
     /// Ask before deleting permanently.
     confirm_delete: bool,
+    /// Ask before moving to the trash.
+    confirm_trash: bool,
+    /// The Delete key deletes (Ctrl+D always does).
+    delete_key: bool,
     /// Slideshow in random order.
     random: bool,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -671,6 +675,8 @@ impl Default for Config {
             remember_dir: false,
             trash: true,
             confirm_delete: true,
+            confirm_trash: true,
+            delete_key: true,
             random: false,
             enlarge: true,
             wheel_zoom: true,
@@ -708,6 +714,8 @@ impl Config {
                 "remember_dir" => c.remember_dir = value == "true",
                 "trash" => c.trash = value == "true",
                 "confirm_delete" => c.confirm_delete = value == "true",
+                "confirm_trash" => c.confirm_trash = value == "true",
+                "delete_key" => c.delete_key = value == "true",
                 "random" => c.random = value == "true",
                 "enlarge" => c.enlarge = value == "true",
                 "wheel_zoom" => c.wheel_zoom = value == "true",
@@ -746,12 +754,14 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
             self.trash,
             self.confirm_delete,
+            self.confirm_trash,
+            self.delete_key,
             self.random,
             self.enlarge,
             self.wheel_zoom,
@@ -1140,7 +1150,7 @@ impl App {
             rotate,
             show_settings: false,
             show_help: false,
-            confirm: false,
+            confirm: None,
             prompt: None,
             selected: Default::default(),
             last_drawn: None,
@@ -1325,8 +1335,12 @@ impl App {
         if self.files.is_empty() {
             return;
         }
-        if !trash && self.config.confirm_delete {
-            self.confirm = true;
+        if if trash {
+            self.config.confirm_trash
+        } else {
+            self.config.confirm_delete
+        } {
+            self.confirm = Some(trash);
         } else {
             self.delete_targets_now(ctx, trash);
         }
@@ -1671,7 +1685,7 @@ impl App {
 
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
-        self.show_settings || self.confirm || self.prompt.is_some()
+        self.show_settings || self.confirm.is_some() || self.prompt.is_some()
     }
 
     /// The text dialog was answered with `text`.
@@ -2033,7 +2047,8 @@ impl App {
     }
 
     /// The action for a shortcut pressed this frame, if any.
-    fn shortcut(ctx: &egui::Context) -> Option<Action> {
+    /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
+    fn shortcut(ctx: &egui::Context, delete_key: bool) -> Option<Action> {
         ctx.input_mut(|i| {
             // egui-winit turns Ctrl+C into a Copy event instead of a key press.
             let copies = i.events.len();
@@ -2043,6 +2058,7 @@ impl App {
             }
             SHORTCUTS
                 .iter()
+                .filter(|s| delete_key || s.2 != egui::Key::Delete)
                 .find(|&&(_, mods, key)| {
                     i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))
                 })
@@ -2335,7 +2351,7 @@ impl eframe::App for App {
         // ... and to the text field while one has focus (the toolbar's folder path).
         let typing = ctx.egui_wants_keyboard_input();
         let mut act = (!self.dialog_open() && !typing)
-            .then(|| Self::shortcut(ctx))
+            .then(|| Self::shortcut(ctx, self.config.delete_key))
             .flatten();
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
@@ -2594,13 +2610,21 @@ impl eframe::App for App {
                     self.title(ctx);
                 }
                 ui.separator();
-                ui.label("Deleting:");
-                let trash = egui::Checkbox::new(&mut self.config.trash, "Delete moves to trash");
-                let confirm = egui::Checkbox::new(
+                ui.label("Delete behaviour:");
+                let permanent = ui.checkbox(
                     &mut self.config.confirm_delete,
-                    "Confirm permanent deletion",
+                    "Confirm permanent file delete",
                 );
-                if ui.add(trash).changed() | ui.add(confirm).changed() {
+                let trash =
+                    ui.checkbox(&mut self.config.confirm_trash, "Confirm move file to Trash");
+                let key = ui.checkbox(&mut self.config.delete_key, "Enable Delete key");
+                let mut no_trash = !self.config.trash;
+                let none = ui.checkbox(
+                    &mut no_trash,
+                    "Use no trash at all (Delete deletes permanently)",
+                );
+                self.config.trash = !no_trash;
+                if permanent.changed() || trash.changed() || key.changed() || none.changed() {
                     self.config.save();
                 }
                 #[cfg(feature = "video")]
@@ -2653,15 +2677,19 @@ impl eframe::App for App {
             }
         }
 
-        if self.confirm {
+        if let Some(trash) = self.confirm {
             let what = match self.targets().as_slice() {
                 [i] => format!("\"{}\"", self.files[*i].to_string_lossy()),
                 many => format!("{} files", many.len()),
             };
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
-                ui.label(format!("Permanently delete {what}?"));
-                ui.weak("This cannot be undone.");
+                if trash {
+                    ui.label(format!("Move {what} to the trash?"));
+                } else {
+                    ui.label(format!("Permanently delete {what}?"));
+                    ui.weak("This cannot be undone.");
+                }
                 ui.horizontal(|ui| {
                     delete = ui.button("Delete (Enter)").clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -2671,10 +2699,10 @@ impl eframe::App for App {
                 });
             });
             if delete {
-                self.confirm = false;
-                self.delete_targets_now(ctx, false);
+                self.confirm = None;
+                self.delete_targets_now(ctx, trash);
             } else if modal.should_close() {
-                self.confirm = false;
+                self.confirm = None;
             }
         }
         self.show_settings = open;
@@ -3137,6 +3165,10 @@ mod tests {
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
         assert!(Config::default().trash && !Config::parse("trash=false").trash);
+        assert!(
+            Config::default().confirm_trash && !Config::parse("confirm_trash=false").confirm_trash
+        );
+        assert!(Config::default().delete_key && !Config::parse("delete_key=false").delete_key);
         assert!(Config::parse("remember_dir=true").remember_dir);
         assert!(!Config::default().random && Config::parse("random=true").random);
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
