@@ -62,6 +62,10 @@ struct App {
     started: Option<Instant>,
     /// Svar fra en åpen fildialog (zenity).
     dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    /// Feilmeldinger fra bakgrunnsoppgaver (sletting), og den som vises nå.
+    notices_tx: mpsc::Sender<String>,
+    notices: mpsc::Receiver<String>,
+    notice: Option<String>,
     /// Mappelesing i bakgrunnen: (undermapper, bilder).
     listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<PathBuf>)>>,
     /// Rull trevisningen til gjeldende bilde ved neste tegning.
@@ -174,6 +178,14 @@ impl Config {
     }
 }
 
+/// Fjern oppføringen for `removed` og flytt høyere indekser ett hakk ned.
+fn without_index<T>(map: HashMap<usize, T>, removed: usize) -> HashMap<usize, T> {
+    map.into_iter()
+        .filter(|&(i, _)| i != removed)
+        .map(|(i, v)| (if i > removed { i - 1 } else { i }, v))
+        .collect()
+}
+
 /// Fisher–Yates med xorshift seedet fra std sin tilfeldige hash-nøkkel (ingen rand-avhengighet).
 fn shuffle<T>(v: &mut [T]) {
     use std::hash::{BuildHasher, Hasher};
@@ -267,7 +279,11 @@ impl App {
                 }
             });
         }
+        let (notices_tx, notices) = mpsc::channel();
         let mut app = App {
+            notices_tx,
+            notices,
+            notice: None,
             dir: PathBuf::new(),
             subdirs: Vec::new(),
             files: Vec::new(),
@@ -347,6 +363,49 @@ impl App {
         self.replace_files(ctx, files, shown);
     }
 
+    /// Slett gjeldende bilde: ut av lista med en gang (naboenes teksturer beholdes, så neste
+    /// bilde vises uten ny dekoding), og flytt fila til papirkurven i bakgrunnen.
+    fn delete_current(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.files.get(self.cur).cloned() else {
+            return;
+        };
+        self.remove_current(ctx);
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let result = std::process::Command::new("gio")
+                .arg("trash")
+                .arg("--")
+                .arg(&path)
+                .output();
+            let err = match result {
+                Ok(o) if o.status.success() => return,
+                Ok(o) => String::from_utf8_lossy(&o.stderr).trim().to_owned(),
+                Err(e) => e.to_string(),
+            };
+            let _ = tx.send(format!("Kunne ikke slette {}: {err}", path.display()));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Fjern gjeldende bilde fra lista og flytt indeksbasert tilstand ett hakk ned.
+    fn remove_current(&mut self, ctx: &egui::Context) {
+        let cur = self.cur;
+        self.files.remove(cur);
+        self.slots = without_index(std::mem::take(&mut self.slots), cur);
+        self.errors = without_index(std::mem::take(&mut self.errors), cur);
+        // Jobber i arbeid har gamle indekser og avvises på filsti; refill ber om dem på nytt.
+        self.pending.clear();
+        if self.files.is_empty() {
+            self.cur = 0;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                "{} — glimt",
+                self.dir.display()
+            )));
+        } else {
+            self.go(ctx, cur.min(self.files.len() - 1));
+        }
+    }
+
     /// Bytt fillista og gå til `shown` (ellers første bilde). Teksturen som vises nå beholdes
     /// hvis den er laget fra samme fil. All indeksbasert tilstand nullstilles; jobber i arbeid
     /// avvises på filsti når de kommer.
@@ -404,6 +463,7 @@ impl App {
         }
         self.cur = idx.min(self.files.len() - 1);
         self.current.store(self.cur, Ordering::Relaxed);
+        self.notice = None;
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
         self.scroll_to_cur = true;
@@ -577,6 +637,9 @@ impl App {
             self.config.save();
             self.title(ctx);
         }
+        if pressed(Key::Delete) {
+            self.delete_current(ctx);
+        }
         if pressed(Key::Escape) {
             if self.slideshow.is_some() {
                 self.stop_slideshow(ctx);
@@ -632,6 +695,16 @@ impl eframe::App for App {
         ];
         self.receive(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
+        while let Ok(msg) = self.notices.try_recv() {
+            // Sletting feilet, så fila finnes trolig fortsatt: les mappa på nytt så lista stemmer.
+            let keep = self
+                .files
+                .get(self.cur)
+                .cloned()
+                .unwrap_or_else(|| self.dir.clone());
+            self.open(ctx, keep);
+            self.notice = Some(msg);
+        }
         self.slideshow_tick(ctx);
         if let Some(Ok(picked)) = self.dialog.as_ref().map(mpsc::Receiver::try_recv) {
             self.dialog = None;
@@ -651,6 +724,9 @@ impl eframe::App for App {
                         }
                         if ui.button("Åpne mappe…").clicked() {
                             self.pick(ctx, true);
+                        }
+                        if ui.button("Slett (Delete)").clicked() {
+                            self.delete_current(ctx);
                         }
                         ui.separator();
                         if ui.button("Lukk").clicked() {
@@ -833,6 +909,15 @@ impl eframe::App for App {
                         egui::Color32::GRAY,
                     );
                 }
+                if let Some(notice) = &self.notice {
+                    ui.painter().text(
+                        area.center_bottom() - egui::vec2(0.0, 16.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        notice,
+                        egui::FontId::proportional(16.0),
+                        egui::Color32::LIGHT_RED,
+                    );
+                }
             });
     }
 }
@@ -869,6 +954,13 @@ mod tests {
         assert_eq!(dirs, vec![dir.join("sub")]);
         let (img, orig) = super::decode(&dir.join("a.png"), [100, 100]).unwrap();
         assert_eq!((img.size, orig), ([100, 50], [400, 200]));
+    }
+
+    #[test]
+    fn without_index_shifts_down() {
+        let map = std::collections::HashMap::from([(3, 'a'), (4, 'b'), (5, 'c')]);
+        let expected = std::collections::HashMap::from([(3, 'a'), (4, 'c')]);
+        assert_eq!(super::without_index(map, 4), expected);
     }
 
     #[test]
