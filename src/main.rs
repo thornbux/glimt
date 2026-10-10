@@ -2903,14 +2903,23 @@ impl eframe::App for App {
                         self.zoom = Some((self.zoom.unwrap_or(fit) * factor).clamp(0.02, 32.0));
                     }
                 }
-                if response.dragged() {
-                    self.pan += response.drag_delta();
-                }
                 if response.double_clicked() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
                 }
                 let scale = self.zoom.unwrap_or(fit);
                 self.last_scale = scale;
+                // Panning only along a side where the image is larger than the view, and only up
+                // to its edge, so an image that fits stays put.
+                let orig = (self.slots.get(&self.cur).map(|s| s.orig))
+                    .or(self.last_drawn.as_ref().map(|d| d.1));
+                if let Some([w, h]) = orig {
+                    if response.dragged() {
+                        self.pan += response.drag_delta();
+                    }
+                    let size = egui::vec2(w as f32, h as f32) * scale / ppp;
+                    let max = ((size - area.size()) / 2.0).max(egui::Vec2::ZERO);
+                    self.pan = self.pan.clamp(-max, max);
+                }
 
                 // Texture too small: in fit mode the window has grown, so decode again at window
                 // size (the previous texture is shown meanwhile); when zoomed, load full resolution.
