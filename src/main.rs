@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
+mod exif;
 mod thumbs;
 #[cfg(feature = "video")]
 mod video;
@@ -67,6 +68,7 @@ enum Action {
     FullScreen,
     HideTools,
     Thumbnails,
+    ExifPanel,
     Refresh,
     Slideshow,
     Pause,
@@ -117,6 +119,7 @@ impl Action {
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
             Thumbnails => "Show Thumbnails",
+            ExifPanel => "Show EXIF Panel",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
             Pause => "Pause Slideshow",
@@ -180,6 +183,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F11),
         (HideTools, CTRL, Key::H),
         (Thumbnails, NONE, Key::T),
+        (ExifPanel, CTRL, Key::K),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
         (Pause, NONE, Key::P),
@@ -301,6 +305,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "EXIF",
+        "Panel on the right (Ctrl+K), off by default; selected fields",
+        "Info sidebar (Ctrl+K) and an EXIF window (Ctrl+E) with all fields",
     ),
     (
         "Thumbnail cache",
@@ -446,6 +455,11 @@ struct App {
     thumb_view: Arc<[AtomicUsize; 2]>,
     /// Workers write new thumbnails to the shared cache (Preferences).
     save_thumbs: Arc<AtomicBool>,
+    /// EXIF panel: the file asked for last, and the rows read for a file.
+    exif_jobs: mpsc::Sender<PathBuf>,
+    exif_done: mpsc::Receiver<(PathBuf, Vec<(&'static str, String)>)>,
+    exif_asked: Option<PathBuf>,
+    exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -555,6 +569,8 @@ struct Config {
     thumbnails: bool,
     /// Write new thumbnails to the shared cache (~/.cache/thumbnails).
     save_thumbnails: bool,
+    /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
+    exif_panel: bool,
 }
 
 impl Default for Config {
@@ -571,6 +587,7 @@ impl Default for Config {
             thumbnails: true,
             // Off while Glimt is in development, so testing leaves no files behind; on for release.
             save_thumbnails: false,
+            exif_panel: false,
             auto_refresh: true,
             exif_rotate: true,
             videos: true,
@@ -599,6 +616,7 @@ impl Config {
                 "wheel_zoom" => c.wheel_zoom = value == "true",
                 "thumbnails" => c.thumbnails = value == "true",
                 "save_thumbnails" => c.save_thumbnails = value == "true",
+                "exif_panel" => c.exif_panel = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
                 "exif_rotate" => c.exif_rotate = value == "true",
                 "videos" => c.videos = value == "true",
@@ -618,7 +636,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -629,6 +647,7 @@ impl Config {
             self.wheel_zoom,
             self.thumbnails,
             self.save_thumbnails,
+            self.exif_panel,
             self.auto_refresh,
             self.exif_rotate,
             self.videos,
@@ -970,6 +989,22 @@ impl App {
                 }
             });
         }
+        // One EXIF reader that skips to the newest request, so fast browsing never queues up.
+        let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
+        let (exif_tx, exif_done) = mpsc::channel();
+        let ctx = cc.egui_ctx.clone();
+        std::thread::spawn(move || {
+            while let Ok(mut path) = exif_rx.recv() {
+                path = exif_rx.try_iter().last().unwrap_or(path);
+                let size = std::fs::metadata(&path).map_or(0, |m| m.len());
+                let mut rows = vec![("File size", human_size(size))];
+                rows.extend(exif::read(&path));
+                if exif_tx.send((path, rows)).is_err() {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+        });
         let (notices_tx, notices) = mpsc::channel();
         let (freed_tx, freed_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
@@ -1027,6 +1062,10 @@ impl App {
             thumbs_done,
             thumb_view,
             save_thumbs,
+            exif_jobs,
+            exif_done,
+            exif_asked: None,
+            exif: None,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1682,6 +1721,41 @@ impl App {
         }
     }
 
+    /// File and EXIF details of the shown image, read in the background (Ctrl+K).
+    fn exif_panel(&mut self, ui: &mut egui::Ui) {
+        let path = self.path(self.cur);
+        if self.exif_asked.as_ref() != Some(&path) {
+            let _ = self.exif_jobs.send(path.clone());
+            self.exif_asked = Some(path.clone());
+        }
+        for done in self.exif_done.try_iter() {
+            self.exif = Some(done);
+        }
+        egui::Panel::right("exif")
+            .resizable(true)
+            .default_size(240.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
+                        ui.weak("File");
+                        ui.label(self.files[self.cur].to_string_lossy());
+                        ui.end_row();
+                        if let Some(s) = self.slots.get(&self.cur) {
+                            ui.weak("Dimensions");
+                            ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
+                            ui.end_row();
+                        }
+                        // The old rows stay until the new ones arrive, so the panel does not flicker.
+                        for (label, value) in self.exif.iter().flat_map(|e| &e.1) {
+                            ui.weak(*label);
+                            ui.label(value);
+                            ui.end_row();
+                        }
+                    });
+                });
+            });
+    }
+
     fn receive_thumbs(&mut self, ctx: &egui::Context) {
         while let Ok((path, result)) = self.thumbs_done.try_recv() {
             let (Some(name), true) = (path.file_name(), path.parent() == Some(&self.dir)) else {
@@ -1924,6 +1998,10 @@ impl App {
             Action::Preferences => self.show_settings = true,
             Action::Help => self.show_help = !self.show_help,
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::ExifPanel => {
+                self.config.exif_panel = !self.config.exif_panel;
+                self.config.save();
+            }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Rename => {
                 if let Some(name) = self.files.get(self.cur) {
@@ -2102,6 +2180,11 @@ impl eframe::App for App {
                             Action::Thumbnails.label(),
                         );
                         menu_button(ui, act, thumbs, Action::Thumbnails);
+                        let exif = egui::Button::selectable(
+                            self.config.exif_panel,
+                            Action::ExifPanel.label(),
+                        );
+                        menu_button(ui, act, exif, Action::ExifPanel);
                         menu_item(ui, act, Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
@@ -2196,6 +2279,14 @@ impl eframe::App for App {
                 if ui.add(save).changed() {
                     self.save_thumbs
                         .store(self.config.save_thumbnails, Ordering::Relaxed);
+                    self.config.save();
+                }
+                ui.separator();
+                let exif = egui::Checkbox::new(
+                    &mut self.config.exif_panel,
+                    "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
+                );
+                if ui.add(exif).changed() {
                     self.config.save();
                 }
                 ui.separator();
@@ -2438,6 +2529,10 @@ impl eframe::App for App {
             self.visit(ctx, d);
         } else if let Some(i) = go_to {
             self.go(ctx, i);
+        }
+
+        if !bare && self.config.exif_panel && !self.files.is_empty() {
+            self.exif_panel(ui);
         }
 
         let mut wheel_step = None;
@@ -2707,6 +2802,7 @@ mod tests {
         assert!(Config::default().wheel_zoom && !Config::parse("wheel_zoom=false").wheel_zoom);
         assert!(Config::default().thumbnails && !Config::parse("thumbnails=false").thumbnails);
         assert!(!Config::default().save_thumbnails);
+        assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
         assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
