@@ -48,6 +48,8 @@ struct App {
     show_settings: bool,
     /// Bekreftelsesdialog for permanent sletting er åpen.
     confirm: bool,
+    /// Skala fra forrige frame (fysiske piksler per bildepiksel), til zoom-prosenten i statuslinja.
+    last_scale: f32,
     /// Sist viste bilde; vises videre til det neste er dekodet, så blaing aldri gir svart skjerm.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// Merkede filer (Ctrl/Shift+klikk i fillista) som Delete gjelder.
@@ -204,6 +206,19 @@ fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usiz
         .collect()
 }
 
+/// Heltall med mellomrom som tusenskille: 300000 → «300 000».
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Fisher–Yates med xorshift seedet fra std sin tilfeldige hash-nøkkel (ingen rand-avhengighet).
 fn shuffle<T>(v: &mut [T]) {
     use std::hash::{BuildHasher, Hasher};
@@ -312,6 +327,7 @@ impl App {
             confirm: false,
             selected: Default::default(),
             last_drawn: None,
+            last_scale: 1.0,
             config,
             slideshow: None,
             random: false,
@@ -899,6 +915,34 @@ impl eframe::App for App {
         }
         self.show_settings = open;
 
+        // Statuslinje som i Geeqie: antall bilder og merkede til venstre, gjeldende bilde til høyre.
+        if !fullscreen {
+            egui::Panel::bottom("status").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let n = self.files.len();
+                    let mut left = if self.listing.is_some() {
+                        "Leser mappa…".to_owned()
+                    } else {
+                        format!("{} bilder", thousands(n))
+                    };
+                    if !self.selected.is_empty() {
+                        left += &format!(", {} merket", thousands(self.selected.len()));
+                    }
+                    ui.label(left);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(slot) = self.slots.get(&self.cur) {
+                            let [w, h] = slot.orig;
+                            let zoom = (self.last_scale * 100.0).round();
+                            ui.label(format!("{w}×{h}  {zoom} %"));
+                        }
+                        if n > 0 {
+                            ui.label(format!("{}/{}", thousands(self.cur + 1), thousands(n)));
+                        }
+                    });
+                });
+            });
+        }
+
         // Venstre side som i Geeqie: mappetre i ett nivå øverst, filnavn under.
         let (mut open_dir, mut go_to) = (None, None);
         if !fullscreen {
@@ -1008,6 +1052,7 @@ impl eframe::App for App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
                 }
                 let scale = self.zoom.unwrap_or(fit);
+                self.last_scale = scale;
 
                 if let Some(slot) = self.slots.get(&self.cur) {
                     // Skjermversjonen holder ikke ved denne zoomen: hent full oppløsning.
@@ -1103,6 +1148,14 @@ mod tests {
         let map = std::collections::HashMap::from([(1, 'a'), (2, 'b'), (4, 'c'), (6, 'd')]);
         let expected = std::collections::HashMap::from([(1, 'a'), (3, 'd')]);
         assert_eq!(super::without_indices(map, &[2, 4, 5]), expected);
+    }
+
+    #[test]
+    fn formats_thousands() {
+        assert_eq!(super::thousands(7), "7");
+        assert_eq!(super::thousands(1000), "1 000");
+        assert_eq!(super::thousands(300000), "300 000");
+        assert_eq!(super::thousands(1234567), "1 234 567");
     }
 
     #[test]
