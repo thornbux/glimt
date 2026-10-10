@@ -269,8 +269,7 @@ impl eframe::App for App {
                 let slot = &self.slots[&self.cur];
                 let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
                 let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
-                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                ui.painter().image(slot.tex.id(), rect, uv, egui::Color32::WHITE);
+                egui::Image::new(&slot.tex).paint_at(ui, rect);
             } else {
                 let text = if self.files.is_empty() {
                     "Ingen bilder i mappa".to_owned()
