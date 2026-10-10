@@ -98,6 +98,9 @@ struct Config {
     preload: usize,
     /// Sekunder mellom bildene i lysbildefremvisning.
     delay: u64,
+    /// Start i mappa fra forrige gang når ingen mappe er gitt på kommandolinja.
+    remember_dir: bool,
+    last_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -105,6 +108,8 @@ impl Default for Config {
         Config {
             preload: DEFAULT_AHEAD,
             delay: DEFAULT_DELAY,
+            remember_dir: false,
+            last_dir: None,
         }
     }
 }
@@ -121,6 +126,8 @@ impl Config {
                         .parse()
                         .map_or(c.delay, |n: u64| n.clamp(1, MAX_DELAY))
                 }
+                "remember_dir" => c.remember_dir = value == "true",
+                "last_dir" if !value.is_empty() => c.last_dir = Some(value.into()),
                 _ => {}
             }
         }
@@ -135,7 +142,14 @@ impl Config {
 
     fn save(&self) {
         let Some(p) = config_path() else { return };
-        let text = format!("preload={}\ndelay={}\n", self.preload, self.delay);
+        // ponytail: stien lagres som UTF-8 (tapsfritt for vanlige stier); bytt til OsString-bytes ved behov.
+        let mut text = format!(
+            "preload={}\ndelay={}\nremember_dir={}\n",
+            self.preload, self.delay, self.remember_dir
+        );
+        if let Some(dir) = &self.last_dir {
+            text += &format!("last_dir={}\n", dir.display());
+        }
         let result =
             std::fs::create_dir_all(p.parent().unwrap()).and_then(|_| std::fs::write(&p, text));
         if let Err(e) = result {
@@ -196,9 +210,17 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext, path: PathBuf) -> Self {
+    fn new(cc: &eframe::CreationContext, path: Option<PathBuf>) -> Self {
         let current = Arc::new(AtomicUsize::new(0));
         let config = Config::load();
+        let path = path
+            .or_else(|| {
+                config
+                    .last_dir
+                    .clone()
+                    .filter(|d| config.remember_dir && d.is_dir())
+            })
+            .unwrap_or_else(|| ".".into());
         let ahead = Arc::new(AtomicUsize::new(config.preload));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
@@ -550,6 +572,14 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Siste mappe skrives én gang ved avslutning, ikke ved hvert mappebytte.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if self.config.remember_dir {
+            self.config.last_dir = self.dir.canonicalize().ok();
+            self.config.save();
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
@@ -621,6 +651,14 @@ impl eframe::App for App {
                 if ui.add(delay).changed() {
                     self.config.save();
                     self.title(ctx);
+                }
+                ui.separator();
+                let remember = egui::Checkbox::new(
+                    &mut self.config.remember_dir,
+                    "Start i mappa fra forrige gang",
+                );
+                if ui.add(remember).changed() {
+                    self.config.save();
                 }
             });
         self.show_settings = open;
@@ -731,10 +769,7 @@ impl eframe::App for App {
 }
 
 fn main() -> eframe::Result {
-    let arg = std::env::args_os()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| ".".into());
+    let arg = std::env::args_os().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("glimt")
@@ -782,6 +817,9 @@ mod tests {
         assert_eq!(Config::parse("preload=99").preload, 20);
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
+        let c = Config::parse("remember_dir=true\nlast_dir=/tmp/a b\n");
+        assert!(c.remember_dir);
+        assert_eq!(c.last_dir, Some("/tmp/a b".into()));
         assert_eq!(Config::parse("preload=x\nukjent=1"), Config::default());
     }
 }
