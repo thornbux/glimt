@@ -9,7 +9,7 @@ use image::ImageDecoder;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
@@ -43,6 +43,7 @@ enum Action {
     CopyPath,
     CopyPathUnquoted,
     Preferences,
+    ExifRotate,
     ZoomIn,
     ZoomOut,
     Zoom1To1,
@@ -61,6 +62,7 @@ enum Action {
 const NONE: egui::Modifiers = egui::Modifiers::NONE;
 const SHIFT: egui::Modifiers = egui::Modifiers::SHIFT;
 const CTRL: egui::Modifiers = egui::Modifiers::COMMAND;
+const ALT: egui::Modifiers = egui::Modifiers::ALT;
 const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
     shift: true,
     ..egui::Modifiers::COMMAND
@@ -68,11 +70,12 @@ const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
 
 /// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh).
 /// The first one for an action is shown in the menu.
-/// egui ignores an extra Shift when matching, so Shift combinations come before the plain key.
+/// egui ignores an extra Shift or Alt when matching, so those combinations come before the plain key.
 const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use Action::*;
     use egui::Key;
     &[
+        (ExifRotate, ALT, Key::X),
         (DeletePermanently, SHIFT, Key::Delete),
         (Delete, NONE, Key::Delete),
         (Delete, CTRL, Key::D),
@@ -144,6 +147,8 @@ struct Decoded {
     full: bool,
     /// The file the job was for; rejects results from a folder that has since been replaced.
     path: PathBuf,
+    /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
+    rotated: bool,
     /// `None` = skipped because the user has already moved past it.
     result: Option<Result<(egui::ColorImage, [usize; 2]), String>>,
 }
@@ -167,6 +172,8 @@ struct App {
     current: Arc<AtomicUsize>,
     /// Number of images preloaded on each side (Preferences).
     ahead: Arc<AtomicUsize>,
+    /// Workers apply EXIF orientation (Preferences, Alt+X).
+    rotate: Arc<AtomicBool>,
     show_settings: bool,
     /// The confirmation dialog for permanent deletion is open.
     confirm: bool,
@@ -303,6 +310,8 @@ struct Config {
     confirm_delete: bool,
     /// Slideshow in random order.
     random: bool,
+    /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
+    exif_rotate: bool,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
@@ -320,6 +329,7 @@ impl Default for Config {
             random: false,
             enlarge: true,
             auto_refresh: true,
+            exif_rotate: true,
         }
     }
 }
@@ -342,6 +352,7 @@ impl Config {
                 "random" => c.random = value == "true",
                 "enlarge" => c.enlarge = value == "true",
                 "auto_refresh" => c.auto_refresh = value == "true",
+                "exif_rotate" => c.exif_rotate = value == "true",
                 _ => {}
             }
         }
@@ -357,7 +368,7 @@ impl Config {
     fn save(&self) {
         let Some(p) = config_path() else { return };
         let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nauto_refresh={}\n",
+            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nrandom={}\nenlarge={}\nauto_refresh={}\nexif_rotate={}\n",
             self.preload,
             self.delay,
             self.remember_dir,
@@ -365,7 +376,8 @@ impl Config {
             self.confirm_delete,
             self.random,
             self.enlarge,
-            self.auto_refresh
+            self.auto_refresh,
+            self.exif_rotate
         );
         write_atomic(&p, &text);
     }
@@ -463,7 +475,11 @@ fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), String> {
+fn decode(
+    path: &Path,
+    max: [u32; 2],
+    rotate: bool,
+) -> Result<(egui::ColorImage, [usize; 2]), String> {
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
@@ -473,7 +489,9 @@ fn decode(path: &Path, max: [u32; 2]) -> Result<(egui::ColorImage, [usize; 2]), 
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
-    img.apply_orientation(orientation);
+    if rotate {
+        img.apply_orientation(orientation);
+    }
     let orig = [img.width() as usize, img.height() as usize];
     if img.width() > max[0] || img.height() > max[1] {
         let scale = (max[0] as f64 / img.width() as f64).min(max[1] as f64 / img.height() as f64);
@@ -508,15 +526,17 @@ impl App {
             })
             .unwrap_or_else(|| ".".into());
         let ahead = Arc::new(AtomicUsize::new(config.preload));
+        let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
         for _ in 0..workers {
-            let (current, ahead, limits, job_rx, done_tx, ctx) = (
+            let (current, ahead, rotate, limits, job_rx, done_tx, ctx) = (
                 current.clone(),
                 ahead.clone(),
+                rotate.clone(),
                 limits.clone(),
                 job_rx.clone(),
                 done_tx.clone(),
@@ -531,6 +551,7 @@ impl App {
                     let cur = current.load(Ordering::Relaxed);
                     if idx.abs_diff(cur) > ahead.load(Ordering::Relaxed) || (full && idx != cur) {
                         let _ = done_tx.send(Decoded {
+                            rotated: false,
                             idx,
                             full,
                             path,
@@ -539,8 +560,10 @@ impl App {
                         continue;
                     }
                     let max = limits.lock().unwrap()[full as usize];
-                    let result = Some(decode(&path, max));
+                    let rotated = rotate.load(Ordering::Relaxed);
+                    let result = Some(decode(&path, max, rotated));
                     let _ = done_tx.send(Decoded {
+                        rotated,
                         idx,
                         full,
                         path,
@@ -567,6 +590,7 @@ impl App {
             cur: 0,
             current,
             ahead,
+            rotate,
             show_settings: false,
             confirm: false,
             selected: Default::default(),
@@ -971,6 +995,18 @@ impl App {
         self.title(ctx);
     }
 
+    /// Decode everything again with or without EXIF rotation.
+    fn set_exif_rotate(&mut self, on: bool) {
+        self.config.exif_rotate = on;
+        self.config.save();
+        self.rotate.store(on, Ordering::Relaxed);
+        self.slots.clear();
+        self.pending.clear();
+        self.errors.clear();
+        self.last_drawn = None;
+        self.refill();
+    }
+
     /// Random order changed in the menu or preferences: reshuffle now if a slideshow runs.
     fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
         self.config.random = on;
@@ -1054,6 +1090,7 @@ impl App {
         while let Ok(d) = self.done.try_recv() {
             self.pending.remove(&(d.idx, d.full));
             let wanted = self.is_file(d.idx, &d.path)
+                && d.rotated == self.config.exif_rotate
                 && d.idx.abs_diff(self.cur) <= self.ahead.load(Ordering::Relaxed)
                 && (!d.full || d.idx == self.cur);
             match d.result {
@@ -1168,6 +1205,7 @@ impl App {
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             Action::Preferences => self.show_settings = true,
+            Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
             Action::Zoom1To1 => self.zoom = Some(1.0),
@@ -1297,6 +1335,12 @@ impl eframe::App for App {
                         menu_item(ui, act, "Copy Path (Unquoted)", Action::CopyPathUnquoted);
                     });
                     ui.menu_button("Edit", |ui| {
+                        let rotate = egui::Button::selectable(
+                            self.config.exif_rotate,
+                            "Auto Rotate Using EXIF",
+                        );
+                        menu_button(ui, act, rotate, Action::ExifRotate);
+                        ui.separator();
                         menu_item(ui, act, "Preferences…", Action::Preferences);
                     });
                     ui.menu_button("View", |ui| {
@@ -1361,6 +1405,13 @@ impl eframe::App for App {
                     self.set_random_order(ctx, random);
                 }
                 ui.separator();
+                let mut rotate = self.config.exif_rotate;
+                if ui
+                    .checkbox(&mut rotate, "Auto rotate images using EXIF (Alt+X)")
+                    .changed()
+                {
+                    self.set_exif_rotate(rotate);
+                }
                 let enlarge = egui::Checkbox::new(
                     &mut self.config.enlarge,
                     "Enlarge small images to fit the window",
@@ -1668,7 +1719,7 @@ mod tests {
         let (dirs, images) = super::list_folder(&dir);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
-        let (img, orig) = super::decode(&dir.join("a.png"), [100, 100]).unwrap();
+        let (img, orig) = super::decode(&dir.join("a.png"), [100, 100], true).unwrap();
         assert_eq!((img.size, orig), ([100, 50], [400, 200]));
     }
 
@@ -1736,6 +1787,7 @@ mod tests {
         assert!(Config::parse("remember_dir=true").remember_dir);
         assert!(!Config::default().random && Config::parse("random=true").random);
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
+        assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(
             Config::default().auto_refresh && !Config::parse("auto_refresh=false").auto_refresh
         );
