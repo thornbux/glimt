@@ -19,7 +19,8 @@ const AHEAD: usize = 2;
 struct Decoded {
     idx: usize,
     full: bool,
-    result: Result<(egui::ColorImage, [usize; 2]), String>,
+    /// `None` = hoppet over fordi brukeren har bladd forbi.
+    result: Option<Result<(egui::ColorImage, [usize; 2]), String>>,
 }
 
 struct Slot {
@@ -106,11 +107,11 @@ impl App {
                     // Avbrudd: hopp over bilder brukeren allerede har bladd forbi.
                     let cur = current.load(Ordering::Relaxed);
                     if idx.abs_diff(cur) > AHEAD || (full && idx != cur) {
-                        let _ = done_tx.send(Decoded { idx, full, result: Err(String::new()) });
+                        let _ = done_tx.send(Decoded { idx, full, result: None });
                         continue;
                     }
                     let max = limits.lock().unwrap()[full as usize];
-                    let result = decode(&files[idx], max);
+                    let result = Some(decode(&files[idx], max));
                     let _ = done_tx.send(Decoded { idx, full, result });
                     ctx.request_repaint();
                 }
@@ -171,7 +172,7 @@ impl App {
             self.pending.remove(&(d.idx, d.full));
             let wanted = d.idx.abs_diff(self.cur) <= AHEAD && (!d.full || d.idx == self.cur);
             match d.result {
-                Ok((img, orig)) if wanted => {
+                Some(Ok((img, orig))) if wanted => {
                     // En skjermversjon skal ikke erstatte en fullversjon som allerede er lastet.
                     if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
                         continue;
@@ -182,7 +183,7 @@ impl App {
                         eprintln!("første bilde: {} ms", t.elapsed().as_millis());
                     }
                 }
-                Err(e) if !e.is_empty() => {
+                Some(Err(e)) => {
                     self.errors.insert(d.idx, e);
                 }
                 _ => {}
