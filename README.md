@@ -83,3 +83,7 @@ Both are plain `key=value` text files written atomically.
 ## Supported formats
 
 JPEG, PNG, WebP, GIF (first frame) and TIFF.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Hans-Henry Jakobsen.
