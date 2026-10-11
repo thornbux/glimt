@@ -2383,7 +2383,10 @@ impl App {
                 self.update_search();
                 self.scroll_to_cur = true;
             }
+            // A fixed ID: the ✖ button appearing in front of it must not make it a new
+            // widget, which would lose the focus after the first letter.
             let edit = egui::TextEdit::singleline(&mut self.search)
+                .id(egui::Id::new("file search"))
                 .hint_text("Search file names (3+ letters)")
                 .desired_width(f32::INFINITY);
             if ui.add(edit).changed() {
