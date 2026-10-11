@@ -83,7 +83,9 @@ const MANUAL: &[(&str, &str)] = &[
         "Ctrl+click toggles a file, Shift+click or Shift with the arrow keys, Page Up/Down, \
          Home and End selects a range, Ctrl+A selects all (the matches while searching). \
          Copy, Move, Rename and Delete act on the selected files, otherwise on the shown \
-         image; right-click a file for a menu with them. File → Open With (also in the \
+         image; right-click a file for a menu with them. Rename with several files selected \
+         asks for a pattern: * is the old name and # a number (### gives 001); existing files \
+         are never overwritten. File → Open With (also in the \
          right-click menu) opens them in another application, such as GIMP. Ctrl+Shift+C \
          copies the image itself to the clipboard, to paste into other programs.",
     ),

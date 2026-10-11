@@ -420,6 +420,8 @@ enum Prompt {
     NewFolder,
     /// Rename the shown image.
     Rename,
+    /// Rename the selected files with a pattern: * = old name, # = number.
+    RenameMany,
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
@@ -493,11 +495,6 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Marks and stars (marks feature)",
         "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/state/glimt/marks; mark: and stars: in the search field",
         "Alt+keypad for stars, kept in XMP; marks filter buttons",
-    ),
-    (
-        "Rename (Ctrl+R)",
-        "Only the shown image",
-        "Selected files, with a pattern for several",
     ),
     (
         "Copy, Move (Ctrl+C, Ctrl+M)",
@@ -1081,6 +1078,32 @@ fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
             .flat_map(|p| p.join().unwrap_or_default())
             .collect()
     })
+}
+
+/// A new file name from `pattern`: * is the old name without extension, a run of # the number
+/// `n` with that many digits; the old extension is kept.
+fn pattern_name(pattern: &str, old: &Path, n: usize) -> String {
+    let stem = old
+        .file_stem()
+        .map_or(String::new(), |s| s.to_string_lossy().into_owned());
+    let (mut out, mut chars) = (String::new(), pattern.chars().peekable());
+    while let Some(c) = chars.next() {
+        match c {
+            '*' => out += &stem,
+            '#' => {
+                let mut width = 1;
+                while chars.next_if_eq(&'#').is_some() {
+                    width += 1;
+                }
+                out += &format!("{n:0width$}");
+            }
+            c => out.push(c),
+        }
+    }
+    match old.extension() {
+        Some(ext) => format!("{out}.{}", ext.to_string_lossy()),
+        None => out,
+    }
 }
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
@@ -2656,12 +2679,63 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::Rename if self.files.is_empty() => return,
+            Prompt::RenameMany => return self.rename_many(ctx, text),
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target),
         };
         match (result, prompt) {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
-            (Ok(()), Prompt::Rename) => self.open(ctx, target),
+            (Ok(()), _) => self.open(ctx, target),
             (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
+        }
+    }
+
+    /// Rename the selected files by `pattern`, numbered in list order. Nothing is overwritten:
+    /// if a new name is taken by a file outside the selection, nothing is renamed. When new
+    /// names swap with old ones, the files go through temporary names.
+    fn rename_many(&mut self, ctx: &egui::Context, pattern: &str) {
+        let from: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let to: Vec<PathBuf> = (from.iter().enumerate())
+            .map(|(k, p)| p.with_file_name(pattern_name(pattern, p, k + 1)))
+            .collect();
+        let unique: HashSet<&PathBuf> = to.iter().collect();
+        if unique.len() < to.len() {
+            self.notice =
+                Some("The pattern gives several files the same name; add # for a number".into());
+            return;
+        }
+        let sources: HashSet<&PathBuf> = from.iter().collect();
+        if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
+            self.notice = Some(format!(
+                "{} exists already; nothing renamed",
+                taken.display()
+            ));
+            return;
+        }
+        let swap = to.iter().any(|t| sources.contains(t));
+        let tmp = |k: usize| {
+            self.dir
+                .join(format!(".glimt-rename-{}-{k}", std::process::id()))
+        };
+        let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
+        if swap {
+            moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(k))));
+            moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(k), t.clone())));
+        } else {
+            moves.extend(from.iter().cloned().zip(to.iter().cloned()));
+        }
+        for (a, b) in &moves {
+            if let Err(e) = std::fs::rename(a, b) {
+                self.notice = Some(format!("{}: {e}", a.display()));
+                break;
+            }
+        }
+        // Show the shown image under its new name.
+        let shown = from.iter().position(|f| *f == self.path(self.cur));
+        self.selected.clear();
+        self.selection_changed(ctx);
+        match shown {
+            Some(k) => self.open(ctx, to[k].clone()),
+            None => self.list(ctx),
         }
     }
 
@@ -3788,6 +3862,9 @@ impl App {
                 c.save();
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
+            Action::Rename if self.targets().len() > 1 => {
+                self.prompt = Some((Prompt::RenameMany, "*_###".into()));
+            }
             Action::Rename => {
                 if let Some(name) = self.files.get(self.cur) {
                     self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
@@ -4361,15 +4438,27 @@ impl eframe::App for App {
 
         if let Some((prompt, mut text)) = self.prompt.take() {
             let title = match prompt {
-                Prompt::NewFolder => "New folder name:",
-                Prompt::Rename => "New file name:",
+                Prompt::NewFolder => "New folder name:".to_owned(),
+                Prompt::Rename => "New file name:".to_owned(),
+                Prompt::RenameMany => format!(
+                    "New names for {} files (* = old name, # = number, ### = 001):",
+                    self.targets().len()
+                ),
             };
+            // The first new name, so the pattern can be checked before renaming.
+            let first = self.targets().first().map(|&i| self.path(i));
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::new("prompt")).show(ctx, |ui| {
                 ui.label(title);
                 let edit = ui.text_edit_singleline(&mut text);
-                edit.request_focus();
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                // Focus when the dialog opens (after reading Enter, which ends the focus).
+                if !enter && ui.memory(|m| m.focused().is_none()) {
+                    edit.request_focus();
+                }
+                if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
+                    ui.weak(format!("First: {}", pattern_name(text.trim(), first, 1)));
+                }
                 ui.horizontal(|ui| {
                     if ui.button("OK (Enter)").clicked() || enter {
                         answer = Some(text.clone());
@@ -5030,6 +5119,17 @@ mod tests {
         // Not a usable profile: unchanged.
         let img = image::DynamicImage::from(image::RgbaImage::new(1, 1));
         assert_eq!(super::to_srgb(img.clone(), Some(b"junk")), img);
+    }
+
+    #[test]
+    fn pattern_names() {
+        let old = std::path::Path::new("/p/IMG_4711.JPG");
+        assert_eq!(super::pattern_name("trip_###", old, 7), "trip_007.JPG");
+        assert_eq!(super::pattern_name("*-#", old, 12), "IMG_4711-12.JPG");
+        assert_eq!(
+            super::pattern_name("x", std::path::Path::new("/p/noext"), 1),
+            "x"
+        );
     }
 
     #[test]
