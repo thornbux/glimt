@@ -1,0 +1,50 @@
+# Changelog
+
+All notable changes to Glimt. The format follows [Keep a Changelog](https://keepachangelog.com/),
+and versions follow [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.9.0] - 2026-10-12
+
+The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough edges.
+
+### Viewing
+
+- Fast browsing with the images on each side decoded in advance, scaled to the window; full
+  resolution only when zoomed in.
+- Folders of any size: the file list draws only what is visible, also with 300,000 files.
+- Zoom, fit, 1:1, keep zoom between images, full screen, rotate, mirror and flip the view.
+- Formats: JPEG, PNG, WebP, GIF and TIFF, animated GIF and WebP, pages of multi-page TIFFs, and
+  camera RAW files (CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) by their embedded
+  preview.
+- Optional features: video previews (`video`), HEIC (`heic`), AVIF (`avif`), JPEG XL (`jxl`),
+  SVG (`svg`), and Geeqie's marks and stars (`marks`); `full` has all of them.
+- Colour management: embedded ICC profiles converted to sRGB.
+- Compare two images side by side, at the same zoom.
+- Histogram, image information over the image, EXIF panel and a window with every EXIF field;
+  the GPS position opens a map.
+- Slideshow with random order, repeat, and optionally the images of all subfolders.
+
+### Finding and organising
+
+- File list as rows or a grid of thumbnails, in three sizes, from the shared freedesktop cache.
+- Folder list or tree, folder path field, network shares (`smb://`, `sftp://`) mounted with gio.
+- Fuzzy search on file names, search in EXIF (`exif:`), and with marks, by mark and stars.
+- Sorting by name, number, date, EXIF date, size and extension.
+- Copy, move, rename (several files with a pattern), delete to the trash or permanently.
+- Save the rotation to the file: JPEG through its EXIF orientation without touching the pixels,
+  PNG and WebP without further loss.
+- Stars also to XMP sidecars for darktable and digiKam.
+- Copy the image or the files to the clipboard, open with another application, drop files on the
+  window.
+
+### Control
+
+- Geeqie's keyboard shortcuts, with every difference listed in the help; own shortcuts in
+  Preferences.
+- Remote control from the command line: `glimt --remote` and `--remote-all`.
+- Remembers the folder, window size and position.
+
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/thornbux/glimt/releases/tag/v0.9.0

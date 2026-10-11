@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:ba1398d7-84b8-5cee-9c2f-96be2537391b",
+ "serialNumber": "urn:uuid:9324bfa5-70c8-52ca-afc3-4b36f22c8b73",
  "version": 1,
  "metadata": {
   "tools": {
@@ -14,15 +14,15 @@
   },
   "component": {
    "type": "application",
-   "bom-ref": "pkg:cargo/glimt@0.1.0",
+   "bom-ref": "pkg:cargo/glimt@0.9.0",
    "name": "glimt",
-   "version": "0.1.0",
+   "version": "0.9.0",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/glimt@0.1.0"
+   "purl": "pkg:cargo/glimt@0.9.0"
   }
  },
  "components": [
@@ -6116,7 +6116,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/glimt@0.1.0",
+   "ref": "pkg:cargo/glimt@0.9.0",
    "dependsOn": [
     "pkg:cargo/arboard@3.6.1",
     "pkg:cargo/eframe@0.36.2",
