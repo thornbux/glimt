@@ -40,6 +40,13 @@ const AVIF_EXTS: &[&str] = if cfg!(feature = "avif") {
 /// JPEG XL photos, with the jxl feature.
 const JXL_EXTS: &[&str] = if cfg!(feature = "jxl") { &["jxl"] } else { &[] };
 
+/// SVG images, with the svg feature.
+const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
+    &["svg", "svgz"]
+} else {
+    &[]
+};
+
 /// HEIC and AVIF: both HEIF files, decoded the same way.
 fn is_heif(path: &Path) -> bool {
     has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
@@ -1126,6 +1133,7 @@ fn is_listed(path: &Path, videos: bool) -> bool {
         || has_ext(path, raw::EXTS)
         || is_heif(path)
         || has_ext(path, JXL_EXTS)
+        || has_ext(path, SVG_EXTS)
         || (videos && is_video(path))
 }
 
@@ -1795,6 +1803,10 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
     if is_heif(path) {
         return Ok((heif(path)?, None));
     }
+    #[cfg(feature = "svg")]
+    if has_ext(path, SVG_EXTS) {
+        return Ok((svg(path)?, None));
+    }
     #[cfg(feature = "jxl")]
     if has_ext(path, JXL_EXTS) {
         let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
@@ -1819,6 +1831,49 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
         img.apply_orientation(orientation);
     }
     Ok((img, icc))
+}
+
+/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
+/// stays sharp when fitted to the window.
+#[cfg(feature = "svg")]
+fn svg(path: &Path) -> Result<image::DynamicImage, String> {
+    use resvg::{tiny_skia, usvg};
+    // The system fonts, for text in SVGs, are read once: it takes tens of milliseconds.
+    static FONTS: std::sync::OnceLock<Arc<usvg::fontdb::Database>> = std::sync::OnceLock::new();
+    let fonts = FONTS.get_or_init(|| {
+        let mut db = usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        Arc::new(db)
+    });
+    let options = usvg::Options {
+        resources_dir: path.parent().map(Path::to_path_buf),
+        fontdb: fonts.clone(),
+        ..usvg::Options::default()
+    };
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
+    let size = tree.size();
+    let scale = (2048.0 / size.width().max(size.height())).max(1.0);
+    let (w, h) = (
+        (size.width() * scale).ceil() as u32,
+        (size.height() * scale).ceil() as u32,
+    );
+    let mut pixmap = tiny_skia::Pixmap::new(w.max(1), h.max(1)).ok_or("SVG too large")?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    // tiny-skia keeps premultiplied alpha; image wants it straight.
+    let rgba: Vec<u8> = (pixmap.pixels().iter())
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    image::RgbaImage::from_raw(w.max(1), h.max(1), rgba)
+        .map(image::DynamicImage::from)
+        .ok_or_else(|| "SVG size mismatch".into())
 }
 
 /// Scale down to fit within `max`.

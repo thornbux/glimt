@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:ea653fd6-2397-50d4-8b0d-a2c8ce2bf646",
+ "serialNumber": "urn:uuid:ba1398d7-84b8-5cee-9c2f-96be2537391b",
  "version": 1,
  "metadata": {
   "tools": {
@@ -323,6 +323,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/cuviper/autocfg"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/base64@0.23.1",
+   "name": "base64",
+   "version": "0.23.1",
+   "description": "encodes and decodes base64 as bytes or utf8",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/base64@0.23.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/marshallpierce/rust-base64"
     }
    ]
   },
@@ -798,6 +823,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/rust-windowing/cursor-icon"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/data-url@0.3.2",
+   "name": "data-url",
+   "version": "0.3.2",
+   "description": "Processing of data: URL according to WHATWG\u2019s Fetch Standard",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/data-url@0.3.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/servo/rust-url"
     }
    ]
   },
@@ -1378,6 +1428,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/float-cmp@0.9.0",
+   "name": "float-cmp",
+   "version": "0.9.0",
+   "description": "Floating point approximate comparison traits",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/float-cmp@0.9.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/mikedilger/float-cmp"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/foldhash@0.2.0",
    "name": "foldhash",
    "version": "0.2.0",
@@ -1423,6 +1498,56 @@
     {
      "type": "vcs",
      "url": "https://github.com/googlefonts/fontations"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/fontconfig-parser@0.5.8",
+   "name": "fontconfig-parser",
+   "version": "0.5.8",
+   "description": "fontconfig file parser in pure Rust",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/fontconfig-parser@0.5.8",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "bbc773e24e02d4ddd8395fd30dc147524273a83e54e0f312d986ea30de5f5646"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/Riey/fontconfig-parser"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/fontdb@0.24.0",
+   "name": "fontdb",
+   "version": "0.24.0",
+   "description": "A simple, in-memory font database with CSS-like queries.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/fontdb@0.24.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2660c5e9157bf76d2db1294e4a9feba604ef610819a3b591088d0d8392a3290f"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/RazrFalcon/fontdb"
     }
    ]
   },
@@ -1823,6 +1948,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/image-rs/image"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/imagesize@0.15.0",
+   "name": "imagesize",
+   "version": "0.15.0",
+   "description": "Quick probing of image dimensions without loading the entire file.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/imagesize@0.15.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "65b27460c2c92b037f3f94c538ed9a3342f3fdf923606781629ccb35f82d042a"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/Roughsketch/imagesize"
     }
    ]
   },
@@ -2878,6 +3028,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/pico-args@0.5.0",
+   "name": "pico-args",
+   "version": "0.5.0",
+   "description": "An ultra simple CLI arguments parser.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/pico-args@0.5.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/RazrFalcon/pico-args"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/pin-project-lite@0.2.17",
    "name": "pin-project-lite",
    "version": "0.2.17",
@@ -3228,6 +3403,106 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/resvg@0.48.1",
+   "name": "resvg",
+   "version": "0.48.1",
+   "description": "An SVG rendering library.",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/resvg@0.48.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "67e3803f97b999e80cbf7c6ecdd07a8102204d92e1633cf48783720c521196bd"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/linebender/resvg"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/rgb@0.8.53",
+   "name": "rgb",
+   "version": "0.8.53",
+   "description": "`struct RGB/RGBA/etc.` for sharing pixels between crates + convenience methods for color manipulation.\nAllows no-copy high-level interoperability. Also adds common convenience methods and implements standard Rust traits to make `RGB`/`RGBA` pixels and slices first-class Rust objects.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/rgb@0.8.53",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/kornelski/rust-rgb"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/roxmltree@0.20.0",
+   "name": "roxmltree",
+   "version": "0.20.0",
+   "description": "Represent an XML as a read-only tree.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/roxmltree@0.20.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/RazrFalcon/roxmltree"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/roxmltree@0.21.1",
+   "name": "roxmltree",
+   "version": "0.21.1",
+   "description": "Represent an XML as a read-only tree.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/roxmltree@0.21.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/RazrFalcon/roxmltree"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/rustc-hash@1.1.0",
    "name": "rustc-hash",
    "version": "1.1.0",
@@ -3528,6 +3803,56 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/simplecss@0.2.2",
+   "name": "simplecss",
+   "version": "0.2.2",
+   "description": "A simple CSS 2 parser and selector.",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/simplecss@0.2.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7a9c6883ca9c3c7c90e888de77b7a5c849c779d25d74a1269b0218b14e8b136c"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/linebender/simplecss"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/siphasher@1.0.4",
+   "name": "siphasher",
+   "version": "1.0.4",
+   "description": "SipHash-2-4 and SipHash-1-3 keyed hash functions in pure Rust, with 64-bit and 128-bit output and no_std support",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/siphasher@1.0.4",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/jedisct1/rust-siphash"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/skrifa@0.44.0",
    "name": "skrifa",
    "version": "0.44.0",
@@ -3573,6 +3898,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/tokio-rs/slab"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/slotmap@1.1.1",
+   "name": "slotmap",
+   "version": "1.1.1",
+   "description": "Slotmap data structure",
+   "licenses": [
+    {
+     "expression": "Zlib"
+    }
+   ],
+   "purl": "pkg:cargo/slotmap@1.1.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/orlp/slotmap"
     }
    ]
   },
@@ -3748,6 +4098,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/RazrFalcon/strict-num"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/svgtypes@0.16.1",
+   "name": "svgtypes",
+   "version": "0.16.1",
+   "description": "SVG types parser.",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/svgtypes@0.16.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/linebender/svgtypes"
     }
    ]
   },
@@ -3953,6 +4328,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/tiny-skia-path@0.12.0",
+   "name": "tiny-skia-path",
+   "version": "0.12.0",
+   "description": "A tiny-skia Bezier path implementation",
+   "licenses": [
+    {
+     "expression": "BSD-3-Clause"
+    }
+   ],
+   "purl": "pkg:cargo/tiny-skia-path@0.12.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/linebender/tiny-skia/tree/master/path"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/tiny-skia@0.11.4",
    "name": "tiny-skia",
    "version": "0.11.4",
@@ -3973,6 +4373,56 @@
     {
      "type": "vcs",
      "url": "https://github.com/RazrFalcon/tiny-skia"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/tiny-skia@0.12.0",
+   "name": "tiny-skia",
+   "version": "0.12.0",
+   "description": "A tiny Skia subset ported to Rust.",
+   "licenses": [
+    {
+     "expression": "BSD-3-Clause"
+    }
+   ],
+   "purl": "pkg:cargo/tiny-skia@0.12.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/linebender/tiny-skia"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/tinyvec@1.13.3",
+   "name": "tinyvec",
+   "version": "1.13.3",
+   "description": "`tinyvec` provides 100% safe vec-like data structures.",
+   "licenses": [
+    {
+     "expression": "Zlib OR Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/tinyvec@1.13.3",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/Lokathor/tinyvec"
     }
    ]
   },
@@ -4078,6 +4528,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/unicode-bidi@0.3.18",
+   "name": "unicode-bidi",
+   "version": "0.3.18",
+   "description": "Implementation of the Unicode Bidirectional Algorithm",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/unicode-bidi@0.3.18",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/servo/unicode-bidi"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/unicode-general-category@1.1.0",
    "name": "unicode-general-category",
    "version": "1.1.0",
@@ -4128,6 +4603,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/unicode-script@0.5.8",
+   "name": "unicode-script",
+   "version": "0.5.8",
+   "description": "This crate exposes the Unicode `Script` and `Script_Extension` properties from [UAX #24](http://www.unicode.org/reports/tr24/)",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/unicode-script@0.5.8",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "383ad40bb927465ec0ce7720e033cb4ca06912855fc35db31b5755d0de75b1ee"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/unicode-rs/unicode-script"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/unicode-segmentation@1.13.3",
    "name": "unicode-segmentation",
    "version": "1.13.3",
@@ -4153,6 +4653,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/unicode-vo@0.1.0",
+   "name": "unicode-vo",
+   "version": "0.1.0",
+   "description": "Unicode vertical orientation detection",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/unicode-vo@0.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "b1d386ff53b415b7fe27b50bb44679e2cc4660272694b7b6f3326d8480823a94"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/RazrFalcon/unicode-vo"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/unicode-width@0.2.2",
    "name": "unicode-width",
    "version": "0.2.2",
@@ -4173,6 +4698,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/unicode-rs/unicode-width"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/usvg@0.48.1",
+   "name": "usvg",
+   "version": "0.48.1",
+   "description": "An SVG simplification library.",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/usvg@0.48.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "977d0a4abdef933f424a99fe09f95576e089b90aebc6f016a3bc813762493e91"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/linebender/resvg"
     }
    ]
   },
@@ -4953,6 +5503,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/xmlwriter@0.1.0",
+   "name": "xmlwriter",
+   "version": "0.1.0",
+   "description": "A simple, streaming XML writer.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/xmlwriter@0.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/RazrFalcon/xmlwriter"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/zerocopy-derive@0.8.62",
    "name": "zerocopy-derive",
    "version": "0.8.62",
@@ -5146,6 +5721,10 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/base64@0.23.1",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/bit-set@0.10.0",
    "dependsOn": [
     "pkg:cargo/bit-vec@0.9.1"
@@ -5263,6 +5842,10 @@
   },
   {
    "ref": "pkg:cargo/cursor-icon@1.2.0",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/data-url@0.3.2",
    "dependsOn": []
   },
   {
@@ -5462,6 +6045,10 @@
    ]
   },
   {
+   "ref": "pkg:cargo/float-cmp@0.9.0",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/foldhash@0.2.0",
    "dependsOn": []
   },
@@ -5469,6 +6056,22 @@
    "ref": "pkg:cargo/font-types@0.12.6",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/fontconfig-parser@0.5.8",
+   "dependsOn": [
+    "pkg:cargo/roxmltree@0.20.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/fontdb@0.24.0",
+   "dependsOn": [
+    "pkg:cargo/fontconfig-parser@0.5.8",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/memmap2@0.9.11",
+    "pkg:cargo/slotmap@1.1.1",
+    "pkg:cargo/tinyvec@1.13.3"
    ]
   },
   {
@@ -5521,6 +6124,7 @@
     "pkg:cargo/jxl-oxide@0.12.6",
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
+    "pkg:cargo/resvg@0.48.1",
     "pkg:cargo/winit@0.30.13"
    ]
   },
@@ -5615,6 +6219,10 @@
     "pkg:cargo/zune-core@0.5.3",
     "pkg:cargo/zune-jpeg@0.5.15"
    ]
+  },
+  {
+   "ref": "pkg:cargo/imagesize@0.15.0",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/indexmap@2.14.2",
@@ -5940,6 +6548,10 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/pico-args@0.5.0",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/pin-project-lite@0.2.17",
    "dependsOn": []
   },
@@ -6017,6 +6629,37 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/resvg@0.48.1",
+   "dependsOn": [
+    "pkg:cargo/bytemuck@1.25.2",
+    "pkg:cargo/gif@0.14.2",
+    "pkg:cargo/image-webp@0.2.4",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/pico-args@0.5.0",
+    "pkg:cargo/rgb@0.8.53",
+    "pkg:cargo/svgtypes@0.16.1",
+    "pkg:cargo/tiny-skia@0.12.0",
+    "pkg:cargo/usvg@0.48.1",
+    "pkg:cargo/zune-jpeg@0.5.15"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/rgb@0.8.53",
+   "dependsOn": [
+    "pkg:cargo/bytemuck@1.25.2"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/roxmltree@0.20.0",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/roxmltree@0.21.1",
+   "dependsOn": [
+    "pkg:cargo/memchr@2.8.3"
+   ]
+  },
+  {
    "ref": "pkg:cargo/rustc-hash@1.1.0",
    "dependsOn": []
   },
@@ -6083,6 +6726,16 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/simplecss@0.2.2",
+   "dependsOn": [
+    "pkg:cargo/log@0.4.34"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/siphasher@1.0.4",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/skrifa@0.44.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
@@ -6092,6 +6745,12 @@
   {
    "ref": "pkg:cargo/slab@0.4.12",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/slotmap@1.1.1",
+   "dependsOn": [
+    "pkg:cargo/version_check@0.9.5"
+   ]
   },
   {
    "ref": "pkg:cargo/smallvec@1.16.3",
@@ -6163,7 +6822,16 @@
   },
   {
    "ref": "pkg:cargo/strict-num@0.1.1",
-   "dependsOn": []
+   "dependsOn": [
+    "pkg:cargo/float-cmp@0.9.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/svgtypes@0.16.1",
+   "dependsOn": [
+    "pkg:cargo/kurbo@0.13.1",
+    "pkg:cargo/siphasher@1.0.4"
+   ]
   },
   {
    "ref": "pkg:cargo/syn@2.0.119",
@@ -6229,6 +6897,14 @@
    ]
   },
   {
+   "ref": "pkg:cargo/tiny-skia-path@0.12.0",
+   "dependsOn": [
+    "pkg:cargo/arrayref@0.3.9",
+    "pkg:cargo/bytemuck@1.25.2",
+    "pkg:cargo/strict-num@0.1.1"
+   ]
+  },
+  {
    "ref": "pkg:cargo/tiny-skia@0.11.4",
    "dependsOn": [
     "pkg:cargo/arrayref@0.3.9",
@@ -6238,6 +6914,22 @@
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/tiny-skia-path@0.11.4"
    ]
+  },
+  {
+   "ref": "pkg:cargo/tiny-skia@0.12.0",
+   "dependsOn": [
+    "pkg:cargo/arrayref@0.3.9",
+    "pkg:cargo/arrayvec@0.7.8",
+    "pkg:cargo/bytemuck@1.25.2",
+    "pkg:cargo/cfg-if@1.0.5",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/png@0.18.1",
+    "pkg:cargo/tiny-skia-path@0.12.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/tinyvec@1.13.3",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/tracing-core@0.1.36",
@@ -6264,6 +6956,10 @@
    ]
   },
   {
+   "ref": "pkg:cargo/unicode-bidi@0.3.18",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/unicode-general-category@1.1.0",
    "dependsOn": []
   },
@@ -6272,12 +6968,45 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/unicode-script@0.5.8",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/unicode-segmentation@1.13.3",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/unicode-vo@0.1.0",
    "dependsOn": []
   },
   {
    "ref": "pkg:cargo/unicode-width@0.2.2",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/usvg@0.48.1",
+   "dependsOn": [
+    "pkg:cargo/base64@0.23.1",
+    "pkg:cargo/data-url@0.3.2",
+    "pkg:cargo/flate2@1.1.10",
+    "pkg:cargo/fontdb@0.24.0",
+    "pkg:cargo/harfrust@0.12.0",
+    "pkg:cargo/imagesize@0.15.0",
+    "pkg:cargo/kurbo@0.13.1",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/pico-args@0.5.0",
+    "pkg:cargo/roxmltree@0.21.1",
+    "pkg:cargo/simplecss@0.2.2",
+    "pkg:cargo/siphasher@1.0.4",
+    "pkg:cargo/skrifa@0.44.0",
+    "pkg:cargo/strict-num@0.1.1",
+    "pkg:cargo/svgtypes@0.16.1",
+    "pkg:cargo/tiny-skia-path@0.12.0",
+    "pkg:cargo/unicode-bidi@0.3.18",
+    "pkg:cargo/unicode-script@0.5.8",
+    "pkg:cargo/unicode-vo@0.1.0",
+    "pkg:cargo/xmlwriter@0.1.0"
+   ]
   },
   {
    "ref": "pkg:cargo/uuid@1.28.0",
@@ -6581,6 +7310,10 @@
   },
   {
    "ref": "pkg:cargo/xml-rs@0.8.29",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/xmlwriter@0.1.0",
    "dependsOn": []
   },
   {
