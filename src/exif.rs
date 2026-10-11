@@ -28,6 +28,14 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     if crate::has_ext(path, crate::raw::EXTS) {
         return crate::raw::exif(path);
     }
+    // HEIC keeps the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
+    if crate::has_ext(path, crate::HEIC_EXTS) {
+        let data = std::fs::read(path).ok()?;
+        let at = data
+            .windows(8)
+            .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
+        return Some(data[at..].to_vec());
+    }
     image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()?
