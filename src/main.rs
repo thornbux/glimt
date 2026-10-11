@@ -531,6 +531,8 @@ struct App {
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     match_rx: Option<mpsc::Receiver<u64>>,
+    /// Where a Shift selection started (file index).
+    anchor: Option<usize>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1329,6 +1331,7 @@ impl App {
             matches: None,
             match_size: 0,
             match_rx: None,
+            anchor: None,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1547,6 +1550,7 @@ impl App {
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.errors = without_indices(std::mem::take(&mut self.errors), removed);
         self.selected.clear();
+        self.anchor = None;
         self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
@@ -1613,6 +1617,7 @@ impl App {
         let slot = self.slots.remove(&self.cur);
         self.files = files;
         self.details.clear();
+        self.anchor = None;
         self.selected.clear();
         self.slots.clear();
         self.pending.clear();
@@ -2166,7 +2171,13 @@ impl App {
     }
 
     /// A file list row with a thumbnail; true when clicked.
-    fn file_row(&mut self, ui: &mut egui::Ui, i: usize, height: f32, marked: bool) -> bool {
+    fn file_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        i: usize,
+        height: f32,
+        marked: bool,
+    ) -> egui::Response {
         let size = egui::vec2(ui.available_width(), height);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
         let visuals = ui.visuals();
@@ -2242,7 +2253,7 @@ impl App {
             font,
             text_color,
         );
-        response.clicked()
+        response
     }
 
     /// Fuzzy search box above the file list.
@@ -2263,6 +2274,20 @@ impl App {
                 self.update_search(ui.ctx());
             }
         });
+    }
+
+    /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
+    /// search matches while searching).
+    fn select_range(&mut self, a: usize, b: usize) {
+        let m = self.matches.as_deref();
+        let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
+        match (row(a), row(b), m) {
+            (Some(ra), Some(rb), Some(m)) => self.selected.extend(&m[ra.min(rb)..=ra.max(rb)]),
+            (Some(ra), Some(rb), None) => self.selected.extend(ra.min(rb)..=ra.max(rb)),
+            _ => {
+                self.selected.insert(b);
+            }
+        }
     }
 
     /// Run the search again; file indices change when the list does.
@@ -2366,10 +2391,29 @@ impl App {
             Action::CloseWindow | Action::Quit => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
-            Action::First => self.go(ctx, 0),
-            Action::Prev => self.go(ctx, self.cur.saturating_sub(1)),
-            Action::Next => self.go(ctx, (self.cur + 1).min(last)),
-            Action::Last => self.go(ctx, last),
+            Action::First | Action::Prev | Action::Next | Action::Last => {
+                let to = match action {
+                    Action::First => 0,
+                    Action::Prev => self.cur.saturating_sub(1),
+                    Action::Next => (self.cur + 1).min(last),
+                    _ => last,
+                };
+                // With Shift the selection runs from where it started to the new image, as in
+                // a file manager; moving without Shift clears it.
+                if ctx.input(|i| i.modifiers.shift) {
+                    let anchor = *self.anchor.get_or_insert(self.cur);
+                    self.selected.clear();
+                    self.select_range(anchor, to);
+                    self.selection_changed(ctx);
+                } else {
+                    self.anchor = None;
+                    if !self.selected.is_empty() {
+                        self.selected.clear();
+                        self.selection_changed(ctx);
+                    }
+                }
+                self.go(ctx, to);
+            }
             Action::Back | Action::Forward => {
                 let here = self.location();
                 let (from, to) = if action == Action::Back {
@@ -2983,7 +3027,7 @@ impl eframe::App for App {
         }
 
         // Left side as in Geeqie: one-level folder tree at the top, file names below.
-        let (mut open_dir, mut go_to) = (None, None);
+        let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
         if !bare {
             // Room for a name next to the size and date columns.
             let min = if self.config.file_details {
@@ -3073,13 +3117,13 @@ impl eframe::App for App {
                         }
                         for i in shown {
                             let marked = i == self.cur || self.selected.contains(&i);
-                            let clicked = if thumbs || self.config.file_details {
+                            let row = if thumbs || self.config.file_details {
                                 self.file_row(ui, i, row_h, marked)
                             } else {
                                 let name = self.files[i].to_string_lossy();
-                                ui.selectable_label(marked, name).clicked()
+                                ui.selectable_label(marked, name)
                             };
-                            if clicked {
+                            if row.clicked() {
                                 let m = ui.input(|i| i.modifiers);
                                 if m.command {
                                     // Ctrl+click: toggle selection (the shown image is included the first time).
@@ -3089,29 +3133,41 @@ impl eframe::App for App {
                                     if !self.selected.remove(&i) {
                                         self.selected.insert(i);
                                     }
+                                    self.anchor = Some(i);
                                     self.selection_changed(ctx);
                                 } else if m.shift {
-                                    // Shift+click: select the rows from the shown image.
-                                    match (&self.matches, row_of(self.cur, &self.matches)) {
-                                        (Some(m), Some(c)) => {
-                                            let r = row_of(i, &self.matches).unwrap_or(c);
-                                            self.selected.extend(&m[r.min(c)..=r.max(c)]);
-                                        }
-                                        (Some(_), None) => {
-                                            self.selected.insert(i);
-                                        }
-                                        (None, _) => {
-                                            self.selected.extend(i.min(self.cur)..=i.max(self.cur))
-                                        }
-                                    }
+                                    // Shift+click: select the rows from where the selection started.
+                                    let anchor = *self.anchor.get_or_insert(self.cur);
+                                    self.selected.clear();
+                                    self.select_range(anchor, i);
                                     self.selection_changed(ctx);
                                 } else {
                                     self.selected.clear();
                                     self.selected_size = None;
                                     self.selected_rx = None;
+                                    self.anchor = None;
                                     go_to = Some(i);
                                 }
                             }
+                            // Right-click on a file outside the selection selects just it, as in
+                            // a file manager; the menu acts on the selection.
+                            if row.secondary_clicked()
+                                && !self.selected.contains(&i)
+                                && (i != self.cur || !self.selected.is_empty())
+                            {
+                                self.selected.clear();
+                                self.selected.insert(i);
+                                self.anchor = Some(i);
+                                self.selection_changed(ctx);
+                            }
+                            row.context_menu(|ui| {
+                                for action in [Action::Copy, Action::Move, Action::CopyPath] {
+                                    menu_item(ui, &mut list_act, action);
+                                }
+                                ui.separator();
+                                menu_item(ui, &mut list_act, Action::Delete);
+                                menu_item(ui, &mut list_act, Action::DeletePermanently);
+                            });
                         }
                     });
                 });
@@ -3121,6 +3177,9 @@ impl eframe::App for App {
             self.visit(ctx, d);
         } else if let Some(i) = go_to {
             self.go(ctx, i);
+        }
+        if let Some(action) = list_act {
+            self.run(ctx, action);
         }
 
         if !bare && self.config.exif_panel && !self.files.is_empty() {
