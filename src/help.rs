@@ -183,7 +183,7 @@ fn keymap(ui: &mut egui::Ui) {
             ("0", Some(Num0), 1.0),
             ("-", Some(Minus), 1.0),
             ("=", Some(Equals), 1.0),
-            ("⌫", Some(Backspace), 2.0),
+            ("Bksp", Some(Backspace), 2.0),
         ],
         &[
             ("Tab", Some(Tab), 1.5),
@@ -243,10 +243,10 @@ fn keymap(ui: &mut egui::Ui) {
         [("Del", Delete), ("End", End), ("PgDn", PageDown)],
     ];
     const ARROWS: [(&str, Key, f32, f32); 4] = [
-        ("↑", ArrowUp, 1.0, 0.0),
-        ("←", ArrowLeft, 0.0, 1.0),
-        ("↓", ArrowDown, 1.0, 1.0),
-        ("→", ArrowRight, 2.0, 1.0),
+        ("⬆", ArrowUp, 1.0, 0.0),
+        ("⬅", ArrowLeft, 0.0, 1.0),
+        ("⬇", ArrowDown, 1.0, 1.0),
+        ("➡", ArrowRight, 2.0, 1.0),
     ];
 
     ui.label("Highlighted keys do something; bright ones also without Ctrl, Shift or Alt.");
