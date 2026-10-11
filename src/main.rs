@@ -1179,6 +1179,8 @@ fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
                 .map(|n| rel.join(n)),
         );
     }
+    // In name order, as list_folder gives a single folder; sort_files builds on that.
+    out.sort_unstable();
     out
 }
 
@@ -3305,7 +3307,8 @@ impl App {
 
     fn receive_thumbs(&mut self, ctx: &egui::Context) {
         while let Ok((path, result)) = self.thumbs_done.try_recv() {
-            let (Some(name), true) = (path.file_name(), path.parent() == Some(&self.dir)) else {
+            // The name as the list has it: with its folders in a slideshow with subfolders.
+            let Ok(name) = path.strip_prefix(&self.dir).map(Path::as_os_str) else {
                 continue;
             };
             self.thumbs_pending.remove(name);
