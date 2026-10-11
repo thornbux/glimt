@@ -59,9 +59,15 @@ const DEFAULT_AHEAD: usize = 2;
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
-const THUMB: egui::Vec2 = egui::vec2(96.0, 72.0);
+const THUMBS: [egui::Vec2; 3] = [
+    egui::vec2(96.0, 72.0),
+    egui::vec2(128.0, 96.0),
+    egui::vec2(192.0, 144.0),
+];
 /// A cell of the thumbnail grid: the thumbnail with its name below.
-const CELL: egui::Vec2 = egui::vec2(THUMB.x + 8.0, THUMB.y + 26.0);
+const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
+/// Big thumbnails (Preferences) come from the freedesktop "large" cache; read by the workers.
+static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
 /// Thumbnail jobs further than this from the visible rows are skipped.
 const THUMB_MARGIN: usize = 20;
 /// Width of the size and date columns in the file list (points).
@@ -1557,6 +1563,9 @@ config! {
     histogram: u8 = 0,
     /// Logarithmic histogram (J), which shows the small counts better.
     histogram_log: bool = false,
+    /// Thumbnail size: 0 small (96×72), 1 medium (128×96), 2 large (192×144, from the
+    /// freedesktop "large" cache).
+    thumb_size: u8 = 0,
     /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
     icons: bool = false,
     /// Colour behind the image (sRGB).
@@ -1579,6 +1588,7 @@ impl Config {
         }
         c.preload = c.preload.min(20);
         c.histogram = c.histogram.min(2);
+        c.thumb_size = c.thumb_size.min(2);
         c.delay = c.delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c
@@ -1952,6 +1962,7 @@ impl App {
         let keep = Arc::new(Mutex::new(vec![0]));
         let config = Config::load();
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
+        LARGE_THUMBS.store(config.thumb_size == 2, Ordering::Relaxed);
         let path = path
             .or_else(|| {
                 let state = std::fs::read_to_string(state_path()?).ok()?;
@@ -2041,7 +2052,8 @@ impl App {
                         (idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN).then(|| {
                             let (rotate, save) =
                                 (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
-                            thumbs::thumbnail(&path, rotate, save)
+                            let large = LARGE_THUMBS.load(Ordering::Relaxed);
+                            thumbs::thumbnail(&path, rotate, save, large)
                                 .ok()
                                 .map(|img| color_image(img.into()))
                         });
@@ -2850,6 +2862,25 @@ impl App {
         self.refill();
     }
 
+    /// The thumbnail box in the file list, by the size chosen in Preferences.
+    fn thumb(&self) -> egui::Vec2 {
+        THUMBS[self.config.thumb_size.min(2) as usize]
+    }
+
+    /// A cell of the icon grid: the thumbnail with its name below.
+    fn cell(&self) -> egui::Vec2 {
+        self.thumb() + CELL_EXTRA
+    }
+
+    fn set_thumb_size(&mut self, size: u8) {
+        self.config.thumb_size = size;
+        self.config.save();
+        LARGE_THUMBS.store(size == 2, Ordering::Relaxed);
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.scroll_to_cur = true;
+    }
+
     /// Rename the selected files by `pattern`, numbered in list order. Nothing is overwritten:
     /// if a new name is taken by a file outside the selection, nothing is renamed. When new
     /// names swap with old ones, the files go through temporary names.
@@ -3365,7 +3396,7 @@ impl App {
         let frame = egui::Rect::from_min_size(
             rect.min + egui::vec2(2.0, 2.0),
             if thumbs {
-                THUMB
+                self.thumb()
             } else {
                 egui::vec2(0.0, height)
             },
@@ -3425,7 +3456,7 @@ impl App {
             Some(Some(tex)) => {
                 // Fit the box, but never enlarge.
                 let px = tex.size_vec2() / ui.ctx().pixels_per_point();
-                let scale = (THUMB.x / px.x).min(THUMB.y / px.y).min(1.0);
+                let scale = (self.thumb().x / px.x).min(self.thumb().y / px.y).min(1.0);
                 let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                 let at = egui::Rect::from_center_size(frame.center(), px * scale);
                 ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
@@ -3478,12 +3509,12 @@ impl App {
         } else {
             visuals.text_color()
         };
-        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), THUMB);
+        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
         self.paint_thumb(ui, i, frame);
         let font = egui::TextStyle::Small.resolve(ui.style());
         let name = self.files[i].to_string_lossy().into_owned();
         let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(CELL.x - 6.0);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
         let galley = ui.painter().layout_job(job);
         let at = egui::pos2(
             rect.center().x - galley.size().x / 2.0,
@@ -3816,11 +3847,16 @@ impl App {
 
     /// Drop thumbnails far from view once there are many, so memory stays flat in huge folders.
     fn trim_thumbs(&mut self, first: usize, last: usize) {
-        if self.thumbs.len() <= MAX_THUMBS {
+        // Big thumbnails take four times the memory: keep a quarter as many.
+        let max = if self.config.thumb_size == 2 {
+            MAX_THUMBS / 4
+        } else {
+            MAX_THUMBS
+        };
+        if self.thumbs.len() <= max {
             return;
         }
-        let keep =
-            first.saturating_sub(MAX_THUMBS / 3)..(last + MAX_THUMBS / 3).min(self.files.len());
+        let keep = first.saturating_sub(max / 3)..(last + max / 3).min(self.files.len());
         let keep: HashSet<&OsString> = self.files[keep].iter().collect();
         self.thumbs.retain(|name, _| keep.contains(name));
     }
@@ -4540,6 +4576,15 @@ impl eframe::App for App {
                     {
                         self.set_thumbnails(show);
                     }
+                    ui.horizontal(|ui| {
+                        ui.label("Thumbnail size:");
+                        let mut size = self.config.thumb_size;
+                        for (n, name) in [(0, "Small"), (1, "Medium"), (2, "Large")] {
+                            if ui.radio_value(&mut size, n, name).changed() {
+                                self.set_thumb_size(size);
+                            }
+                        }
+                    });
                     let c = &mut self.config;
                     changed |= ui
                         .checkbox(&mut c.icons, "Show the file list as icons (Ctrl+I)")
@@ -4930,9 +4975,9 @@ impl eframe::App for App {
                     let icons = self.config.icons;
                     let thumbs = self.config.thumbnails || icons;
                     let row_h = if icons {
-                        CELL.y
+                        self.cell().y
                     } else if thumbs {
-                        THUMB.y + 4.0
+                        self.thumb().y + 4.0
                     } else {
                         ui.spacing().interact_size.y
                     };
@@ -4940,7 +4985,7 @@ impl eframe::App for App {
                     // As icons, a row holds as many cells as fit the width.
                     let gap = ui.spacing().item_spacing.x;
                     let cols = if icons {
-                        (((ui.available_width() + gap) / (CELL.x + gap)) as usize).max(1)
+                        (((ui.available_width() + gap) / (self.cell().x + gap)) as usize).max(1)
                     } else {
                         1
                     };
@@ -4980,12 +5025,14 @@ impl eframe::App for App {
                             let marked = i == self.cur || self.selected.contains(&i);
                             let row = if icons {
                                 if k % cols == 0 {
-                                    let size = egui::vec2(ui.available_width(), CELL.y);
+                                    let size = egui::vec2(ui.available_width(), self.cell().y);
                                     line = ui.allocate_exact_size(size, egui::Sense::hover()).0;
                                 }
-                                let x = (k % cols) as f32 * (CELL.x + gap);
-                                let cell =
-                                    egui::Rect::from_min_size(line.min + egui::vec2(x, 0.0), CELL);
+                                let x = (k % cols) as f32 * (self.cell().x + gap);
+                                let cell = egui::Rect::from_min_size(
+                                    line.min + egui::vec2(x, 0.0),
+                                    self.cell(),
+                                );
                                 self.file_cell(ui, i, cell, marked)
                             } else if thumbs || self.config.file_details {
                                 self.file_row(ui, i, row_h, marked)

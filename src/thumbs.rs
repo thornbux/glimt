@@ -1,15 +1,21 @@
 //! Thumbnails for the file list, shared with other programs through the freedesktop thumbnail
-//! cache (`~/.cache/thumbnails/normal`). Existing thumbnails are always read; new ones are
-//! written there only when "Save thumbnails" is on.
+//! cache (`~/.cache/thumbnails/normal`, or `large` for big thumbnails). Existing thumbnails are
+//! always read; new ones are written there only when "Save thumbnails" is on.
 
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-/// The freedesktop "normal" size: at most 128×128 pixels.
-pub const SIZE: u32 = 128;
+/// The freedesktop sizes: "normal" at most 128×128 pixels, "large" 256×256.
+const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
 
 /// The thumbnail of `path`: from the cache if it is newer than the file, else made from the image.
-pub fn thumbnail(path: &Path, rotate: bool, save: bool) -> Result<image::RgbaImage, String> {
+pub fn thumbnail(
+    path: &Path,
+    rotate: bool,
+    save: bool,
+    large: bool,
+) -> Result<image::RgbaImage, String> {
+    let (size, folder) = SIZES[large as usize];
     let mtime = std::fs::metadata(path)
         .and_then(|m| m.modified())
         .ok()
@@ -17,14 +23,14 @@ pub fn thumbnail(path: &Path, rotate: bool, save: bool) -> Result<image::RgbaIma
         .map(|d| d.as_secs());
     let uri = format!("file://{}", uri_path(path));
     let cache = crate::xdg_dir("XDG_CACHE_HOME", ".cache", "thumbnails");
-    let file = cache.as_ref().map(|c| cache_file(c, &uri));
+    let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
     if let (Some(file), Some(mtime)) = (&file, mtime)
         && let Some(img) = read_cached(file, mtime)
     {
         return Ok(img);
     }
     let (img, icc) = crate::load_icc(path, rotate)?;
-    let img = crate::to_srgb(crate::shrink(img, [SIZE, SIZE])?, icc.as_deref()).into_rgba8();
+    let img = crate::to_srgb(crate::shrink(img, [size, size])?, icc.as_deref()).into_rgba8();
     // The spec forbids thumbnails of the thumbnails themselves.
     if save
         && let (Some(cache), Some(file), Some(mtime)) = (&cache, &file, mtime)
@@ -36,12 +42,12 @@ pub fn thumbnail(path: &Path, rotate: bool, save: bool) -> Result<image::RgbaIma
 }
 
 /// `<cache>/normal/<md5 of the URI>.png`
-fn cache_file(cache: &Path, uri: &str) -> PathBuf {
+fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
     let name: String = md5(uri.as_bytes())
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    cache.join("normal").join(name + ".png")
+    cache.join(folder).join(name + ".png")
 }
 
 /// A cached thumbnail, if it was made from the file as it is now (same Thumb::MTime).
@@ -175,7 +181,7 @@ mod tests {
     #[test]
     fn writes_and_reads_cache() {
         let dir = std::env::temp_dir().join(format!("glimt-thumbs-{}", std::process::id()));
-        let file = super::cache_file(&dir, "file:///a%20b.jpg");
+        let file = super::cache_file(&dir, "normal", "file:///a%20b.jpg");
         let img = image::RgbaImage::from_pixel(4, 3, image::Rgba([1, 2, 3, 255]));
         super::write(&file, &img, "file:///a%20b.jpg", 42).unwrap();
         assert_eq!(super::read_cached(&file, 42).unwrap(), img);
