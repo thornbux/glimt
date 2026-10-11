@@ -1549,6 +1549,8 @@ config! {
     slideshow_subfolders: bool = false,
     /// Write the view's rotation into the JPEG when going to another image.
     save_orientation: bool = false,
+    /// Quality (0–100) when a lossy WebP is saved again after turning it.
+    webp_quality: u8 = 90,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
@@ -1617,6 +1619,7 @@ impl Config {
         c.preload = c.preload.min(20);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
+        c.webp_quality = c.webp_quality.min(100);
         c.delay = c.delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c
@@ -1820,9 +1823,16 @@ fn decode(
 }
 
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
-/// pixels are turned and the file written again without loss (WebP as lossless, so a lossy one
-/// grows) and with its ICC profile. The new file replaces the old in one rename.
-fn save_rotated(path: &Path, rotate: bool, turns: u8, mirrored: bool) -> Result<(), String> {
+/// pixels are turned and the file written again with its ICC profile. PNG and lossless WebP
+/// lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in sRGB as ffmpeg
+/// drops the profile. The new file replaces the old in one rename.
+fn save_rotated(
+    path: &Path,
+    rotate: bool,
+    turns: u8,
+    mirrored: bool,
+    webp_quality: u8,
+) -> Result<(), String> {
     use image::ImageEncoder;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
@@ -1846,6 +1856,14 @@ fn save_rotated(path: &Path, rotate: bool, turns: u8, mirrored: bool) -> Result<
         _ => img,
     };
     let tmp = path.with_extension("glimt-tmp");
+    if !png && webp_lossless(path) == Some(false) {
+        let img = to_srgb(img, icc.as_deref());
+        lossy_webp(&img, &tmp, webp_quality)?;
+        if let Ok(meta) = std::fs::metadata(path) {
+            let _ = std::fs::set_permissions(&tmp, meta.permissions());
+        }
+        return std::fs::rename(&tmp, path).map_err(|e| e.to_string());
+    }
     let out = std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| e.to_string())?);
     let written = if png {
         let mut enc = image::codecs::png::PngEncoder::new(out);
@@ -1874,6 +1892,63 @@ fn save_rotated(path: &Path, rotate: bool, turns: u8, mirrored: bool) -> Result<
         let _ = std::fs::set_permissions(&tmp, meta.permissions());
     }
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+/// Whether a WebP file is lossless (a VP8L image) or lossy (VP8); `None` if neither is found.
+fn webp_lossless(path: &Path) -> Option<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut head = [0; 12];
+    file.read_exact(&mut head).ok()?;
+    if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {
+        return None;
+    }
+    // The chunks after the header: an extended file has VP8X, ICCP, ALPH … before the image.
+    let mut chunk = [0; 8];
+    while file.read_exact(&mut chunk).is_ok() {
+        match &chunk[..4] {
+            b"VP8L" => return Some(true),
+            b"VP8 " => return Some(false),
+            _ => {
+                let size = u32::from_le_bytes(chunk[4..].try_into().ok()?) as i64;
+                file.seek(SeekFrom::Current(size + size % 2)).ok()?;
+            }
+        }
+    }
+    None
+}
+
+/// Write `img` as a lossy WebP at `quality` (0–100) through ffmpeg, which has libwebp.
+fn lossy_webp(img: &image::DynamicImage, to: &Path, quality: u8) -> Result<(), String> {
+    use std::io::Write;
+    let mut png = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    let mut child = std::process::Command::new("ffmpeg")
+        .args([
+            "-v", "error", "-y", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
+        ])
+        .args([
+            "-quality",
+            &quality.to_string(),
+            "-frames:v",
+            "1",
+            "-f",
+            "webp",
+        ])
+        .arg(to)
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("a lossy WebP needs ffmpeg to be saved: {e}"))?;
+    let _ = child.stdin.take().map(|mut i| i.write_all(&png));
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(to);
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+    }
 }
 
 /// The number of pages (images) in a TIFF file; reads only their directories.
@@ -3009,7 +3084,8 @@ impl App {
         let saved = if jpeg {
             exif::write_orientation(&path, turns, mirrored)
         } else {
-            save_rotated(&path, self.config.exif_rotate, turns, mirrored)
+            let quality = self.config.webp_quality;
+            save_rotated(&path, self.config.exif_rotate, turns, mirrored, quality)
         };
         if let Err(e) = saved {
             self.notice = Some(format!("Could not save the orientation: {e}"));
@@ -4760,6 +4836,9 @@ impl eframe::App for App {
                             "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
                         )
                         .changed();
+                    let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
+                        .text("quality when a lossy WebP is saved again");
+                    changed |= ui.add(quality).changed();
                     ui.horizontal(|ui| {
                         changed |= ui
                             .color_edit_button_srgb(&mut self.config.background.0)
@@ -5699,6 +5778,17 @@ mod tests {
         // Not a usable profile: unchanged.
         let img = image::DynamicImage::from(image::RgbaImage::new(1, 1));
         assert_eq!(super::to_srgb(img.clone(), Some(b"junk")), img);
+    }
+
+    /// image writes lossless WebP (VP8L); anything else is not taken for one.
+    #[test]
+    fn tells_lossless_webp() {
+        let file = std::env::temp_dir().join(format!("glimt-{}.webp", std::process::id()));
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        assert_eq!(super::webp_lossless(&file), Some(true));
+        std::fs::write(&file, b"RIFF\x04\0\0\0WEBP").unwrap();
+        assert_eq!(super::webp_lossless(&file), None);
+        std::fs::remove_file(file).unwrap();
     }
 
     #[test]
