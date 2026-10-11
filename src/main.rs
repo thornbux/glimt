@@ -603,6 +603,10 @@ struct App {
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     match_rx: Option<mpsc::Receiver<u64>>,
+    /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
+    /// first one, dropped with the folder.
+    exif_index: Option<HashMap<OsString, String>>,
+    exif_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
@@ -840,6 +844,32 @@ fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
         Some((name.to_owned(), file))
     })
     .collect()
+}
+
+/// The EXIF fields of every file as one lowercase line, read on all cores.
+fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let chunk = files.len().div_ceil(threads).max(1);
+    std::thread::scope(|s| {
+        let parts: Vec<_> = files
+            .chunks(chunk)
+            .map(|part| {
+                s.spawn(move || {
+                    part.iter()
+                        .map(|name| {
+                            let rows = exif::read(&dir.join(name));
+                            let text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+                            (name.clone(), text.join(" ").to_lowercase())
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        parts
+            .into_iter()
+            .flat_map(|p| p.join().unwrap_or_default())
+            .collect()
+    })
 }
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
@@ -1689,6 +1719,8 @@ impl App {
             matches: None,
             match_size: 0,
             match_rx: None,
+            exif_index: None,
+            exif_rx: None,
             anchor: None,
             orient: (0, false),
             opened: Instant::now(),
@@ -1732,6 +1764,8 @@ impl App {
         self.random = false;
         self.thumbs.clear();
         self.thumbs_pending.clear();
+        self.exif_index = None;
+        self.exif_rx = None;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         self.list(ctx);
@@ -1961,7 +1995,7 @@ impl App {
         }
     }
 
-    fn receive_sizes(&mut self) {
+    fn receive_sizes(&mut self, ctx: &egui::Context) {
         while let Ok(freed) = self.freed_rx.try_recv() {
             // ponytail: deleting while the sum is still being computed can make it slightly off.
             self.total_size = self.total_size.saturating_sub(freed);
@@ -1971,6 +2005,11 @@ impl App {
             self.selected_rx = None;
         }
         drain(&mut self.match_rx, &mut self.match_size);
+        if let Some(index) = self.exif_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.exif_rx = None;
+            self.exif_index = Some(index);
+            self.update_search(ctx);
+        }
         drain(&mut self.size_rx, &mut self.total_size);
     }
 
@@ -2844,7 +2883,7 @@ impl App {
             // widget, which would lose the focus after the first letter.
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::new("file search"))
-                .hint_text("Search file names (3+ letters)")
+                .hint_text("Search file names (3+ letters), or exif: camera, date …")
                 .desired_width(f32::INFINITY);
             if ui.add(edit).changed() {
                 self.update_search(ui.ctx());
@@ -2895,7 +2934,10 @@ impl App {
     /// Run the search again; file indices change when the list does.
     fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.trim();
-        self.matches = (query.chars().count() >= 3).then(|| search::matches(&self.files, query));
+        self.matches = match query.strip_prefix("exif:") {
+            Some(words) => Some(self.exif_matches(ctx, &words.to_lowercase())),
+            None => (query.chars().count() >= 3).then(|| search::matches(&self.files, query)),
+        };
         // Size of the matches in the background; a new search drops the receiver, which
         // stops the old sum.
         self.match_size = 0;
@@ -2911,6 +2953,36 @@ impl App {
             send_sizes(sizes, tx, &ctx);
         });
         self.match_rx = Some(rx);
+    }
+
+    /// Files whose EXIF contains every word, in list order. The first such search in a folder
+    /// reads the EXIF of all files in the background (the busy pointer shows meanwhile) and
+    /// finds nothing until that is done.
+    /// ponytail: files added after the index was built do not match until the folder is reopened.
+    fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
+        let Some(index) = &self.exif_index else {
+            if self.exif_rx.is_none() {
+                let (tx, rx) = mpsc::channel();
+                let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
+                let busy = self.busy.clone();
+                busy.fetch_add(1, Ordering::Relaxed);
+                std::thread::spawn(move || {
+                    let _ = tx.send(exif_index(&dir, &files));
+                    busy.fetch_sub(1, Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+                self.exif_rx = Some(rx);
+            }
+            return Vec::new();
+        };
+        let words: Vec<&str> = words.split_whitespace().collect();
+        (0..self.files.len())
+            .filter(|&i| {
+                index
+                    .get(&self.files[i])
+                    .is_some_and(|text| words.iter().all(|w| text.contains(w)))
+            })
+            .collect()
     }
 
     /// Size and modification time of file `i`, from the cache or one stat.
@@ -3225,7 +3297,7 @@ impl eframe::App for App {
         self.receive(ctx);
         self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
-        self.receive_sizes();
+        self.receive_sizes(ctx);
         self.receive_deleted();
         if let Some(img) = self.clip.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.clip = None;

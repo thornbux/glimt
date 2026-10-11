@@ -88,7 +88,10 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Finding and sorting",
         "Type three or more letters in the search field above the file list: the list shows \
-         the matching names, best first, ignoring case and gaps (like fzf). The sort menu at \
+         the matching names, best first, ignoring case and gaps (like fzf). Start with exif: \
+         to search the EXIF instead, for example exif:canon 2024:05 for photos from a Canon \
+         camera taken in May 2024; every word must match. The first EXIF search in a folder \
+         reads all files once, which takes a while in large folders. The sort menu at \
          the bottom left sorts by name, number, date, EXIF date, size or extension.",
     ),
     (
