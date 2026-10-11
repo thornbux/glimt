@@ -71,8 +71,10 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Selecting and file operations",
-        "Ctrl+click toggles a file, Shift+click selects a range, Ctrl+A selects all. Copy, \
-         Move, Rename and Delete act on the selected files, otherwise on the shown image.",
+        "Ctrl+click toggles a file, Shift+click or Shift with the arrow keys, Page Up/Down, \
+         Home and End selects a range, Ctrl+A selects all (the matches while searching). \
+         Copy, Move, Rename and Delete act on the selected files, otherwise on the shown \
+         image; right-click a file for a menu with them.",
     ),
     (
         "Finding and sorting",
