@@ -89,7 +89,8 @@ const MANUAL: &[(&str, &str)] = &[
          asks for a pattern: * is the old name and # a number (### gives 001); existing files \
          are never overwritten. File → Open With (also in the \
          right-click menu) opens them in another application, such as GIMP. Ctrl+Shift+C \
-         copies the image itself to the clipboard, to paste into other programs.",
+         copies the image itself to the clipboard, to paste into other programs; Select → \
+         Copy Files to Clipboard copies the files, to paste in a file manager.",
     ),
     (
         "Finding and sorting",

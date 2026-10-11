@@ -107,6 +107,7 @@ enum Action {
     CopyPath,
     CopyPathUnquoted,
     CopyImage,
+    CopyFiles,
     Preferences,
     ExifRotate,
     RotateCw,
@@ -248,6 +249,7 @@ impl Action {
             CopyPath => "Copy Path to Clipboard",
             CopyPathUnquoted => "Copy Path (Unquoted)",
             CopyImage => "Copy Image to Clipboard",
+            CopyFiles => "Copy Files to Clipboard",
             Preferences => "Preferences…",
             ExifRotate => "Auto Rotate Using EXIF",
             RotateCw => "Rotate Clockwise",
@@ -559,6 +561,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Optional, with a chosen screen profile",
     ),
     (
+        "Files on the clipboard",
+        "Select → Copy Files to Clipboard copies them for a file manager; no Cut (Ctrl+X)",
+        "Ctrl+C copies, Ctrl+X cuts",
+    ),
+    (
         "Histogram (K, J)",
         "In the image's corner: K cycles off, RGB and brightness, J logarithmic",
         "In the overlay: K cycles channels, J modes",
@@ -768,6 +775,8 @@ struct App {
     login: Option<Login>,
     /// "Open With" applications by file extension, found once per extension.
     apps: HashMap<String, Vec<(String, PathBuf)>>,
+    /// Our own clipboard for file lists, kept so it can serve them (X11).
+    clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
     clip: Option<mpsc::Receiver<egui::ColorImage>>,
     /// Subfolders by folder for the folder tree; `None` while being read.
@@ -2101,6 +2110,7 @@ impl App {
             tree_rx,
             tree_shown: PathBuf::new(),
             clip: None,
+            clipboard: None,
             apps: HashMap::new(),
             row_step: 1,
             notices,
@@ -4010,6 +4020,24 @@ impl App {
                 });
             }
             Action::CopyImage => {}
+            // As a list of files, which a file manager pastes as a copy.
+            Action::CopyFiles if !self.files.is_empty() => {
+                let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+                let clipboard = match self.clipboard.take() {
+                    Some(c) => Ok(c),
+                    None => arboard::Clipboard::new(),
+                };
+                let result = clipboard.and_then(|mut c| {
+                    let set = c.set().file_list(&paths);
+                    // On X11 the clipboard is served from this object: keep it.
+                    self.clipboard = Some(c);
+                    set
+                });
+                if let Err(e) = result {
+                    self.notice = Some(format!("Could not copy to the clipboard: {e}"));
+                }
+            }
+            Action::CopyFiles => {}
             Action::Preferences => self.show_settings = true,
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
@@ -4361,6 +4389,7 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::CopyPath);
                         menu_item(ui, act, Action::CopyPathUnquoted);
                         menu_item(ui, act, Action::CopyImage);
+                        menu_item(ui, act, Action::CopyFiles);
                     });
                     ui.menu_button("Edit", |ui| {
                         #[cfg(feature = "marks")]
@@ -5088,6 +5117,7 @@ impl eframe::App for App {
                                     Action::Move,
                                     Action::CopyPath,
                                     Action::CopyImage,
+                                    Action::CopyFiles,
                                 ] {
                                     menu_item(ui, &mut list_act, action);
                                 }

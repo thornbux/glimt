@@ -6118,6 +6118,7 @@
   {
    "ref": "pkg:cargo/glimt@0.1.0",
    "dependsOn": [
+    "pkg:cargo/arboard@3.6.1",
     "pkg:cargo/eframe@0.36.2",
     "pkg:cargo/fast_image_resize@6.1.0",
     "pkg:cargo/image@0.25.10",

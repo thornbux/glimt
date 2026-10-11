@@ -904,6 +904,7 @@ dependencies = [
 name = "glimt"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "eframe",
  "fast_image_resize",
  "image",
