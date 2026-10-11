@@ -1134,6 +1134,22 @@ fn pattern_name(pattern: &str, old: &Path, n: usize) -> String {
     }
 }
 
+/// Open `url` in the default browser, in the background.
+fn open_url(url: &str) {
+    let url = url.to_owned();
+    std::thread::spawn(move || {
+        let run = |cmd: &str, args: &[&str]| {
+            std::process::Command::new(cmd)
+                .args(args)
+                .arg(&url)
+                .status()
+        };
+        if !run("gio", &["open"]).is_ok_and(|s| s.success()) {
+            let _ = run("xdg-open", &[]);
+        }
+    });
+}
+
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
 fn is_listed(path: &Path, videos: bool) -> bool {
     has_ext(path, EXTS)
@@ -3267,7 +3283,19 @@ impl App {
                         // The old rows stay until the new ones arrive, so the panel does not flicker.
                         for (label, value) in self.exif.iter().flat_map(|e| &e.1) {
                             ui.weak(*label);
-                            ui.label(value);
+                            // The place opens on a map in the browser.
+                            if *label == "GPS" {
+                                let link = ui.link(value).on_hover_text("Show on OpenStreetMap");
+                                if link.clicked()
+                                    && let Some((lat, lon)) = value.split_once(", ")
+                                {
+                                    open_url(&format!(
+                                        "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
+                                    ));
+                                }
+                            } else {
+                                ui.label(value);
+                            }
                             ui.end_row();
                         }
                     });
