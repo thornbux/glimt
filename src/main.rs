@@ -981,6 +981,36 @@ fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usiz
 }
 
 /// Sum of the file sizes (one stat per file); unreadable files are not counted.
+/// Send sizes as partial sums of 10,000 files, so the status bar fills in gradually; stops
+/// when the receiver is gone. The closed channel tells the UI the sum is complete.
+fn send_sizes(sizes: impl Iterator<Item = u64>, tx: mpsc::Sender<u64>, ctx: &egui::Context) {
+    let mut sizes = sizes.peekable();
+    while sizes.peek().is_some() {
+        if tx.send(sizes.by_ref().take(10_000).sum()).is_err() {
+            return;
+        }
+        ctx.request_repaint();
+    }
+    drop(tx);
+    ctx.request_repaint();
+}
+
+/// Add the partial sums from `send_sizes` that have arrived; `rx` becomes `None` when done.
+fn drain(rx: &mut Option<mpsc::Receiver<u64>>, total: &mut u64) {
+    loop {
+        match rx.as_ref().map(mpsc::Receiver::try_recv) {
+            Some(Ok(sum)) => *total += sum,
+            Some(Err(mpsc::TryRecvError::Disconnected)) => *rx = None,
+            _ => return,
+        }
+    }
+}
+
+/// A size for the status bar, or "calculating…" while it is summed (`None`).
+fn size_text(bytes: Option<u64>) -> String {
+    bytes.map_or("calculating…".to_owned(), human_size)
+}
+
 fn total_size(paths: &[PathBuf]) -> u64 {
     paths
         .iter()
@@ -1392,15 +1422,8 @@ impl App {
                 .flatten()
                 .flatten()
                 .filter(|e| is_listed(&e.path(), videos));
-            let mut sizes = images
-                .filter_map(|e| Some(e.metadata().ok()?.len()))
-                .peekable();
-            while sizes.peek().is_some() {
-                if size_tx.send(sizes.by_ref().take(10_000).sum()).is_err() {
-                    return;
-                }
-                ctx2.request_repaint();
-            }
+            let sizes = images.filter_map(|e| Some(e.metadata().ok()?.len()));
+            send_sizes(sizes, size_tx, &ctx2);
         });
         self.listing = Some(rx);
         self.size_rx = Some(size_rx);
@@ -1586,27 +1609,8 @@ impl App {
             self.selected_size = Some(size);
             self.selected_rx = None;
         }
-        if let Some(rx) = &self.match_rx {
-            loop {
-                match rx.try_recv() {
-                    Ok(sum) => self.match_size += sum,
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        self.match_rx = None;
-                        break;
-                    }
-                }
-            }
-        }
-        let Some(rx) = &self.size_rx else { return };
-        loop {
-            match rx.try_recv() {
-                Ok(sum) => self.total_size += sum,
-                Err(mpsc::TryRecvError::Empty) => return,
-                Err(mpsc::TryRecvError::Disconnected) => break,
-            }
-        }
-        self.size_rx = None;
+        drain(&mut self.match_rx, &mut self.match_size);
+        drain(&mut self.size_rx, &mut self.total_size);
     }
 
     /// Called when the selection changes: update the title and compute the size in the background.
@@ -2297,8 +2301,8 @@ impl App {
     fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.trim();
         self.matches = (query.chars().count() >= 3).then(|| search::matches(&self.files, query));
-        // Size of the matches in chunks, so the status bar fills in; a new search drops the
-        // receiver and the old sum stops at its next chunk.
+        // Size of the matches in the background; a new search drops the receiver, which
+        // stops the old sum.
         self.match_size = 0;
         self.match_rx = None;
         let Some(m) = &self.matches else { return };
@@ -2306,16 +2310,10 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let (dir, ctx) = (self.dir.clone(), ctx.clone());
         std::thread::spawn(move || {
-            for chunk in names.chunks(10_000) {
-                let paths: Vec<PathBuf> = chunk.iter().map(|n| dir.join(n)).collect();
-                if tx.send(total_size(&paths)).is_err() {
-                    return;
-                }
-                ctx.request_repaint();
-            }
-            // Done: the closed channel ends "calculating…" on the next frame.
-            drop(tx);
-            ctx.request_repaint();
+            let sizes = names
+                .iter()
+                .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
+            send_sizes(sizes, tx, &ctx);
         });
         self.match_rx = Some(rx);
     }
@@ -2968,20 +2966,13 @@ impl eframe::App for App {
             egui::Panel::bottom("status").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let n = self.files.len();
-                    let size = if self.size_rx.is_some() {
-                        "calculating…".to_owned()
-                    } else {
-                        human_size(self.total_size)
-                    };
+                    let size = size_text(self.size_rx.is_none().then_some(self.total_size));
                     let mut left = match &self.matches {
                         _ if self.listing.is_some() => "Reading folder…".to_owned(),
                         // A search shows the matches: count and size of what the list shows.
                         Some(found) => {
-                            let size = if self.match_rx.is_some() {
-                                "calculating…".to_owned()
-                            } else {
-                                human_size(self.match_size)
-                            };
+                            let size =
+                                size_text(self.match_rx.is_none().then_some(self.match_size));
                             format!(
                                 "{} of {} images ({size})",
                                 thousands(found.len()),
@@ -2992,9 +2983,7 @@ impl eframe::App for App {
                     };
                     if !self.selected.is_empty() {
                         let m = thousands(self.selected.len());
-                        let size = self
-                            .selected_size
-                            .map_or("calculating…".to_owned(), human_size);
+                        let size = size_text(self.selected_size);
                         left += &format!(", {m} selected ({size})");
                     }
                     self.sort_menu(ctx, ui);
