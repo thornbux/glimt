@@ -128,6 +128,17 @@ The first two are plain `key=value` text files written atomically.
 JPEG, PNG, WebP, GIF and TIFF; animated GIF and WebP play in a loop. Camera RAW files (CR2, CR3,
 NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature.
 
+## SBOM
+
+[`sbom.cdx.json`](sbom.cdx.json) is a CycloneDX 1.5 software bill of materials: every crate the
+Linux build uses (all features), with version, license, SHA-256 from `Cargo.lock` and the
+dependency graph. External programs Glimt runs (ffmpeg, gio, zenity) are not in it. Regenerate
+it after changing dependencies:
+
+```sh
+python3 tools/sbom.py
+```
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Hans-Henry Jakobsen.
