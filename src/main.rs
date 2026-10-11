@@ -51,6 +51,8 @@ const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
 fn is_heif(path: &Path) -> bool {
     has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
 }
+/// Colour management on (Preferences); read by the decode and thumbnail threads.
+static COLOR_MANAGEMENT: AtomicBool = AtomicBool::new(true);
 /// Default number of images kept decoded on each side of the shown one.
 const DEFAULT_AHEAD: usize = 2;
 /// Default seconds between images in a slideshow.
@@ -117,6 +119,7 @@ enum Action {
     Histogram,
     HistogramLog,
     Compare,
+    Animate,
     // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
     #[cfg(feature = "marks")]
     Mark1,
@@ -256,6 +259,7 @@ impl Action {
             Histogram => "Histogram: Off, RGB, Brightness",
             HistogramLog => "Logarithmic Histogram",
             Compare => "Compare Side by Side",
+            Animate => "Play Animations",
             #[cfg(feature = "marks")]
             Mark1 => "Mark 1",
             #[cfg(feature = "marks")]
@@ -377,6 +381,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
         (Compare, NONE, Key::E),
+        (Animate, NONE, Key::A),
         // Alt+digit before the plain digit, which would also match with Alt.
         #[cfg(feature = "marks")]
         (Rate0, ALT, Key::Num0),
@@ -1472,6 +1477,14 @@ config! {
     random: bool = false,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool = true,
+    /// A slideshow starts again from the first image after the last; off, it stops there.
+    slideshow_repeat: bool = true,
+    /// Animated GIF and WebP play (A); off, the first frame is shown.
+    animate: bool = true,
+    /// Embedded ICC profiles are converted to sRGB.
+    color_management: bool = true,
+    /// Marks and stars shown in the file list and overlay (marks feature).
+    show_marks: bool = true,
     /// A slideshow also shows the images in the subfolders.
     slideshow_subfolders: bool = false,
     /// Write the view's rotation into the JPEG when going to another image.
@@ -1737,6 +1750,9 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
 /// where it costs a few milliseconds. Profiles that do not fit (CMYK, grey) leave it as it is.
 fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
     use moxcms::{ColorProfile, Layout, TransformOptions};
+    if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
+        return img;
+    }
     let Some(from) = icc.and_then(|b| ColorProfile::new_from_slice(b).ok()) else {
         return img;
     };
@@ -1909,6 +1925,7 @@ impl App {
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>) -> Self {
         let keep = Arc::new(Mutex::new(vec![0]));
         let config = Config::load();
+        COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
         let path = path
             .or_else(|| {
                 let state = std::fs::read_to_string(state_path()?).ok()?;
@@ -2865,6 +2882,19 @@ impl App {
         self.scroll_to_cur = true;
     }
 
+    /// Decode everything again with or without colour management.
+    fn set_color_management(&mut self, on: bool) {
+        self.config.color_management = on;
+        self.config.save();
+        COLOR_MANAGEMENT.store(on, Ordering::Relaxed);
+        self.slots.clear();
+        self.pending.clear();
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.last_drawn = None;
+        self.refill();
+    }
+
     fn set_exif_rotate(&mut self, on: bool) {
         self.config.exif_rotate = on;
         self.config.save();
@@ -2930,6 +2960,8 @@ impl App {
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
+        } else if Some(next) == first && !self.config.slideshow_repeat {
+            self.stop_slideshow(ctx);
         } else if self.random && Some(next) == first && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
             self.set_random(ctx, true);
@@ -3713,6 +3745,9 @@ impl App {
     /// Stars and marks of file `i` as text ("★★★  1 4"); empty without the marks feature.
     #[cfg(feature = "marks")]
     fn mark_text(&self, i: usize) -> String {
+        if !self.config.show_marks {
+            return String::new();
+        }
         marks::text(self.marks.get(&self.path(i)))
     }
 
@@ -3962,7 +3997,8 @@ impl App {
             | Action::Overlay
             | Action::Icons
             | Action::FolderTree
-            | Action::HistogramLog => {
+            | Action::HistogramLog
+            | Action::Animate => {
                 self.scroll_to_cur = true;
                 let c = &mut self.config;
                 let flag = match action {
@@ -3972,6 +4008,7 @@ impl App {
                     Action::Icons => &mut c.icons,
                     Action::FolderTree => &mut c.folder_tree,
                     Action::HistogramLog => &mut c.histogram_log,
+                    Action::Animate => &mut c.animate,
                     _ => &mut c.exif_panel,
                 };
                 *flag = !*flag;
@@ -4402,6 +4439,12 @@ impl eframe::App for App {
                             "Include the images in subfolders",
                         )
                         .changed();
+                    changed |= ui
+                        .checkbox(
+                            &mut self.config.slideshow_repeat,
+                            "Repeat: start again after the last image",
+                        )
+                        .changed();
                     ui.separator();
                     let mut rotate = self.config.exif_rotate;
                     if ui
@@ -4459,6 +4502,35 @@ impl eframe::App for App {
                     changed |= ui
                         .checkbox(&mut c.folder_tree, "Show folders as a tree (Ctrl+T)")
                         .changed();
+                    #[cfg(feature = "marks")]
+                    {
+                        changed |= ui
+                            .checkbox(&mut c.show_marks, "Show marks and stars in the file list")
+                            .changed();
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("Histogram (K):");
+                        for (n, name) in [(0, "Off"), (1, "RGB"), (2, "Brightness")] {
+                            changed |= ui.radio_value(&mut c.histogram, n, name).changed();
+                        }
+                        changed |= ui
+                            .checkbox(&mut c.histogram_log, "Logarithmic (J)")
+                            .changed();
+                    });
+                    changed |= ui
+                        .checkbox(&mut c.animate, "Play animated GIF and WebP (A)")
+                        .changed();
+                    let mut cm = c.color_management;
+                    if ui
+                        .checkbox(
+                            &mut cm,
+                            "Colour management: show ICC profiles (Adobe RGB, P3) as sRGB",
+                        )
+                        .changed()
+                    {
+                        self.set_color_management(cm);
+                    }
+                    let c = &mut self.config;
                     changed |= ui
                         .checkbox(
                             &mut c.file_details,
@@ -5044,7 +5116,12 @@ impl eframe::App for App {
                         egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
                     };
                     let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-                    egui::Image::new(slot.frame(self.opened.elapsed(), ctx))
+                    let tex = if self.config.animate {
+                        slot.frame(self.opened.elapsed(), ctx)
+                    } else {
+                        &slot.tex
+                    };
+                    egui::Image::new(tex)
                         .uv(uv)
                         .rotate(angle, egui::Vec2::splat(0.5))
                         .paint_at(ui, rect);
