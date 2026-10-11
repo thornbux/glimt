@@ -314,11 +314,6 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "",
     ),
     (
-        "Stopping a random slideshow",
-        "The order is kept, so Previous goes back through the shown images",
-        "",
-    ),
-    (
         "Small images",
         "\"Enlarge small images to fit the window\", on by default",
         "\"Allow enlargement\"",
@@ -2120,11 +2115,14 @@ impl App {
         }
     }
 
-    /// A random order is kept after stopping, so Previous still goes back through the images
-    /// that were shown; reopening the folder sorts it again.
+    /// A random order ends with the slideshow: the list goes back to the chosen sort order,
+    /// keeping the shown image.
     fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow = None;
         self.paused = false;
+        if self.random {
+            self.set_random(ctx, false);
+        }
         self.title(ctx);
     }
 
