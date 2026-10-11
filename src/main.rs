@@ -35,6 +35,8 @@ const DATE_WIDTH: f32 = 140.0;
 const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
 /// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
 const MAX_THUMBS: usize = 600;
+/// Decoded frames kept of one animation (bytes); longer ones loop the first part.
+const MAX_ANIMATION: usize = 128 << 20;
 
 /// Everything the user can do from a menu or a shortcut.
 #[derive(Clone, Copy, PartialEq)]
@@ -425,8 +427,11 @@ struct Decoded {
     /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
     rotated: bool,
     /// `None` = skipped because the user has already moved past it.
-    result: Option<Result<(egui::ColorImage, [usize; 2]), String>>,
+    result: Option<Result<(Frames, [usize; 2]), String>>,
 }
+
+/// The decoded frames with their delays in ms; one frame for a still image.
+type Frames = Vec<(egui::ColorImage, u32)>;
 
 struct Slot {
     tex: egui::TextureHandle,
@@ -435,6 +440,24 @@ struct Slot {
     full: bool,
     /// Original size after EXIF rotation.
     orig: [usize; 2],
+    /// Frames of an animated GIF or WebP with their delays in ms; empty for a still image.
+    anim: Vec<(egui::TextureHandle, u32)>,
+}
+
+impl Slot {
+    /// The frame to show `t` after the image was opened; asks for a repaint when the next is due.
+    fn frame(&self, t: std::time::Duration, ctx: &egui::Context) -> &egui::TextureHandle {
+        let total: u32 = self.anim.iter().map(|f| f.1).sum();
+        let mut at = (t.as_millis() % total.max(1) as u128) as u32;
+        for (tex, ms) in &self.anim {
+            if at < *ms {
+                ctx.request_repaint_after(std::time::Duration::from_millis((ms - at) as u64));
+                return tex;
+            }
+            at -= ms;
+        }
+        &self.tex
+    }
 }
 
 struct App {
@@ -562,6 +585,8 @@ struct App {
     /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
     /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
     orient: (u8, bool),
+    /// When the shown image was opened: the clock of an animation.
+    opened: Instant,
     /// How far the shown image can be panned each way (points); zero where it fits.
     max_pan: egui::Vec2,
 }
@@ -1128,14 +1153,49 @@ fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-fn decode(
-    path: &Path,
-    max: [u32; 2],
-    rotate: bool,
-) -> Result<(egui::ColorImage, [usize; 2]), String> {
+fn decode(path: &Path, max: [u32; 2], rotate: bool) -> Result<(Frames, [usize; 2]), String> {
+    if let Some(anim) = animation(path, max) {
+        return Ok(anim);
+    }
     let img = load(path, rotate)?;
     let orig = [img.width() as usize, img.height() as usize];
-    Ok((color_image(shrink(img, max)?), orig))
+    Ok((vec![(color_image(shrink(img, max)?), 0)], orig))
+}
+
+/// The frames of an animated GIF or WebP; `None` for other files, which `load` decodes.
+fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
+    use image::AnimationDecoder;
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    let frames = match ext.as_str() {
+        "gif" => image::codecs::gif::GifDecoder::new(file)
+            .ok()?
+            .into_frames(),
+        "webp" => {
+            let dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
+            if !dec.has_animation() {
+                return None;
+            }
+            dec.into_frames()
+        }
+        _ => return None,
+    };
+    let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
+    for frame in frames {
+        let frame = frame.ok()?;
+        let (n, d) = frame.delay().numer_denom_ms();
+        // Browsers show delays under 20 ms as 100 ms; many GIFs rely on it.
+        let ms = Some(n / d.max(1)).filter(|&ms| ms >= 20).unwrap_or(100);
+        let img = frame.into_buffer();
+        orig = [img.width() as usize, img.height() as usize];
+        let img = color_image(shrink(img.into(), max).ok()?);
+        bytes += img.pixels.len() * 4;
+        out.push((img, ms));
+        if bytes > MAX_ANIMATION {
+            break;
+        }
+    }
+    (!out.is_empty()).then_some((out, orig))
 }
 
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`.
@@ -1377,6 +1437,7 @@ impl App {
             match_rx: None,
             anchor: None,
             orient: (0, false),
+            opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
         };
         app.open(&cc.egui_ctx, path);
@@ -1815,6 +1876,7 @@ impl App {
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
         self.orient = (0, false);
+        self.opened = Instant::now();
         self.scroll_to_cur = true;
         // Every image gets the full delay, also when the user moves back or forward by hand.
         if self.slideshow.is_some() {
@@ -2023,16 +2085,24 @@ impl App {
                 && self.keep.lock().unwrap().contains(&d.idx)
                 && (!d.full || d.idx == self.cur);
             match d.result {
-                Some(Ok((img, orig))) if wanted => {
+                Some(Ok((frames, orig))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
                     if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
                         continue;
                     }
-                    let tex = ctx.load_texture(
-                        format!("img{}", d.idx),
-                        img,
-                        egui::TextureOptions::LINEAR,
-                    );
+                    let mut anim: Vec<_> = (frames.into_iter().enumerate())
+                        .map(|(n, (img, ms))| {
+                            let name = format!("img{} {n}", d.idx);
+                            (
+                                ctx.load_texture(name, img, egui::TextureOptions::LINEAR),
+                                ms,
+                            )
+                        })
+                        .collect();
+                    let tex = anim[0].0.clone();
+                    if anim.len() == 1 {
+                        anim.clear();
+                    }
                     self.slots.insert(
                         d.idx,
                         Slot {
@@ -2040,6 +2110,7 @@ impl App {
                             path: d.path,
                             full: d.full,
                             orig,
+                            anim,
                         },
                     );
                     if d.idx == self.cur
@@ -3506,7 +3577,7 @@ impl eframe::App for App {
                         egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
                     };
                     let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-                    egui::Image::new(&slot.tex)
+                    egui::Image::new(slot.frame(self.opened.elapsed(), ctx))
                         .uv(uv)
                         .rotate(angle, egui::Vec2::splat(0.5))
                         .paint_at(ui, rect);
@@ -3651,6 +3722,7 @@ mod tests {
     #[test]
     fn lists_folder_and_decodes_to_screen_size() {
         let dir = std::env::temp_dir().join("glimt-test");
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(400, 200)
             .save(dir.join("a.png"))
@@ -3661,8 +3733,24 @@ mod tests {
         let (dirs, images) = super::list_folder(&dir, true);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
-        let (img, orig) = super::decode(&dir.join("a.png"), [100, 100], true).unwrap();
-        assert_eq!((img.size, orig), ([100, 50], [400, 200]));
+        let (frames, orig) = super::decode(&dir.join("a.png"), [100, 100], true).unwrap();
+        assert_eq!(
+            (frames.len(), frames[0].0.size, orig),
+            (1, [100, 50], [400, 200])
+        );
+        // An animated GIF gives every frame with its delay (5 ms counts as 100 ms).
+        let gif = std::fs::File::create(dir.join("b.gif")).unwrap();
+        let frame = |ms| {
+            let delay = image::Delay::from_numer_denom_ms(ms, 1);
+            image::Frame::from_parts(image::RgbaImage::new(40, 20), 0, 0, delay)
+        };
+        image::codecs::gif::GifEncoder::new(gif)
+            .encode_frames([frame(50), frame(5)])
+            .unwrap();
+        let (frames, orig) = super::decode(&dir.join("b.gif"), [100, 100], true).unwrap();
+        let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
+        assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

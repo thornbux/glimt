@@ -122,7 +122,7 @@ The first two are plain `key=value` text files written atomically.
 
 ## Supported formats
 
-JPEG, PNG, WebP, GIF (first frame) and TIFF.
+JPEG, PNG, WebP, GIF and TIFF; animated GIF and WebP play in a loop.
 
 ## License
 
