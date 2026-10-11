@@ -731,6 +731,9 @@ struct App {
     /// The images to keep decoded, the shown one first: its neighbours in list order.
     /// Shared with the workers, which skip jobs outside it.
     keep: Arc<Mutex<Vec<usize>>>,
+    /// How many images at the start of `keep` may be decoded at full resolution: the shown one,
+    /// and the compared one beside it.
+    full_ok: Arc<AtomicUsize>,
     /// Number of images preloaded on each side (Preferences).
     ahead: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
@@ -2037,6 +2040,7 @@ fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 impl App {
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>) -> Self {
         let keep = Arc::new(Mutex::new(vec![0]));
+        let full_ok = Arc::new(AtomicUsize::new(1));
         let config = Config::load();
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
         LARGE_THUMBS.store(config.thumb_size == 2, Ordering::Relaxed);
@@ -2054,8 +2058,9 @@ impl App {
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
         for _ in 0..workers {
-            let (keep, rotate, limits, job_rx, done_tx, ctx) = (
+            let (keep, full_ok, rotate, limits, job_rx, done_tx, ctx) = (
                 keep.clone(),
+                full_ok.clone(),
                 rotate.clone(),
                 limits.clone(),
                 job_rx.clone(),
@@ -2070,7 +2075,8 @@ impl App {
                     // Cancellation: skip images the user has already moved past.
                     let wanted = {
                         let w = keep.lock().unwrap();
-                        w.contains(&idx) && (!full || w.first() == Some(&idx))
+                        let n = full_ok.load(Ordering::Relaxed);
+                        w.contains(&idx) && (!full || w.iter().take(n).any(|&i| i == idx))
                     };
                     if !wanted {
                         let _ = done_tx.send(Decoded {
@@ -2192,6 +2198,7 @@ impl App {
             files: Vec::new(),
             cur: 0,
             keep,
+            full_ok,
             ahead,
             rotate,
             show_settings: false,
@@ -3143,16 +3150,17 @@ impl App {
         // The shown image first, then its neighbours in the order the list shows.
         let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed) as isize);
         let mut window = vec![cur];
+        // The compared image second: it may be loaded at full resolution too.
+        let other = self.compare_other().filter(|&i| i != cur);
+        window.extend(other);
+        self.full_ok.store(window.len(), Ordering::Relaxed);
         for d in (1..=ahead).flat_map(|d| [d, -d]) {
             if let Some(i) = self.step(cur, d, false).filter(|i| !window.contains(i)) {
                 window.push(i);
             }
         }
-        if let Some(other) = self.compare_other().filter(|i| !window.contains(i)) {
-            window.push(other);
-        }
         self.slots
-            .retain(|i, s| window.contains(i) && (!s.full || *i == cur));
+            .retain(|i, s| window.contains(i) && (!s.full || *i == cur || Some(*i) == other));
         *self.keep.lock().unwrap() = window.clone();
         for i in window {
             self.request(i, false);
@@ -3166,7 +3174,7 @@ impl App {
                 && d.rotated == self.config.exif_rotate
                 && d.page == if d.idx == self.cur { self.page } else { 0 }
                 && self.keep.lock().unwrap().contains(&d.idx)
-                && (!d.full || d.idx == self.cur);
+                && (!d.full || d.idx == self.cur || Some(d.idx) == self.compare_other());
             match d.result {
                 Some(Ok((frames, orig, hist, pages))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
@@ -3685,7 +3693,7 @@ impl App {
 
     /// The compared image in `rect`: at the same zoom and offset as the shown one when zoomed,
     /// else fitted, with its name above.
-    fn paint_other(&self, ui: &egui::Ui, rect: egui::Rect, zoom: Option<f32>) {
+    fn paint_other(&mut self, ui: &egui::Ui, rect: egui::Rect, zoom: Option<f32>) {
         let p = ui.painter();
         p.vline(
             rect.left() - 1.0,
@@ -3696,6 +3704,15 @@ impl App {
             return;
         };
         let ppp = ui.ctx().pixels_per_point();
+        // Zoomed in further than the screen-size version holds: load the full resolution.
+        let sharper = self.slots.get(&other).is_some_and(|s| {
+            !s.full
+                && zoom
+                    .is_some_and(|z| s.tex.size()[0] as f32 + 1.0 < s.orig[0] as f32 * z.min(1.0))
+        });
+        if sharper {
+            self.request(other, true);
+        }
         if let Some(slot) = self.slots.get(&other) {
             let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
             let scale = zoom.unwrap_or_else(|| {
