@@ -62,7 +62,9 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Zoom",
         "X fits the image to the window, Z shows it 1:1, + and - zoom. The mouse wheel zooms \
-         (or browses, see Preferences). A zoomed image larger than the window can be dragged.",
+         (or browses, see Preferences). A zoomed image larger than the window can be dragged. \
+         ] and [ rotate the view, Shift+R turns it upside down, Shift+M mirrors and Shift+F \
+         flips it (Edit → Orientation); the next image is shown as it is.",
     ),
     (
         "Slideshow",

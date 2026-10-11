@@ -66,6 +66,11 @@ enum Action {
     CopyPathUnquoted,
     Preferences,
     ExifRotate,
+    RotateCw,
+    RotateCcw,
+    Rotate180,
+    Mirror,
+    Flip,
     ZoomIn,
     ZoomOut,
     Zoom1To1,
@@ -122,6 +127,11 @@ impl Action {
             CopyPathUnquoted => "Copy Path (Unquoted)",
             Preferences => "Preferences…",
             ExifRotate => "Auto Rotate Using EXIF",
+            RotateCw => "Rotate Clockwise",
+            RotateCcw => "Rotate Counterclockwise",
+            Rotate180 => "Rotate 180°",
+            Mirror => "Mirror",
+            Flip => "Flip",
             ZoomIn => "Zoom In",
             ZoomOut => "Zoom Out",
             Zoom1To1 => "Zoom 1:1",
@@ -165,6 +175,12 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use egui::Key;
     &[
         (ExifRotate, ALT, Key::X),
+        // Before R (random order) and F (full screen), which would also match with Shift.
+        (Rotate180, SHIFT, Key::R),
+        (Mirror, SHIFT, Key::M),
+        (Flip, SHIFT, Key::F),
+        (RotateCw, NONE, Key::CloseBracket),
+        (RotateCcw, NONE, Key::OpenBracket),
         (DeletePermanently, SHIFT, Key::Delete),
         (Delete, NONE, Key::Delete),
         (Delete, CTRL, Key::D),
@@ -535,6 +551,9 @@ struct App {
     match_rx: Option<mpsc::Receiver<u64>>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
+    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
+    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
+    orient: (u8, bool),
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1344,6 +1363,7 @@ impl App {
             match_size: 0,
             match_rx: None,
             anchor: None,
+            orient: (0, false),
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1780,6 +1800,7 @@ impl App {
         self.notice = None;
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
+        self.orient = (0, false);
         self.scroll_to_cur = true;
         // Every image gets the full delay, also when the user moves back or forward by hand.
         if self.slideshow.is_some() {
@@ -2571,6 +2592,22 @@ impl App {
                 }
             }
             Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
+            // Mirroring or flipping what is on screen after a turn: mirror the image first and
+            // turn the other way (a flip is a mirror and half a turn).
+            Action::RotateCw
+            | Action::RotateCcw
+            | Action::Rotate180
+            | Action::Mirror
+            | Action::Flip => {
+                let (q, m) = self.orient;
+                self.orient = match action {
+                    Action::RotateCw => ((q + 1) % 4, m),
+                    Action::RotateCcw => ((q + 3) % 4, m),
+                    Action::Rotate180 => ((q + 2) % 4, m),
+                    Action::Mirror => ((4 - q) % 4, !m),
+                    _ => ((6 - q) % 4, !m),
+                };
+            }
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
             Action::Zoom1To1 => self.zoom = Some(1.0),
@@ -2741,6 +2778,18 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::CopyPathUnquoted);
                     });
                     ui.menu_button("Edit", |ui| {
+                        ui.menu_button("Orientation", |ui| {
+                            for action in [
+                                Action::RotateCw,
+                                Action::RotateCcw,
+                                Action::Rotate180,
+                                Action::Mirror,
+                                Action::Flip,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                        });
+                        ui.separator();
                         menu_item(ui, act, Action::Preferences);
                     });
                     ui.menu_button("View", |ui| {
@@ -3278,9 +3327,13 @@ impl eframe::App for App {
                 } else {
                     1.0
                 };
+                // Size on screen after a quarter turn.
+                let quarter = self.orient.0 % 2 == 1;
+                let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
                 let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
-                    (area.width() * ppp / s.orig[0] as f32)
-                        .min(area.height() * ppp / s.orig[1] as f32)
+                    let [w, h] = turned(s.orig);
+                    (area.width() * ppp / w as f32)
+                        .min(area.height() * ppp / h as f32)
                         .min(max_fit)
                 });
                 if response.hovered() && !self.dialog_open() {
@@ -3328,7 +3381,7 @@ impl eframe::App for App {
                 // to its edge, so an image that fits stays put.
                 let orig = (self.slots.get(&self.cur).map(|s| s.orig))
                     .or(self.last_drawn.as_ref().map(|d| d.1));
-                if let Some([w, h]) = orig {
+                if let Some([w, h]) = orig.map(turned) {
                     if response.dragged() {
                         self.pan += response.drag_delta();
                     }
@@ -3352,7 +3405,17 @@ impl eframe::App for App {
                 if let Some(slot) = self.slots.get(&self.cur) {
                     let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
                     let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
-                    egui::Image::new(&slot.tex).paint_at(ui, rect);
+                    let (turns, mirrored) = self.orient;
+                    let uv = if mirrored {
+                        egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
+                    } else {
+                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
+                    };
+                    let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
+                    egui::Image::new(&slot.tex)
+                        .uv(uv)
+                        .rotate(angle, egui::Vec2::splat(0.5))
+                        .paint_at(ui, rect);
                     self.last_drawn = Some((slot.tex.clone(), slot.orig));
                 } else if let Some((tex, orig)) = &self.last_drawn
                     && !self.files.is_empty()
