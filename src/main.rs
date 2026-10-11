@@ -30,6 +30,17 @@ const HEIC_EXTS: &[&str] = if cfg!(feature = "heic") {
 } else {
     &[]
 };
+/// AVIF photos, decoded by ffmpeg (dav1d) with the avif feature.
+const AVIF_EXTS: &[&str] = if cfg!(feature = "avif") {
+    &["avif"]
+} else {
+    &[]
+};
+
+/// HEIC and AVIF: both HEIF files, decoded the same way.
+fn is_heif(path: &Path) -> bool {
+    has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
+}
 /// Default number of images kept decoded on each side of the shown one.
 const DEFAULT_AHEAD: usize = 2;
 /// Default seconds between images in a slideshow.
@@ -832,21 +843,21 @@ fn has_ext(path: &Path, exts: &[&str]) -> bool {
 }
 
 /// A frame `at` seconds in, decoded by the `ffmpeg` program.
-#[cfg(any(feature = "video", feature = "heic"))]
+#[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 fn ffmpeg_frame(path: &Path, at: &str) -> Result<image::DynamicImage, String> {
     ffmpeg_ppm(path, &["-ss", at], &[])
 }
 
-/// A HEIC photo. Phones store it as a grid of tiles, which ffmpeg reads as separate streams
+/// A HEIC or AVIF photo. Phones store it as a grid of tiles, which ffmpeg reads as separate streams
 /// with their places in a "Tile Grid" group: they are put together with xstack, cut to the
 /// image size and turned by the stored rotation.
-#[cfg(feature = "heic")]
-fn heic(path: &Path) -> Result<image::DynamicImage, String> {
+#[cfg(any(feature = "heic", feature = "avif"))]
+fn heif(path: &Path) -> Result<image::DynamicImage, String> {
     let probe = std::process::Command::new("ffprobe")
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .arg(path)
         .output()
-        .map_err(|e| format!("HEIC needs ffprobe (ffmpeg): {e}"))?;
+        .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
     let text = String::from_utf8_lossy(&probe.stdout);
     let Some(grid) = text.lines().find(|l| l.contains("type=Tile Grid")) else {
         return ffmpeg_frame(path, "0");
@@ -892,7 +903,7 @@ fn heic(path: &Path) -> Result<image::DynamicImage, String> {
 }
 
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
-#[cfg(any(feature = "video", feature = "heic"))]
+#[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 fn ffmpeg_ppm(path: &Path, before: &[&str], after: &[&str]) -> Result<image::DynamicImage, String> {
     let out = std::process::Command::new("ffmpeg")
         .args(["-v", "error"])
@@ -902,7 +913,7 @@ fn ffmpeg_ppm(path: &Path, before: &[&str], after: &[&str]) -> Result<image::Dyn
         .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .output()
-        .map_err(|e| format!("video and HEIC need ffmpeg: {e}"))?;
+        .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
     if !out.status.success() || out.stdout.is_empty() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
         return Err(if err.is_empty() {
@@ -1108,10 +1119,7 @@ fn pattern_name(pattern: &str, old: &Path, n: usize) -> String {
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
 fn is_listed(path: &Path, videos: bool) -> bool {
-    has_ext(path, EXTS)
-        || has_ext(path, raw::EXTS)
-        || has_ext(path, HEIC_EXTS)
-        || (videos && is_video(path))
+    has_ext(path, EXTS) || has_ext(path, raw::EXTS) || is_heif(path) || (videos && is_video(path))
 }
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
@@ -1776,9 +1784,9 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
     if has_ext(path, raw::EXTS) {
         return Ok((raw::load(path, rotate)?, None));
     }
-    #[cfg(feature = "heic")]
-    if has_ext(path, HEIC_EXTS) {
-        return Ok((heic(path)?, None));
+    #[cfg(any(feature = "heic", feature = "avif"))]
+    if is_heif(path) {
+        return Ok((heif(path)?, None));
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())

@@ -19,7 +19,9 @@ winit = { version = "0.30.13", default-features = false, features = ["wayland-cs
 video = []
 # HEIC/HEIF photos (iPhone) via the ffmpeg program, 8.0 or newer.
 heic = []
+# AVIF photos via the ffmpeg program (dav1d).
+avif = []
 # Geeqie's marks 1-6 and 0-5 stars, kept in ~/.local/state/glimt/marks.
 marks = []
 # Every optional feature: cargo build --release --features full (same as --all-features).
-full = ["video", "heic", "marks"]
+full = ["video", "heic", "avif", "marks"]

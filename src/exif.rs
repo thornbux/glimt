@@ -28,8 +28,8 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     if crate::has_ext(path, crate::raw::EXTS) {
         return crate::raw::exif(path);
     }
-    // HEIC keeps the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
-    if crate::has_ext(path, crate::HEIC_EXTS) {
+    // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
+    if crate::is_heif(path) {
         let data = std::fs::read(path).ok()?;
         let at = data
             .windows(8)

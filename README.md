@@ -52,6 +52,7 @@ Extra file types are optional features, so the default build stays small:
 |---|---|---|
 | `video` | Video files in the list with a preview frame; Enter plays them | `ffmpeg` (previews), a player or the default application |
 | `heic` | HEIC/HEIF photos (iPhone), with EXIF | `ffmpeg` and `ffprobe` 8.0 or newer |
+| `avif` | AVIF photos, with EXIF | `ffmpeg` and `ffprobe` with dav1d |
 | `marks` | Geeqie's marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
 
 ```sh
@@ -127,7 +128,7 @@ The first two are plain `key=value` text files written atomically.
 ## Supported formats
 
 JPEG, PNG, WebP, GIF and TIFF; animated GIF and WebP play in a loop. Camera RAW files (CR2, CR3,
-NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature. Photos with an ICC profile (Adobe RGB,
+NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature, AVIF with `avif`. Photos with an ICC profile (Adobe RGB,
 Display P3 …) are converted to sRGB, so they do not look dull.
 
 ## SBOM
