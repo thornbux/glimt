@@ -127,6 +127,7 @@ enum Action {
     HistogramLog,
     Compare,
     Animate,
+    Subfolders,
     NextPage,
     PrevPage,
     // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
@@ -271,6 +272,7 @@ impl Action {
             HistogramLog => "Logarithmic Histogram",
             Compare => "Compare Side by Side",
             Animate => "Play Animations",
+            Subfolders => "Include Subfolders",
             NextPage => "Next Page",
             PrevPage => "Previous Page",
             #[cfg(feature = "marks")]
@@ -1541,6 +1543,8 @@ config! {
     color_management: bool = true,
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
+    /// The file list holds the images of all subfolders too, with their folders in the name.
+    show_subfolders: bool = false,
     /// A slideshow also shows the images in the subfolders.
     slideshow_subfolders: bool = false,
     /// Write the view's rotation into the JPEG when going to another image.
@@ -2307,7 +2311,7 @@ impl App {
         self.subdirs.clear();
         self.deleting.clear();
         self.random = false;
-        self.recursive = false;
+        self.recursive = self.config.show_subfolders;
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
@@ -3040,6 +3044,14 @@ impl App {
         self.scroll_to_cur = true;
     }
 
+    /// List the images of all subfolders too, or only the folder's own.
+    fn set_subfolders(&mut self, ctx: &egui::Context, on: bool) {
+        self.config.show_subfolders = on;
+        self.config.save();
+        self.recursive = on;
+        self.list(ctx);
+    }
+
     /// Decode everything again with or without colour management.
     fn set_color_management(&mut self, on: bool) {
         self.config.color_management = on;
@@ -3079,8 +3091,8 @@ impl App {
     fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow = None;
         self.paused = false;
-        if self.recursive {
-            self.recursive = false;
+        if self.recursive != self.config.show_subfolders {
+            self.recursive = self.config.show_subfolders;
             self.random = false;
             self.list(ctx);
         } else if self.random {
@@ -4145,6 +4157,7 @@ impl App {
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::SaveOrientation => self.save_orientation(),
+            Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::NextPage | Action::PrevPage => {
                 let pages = self.slots.get(&self.cur).map_or(1, |s| s.pages);
                 let page = match action {
@@ -4569,6 +4582,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.toolbar, Action::Toolbar);
                         menu_toggle(ui, act, c.path_bar, Action::PathBar);
                         menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
+                        menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
                         menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
@@ -4734,6 +4748,17 @@ impl eframe::App for App {
                     changed |= ui
                         .checkbox(&mut c.folder_tree, "Show folders as a tree (Ctrl+T)")
                         .changed();
+                    let mut sub = c.show_subfolders;
+                    if ui
+                        .checkbox(
+                            &mut sub,
+                            "Include the images in subfolders in the file list",
+                        )
+                        .changed()
+                    {
+                        self.set_subfolders(ctx, sub);
+                    }
+                    let c = &mut self.config;
                     #[cfg(feature = "marks")]
                     {
                         changed |= ui
