@@ -1,6 +1,6 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
-use crate::{Action, DIFFERENCES, MOUSE, SHORTCUTS};
+use crate::{Action, DIFFERENCES, MOUSE, shortcuts as all_shortcuts};
 use eframe::egui;
 use egui::Key;
 
@@ -117,7 +117,9 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, \
-         what is shown, window and memory use, and how deleting works.",
+         what is shown, window and memory use, and how deleting works. Under Keyboard \
+         shortcuts, Change gives an action the next key you press; Reset gives it Geeqie's \
+         keys back.",
     ),
 ];
 
@@ -147,7 +149,7 @@ fn manual(ui: &mut egui::Ui) {
 fn shortcuts(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
-    for &(action, mods, key) in SHORTCUTS {
+    for (action, mods, key) in all_shortcuts() {
         if action == Action::Play && !cfg!(feature = "video") {
             continue;
         }
@@ -285,10 +287,10 @@ fn keymap(ui: &mut egui::Ui) {
     let draw = |ui: &mut egui::Ui, label: &str, key: Option<Key>, at: egui::Rect| {
         let actions: Vec<String> = key
             .map(|k| {
-                SHORTCUTS
-                    .iter()
+                all_shortcuts()
+                    .into_iter()
                     .filter(|s| s.2 == k && (s.0 != Action::Play || cfg!(feature = "video")))
-                    .map(|&(a, m, k)| {
+                    .map(|(a, m, k)| {
                         let keys = ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k));
                         format!("{keys}: {}", a.label())
                     })
@@ -296,7 +298,7 @@ fn keymap(ui: &mut egui::Ui) {
             })
             .unwrap_or_default();
         let plain = key.is_some_and(|k| {
-            SHORTCUTS
+            all_shortcuts()
                 .iter()
                 .any(|s| s.2 == k && s.1 == egui::Modifiers::NONE)
         });

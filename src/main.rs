@@ -80,7 +80,7 @@ const MAX_THUMBS: usize = 600;
 const MAX_ANIMATION: usize = 128 << 20;
 
 /// Everything the user can do from a menu or a shortcut.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Action {
     OpenFile,
     OpenFolder,
@@ -621,8 +621,71 @@ fn menu_button(
 }
 
 /// The first shortcut of an action, as shown in menus ("Ctrl+K").
+/// The user's own keys (Preferences), which replace the defaults of their actions.
+static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// The shortcuts in use: the user's own, and the defaults of the other actions. Those with
+/// more modifiers come first, as egui ignores an extra Shift or Alt when matching.
+fn shortcuts() -> Vec<(Action, egui::Modifiers, egui::Key)> {
+    let own = OWN_KEYS.read().map(|o| o.clone()).unwrap_or_default();
+    let mut all = own.clone();
+    all.extend(SHORTCUTS.iter().filter(|s| !own.iter().any(|o| o.0 == s.0)));
+    let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
+    all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
+    all
+}
+
+/// Own keys in the config: "Next=Ctrl+N;ZoomIn=Plus", by action and egui's key names.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Keys(Vec<(Action, egui::Modifiers, egui::Key)>);
+
+impl std::str::FromStr for Keys {
+    type Err = ();
+    fn from_str(text: &str) -> Result<Self, ()> {
+        let one = |item: &str| {
+            let (name, combo) = item.split_once('=')?;
+            let action = SHORTCUTS
+                .iter()
+                .map(|s| s.0)
+                .find(|a| format!("{a:?}") == name)?;
+            let mut mods = egui::Modifiers::NONE;
+            let mut parts: Vec<&str> = combo.split('+').collect();
+            let key = egui::Key::from_name(parts.pop()?)?;
+            for part in parts {
+                match part {
+                    "Ctrl" => mods.command = true,
+                    "Shift" => mods.shift = true,
+                    "Alt" => mods.alt = true,
+                    _ => return None,
+                }
+            }
+            mods.ctrl = mods.command;
+            Some((action, mods, key))
+        };
+        Ok(Keys(text.split(';').filter_map(one).collect()))
+    }
+}
+
+impl std::fmt::Display for Keys {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let items: Vec<String> = (self.0.iter())
+            .map(|(a, m, k)| {
+                let mut combo = String::new();
+                for (on, name) in [(m.command, "Ctrl+"), (m.shift, "Shift+"), (m.alt, "Alt+")] {
+                    if on {
+                        combo += name;
+                    }
+                }
+                format!("{a:?}={combo}{}", k.name())
+            })
+            .collect();
+        write!(f, "{}", items.join(";"))
+    }
+}
+
 fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
-    let &(_, mods, key) = SHORTCUTS.iter().find(|s| s.0 == action)?;
+    let (_, mods, key) = shortcuts().into_iter().find(|s| s.0 == action)?;
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
 
@@ -814,6 +877,8 @@ struct App {
     recursive: bool,
     /// The next listing is shuffled as a whole instead of merged into the current order.
     whole_shuffle: bool,
+    /// The action whose key is being chosen in Preferences: the next key press goes to it.
+    capturing: Option<Action>,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
@@ -1549,6 +1614,8 @@ config! {
     color_management: bool = true,
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
+    /// The user's own keys, replacing the defaults of those actions (Preferences).
+    keys: Keys = Keys::default(),
     /// Listen for `glimt --remote` commands.
     remote_control: bool = true,
     /// Stars are also written as xmp:Rating to `<file>.xmp` sidecars, for darktable and digiKam.
@@ -2189,6 +2256,9 @@ impl App {
         let full_ok = Arc::new(AtomicUsize::new(1));
         let config = Config::load();
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
+        if let Ok(mut own) = OWN_KEYS.write() {
+            own.clone_from(&config.keys.0);
+        }
         LARGE_THUMBS.store(config.thumb_size == 2, Ordering::Relaxed);
         let path = path
             .or_else(|| {
@@ -2329,6 +2399,7 @@ impl App {
             login: None,
             grid_cols: 1,
             compare: false,
+            capturing: None,
             recursive: false,
             whole_shuffle: false,
             #[cfg(feature = "marks")]
@@ -3206,6 +3277,91 @@ impl App {
         self.config.save();
         self.recursive = on;
         self.list(ctx);
+    }
+
+    /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
+    /// key press) or reset to Geeqie's.
+    fn key_settings(&mut self, ui: &mut egui::Ui) {
+        if let Some(action) = self.capturing {
+            let pressed = ui.input(|i| {
+                use egui::Key as K;
+                i.events.iter().find_map(|e| match e {
+                    // A modifier on its own is not the key; wait for the one pressed with it.
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if !matches!(
+                        key,
+                        K::ShiftLeft
+                            | K::ShiftRight
+                            | K::ControlLeft
+                            | K::ControlRight
+                            | K::AltLeft
+                            | K::AltRight
+                            | K::SuperLeft
+                            | K::SuperRight
+                    ) =>
+                    {
+                        Some((*key, *modifiers))
+                    }
+                    _ => None,
+                })
+            });
+            if let Some((key, mods)) = pressed {
+                self.capturing = None;
+                if key != egui::Key::Escape {
+                    let mods = egui::Modifiers {
+                        mac_cmd: false,
+                        ..mods
+                    };
+                    self.config.keys.0.retain(|k| k.0 != action);
+                    self.config.keys.0.push((action, mods, key));
+                    self.config.save();
+                    if let Ok(mut own) = OWN_KEYS.write() {
+                        own.clone_from(&self.config.keys.0);
+                    }
+                }
+            }
+        }
+        let all = shortcuts();
+        let mut actions: Vec<Action> = Vec::new();
+        for s in SHORTCUTS {
+            if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
+                actions.push(s.0);
+            }
+        }
+        egui::Grid::new("keys").striped(true).show(ui, |ui| {
+            for action in actions {
+                ui.label(action.label());
+                let keys: Vec<String> = (all.iter().filter(|s| s.0 == action))
+                    .map(|s| {
+                        ui.ctx()
+                            .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
+                    })
+                    .collect();
+                if self.capturing == Some(action) {
+                    ui.strong("Press a key (Esc cancels)");
+                } else {
+                    ui.label(keys.join(", "));
+                }
+                ui.horizontal(|ui| {
+                    if ui.small_button("Change").clicked() {
+                        self.capturing = Some(action);
+                    }
+                    let own = self.config.keys.0.iter().any(|k| k.0 == action);
+                    if own && ui.small_button("Reset").clicked() {
+                        self.config.keys.0.retain(|k| k.0 != action);
+                        self.config.save();
+                        if let Ok(mut o) = OWN_KEYS.write() {
+                            o.clone_from(&self.config.keys.0);
+                        }
+                    }
+                });
+                ui.end_row();
+            }
+        });
     }
 
     /// Decode everything again with or without colour management.
@@ -4144,13 +4300,16 @@ impl App {
     fn shortcut(ctx: &egui::Context, delete_key: bool) -> Option<Action> {
         ctx.input_mut(|i| {
             // egui-winit turns Ctrl+C into a Copy event instead of a key press.
+            let all = shortcuts();
             let copies = i.events.len();
             i.events.retain(|e| !matches!(e, egui::Event::Copy));
             if i.events.len() < copies {
-                return Some(Action::Copy);
+                // Whatever has Ctrl+C: Copy, unless the user gave the key to another action.
+                return (all.iter())
+                    .find(|s| s.1 == CTRL && s.2 == egui::Key::C)
+                    .map(|s| s.0);
             }
-            SHORTCUTS
-                .iter()
+            all.iter()
                 .filter(|s| delete_key || s.2 != egui::Key::Delete)
                 .find(|&&(_, mods, key)| {
                     i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))
@@ -4826,6 +4985,7 @@ impl eframe::App for App {
         if open
             && self.prompt.is_none()
             && self.confirm.is_none()
+            && self.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
             open = false;
@@ -5075,6 +5235,10 @@ impl eframe::App for App {
                         changed = true;
                         self.title(ctx);
                     }
+                    ui.separator();
+                    egui::CollapsingHeader::new("Keyboard shortcuts").show(ui, |ui| {
+                        self.key_settings(ui);
+                    });
                     ui.separator();
                     ui.label("Delete behaviour:");
                     let c = &mut self.config;
@@ -5886,6 +6050,25 @@ mod tests {
         std::fs::write(&file, b"RIFF\x04\0\0\0WEBP").unwrap();
         assert_eq!(super::webp_lossless(&file), None);
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// Own keys survive the config file, and replace the defaults of their action.
+    #[test]
+    fn own_keys() {
+        use super::{Action, Keys};
+        let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
+            .parse()
+            .unwrap();
+        assert_eq!(keys.to_string(), "Next=Ctrl+Shift+N;ZoomIn=Plus");
+        assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
+        *super::OWN_KEYS.write().unwrap() = keys.0.clone();
+        let all = super::shortcuts();
+        let next: Vec<_> = all.iter().filter(|s| s.0 == Action::Next).collect();
+        assert_eq!(next.len(), 1);
+        // More modifiers first, so Shift+R (rotate) is matched before R.
+        let pos = |a| all.iter().position(|s| s.0 == a).unwrap();
+        assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
+        super::OWN_KEYS.write().unwrap().clear();
     }
 
     #[test]
