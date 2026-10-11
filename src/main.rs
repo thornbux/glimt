@@ -605,20 +605,13 @@ impl Sort {
     }
 }
 
-#[derive(Clone, Copy)]
-struct SortOrder {
-    by: Sort,
-    ascending: bool,
-    /// Case-sensitive names ("B" before "a").
-    case: bool,
-}
-
-/// Sort file names in `dir`. Everything but name and number needs a stat (or EXIF) per file,
-/// so this runs in the listing thread; ties fall back to the name.
-fn sort_files(dir: &Path, files: &mut [OsString], order: SortOrder) {
+/// Sort file names in `dir`; `case`: case-sensitive names ("B" before "a"). Everything but name
+/// and number needs a stat (or EXIF) per file, so this runs in the listing thread; ties fall
+/// back to the name.
+fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool, case: bool) {
     let name = |f: &OsString| {
         let s = f.to_string_lossy();
-        if order.case {
+        if case {
             s.into_owned()
         } else {
             s.to_lowercase()
@@ -630,9 +623,9 @@ fn sort_files(dir: &Path, files: &mut [OsString], order: SortOrder) {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_nanos())
     };
-    match order.by {
+    match by {
         // Files are listed byte-wise, which is case-sensitive name order.
-        Sort::Name if order.case => {}
+        Sort::Name if case => {}
         Sort::Name => files.sort_by_cached_key(name),
         Sort::Number => {
             files.sort_by_cached_key(name);
@@ -649,7 +642,7 @@ fn sort_files(dir: &Path, files: &mut [OsString], order: SortOrder) {
         }),
         Sort::Size => files.sort_by_cached_key(|f| (meta(f).map(|m| m.len()), name(f))),
         Sort::ExifOriginal | Sort::ExifDigitized => {
-            let digitized = order.by == Sort::ExifDigitized;
+            let digitized = by == Sort::ExifDigitized;
             // Files without the date last.
             files.sort_by_cached_key(|f| {
                 let date = exif::date(&dir.join(f), digitized);
@@ -657,7 +650,7 @@ fn sort_files(dir: &Path, files: &mut [OsString], order: SortOrder) {
             })
         }
     }
-    if !order.ascending {
+    if !ascending {
         files.reverse();
     }
 }
@@ -760,67 +753,40 @@ impl WindowState {
     }
 }
 
-/// A config value as text in the `key=value` file.
-trait Setting: Sized {
-    /// `None` for an invalid value, which leaves the default.
-    fn parse(text: &str) -> Option<Self>;
-    fn show(&self) -> String;
-}
+/// A colour (sRGB), written as #rrggbb in the config.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Rgb([u8; 3]);
 
-impl Setting for bool {
-    fn parse(text: &str) -> Option<Self> {
-        Some(text == "true")
-    }
-    fn show(&self) -> String {
-        self.to_string()
-    }
-}
-
-impl Setting for usize {
-    fn parse(text: &str) -> Option<Self> {
-        text.parse().ok()
-    }
-    fn show(&self) -> String {
-        self.to_string()
-    }
-}
-
-impl Setting for u64 {
-    fn parse(text: &str) -> Option<Self> {
-        text.parse().ok()
-    }
-    fn show(&self) -> String {
-        self.to_string()
-    }
-}
-
-impl Setting for String {
-    fn parse(text: &str) -> Option<Self> {
-        Some(text.to_owned())
-    }
-    fn show(&self) -> String {
-        self.clone()
-    }
-}
-
-/// A colour as #rrggbb.
-impl Setting for [u8; 3] {
-    fn parse(text: &str) -> Option<Self> {
+impl std::str::FromStr for Rgb {
+    type Err = ();
+    fn from_str(text: &str) -> Result<Self, ()> {
         let hex = text.trim_start_matches('#');
-        let [_, r, g, b] = u32::from_str_radix(hex, 16).ok()?.to_be_bytes();
-        (hex.len() == 6).then_some([r, g, b])
-    }
-    fn show(&self) -> String {
-        format!("#{:02x}{:02x}{:02x}", self[0], self[1], self[2])
+        let [_, r, g, b] = u32::from_str_radix(hex, 16).map_err(drop)?.to_be_bytes();
+        (hex.len() == 6).then_some(Rgb([r, g, b])).ok_or(())
     }
 }
 
-impl Setting for Sort {
-    fn parse(text: &str) -> Option<Self> {
-        SORTS.into_iter().find(|s| s.1 == text).map(|s| s.0)
+impl std::fmt::Display for Rgb {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let [r, g, b] = self.0;
+        write!(f, "#{r:02x}{g:02x}{b:02x}")
     }
-    fn show(&self) -> String {
-        self.entry().1.to_owned()
+}
+
+impl std::str::FromStr for Sort {
+    type Err = ();
+    fn from_str(text: &str) -> Result<Self, ()> {
+        SORTS
+            .into_iter()
+            .find(|s| s.1 == text)
+            .map(|s| s.0)
+            .ok_or(())
+    }
+}
+
+impl std::fmt::Display for Sort {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.entry().1)
     }
 }
 
@@ -841,10 +807,13 @@ macro_rules! config {
         }
 
         impl Config {
+            // String's parse cannot fail, so its `if let` is irrefutable.
+            #[allow(irrefutable_let_patterns)]
             fn set(&mut self, key: &str, value: &str) {
                 match key {
+                    // An invalid value keeps the default.
                     $(stringify!($name) => {
-                        if let Some(v) = Setting::parse(value) {
+                        if let Ok(v) = value.parse() {
                             self.$name = v;
                         }
                     })*
@@ -854,7 +823,7 @@ macro_rules! config {
 
             fn to_text(&self) -> String {
                 let mut text = String::new();
-                $(text += &format!("{}={}\n", stringify!($name), self.$name.show());)*
+                $(text += &format!("{}={}\n", stringify!($name), self.$name);)*
                 text
             }
         }
@@ -911,7 +880,7 @@ config! {
     /// File name search above the file list.
     search_bar: bool = true,
     /// Colour behind the image (sRGB).
-    background: [u8; 3] = [0, 0, 0],
+    background: Rgb = Rgb([0, 0, 0]),
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -932,14 +901,6 @@ impl Config {
         c.delay = c.delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c
-    }
-
-    fn sort_order(&self) -> SortOrder {
-        SortOrder {
-            by: self.sort,
-            ascending: self.sort_ascending,
-            case: self.sort_case,
-        }
     }
 
     fn load() -> Self {
@@ -968,19 +929,14 @@ fn write_atomic(path: &Path, text: &str) {
     }
 }
 
-/// New index for `i` when the (sorted) indices in `removed` are taken out of the list; `None` if `i` itself is removed.
-fn shifted(i: usize, removed: &[usize]) -> Option<usize> {
-    removed.binary_search(&i).err().map(|before| i - before)
-}
-
-/// Drop the entries for `removed` (sorted) and shift the rest down accordingly.
+/// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
+/// before them.
 fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {
     map.into_iter()
-        .filter_map(|(i, v)| Some((shifted(i, removed)?, v)))
+        .filter_map(|(i, v)| Some((i - removed.binary_search(&i).err()?, v)))
         .collect()
 }
 
-/// Sum of the file sizes (one stat per file); unreadable files are not counted.
 /// Send sizes as partial sums of 10,000 files, so the status bar fills in gradually; stops
 /// when the receiver is gone. The closed channel tells the UI the sum is complete.
 fn send_sizes(sizes: impl Iterator<Item = u64>, tx: mpsc::Sender<u64>, ctx: &egui::Context) {
@@ -1011,6 +967,7 @@ fn size_text(bytes: Option<u64>) -> String {
     bytes.map_or("calculating…".to_owned(), human_size)
 }
 
+/// Sum of the file sizes (one stat per file); unreadable files are not counted.
 fn total_size(paths: &[PathBuf]) -> u64 {
     paths
         .iter()
@@ -1406,10 +1363,11 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
         let (list_dir, ctx2, videos) = (self.dir.clone(), ctx.clone(), self.config.videos);
-        let order = self.config.sort_order();
+        let c = &self.config;
+        let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
         std::thread::spawn(move || {
             let (dirs, mut files) = list_folder(&list_dir, videos);
-            sort_files(&list_dir, &mut files, order);
+            sort_files(&list_dir, &mut files, by, ascending, case);
             // The receiver is gone if another folder was opened meanwhile; then we stop.
             if tx.send((dirs, files)).is_err() {
                 return;
@@ -2776,12 +2734,13 @@ impl eframe::App for App {
                     }
                     ui.horizontal(|ui| {
                         changed |= ui
-                            .color_edit_button_srgb(&mut self.config.background)
+                            .color_edit_button_srgb(&mut self.config.background.0)
                             .changed();
                         ui.label("Background behind the image");
-                        if self.config.background != [0, 0, 0] && ui.small_button("Black").clicked()
+                        if self.config.background.0 != [0, 0, 0]
+                            && ui.small_button("Black").clicked()
                         {
-                            self.config.background = [0, 0, 0];
+                            self.config.background.0 = [0, 0, 0];
                             changed = true;
                         }
                     });
@@ -3176,7 +3135,7 @@ impl eframe::App for App {
         let mut wheel_step = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill({
-                let [r, g, b] = self.config.background;
+                let [r, g, b] = self.config.background.0;
                 egui::Color32::from_rgb(r, g, b)
             }))
             .show(ui, |ui| {
@@ -3423,12 +3382,13 @@ mod tests {
         assert_eq!(super::natural_cmp("a", "a1"), Less);
         let mut v: Vec<std::ffi::OsString> =
             ["b10", "B2", "a1", "b9"].iter().map(Into::into).collect();
-        let order = super::SortOrder {
-            by: super::Sort::Number,
-            ascending: false,
-            case: false,
-        };
-        super::sort_files(std::path::Path::new("."), &mut v, order);
+        super::sort_files(
+            std::path::Path::new("."),
+            &mut v,
+            super::Sort::Number,
+            false,
+            false,
+        );
         assert_eq!(v, ["b10", "b9", "B2", "a1"]);
     }
 
@@ -3495,7 +3455,7 @@ mod tests {
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
         assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
         assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
-        assert_eq!(Config::default().background, [0, 0, 0]);
+        assert_eq!(Config::default().background.0, [0, 0, 0]);
         assert!(Config::default().remember_window && Config::default().inhibit_screensaver);
         assert!(!Config::parse("remember_window=false").remember_window);
         assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
@@ -3521,10 +3481,10 @@ mod tests {
         assert_eq!(super::WindowState::parse(&text), win);
         assert_eq!(super::WindowState::parse("window_size=5,5\n").size, None);
         assert_eq!(
-            Config::parse("background=#1a2B3c").background,
+            Config::parse("background=#1a2B3c").background.0,
             [0x1a, 0x2b, 0x3c]
         );
-        assert_eq!(Config::parse("background=#12").background, [0, 0, 0]);
+        assert_eq!(Config::parse("background=#12").background.0, [0, 0, 0]);
         assert!(Config::parse("save_thumbnails=true").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
