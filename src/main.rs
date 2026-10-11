@@ -590,10 +590,12 @@ enum Sort {
     ExifOriginal,
     ExifDigitized,
     Size,
+    /// File type: "jpg" before "mp4" before "png"; then by name.
+    Extension,
 }
 
 /// Each order with its config value and menu label.
-const SORTS: [(Sort, &str, &str); 7] = [
+const SORTS: [(Sort, &str, &str); 8] = [
     (Sort::Name, "name", "Sort by name"),
     (Sort::Number, "number", "Sort by number"),
     (Sort::Date, "date", "Sort by date"),
@@ -609,6 +611,7 @@ const SORTS: [(Sort, &str, &str); 7] = [
         "Sort by EXIF date digitized",
     ),
     (Sort::Size, "size", "Sort by size"),
+    (Sort::Extension, "extension", "Sort by extension"),
 ];
 
 impl Sort {
@@ -653,6 +656,11 @@ fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool, cas
             (t, name(f))
         }),
         Sort::Size => files.sort_by_cached_key(|f| (meta(f).map(|m| m.len()), name(f))),
+        Sort::Extension => files.sort_by_cached_key(|f| {
+            let n = name(f);
+            let ext = n.rsplit_once('.').map_or("", |e| e.1).to_owned();
+            (ext, n)
+        }),
         Sort::ExifOriginal | Sort::ExifDigitized => {
             let digitized = by == Sort::ExifDigitized;
             // Files without the date last.
@@ -3450,6 +3458,13 @@ mod tests {
             false,
         );
         assert_eq!(v, ["b10", "b9", "B2", "a1"]);
+        let mut v: Vec<std::ffi::OsString> = ["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]
+            .iter()
+            .map(Into::into)
+            .collect();
+        let dot = std::path::Path::new(".");
+        super::sort_files(dot, &mut v, super::Sort::Extension, true, false);
+        assert_eq!(v, ["e", "c.JPG", "d.jpg", "a.mp4", "b.png"]);
     }
 
     #[test]
