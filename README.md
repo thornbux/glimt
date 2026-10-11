@@ -127,6 +127,18 @@ update-desktop-database ~/.local/share/applications
 
 Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
 
+## Tested on
+
+| Distribution | Desktop | Session | How |
+|---|---|---|---|
+| Ubuntu 26.04.1 LTS (glibc 2.43, Mesa) | GNOME 50.1 | Wayland | Daily use |
+| Ubuntu 26.04.1 LTS | none (Xvfb) | X11 | Automated checks and the screenshots |
+
+CI builds and tests on GitHub's current Ubuntu. Other distributions with a recent Rust should
+work when Glimt is built from source; a binary built on a newer glibc does not start on an
+older one (see the portable build above). Reports from other distributions and desktops (KDE,
+Sway, X11 with a window manager) are very welcome.
+
 ## Runtime dependencies
 
 | Needed for | Tool | Fallback |
