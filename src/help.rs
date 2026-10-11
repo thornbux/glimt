@@ -74,7 +74,9 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Slideshow",
         "S starts and stops, P pauses, R switches random order on and off, Ctrl+= and Ctrl+- \
-         change the delay. Browsing during a slideshow gives the new image the full delay.",
+         change the delay. Browsing during a slideshow gives the new image the full delay. \
+         With \"Include the images in subfolders\" in Preferences it shows those too; the list \
+         goes back to the folder when the slideshow stops.",
     ),
     (
         "Selecting and file operations",

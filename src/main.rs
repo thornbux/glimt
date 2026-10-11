@@ -742,6 +742,10 @@ struct App {
     tree_shown: PathBuf,
     #[cfg(feature = "marks")]
     marks: marks::Marks,
+    /// The list holds the images of the subfolders too (slideshow with subfolders).
+    recursive: bool,
+    /// The next listing is shuffled as a whole instead of merged into the current order.
+    whole_shuffle: bool,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
@@ -1089,6 +1093,26 @@ fn is_listed(path: &Path, videos: bool) -> bool {
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
 /// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
+/// The images in `dir` and every folder below it, as paths relative to `dir`. A folder reached
+/// again through a link is read once.
+fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
+    let (mut seen, mut out, mut todo) = (HashSet::new(), Vec::new(), vec![PathBuf::new()]);
+    while let Some(rel) = todo.pop() {
+        let full = dir.join(&rel);
+        if !seen.insert(full.canonicalize().unwrap_or_else(|_| full.clone())) {
+            continue;
+        }
+        let (dirs, files) = list_folder(&full, videos);
+        out.extend(files.into_iter().map(|f| rel.join(f).into_os_string()));
+        todo.extend(
+            dirs.iter()
+                .filter_map(|d| d.file_name())
+                .map(|n| rel.join(n)),
+        );
+    }
+    out
+}
+
 fn list_folder(dir: &Path, videos: bool) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -1400,6 +1424,8 @@ config! {
     random: bool = false,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool = true,
+    /// A slideshow also shows the images in the subfolders.
+    slideshow_subfolders: bool = false,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
@@ -1903,6 +1929,8 @@ impl App {
             login: None,
             grid_cols: 1,
             compare: false,
+            recursive: false,
+            whole_shuffle: false,
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
             tree: HashMap::new(),
@@ -2024,6 +2052,7 @@ impl App {
         self.subdirs.clear();
         self.deleting.clear();
         self.random = false;
+        self.recursive = false;
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
@@ -2042,9 +2071,16 @@ impl App {
         let (list_dir, ctx2, videos) = (self.dir.clone(), ctx.clone(), self.config.videos);
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
+        let (recursive, shuffled) = (self.recursive, self.whole_shuffle);
         std::thread::spawn(move || {
             let (dirs, mut files) = list_folder(&list_dir, videos);
+            if recursive {
+                files = list_tree(&list_dir, videos);
+            }
             sort_files(&list_dir, &mut files, by, ascending, case);
+            if shuffled {
+                shuffle(&mut files);
+            }
             // The receiver is gone if another folder was opened meanwhile; then we stop.
             if tx.send((dirs, files)).is_err() {
                 return;
@@ -2052,6 +2088,13 @@ impl App {
             ctx2.request_repaint();
             // Sizes afterwards: read the folder once more and sum from the directory entries in
             // chunks, so the status bar fills in gradually without a copy of the whole list in memory.
+            if recursive {
+                let tree = list_tree(&list_dir, videos);
+                let sizes = tree
+                    .iter()
+                    .filter_map(|f| Some(list_dir.join(f).metadata().ok()?.len()));
+                return send_sizes(sizes, size_tx, &ctx2);
+            }
             let images = std::fs::read_dir(&list_dir)
                 .into_iter()
                 .flatten()
@@ -2142,8 +2185,8 @@ impl App {
             files.retain(|f| !self.deleting.contains(f));
         }
         // A refresh during random order keeps the order, so Previous still goes back
-        // through the images that were shown.
-        let files = if self.random {
+        // through the images that were shown; a list shuffled whole in the thread stays as it is.
+        let files = if self.random && !std::mem::take(&mut self.whole_shuffle) {
             merge_shuffled(&self.files, files)
         } else {
             files
@@ -2442,8 +2485,10 @@ impl App {
 
     /// Is `path` image number `i` in the list? (Without building the path.)
     fn is_file(&self, i: usize, path: &Path) -> bool {
+        // Names are relative to the folder; in a slideshow with subfolders they have folders too.
         self.files.get(i).is_some_and(|name| {
-            path.parent() == Some(self.dir.as_path()) && path.file_name() == Some(name.as_os_str())
+            path.strip_prefix(&self.dir)
+                .is_ok_and(|rest| rest.as_os_str() == name)
         })
     }
 
@@ -2495,7 +2540,14 @@ impl App {
     }
 
     fn start_slideshow(&mut self, ctx: &egui::Context) {
-        if self.config.random != self.random {
+        if self.config.slideshow_subfolders {
+            // The images of the subfolders too, listed in the background; random order
+            // shuffles them all together.
+            self.recursive = true;
+            self.random = self.config.random;
+            self.whole_shuffle = self.random;
+            self.list(ctx);
+        } else if self.config.random != self.random {
             self.set_random(ctx, self.config.random);
         }
         // The first slide comes at once: start as if the delay has already run out.
@@ -2650,7 +2702,11 @@ impl App {
     fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow = None;
         self.paused = false;
-        if self.random {
+        if self.recursive {
+            self.recursive = false;
+            self.random = false;
+            self.list(ctx);
+        } else if self.random {
             self.set_random(ctx, false);
         }
         self.title(ctx);
@@ -4145,6 +4201,12 @@ impl eframe::App for App {
                     if ui.checkbox(&mut random, "Random order").changed() {
                         self.set_random_order(ctx, random);
                     }
+                    changed |= ui
+                        .checkbox(
+                            &mut self.config.slideshow_subfolders,
+                            "Include the images in subfolders",
+                        )
+                        .changed();
                     ui.separator();
                     let mut rotate = self.config.exif_rotate;
                     if ui
