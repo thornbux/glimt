@@ -2735,10 +2735,12 @@ impl eframe::App for App {
                     ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
                     ui.separator();
                     ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
+                    // Plain settings set `changed`; the config is saved once at the end.
+                    let mut changed = false;
                     let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
                         .text("seconds per image");
                     if ui.add(delay).changed() {
-                        self.config.save();
+                        changed = true;
                         self.title(ctx);
                     }
                     let mut random = self.config.random;
@@ -2754,33 +2756,26 @@ impl eframe::App for App {
                         self.set_exif_rotate(rotate);
                     }
                     ui.horizontal(|ui| {
-                        if ui
+                        changed |= ui
                             .color_edit_button_srgb(&mut self.config.background)
-                            .changed()
-                        {
-                            self.config.save();
-                        }
+                            .changed();
                         ui.label("Background behind the image");
                         if self.config.background != [0, 0, 0] && ui.small_button("Black").clicked()
                         {
                             self.config.background = [0, 0, 0];
-                            self.config.save();
+                            changed = true;
                         }
                     });
-                    let enlarge = egui::Checkbox::new(
-                        &mut self.config.enlarge,
-                        "Enlarge small images to fit the window",
-                    );
-                    if ui.add(enlarge).changed() {
-                        self.config.save();
-                    }
-                    let wheel = egui::Checkbox::new(
-                        &mut self.config.wheel_zoom,
-                        "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
-                    );
-                    if ui.add(wheel).changed() {
-                        self.config.save();
-                    }
+                    let c = &mut self.config;
+                    changed |= ui
+                        .checkbox(&mut c.enlarge, "Enlarge small images to fit the window")
+                        .changed();
+                    changed |= ui
+                        .checkbox(
+                            &mut c.wheel_zoom,
+                            "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
+                        )
+                        .changed();
                     ui.separator();
                     let mut show = self.config.thumbnails;
                     if ui
@@ -2789,132 +2784,102 @@ impl eframe::App for App {
                     {
                         self.set_thumbnails(show);
                     }
-                    let details = egui::Checkbox::new(
-                        &mut self.config.file_details,
-                        "Show file size and date in the file list",
-                    );
-                    if ui.add(details).changed() {
-                        self.config.save();
-                    }
-                    let save = egui::Checkbox::new(
-                        &mut self.config.save_thumbnails,
-                        "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
-                    );
-                    if ui.add(save).changed() {
-                        self.save_thumbs
-                            .store(self.config.save_thumbnails, Ordering::Relaxed);
-                        self.config.save();
+                    let c = &mut self.config;
+                    changed |= ui
+                        .checkbox(
+                            &mut c.file_details,
+                            "Show file size and date in the file list",
+                        )
+                        .changed();
+                    let save =
+                        "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)";
+                    if ui.checkbox(&mut c.save_thumbnails, save).changed() {
+                        self.save_thumbs.store(c.save_thumbnails, Ordering::Relaxed);
+                        changed = true;
                     }
                     ui.separator();
-                    let low = egui::Checkbox::new(
-                        &mut self.config.low_memory,
-                        "Use less memory (decoding up to ~8 % slower; after restart)",
-                    );
-                    if ui.add(low).changed() {
-                        self.config.save();
-                    }
+                    let low = "Use less memory (decoding up to ~8 % slower; after restart)";
+                    changed |= ui.checkbox(&mut c.low_memory, low).changed();
                     ui.separator();
-                    let toolbar = ui.checkbox(&mut self.config.toolbar, "Show the toolbar");
-                    let path = ui.checkbox(&mut self.config.path_bar, "Show the folder path");
-                    let search =
-                        ui.checkbox(&mut self.config.search_bar, "Show the file name search");
-                    if search.changed() && !self.config.search_bar {
-                        self.search.clear();
-                        self.update_search();
-                    }
-                    if toolbar.changed() || path.changed() || search.changed() {
-                        self.config.save();
+                    changed |= ui.checkbox(&mut c.toolbar, "Show the toolbar").changed();
+                    changed |= ui
+                        .checkbox(&mut c.path_bar, "Show the folder path")
+                        .changed();
+                    if ui
+                        .checkbox(&mut c.search_bar, "Show the file name search")
+                        .changed()
+                    {
+                        changed = true;
+                        if !c.search_bar {
+                            self.search.clear();
+                            self.update_search();
+                        }
                     }
                     ui.horizontal(|ui| {
                         ui.label("Toolbar icons:");
                         for (n, label) in ["Small", "Medium", "Large"].into_iter().enumerate() {
-                            if ui
+                            changed |= ui
                                 .radio_value(&mut self.config.toolbar_icons, n, label)
-                                .changed()
-                            {
-                                self.config.save();
-                            }
+                                .changed();
                         }
                     });
-                    let exif = egui::Checkbox::new(
-                        &mut self.config.exif_panel,
-                        "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
-                    );
-                    if ui.add(exif).changed() {
-                        self.config.save();
-                    }
+                    let c = &mut self.config;
+                    let exif = "Show the EXIF panel (Ctrl+K; reads a little from each image shown)";
+                    changed |= ui.checkbox(&mut c.exif_panel, exif).changed();
                     ui.separator();
-                    let auto = egui::Checkbox::new(
-                        &mut self.config.auto_refresh,
-                        "Refresh the folder when files change",
-                    );
-                    if ui.add(auto).changed() {
-                        self.config.save();
-                    }
-                    let remember = egui::Checkbox::new(
-                        &mut self.config.remember_dir,
-                        "Start in the last used folder",
-                    );
-                    if ui.add(remember).changed() {
-                        self.config.save();
-                    }
-                    let window = ui.checkbox(
-                        &mut self.config.remember_window,
-                        "Remember the window size and position",
-                    );
-                    let inhibit = ui.checkbox(
-                        &mut self.config.inhibit_screensaver,
-                        "Keep the screen saver off in full screen",
-                    );
-                    if window.changed() || inhibit.changed() {
-                        self.config.save();
-                    }
-                    let order = ui.checkbox(
-                        &mut self.config.app_name_first,
-                        "Window title \"Glimt - image name\" (off: \"image name - Glimt\")",
-                    );
-                    if order.changed() {
-                        self.config.save();
+                    changed |= ui
+                        .checkbox(&mut c.auto_refresh, "Refresh the folder when files change")
+                        .changed();
+                    changed |= ui
+                        .checkbox(&mut c.remember_dir, "Start in the last used folder")
+                        .changed();
+                    let window = "Remember the window size and position";
+                    changed |= ui.checkbox(&mut c.remember_window, window).changed();
+                    let inhibit = "Keep the screen saver off in full screen";
+                    changed |= ui.checkbox(&mut c.inhibit_screensaver, inhibit).changed();
+                    let order = "Window title \"Glimt - image name\" (off: \"image name - Glimt\")";
+                    if ui.checkbox(&mut c.app_name_first, order).changed() {
+                        changed = true;
                         self.title(ctx);
                     }
                     ui.separator();
                     ui.label("Delete behaviour:");
-                    let permanent = ui.checkbox(
-                        &mut self.config.confirm_delete,
-                        "Confirm permanent file delete",
-                    );
-                    let trash =
-                        ui.checkbox(&mut self.config.confirm_trash, "Confirm move file to Trash");
-                    let key = ui.checkbox(&mut self.config.delete_key, "Enable Delete key");
-                    let mut no_trash = !self.config.trash;
-                    let none = ui.checkbox(
-                        &mut no_trash,
-                        "Use no trash at all (Delete deletes permanently)",
-                    );
-                    self.config.trash = !no_trash;
-                    if permanent.changed() || trash.changed() || key.changed() || none.changed() {
-                        self.config.save();
+                    let c = &mut self.config;
+                    changed |= ui
+                        .checkbox(&mut c.confirm_delete, "Confirm permanent file delete")
+                        .changed();
+                    changed |= ui
+                        .checkbox(&mut c.confirm_trash, "Confirm move file to Trash")
+                        .changed();
+                    changed |= ui
+                        .checkbox(&mut c.delete_key, "Enable Delete key")
+                        .changed();
+                    let mut no_trash = !c.trash;
+                    let none = "Use no trash at all (Delete deletes permanently)";
+                    if ui.checkbox(&mut no_trash, none).changed() {
+                        c.trash = !no_trash;
+                        changed = true;
                     }
                     #[cfg(feature = "video")]
                     {
                         ui.separator();
                         ui.label("Video (needs ffmpeg for previews):");
-                        let videos = egui::Checkbox::new(
-                            &mut self.config.videos,
-                            "Show videos in the file list",
-                        );
-                        if ui.add(videos).changed() {
-                            self.config.save();
+                        if ui
+                            .checkbox(&mut c.videos, "Show videos in the file list")
+                            .changed()
+                        {
+                            changed = true;
                             self.list(ctx);
                         }
                         ui.horizontal(|ui| {
                             ui.label("Player (Enter):");
                             let player = egui::TextEdit::singleline(&mut self.config.video_player)
                                 .hint_text("default application");
-                            if ui.add(player).changed() {
-                                self.config.save();
-                            }
+                            changed |= ui.add(player).changed();
                         });
+                    }
+                    if changed {
+                        self.config.save();
                     }
                 });
             });
