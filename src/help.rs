@@ -33,6 +33,7 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
         .collapsible(false)
         .default_height(520.0)
         .show(ctx, |ui| {
+            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
             egui::ScrollArea::vertical().show(ui, |ui| match shown {
                 Page::Manual => manual(ui),
                 Page::Shortcuts => shortcuts(ui),

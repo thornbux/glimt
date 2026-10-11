@@ -2807,7 +2807,9 @@ impl eframe::App for App {
             .resizable(false)
             .collapsible(false)
             .show(ctx, |ui| {
-                // Scrolls when the window is smaller than the settings.
+                // Scrolls when the window is smaller than the settings; a solid scroll bar
+                // takes its own space instead of covering the text.
+                ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let mut n = self.ahead.load(Ordering::Relaxed);
                     let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
