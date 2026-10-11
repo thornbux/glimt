@@ -556,7 +556,9 @@ fn list_folder(dir: &Path, videos: bool) -> (Vec<PathBuf>, Vec<OsString>) {
             dirs.push(path);
         }
     }
-    sort_by_name(&mut dirs);
+    // Byte-wise comparison of the whole path gives name order for paths in one folder, and is
+    // ~9× faster than Path::cmp, which re-parses the path in every comparison.
+    dirs.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
     images.sort_unstable(); // byte-wise on Unix
     (dirs, images)
 }
@@ -575,40 +577,28 @@ enum Sort {
     Size,
 }
 
-impl Sort {
-    const ALL: [Sort; 7] = [
-        Sort::Name,
-        Sort::Number,
-        Sort::Date,
-        Sort::Created,
+/// Each order with its config value and menu label.
+const SORTS: [(Sort, &str, &str); 7] = [
+    (Sort::Name, "name", "Sort by name"),
+    (Sort::Number, "number", "Sort by number"),
+    (Sort::Date, "date", "Sort by date"),
+    (Sort::Created, "created", "Sort by file creation date"),
+    (
         Sort::ExifOriginal,
+        "exif_original",
+        "Sort by EXIF date original",
+    ),
+    (
         Sort::ExifDigitized,
-        Sort::Size,
-    ];
+        "exif_digitized",
+        "Sort by EXIF date digitized",
+    ),
+    (Sort::Size, "size", "Sort by size"),
+];
 
-    fn label(self) -> &'static str {
-        match self {
-            Sort::Name => "Sort by name",
-            Sort::Number => "Sort by number",
-            Sort::Date => "Sort by date",
-            Sort::Created => "Sort by file creation date",
-            Sort::ExifOriginal => "Sort by EXIF date original",
-            Sort::ExifDigitized => "Sort by EXIF date digitized",
-            Sort::Size => "Sort by size",
-        }
-    }
-
-    /// The config value.
-    fn key(self) -> &'static str {
-        match self {
-            Sort::Name => "name",
-            Sort::Number => "number",
-            Sort::Date => "date",
-            Sort::Created => "created",
-            Sort::ExifOriginal => "exif_original",
-            Sort::ExifDigitized => "exif_digitized",
-            Sort::Size => "size",
-        }
+impl Sort {
+    fn entry(self) -> (Sort, &'static str, &'static str) {
+        SORTS.into_iter().find(|s| s.0 == self).unwrap_or(SORTS[0])
     }
 }
 
@@ -695,12 +685,6 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
             (a, b) = (&a[ca.len_utf8()..], &b[cb.len_utf8()..]);
         }
     }
-}
-
-/// Paths in the same folder: byte-wise comparison of the whole path gives name order, and is
-/// ~9× faster than Path::cmp/file_name(), which re-parses the path in every comparison.
-fn sort_by_name(paths: &mut [PathBuf]) {
-    paths.sort_unstable_by(|a, b| a.as_os_str().cmp(b.as_os_str()));
 }
 
 /// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
@@ -904,10 +888,10 @@ impl Config {
                 "app_name_first" => c.app_name_first = value == "true",
                 "file_details" => c.file_details = value == "true",
                 "sort" => {
-                    c.sort = Sort::ALL
+                    c.sort = SORTS
                         .into_iter()
-                        .find(|s| s.key() == value)
-                        .unwrap_or(c.sort)
+                        .find(|s| s.1 == value)
+                        .map_or(c.sort, |s| s.0)
                 }
                 "sort_ascending" => c.sort_ascending = value == "true",
                 "sort_case" => c.sort_case = value == "true",
@@ -968,7 +952,7 @@ impl Config {
             self.inhibit_screensaver,
             self.app_name_first,
             self.file_details,
-            self.sort.key(),
+            self.sort.entry().1,
             self.sort_ascending,
             self.sort_case,
             self.toolbar_icons,
@@ -2040,10 +2024,10 @@ impl App {
     /// Geeqie's sort menu in the status bar.
     fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
-        ui.menu_button(format!("{} ⏷", self.config.sort.label()), |ui| {
-            for sort in Sort::ALL {
+        ui.menu_button(format!("{} ⏷", self.config.sort.entry().2), |ui| {
+            for (sort, _, label) in SORTS {
                 if ui
-                    .selectable_label(self.config.sort == sort, sort.label())
+                    .selectable_label(self.config.sort == sort, label)
                     .clicked()
                 {
                     self.config.sort = sort;
