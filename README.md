@@ -74,6 +74,20 @@ objdump -T target/x86_64-unknown-linux-gnu/release/glimt | grep -o 'GLIBC_[0-9.]
 musl-based distributions (Alpine) are not supported, because the viewer calls glibc's
 `malloc_trim` to return decoder memory to the system.
 
+## Desktop integration
+
+To get Glimt with its icon in the application overview and dock (for the current user):
+
+```sh
+install -Dm644 assets/glimt.svg ~/.local/share/icons/hicolor/scalable/apps/glimt.svg
+install -Dm644 assets/glimt-256.png ~/.local/share/icons/hicolor/256x256/apps/glimt.png
+sed "s|^Exec=glimt|Exec=$PWD/target/release/glimt|" assets/glimt.desktop \
+  > ~/.local/share/applications/glimt.desktop
+update-desktop-database ~/.local/share/applications
+```
+
+Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
+
 ## Runtime dependencies
 
 | Needed for | Tool | Fallback |

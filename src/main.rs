@@ -3433,9 +3433,19 @@ fn main() -> eframe::Result {
         unsafe { mallopt(M_ARENA_MAX, 1) };
     }
     let arg = std::env::args_os().nth(1).map(PathBuf::from);
+    // The app ID matches glimt.desktop, so the desktop shows its icon for the window.
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")
+        .with_app_id("glimt")
         .with_inner_size([1280.0, 800.0]);
+    if let Ok(icon) = image::load_from_memory(include_bytes!("../assets/glimt-256.png")) {
+        let icon = icon.into_rgba8();
+        viewport = viewport.with_icon(egui::IconData {
+            width: icon.width(),
+            height: icon.height(),
+            rgba: icon.into_raw(),
+        });
+    }
     if Config::load().remember_window
         && let Some(state) = state_path().and_then(|p| std::fs::read_to_string(p).ok())
     {

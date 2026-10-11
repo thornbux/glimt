@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Glimt
+GenericName=Image Viewer
+Comment=A fast, memory-frugal image viewer
+Exec=glimt %f
+Icon=glimt
+Terminal=false
+Categories=Graphics;Viewer;Photography;
+MimeType=image/jpeg;image/png;image/webp;image/gif;image/tiff;
+StartupWMClass=glimt
