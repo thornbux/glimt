@@ -4643,13 +4643,19 @@ impl eframe::App for App {
         let bare = fullscreen || self.hide_tools;
         self.inhibit(fullscreen && self.config.inhibit_screensaver);
         // Geometry of the normal window only, so leaving full screen or maximized restores it.
-        let (inner, outer, maximized) = ctx.input(|i| {
+        // The size from egui's own area: the viewport's inner_rect needs the window position,
+        // which Wayland does not give, so it stayed empty there and the size was never saved.
+        let (size, outer, maximized) = ctx.input(|i| {
             let v = i.viewport();
-            (v.inner_rect, v.outer_rect, v.maximized.unwrap_or(false))
+            (
+                i.viewport_rect().size(),
+                v.outer_rect,
+                v.maximized.unwrap_or(false),
+            )
         });
         self.window.maximized = maximized;
         if !fullscreen && !maximized {
-            self.window.size = inner.map(|r| r.size()).or(self.window.size);
+            self.window.size = Some(size);
             // Wayland reports no position.
             self.window.pos = outer.map(|r| r.min).or(self.window.pos);
         }
