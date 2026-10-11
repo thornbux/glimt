@@ -1400,6 +1400,8 @@ config! {
     random: bool = false,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool = true,
+    /// Keep zoom and position when going to another image, instead of fitting it.
+    keep_zoom: bool = false,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
     wheel_zoom: bool = true,
     /// Thumbnails in the file list (T).
@@ -2458,8 +2460,11 @@ impl App {
         }
         self.cur = idx.min(self.files.len() - 1);
         self.notice = None;
-        self.zoom = None;
-        self.pan = egui::Vec2::ZERO;
+        // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
+        if !self.config.keep_zoom {
+            self.zoom = None;
+            self.pan = egui::Vec2::ZERO;
+        }
         self.orient = (0, false);
         self.opened = Instant::now();
         self.scroll_to_cur = true;
@@ -4163,6 +4168,12 @@ impl eframe::App for App {
                     let c = &mut self.config;
                     changed |= ui
                         .checkbox(&mut c.enlarge, "Enlarge small images to fit the window")
+                        .changed();
+                    changed |= ui
+                        .checkbox(
+                            &mut c.keep_zoom,
+                            "Keep zoom and position when changing image",
+                        )
                         .changed();
                     changed |= ui
                         .checkbox(
