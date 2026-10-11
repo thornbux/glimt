@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-12
+
 ### Added
 
 - A manual page, `docs/glimt.1`.
@@ -56,5 +58,6 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/thornbux/glimt/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/thornbux/glimt/releases/tag/v0.9.0
