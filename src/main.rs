@@ -420,7 +420,9 @@ struct App {
     /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
     cur: usize,
-    current: Arc<AtomicUsize>,
+    /// The images to keep decoded, the shown one first: its neighbours in list order.
+    /// Shared with the workers, which skip jobs outside it.
+    keep: Arc<Mutex<Vec<usize>>>,
     /// Number of images preloaded on each side (Preferences).
     ahead: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
@@ -1152,7 +1154,7 @@ fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 impl App {
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>) -> Self {
-        let current = Arc::new(AtomicUsize::new(0));
+        let keep = Arc::new(Mutex::new(vec![0]));
         let config = Config::load();
         let path = path
             .or_else(|| {
@@ -1168,9 +1170,8 @@ impl App {
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
         for _ in 0..workers {
-            let (current, ahead, rotate, limits, job_rx, done_tx, ctx) = (
-                current.clone(),
-                ahead.clone(),
+            let (keep, rotate, limits, job_rx, done_tx, ctx) = (
+                keep.clone(),
                 rotate.clone(),
                 limits.clone(),
                 job_rx.clone(),
@@ -1183,8 +1184,11 @@ impl App {
                         return;
                     };
                     // Cancellation: skip images the user has already moved past.
-                    let cur = current.load(Ordering::Relaxed);
-                    if idx.abs_diff(cur) > ahead.load(Ordering::Relaxed) || (full && idx != cur) {
+                    let wanted = {
+                        let w = keep.lock().unwrap();
+                        w.contains(&idx) && (!full || w.first() == Some(&idx))
+                    };
+                    if !wanted {
                         let _ = done_tx.send(Decoded {
                             rotated: false,
                             idx,
@@ -1276,7 +1280,7 @@ impl App {
             subdirs: Vec::new(),
             files: Vec::new(),
             cur: 0,
-            current,
+            keep,
             ahead,
             rotate,
             show_settings: false,
@@ -1773,7 +1777,6 @@ impl App {
             return;
         }
         self.cur = idx.min(self.files.len() - 1);
-        self.current.store(self.cur, Ordering::Relaxed);
         self.notice = None;
         self.zoom = None;
         self.pan = egui::Vec2::ZERO;
@@ -1938,12 +1941,15 @@ impl App {
         if self.files.is_empty() || self.paused {
             return;
         }
-        let next = (self.cur + 1) % self.files.len();
+        let Some(next) = self.step(self.cur, 1, true) else {
+            return;
+        };
+        let first = self.step(self.cur, -isize::MAX / 2, false);
         let delay = std::time::Duration::from_secs(self.config.delay);
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
-        } else if self.random && next == 0 && self.files.len() > 2 {
+        } else if self.random && Some(next) == first && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
             self.set_random(ctx, true);
         } else if !self.pending.contains(&(next, false)) {
@@ -1958,17 +1964,19 @@ impl App {
         if self.files.is_empty() {
             return;
         }
-        let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed));
+        // The shown image first, then its neighbours in the order the list shows.
+        let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed) as isize);
+        let mut window = vec![cur];
+        for d in (1..=ahead).flat_map(|d| [d, -d]) {
+            if let Some(i) = self.step(cur, d, false).filter(|i| !window.contains(i)) {
+                window.push(i);
+            }
+        }
         self.slots
-            .retain(|&i, s| i.abs_diff(cur) <= ahead && (!s.full || i == cur));
-        self.request(cur, false);
-        for d in 1..=ahead {
-            if cur + d < self.files.len() {
-                self.request(cur + d, false);
-            }
-            if let Some(i) = cur.checked_sub(d) {
-                self.request(i, false);
-            }
+            .retain(|i, s| window.contains(i) && (!s.full || *i == cur));
+        *self.keep.lock().unwrap() = window.clone();
+        for i in window {
+            self.request(i, false);
         }
     }
 
@@ -1977,7 +1985,7 @@ impl App {
             self.pending.remove(&(d.idx, d.full));
             let wanted = self.is_file(d.idx, &d.path)
                 && d.rotated == self.config.exif_rotate
-                && d.idx.abs_diff(self.cur) <= self.ahead.load(Ordering::Relaxed)
+                && self.keep.lock().unwrap().contains(&d.idx)
                 && (!d.full || d.idx == self.cur);
             match d.result {
                 Some(Ok((img, orig))) if wanted => {
@@ -2312,6 +2320,27 @@ impl App {
         (self.matches.clone()).unwrap_or_else(|| (0..self.files.len()).collect())
     }
 
+    /// The file `delta` rows from file `from`, in the order the list shows (the search matches
+    /// while searching); clamped at the ends, or going round with `wrap`. A file the search
+    /// hides counts as being before the first row.
+    fn step(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
+        let m = self.matches.as_deref();
+        let n = m.map_or(self.files.len(), <[usize]>::len) as isize;
+        if n == 0 {
+            return None;
+        }
+        let row = match m {
+            Some(m) => m.iter().position(|&x| x == from).map_or(-1, |r| r as isize),
+            None => from as isize,
+        };
+        let r = if wrap {
+            (row + delta).rem_euclid(n)
+        } else {
+            (row + delta).clamp(0, n - 1)
+        } as usize;
+        Some(m.map_or(r, |m| m[r]))
+    }
+
     /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
     /// search matches while searching).
     fn select_range(&mut self, a: usize, b: usize) {
@@ -2398,7 +2427,6 @@ impl App {
     }
 
     fn run(&mut self, ctx: &egui::Context, action: Action) {
-        let last = self.files.len().saturating_sub(1);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         match action {
             Action::OpenFile => self.pick(ctx, false, Pick::Open),
@@ -2432,11 +2460,15 @@ impl App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
             Action::First | Action::Prev | Action::Next | Action::Last => {
-                let to = match action {
-                    Action::First => 0,
-                    Action::Prev => self.cur.saturating_sub(1),
-                    Action::Next => (self.cur + 1).min(last),
-                    _ => last,
+                // Along the list as shown: the search matches while searching.
+                let delta = match action {
+                    Action::First => -isize::MAX / 2,
+                    Action::Prev => -1,
+                    Action::Next => 1,
+                    _ => isize::MAX / 2,
+                };
+                let Some(to) = self.step(self.cur, delta, false) else {
+                    return;
                 };
                 // With Shift the selection runs from where it started to the new image, as in
                 // a file manager; moving without Shift clears it.
