@@ -28,6 +28,8 @@ const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
 const THUMB: egui::Vec2 = egui::vec2(96.0, 72.0);
+/// A cell of the thumbnail grid: the thumbnail with its name below.
+const CELL: egui::Vec2 = egui::vec2(THUMB.x + 8.0, THUMB.y + 26.0);
 /// Thumbnail jobs further than this from the visible rows are skipped.
 const THUMB_MARGIN: usize = 20;
 /// Width of the size and date columns in the file list (points).
@@ -80,6 +82,7 @@ enum Action {
     FullScreen,
     HideTools,
     Overlay,
+    Icons,
     Toolbar,
     PathBar,
     Thumbnails,
@@ -142,6 +145,7 @@ impl Action {
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
             Overlay => "Show Image Info in Full Screen",
+            Icons => "View Images as Icons",
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
@@ -206,6 +210,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Last, NONE, Key::End),
         (SelectNone, CTRL_SHIFT, Key::A),
         (InvertSelection, CTRL_SHIFT, Key::I),
+        (Icons, CTRL, Key::I),
         (SelectAll, CTRL, Key::A),
         (Preferences, CTRL, Key::O),
         (ZoomIn, NONE, Key::Equals),
@@ -341,6 +346,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "Images as icons (Ctrl+I)",
+        "Ctrl+I switches between list and icons",
+        "Ctrl+I icons, Ctrl+L list",
     ),
     (
         "Image info in full screen (I)",
@@ -958,6 +968,8 @@ config! {
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
     /// image overlay.
     osd: bool = true,
+    /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
+    icons: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
     /// Re-read the folder when files are added, removed or renamed.
@@ -2380,7 +2392,6 @@ impl App {
         } else {
             visuals.text_color()
         };
-        let name = &self.files[i];
         let thumbs = self.config.thumbnails;
         let frame = egui::Rect::from_min_size(
             rect.min + egui::vec2(2.0, 2.0),
@@ -2390,38 +2401,8 @@ impl App {
                 egui::vec2(0.0, height)
             },
         );
-        match self.thumbs.get(name).filter(|_| thumbs) {
-            Some(Some(tex)) => {
-                // Fit the box, but never enlarge.
-                let px = tex.size_vec2() / ui.ctx().pixels_per_point();
-                let scale = (THUMB.x / px.x).min(THUMB.y / px.y).min(1.0);
-                let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
-                let at = egui::Rect::from_center_size(frame.center(), px * scale);
-                ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
-                // Videos get a small play badge in the corner.
-                if is_video(Path::new(name)) {
-                    let c = at.left_bottom() + egui::vec2(13.0, -13.0);
-                    let p = ui.painter();
-                    p.circle_filled(c, 10.0, egui::Color32::from_black_alpha(170));
-                    let triangle = vec![
-                        c + egui::vec2(-3.0, -5.5),
-                        c + egui::vec2(6.0, 0.0),
-                        c + egui::vec2(-3.0, 5.5),
-                    ];
-                    p.add(egui::Shape::convex_polygon(
-                        triangle,
-                        egui::Color32::WHITE,
-                        egui::Stroke::NONE,
-                    ));
-                }
-            }
-            Some(None) => {}
-            None if !thumbs => {}
-            None => {
-                if self.thumbs_pending.insert(name.clone()) {
-                    let _ = self.thumb_jobs.send((i, self.path(i)));
-                }
-            }
+        if thumbs {
+            self.paint_thumb(ui, i, frame);
         }
         let font = egui::TextStyle::Body.resolve(ui.style());
         let gap = if thumbs { 8.0 } else { 2.0 };
@@ -2456,6 +2437,81 @@ impl App {
             text_color,
         );
         response
+    }
+
+    /// Thumbnail `i` fitted into `frame`, or a request for it.
+    fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
+        let name = &self.files[i];
+        match self.thumbs.get(name) {
+            Some(Some(tex)) => {
+                // Fit the box, but never enlarge.
+                let px = tex.size_vec2() / ui.ctx().pixels_per_point();
+                let scale = (THUMB.x / px.x).min(THUMB.y / px.y).min(1.0);
+                let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+                let at = egui::Rect::from_center_size(frame.center(), px * scale);
+                ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
+                // Videos get a small play badge in the corner.
+                if is_video(Path::new(name)) {
+                    let c = at.left_bottom() + egui::vec2(13.0, -13.0);
+                    let p = ui.painter();
+                    p.circle_filled(c, 10.0, egui::Color32::from_black_alpha(170));
+                    let triangle = vec![
+                        c + egui::vec2(-3.0, -5.5),
+                        c + egui::vec2(6.0, 0.0),
+                        c + egui::vec2(-3.0, 5.5),
+                    ];
+                    p.add(egui::Shape::convex_polygon(
+                        triangle,
+                        egui::Color32::WHITE,
+                        egui::Stroke::NONE,
+                    ));
+                }
+            }
+            Some(None) => {}
+            None => {
+                if self.thumbs_pending.insert(name.clone()) {
+                    let _ = self.thumb_jobs.send((i, self.path(i)));
+                }
+            }
+        }
+    }
+
+    /// A cell of the thumbnail grid: the thumbnail with the name below, cut off to fit.
+    fn file_cell(
+        &mut self,
+        ui: &mut egui::Ui,
+        i: usize,
+        rect: egui::Rect,
+        marked: bool,
+    ) -> egui::Response {
+        let response = ui.interact(rect, ui.id().with(("cell", i)), egui::Sense::click());
+        let visuals = ui.visuals();
+        if marked || response.hovered() {
+            let fill = if marked {
+                visuals.selection.bg_fill
+            } else {
+                visuals.widgets.hovered.weak_bg_fill
+            };
+            ui.painter().rect_filled(rect, 2.0, fill);
+        }
+        let color = if marked {
+            visuals.selection.stroke.color
+        } else {
+            visuals.text_color()
+        };
+        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), THUMB);
+        self.paint_thumb(ui, i, frame);
+        let font = egui::TextStyle::Small.resolve(ui.style());
+        let name = self.files[i].to_string_lossy().into_owned();
+        let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(CELL.x - 6.0);
+        let galley = ui.painter().layout_job(job);
+        let at = egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            frame.bottom() + 4.0,
+        );
+        ui.painter().galley(at, galley, color);
+        response.on_hover_text_at_pointer(self.files[i].to_string_lossy())
     }
 
     /// Fuzzy search box above the file list.
@@ -2702,12 +2758,18 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
-            Action::PathBar | Action::Toolbar | Action::ExifPanel | Action::Overlay => {
+            Action::PathBar
+            | Action::Toolbar
+            | Action::ExifPanel
+            | Action::Overlay
+            | Action::Icons => {
+                self.scroll_to_cur = true;
                 let c = &mut self.config;
                 let flag = match action {
                     Action::PathBar => &mut c.path_bar,
                     Action::Toolbar => &mut c.toolbar,
                     Action::Overlay => &mut c.osd,
+                    Action::Icons => &mut c.icons,
                     _ => &mut c.exif_panel,
                 };
                 *flag = !*flag;
@@ -2967,6 +3029,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.toolbar, Action::Toolbar);
                         menu_toggle(ui, act, c.path_bar, Action::PathBar);
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
+                        menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
                         menu_toggle(ui, act, c.osd, Action::Overlay);
                         menu_item(ui, act, Action::Refresh);
@@ -3087,6 +3150,9 @@ impl eframe::App for App {
                         self.set_thumbnails(show);
                     }
                     let c = &mut self.config;
+                    changed |= ui
+                        .checkbox(&mut c.icons, "Show the file list as icons (Ctrl+I)")
+                        .changed();
                     changed |= ui
                         .checkbox(
                             &mut c.file_details,
@@ -3359,18 +3425,28 @@ impl eframe::App for App {
                         None => Some(i),
                     };
                     // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
-                    let thumbs = self.config.thumbnails;
-                    let row_h = if thumbs {
+                    let icons = self.config.icons;
+                    let thumbs = self.config.thumbnails || icons;
+                    let row_h = if icons {
+                        CELL.y
+                    } else if thumbs {
                         THUMB.y + 4.0
                     } else {
                         ui.spacing().interact_size.y
                     };
                     let pitch = row_h + ui.spacing().item_spacing.y;
+                    // As icons, a row holds as many cells as fit the width.
+                    let gap = ui.spacing().item_spacing.x;
+                    let cols = if icons {
+                        (((ui.available_width() + gap) / (CELL.x + gap)) as usize).max(1)
+                    } else {
+                        1
+                    };
                     let mut area = egui::ScrollArea::vertical()
                         .id_salt("files")
                         .auto_shrink(false);
                     if self.scroll_to_cur
-                        && let Some(row) = row_of(self.cur, &self.matches)
+                        && let Some(row) = row_of(self.cur, &self.matches).map(|r| r / cols)
                     {
                         // Scroll only when the current image is out of view, and centre it.
                         let (top, view) = (row as f32 * pitch, ui.available_height());
@@ -3381,11 +3457,13 @@ impl eframe::App for App {
                             area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
                         }
                     }
-                    area.show_rows(ui, row_h, count, |ui, rows| {
+                    area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
+                        let rows = rows.start * cols..(rows.end * cols).min(count);
                         let shown: Vec<usize> = match &self.matches {
                             Some(m) => m[rows].to_vec(),
                             None => rows.collect(),
                         };
+
                         if thumbs
                             && let (Some(&first), Some(&last)) =
                                 (shown.iter().min(), shown.iter().max())
@@ -3394,9 +3472,19 @@ impl eframe::App for App {
                             self.thumb_view[1].store(last, Ordering::Relaxed);
                             self.trim_thumbs(first, last);
                         }
-                        for i in shown {
+                        let mut line = egui::Rect::NOTHING;
+                        for (k, i) in shown.into_iter().enumerate() {
                             let marked = i == self.cur || self.selected.contains(&i);
-                            let row = if thumbs || self.config.file_details {
+                            let row = if icons {
+                                if k % cols == 0 {
+                                    let size = egui::vec2(ui.available_width(), CELL.y);
+                                    line = ui.allocate_exact_size(size, egui::Sense::hover()).0;
+                                }
+                                let x = (k % cols) as f32 * (CELL.x + gap);
+                                let cell =
+                                    egui::Rect::from_min_size(line.min + egui::vec2(x, 0.0), CELL);
+                                self.file_cell(ui, i, cell, marked)
+                            } else if thumbs || self.config.file_details {
                                 self.file_row(ui, i, row_h, marked)
                             } else {
                                 let name = self.files[i].to_string_lossy();
