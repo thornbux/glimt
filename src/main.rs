@@ -1634,9 +1634,8 @@ config! {
     wheel_zoom: bool = true,
     /// Thumbnails in the file list (T).
     thumbnails: bool = true,
-    /// Write new thumbnails to the shared cache (~/.cache/thumbnails). Off while Glimt is in
-    /// development, so testing leaves no files behind; on for release.
-    save_thumbnails: bool = false,
+    /// Write new thumbnails to the shared cache (~/.cache/thumbnails), as file managers do.
+    save_thumbnails: bool = true,
     /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
     exif_panel: bool = false,
     /// Folders as a tree from / (Ctrl+T) instead of the subfolders of the current one.
@@ -6188,7 +6187,7 @@ mod tests {
         assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
         assert!(Config::default().wheel_zoom && !Config::parse("wheel_zoom=false").wheel_zoom);
         assert!(Config::default().thumbnails && !Config::parse("thumbnails=false").thumbnails);
-        assert!(!Config::default().save_thumbnails);
+        assert!(Config::default().save_thumbnails);
         assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
         assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
         assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
@@ -6223,7 +6222,7 @@ mod tests {
             [0x1a, 0x2b, 0x3c]
         );
         assert_eq!(Config::parse("background=#12").background.0, [0, 0, 0]);
-        assert!(Config::parse("save_thumbnails=true").save_thumbnails);
+        assert!(!Config::parse("save_thumbnails=false").save_thumbnails);
         assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
         assert!(Config::default().videos && !Config::parse("videos=false").videos);
         assert_eq!(

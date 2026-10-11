@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- New thumbnails are saved to the shared cache (`~/.cache/thumbnails`) by default, as file
+  managers do; Preferences can turn it off.
+
 ## [0.9.0] - 2026-10-12
 
 The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough edges.
