@@ -100,11 +100,13 @@ musl-based distributions (Alpine) are not supported, because the viewer calls gl
 ## Remote control
 
 As with `geeqie --remote`, a running Glimt takes commands from the command line, for example
-from a script or a keyboard shortcut of the desktop:
+from a script or a keyboard shortcut of the desktop. `--remote` goes to the Glimt window used
+last, `--remote-all` to every one:
 
 ```sh
 glimt --remote next          # also prev, first, last, slideshow, fullscreen, quit
 glimt --remote open ~/Pictures/holiday   # starts Glimt if it is not running
+glimt --remote-all quit      # close every Glimt
 glimt --help                 # all commands
 ```
 

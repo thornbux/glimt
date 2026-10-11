@@ -795,6 +795,9 @@ struct App {
     apps: HashMap<String, Vec<(String, PathBuf)>>,
     /// Commands from `glimt --remote`.
     remote: mpsc::Receiver<String>,
+    /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
+    /// talks to.
+    has_focus: bool,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
@@ -2337,6 +2340,7 @@ impl App {
             clip: None,
             clipboard: None,
             remote: remote_rx,
+            has_focus: true,
             apps: HashMap::new(),
             row_step: 1,
             notices,
@@ -4502,6 +4506,7 @@ impl App {
 impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        remote::stop();
         // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
         let mut state = String::new();
         if self.config.remember_dir {
@@ -4526,6 +4531,11 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes(ctx);
         self.receive_deleted();
+        let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
+        if focus && !self.has_focus && self.config.remote_control {
+            remote::focused();
+        }
+        self.has_focus = focus;
         while let Ok(command) = self.remote.try_recv() {
             let action = match command.trim() {
                 "next" => Some(Action::Next),
@@ -5743,21 +5753,29 @@ fn main() -> eframe::Result {
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
-        println!("Usage: glimt [FILE_OR_FOLDER]\n       glimt --remote COMMAND\n\nCommands:");
+        println!(
+            "Usage: glimt [FILE_OR_FOLDER]\n       glimt --remote COMMAND      to the Glimt used last\n       glimt --remote-all COMMAND  to every running Glimt\n\nCommands:"
+        );
         for (command, does) in remote::COMMANDS {
             println!("  {command:<12} {does}");
         }
         return Ok(());
     }
     let mut arg = std::env::args_os().nth(1).map(PathBuf::from);
-    if args.first().is_some_and(|a| a == "--remote") {
+    let to_all = args.first().is_some_and(|a| a == "--remote-all");
+    if args.first().is_some_and(|a| a == "--remote") || to_all {
         let mut command = args[1..].join(" ");
         // The running Glimt has another working folder: send the full path.
         if let Some(path) = command.strip_prefix("open ") {
             let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
             command = format!("open {}", path.display());
         }
-        if remote::send(&command) {
+        let sent = if to_all {
+            remote::send_all(&command) > 0
+        } else {
+            remote::send(&command)
+        };
+        if sent {
             return Ok(());
         }
         match command.strip_prefix("open ") {
