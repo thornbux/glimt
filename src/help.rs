@@ -51,7 +51,9 @@ const MANUAL: &[(&str, &str)] = &[
         "Opening images",
         "Start Glimt with a folder or an image (glimt ~/Pictures), use File → Open, type a \
          path in the folder field above the folder list and press Enter, or click a folder in \
-         the list. ⬆ .. goes to the parent folder.",
+         the list. ⬆ .. goes to the parent folder. Network shares work too: type \
+         smb://server/share (or sftp://…) and Glimt mounts it with gio; the password must be \
+         saved in the keyring, for instance by connecting once from Files.",
     ),
     (
         "Browsing",

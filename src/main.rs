@@ -535,6 +535,8 @@ struct App {
     forward: Vec<PathBuf>,
     /// Error messages from background tasks (deleting), and the one shown now.
     notices_tx: mpsc::Sender<String>,
+    /// A network location (smb:// …) being mounted: its local path, or why it failed.
+    mounting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
     notices: mpsc::Receiver<String>,
     notice: Option<String>,
     /// Total size of the images in the folder, summed in the background after listing.
@@ -642,6 +644,39 @@ fn is_video(path: &Path) -> bool {
 #[cfg(not(feature = "video"))]
 fn is_video(_: &Path) -> bool {
     false
+}
+
+/// The local path of a URI (smb://, sftp:// …), mounting it with gio first if needed: GVfs
+/// puts mounted shares under /run/user/<uid>/gvfs. A password must be saved in the keyring,
+/// for instance by connecting once from Files; gio would otherwise ask on the terminal.
+fn gio_mount(uri: &str) -> Result<PathBuf, String> {
+    let local = || {
+        let out = std::process::Command::new("gio")
+            .args(["info", "-a", "standard::name", uri])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .find_map(|l| l.strip_prefix("local path: "))
+            .map(PathBuf::from)
+    };
+    if let Some(path) = local() {
+        return Ok(path);
+    }
+    let out = std::process::Command::new("gio")
+        .args(["mount", uri])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("Could not run gio: {e}"))?;
+    local().ok_or_else(|| {
+        let err = String::from_utf8_lossy(&out.stderr);
+        match err.lines().last().map(str::trim) {
+            Some(e) if !e.is_empty() => format!("Could not mount {uri}: {e}"),
+            _ => format!(
+                "Could not mount {uri}: connect once from Files and save the password, then try again"
+            ),
+        }
+    })
 }
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
@@ -1417,6 +1452,7 @@ impl App {
         let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
+            mounting: None,
             notices,
             notice: None,
             dir: PathBuf::new(),
@@ -1491,7 +1527,14 @@ impl App {
             opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
         };
-        app.open(&cc.egui_ctx, path);
+        // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
+        match path.to_str().filter(|p| p.contains("://")) {
+            Some(uri) => {
+                app.open(&cc.egui_ctx, ".".into());
+                app.mount(&cc.egui_ctx, uri.to_owned());
+            }
+            None => app.open(&cc.egui_ctx, path),
+        }
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
         app.receive_listing(&cc.egui_ctx, std::time::Duration::from_millis(50));
         app
@@ -1595,6 +1638,17 @@ impl App {
     }
 
     /// Open `path` as a new step in the Back/Forward history.
+    /// Open a network location such as smb://server/share/folder, mounting it in the background.
+    fn mount(&mut self, ctx: &egui::Context, uri: String) {
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(gio_mount(&uri));
+            ctx.request_repaint();
+        });
+        self.mounting = Some(rx);
+    }
+
     fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
         self.back.push(self.location());
         self.forward.clear();
@@ -2256,7 +2310,9 @@ impl App {
                 }
                 _ => PathBuf::from(text),
             };
-            if path.exists() {
+            if text.contains("://") {
+                self.mount(ui.ctx(), text.to_owned());
+            } else if path.exists() {
                 self.visit(ui.ctx(), path);
             } else {
                 self.notice = Some(format!("No such folder: {}", path.display()));
@@ -2935,7 +2991,18 @@ impl eframe::App for App {
         let decoding = !self.files.is_empty()
             && !self.slots.contains_key(&self.cur)
             && !self.errors.contains_key(&self.cur);
-        if self.listing.is_some() || decoding || self.busy.load(Ordering::Relaxed) > 0 {
+        if let Some(done) = self.mounting.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.mounting = None;
+            match done {
+                Ok(path) => self.visit(ctx, path),
+                Err(e) => self.notice = Some(e),
+            }
+        }
+        if self.listing.is_some()
+            || decoding
+            || self.mounting.is_some()
+            || self.busy.load(Ordering::Relaxed) > 0
+        {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
         if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {

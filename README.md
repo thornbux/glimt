@@ -110,6 +110,7 @@ Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open` | `xdg-open` |
+| smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
 
 ## Files
 
