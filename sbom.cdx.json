@@ -17,12 +17,19 @@
    "bom-ref": "pkg:cargo/glimt@0.9.0",
    "name": "glimt",
    "version": "0.9.0",
+   "description": "Fast, lightweight image viewer for Linux, inspired by Geeqie",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/glimt@0.9.0"
+   "purl": "pkg:cargo/glimt@0.9.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/thornbux/glimt"
+    }
+   ]
   }
  },
  "components": [

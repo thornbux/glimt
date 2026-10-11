@@ -25,6 +25,21 @@ The images in the screenshots are generated for the purpose.
 | ![The sort menu](docs/screenshots/sort-menu.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
 | The sort menu in the status bar | Help → Keyboard Map |
 
+## Installing
+
+Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debian and Ubuntu
+and a `.tar.gz` for other distributions. Both have every optional feature built in and run on
+systems with glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04 and later).
+
+```sh
+sudo apt install ./glimt_0.9.1_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+
+tar xzf glimt-0.9.1-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
+./glimt-0.9.1-x86_64-linux/glimt
+```
+
+For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
+
 ## Building
 
 ### Requirements
@@ -82,7 +97,7 @@ cargo test --release --all-features
 A normal build only runs on systems with the same or a newer glibc as the build machine.
 To run on every supported distribution down to glibc 2.28 (RHEL/Rocky/Alma 8, SLES 15,
 Ubuntu 22.04, Debian 12), link against an older glibc with
-[cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild). This build has not been tested yet:
+[cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), as the release workflow does:
 
 ```sh
 pip install ziglang            # or: sudo apt install zig

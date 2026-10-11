@@ -8,6 +8,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 
 - A manual page, `docs/glimt.1`.
+- Release packages: a `.deb` and a `.tar.gz` with every feature, for glibc 2.28 and newer.
 
 ### Changed
 
