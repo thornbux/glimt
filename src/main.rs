@@ -2276,6 +2276,11 @@ impl App {
         });
     }
 
+    /// The files the list shows: the search matches, or all.
+    fn shown_files(&self) -> Vec<usize> {
+        (self.matches.clone()).unwrap_or_else(|| (0..self.files.len()).collect())
+    }
+
     /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
     /// search matches while searching).
     fn select_range(&mut self, a: usize, b: usize) {
@@ -2436,8 +2441,9 @@ impl App {
                     self.visit(ctx, parent.to_path_buf());
                 }
             }
+            // Select All and Invert act on the files the list shows: the matches while searching.
             Action::SelectAll => {
-                self.selected = (0..self.files.len()).collect();
+                self.selected = self.shown_files().into_iter().collect();
                 self.selection_changed(ctx);
             }
             Action::SelectNone => {
@@ -2445,8 +2451,8 @@ impl App {
                 self.selection_changed(ctx);
             }
             Action::InvertSelection => {
-                let n = self.files.len();
-                self.selected = (0..n).filter(|i| !self.selected.contains(i)).collect();
+                let shown = self.shown_files().into_iter();
+                self.selected = shown.filter(|i| !self.selected.contains(i)).collect();
                 self.selection_changed(ctx);
             }
             Action::CopyPath | Action::CopyPathUnquoted if !self.files.is_empty() => {
