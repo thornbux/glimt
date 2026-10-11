@@ -77,6 +77,7 @@ enum Action {
     ZoomFit,
     FullScreen,
     HideTools,
+    Overlay,
     Toolbar,
     PathBar,
     Thumbnails,
@@ -138,6 +139,7 @@ impl Action {
             ZoomFit => "Zoom to Fit",
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
+            Overlay => "Show Image Info in Full Screen",
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
@@ -214,6 +216,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (FullScreen, NONE, Key::F11),
         (HideTools, CTRL, Key::H),
         (Thumbnails, NONE, Key::T),
+        (Overlay, NONE, Key::I),
         (ExifPanel, CTRL, Key::K),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
@@ -336,6 +339,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "Image info in full screen (I)",
+        "On or off",
+        "I cycles through several overlay layouts",
     ),
     (
         "EXIF",
@@ -922,6 +930,9 @@ config! {
     toolbar_icons: usize = 0,
     /// File name search above the file list.
     search_bar: bool = true,
+    /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
+    /// image overlay.
+    osd: bool = true,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
     /// Re-read the folder when files are added, removed or renamed.
@@ -2163,16 +2174,73 @@ impl App {
         });
     }
 
-    /// File and EXIF details of the shown image, read in the background (Ctrl+K).
-    fn exif_panel(&mut self, ui: &mut egui::Ui) {
+    /// Full screen info in the top left corner: name and place, then size and EXIF.
+    fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
+        self.want_exif();
+        let mut info = Vec::new();
+        if let Some(s) = self.slots.get(&self.cur) {
+            info.push(format!("{} × {}", s.orig[0], s.orig[1]));
+        }
+        let path = self.path(self.cur);
+        if let Some((_, rows)) = self.exif.as_ref().filter(|e| e.0 == path) {
+            let wanted = [
+                "File size",
+                "Taken",
+                "Exposure",
+                "Aperture",
+                "ISO",
+                "Focal length",
+            ];
+            for (label, value) in rows.iter().filter(|r| wanted.contains(&r.0)) {
+                info.push(if *label == "ISO" {
+                    format!("ISO {value}")
+                } else {
+                    value.clone()
+                });
+            }
+        }
+        let name = self.files[self.cur].to_string_lossy();
+        let text = format!("{name}  {}\n{}", self.place(), info.join(" · "));
+        let p = ui.painter();
+        let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
+        let at = egui::Rect::from_min_size(
+            area.min + egui::vec2(12.0, 12.0),
+            galley.size() + egui::vec2(20.0, 12.0),
+        );
+        p.rect_filled(at, 6.0, egui::Color32::from_black_alpha(150));
+        p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
+    }
+
+    /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
+    fn want_exif(&mut self) {
         let path = self.path(self.cur);
         if self.exif_asked.as_ref() != Some(&path) {
             let _ = self.exif_jobs.send(path.clone());
-            self.exif_asked = Some(path.clone());
+            self.exif_asked = Some(path);
         }
         for done in self.exif_done.try_iter() {
             self.exif = Some(done);
         }
+    }
+
+    /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
+    fn place(&self) -> String {
+        match &self.matches {
+            Some(m) => match m.iter().position(|&i| i == self.cur) {
+                Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
+                None => format!("[–/{}]", thousands(m.len())),
+            },
+            None => format!(
+                "[{}/{}]",
+                thousands(self.cur + 1),
+                thousands(self.files.len())
+            ),
+        }
+    }
+
+    /// File and EXIF details of the shown image, read in the background (Ctrl+K).
+    fn exif_panel(&mut self, ui: &mut egui::Ui) {
+        self.want_exif();
         egui::Panel::right("exif")
             .resizable(true)
             .default_size(240.0)
@@ -2563,11 +2631,12 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
-            Action::PathBar | Action::Toolbar | Action::ExifPanel => {
+            Action::PathBar | Action::Toolbar | Action::ExifPanel | Action::Overlay => {
                 let c = &mut self.config;
                 let flag = match action {
                     Action::PathBar => &mut c.path_bar,
                     Action::Toolbar => &mut c.toolbar,
+                    Action::Overlay => &mut c.osd,
                     _ => &mut c.exif_panel,
                 };
                 *flag = !*flag;
@@ -2828,6 +2897,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.path_bar, Action::PathBar);
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+                        menu_toggle(ui, act, c.osd, Action::Overlay);
                         menu_item(ui, act, Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
@@ -2987,6 +3057,8 @@ impl eframe::App for App {
                     let c = &mut self.config;
                     let exif = "Show the EXIF panel (Ctrl+K; reads a little from each image shown)";
                     changed |= ui.checkbox(&mut c.exif_panel, exif).changed();
+                    let osd = "Show image info in full screen (I)";
+                    changed |= ui.checkbox(&mut c.osd, osd).changed();
                     ui.separator();
                     changed |= ui
                         .checkbox(&mut c.auto_refresh, "Refresh the folder when files change")
@@ -3144,15 +3216,7 @@ impl eframe::App for App {
                             self.cur_size = Some((path, bytes));
                         }
                         let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
-                        let place = match &self.matches {
-                            Some(m) => match m.iter().position(|&i| i == self.cur) {
-                                Some(row) => {
-                                    format!("[{}/{}]", thousands(row + 1), thousands(m.len()))
-                                }
-                                None => format!("[–/{}]", thousands(m.len())),
-                            },
-                            None => format!("[{}/{}]", thousands(self.cur + 1), thousands(n)),
-                        };
+                        let place = self.place();
                         let bytes = format!("{} bytes", thousands(bytes as usize));
                         match self.slots.get(&self.cur) {
                             Some(slot) => {
@@ -3517,6 +3581,9 @@ impl eframe::App for App {
                     if play.clicked() {
                         later = Some(Action::Play);
                     }
+                }
+                if bare && self.config.osd && !self.files.is_empty() {
+                    self.overlay(ui, area);
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(
