@@ -127,6 +127,12 @@ update-desktop-database ~/.local/share/applications
 
 Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
 
+The manual page (`man glimt`) describes the command line and remote control:
+
+```sh
+install -Dm644 docs/glimt.1 ~/.local/share/man/man1/glimt.1
+```
+
 ## Tested on
 
 | Distribution | Desktop | Session | How |

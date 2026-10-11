@@ -1,0 +1,139 @@
+.TH GLIMT 1 "2026-10-12" "Glimt 0.9.0" "User Commands"
+.SH NAME
+glimt \- fast, lightweight image viewer
+.SH SYNOPSIS
+.B glimt
+.RI [ FILE_OR_FOLDER ]
+.br
+.B glimt
+.B \-\-remote
+.I COMMAND
+.br
+.B glimt
+.B \-\-remote\-all
+.I COMMAND
+.br
+.B glimt
+.B \-\-help
+.SH DESCRIPTION
+.B Glimt
+shows the images of a folder, one at a time, with a file list beside them. It is inspired by
+.BR geeqie (1)
+and uses its keyboard shortcuts, but focuses on speed and little memory: the images on each
+side of the shown one are decoded in advance at window size, and folders with hundreds of
+thousands of files list as quickly as small ones.
+.PP
+Given a file, Glimt shows it with the rest of its folder; given a folder, its first image;
+given nothing, the folder used last (if that is set in Preferences) or the current folder.
+A URI such as
+.I smb://server/share
+is mounted with
+.BR gio (1)
+first.
+.PP
+It reads JPEG, PNG, WebP, GIF (also animated), TIFF (also with several pages) and camera RAW
+files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF,
+JPEG XL and SVG.
+.SH OPTIONS
+.TP
+.BI \-\-remote " COMMAND"
+Send
+.I COMMAND
+to the Glimt window used last.
+.TP
+.BI \-\-remote\-all " COMMAND"
+Send
+.I COMMAND
+to every running Glimt.
+.TP
+.BR \-h ", " \-\-help
+List the options and remote commands.
+.SH REMOTE COMMANDS
+.TP
+.BR next ", " prev ", " first ", " last
+Show the next, previous, first or last image.
+.TP
+.B slideshow
+Start or stop the slideshow.
+.TP
+.B fullscreen
+Enter or leave full screen.
+.TP
+.BI open " PATH"
+Show a file or folder. If no Glimt is running, one is started.
+.TP
+.B quit
+Close Glimt.
+.SH KEYS
+The keys are Geeqie's; Help \(-> Keyboard Shortcuts lists them all, and Preferences can change
+them. The most used:
+.TP
+.BR Space ", " "Page Down" ", " \(->
+Next image.
+.TP
+.BR Backspace ", " "Page Up" ", " \(<-
+Previous image.
+.TP
+.BR Home ", " End
+First and last image.
+.TP
+.BR Z ", " X ", " + ", " \-
+Zoom 1:1, zoom to fit, zoom in and out.
+.TP
+.BR F ", " F11 ", " Esc
+Enter and leave full screen.
+.TP
+.BR S ", " P ", " R
+Start or stop the slideshow, pause it, random order.
+.TP
+.BR ] ", " [
+Rotate the view clockwise and counterclockwise.
+.TP
+.B Delete
+Move the selected files, or the shown one, to the trash.
+.TP
+.B Ctrl+O
+Preferences.
+.TP
+.B F1
+Help.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/glimt/config
+Preferences, as key=value lines (default
+.IR ~/.config/glimt/config ).
+.TP
+.I $XDG_STATE_HOME/glimt/state
+The last folder and the window size and position (default
+.IR ~/.local/state/glimt/state ).
+.TP
+.I $XDG_STATE_HOME/glimt/marks
+Marks and stars, in builds with the marks feature.
+.TP
+.I $XDG_CACHE_HOME/thumbnails
+Thumbnails, shared with other programs as the freedesktop specification says.
+.TP
+.I $XDG_RUNTIME_DIR/glimt
+The sockets for remote control.
+.SH ENVIRONMENT
+.TP
+.BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_CACHE_HOME ", " XDG_RUNTIME_DIR
+Where the files above are kept.
+.SH EXAMPLES
+.TP
+.B glimt ~/Pictures
+Show the images in ~/Pictures.
+.TP
+.B glimt \-\-remote next
+Go to the next image in the Glimt used last, for example from a desktop shortcut.
+.TP
+.B glimt \-\-remote\-all quit
+Close every Glimt.
+.SH SEE ALSO
+.BR geeqie (1),
+.BR gio (1),
+.BR ffmpeg (1)
+.PP
+https://github.com/thornbux/glimt
+.SH AUTHOR
+Hans-Henry Jakobsen. Glimt is free software under the MIT license.

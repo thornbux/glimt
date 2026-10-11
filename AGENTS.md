@@ -77,6 +77,8 @@ python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 
 - **One feature or fix per commit.** Formatting-only changes in a commit of their own.
 - Use `--release` for tests too; a separate debug build doubles the space in `target/`.
+- A release: the version in `Cargo.toml` and in the header of `docs/glimt.1`, a section in
+  `CHANGELOG.md`, and a tag `vX.Y.Z`. New command-line options go in the man page too.
 - New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
   separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 

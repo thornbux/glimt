@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A manual page, `docs/glimt.1`.
+
 ### Changed
 
 - New thumbnails are saved to the shared cache (`~/.cache/thumbnails`) by default, as file
