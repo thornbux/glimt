@@ -518,6 +518,9 @@ struct App {
     /// at least three letters.
     search: String,
     matches: Option<Vec<usize>>,
+    /// Total size of the search matches, summed in the background like `total_size`.
+    match_size: u64,
+    match_rx: Option<mpsc::Receiver<u64>>,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1327,6 +1330,8 @@ impl App {
             busy: Arc::new(AtomicUsize::new(0)),
             search: String::new(),
             matches: None,
+            match_size: 0,
+            match_rx: None,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -1551,7 +1556,7 @@ impl App {
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.errors = without_indices(std::mem::take(&mut self.errors), removed);
         self.selected.clear();
-        self.update_search();
+        self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
         // The next remaining file after the shown one (or the last).
@@ -1580,6 +1585,18 @@ impl App {
         if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
             self.selected_size = Some(size);
             self.selected_rx = None;
+        }
+        if let Some(rx) = &self.match_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(sum) => self.match_size += sum,
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.match_rx = None;
+                        break;
+                    }
+                }
+            }
         }
         let Some(rx) = &self.size_rx else { return };
         loop {
@@ -1634,7 +1651,7 @@ impl App {
         if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
             self.slots.insert(cur, slot);
         }
-        self.update_search();
+        self.update_search(ctx);
         self.go(ctx, cur);
     }
 
@@ -2261,7 +2278,7 @@ impl App {
         ui.horizontal(|ui| {
             if !self.search.is_empty() && ui.small_button("✖").clicked() {
                 self.search.clear();
-                self.update_search();
+                self.update_search(ui.ctx());
                 self.scroll_to_cur = true;
             }
             // A fixed ID: the ✖ button appearing in front of it must not make it a new
@@ -2271,15 +2288,36 @@ impl App {
                 .hint_text("Search file names (3+ letters)")
                 .desired_width(f32::INFINITY);
             if ui.add(edit).changed() {
-                self.update_search();
+                self.update_search(ui.ctx());
             }
         });
     }
 
     /// Run the search again; file indices change when the list does.
-    fn update_search(&mut self) {
+    fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.trim();
         self.matches = (query.chars().count() >= 3).then(|| search::matches(&self.files, query));
+        // Size of the matches in chunks, so the status bar fills in; a new search drops the
+        // receiver and the old sum stops at its next chunk.
+        self.match_size = 0;
+        self.match_rx = None;
+        let Some(m) = &self.matches else { return };
+        let names: Vec<OsString> = m.iter().map(|&i| self.files[i].clone()).collect();
+        let (tx, rx) = mpsc::channel();
+        let (dir, ctx) = (self.dir.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            for chunk in names.chunks(10_000) {
+                let paths: Vec<PathBuf> = chunk.iter().map(|n| dir.join(n)).collect();
+                if tx.send(total_size(&paths)).is_err() {
+                    return;
+                }
+                ctx.request_repaint();
+            }
+            // Done: the closed channel ends "calculating…" on the next frame.
+            drop(tx);
+            ctx.request_repaint();
+        });
+        self.match_rx = Some(rx);
     }
 
     /// Size and modification time of file `i`, from the cache or one stat.
@@ -2795,7 +2833,7 @@ impl eframe::App for App {
                         changed = true;
                         if !c.search_bar {
                             self.search.clear();
-                            self.update_search();
+                            self.update_search(ctx);
                         }
                     }
                     ui.horizontal(|ui| {
@@ -2935,14 +2973,23 @@ impl eframe::App for App {
                     } else {
                         human_size(self.total_size)
                     };
-                    let mut left = if self.listing.is_some() {
-                        "Reading folder…".to_owned()
-                    } else {
-                        format!("{} images ({size})", thousands(n))
+                    let mut left = match &self.matches {
+                        _ if self.listing.is_some() => "Reading folder…".to_owned(),
+                        // A search shows the matches: count and size of what the list shows.
+                        Some(found) => {
+                            let size = if self.match_rx.is_some() {
+                                "calculating…".to_owned()
+                            } else {
+                                human_size(self.match_size)
+                            };
+                            format!(
+                                "{} of {} images ({size})",
+                                thousands(found.len()),
+                                thousands(n)
+                            )
+                        }
+                        None => format!("{} images ({size})", thousands(n)),
                     };
-                    if let Some(found) = &self.matches {
-                        left += &format!(", {} found", thousands(found.len()));
-                    }
                     if !self.selected.is_empty() {
                         let m = thousands(self.selected.len());
                         let size = self
@@ -2966,7 +3013,15 @@ impl eframe::App for App {
                             self.cur_size = Some((path, bytes));
                         }
                         let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
-                        let place = format!("[{}/{}]", thousands(self.cur + 1), thousands(n));
+                        let place = match &self.matches {
+                            Some(m) => match m.iter().position(|&i| i == self.cur) {
+                                Some(row) => {
+                                    format!("[{}/{}]", thousands(row + 1), thousands(m.len()))
+                                }
+                                None => format!("[–/{}]", thousands(m.len())),
+                            },
+                            None => format!("[{}/{}]", thousands(self.cur + 1), thousands(n)),
+                        };
                         let bytes = format!("{} bytes", thousands(bytes as usize));
                         match self.slots.get(&self.cur) {
                             Some(slot) => {
