@@ -530,7 +530,9 @@ struct App {
     /// Error messages from background tasks (deleting), and the one shown now.
     notices_tx: mpsc::Sender<String>,
     /// A network location (smb:// …) being mounted: its local path, or why it failed.
-    mounting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
+    mounting: Option<mpsc::Receiver<(Mounted, Login)>>,
+    /// The login dialog for a network share that needs one.
+    login: Option<Login>,
     /// "Open With" applications by file extension, found once per extension.
     apps: HashMap<String, Vec<(String, PathBuf)>>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
@@ -648,10 +650,25 @@ fn is_video(_: &Path) -> bool {
     false
 }
 
+/// A mounted share's local path; `Err(None)` = a login is needed, `Err(Some)` = why it failed.
+type Mounted = Result<PathBuf, Option<String>>;
+
+/// User name, domain and password for a network share.
+#[derive(Clone, Default)]
+struct Login {
+    uri: String,
+    user: String,
+    domain: String,
+    password: String,
+}
+
 /// The local path of a URI (smb://, sftp:// …), mounting it with gio first if needed: GVfs
-/// puts mounted shares under /run/user/<uid>/gvfs. A password must be saved in the keyring,
-/// for instance by connecting once from Files; gio would otherwise ask on the terminal.
-fn gio_mount(uri: &str) -> Result<PathBuf, String> {
+/// puts mounted shares under /run/user/<uid>/gvfs. gio asks for what the share needs (user,
+/// domain, password) one prompt at a time; they are answered from `login`, or, without one,
+/// `Err(None)` says that a login is needed. A password saved in the keyring (from Files) is
+/// used without asking.
+fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
+    use std::io::{Read, Write};
     let local = || {
         let out = std::process::Command::new("gio")
             .args(["info", "-a", "standard::name", uri])
@@ -665,19 +682,51 @@ fn gio_mount(uri: &str) -> Result<PathBuf, String> {
     if let Some(path) = local() {
         return Ok(path);
     }
-    let out = std::process::Command::new("gio")
+    let mut child = std::process::Command::new("gio")
         .args(["mount", uri])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| format!("Could not run gio: {e}"))?;
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| Some(format!("Could not run gio: {e}")))?;
+    let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
+    // Prompts end in ": " without a newline, the next one printed after the answer.
+    let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
+    while let Ok(n @ 1..) = out.read(&mut buf) {
+        text.push_str(&String::from_utf8_lossy(&buf[..n]));
+        let prompt = &text[answered..];
+        if !prompt.ends_with(": ") {
+            continue;
+        }
+        let Some(login) = login else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(None);
+        };
+        let prompt = prompt.rsplit('\n').next().unwrap_or(prompt).to_lowercase();
+        let answer = if prompt.contains("password") {
+            &login.password
+        } else if prompt.contains("domain") {
+            &login.domain
+        } else if prompt.contains("user") {
+            &login.user
+        } else {
+            // "Login anonymously?" and anything else: the default.
+            ""
+        };
+        let _ = writeln!(input, "{answer}");
+        answered = text.len();
+    }
+    let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
     local().ok_or_else(|| {
         let err = String::from_utf8_lossy(&out.stderr);
-        match err.lines().last().map(str::trim) {
-            Some(e) if !e.is_empty() => format!("Could not mount {uri}: {e}"),
-            _ => format!(
-                "Could not mount {uri}: connect once from Files and save the password, then try again"
-            ),
-        }
+        // "gio: smb://server/share/: Failed to mount …": the reason only.
+        let err = err.lines().last().map_or("", str::trim);
+        let err = err
+            .strip_prefix("gio: ")
+            .and_then(|e| e.split_once(": "))
+            .map_or(err, |e| e.1);
+        Some(format!("Could not mount {uri}: {err}"))
     })
 }
 
@@ -1504,6 +1553,7 @@ impl App {
         let mut app = App {
             notices_tx,
             mounting: None,
+            login: None,
             grid_cols: 1,
             clip: None,
             apps: HashMap::new(),
@@ -1695,10 +1745,20 @@ impl App {
     /// Open `path` as a new step in the Back/Forward history.
     /// Open a network location such as smb://server/share/folder, mounting it in the background.
     fn mount(&mut self, ctx: &egui::Context, uri: String) {
+        let login = Login {
+            uri,
+            ..Login::default()
+        };
+        self.mount_as(ctx, login, false);
+    }
+
+    /// Mount `login.uri`, answering gio's questions from `login` if `answer`.
+    fn mount_as(&mut self, ctx: &egui::Context, login: Login, answer: bool) {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(gio_mount(&uri));
+            let result = gio_mount(&login.uri, answer.then_some(&login));
+            let _ = tx.send((result, login));
             ctx.request_repaint();
         });
         self.mounting = Some(rx);
@@ -2152,7 +2212,10 @@ impl App {
 
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
-        self.show_settings || self.confirm.is_some() || self.prompt.is_some()
+        self.show_settings
+            || self.confirm.is_some()
+            || self.prompt.is_some()
+            || self.login.is_some()
     }
 
     /// The text dialog was answered with `text`.
@@ -3122,8 +3185,17 @@ impl eframe::App for App {
         if let Some(done) = self.mounting.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.mounting = None;
             match done {
-                Ok(path) => self.visit(ctx, path),
-                Err(e) => self.notice = Some(e),
+                (Ok(path), _) => self.visit(ctx, path),
+                (Err(Some(e)), _) => self.notice = Some(e),
+                // Ask for the login; the user name defaults to this one, as gio's does.
+                (Err(None), login) => {
+                    let user = std::env::var("USER").unwrap_or_default();
+                    self.login = Some(Login {
+                        user,
+                        domain: "WORKGROUP".into(),
+                        ..login
+                    });
+                }
             }
         }
         if self.listing.is_some()
@@ -3519,6 +3591,41 @@ impl eframe::App for App {
                 self.answer_prompt(ctx, prompt, text.trim());
             } else if !modal.should_close() {
                 self.prompt = Some((prompt, text));
+            }
+        }
+
+        if let Some(mut login) = self.login.take() {
+            let mut connect = false;
+            let modal = egui::Modal::new(egui::Id::new("login")).show(ctx, |ui| {
+                ui.label(format!("Log in to {}", login.uri));
+                egui::Grid::new("login fields").show(ui, |ui| {
+                    let field = |text| egui::TextEdit::singleline(text).desired_width(220.0);
+                    ui.label("User:");
+                    ui.add(field(&mut login.user));
+                    ui.end_row();
+                    ui.label("Domain:");
+                    ui.add(field(&mut login.domain));
+                    ui.end_row();
+                    ui.label("Password:");
+                    let edit = ui.add(field(&mut login.password).password(true));
+                    // The password field first, as the rest has defaults.
+                    if login.password.is_empty() && ui.memory(|m| m.focused().is_none()) {
+                        edit.request_focus();
+                    }
+                    connect = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    ui.end_row();
+                });
+                ui.horizontal(|ui| {
+                    connect |= ui.button("Connect (Enter)").clicked();
+                    if ui.button("Cancel (Esc)").clicked() {
+                        ui.close();
+                    }
+                });
+            });
+            if connect {
+                self.mount_as(ctx, login, true);
+            } else if !modal.should_close() {
+                self.login = Some(login);
             }
         }
 

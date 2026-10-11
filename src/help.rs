@@ -53,8 +53,9 @@ const MANUAL: &[(&str, &str)] = &[
          File → Open, type a \
          path in the folder field above the folder list and press Enter, or click a folder in \
          the list. ⬆ .. goes to the parent folder. Network shares work too: type \
-         smb://server/share (or sftp://…) and Glimt mounts it with gio; the password must be \
-         saved in the keyring, for instance by connecting once from Files.",
+         smb://server/share (or sftp://…) and Glimt mounts it with gio, asking for user, \
+         domain and password if the share needs them (a password saved in the keyring from \
+         Files is used without asking).",
     ),
     (
         "Browsing",
