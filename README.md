@@ -109,7 +109,7 @@ Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
 | Showing images | OpenGL 3 (Mesa), Wayland or X11 | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
-| Open With | `gio open` | `xdg-open` |
+| Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
 
 ## Files

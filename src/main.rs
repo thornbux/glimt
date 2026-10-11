@@ -335,11 +335,6 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Selected files, with a pattern for several",
     ),
     (
-        "Open With",
-        "The default application",
-        "Choose an application",
-    ),
-    (
         "Copy, Move (Ctrl+C, Ctrl+M)",
         "Target folder from a file dialog; never overwrites",
         "Own dialog",
@@ -532,6 +527,8 @@ struct App {
     notices_tx: mpsc::Sender<String>,
     /// A network location (smb:// …) being mounted: its local path, or why it failed.
     mounting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
+    /// "Open With" applications by file extension, found once per extension.
+    apps: HashMap<String, Vec<(String, PathBuf)>>,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
     grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
@@ -676,6 +673,55 @@ fn gio_mount(uri: &str) -> Result<PathBuf, String> {
             ),
         }
     })
+}
+
+/// Applications registered for the type of `path` (gio mime), as (name, desktop file), Glimt
+/// itself left out.
+fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
+    let gio = |args: &[&std::ffi::OsStr]| {
+        std::process::Command::new("gio")
+            .args(args)
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    };
+    let info = gio(&[
+        "info".as_ref(),
+        "-a".as_ref(),
+        "standard::content-type".as_ref(),
+        path.as_os_str(),
+    ]);
+    let Some(mime) = info
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("standard::content-type: "))
+    else {
+        return Vec::new();
+    };
+    let apps = gio(&["mime".as_ref(), mime.as_ref()]);
+    let ids = apps
+        .lines()
+        .skip_while(|l| !l.starts_with("Registered applications"))
+        .skip(1)
+        .take_while(|l| l.starts_with('\t'))
+        .map(str::trim)
+        .filter(|id| *id != "glimt.desktop");
+    // Desktop files live in the "applications" folder of the XDG data folders.
+    let home = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
+    let dirs: Vec<PathBuf> = home
+        .into_iter()
+        .chain(dirs.split(':').map(PathBuf::from))
+        .map(|d| d.join("applications"))
+        .collect();
+    ids.filter_map(|id| {
+        let file = dirs.iter().map(|d| d.join(id)).find(|f| f.is_file())?;
+        let text = std::fs::read_to_string(&file).ok()?;
+        let name = text.lines().find_map(|l| l.strip_prefix("Name="))?;
+        Some((name.to_owned(), file))
+    })
+    .collect()
 }
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
@@ -1453,6 +1499,7 @@ impl App {
             notices_tx,
             mounting: None,
             grid_cols: 1,
+            apps: HashMap::new(),
             row_step: 1,
             notices,
             notice: None,
@@ -2052,6 +2099,46 @@ impl App {
                 Ok(o) if o.status.success() => {}
                 Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
                 Err(e) => drop(tx.send(e)),
+            }
+        });
+    }
+
+    /// "Open With" submenu: the applications registered for the shown file's type; the chosen
+    /// one opens the selected files (or the shown one).
+    fn open_with_menu(&mut self, ui: &mut egui::Ui) {
+        let Some(name) = self.files.get(self.cur) else {
+            return;
+        };
+        let ext = Path::new(name)
+            .extension()
+            .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
+        let path = self.path(self.cur);
+        ui.menu_button("Open With", |ui| {
+            let apps = self.apps.entry(ext).or_insert_with(|| apps_for(&path));
+            if apps.is_empty() {
+                ui.label("No applications found");
+            }
+            let mut chosen = None;
+            for (name, desktop) in apps.iter() {
+                if ui.button(name).clicked() {
+                    chosen = Some(desktop.clone());
+                }
+            }
+            if let Some(desktop) = chosen {
+                let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+                let tx = self.notices_tx.clone();
+                std::thread::spawn(move || {
+                    let out = std::process::Command::new("gio")
+                        .arg("launch")
+                        .arg(&desktop)
+                        .args(&files)
+                        .output();
+                    match out {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                        Err(e) => drop(tx.send(format!("gio: {e}"))),
+                    }
+                });
             }
         });
     }
@@ -3088,6 +3175,7 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::Move);
                         menu_item(ui, act, Action::Rename);
                         menu_item(ui, act, Action::OpenWith);
+                        self.open_with_menu(ui);
                         #[cfg(feature = "video")]
                         menu_item(ui, act, Action::Play);
                         ui.separator();
@@ -3648,6 +3736,7 @@ impl eframe::App for App {
                                 for action in [Action::Copy, Action::Move, Action::CopyPath] {
                                     menu_item(ui, &mut list_act, action);
                                 }
+                                self.open_with_menu(ui);
                                 ui.separator();
                                 menu_item(ui, &mut list_act, Action::Delete);
                                 menu_item(ui, &mut list_act, Action::DeletePermanently);
