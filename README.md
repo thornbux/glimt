@@ -51,9 +51,10 @@ Extra file types are optional features, so the default build stays small:
 | Feature | Adds | Needs at runtime |
 |---|---|---|
 | `video` | Video files in the list with a preview frame; Enter plays them | `ffmpeg` (previews), a player or the default application |
+| `heic` | HEIC/HEIF photos (iPhone) | `ffmpeg` 8.0 or newer |
 
 ```sh
-cargo build --release --features video
+cargo build --release --features video,heic
 ```
 
 ### Before committing
@@ -123,7 +124,7 @@ The first two are plain `key=value` text files written atomically.
 ## Supported formats
 
 JPEG, PNG, WebP, GIF and TIFF; animated GIF and WebP play in a loop. Camera RAW files (CR2, CR3,
-NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them.
+NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature.
 
 ## License
 

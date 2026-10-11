@@ -22,6 +22,12 @@ mod thumbs;
 mod video;
 
 const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"];
+/// HEIC/HEIF photos (iPhone), decoded by ffmpeg with the heic feature.
+const HEIC_EXTS: &[&str] = if cfg!(feature = "heic") {
+    &["heic", "heif", "hif"]
+} else {
+    &[]
+};
 /// Default number of images kept decoded on each side of the shown one.
 const DEFAULT_AHEAD: usize = 2;
 /// Default seconds between images in a slideshow.
@@ -607,6 +613,27 @@ fn has_ext(path: &Path, exts: &[&str]) -> bool {
     ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
 }
 
+/// A frame `at` seconds in, decoded by the `ffmpeg` program (8.0+ also reads tiled HEIC).
+#[cfg(any(feature = "video", feature = "heic"))]
+fn ffmpeg_frame(path: &Path, at: &str) -> Result<image::DynamicImage, String> {
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-ss", at, "-i"])
+        .arg(path)
+        .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
+        .output()
+        .map_err(|e| format!("video and HEIC need ffmpeg: {e}"))?;
+    if !out.status.success() || out.stdout.is_empty() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+        return Err(if err.is_empty() {
+            "no frame".into()
+        } else {
+            err
+        });
+    }
+    image::load_from_memory_with_format(&out.stdout, image::ImageFormat::Pnm)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(feature = "video")]
 fn is_video(path: &Path) -> bool {
     has_ext(path, video::EXTS)
@@ -619,7 +646,10 @@ fn is_video(_: &Path) -> bool {
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
 fn is_listed(path: &Path, videos: bool) -> bool {
-    has_ext(path, EXTS) || has_ext(path, raw::EXTS) || (videos && is_video(path))
+    has_ext(path, EXTS)
+        || has_ext(path, raw::EXTS)
+        || has_ext(path, HEIC_EXTS)
+        || (videos && is_video(path))
 }
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
@@ -1219,6 +1249,11 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     }
     if has_ext(path, raw::EXTS) {
         return raw::load(path, rotate);
+    }
+    // ffmpeg applies the rotation stored in the file.
+    #[cfg(feature = "heic")]
+    if has_ext(path, HEIC_EXTS) {
+        return ffmpeg_frame(path, "0");
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
