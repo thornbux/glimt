@@ -757,160 +757,177 @@ impl WindowState {
     }
 }
 
-/// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
-#[derive(Debug, PartialEq)]
-struct Config {
-    preload: usize,
-    /// Seconds between images in a slideshow.
-    delay: u64,
-    /// Start in the last used folder when no folder is given on the command line.
-    remember_dir: bool,
-    /// Deleting moves to the trash (default); otherwise the file is deleted permanently.
-    trash: bool,
-    /// Ask before deleting permanently.
-    confirm_delete: bool,
-    /// Ask before moving to the trash.
-    confirm_trash: bool,
-    /// The Delete key deletes (Ctrl+D always does).
-    delete_key: bool,
-    /// Slideshow in random order.
-    random: bool,
-    /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
-    exif_rotate: bool,
-    /// Video feature: list video files.
-    videos: bool,
-    /// Video feature: command line that plays a video; empty = the default application.
-    video_player: String,
-    /// Re-read the folder when files are added, removed or renamed.
-    auto_refresh: bool,
-    /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
-    enlarge: bool,
-    /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
-    wheel_zoom: bool,
-    /// Thumbnails in the file list (T).
-    thumbnails: bool,
-    /// Write new thumbnails to the shared cache (~/.cache/thumbnails).
-    save_thumbnails: bool,
-    /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
-    exif_panel: bool,
-    /// Toolbar under the menu, as in Geeqie.
-    toolbar: bool,
-    /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
-    /// Read at startup only, since glibc must be set before threads start.
-    low_memory: bool,
-    /// Folder path above the folder list.
-    path_bar: bool,
-    /// Colour behind the image (sRGB), stored as #rrggbb.
-    background: [u8; 3],
-    /// Restore the window's size, position and maximized state at startup.
-    remember_window: bool,
-    /// Keep the screen saver off while in full screen.
-    inhibit_screensaver: bool,
-    /// Window title "Glimt - image name" instead of "image name - Glimt".
-    app_name_first: bool,
-    /// File list with size and date columns, as in Geeqie.
-    file_details: bool,
-    sort: Sort,
-    sort_ascending: bool,
-    sort_case: bool,
-    /// Toolbar icon size: 0 small, 1 medium, 2 large.
-    toolbar_icons: usize,
-    /// File name search above the file list.
-    search_bar: bool,
+/// A config value as text in the `key=value` file.
+trait Setting: Sized {
+    /// `None` for an invalid value, which leaves the default.
+    fn parse(text: &str) -> Option<Self>;
+    fn show(&self) -> String;
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            preload: DEFAULT_AHEAD,
-            delay: DEFAULT_DELAY,
-            remember_dir: false,
-            trash: true,
-            confirm_delete: true,
-            confirm_trash: true,
-            delete_key: true,
-            random: false,
-            enlarge: true,
-            wheel_zoom: true,
-            thumbnails: true,
-            // Off while Glimt is in development, so testing leaves no files behind; on for release.
-            save_thumbnails: false,
-            exif_panel: false,
-            toolbar: true,
-            low_memory: true,
-            path_bar: true,
-            background: [0, 0, 0],
-            remember_window: true,
-            inhibit_screensaver: true,
-            app_name_first: false,
-            file_details: false,
-            sort: Sort::Name,
-            sort_ascending: true,
-            sort_case: true,
-            toolbar_icons: 0,
-            search_bar: true,
-            auto_refresh: true,
-            exif_rotate: true,
-            videos: true,
-            video_player: String::new(),
-        }
+impl Setting for bool {
+    fn parse(text: &str) -> Option<Self> {
+        Some(text == "true")
     }
+    fn show(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl Setting for usize {
+    fn parse(text: &str) -> Option<Self> {
+        text.parse().ok()
+    }
+    fn show(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl Setting for u64 {
+    fn parse(text: &str) -> Option<Self> {
+        text.parse().ok()
+    }
+    fn show(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl Setting for String {
+    fn parse(text: &str) -> Option<Self> {
+        Some(text.to_owned())
+    }
+    fn show(&self) -> String {
+        self.clone()
+    }
+}
+
+/// A colour as #rrggbb.
+impl Setting for [u8; 3] {
+    fn parse(text: &str) -> Option<Self> {
+        let hex = text.trim_start_matches('#');
+        let [_, r, g, b] = u32::from_str_radix(hex, 16).ok()?.to_be_bytes();
+        (hex.len() == 6).then_some([r, g, b])
+    }
+    fn show(&self) -> String {
+        format!("#{:02x}{:02x}{:02x}", self[0], self[1], self[2])
+    }
+}
+
+impl Setting for Sort {
+    fn parse(text: &str) -> Option<Self> {
+        SORTS.into_iter().find(|s| s.1 == text).map(|s| s.0)
+    }
+    fn show(&self) -> String {
+        self.entry().1.to_owned()
+    }
+}
+
+/// The config struct, its defaults, and reading and writing it, from one list; the field
+/// name is the key in the file.
+macro_rules! config {
+    ($($(#[$doc:meta])* $name:ident: $ty:ty = $default:expr,)*) => {
+        /// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
+        #[derive(Debug, PartialEq)]
+        struct Config {
+            $($(#[$doc])* $name: $ty,)*
+        }
+
+        impl Default for Config {
+            fn default() -> Self {
+                Config { $($name: $default,)* }
+            }
+        }
+
+        impl Config {
+            fn set(&mut self, key: &str, value: &str) {
+                match key {
+                    $(stringify!($name) => {
+                        if let Some(v) = Setting::parse(value) {
+                            self.$name = v;
+                        }
+                    })*
+                    _ => {}
+                }
+            }
+
+            fn to_text(&self) -> String {
+                let mut text = String::new();
+                $(text += &format!("{}={}\n", stringify!($name), self.$name.show());)*
+                text
+            }
+        }
+    };
+}
+
+config! {
+    preload: usize = DEFAULT_AHEAD,
+    /// Seconds between images in a slideshow.
+    delay: u64 = DEFAULT_DELAY,
+    /// Start in the last used folder when no folder is given on the command line.
+    remember_dir: bool = false,
+    /// Deleting moves to the trash (default); otherwise the file is deleted permanently.
+    trash: bool = true,
+    /// Ask before deleting permanently.
+    confirm_delete: bool = true,
+    /// Ask before moving to the trash.
+    confirm_trash: bool = true,
+    /// The Delete key deletes (Ctrl+D always does).
+    delete_key: bool = true,
+    /// Slideshow in random order.
+    random: bool = false,
+    /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
+    enlarge: bool = true,
+    /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
+    wheel_zoom: bool = true,
+    /// Thumbnails in the file list (T).
+    thumbnails: bool = true,
+    /// Write new thumbnails to the shared cache (~/.cache/thumbnails). Off while Glimt is in
+    /// development, so testing leaves no files behind; on for release.
+    save_thumbnails: bool = false,
+    /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
+    exif_panel: bool = false,
+    /// Toolbar under the menu, as in Geeqie.
+    toolbar: bool = true,
+    /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
+    /// Read at startup only, since glibc must be set before threads start.
+    low_memory: bool = true,
+    /// Folder path above the folder list.
+    path_bar: bool = true,
+    /// Restore the window's size, position and maximized state at startup.
+    remember_window: bool = true,
+    /// Keep the screen saver off while in full screen.
+    inhibit_screensaver: bool = true,
+    /// Window title "Glimt - image name" instead of "image name - Glimt".
+    app_name_first: bool = false,
+    /// File list with size and date columns, as in Geeqie.
+    file_details: bool = false,
+    sort: Sort = Sort::Name,
+    sort_ascending: bool = true,
+    sort_case: bool = true,
+    /// Toolbar icon size: 0 small, 1 medium, 2 large.
+    toolbar_icons: usize = 0,
+    /// File name search above the file list.
+    search_bar: bool = true,
+    /// Colour behind the image (sRGB).
+    background: [u8; 3] = [0, 0, 0],
+    /// Re-read the folder when files are added, removed or renamed.
+    auto_refresh: bool = true,
+    /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
+    exif_rotate: bool = true,
+    /// Video feature: list video files.
+    videos: bool = true,
+    /// Video feature: command line that plays a video; empty = the default application.
+    video_player: String = String::new(),
 }
 
 impl Config {
     fn parse(text: &str) -> Self {
         let mut c = Config::default();
         for (key, value) in text.lines().filter_map(|l| l.split_once('=')) {
-            let value = value.trim();
-            match key.trim() {
-                "preload" => c.preload = value.parse().map_or(c.preload, |n: usize| n.min(20)),
-                "delay" => {
-                    c.delay = value
-                        .parse()
-                        .map_or(c.delay, |n: u64| n.clamp(1, MAX_DELAY))
-                }
-                "remember_dir" => c.remember_dir = value == "true",
-                "trash" => c.trash = value == "true",
-                "confirm_delete" => c.confirm_delete = value == "true",
-                "confirm_trash" => c.confirm_trash = value == "true",
-                "delete_key" => c.delete_key = value == "true",
-                "random" => c.random = value == "true",
-                "enlarge" => c.enlarge = value == "true",
-                "wheel_zoom" => c.wheel_zoom = value == "true",
-                "thumbnails" => c.thumbnails = value == "true",
-                "save_thumbnails" => c.save_thumbnails = value == "true",
-                "exif_panel" => c.exif_panel = value == "true",
-                "toolbar" => c.toolbar = value == "true",
-                "low_memory" => c.low_memory = value == "true",
-                "path_bar" => c.path_bar = value == "true",
-                "remember_window" => c.remember_window = value == "true",
-                "inhibit_screensaver" => c.inhibit_screensaver = value == "true",
-                "app_name_first" => c.app_name_first = value == "true",
-                "file_details" => c.file_details = value == "true",
-                "sort" => {
-                    c.sort = SORTS
-                        .into_iter()
-                        .find(|s| s.1 == value)
-                        .map_or(c.sort, |s| s.0)
-                }
-                "sort_ascending" => c.sort_ascending = value == "true",
-                "sort_case" => c.sort_case = value == "true",
-                "search_bar" => c.search_bar = value == "true",
-                "toolbar_icons" => c.toolbar_icons = value.parse().map_or(0, |n: usize| n.min(2)),
-                "background" => {
-                    let hex = value.trim_start_matches('#');
-                    if let (6, Ok(rgb)) = (hex.len(), u32::from_str_radix(hex, 16)) {
-                        let [_, r, g, b] = rgb.to_be_bytes();
-                        c.background = [r, g, b];
-                    }
-                }
-                "auto_refresh" => c.auto_refresh = value == "true",
-                "exif_rotate" => c.exif_rotate = value == "true",
-                "videos" => c.videos = value == "true",
-                "video_player" => c.video_player = value.to_owned(),
-                _ => {}
-            }
+            c.set(key.trim(), value.trim());
         }
+        c.preload = c.preload.min(20);
+        c.delay = c.delay.clamp(1, MAX_DELAY);
+        c.toolbar_icons = c.toolbar_icons.min(2);
         c
     }
 
@@ -929,43 +946,9 @@ impl Config {
     }
 
     fn save(&self) {
-        let Some(p) = config_path() else { return };
-        let text = format!(
-            "preload={}\ndelay={}\nremember_dir={}\ntrash={}\nconfirm_delete={}\nconfirm_trash={}\ndelete_key={}\nrandom={}\nenlarge={}\nwheel_zoom={}\nthumbnails={}\nsave_thumbnails={}\nexif_panel={}\ntoolbar={}\nlow_memory={}\npath_bar={}\nremember_window={}\ninhibit_screensaver={}\napp_name_first={}\nfile_details={}\nsort={}\nsort_ascending={}\nsort_case={}\ntoolbar_icons={}\nsearch_bar={}\nbackground=#{:02x}{:02x}{:02x}\nauto_refresh={}\nexif_rotate={}\nvideos={}\nvideo_player={}\n",
-            self.preload,
-            self.delay,
-            self.remember_dir,
-            self.trash,
-            self.confirm_delete,
-            self.confirm_trash,
-            self.delete_key,
-            self.random,
-            self.enlarge,
-            self.wheel_zoom,
-            self.thumbnails,
-            self.save_thumbnails,
-            self.exif_panel,
-            self.toolbar,
-            self.low_memory,
-            self.path_bar,
-            self.remember_window,
-            self.inhibit_screensaver,
-            self.app_name_first,
-            self.file_details,
-            self.sort.entry().1,
-            self.sort_ascending,
-            self.sort_case,
-            self.toolbar_icons,
-            self.search_bar,
-            self.background[0],
-            self.background[1],
-            self.background[2],
-            self.auto_refresh,
-            self.exif_rotate,
-            self.videos,
-            self.video_player
-        );
-        write_atomic(&p, &text);
+        if let Some(p) = config_path() {
+            write_atomic(&p, &self.to_text());
+        }
     }
 }
 
@@ -3449,6 +3432,10 @@ mod tests {
         assert_eq!(Config::parse("preload=99").preload, 20);
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
+        // Every setting survives a save and load.
+        let mut c = Config::parse("trash=false\nsort=size\nbackground=#102030\ntoolbar_icons=2");
+        c.video_player = "mpv --fs".into();
+        assert_eq!(Config::parse(&c.to_text()), c);
         assert!(Config::default().trash && !Config::parse("trash=false").trash);
         assert!(
             Config::default().confirm_trash && !Config::parse("confirm_trash=false").confirm_trash
