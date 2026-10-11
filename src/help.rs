@@ -69,7 +69,9 @@ const MANUAL: &[(&str, &str)] = &[
          (or browses, see Preferences) towards the pointer. A zoomed image larger than the \
          window can be dragged or moved with the arrow keys. \
          ] and [ rotate the view, Shift+R turns it upside down, Shift+M mirrors and Shift+F \
-         flips it (Edit → Orientation); the next image is shown as it is.",
+         flips it (Edit → Orientation); the next image is shown as it is. Edit → Orientation \
+         → Save Orientation to File stores the rotation in a JPEG as its EXIF orientation, \
+         without touching the pixels; a setting does it on every change of image.",
     ),
     (
         "Slideshow",

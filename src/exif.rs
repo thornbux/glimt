@@ -23,6 +23,195 @@ pub fn orientation(raw: &[u8]) -> Option<image::metadata::Orientation> {
     image::metadata::Orientation::from_exif(t.int(e)? as u8)
 }
 
+/// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
+/// pixels to show them upright.
+const ORIENTATIONS: [[i8; 4]; 8] = [
+    [1, 0, 0, 1],
+    [-1, 0, 0, 1],
+    [-1, 0, 0, -1],
+    [1, 0, 0, -1],
+    [0, 1, 1, 0],
+    [0, -1, 1, 0],
+    [0, -1, -1, 0],
+    [0, 1, -1, 0],
+];
+
+fn mul(a: [i8; 4], b: [i8; 4]) -> [i8; 4] {
+    [
+        a[0] * b[0] + a[1] * b[2],
+        a[0] * b[1] + a[1] * b[3],
+        a[2] * b[0] + a[3] * b[2],
+        a[2] * b[1] + a[3] * b[3],
+    ]
+}
+
+/// The orientation after the view's `turns` quarter turns clockwise, mirrored first if
+/// `mirrored`, on top of orientation `o`.
+pub fn turned(o: u8, turns: u8, mirrored: bool) -> u8 {
+    let mut m = ORIENTATIONS[(o.clamp(1, 8) - 1) as usize];
+    if mirrored {
+        m = mul([-1, 0, 0, 1], m);
+    }
+    for _ in 0..turns % 4 {
+        m = mul([0, -1, 1, 0], m);
+    }
+    ORIENTATIONS
+        .iter()
+        .position(|&x| x == m)
+        .map_or(1, |i| i as u8 + 1)
+}
+
+/// Save the view's rotation in a JPEG as its EXIF orientation: the two bytes of the field if
+/// there is one, or a small EXIF block if the file has none. The pixels are not touched, and the
+/// file is replaced in one step (a new file renamed over it), keeping its permissions.
+pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), String> {
+    let mut data = std::fs::read(path).map_err(|e| e.to_string())?;
+    if !data.starts_with(&[0xff, 0xd8]) {
+        return Err("only JPEG files can store the orientation".into());
+    }
+    // The segments before the image data: (marker, start of its data, length of its data).
+    let mut segments = Vec::new();
+    let mut i = 2;
+    while let (Some(&0xff), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+        if marker == 0xda {
+            break;
+        }
+        let len = u16::from_be_bytes([
+            *data.get(i + 2).ok_or("cut off")?,
+            *data.get(i + 3).ok_or("cut off")?,
+        ]) as usize;
+        segments.push((marker, i + 4, len.saturating_sub(2)));
+        i += 2 + len;
+    }
+    let exif = segments
+        .iter()
+        .find(|s| s.0 == 0xe1 && data[s.1..].starts_with(b"Exif\0\0"));
+    match exif {
+        Some(&(_, start, len)) => {
+            let block = data.get(start..start + len).ok_or("cut off")?;
+            let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
+            let little = t.little;
+            let found = ifd0.iter().find(|(tag, _)| *tag == 0x0112).map(|e| e.1);
+            match found {
+                Some(e) if e.kind == 3 => {
+                    let new = turned(t.int(e).unwrap_or(1) as u8, turns, mirrored) as u16;
+                    // Offsets in the block count from the TIFF header, after "Exif\0\0".
+                    let at = start + 6 + e.at;
+                    let bytes = if little {
+                        new.to_le_bytes()
+                    } else {
+                        new.to_be_bytes()
+                    };
+                    data.get_mut(at..at + 2)
+                        .ok_or("cut off")?
+                        .copy_from_slice(&bytes);
+                }
+                Some(_) => return Err("unusual orientation field".into()),
+                None => {
+                    let new = turned(1, turns, mirrored) as u16;
+                    add_orientation(&mut data, start, len, little, new)?;
+                }
+            }
+        }
+        None => {
+            let new = turned(1, turns, mirrored) as u16;
+            let mut app1 = vec![0xff, 0xe1, 0, 34];
+            app1.extend(b"Exif\0\0MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01");
+            app1.extend(new.to_be_bytes());
+            app1.extend([0, 0, 0, 0, 0, 0]);
+            // After a JFIF segment if there is one, else right after the start marker.
+            let at = match segments.first() {
+                Some(&(0xe0, start, len)) => start + len,
+                _ => 2,
+            };
+            data.splice(at..at, app1);
+        }
+    }
+    let tmp = path.with_extension("glimt-tmp");
+    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
+    if let Ok(meta) = std::fs::metadata(path) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
+/// Add an orientation field to an EXIF block that has none: a copy of IFD0 with the field is
+/// put at the end of the block and the header pointed at it. Everything else stays where it
+/// is, so no other offset changes.
+fn add_orientation(
+    data: &mut Vec<u8>,
+    start: usize,
+    len: usize,
+    little: bool,
+    value: u16,
+) -> Result<(), String> {
+    let tiff = start + 6;
+    let get16 = |b: &[u8], at: usize| -> Option<u16> {
+        let x: [u8; 2] = b.get(at..at + 2)?.try_into().ok()?;
+        Some(if little {
+            u16::from_le_bytes(x)
+        } else {
+            u16::from_be_bytes(x)
+        })
+    };
+    let get32 = |b: &[u8], at: usize| -> Option<u32> {
+        let x: [u8; 4] = b.get(at..at + 4)?.try_into().ok()?;
+        Some(if little {
+            u32::from_le_bytes(x)
+        } else {
+            u32::from_be_bytes(x)
+        })
+    };
+    let p16 = |v: u16| {
+        if little {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
+    };
+    let p32 = |v: u32| {
+        if little {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        }
+    };
+    let ifd = tiff + get32(data, tiff + 4).ok_or("cut off")? as usize;
+    let n = get16(data, ifd).ok_or("cut off")? as usize;
+    let entries = data.get(ifd + 2..ifd + 2 + 12 * n).ok_or("cut off")?;
+    let mut list: Vec<Vec<u8>> = entries.chunks(12).map(<[u8]>::to_vec).collect();
+    let next = data
+        .get(ifd + 2 + 12 * n..ifd + 6 + 12 * n)
+        .ok_or("cut off")?
+        .to_vec();
+    let mut entry = Vec::new();
+    entry.extend(p16(0x0112));
+    entry.extend(p16(3));
+    entry.extend(p32(1));
+    entry.extend(p16(value));
+    entry.extend([0, 0]);
+    list.push(entry);
+    // Fields are sorted by tag.
+    list.sort_by_key(|e| get16(e, 0).unwrap_or(0));
+    let tiff_len = len - 6;
+    let mut added = vec![0; tiff_len % 2]; // word aligned
+    let new_ifd = (tiff_len + added.len()) as u32;
+    added.extend(p16(list.len() as u16));
+    added.extend(list.concat());
+    added.extend(next);
+    let seg_len = len + 2 + added.len();
+    if seg_len > 0xffff {
+        return Err("EXIF block too large".into());
+    }
+    data.splice(start + len..start + len, added);
+    data[start - 2..start].copy_from_slice(&(seg_len as u16).to_be_bytes());
+    data[tiff + 4..tiff + 8].copy_from_slice(&p32(new_ifd));
+    Ok(())
+}
+
 fn raw(path: &Path) -> Option<Vec<u8>> {
     use image::ImageDecoder;
     if crate::has_ext(path, crate::raw::EXTS) {
@@ -238,6 +427,57 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn turns_orientations() {
+        use super::turned;
+        assert_eq!(turned(1, 1, false), 6);
+        assert_eq!(turned(1, 0, true), 2);
+        assert_eq!(turned(6, 1, false), 3);
+        assert_eq!(turned(6, 3, false), 1);
+        assert_eq!(turned(3, 2, false), 1);
+        // Mirror then a quarter turn clockwise is the transverse.
+        assert_eq!(turned(1, 1, true), 7);
+    }
+
+    /// A JPEG without EXIF gets one; turning again changes the field in place.
+    #[test]
+    fn writes_orientation() {
+        let dir = std::env::temp_dir().join(format!("glimt-orient-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        image::RgbImage::new(4, 2).save(&file).unwrap();
+        super::write_orientation(&file, 1, false).unwrap();
+        let o = |f: &std::path::Path| {
+            use image::ImageDecoder;
+            let mut d = image::ImageReader::open(f).unwrap().into_decoder().unwrap();
+            d.orientation().unwrap()
+        };
+        assert_eq!(o(&file), image::metadata::Orientation::Rotate90);
+        super::write_orientation(&file, 1, false).unwrap();
+        assert_eq!(o(&file), image::metadata::Orientation::Rotate180);
+        assert_eq!(image::open(&file).unwrap().width(), 4);
+        // EXIF with other fields but no orientation: the field is added, the rest kept.
+        let mut base = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(
+                &mut std::io::Cursor::new(&mut base),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let app1 =
+            b"Exif\0\0II*\0\x08\0\0\0\x01\0\x0f\x01\x02\0\x06\0\0\0\x1a\0\0\0\0\0\0\0Canon\0";
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend(((app1.len() + 2) as u16).to_be_bytes());
+        jpeg.extend(app1);
+        jpeg.extend(&base[2..]);
+        std::fs::write(&file, &jpeg).unwrap();
+        super::write_orientation(&file, 3, false).unwrap();
+        assert_eq!(o(&file), image::metadata::Orientation::Rotate270);
+        let rows = super::read(&file);
+        assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A little-endian TIFF block: IFD0 with Make, Model and an Exif IFD with exposure,
     /// aperture and ISO.
     #[test]

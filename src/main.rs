@@ -106,6 +106,7 @@ enum Action {
     Rotate180,
     Mirror,
     Flip,
+    SaveOrientation,
     ZoomIn,
     ZoomOut,
     Zoom1To1,
@@ -244,6 +245,7 @@ impl Action {
             Rotate180 => "Rotate 180°",
             Mirror => "Mirror",
             Flip => "Flip",
+            SaveOrientation => "Save Orientation to File",
             ZoomIn => "Zoom In",
             ZoomOut => "Zoom Out",
             Zoom1To1 => "Zoom 1:1",
@@ -1472,6 +1474,8 @@ config! {
     enlarge: bool = true,
     /// A slideshow also shows the images in the subfolders.
     slideshow_subfolders: bool = false,
+    /// Write the view's rotation into the JPEG when going to another image.
+    save_orientation: bool = false,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
@@ -2606,8 +2610,14 @@ impl App {
         if self.files.is_empty() {
             return;
         }
+        // Saving the old image's rotation may leave a notice, which must outlive the move.
+        let saved = self.config.save_orientation && self.orient != (0, false);
+        if saved {
+            self.save_orientation();
+        }
+        let notice = if saved { self.notice.take() } else { None };
         self.cur = idx.min(self.files.len() - 1);
-        self.notice = None;
+        self.notice = notice;
         // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
         if !self.config.keep_zoom {
             self.zoom = None;
@@ -2767,6 +2777,31 @@ impl App {
             (Ok(()), _) => self.open(ctx, target),
             (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
         }
+    }
+
+    /// Write the view's rotation into the shown JPEG as its EXIF orientation and show the file
+    /// as it is now. ponytail: in the UI thread; a JPEG is read and written in milliseconds.
+    fn save_orientation(&mut self) {
+        let (turns, mirrored) = self.orient;
+        if self.files.is_empty() || (turns, mirrored) == (0, false) {
+            return;
+        }
+        let path = self.path(self.cur);
+        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
+            self.notice = Some(format!("Could not save the orientation: {e}"));
+            return;
+        }
+        if !self.config.exif_rotate {
+            self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
+        }
+        // Decode again with the new orientation, and make a new thumbnail.
+        self.orient = (0, false);
+        self.slots.remove(&self.cur);
+        self.pending.retain(|p| p.0 != self.cur);
+        self.thumbs.remove(&self.files[self.cur]);
+        self.thumbs_pending.remove(&self.files[self.cur]);
+        self.exif = None;
+        self.refill();
     }
 
     /// Rename the selected files by `pattern`, numbered in list order. Nothing is overwritten:
@@ -3867,6 +3902,7 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::SaveOrientation => self.save_orientation(),
             Action::Compare => {
                 self.compare = !self.compare;
                 self.refill();
@@ -4255,6 +4291,8 @@ impl eframe::App for App {
                             ] {
                                 menu_item(ui, act, action);
                             }
+                            ui.separator();
+                            menu_item(ui, act, Action::SaveOrientation);
                         });
                         ui.separator();
                         menu_item(ui, act, Action::Preferences);
@@ -4372,6 +4410,12 @@ impl eframe::App for App {
                     {
                         self.set_exif_rotate(rotate);
                     }
+                    changed |= ui
+                        .checkbox(
+                            &mut self.config.save_orientation,
+                            "Save rotation to the file when changing image (JPEG)",
+                        )
+                        .changed();
                     ui.horizontal(|ui| {
                         changed |= ui
                             .color_edit_button_srgb(&mut self.config.background.0)
