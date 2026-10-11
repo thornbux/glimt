@@ -1808,8 +1808,15 @@ impl App {
         if self.config.random != self.random {
             self.set_random(ctx, self.config.random);
         }
-        self.slideshow = Some(Instant::now());
+        // The first slide comes at once: start as if the delay has already run out.
+        let delay = std::time::Duration::from_secs(self.config.delay);
+        self.slideshow = Some(
+            Instant::now()
+                .checked_sub(delay)
+                .unwrap_or_else(Instant::now),
+        );
         self.title(ctx);
+        ctx.request_repaint();
     }
 
     /// Open the shown file in `player` (a command line), or in the default application when
