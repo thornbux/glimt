@@ -5,6 +5,19 @@ A fast, memory-frugal image viewer for Linux, written in Rust with egui and insp
 showing images quickly and handles folders of any size, from a few images to several
 hundred thousand. The name *Glimt* is Norwegian for "glimpse": a quick look, which is what an image viewer is for.
 
+## Screenshots
+
+The images in the screenshots are generated for the purpose.
+
+![Glimt with thumbnails in the file list](docs/screenshots/main.png)
+
+| | |
+|---|---|
+| ![File size and date columns, and the EXIF panel](docs/screenshots/exif-and-columns.png) | ![Fuzzy file name search](docs/screenshots/fuzzy-search.png) |
+| File size and date columns, and the EXIF panel (Ctrl+K) | Fuzzy search: "sun" finds sunflower and sunrise, and also de**s**ert_d**un**es |
+| ![The sort menu](docs/screenshots/sort-menu.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
+| The sort menu in the status bar | Help → Keyboard Map |
+
 ## Building
 
 ### Requirements
