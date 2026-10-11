@@ -2802,6 +2802,15 @@ impl eframe::App for App {
         }
 
         let mut open = self.show_settings;
+        // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
+        // of it is the one Esc is meant for.
+        if open
+            && self.prompt.is_none()
+            && self.confirm.is_none()
+            && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+        {
+            open = false;
+        }
         egui::Window::new("Preferences")
             .open(&mut open)
             .resizable(false)
