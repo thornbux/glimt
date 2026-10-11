@@ -537,6 +537,10 @@ struct App {
     notices_tx: mpsc::Sender<String>,
     /// A network location (smb:// …) being mounted: its local path, or why it failed.
     mounting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
+    /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
+    grid_cols: usize,
+    /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
+    row_step: isize,
     notices: mpsc::Receiver<String>,
     notice: Option<String>,
     /// Total size of the images in the folder, summed in the background after listing.
@@ -1453,6 +1457,8 @@ impl App {
         let mut app = App {
             notices_tx,
             mounting: None,
+            grid_cols: 1,
+            row_step: 1,
             notices,
             notice: None,
             dir: PathBuf::new(),
@@ -2775,10 +2781,11 @@ impl App {
             }
             Action::First | Action::Prev | Action::Next | Action::Last => {
                 // Along the list as shown: the search matches while searching.
+                let row = self.row_step;
                 let delta = match action {
                     Action::First => -isize::MAX / 2,
-                    Action::Prev => -1,
-                    Action::Next => 1,
+                    Action::Prev => -row,
+                    Action::Next => row,
                     _ => isize::MAX / 2,
                 };
                 let Some(to) = self.step(self.cur, delta, false) else {
@@ -3049,6 +3056,10 @@ impl eframe::App for App {
                 }
             });
         }
+        // In the icon grid ↑ and ↓ move a row; read before the shortcut takes the key.
+        let vertical =
+            ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
+        self.row_step = if vertical { self.grid_cols as isize } else { 1 };
         let mut act = (!self.dialog_open() && !typing)
             .then(|| Self::shortcut(ctx, self.config.delete_key))
             .flatten();
@@ -3171,6 +3182,7 @@ impl eframe::App for App {
         if let Some(action) = act {
             self.run(ctx, action);
         }
+        self.grid_cols = 1;
 
         let mut open = self.show_settings;
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
@@ -3548,6 +3560,7 @@ impl eframe::App for App {
                     } else {
                         1
                     };
+                    self.grid_cols = cols;
                     let mut area = egui::ScrollArea::vertical()
                         .id_salt("files")
                         .auto_shrink(false);
