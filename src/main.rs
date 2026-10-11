@@ -273,7 +273,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Arrow keys",
-        "←/↑ previous, →/↓ next image",
+        "←/↑ previous, →/↓ next image; they move a zoomed image that is larger than the window",
         "Scroll a zoomed image, move in the file list",
     ),
     (
@@ -554,6 +554,8 @@ struct App {
     /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
     /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
     orient: (u8, bool),
+    /// How far the shown image can be panned each way (points); zero where it fits.
+    max_pan: egui::Vec2,
 }
 
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
@@ -1364,6 +1366,7 @@ impl App {
             match_rx: None,
             anchor: None,
             orient: (0, false),
+            max_pan: egui::Vec2::ZERO,
         };
         app.open(&cc.egui_ctx, path);
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -2719,6 +2722,25 @@ impl eframe::App for App {
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).
         let typing = ctx.egui_wants_keyboard_input();
+        // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
+        // side where it fits they still browse.
+        if !self.dialog_open() && !typing && self.zoom.is_some() {
+            let step = 100.0;
+            let max = self.max_pan;
+            ctx.input_mut(|i| {
+                for (key, d) in [
+                    (egui::Key::ArrowLeft, egui::vec2(step, 0.0)),
+                    (egui::Key::ArrowRight, egui::vec2(-step, 0.0)),
+                    (egui::Key::ArrowUp, egui::vec2(0.0, step)),
+                    (egui::Key::ArrowDown, egui::vec2(0.0, -step)),
+                ] {
+                    let along = if d.x != 0.0 { max.x } else { max.y };
+                    if along > 0.0 && i.consume_key(egui::Modifiers::NONE, key) {
+                        self.pan = (self.pan + d).clamp(-max, max);
+                    }
+                }
+            });
+        }
         let mut act = (!self.dialog_open() && !typing)
             .then(|| Self::shortcut(ctx, self.config.delete_key))
             .flatten();
@@ -3369,7 +3391,14 @@ impl eframe::App for App {
                         }
                     }
                     if factor != 1.0 {
-                        self.zoom = Some((self.zoom.unwrap_or(fit) * factor).clamp(0.02, 32.0));
+                        let old = self.zoom.unwrap_or(fit);
+                        let new = (old * factor).clamp(0.02, 32.0);
+                        self.zoom = Some(new);
+                        // Keep the point under the pointer in place, as in other viewers.
+                        if let Some(p) = response.hover_pos() {
+                            let from_centre = p - area.center();
+                            self.pan = from_centre - (from_centre - self.pan) * (new / old);
+                        }
                     }
                 }
                 if response.double_clicked() {
@@ -3388,6 +3417,7 @@ impl eframe::App for App {
                     let size = egui::vec2(w as f32, h as f32) * scale / ppp;
                     let max = ((size - area.size()) / 2.0).max(egui::Vec2::ZERO);
                     self.pan = self.pan.clamp(-max, max);
+                    self.max_pan = max;
                 }
 
                 // Texture too small: in fit mode the window has grown, so decode again at window
