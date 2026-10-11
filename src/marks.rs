@@ -92,6 +92,53 @@ fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     Some((PathBuf::from(path), (bits & 0x3f, stars.min(5))))
 }
 
+/// Write `stars` as xmp:Rating into the sidecar `<file>.xmp` that darktable and digiKam read.
+/// An existing sidecar keeps everything else: only the rating changes, or is added to its first
+/// rdf:Description. Without a sidecar, 0 stars writes none.
+pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
+    let mut name = path.file_name().ok_or("no file name")?.to_owned();
+    name.push(".xmp");
+    let side = path.with_file_name(name);
+    let text = match std::fs::read_to_string(&side) {
+        Ok(text) => set_rating(&text, stars).ok_or("unreadable XMP sidecar")?,
+        Err(_) if stars == 0 => return Ok(()),
+        Err(_) => format!(
+            "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
+             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
+             <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" \
+             xmp:Rating=\"{stars}\"/>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
+        ),
+    };
+    let tmp = side.with_extension("xmp.tmp");
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &side).map_err(|e| e.to_string())
+}
+
+/// `xmp` with its rating set to `stars`, as an attribute or element, or added; `None` if it has
+/// no rdf:Description to put it in.
+fn set_rating(xmp: &str, stars: u8) -> Option<String> {
+    let number_after = |key: &str| {
+        let start = xmp.find(key)? + key.len();
+        let len = xmp[start..].find(|c: char| !c.is_ascii_digit() && c != '-')?;
+        Some((start, start + len))
+    };
+    if let Some((a, b)) = number_after("xmp:Rating=\"").or_else(|| number_after("<xmp:Rating>")) {
+        return Some(format!("{}{stars}{}", &xmp[..a], &xmp[b..]));
+    }
+    let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
+    let ns = if xmp.contains("xmlns:xmp=") {
+        ""
+    } else {
+        " xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""
+    };
+    Some(format!(
+        "{}{ns} xmp:Rating=\"{stars}\"{}",
+        &xmp[..at],
+        &xmp[at..]
+    ))
+}
+
 /// "★★★" for the stars and "1 4" for the marks, for the file list and overlay.
 pub fn text((bits, stars): (u8, u8)) -> String {
     let marks: Vec<String> = (1..=6)
@@ -128,5 +175,23 @@ mod tests {
             Some((PathBuf::from("/x y.jpg"), (5, 5)))
         );
         assert_eq!(super::parse_line(b"junk"), None);
+        // A darktable sidecar keeps its fields; the rating is changed or added.
+        let dt = r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1" darktable:x="y">"#;
+        assert!(
+            super::set_rating(dt, 4)
+                .unwrap()
+                .contains(r#"xmp:Rating="4" darktable:x="y""#)
+        );
+        let none = r#"<rdf:Description rdf:about="">"#;
+        assert_eq!(
+            super::set_rating(none, 2).unwrap(),
+            r#"<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2" rdf:about="">"#
+        );
+        assert!(
+            super::set_rating("<xmp:Rating>5</xmp:Rating><rdf:Description>", 0)
+                .unwrap()
+                .starts_with("<xmp:Rating>0<")
+        );
+        assert_eq!(super::set_rating("nothing", 1), None);
     }
 }

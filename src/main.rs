@@ -1543,6 +1543,8 @@ config! {
     color_management: bool = true,
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
+    /// Stars are also written as xmp:Rating to `<file>.xmp` sidecars, for darktable and digiKam.
+    xmp_stars: bool = false,
     /// The file list holds the images of all subfolders too, with their folders in the name.
     show_subfolders: bool = false,
     /// A slideshow also shows the images in the subfolders.
@@ -4355,6 +4357,12 @@ impl App {
                     self.marks.toggle(&paths, n);
                 } else {
                     self.marks.rate(&paths, n);
+                    if self.config.xmp_stars {
+                        let failed = paths.iter().find_map(|p| marks::write_xmp(p, n).err());
+                        if let Some(e) = failed {
+                            self.notice = Some(format!("Could not write the XMP sidecar: {e}"));
+                        }
+                    }
                 }
                 // A "mark:" or "stars:" search shows the new state.
                 if self.search.starts_with("mark:") || self.search.starts_with("stars:") {
@@ -4906,6 +4914,12 @@ impl eframe::App for App {
                     {
                         changed |= ui
                             .checkbox(&mut c.show_marks, "Show marks and stars in the file list")
+                            .changed();
+                        changed |= ui
+                            .checkbox(
+                                &mut c.xmp_stars,
+                                "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam",
+                            )
                             .changed();
                     }
                     ui.horizontal(|ui| {
