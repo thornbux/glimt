@@ -28,6 +28,12 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     if crate::has_ext(path, crate::raw::EXTS) {
         return crate::raw::exif(path);
     }
+    #[cfg(feature = "jxl")]
+    if crate::has_ext(path, crate::JXL_EXTS) {
+        let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+        let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
+        return dec.exif_metadata().ok().flatten();
+    }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
     if crate::is_heif(path) {
         let data = std::fs::read(path).ok()?;
@@ -51,6 +57,11 @@ type Ifd = Vec<(u16, Entry)>;
 /// The TIFF block with its IFD0, Exif and GPS directories.
 fn ifds(raw: &[u8]) -> Option<(Tiff<'_>, Ifd, Ifd, Ifd)> {
     let data = raw.strip_prefix(b"Exif\0\0").unwrap_or(raw);
+    // JPEG XL's Exif box starts with a 4-byte offset to the TIFF header.
+    let data = match data.get(4..6) {
+        Some(b"II" | b"MM") if !matches!(data.get(..2), Some(b"II" | b"MM")) => &data[4..],
+        _ => data,
+    };
     let little = match data.get(..2) {
         Some(b"II") => true,
         Some(b"MM") => false,

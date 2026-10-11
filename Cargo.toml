@@ -13,6 +13,8 @@ png = "0.18.1"
 # Already used by image; here for ICC profiles.
 moxcms = "0.8.1"
 winit = { version = "0.30.13", default-features = false, features = ["wayland-csd-adwaita"] }
+# Optional: JPEG XL (feature jxl).
+jxl-oxide = { version = "0.12.6", default-features = false, features = ["image"], optional = true }
 
 [features]
 # Video previews via the ffmpeg program and playing in an external player.
@@ -21,7 +23,9 @@ video = []
 heic = []
 # AVIF photos via the ffmpeg program (dav1d).
 avif = []
+# JPEG XL photos, decoded in Rust by jxl-oxide.
+jxl = ["dep:jxl-oxide"]
 # Geeqie's marks 1-6 and 0-5 stars, kept in ~/.local/state/glimt/marks.
 marks = []
 # Every optional feature: cargo build --release --features full (same as --all-features).
-full = ["video", "heic", "avif", "marks"]
+full = ["video", "heic", "avif", "jxl", "marks"]

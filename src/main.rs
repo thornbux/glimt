@@ -37,6 +37,9 @@ const AVIF_EXTS: &[&str] = if cfg!(feature = "avif") {
     &[]
 };
 
+/// JPEG XL photos, with the jxl feature.
+const JXL_EXTS: &[&str] = if cfg!(feature = "jxl") { &["jxl"] } else { &[] };
+
 /// HEIC and AVIF: both HEIF files, decoded the same way.
 fn is_heif(path: &Path) -> bool {
     has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
@@ -1119,7 +1122,11 @@ fn pattern_name(pattern: &str, old: &Path, n: usize) -> String {
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
 fn is_listed(path: &Path, videos: bool) -> bool {
-    has_ext(path, EXTS) || has_ext(path, raw::EXTS) || is_heif(path) || (videos && is_video(path))
+    has_ext(path, EXTS)
+        || has_ext(path, raw::EXTS)
+        || is_heif(path)
+        || has_ext(path, JXL_EXTS)
+        || (videos && is_video(path))
 }
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
@@ -1787,6 +1794,16 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
     #[cfg(any(feature = "heic", feature = "avif"))]
     if is_heif(path) {
         return Ok((heif(path)?, None));
+    }
+    #[cfg(feature = "jxl")]
+    if has_ext(path, JXL_EXTS) {
+        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+        let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
+            .map_err(|e| e.to_string())?;
+        // jxl-oxide already renders the image upright.
+        let icc = dec.icc_profile().ok().flatten();
+        let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
+        return Ok((img, icc));
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
