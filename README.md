@@ -94,7 +94,7 @@ Leave out the `sed` path rewrite if `glimt` is on your `PATH`.
 |---|---|---|
 | Showing images | OpenGL 3 (Mesa), Wayland or X11 | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
-| Move to trash | `gio` (glib) | built-in freedesktop.org home trash |
+| Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open` | `xdg-open` |
 
 ## Files
