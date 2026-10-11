@@ -127,6 +127,8 @@ enum Action {
     HistogramLog,
     Compare,
     Animate,
+    NextPage,
+    PrevPage,
     // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
     #[cfg(feature = "marks")]
     Mark1,
@@ -269,6 +271,8 @@ impl Action {
             HistogramLog => "Logarithmic Histogram",
             Compare => "Compare Side by Side",
             Animate => "Play Animations",
+            NextPage => "Next Page",
+            PrevPage => "Previous Page",
             #[cfg(feature = "marks")]
             Mark1 => "Mark 1",
             #[cfg(feature = "marks")]
@@ -392,6 +396,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (HistogramLog, NONE, Key::J),
         (Compare, NONE, Key::E),
         (Animate, NONE, Key::A),
+        (NextPage, CTRL, Key::PageDown),
+        (PrevPage, CTRL, Key::PageUp),
         // Alt+digit before the plain digit, which would also match with Alt.
         #[cfg(feature = "marks")]
         (Rate0, ALT, Key::Num0),
@@ -649,12 +655,14 @@ struct Decoded {
     path: PathBuf,
     /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
     rotated: bool,
+    /// The page of a multi-page TIFF; 0 for everything else.
+    page: usize,
     /// `None` = skipped because the user has already moved past it.
     result: Option<Result<DecodedImage, String>>,
 }
 
-/// The frames, the original size after EXIF rotation, and the histogram.
-type DecodedImage = (Frames, [usize; 2], Box<Hist>);
+/// The frames, the original size after EXIF rotation, the histogram and the number of pages.
+type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
 
 /// A file's EXIF from the reader thread: the panel's rows and every field.
 type ExifRead = (
@@ -693,6 +701,8 @@ struct Slot {
     anim: Vec<(egui::TextureHandle, u32)>,
     /// Of the decoded image (the first frame of an animation).
     hist: Box<Hist>,
+    /// Pages of a multi-page TIFF; 1 for other files.
+    pages: usize,
 }
 
 impl Slot {
@@ -743,7 +753,9 @@ struct App {
     /// Max decode size in physical pixels: [image area in the window, max texture side].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
     /// (image index, full resolution, file)
-    jobs: mpsc::Sender<(usize, bool, PathBuf)>,
+    jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
+    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
+    page: usize,
     done: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
@@ -1774,14 +1786,70 @@ fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-fn decode(path: &Path, max: [u32; 2], rotate: bool) -> Result<(Frames, [usize; 2]), String> {
-    if let Some(anim) = animation(path, max) {
-        return Ok(anim);
+/// Image `path` scaled to fit `max`, its original size and its number of pages; `page` picks a
+/// page of a multi-page TIFF.
+fn decode(
+    path: &Path,
+    max: [u32; 2],
+    rotate: bool,
+    page: usize,
+) -> Result<(Frames, [usize; 2], usize), String> {
+    if let Some((frames, orig)) = animation(path, max) {
+        return Ok((frames, orig, 1));
     }
-    let (img, icc) = load_icc(path, rotate)?;
+    let pages = if has_ext(path, &["tif", "tiff"]) {
+        tiff_pages(path)
+    } else {
+        1
+    };
+    let (img, icc) = if page > 0 {
+        (tiff_page(path, page)?, None)
+    } else {
+        load_icc(path, rotate)?
+    };
     let orig = [img.width() as usize, img.height() as usize];
     let img = to_srgb(shrink(img, max)?, icc.as_deref());
-    Ok((vec![(color_image(img), 0)], orig))
+    Ok((vec![(color_image(img), 0)], orig, pages))
+}
+
+/// The number of pages (images) in a TIFF file; reads only their directories.
+fn tiff_pages(path: &Path) -> usize {
+    let Ok(file) = std::fs::File::open(path) else {
+        return 1;
+    };
+    let Ok(mut dec) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
+        return 1;
+    };
+    let mut pages = 1;
+    while dec.more_images() && dec.next_image().is_ok() {
+        pages += 1;
+    }
+    pages
+}
+
+/// Page `page` of a TIFF. The image crate reads only the first, so the tiff crate (which it
+/// uses) decodes the others; 8- and 16-bit grey and colour, which covers scanned documents.
+fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
+    use image::DynamicImage as D;
+    use tiff::ColorType as C;
+    use tiff::decoder::DecodingResult as R;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut dec =
+        tiff::decoder::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
+    dec.seek_to_image(page).map_err(|e| e.to_string())?;
+    let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
+    let color = dec.colortype().map_err(|e| e.to_string())?;
+    let img = match (color, dec.read_image().map_err(|e| e.to_string())?) {
+        (C::Gray(8), R::U8(v)) => image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8),
+        (C::GrayA(8), R::U8(v)) => image::GrayAlphaImage::from_raw(w, h, v).map(D::ImageLumaA8),
+        (C::RGB(8), R::U8(v)) => image::RgbImage::from_raw(w, h, v).map(D::ImageRgb8),
+        (C::RGBA(8), R::U8(v)) => image::RgbaImage::from_raw(w, h, v).map(D::ImageRgba8),
+        (C::Gray(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageLuma16),
+        (C::RGB(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgb16),
+        (C::RGBA(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgba16),
+        _ => None,
+    };
+    img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1))
 }
 
 /// The whole image in sRGB.
@@ -1981,7 +2049,7 @@ impl App {
         let ahead = Arc::new(AtomicUsize::new(config.preload));
         let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
-        let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf)>();
+        let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf, usize)>();
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
         let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
@@ -1996,7 +2064,7 @@ impl App {
             );
             std::thread::spawn(move || {
                 loop {
-                    let Ok((idx, full, path)) = job_rx.lock().unwrap().recv() else {
+                    let Ok((idx, full, path, page)) = job_rx.lock().unwrap().recv() else {
                         return;
                     };
                     // Cancellation: skip images the user has already moved past.
@@ -2010,6 +2078,7 @@ impl App {
                             idx,
                             full,
                             path,
+                            page,
                             result: None,
                         });
                         continue;
@@ -2017,15 +2086,18 @@ impl App {
                     let max = limits.lock().unwrap()[full as usize];
                     let rotated = rotate.load(Ordering::Relaxed);
                     // The histogram here too, so the UI thread never walks the pixels.
-                    let result = Some(decode(&path, max, rotated).map(|(frames, orig)| {
-                        let hist = histogram(&frames[0].0);
-                        (frames, orig, hist)
-                    }));
+                    let result = Some(decode(&path, max, rotated, page).map(
+                        |(frames, orig, pages)| {
+                            let hist = histogram(&frames[0].0);
+                            (frames, orig, hist, pages)
+                        },
+                    ));
                     let _ = done_tx.send(Decoded {
                         rotated,
                         idx,
                         full,
                         path,
+                        page,
                         result,
                     });
                     // glibc does not return freed memory from the threads' malloc arenas on its own;
@@ -2135,6 +2207,7 @@ impl App {
             random: false,
             limits,
             jobs,
+            page: 0,
             done,
             slots: HashMap::new(),
             pending: HashSet::new(),
@@ -2670,13 +2743,21 @@ impl App {
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
         if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
-            let _ = self.jobs.send((idx, full, self.path(idx)));
+            // The neighbours are preloaded at their first page.
+            let page = if idx == self.cur { self.page } else { 0 };
+            let _ = self.jobs.send((idx, full, self.path(idx), page));
         }
     }
 
     fn go(&mut self, ctx: &egui::Context, idx: usize) {
         if self.files.is_empty() {
             return;
+        }
+        // A TIFF shown at another page than the first: its decoded page must not stay for when
+        // it is shown again from the first page.
+        if self.page > 0 {
+            self.slots.remove(&self.cur);
+            self.page = 0;
         }
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.orient != (0, false);
@@ -3083,10 +3164,11 @@ impl App {
             self.pending.remove(&(d.idx, d.full));
             let wanted = self.is_file(d.idx, &d.path)
                 && d.rotated == self.config.exif_rotate
+                && d.page == if d.idx == self.cur { self.page } else { 0 }
                 && self.keep.lock().unwrap().contains(&d.idx)
                 && (!d.full || d.idx == self.cur);
             match d.result {
-                Some(Ok((frames, orig, hist))) if wanted => {
+                Some(Ok((frames, orig, hist, pages))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
                     if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
                         continue;
@@ -3113,6 +3195,7 @@ impl App {
                             orig,
                             anim,
                             hist,
+                            pages,
                         },
                     );
                     if d.idx == self.cur
@@ -4045,6 +4128,19 @@ impl App {
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::SaveOrientation => self.save_orientation(),
+            Action::NextPage | Action::PrevPage => {
+                let pages = self.slots.get(&self.cur).map_or(1, |s| s.pages);
+                let page = match action {
+                    Action::NextPage => (self.page + 1).min(pages - 1),
+                    _ => self.page.saturating_sub(1),
+                };
+                if page != self.page {
+                    self.page = page;
+                    self.slots.remove(&self.cur);
+                    self.pending.retain(|p| p.0 != self.cur);
+                    self.refill();
+                }
+            }
             Action::ExifWindow => self.exif_window = !self.exif_window,
             Action::Compare => {
                 self.compare = !self.compare;
@@ -4932,7 +5028,12 @@ impl eframe::App for App {
                                 let [w, h] = slot.orig;
                                 ui.label(format!("{} %", (self.last_scale * 100.0).round()));
                                 ui.separator();
-                                ui.label(format!("( {w} x {h} ) {bytes} {place}"));
+                                let page = if slot.pages > 1 {
+                                    format!(" page {}/{}", self.page + 1, slot.pages)
+                                } else {
+                                    String::new()
+                                };
+                                ui.label(format!("( {w} x {h} ) {bytes} {place}{page}"));
                             }
                             None => {
                                 ui.label(format!("{bytes} {place}"));
@@ -5433,7 +5534,7 @@ mod tests {
         let (dirs, images) = super::list_folder(&dir, true);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
-        let (frames, orig) = super::decode(&dir.join("a.png"), [100, 100], true).unwrap();
+        let (frames, orig, _) = super::decode(&dir.join("a.png"), [100, 100], true, 0).unwrap();
         assert_eq!(
             (frames.len(), frames[0].0.size, orig),
             (1, [100, 50], [400, 200])
@@ -5447,7 +5548,7 @@ mod tests {
         image::codecs::gif::GifEncoder::new(gif)
             .encode_frames([frame(50), frame(5)])
             .unwrap();
-        let (frames, orig) = super::decode(&dir.join("b.gif"), [100, 100], true).unwrap();
+        let (frames, orig, _) = super::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
         let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
         assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
         std::fs::remove_dir_all(dir).unwrap();

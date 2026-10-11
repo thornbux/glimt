@@ -912,6 +912,7 @@ dependencies = [
  "moxcms",
  "png",
  "resvg",
+ "tiff",
  "winit",
 ]
 

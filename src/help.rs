@@ -61,7 +61,8 @@ const MANUAL: &[(&str, &str)] = &[
         "Browsing",
         "Space, Page Down and → show the next image; Backspace, Page Up and ← the previous; \
          Home and End the first and last. The images on each side are decoded in advance, so \
-         browsing is instant. Click a name in the file list to show it.",
+         browsing is instant. Click a name in the file list to show it. In a TIFF with several \
+         pages, Ctrl+Page Down and Ctrl+Page Up go to the next and previous page.",
     ),
     (
         "Zoom",

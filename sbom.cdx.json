@@ -6126,6 +6126,7 @@
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
     "pkg:cargo/resvg@0.48.1",
+    "pkg:cargo/tiff@0.11.3",
     "pkg:cargo/winit@0.30.13"
    ]
   },
