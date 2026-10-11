@@ -95,6 +95,7 @@ enum Action {
     PathBar,
     Thumbnails,
     ExifPanel,
+    FolderTree,
     Refresh,
     Slideshow,
     Pause,
@@ -159,6 +160,7 @@ impl Action {
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
             ExifPanel => "Show EXIF Panel",
+            FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
             Pause => "Pause Slideshow",
@@ -236,6 +238,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Thumbnails, NONE, Key::T),
         (Overlay, NONE, Key::I),
         (ExifPanel, CTRL, Key::K),
+        (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
         (Pause, NONE, Key::P),
@@ -537,6 +540,12 @@ struct App {
     apps: HashMap<String, Vec<(String, PathBuf)>>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
     clip: Option<mpsc::Receiver<egui::ColorImage>>,
+    /// Subfolders by folder for the folder tree; `None` while being read.
+    tree: HashMap<PathBuf, Option<Vec<PathBuf>>>,
+    tree_tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
+    tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
+    /// The folder the tree was last opened up to; it opens again when the folder changes.
+    tree_shown: PathBuf,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
     grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
@@ -1202,6 +1211,8 @@ config! {
     save_thumbnails: bool = false,
     /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
     exif_panel: bool = false,
+    /// Folders as a tree from / (Ctrl+T) instead of the subfolders of the current one.
+    folder_tree: bool = false,
     /// Toolbar under the menu, as in Geeqie.
     toolbar: bool = true,
     /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
@@ -1639,6 +1650,7 @@ impl App {
             }
         });
         let (notices_tx, notices) = mpsc::channel();
+        let (tree_tx, tree_rx) = mpsc::channel();
         let (freed_tx, freed_rx) = mpsc::channel();
         let (deleted_tx, deleted_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
@@ -1647,6 +1659,10 @@ impl App {
             mounting: None,
             login: None,
             grid_cols: 1,
+            tree: HashMap::new(),
+            tree_tx,
+            tree_rx,
+            tree_shown: PathBuf::new(),
             clip: None,
             apps: HashMap::new(),
             row_step: 1,
@@ -1872,6 +1888,7 @@ impl App {
             return;
         };
         self.listing = None;
+        self.tree.insert(self.dir.clone(), Some(dirs.clone()));
         self.subdirs = dirs;
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
@@ -2327,7 +2344,10 @@ impl App {
         }
         let target = self.dir.join(text);
         let result = match prompt {
-            Prompt::NewFolder => std::fs::create_dir(&target),
+            Prompt::NewFolder => {
+                self.tree.remove(&self.dir);
+                std::fs::create_dir(&target)
+            }
             Prompt::Rename if self.files.get(self.cur) == Some(&OsString::from(text)) => return,
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
@@ -2871,6 +2891,60 @@ impl App {
         response.on_hover_text_at_pointer(self.files[i].to_string_lossy())
     }
 
+    /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
+    /// background when a folder is opened in the tree.
+    fn folder_tree(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
+        while let Ok((dir, subdirs)) = self.tree_rx.try_recv() {
+            self.tree.insert(dir, Some(subdirs));
+        }
+        egui::ScrollArea::both()
+            .id_salt("tree")
+            .auto_shrink(false)
+            .show(ui, |ui| self.tree_node(ui, Path::new("/"), open_dir));
+    }
+
+    fn tree_node(&mut self, ui: &mut egui::Ui, path: &Path, open_dir: &mut Option<PathBuf>) {
+        let id = ui.make_persistent_id(("tree", path));
+        let on_way = self.dir.starts_with(path);
+        let mut state =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, on_way);
+        let follow = on_way && self.tree_shown != self.dir;
+        if follow && path != self.dir {
+            state.set_open(true);
+        }
+        let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
+        state
+            .show_header(ui, |ui| {
+                let label = ui.selectable_label(path == self.dir, name);
+                // Shown once the folders above it are read.
+                if follow && path == self.dir {
+                    label.scroll_to_me(Some(egui::Align::Center));
+                    self.tree_shown = self.dir.clone();
+                }
+                if label.clicked() {
+                    *open_dir = Some(path.to_path_buf());
+                }
+            })
+            .body(|ui| match self.tree.get(path) {
+                Some(Some(subdirs)) => {
+                    for dir in subdirs.clone() {
+                        self.tree_node(ui, &dir, open_dir);
+                    }
+                }
+                Some(None) => drop(ui.label("…")),
+                None => {
+                    self.tree.insert(path.to_path_buf(), None);
+                    let (dir, tx, ctx) =
+                        (path.to_path_buf(), self.tree_tx.clone(), ui.ctx().clone());
+                    std::thread::spawn(move || {
+                        let subdirs = list_folder(&dir, false).0;
+                        let _ = tx.send((dir, subdirs));
+                        ctx.request_repaint();
+                    });
+                }
+            });
+    }
+
     /// Fuzzy search box above the file list.
     fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -3170,7 +3244,8 @@ impl App {
             | Action::Toolbar
             | Action::ExifPanel
             | Action::Overlay
-            | Action::Icons => {
+            | Action::Icons
+            | Action::FolderTree => {
                 self.scroll_to_cur = true;
                 let c = &mut self.config;
                 let flag = match action {
@@ -3178,6 +3253,7 @@ impl App {
                     Action::Toolbar => &mut c.toolbar,
                     Action::Overlay => &mut c.osd,
                     Action::Icons => &mut c.icons,
+                    Action::FolderTree => &mut c.folder_tree,
                     _ => &mut c.exif_panel,
                 };
                 *flag = !*flag;
@@ -3233,6 +3309,7 @@ impl App {
             }
             Action::HideTools => self.hide_tools = !self.hide_tools,
             Action::Refresh => {
+                self.tree.clear();
                 self.slots.clear();
                 self.pending.clear();
                 self.errors.clear();
@@ -3474,6 +3551,7 @@ impl eframe::App for App {
                         let c = &self.config;
                         menu_toggle(ui, act, c.toolbar, Action::Toolbar);
                         menu_toggle(ui, act, c.path_bar, Action::PathBar);
+                        menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
                         menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
@@ -3599,6 +3677,9 @@ impl eframe::App for App {
                     let c = &mut self.config;
                     changed |= ui
                         .checkbox(&mut c.icons, "Show the file list as icons (Ctrl+I)")
+                        .changed();
+                    changed |= ui
+                        .checkbox(&mut c.folder_tree, "Show folders as a tree (Ctrl+T)")
                         .changed();
                     changed |= ui
                         .checkbox(
@@ -3874,6 +3955,10 @@ impl eframe::App for App {
                         .resizable(true)
                         .default_size(200.0)
                         .show(ui, |ui| {
+                            if self.config.folder_tree {
+                                self.folder_tree(ui, &mut open_dir);
+                                return;
+                            }
                             // Row 0 is ⬆ .. (when there is a parent folder), the rest are subfolders.
                             let up = self.dir.parent().map(Path::to_path_buf);
                             let rows = up.is_some() as usize + self.subdirs.len();
