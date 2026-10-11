@@ -55,6 +55,7 @@ Extra file types are optional features, so the default build stays small:
 
 ```sh
 cargo build --release --features video,heic
+cargo build --release --features full   # all of them, same as --all-features
 ```
 
 ### Before committing
