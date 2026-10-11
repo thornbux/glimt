@@ -8,6 +8,123 @@ pub fn read(path: &Path) -> Vec<(&'static str, String)> {
     raw(path).map_or_else(Vec::new, |raw| parse(&raw))
 }
 
+/// Every field of IFD0, the Exif and the GPS directory: (directory, name, value), for the EXIF
+/// window. Unknown tags are shown by number.
+pub fn all(path: &Path) -> Vec<(&'static str, String, String)> {
+    let Some(raw) = raw(path) else {
+        return Vec::new();
+    };
+    let Some((t, ifd0, exif, gps)) = ifds(&raw) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for (group, ifd) in [("Image", &ifd0), ("Exif", &exif), ("GPS", &gps)] {
+        for &(tag, e) in ifd.iter() {
+            // The links to the other directories are not fields of their own.
+            if group != "GPS" && matches!(tag, 0x8769 | 0x8825 | 0xa005) {
+                continue;
+            }
+            let name = tag_name(group == "GPS", tag).map_or(format!("0x{tag:04x}"), str::to_owned);
+            rows.push((group, name, t.value(e)));
+        }
+    }
+    rows
+}
+
+fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
+    if gps {
+        return Some(match tag {
+            0x00 => "GPSVersionID",
+            0x01 => "GPSLatitudeRef",
+            0x02 => "GPSLatitude",
+            0x03 => "GPSLongitudeRef",
+            0x04 => "GPSLongitude",
+            0x05 => "GPSAltitudeRef",
+            0x06 => "GPSAltitude",
+            0x07 => "GPSTimeStamp",
+            0x08 => "GPSSatellites",
+            0x0c => "GPSSpeedRef",
+            0x0d => "GPSSpeed",
+            0x10 => "GPSImgDirectionRef",
+            0x11 => "GPSImgDirection",
+            0x12 => "GPSMapDatum",
+            0x1b => "GPSProcessingMethod",
+            0x1d => "GPSDateStamp",
+            _ => return None,
+        });
+    }
+    Some(match tag {
+        0x010e => "ImageDescription",
+        0x010f => "Make",
+        0x0110 => "Model",
+        0x0112 => "Orientation",
+        0x011a => "XResolution",
+        0x011b => "YResolution",
+        0x0128 => "ResolutionUnit",
+        0x0131 => "Software",
+        0x0132 => "DateTime",
+        0x013b => "Artist",
+        0x0213 => "YCbCrPositioning",
+        0x8298 => "Copyright",
+        0x829a => "ExposureTime",
+        0x829d => "FNumber",
+        0x8822 => "ExposureProgram",
+        0x8827 => "ISO",
+        0x8830 => "SensitivityType",
+        0x9000 => "ExifVersion",
+        0x9003 => "DateTimeOriginal",
+        0x9004 => "DateTimeDigitized",
+        0x9010 => "OffsetTime",
+        0x9011 => "OffsetTimeOriginal",
+        0x9012 => "OffsetTimeDigitized",
+        0x9101 => "ComponentsConfiguration",
+        0x9201 => "ShutterSpeedValue",
+        0x9202 => "ApertureValue",
+        0x9203 => "BrightnessValue",
+        0x9204 => "ExposureBiasValue",
+        0x9205 => "MaxApertureValue",
+        0x9206 => "SubjectDistance",
+        0x9207 => "MeteringMode",
+        0x9208 => "LightSource",
+        0x9209 => "Flash",
+        0x920a => "FocalLength",
+        0x927c => "MakerNote",
+        0x9286 => "UserComment",
+        0x9290 => "SubSecTime",
+        0x9291 => "SubSecTimeOriginal",
+        0x9292 => "SubSecTimeDigitized",
+        0xa000 => "FlashpixVersion",
+        0xa001 => "ColorSpace",
+        0xa002 => "PixelXDimension",
+        0xa003 => "PixelYDimension",
+        0xa20e => "FocalPlaneXResolution",
+        0xa20f => "FocalPlaneYResolution",
+        0xa210 => "FocalPlaneResolutionUnit",
+        0xa217 => "SensingMethod",
+        0xa300 => "FileSource",
+        0xa301 => "SceneType",
+        0xa401 => "CustomRendered",
+        0xa402 => "ExposureMode",
+        0xa403 => "WhiteBalance",
+        0xa404 => "DigitalZoomRatio",
+        0xa405 => "FocalLengthIn35mmFormat",
+        0xa406 => "SceneCaptureType",
+        0xa407 => "GainControl",
+        0xa408 => "Contrast",
+        0xa409 => "Saturation",
+        0xa40a => "Sharpness",
+        0xa40c => "SubjectDistanceRange",
+        0xa420 => "ImageUniqueID",
+        0xa430 => "CameraOwnerName",
+        0xa431 => "BodySerialNumber",
+        0xa432 => "LensSpecification",
+        0xa433 => "LensMake",
+        0xa434 => "LensModel",
+        0xa435 => "LensSerialNumber",
+        _ => return None,
+    })
+}
+
 /// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text.
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
     let raw = raw(path)?;
@@ -330,6 +447,53 @@ impl Tiff<'_> {
         let text = String::from_utf8_lossy(bytes);
         let text = text.trim_end_matches('\0').trim();
         (!text.is_empty()).then(|| text.to_owned())
+    }
+
+    /// Any field as text: strings as they are, numbers and fractions listed, other data as
+    /// text if it reads as such, else its length.
+    fn value(&self, e: Entry) -> String {
+        let n = (e.count as usize).min(16);
+        let list = |items: Vec<String>| {
+            let more = if e.count as usize > n { " …" } else { "" };
+            items.join(" ") + more
+        };
+        match e.kind {
+            2 => self.text(e).unwrap_or_default(),
+            1 | 7 => {
+                let bytes = self
+                    .data
+                    .get(e.at..e.at + (e.count as usize).min(256))
+                    .unwrap_or(&[]);
+                let text = String::from_utf8_lossy(bytes);
+                let text = text.trim_end_matches('\0').trim();
+                if !text.is_empty() && text.chars().all(|c| !c.is_control()) {
+                    text.to_owned()
+                } else if e.count <= 8 {
+                    list(bytes.iter().map(|b| b.to_string()).collect())
+                } else {
+                    format!("({} bytes)", e.count)
+                }
+            }
+            3 => list(
+                (0..n)
+                    .filter_map(|i| self.u16(e.at + 2 * i))
+                    .map(|v| v.to_string())
+                    .collect(),
+            ),
+            4 | 9 => list(
+                (0..n)
+                    .filter_map(|i| self.u32(e.at + 4 * i))
+                    .map(|v| v.to_string())
+                    .collect(),
+            ),
+            5 | 10 => list(
+                (0..n)
+                    .filter_map(|i| self.ratio(e, i))
+                    .map(|v| format!("{}", (v * 10000.0).round() / 10000.0))
+                    .collect(),
+            ),
+            _ => format!("({} values)", e.count),
+        }
     }
 
     fn int(&self, e: Entry) -> Option<u32> {

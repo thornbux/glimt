@@ -162,6 +162,7 @@ enum Action {
     PathBar,
     Thumbnails,
     ExifPanel,
+    ExifWindow,
     FolderTree,
     Refresh,
     Slideshow,
@@ -301,6 +302,7 @@ impl Action {
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
             ExifPanel => "Show EXIF Panel",
+            ExifWindow => "EXIF Window",
             FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
@@ -420,6 +422,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         #[cfg(feature = "marks")]
         (Mark6, NONE, Key::Num6),
         (ExifPanel, CTRL, Key::K),
+        (ExifWindow, CTRL, Key::E),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
@@ -560,11 +563,6 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "I cycles through several overlay layouts",
     ),
     (
-        "EXIF",
-        "Panel on the right (Ctrl+K), off by default; selected fields",
-        "Info sidebar (Ctrl+K) and an EXIF window (Ctrl+E) with all fields",
-    ),
-    (
         "Thumbnail cache",
         "The shared ~/.cache/thumbnails; new ones are saved only if the setting is on",
         "Own cache, or the shared one",
@@ -644,6 +642,13 @@ struct Decoded {
 
 /// The frames, the original size after EXIF rotation, and the histogram.
 type DecodedImage = (Frames, [usize; 2], Box<Hist>);
+
+/// A file's EXIF from the reader thread: the panel's rows and every field.
+type ExifRead = (
+    PathBuf,
+    Vec<(&'static str, String)>,
+    Vec<(&'static str, String, String)>,
+);
 
 /// Pixel counts per level of red, green, blue and brightness.
 type Hist = [[u32; 256]; 4];
@@ -813,7 +818,10 @@ struct App {
     save_thumbs: Arc<AtomicBool>,
     /// EXIF panel: the file asked for last, and the rows read for a file.
     exif_jobs: mpsc::Sender<PathBuf>,
-    exif_done: mpsc::Receiver<(PathBuf, Vec<(&'static str, String)>)>,
+    exif_done: mpsc::Receiver<ExifRead>,
+    /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
+    exif_all: Vec<(&'static str, String, String)>,
+    exif_window: bool,
     exif_asked: Option<PathBuf>,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Size in bytes of the shown file, for the status bar.
@@ -2054,7 +2062,8 @@ impl App {
                 let size = std::fs::metadata(&path).map_or(0, |m| m.len());
                 let mut rows = vec![("File size", human_size(size))];
                 rows.extend(exif::read(&path));
-                if exif_tx.send((path, rows)).is_err() {
+                let all = exif::all(&path);
+                if exif_tx.send((path, rows, all)).is_err() {
                     return;
                 }
                 ctx.request_repaint();
@@ -2136,6 +2145,8 @@ impl App {
             save_thumbs,
             exif_jobs,
             exif_done,
+            exif_all: Vec::new(),
+            exif_window: false,
             exif_asked: None,
             exif: None,
             cur_size: None,
@@ -3245,8 +3256,9 @@ impl App {
             let _ = self.exif_jobs.send(path.clone());
             self.exif_asked = Some(path);
         }
-        for done in self.exif_done.try_iter() {
-            self.exif = Some(done);
+        for (path, rows, all) in self.exif_done.try_iter() {
+            self.exif = Some((path, rows));
+            self.exif_all = all;
         }
     }
 
@@ -3969,6 +3981,7 @@ impl App {
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::SaveOrientation => self.save_orientation(),
+            Action::ExifWindow => self.exif_window = !self.exif_window,
             Action::Compare => {
                 self.compare = !self.compare;
                 self.refill();
@@ -4381,6 +4394,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
                         menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+                        menu_toggle(ui, act, self.exif_window, Action::ExifWindow);
                         menu_toggle(ui, act, c.osd, Action::Overlay);
                         menu_item(ui, act, Action::Histogram);
                         menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
@@ -4700,6 +4714,34 @@ impl eframe::App for App {
             } else if !modal.should_close() {
                 self.prompt = Some((prompt, text));
             }
+        }
+
+        if self.exif_window && !self.files.is_empty() {
+            self.want_exif();
+            let mut open = true;
+            let title = format!("EXIF: {}", self.files[self.cur].to_string_lossy());
+            egui::Window::new(title)
+                .id(egui::Id::new("exif window"))
+                .open(&mut open)
+                .default_size([560.0, 600.0])
+                .vscroll(true)
+                .show(ctx, |ui| {
+                    if self.exif_all.is_empty() {
+                        ui.weak("No EXIF data");
+                    }
+                    egui::Grid::new("exif all")
+                        .striped(true)
+                        .num_columns(3)
+                        .show(ui, |ui| {
+                            for (group, name, value) in &self.exif_all {
+                                ui.weak(*group);
+                                ui.label(name);
+                                ui.label(value);
+                                ui.end_row();
+                            }
+                        });
+                });
+            self.exif_window = open;
         }
 
         if let Some(mut login) = self.login.take() {
