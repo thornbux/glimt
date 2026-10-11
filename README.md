@@ -5,6 +5,10 @@ A fast, memory-frugal image viewer for Linux, written in Rust with egui and insp
 showing images quickly and handles folders of any size, from a few images to several
 hundred thousand. The name *Glimt* is Norwegian for "glimpse": a quick look, which is what an image viewer is for.
 
+> **Early days.** Glimt is young and has not reached version 1.0. It is used every day, but
+> rough edges and the odd bug are to be expected. Bug reports, ideas and fixes are very
+> welcome: open an issue or send a pull request.
+
 ## Screenshots
 
 The images in the screenshots are generated for the purpose.
