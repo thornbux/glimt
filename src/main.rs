@@ -2227,6 +2227,22 @@ impl App {
                 let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                 let at = egui::Rect::from_center_size(frame.center(), px * scale);
                 ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
+                // Videos get a small play badge in the corner.
+                if is_video(Path::new(name)) {
+                    let c = at.left_bottom() + egui::vec2(13.0, -13.0);
+                    let p = ui.painter();
+                    p.circle_filled(c, 10.0, egui::Color32::from_black_alpha(170));
+                    let triangle = vec![
+                        c + egui::vec2(-3.0, -5.5),
+                        c + egui::vec2(6.0, 0.0),
+                        c + egui::vec2(-3.0, 5.5),
+                    ];
+                    p.add(egui::Shape::convex_polygon(
+                        triangle,
+                        egui::Color32::WHITE,
+                        egui::Stroke::NONE,
+                    ));
+                }
             }
             Some(None) => {}
             None if !thumbs => {}
