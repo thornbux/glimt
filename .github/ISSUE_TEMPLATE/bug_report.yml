@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Glimt does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for taking the time to report it. The more exact, the faster it gets fixed.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a folder with …
+        2. Press …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Glimt version
+      description: Help → About Glimt, or the commit you built
+    validations:
+      required: true
+  - type: input
+    id: features
+    attributes:
+      label: Features built in
+      description: For example "default", "full" or "video,heic"
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and desktop
+      placeholder: Ubuntu 26.04, GNOME, Wayland
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Messages
+      description: Anything Glimt printed in the terminal, or a notice it showed
+      render: text

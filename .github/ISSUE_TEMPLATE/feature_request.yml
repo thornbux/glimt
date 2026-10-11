@@ -1,0 +1,18 @@
+name: Feature request
+description: An idea for something Glimt should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like Glimt to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What are you trying to do, and how do you do it today? How does Geeqie do it, if it does?
+  - type: markdown
+    attributes:
+      value: Glimt aims to stay fast and small; features that need large dependencies are best as optional Cargo features.

@@ -9,7 +9,8 @@ hundred thousand. The name *Glimt* is Norwegian for "glimpse": a quick look, whi
 
 > **Early days.** Glimt is young and has not reached version 1.0. It is used every day, but
 > rough edges and the odd bug are to be expected. Bug reports, ideas and fixes are very
-> welcome: open an issue or send a pull request.
+> welcome: open an issue or send a pull request (see
+> [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Screenshots
 
