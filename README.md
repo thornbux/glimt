@@ -51,7 +51,7 @@ Extra file types are optional features, so the default build stays small:
 | Feature | Adds | Needs at runtime |
 |---|---|---|
 | `video` | Video files in the list with a preview frame; Enter plays them | `ffmpeg` (previews), a player or the default application |
-| `heic` | HEIC/HEIF photos (iPhone) | `ffmpeg` 8.0 or newer |
+| `heic` | HEIC/HEIF photos (iPhone), with EXIF | `ffmpeg` and `ffprobe` 8.0 or newer |
 
 ```sh
 cargo build --release --features video,heic

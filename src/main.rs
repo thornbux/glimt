@@ -619,12 +619,75 @@ fn has_ext(path: &Path, exts: &[&str]) -> bool {
     ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
 }
 
-/// A frame `at` seconds in, decoded by the `ffmpeg` program (8.0+ also reads tiled HEIC).
+/// A frame `at` seconds in, decoded by the `ffmpeg` program.
 #[cfg(any(feature = "video", feature = "heic"))]
 fn ffmpeg_frame(path: &Path, at: &str) -> Result<image::DynamicImage, String> {
-    let out = std::process::Command::new("ffmpeg")
-        .args(["-v", "error", "-ss", at, "-i"])
+    ffmpeg_ppm(path, &["-ss", at], &[])
+}
+
+/// A HEIC photo. Phones store it as a grid of tiles, which ffmpeg reads as separate streams
+/// with their places in a "Tile Grid" group: they are put together with xstack, cut to the
+/// image size and turned by the stored rotation.
+#[cfg(feature = "heic")]
+fn heic(path: &Path) -> Result<image::DynamicImage, String> {
+    let probe = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .arg(path)
+        .output()
+        .map_err(|e| format!("HEIC needs ffprobe (ffmpeg): {e}"))?;
+    let text = String::from_utf8_lossy(&probe.stdout);
+    let Some(grid) = text.lines().find(|l| l.contains("type=Tile Grid")) else {
+        return ffmpeg_frame(path, "0");
+    };
+    let fields: Vec<(&str, &str)> = grid.split('|').filter_map(|f| f.split_once('=')).collect();
+    let get = |key: &str| {
+        fields
+            .iter()
+            .find(|f| f.0.ends_with(key))
+            .map_or("0", |f| f.1)
+    };
+    let (mut inputs, mut layout) = (String::new(), Vec::<String>::new());
+    for (key, value) in &fields {
+        if key.ends_with(":stream_index") {
+            inputs += &format!("[0:{value}]");
+        } else if key.ends_with(":tile_horizontal_offset") {
+            layout.push(value.to_string());
+        } else if key.ends_with(":tile_vertical_offset")
+            && let Some(x) = layout.last_mut()
+        {
+            *x += &format!("_{value}");
+        }
+    }
+    if layout.len() < 2 {
+        return ffmpeg_frame(path, "0");
+    }
+    let turn = match get("rotation") {
+        "-90" | "270" => ",transpose=clock",
+        "90" | "-270" => ",transpose=cclock",
+        "180" | "-180" => ",hflip,vflip",
+        _ => "",
+    };
+    let filter = format!(
+        "{inputs}xstack=inputs={}:layout={},crop={}:{}:{}:{}{turn}[out]",
+        layout.len(),
+        layout.join("|"),
+        get("tile_grid:width"),
+        get("tile_grid:height"),
+        get("tile_grid:horizontal_offset"),
+        get("tile_grid:vertical_offset"),
+    );
+    ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"])
+}
+
+/// One frame of `path` as decoded by ffmpeg, with options before and after the input.
+#[cfg(any(feature = "video", feature = "heic"))]
+fn ffmpeg_ppm(path: &Path, before: &[&str], after: &[&str]) -> Result<image::DynamicImage, String> {
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-v", "error"])
+        .args(before)
+        .arg("-i")
+        .arg(path)
+        .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .output()
         .map_err(|e| format!("video and HEIC need ffmpeg: {e}"))?;
@@ -1385,10 +1448,9 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     if has_ext(path, raw::EXTS) {
         return raw::load(path, rotate);
     }
-    // ffmpeg applies the rotation stored in the file.
     #[cfg(feature = "heic")]
     if has_ext(path, HEIC_EXTS) {
-        return ffmpeg_frame(path, "0");
+        return heic(path);
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
