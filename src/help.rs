@@ -80,7 +80,7 @@ const MANUAL: &[(&str, &str)] = &[
         "Finding and sorting",
         "Type three or more letters in the search field above the file list: the list shows \
          the matching names, best first, ignoring case and gaps (like fzf). The sort menu at \
-         the bottom left sorts by name, number, date, EXIF date or size.",
+         the bottom left sorts by name, number, date, EXIF date, size or extension.",
     ),
     (
         "Panels",
