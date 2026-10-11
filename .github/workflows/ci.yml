@@ -1,0 +1,33 @@
+# Format, lint and test on every push and pull request: the same checks as AGENTS.md asks for
+# before a commit, with and without the optional features.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: ${{ matrix.features == '' && 'default features' || matrix.features }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["", "--all-features"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries for the window (Wayland, X11, OpenGL)
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.features }}
+      - run: cargo fmt --check
+      - run: cargo clippy --release ${{ matrix.features }} -- -D warnings
+      - run: cargo test --release ${{ matrix.features }}

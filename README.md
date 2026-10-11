@@ -1,5 +1,7 @@
 # Glimt
 
+[![CI](https://github.com/thornbux/glimt/actions/workflows/ci.yml/badge.svg)](https://github.com/thornbux/glimt/actions/workflows/ci.yml)
+
 A fast, memory-frugal image viewer for Linux, written in Rust with egui and inspired by
 [Geeqie](https://www.geeqie.org/). It has far fewer features than Geeqie. It focuses on
 showing images quickly and handles folders of any size, from a few images to several
