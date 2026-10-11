@@ -97,6 +97,17 @@ objdump -T target/x86_64-unknown-linux-gnu/release/glimt | grep -o 'GLIBC_[0-9.]
 musl-based distributions (Alpine) are not supported, because the viewer calls glibc's
 `malloc_trim` to return decoder memory to the system.
 
+## Remote control
+
+As with `geeqie --remote`, a running Glimt takes commands from the command line, for example
+from a script or a keyboard shortcut of the desktop:
+
+```sh
+glimt --remote next          # also prev, first, last, slideshow, fullscreen, quit
+glimt --remote open ~/Pictures/holiday   # starts Glimt if it is not running
+glimt --help                 # all commands
+```
+
 ## Desktop integration
 
 To get Glimt with its icon in the application overview and dock (for the current user):

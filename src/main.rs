@@ -18,6 +18,7 @@ mod help;
 #[cfg(feature = "marks")]
 mod marks;
 mod raw;
+mod remote;
 mod search;
 mod thumbs;
 #[cfg(feature = "video")]
@@ -792,6 +793,8 @@ struct App {
     login: Option<Login>,
     /// "Open With" applications by file extension, found once per extension.
     apps: HashMap<String, Vec<(String, PathBuf)>>,
+    /// Commands from `glimt --remote`.
+    remote: mpsc::Receiver<String>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
@@ -1543,6 +1546,8 @@ config! {
     color_management: bool = true,
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
+    /// Listen for `glimt --remote` commands.
+    remote_control: bool = true,
     /// Stars are also written as xmp:Rating to `<file>.xmp` sidecars, for darktable and digiKam.
     xmp_stars: bool = false,
     /// The file list holds the images of all subfolders too, with their folders in the name.
@@ -2308,6 +2313,10 @@ impl App {
         });
         let (notices_tx, notices) = mpsc::channel();
         let (tree_tx, tree_rx) = mpsc::channel();
+        let (remote_tx, remote_rx) = mpsc::channel();
+        if config.remote_control {
+            remote::listen(remote_tx, cc.egui_ctx.clone());
+        }
         let (freed_tx, freed_rx) = mpsc::channel();
         let (deleted_tx, deleted_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
@@ -2327,6 +2336,7 @@ impl App {
             tree_shown: PathBuf::new(),
             clip: None,
             clipboard: None,
+            remote: remote_rx,
             apps: HashMap::new(),
             row_step: 1,
             notices,
@@ -4516,6 +4526,27 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes(ctx);
         self.receive_deleted();
+        while let Ok(command) = self.remote.try_recv() {
+            let action = match command.trim() {
+                "next" => Some(Action::Next),
+                "prev" => Some(Action::Prev),
+                "first" => Some(Action::First),
+                "last" => Some(Action::Last),
+                "slideshow" => Some(Action::Slideshow),
+                "fullscreen" => Some(Action::FullScreen),
+                "quit" => Some(Action::Quit),
+                other => {
+                    if let Some(path) = other.strip_prefix("open ") {
+                        self.visit(ctx, PathBuf::from(path));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    None
+                }
+            };
+            if let Some(action) = action {
+                self.run(ctx, action);
+            }
+        }
         if let Some(img) = self.clip.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.clip = None;
             ctx.copy_image(img);
@@ -5019,6 +5050,8 @@ impl eframe::App for App {
                         .changed();
                     let window = "Remember the window size and position";
                     changed |= ui.checkbox(&mut c.remember_window, window).changed();
+                    let remote = "Listen for glimt --remote commands (after restart)";
+                    changed |= ui.checkbox(&mut c.remote_control, remote).changed();
                     let inhibit = "Keep the screen saver off in full screen";
                     changed |= ui.checkbox(&mut c.inhibit_screensaver, inhibit).changed();
                     let order = "Window title \"Glimt - image name\" (off: \"image name - Glimt\")";
@@ -5702,7 +5735,33 @@ fn main() -> eframe::Result {
         // SAFETY: called before any other thread exists.
         unsafe { mallopt(M_ARENA_MAX, 1) };
     }
-    let arg = std::env::args_os().nth(1).map(PathBuf::from);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--help" || a == "-h") {
+        println!("Usage: glimt [FILE_OR_FOLDER]\n       glimt --remote COMMAND\n\nCommands:");
+        for (command, does) in remote::COMMANDS {
+            println!("  {command:<12} {does}");
+        }
+        return Ok(());
+    }
+    let mut arg = std::env::args_os().nth(1).map(PathBuf::from);
+    if args.first().is_some_and(|a| a == "--remote") {
+        let mut command = args[1..].join(" ");
+        // The running Glimt has another working folder: send the full path.
+        if let Some(path) = command.strip_prefix("open ") {
+            let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
+            command = format!("open {}", path.display());
+        }
+        if remote::send(&command) {
+            return Ok(());
+        }
+        match command.strip_prefix("open ") {
+            Some(path) => arg = Some(path.into()),
+            None => {
+                eprintln!("Glimt is not running");
+                std::process::exit(1);
+            }
+        }
+    }
     // The app ID matches glimt.desktop, so the desktop shows its icon for the window.
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")
