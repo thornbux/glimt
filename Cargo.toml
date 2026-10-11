@@ -10,6 +10,8 @@ eframe = { version = "0.36.2", default-features = false, features = ["default_fo
 fast_image_resize = { version = "6.1.0", default-features = false, features = ["image"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff", "pnm"] }
 png = "0.18.1"
+# Already used by image; here for ICC profiles.
+moxcms = "0.8.1"
 winit = { version = "0.30.13", default-features = false, features = ["wayland-csd-adwaita"] }
 
 [features]

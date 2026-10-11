@@ -5101,6 +5101,7 @@
     "pkg:cargo/eframe@0.36.2",
     "pkg:cargo/fast_image_resize@6.1.0",
     "pkg:cargo/image@0.25.10",
+    "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
     "pkg:cargo/winit@0.30.13"
    ]

@@ -842,6 +842,7 @@ dependencies = [
  "eframe",
  "fast_image_resize",
  "image",
+ "moxcms",
  "png",
  "winit",
 ]

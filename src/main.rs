@@ -520,6 +520,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "E, U and Y split into panes with an image each; Y back to one",
     ),
     (
+        "Colour management",
+        "Always on: embedded ICC profiles are converted to sRGB; the screen is taken to be sRGB",
+        "Optional, with a chosen screen profile",
+    ),
+    (
         "Histogram (K, J)",
         "In the image's corner: K cycles off, RGB and brightness, J logarithmic",
         "In the overlay: K cycles channels, J modes",
@@ -1637,9 +1642,41 @@ fn decode(path: &Path, max: [u32; 2], rotate: bool) -> Result<(Frames, [usize; 2
     if let Some(anim) = animation(path, max) {
         return Ok(anim);
     }
-    let img = load(path, rotate)?;
+    let (img, icc) = load_icc(path, rotate)?;
     let orig = [img.width() as usize, img.height() as usize];
-    Ok((vec![(color_image(shrink(img, max)?), 0)], orig))
+    let img = to_srgb(shrink(img, max)?, icc.as_deref());
+    Ok((vec![(color_image(img), 0)], orig))
+}
+
+/// The whole image in sRGB.
+fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
+    let (img, icc) = load_icc(path, rotate)?;
+    Ok(to_srgb(img, icc.as_deref()))
+}
+
+/// Colours from an embedded ICC profile (Adobe RGB, Display P3 …) converted to sRGB, which is
+/// what the screen is taken to show; without it such photos look dull. Done after scaling down,
+/// where it costs a few milliseconds. Profiles that do not fit (CMYK, grey) leave it as it is.
+fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
+    use moxcms::{ColorProfile, Layout, TransformOptions};
+    let Some(from) = icc.and_then(|b| ColorProfile::new_from_slice(b).ok()) else {
+        return img;
+    };
+    let srgb = ColorProfile::new_srgb();
+    let Ok(t) = from.create_transform_8bit(
+        Layout::Rgba,
+        &srgb,
+        Layout::Rgba,
+        TransformOptions::default(),
+    ) else {
+        return img;
+    };
+    let mut rgba = img.into_rgba8();
+    let mut out = vec![0; rgba.len()];
+    if t.transform(&rgba, &mut out).is_ok() {
+        rgba.copy_from_slice(&out);
+    }
+    rgba.into()
 }
 
 /// The frames of an animated GIF or WebP; `None` for other files, which `load` decodes.
@@ -1679,17 +1716,18 @@ fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
 }
 
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`.
-fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
+/// The whole image, and its ICC profile if it has one.
+fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
     #[cfg(feature = "video")]
     if is_video(path) {
-        return video::preview(path);
+        return Ok((video::preview(path)?, None));
     }
     if has_ext(path, raw::EXTS) {
-        return raw::load(path, rotate);
+        return Ok((raw::load(path, rotate)?, None));
     }
     #[cfg(feature = "heic")]
     if has_ext(path, HEIC_EXTS) {
-        return heic(path);
+        return Ok((heic(path)?, None));
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
@@ -1699,11 +1737,12 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     let orientation = dec
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let icc = dec.icc_profile().ok().flatten();
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
     if rotate {
         img.apply_orientation(orientation);
     }
-    Ok(img)
+    Ok((img, icc))
 }
 
 /// Scale down to fit within `max`.
@@ -4899,6 +4938,25 @@ mod tests {
         let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
         assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An Adobe RGB photo is converted to sRGB: the same numbers mean a more saturated colour,
+    /// so in sRGB they come out different. Needs colord's profile; skipped without it.
+    #[test]
+    fn converts_icc_to_srgb() {
+        let Ok(adobe) = std::fs::read("/usr/share/color/icc/colord/AdobeRGB1998.icc") else {
+            return;
+        };
+        let img = image::DynamicImage::from(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([60, 160, 60, 255]),
+        ));
+        let out = super::to_srgb(img.clone(), Some(&adobe)).into_rgba8();
+        assert_ne!(out.get_pixel(0, 0), img.into_rgba8().get_pixel(0, 0));
+        // Not a usable profile: unchanged.
+        let img = image::DynamicImage::from(image::RgbaImage::new(1, 1));
+        assert_eq!(super::to_srgb(img.clone(), Some(b"junk")), img);
     }
 
     #[test]

@@ -127,7 +127,8 @@ The first two are plain `key=value` text files written atomically.
 ## Supported formats
 
 JPEG, PNG, WebP, GIF and TIFF; animated GIF and WebP play in a loop. Camera RAW files (CR2, CR3,
-NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature.
+NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature. Photos with an ICC profile (Adobe RGB,
+Display P3 …) are converted to sRGB, so they do not look dull.
 
 ## SBOM
 

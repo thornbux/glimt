@@ -23,7 +23,8 @@ pub fn thumbnail(path: &Path, rotate: bool, save: bool) -> Result<image::RgbaIma
     {
         return Ok(img);
     }
-    let img = crate::shrink(crate::load(path, rotate)?, [SIZE, SIZE])?.into_rgba8();
+    let (img, icc) = crate::load_icc(path, rotate)?;
+    let img = crate::to_srgb(crate::shrink(img, [SIZE, SIZE])?, icc.as_deref()).into_rgba8();
     // The spec forbids thumbnails of the thumbnails themselves.
     if save
         && let (Some(cache), Some(file), Some(mtime)) = (&cache, &file, mtime)
