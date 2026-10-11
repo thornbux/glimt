@@ -2399,11 +2399,15 @@ impl App {
             // ponytail: the default application only; an app chooser (`gio mime`) if wanted.
             Action::OpenWith => self.launch(""),
             // Enter: videos play in a player (images have nothing to play).
-            Action::Play =>
-            {
+            Action::Play => {
                 #[cfg(feature = "video")]
                 if is_video(&self.location()) {
                     self.launch(&self.config.video_player);
+                    // The slideshow waits while the video plays; P resumes it.
+                    if self.slideshow.is_some() {
+                        self.paused = true;
+                        self.title(ctx);
+                    }
                 }
             }
             Action::Delete => self.request_delete(ctx, self.config.trash),
@@ -3207,7 +3211,8 @@ impl eframe::App for App {
             self.exif_panel(ui);
         }
 
-        let mut wheel_step = None;
+        // Actions from the image area, run after drawing it.
+        let mut later = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill({
                 let [r, g, b] = self.config.background.0;
@@ -3258,7 +3263,7 @@ impl eframe::App for App {
                         self.wheel += notches;
                         if self.wheel.abs() >= 1.0 {
                             let up = self.wheel > 0.0;
-                            wheel_step = Some(if up { Action::Prev } else { Action::Next });
+                            later = Some(if up { Action::Prev } else { Action::Next });
                             self.wheel = 0.0;
                         }
                     }
@@ -3332,19 +3337,45 @@ impl eframe::App for App {
                         egui::Color32::GRAY,
                     );
                 }
+                // A video: a play button over the preview frame (click or Enter), readable on
+                // any frame, also in the slideshow and full screen.
                 #[cfg(feature = "video")]
                 if self
                     .files
                     .get(self.cur)
                     .is_some_and(|f| is_video(Path::new(f)))
                 {
-                    ui.painter().text(
-                        area.center_top() + egui::vec2(0.0, 16.0),
-                        egui::Align2::CENTER_TOP,
-                        "▶ Video: press Enter to play",
+                    let shade = egui::Color32::from_black_alpha(150);
+                    let button =
+                        egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
+                    let play = ui.interact(button, ui.id().with("play"), egui::Sense::click());
+                    let p = ui.painter();
+                    p.circle_filled(button.center(), 48.0, shade);
+                    let c = button.center();
+                    let triangle = vec![
+                        c + egui::vec2(-14.0, -22.0),
+                        c + egui::vec2(24.0, 0.0),
+                        c + egui::vec2(-14.0, 22.0),
+                    ];
+                    p.add(egui::Shape::convex_polygon(
+                        triangle,
+                        egui::Color32::WHITE,
+                        egui::Stroke::NONE,
+                    ));
+                    let label = p.layout_no_wrap(
+                        "Video: Enter or click to play".into(),
                         egui::FontId::proportional(16.0),
-                        egui::Color32::LIGHT_GRAY,
+                        egui::Color32::WHITE,
                     );
+                    let at = egui::Rect::from_center_size(
+                        button.center_bottom() + egui::vec2(0.0, 28.0),
+                        label.size() + egui::vec2(20.0, 10.0),
+                    );
+                    p.rect_filled(at, 6.0, shade);
+                    p.galley(at.min + egui::vec2(10.0, 5.0), label, egui::Color32::WHITE);
+                    if play.clicked() {
+                        later = Some(Action::Play);
+                    }
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(
@@ -3356,7 +3387,7 @@ impl eframe::App for App {
                     );
                 }
             });
-        if let Some(action) = wheel_step {
+        if let Some(action) = later {
             self.run(ctx, action);
         }
     }
