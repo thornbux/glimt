@@ -105,6 +105,69 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     }
 }
 
+/// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is
+/// removed only when the file's folder is still there, so thumbnails of a disk that is not
+/// plugged in are kept.
+pub fn clean() -> (usize, usize) {
+    let Some(cache) = crate::xdg_dir("XDG_CACHE_HOME", ".cache", "thumbnails") else {
+        return (0, 0);
+    };
+    let (mut removed, mut seen) = (0, 0);
+    for (_, folder) in SIZES {
+        for entry in std::fs::read_dir(cache.join(folder))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            seen += 1;
+            let Some(path) = thumb_source(&entry.path()) else {
+                continue;
+            };
+            if !path.exists()
+                && path.parent().is_some_and(Path::is_dir)
+                && std::fs::remove_file(entry.path()).is_ok()
+            {
+                removed += 1;
+            }
+        }
+    }
+    (removed, seen)
+}
+
+/// The file a cached thumbnail was made from, from its Thumb::URI (file:// only).
+fn thumb_source(thumb: &Path) -> Option<PathBuf> {
+    let file = std::io::BufReader::new(std::fs::File::open(thumb).ok()?);
+    let reader = png::Decoder::new(file).read_info().ok()?;
+    let info = reader.info();
+    let uri = info
+        .uncompressed_latin1_text
+        .iter()
+        .find(|t| t.keyword == "Thumb::URI")?;
+    let encoded = uri.text.strip_prefix("file://")?.as_bytes();
+    // Undo the percent-encoding.
+    let mut bytes = Vec::with_capacity(encoded.len());
+    let mut i = 0;
+    while i < encoded.len() {
+        let hex = encoded
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok());
+        match (encoded[i], hex.and_then(|h| u8::from_str_radix(h, 16).ok())) {
+            (b'%', Some(b)) => {
+                bytes.push(b);
+                i += 3;
+            }
+            (b, _) => {
+                bytes.push(b);
+                i += 1;
+            }
+        }
+    }
+    // SAFETY: on Unix any bytes are a valid OsStr.
+    Some(PathBuf::from(unsafe {
+        std::ffi::OsStr::from_encoded_bytes_unchecked(&bytes)
+    }))
+}
+
 /// Percent-encode a path as GLib's g_filename_to_uri does, so the cache names match other programs'.
 fn uri_path(path: &Path) -> String {
     path.as_os_str()
@@ -190,6 +253,14 @@ mod tests {
             super::uri_path(std::path::Path::new("/a b/(1)+æ.jpg")),
             "/a%20b/(1)+%C3%A6.jpg"
         );
+        // The cached file names its source, also with spaces and non-ASCII letters.
+        let named = super::cache_file(&dir, "normal", "file:///x");
+        let uri = format!(
+            "file://{}",
+            super::uri_path(std::path::Path::new("/a b/æ.jpg"))
+        );
+        super::write(&named, &img, &uri, 1).unwrap();
+        assert_eq!(super::thumb_source(&named), Some("/a b/æ.jpg".into()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

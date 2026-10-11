@@ -4800,6 +4800,28 @@ impl eframe::App for App {
                         self.save_thumbs.store(c.save_thumbnails, Ordering::Relaxed);
                         changed = true;
                     }
+                    // Geeqie's cache maintenance: thumbnails of files that are gone.
+                    if ui
+                        .button("Remove thumbnails of deleted files")
+                        .on_hover_text(
+                            "In ~/.cache/thumbnails; kept for disks that are not plugged in",
+                        )
+                        .clicked()
+                    {
+                        let (tx, busy, ctx) =
+                            (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+                        busy.fetch_add(1, Ordering::Relaxed);
+                        std::thread::spawn(move || {
+                            let (removed, seen) = thumbs::clean();
+                            let _ = tx.send(format!(
+                                "Removed {} of {} thumbnails",
+                                thousands(removed),
+                                thousands(seen)
+                            ));
+                            busy.fetch_sub(1, Ordering::Relaxed);
+                            ctx.request_repaint();
+                        });
+                    }
                     ui.separator();
                     let low = "Use less memory (decoding up to ~8 % slower; after restart)";
                     changed |= ui.checkbox(&mut c.low_memory, low).changed();
