@@ -49,7 +49,8 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
 const MANUAL: &[(&str, &str)] = &[
     (
         "Opening images",
-        "Start Glimt with a folder or an image (glimt ~/Pictures), use File → Open, type a \
+        "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, use \
+         File → Open, type a \
          path in the folder field above the folder list and press Enter, or click a folder in \
          the list. ⬆ .. goes to the parent folder. Network shares work too: type \
          smb://server/share (or sftp://…) and Glimt mounts it with gio; the password must be \
@@ -80,7 +81,8 @@ const MANUAL: &[(&str, &str)] = &[
          Home and End selects a range, Ctrl+A selects all (the matches while searching). \
          Copy, Move, Rename and Delete act on the selected files, otherwise on the shown \
          image; right-click a file for a menu with them. File → Open With (also in the \
-         right-click menu) opens them in another application, such as GIMP.",
+         right-click menu) opens them in another application, such as GIMP. Ctrl+Shift+C \
+         copies the image itself to the clipboard, to paste into other programs.",
     ),
     (
         "Finding and sorting",

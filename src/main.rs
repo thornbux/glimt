@@ -75,6 +75,7 @@ enum Action {
     InvertSelection,
     CopyPath,
     CopyPathUnquoted,
+    CopyImage,
     Preferences,
     ExifRotate,
     RotateCw,
@@ -138,6 +139,7 @@ impl Action {
             InvertSelection => "Invert Selection",
             CopyPath => "Copy Path to Clipboard",
             CopyPathUnquoted => "Copy Path (Unquoted)",
+            CopyImage => "Copy Image to Clipboard",
             Preferences => "Preferences…",
             ExifRotate => "Auto Rotate Using EXIF",
             RotateCw => "Rotate Clockwise",
@@ -201,6 +203,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Delete, CTRL, Key::D),
         (NewFolder, CTRL, Key::F),
         (Rename, CTRL, Key::R),
+        // Before Ctrl+C (copy to a folder), which would also match with Shift.
+        (CopyImage, CTRL_SHIFT, Key::C),
         (Copy, CTRL, Key::C),
         (Move, CTRL, Key::M),
         (CloseWindow, CTRL, Key::W),
@@ -529,6 +533,8 @@ struct App {
     mounting: Option<mpsc::Receiver<Result<PathBuf, String>>>,
     /// "Open With" applications by file extension, found once per extension.
     apps: HashMap<String, Vec<(String, PathBuf)>>,
+    /// An image decoded for the clipboard; egui takes it only during a frame.
+    clip: Option<mpsc::Receiver<egui::ColorImage>>,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
     grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
@@ -1499,6 +1505,7 @@ impl App {
             notices_tx,
             mounting: None,
             grid_cols: 1,
+            clip: None,
             apps: HashMap::new(),
             row_step: 1,
             notices,
@@ -2939,6 +2946,23 @@ impl App {
                 ctx.copy_text(paths.join(" "));
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
+            // Decoded at full size in the background; egui hands it to the clipboard.
+            Action::CopyImage if !self.files.is_empty() => {
+                let (path, rotate) = (self.path(self.cur), self.config.exif_rotate);
+                let (busy, tx, ctx) = (self.busy.clone(), self.notices_tx.clone(), ctx.clone());
+                let (clip_tx, clip_rx) = mpsc::channel();
+                self.clip = Some(clip_rx);
+                busy.fetch_add(1, Ordering::Relaxed);
+                std::thread::spawn(move || {
+                    match load(&path, rotate) {
+                        Ok(img) => drop(clip_tx.send(color_image(img))),
+                        Err(e) => drop(tx.send(format!("Could not copy the image: {e}"))),
+                    }
+                    busy.fetch_sub(1, Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+            }
+            Action::CopyImage => {}
             Action::Preferences => self.show_settings = true,
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
@@ -3078,6 +3102,18 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         self.receive_deleted();
+        if let Some(img) = self.clip.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.clip = None;
+            ctx.copy_image(img);
+        }
+        // A file or folder dropped on the window opens there, as File → Open would.
+        let dropped = ctx.input(|i| {
+            let mut paths = i.raw.dropped_files.iter().map(|f| f.path().to_path_buf());
+            paths.find(|p| !p.as_os_str().is_empty())
+        });
+        if let Some(path) = dropped {
+            self.visit(ctx, path);
+        }
         // Busy pointer while the folder is read, files are deleted, copied or moved, or the
         // shown image is still being decoded.
         let decoding = !self.files.is_empty()
@@ -3203,6 +3239,7 @@ impl eframe::App for App {
                         ui.separator();
                         menu_item(ui, act, Action::CopyPath);
                         menu_item(ui, act, Action::CopyPathUnquoted);
+                        menu_item(ui, act, Action::CopyImage);
                     });
                     ui.menu_button("Edit", |ui| {
                         ui.menu_button("Orientation", |ui| {
@@ -3733,7 +3770,12 @@ impl eframe::App for App {
                                 self.selection_changed(ctx);
                             }
                             row.context_menu(|ui| {
-                                for action in [Action::Copy, Action::Move, Action::CopyPath] {
+                                for action in [
+                                    Action::Copy,
+                                    Action::Move,
+                                    Action::CopyPath,
+                                    Action::CopyImage,
+                                ] {
                                     menu_item(ui, &mut list_act, action);
                                 }
                                 self.open_with_menu(ui);
