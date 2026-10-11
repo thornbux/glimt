@@ -90,6 +90,8 @@ enum Action {
     FullScreen,
     HideTools,
     Overlay,
+    Histogram,
+    HistogramLog,
     Icons,
     Toolbar,
     PathBar,
@@ -155,6 +157,8 @@ impl Action {
             FullScreen => "Full Screen",
             HideTools => "Hide File List",
             Overlay => "Show Image Info in Full Screen",
+            Histogram => "Histogram: Off, RGB, Brightness",
+            HistogramLog => "Logarithmic Histogram",
             Icons => "View Images as Icons",
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
@@ -237,6 +241,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (HideTools, CTRL, Key::H),
         (Thumbnails, NONE, Key::T),
         (Overlay, NONE, Key::I),
+        (Histogram, NONE, Key::K),
+        (HistogramLog, NONE, Key::J),
         (ExifPanel, CTRL, Key::K),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
@@ -357,6 +363,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Ctrl+I icons, Ctrl+L list",
     ),
     (
+        "Histogram (K, J)",
+        "In the image's corner: K cycles off, RGB and brightness, J logarithmic",
+        "In the overlay: K cycles channels, J modes",
+    ),
+    (
         "Image info in full screen (I)",
         "On or off",
         "I cycles through several overlay layouts",
@@ -441,7 +452,26 @@ struct Decoded {
     /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
     rotated: bool,
     /// `None` = skipped because the user has already moved past it.
-    result: Option<Result<(Frames, [usize; 2]), String>>,
+    result: Option<Result<DecodedImage, String>>,
+}
+
+/// The frames, the original size after EXIF rotation, and the histogram.
+type DecodedImage = (Frames, [usize; 2], Box<Hist>);
+
+/// Pixel counts per level of red, green, blue and brightness.
+type Hist = [[u32; 256]; 4];
+
+fn histogram(img: &egui::ColorImage) -> Box<Hist> {
+    let mut h = Box::new([[0; 256]; 4]);
+    for p in &img.pixels {
+        let [r, g, b, _] = p.to_array();
+        h[0][r as usize] += 1;
+        h[1][g as usize] += 1;
+        h[2][b as usize] += 1;
+        // Rec. 709 luma.
+        h[3][((54 * r as u32 + 183 * g as u32 + 19 * b as u32) >> 8) as usize] += 1;
+    }
+    h
 }
 
 /// The decoded frames with their delays in ms; one frame for a still image.
@@ -456,6 +486,8 @@ struct Slot {
     orig: [usize; 2],
     /// Frames of an animated GIF or WebP with their delays in ms; empty for a still image.
     anim: Vec<(egui::TextureHandle, u32)>,
+    /// Of the decoded image (the first frame of an animation).
+    hist: Box<Hist>,
 }
 
 impl Slot {
@@ -1238,6 +1270,10 @@ config! {
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
     /// image overlay.
     osd: bool = true,
+    /// Histogram in the corner of the image (K): 0 off, 1 RGB, 2 brightness.
+    histogram: u8 = 0,
+    /// Logarithmic histogram (J), which shows the small counts better.
+    histogram_log: bool = false,
     /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
     icons: bool = false,
     /// Colour behind the image (sRGB).
@@ -1259,6 +1295,7 @@ impl Config {
             c.set(key.trim(), value.trim());
         }
         c.preload = c.preload.min(20);
+        c.histogram = c.histogram.min(2);
         c.delay = c.delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c
@@ -1581,7 +1618,11 @@ impl App {
                     }
                     let max = limits.lock().unwrap()[full as usize];
                     let rotated = rotate.load(Ordering::Relaxed);
-                    let result = Some(decode(&path, max, rotated));
+                    // The histogram here too, so the UI thread never walks the pixels.
+                    let result = Some(decode(&path, max, rotated).map(|(frames, orig)| {
+                        let hist = histogram(&frames[0].0);
+                        (frames, orig, hist)
+                    }));
                     let _ = done_tx.send(Decoded {
                         rotated,
                         idx,
@@ -2472,7 +2513,7 @@ impl App {
                 && self.keep.lock().unwrap().contains(&d.idx)
                 && (!d.full || d.idx == self.cur);
             match d.result {
-                Some(Ok((frames, orig))) if wanted => {
+                Some(Ok((frames, orig, hist))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
                     if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
                         continue;
@@ -2498,6 +2539,7 @@ impl App {
                             full: d.full,
                             orig,
                             anim,
+                            hist,
                         },
                     );
                     if d.idx == self.cur
@@ -2945,6 +2987,47 @@ impl App {
             });
     }
 
+    /// The shown image's histogram in the bottom right corner of `area`.
+    fn paint_histogram(&self, ui: &egui::Ui, area: egui::Rect) {
+        let Some(slot) = self.slots.get(&self.cur) else {
+            return;
+        };
+        let size = egui::vec2(256.0, 100.0);
+        let rect =
+            egui::Rect::from_min_size(area.right_bottom() - size - egui::vec2(16.0, 16.0), size);
+        let p = ui.painter();
+        p.rect_filled(rect.expand(6.0), 4.0, egui::Color32::from_black_alpha(170));
+        use egui::Color32 as C;
+        let channels: &[(usize, C)] = if self.config.histogram == 1 {
+            &[
+                (0, C::from_rgb(255, 80, 80)),
+                (1, C::from_rgb(80, 220, 80)),
+                (2, C::from_rgb(90, 140, 255)),
+            ]
+        } else {
+            &[(3, C::from_gray(230))]
+        };
+        let log = self.config.histogram_log;
+        let height = |v: u32| if log { (v as f32).ln_1p() } else { v as f32 };
+        let max = channels
+            .iter()
+            .flat_map(|c| slot.hist[c.0].iter())
+            .map(|&v| height(v))
+            .fold(1.0, f32::max);
+        for &(c, color) in channels {
+            let points = (0..256)
+                .map(|i| {
+                    let x = rect.left() + i as f32 * rect.width() / 255.0;
+                    egui::pos2(
+                        x,
+                        rect.bottom() - height(slot.hist[c][i]) / max * rect.height(),
+                    )
+                })
+                .collect();
+            p.add(egui::Shape::line(points, egui::Stroke::new(1.5, color)));
+        }
+    }
+
     /// Fuzzy search box above the file list.
     fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -3240,12 +3323,17 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::Histogram => {
+                self.config.histogram = (self.config.histogram + 1) % 3;
+                self.config.save();
+            }
             Action::PathBar
             | Action::Toolbar
             | Action::ExifPanel
             | Action::Overlay
             | Action::Icons
-            | Action::FolderTree => {
+            | Action::FolderTree
+            | Action::HistogramLog => {
                 self.scroll_to_cur = true;
                 let c = &mut self.config;
                 let flag = match action {
@@ -3254,6 +3342,7 @@ impl App {
                     Action::Overlay => &mut c.osd,
                     Action::Icons => &mut c.icons,
                     Action::FolderTree => &mut c.folder_tree,
+                    Action::HistogramLog => &mut c.histogram_log,
                     _ => &mut c.exif_panel,
                 };
                 *flag = !*flag;
@@ -3556,6 +3645,8 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
                         menu_toggle(ui, act, c.osd, Action::Overlay);
+                        menu_item(ui, act, Action::Histogram);
+                        menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
                         menu_item(ui, act, Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
@@ -4317,6 +4408,9 @@ impl eframe::App for App {
                 }
                 if bare && self.config.osd && !self.files.is_empty() {
                     self.overlay(ui, area);
+                }
+                if self.config.histogram > 0 {
+                    self.paint_histogram(ui, area);
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(
