@@ -52,9 +52,10 @@ Extra file types are optional features, so the default build stays small:
 |---|---|---|
 | `video` | Video files in the list with a preview frame; Enter plays them | `ffmpeg` (previews), a player or the default application |
 | `heic` | HEIC/HEIF photos (iPhone), with EXIF | `ffmpeg` and `ffprobe` 8.0 or newer |
+| `marks` | Geeqie's marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
 
 ```sh
-cargo build --release --features video,heic
+cargo build --release --features video,heic,marks
 cargo build --release --features full   # all of them, same as --all-features
 ```
 

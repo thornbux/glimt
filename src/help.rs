@@ -91,7 +91,9 @@ const MANUAL: &[(&str, &str)] = &[
          the matching names, best first, ignoring case and gaps (like fzf). Start with exif: \
          to search the EXIF instead, for example exif:canon 2024:05 for photos from a Canon \
          camera taken in May 2024; every word must match. The first EXIF search in a folder \
-         reads all files once, which takes a while in large folders. The sort menu at \
+         reads all files once, which takes a while in large folders. With the marks feature, \
+         1–6 toggle a mark, Ctrl+1–6 select the files with it and Alt+0–5 give stars; \
+         mark:2 or stars:3 in the search field shows those files. The sort menu at \
          the bottom left sorts by name, number, date, EXIF date, size or extension.",
     ),
     (

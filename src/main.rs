@@ -15,6 +15,8 @@ use std::time::Instant;
 
 mod exif;
 mod help;
+#[cfg(feature = "marks")]
+mod marks;
 mod raw;
 mod search;
 mod thumbs;
@@ -93,6 +95,43 @@ enum Action {
     Histogram,
     HistogramLog,
     Compare,
+    // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
+    #[cfg(feature = "marks")]
+    Mark1,
+    #[cfg(feature = "marks")]
+    Mark2,
+    #[cfg(feature = "marks")]
+    Mark3,
+    #[cfg(feature = "marks")]
+    Mark4,
+    #[cfg(feature = "marks")]
+    Mark5,
+    #[cfg(feature = "marks")]
+    Mark6,
+    #[cfg(feature = "marks")]
+    SelectMark1,
+    #[cfg(feature = "marks")]
+    SelectMark2,
+    #[cfg(feature = "marks")]
+    SelectMark3,
+    #[cfg(feature = "marks")]
+    SelectMark4,
+    #[cfg(feature = "marks")]
+    SelectMark5,
+    #[cfg(feature = "marks")]
+    SelectMark6,
+    #[cfg(feature = "marks")]
+    Rate0,
+    #[cfg(feature = "marks")]
+    Rate1,
+    #[cfg(feature = "marks")]
+    Rate2,
+    #[cfg(feature = "marks")]
+    Rate3,
+    #[cfg(feature = "marks")]
+    Rate4,
+    #[cfg(feature = "marks")]
+    Rate5,
     Icons,
     Toolbar,
     PathBar,
@@ -115,6 +154,39 @@ enum Action {
 
 impl Action {
     /// The name shown in menus and in the help window.
+    /// For the marks actions: 'm' (toggle mark), 's' (select by mark) or 'r' (stars), and the
+    /// number.
+    #[cfg(feature = "marks")]
+    fn mark(self) -> Option<(char, u8)> {
+        use Action::*;
+        let all = [
+            Mark1,
+            Mark2,
+            Mark3,
+            Mark4,
+            Mark5,
+            Mark6,
+            SelectMark1,
+            SelectMark2,
+            SelectMark3,
+            SelectMark4,
+            SelectMark5,
+            SelectMark6,
+            Rate0,
+            Rate1,
+            Rate2,
+            Rate3,
+            Rate4,
+            Rate5,
+        ];
+        let i = all.iter().position(|&a| a == self)? as u8;
+        Some(match i {
+            0..6 => ('m', i + 1),
+            6..12 => ('s', i - 5),
+            _ => ('r', i - 12),
+        })
+    }
+
     fn label(self) -> &'static str {
         use Action::*;
         match self {
@@ -161,6 +233,42 @@ impl Action {
             Histogram => "Histogram: Off, RGB, Brightness",
             HistogramLog => "Logarithmic Histogram",
             Compare => "Compare Side by Side",
+            #[cfg(feature = "marks")]
+            Mark1 => "Mark 1",
+            #[cfg(feature = "marks")]
+            Mark2 => "Mark 2",
+            #[cfg(feature = "marks")]
+            Mark3 => "Mark 3",
+            #[cfg(feature = "marks")]
+            Mark4 => "Mark 4",
+            #[cfg(feature = "marks")]
+            Mark5 => "Mark 5",
+            #[cfg(feature = "marks")]
+            Mark6 => "Mark 6",
+            #[cfg(feature = "marks")]
+            SelectMark1 => "Select Mark 1",
+            #[cfg(feature = "marks")]
+            SelectMark2 => "Select Mark 2",
+            #[cfg(feature = "marks")]
+            SelectMark3 => "Select Mark 3",
+            #[cfg(feature = "marks")]
+            SelectMark4 => "Select Mark 4",
+            #[cfg(feature = "marks")]
+            SelectMark5 => "Select Mark 5",
+            #[cfg(feature = "marks")]
+            SelectMark6 => "Select Mark 6",
+            #[cfg(feature = "marks")]
+            Rate0 => "No Stars",
+            #[cfg(feature = "marks")]
+            Rate1 => "★",
+            #[cfg(feature = "marks")]
+            Rate2 => "★★",
+            #[cfg(feature = "marks")]
+            Rate3 => "★★★",
+            #[cfg(feature = "marks")]
+            Rate4 => "★★★★",
+            #[cfg(feature = "marks")]
+            Rate5 => "★★★★★",
             Icons => "View Images as Icons",
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
@@ -246,6 +354,43 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
         (Compare, NONE, Key::E),
+        // Alt+digit before the plain digit, which would also match with Alt.
+        #[cfg(feature = "marks")]
+        (Rate0, ALT, Key::Num0),
+        #[cfg(feature = "marks")]
+        (Rate1, ALT, Key::Num1),
+        #[cfg(feature = "marks")]
+        (Rate2, ALT, Key::Num2),
+        #[cfg(feature = "marks")]
+        (Rate3, ALT, Key::Num3),
+        #[cfg(feature = "marks")]
+        (Rate4, ALT, Key::Num4),
+        #[cfg(feature = "marks")]
+        (Rate5, ALT, Key::Num5),
+        #[cfg(feature = "marks")]
+        (SelectMark1, CTRL, Key::Num1),
+        #[cfg(feature = "marks")]
+        (SelectMark2, CTRL, Key::Num2),
+        #[cfg(feature = "marks")]
+        (SelectMark3, CTRL, Key::Num3),
+        #[cfg(feature = "marks")]
+        (SelectMark4, CTRL, Key::Num4),
+        #[cfg(feature = "marks")]
+        (SelectMark5, CTRL, Key::Num5),
+        #[cfg(feature = "marks")]
+        (SelectMark6, CTRL, Key::Num6),
+        #[cfg(feature = "marks")]
+        (Mark1, NONE, Key::Num1),
+        #[cfg(feature = "marks")]
+        (Mark2, NONE, Key::Num2),
+        #[cfg(feature = "marks")]
+        (Mark3, NONE, Key::Num3),
+        #[cfg(feature = "marks")]
+        (Mark4, NONE, Key::Num4),
+        #[cfg(feature = "marks")]
+        (Mark5, NONE, Key::Num5),
+        #[cfg(feature = "marks")]
+        (Mark6, NONE, Key::Num6),
         (ExifPanel, CTRL, Key::K),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
@@ -344,7 +489,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Not supported",
         "Zoom 1:1, fit, in, out",
     ),
-    ("1–6, Ctrl+1–6", "Not used (no marks yet)", "Marks"),
+    (
+        "Marks and stars (marks feature)",
+        "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/state/glimt/marks; mark: and stars: in the search field",
+        "Alt+keypad for stars, kept in XMP; marks filter buttons",
+    ),
     (
         "Rename (Ctrl+R)",
         "Only the shown image",
@@ -586,6 +735,8 @@ struct App {
     tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
     /// The folder the tree was last opened up to; it opens again when the folder changes.
     tree_shown: PathBuf,
+    #[cfg(feature = "marks")]
+    marks: marks::Marks,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
@@ -1711,6 +1862,8 @@ impl App {
             login: None,
             grid_cols: 1,
             compare: false,
+            #[cfg(feature = "marks")]
+            marks: marks::Marks::load(),
             tree: HashMap::new(),
             tree_tx,
             tree_rx,
@@ -2730,6 +2883,10 @@ impl App {
                 });
             }
         }
+        let marks = self.mark_text(self.cur);
+        if !marks.is_empty() {
+            info.push(marks);
+        }
         let name = self.files[self.cur].to_string_lossy();
         let text = format!("{name}  {}\n{}", self.place(), info.join(" · "));
         let p = ui.painter();
@@ -2877,6 +3034,16 @@ impl App {
                 text_color,
             );
         }
+        // Stars and marks at the right of the name, which is cut off before them.
+        let marks = self.mark_text(i);
+        if !marks.is_empty() {
+            let gold = egui::Color32::from_rgb(255, 190, 40);
+            let at = egui::pos2(name_rect.max.x - 6.0, rect.center().y);
+            let r = ui
+                .painter()
+                .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
+            name_rect.max.x = r.left() - 8.0;
+        }
         ui.painter().with_clip_rect(name_rect).text(
             egui::pos2(name_rect.min.x, rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -2959,6 +3126,18 @@ impl App {
             frame.bottom() + 4.0,
         );
         ui.painter().galley(at, galley, color);
+        let marks = self.mark_text(i);
+        if !marks.is_empty() {
+            let p = ui.painter();
+            let gold = egui::Color32::from_rgb(255, 190, 40);
+            let galley = p.layout_no_wrap(marks, egui::TextStyle::Small.resolve(ui.style()), gold);
+            let at = egui::Rect::from_min_size(
+                frame.right_top() + egui::vec2(-galley.size().x - 4.0, 3.0),
+                galley.size(),
+            );
+            p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
+            p.galley(at.min, galley, gold);
+        }
         response.on_hover_text_at_pointer(self.files[i].to_string_lossy())
     }
 
@@ -3158,7 +3337,9 @@ impl App {
         let query = self.search.trim();
         self.matches = match query.strip_prefix("exif:") {
             Some(words) => Some(self.exif_matches(ctx, &words.to_lowercase())),
-            None => (query.chars().count() >= 3).then(|| search::matches(&self.files, query)),
+            None => self.mark_matches(query).or_else(|| {
+                (query.chars().count() >= 3).then(|| search::matches(&self.files, query))
+            }),
         };
         // Size of the matches in the background; a new search drops the receiver, which
         // stops the old sum.
@@ -3205,6 +3386,50 @@ impl App {
                     .is_some_and(|text| words.iter().all(|w| text.contains(w)))
             })
             .collect()
+    }
+
+    /// "mark:2" shows the files with mark 2, "stars:3" those with three stars or more.
+    #[cfg(feature = "marks")]
+    fn mark_matches(&self, query: &str) -> Option<Vec<usize>> {
+        let (mark, n) = match (query.strip_prefix("mark:"), query.strip_prefix("stars:")) {
+            (Some(n), _) => (
+                true,
+                n.trim()
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|n| (1..=6).contains(n))?,
+            ),
+            (_, Some(n)) => (false, n.trim().parse::<u8>().ok()?),
+            _ => return None,
+        };
+        let hit = |(bits, stars): (u8, u8)| {
+            if mark {
+                bits & (1 << (n - 1)) != 0
+            } else {
+                stars >= n
+            }
+        };
+        Some(
+            (0..self.files.len())
+                .filter(|&i| hit(self.marks.get(&self.path(i))))
+                .collect(),
+        )
+    }
+
+    #[cfg(not(feature = "marks"))]
+    fn mark_matches(&self, _: &str) -> Option<Vec<usize>> {
+        None
+    }
+
+    /// Stars and marks of file `i` as text ("★★★  1 4"); empty without the marks feature.
+    #[cfg(feature = "marks")]
+    fn mark_text(&self, i: usize) -> String {
+        marks::text(self.marks.get(&self.path(i)))
+    }
+
+    #[cfg(not(feature = "marks"))]
+    fn mark_text(&self, _: usize) -> String {
+        String::new()
     }
 
     /// Size and modification time of file `i`, from the cache or one stat.
@@ -3391,6 +3616,51 @@ impl App {
             Action::Compare => {
                 self.compare = !self.compare;
                 self.refill();
+            }
+            #[cfg(feature = "marks")]
+            Action::Mark1
+            | Action::Mark2
+            | Action::Mark3
+            | Action::Mark4
+            | Action::Mark5
+            | Action::Mark6
+            | Action::SelectMark1
+            | Action::SelectMark2
+            | Action::SelectMark3
+            | Action::SelectMark4
+            | Action::SelectMark5
+            | Action::SelectMark6
+            | Action::Rate0
+            | Action::Rate1
+            | Action::Rate2
+            | Action::Rate3
+            | Action::Rate4
+            | Action::Rate5 => {
+                let Some((kind, n)) = action.mark() else {
+                    return;
+                };
+                if kind == 's' {
+                    let bit = 1 << (n - 1);
+                    self.selected = (self.shown_files().into_iter())
+                        .filter(|&i| self.marks.get(&self.path(i)).0 & bit != 0)
+                        .collect();
+                    self.anchor = None;
+                    self.selection_changed(ctx);
+                    return;
+                }
+                if self.files.is_empty() {
+                    return;
+                }
+                let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+                if kind == 'm' {
+                    self.marks.toggle(&paths, n);
+                } else {
+                    self.marks.rate(&paths, n);
+                }
+                // A "mark:" or "stars:" search shows the new state.
+                if self.search.starts_with("mark:") || self.search.starts_with("stars:") {
+                    self.update_search(ctx);
+                }
             }
             Action::Histogram => {
                 self.config.histogram = (self.config.histogram + 1) % 3;
@@ -3683,6 +3953,41 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::CopyImage);
                     });
                     ui.menu_button("Edit", |ui| {
+                        #[cfg(feature = "marks")]
+                        ui.menu_button("Marks and Stars", |ui| {
+                            for action in [
+                                Action::Mark1,
+                                Action::Mark2,
+                                Action::Mark3,
+                                Action::Mark4,
+                                Action::Mark5,
+                                Action::Mark6,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                            ui.separator();
+                            for action in [
+                                Action::SelectMark1,
+                                Action::SelectMark2,
+                                Action::SelectMark3,
+                                Action::SelectMark4,
+                                Action::SelectMark5,
+                                Action::SelectMark6,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                            ui.separator();
+                            for action in [
+                                Action::Rate0,
+                                Action::Rate1,
+                                Action::Rate2,
+                                Action::Rate3,
+                                Action::Rate4,
+                                Action::Rate5,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                        });
                         ui.menu_button("Orientation", |ui| {
                             for action in [
                                 Action::RotateCw,
@@ -4216,7 +4521,12 @@ impl eframe::App for App {
                                 self.file_row(ui, i, row_h, marked)
                             } else {
                                 let name = self.files[i].to_string_lossy();
-                                ui.selectable_label(marked, name)
+                                let marks = self.mark_text(i);
+                                if marks.is_empty() {
+                                    ui.selectable_label(marked, name)
+                                } else {
+                                    ui.selectable_label(marked, format!("{name}   {marks}"))
+                                }
                             };
                             if row.clicked() {
                                 let m = ui.input(|i| i.modifiers);
