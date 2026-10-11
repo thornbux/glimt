@@ -29,41 +29,6 @@ fn frame(path: &Path, at: &str) -> Result<image::DynamicImage, String> {
             err
         });
     }
-    parse_ppm(out.stdout)
-}
-
-/// A binary PPM as ffmpeg writes it: "P6", width, height and 255, each followed by one
-/// whitespace byte, then the RGB pixels.
-fn parse_ppm(mut data: Vec<u8>) -> Result<image::DynamicImage, String> {
-    // Five parts: the four header fields, then the pixels (which may contain whitespace bytes).
-    let mut parts = data.splitn(5, u8::is_ascii_whitespace);
-    if parts.next() != Some(&b"P6"[..]) {
-        return Err("not a binary PPM".into());
-    }
-    let field = |p: Option<&[u8]>| -> Option<u32> { std::str::from_utf8(p?).ok()?.parse().ok() };
-    let (w, h, max) = (
-        field(parts.next()),
-        field(parts.next()),
-        field(parts.next()),
-    );
-    let header = data.len() - parts.next().map_or(0, <[u8]>::len);
-    let (Some(w), Some(h), Some(255)) = (w, h, max) else {
-        return Err("unsupported PPM header".into());
-    };
-    let img = image::RgbImage::from_raw(w, h, data.split_off(header)).ok_or("truncated PPM")?;
-    Ok(image::DynamicImage::ImageRgb8(img))
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn parses_ppm() {
-        let mut data = b"P6\n2 1\n255\n".to_vec();
-        data.extend([255, 0, 0, 0, 0, 255]);
-        let img = super::parse_ppm(data).unwrap().into_rgb8();
-        assert_eq!(img.dimensions(), (2, 1));
-        assert_eq!(img.get_pixel(1, 0).0, [0, 0, 255]);
-        assert!(super::parse_ppm(b"P6\n2 1\n255\n".to_vec()).is_err());
-        assert!(super::parse_ppm(b"P3\n1 1\n255\n".to_vec()).is_err());
-    }
+    image::load_from_memory_with_format(&out.stdout, image::ImageFormat::Pnm)
+        .map_err(|e| e.to_string())
 }

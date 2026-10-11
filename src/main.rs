@@ -338,6 +338,16 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// A menu entry with a check mark when `on`.
+fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool, action: Action) {
+    menu_button(
+        ui,
+        act,
+        egui::Button::selectable(on, action.label()),
+        action,
+    );
+}
+
 fn menu_button(
     ui: &mut egui::Ui,
     act: &mut Option<Action>,
@@ -2412,17 +2422,15 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
-            Action::PathBar => {
-                self.config.path_bar = !self.config.path_bar;
-                self.config.save();
-            }
-            Action::Toolbar => {
-                self.config.toolbar = !self.config.toolbar;
-                self.config.save();
-            }
-            Action::ExifPanel => {
-                self.config.exif_panel = !self.config.exif_panel;
-                self.config.save();
+            Action::PathBar | Action::Toolbar | Action::ExifPanel => {
+                let c = &mut self.config;
+                let flag = match action {
+                    Action::PathBar => &mut c.path_bar,
+                    Action::Toolbar => &mut c.toolbar,
+                    _ => &mut c.exif_panel,
+                };
+                *flag = !*flag;
+                c.save();
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Rename => {
@@ -2627,22 +2635,11 @@ impl eframe::App for App {
                         });
                         menu_item(ui, act, Action::FullScreen);
                         menu_item(ui, act, Action::HideTools);
-                        let toolbar =
-                            egui::Button::selectable(self.config.toolbar, Action::Toolbar.label());
-                        menu_button(ui, act, toolbar, Action::Toolbar);
-                        let path =
-                            egui::Button::selectable(self.config.path_bar, Action::PathBar.label());
-                        menu_button(ui, act, path, Action::PathBar);
-                        let thumbs = egui::Button::selectable(
-                            self.config.thumbnails,
-                            Action::Thumbnails.label(),
-                        );
-                        menu_button(ui, act, thumbs, Action::Thumbnails);
-                        let exif = egui::Button::selectable(
-                            self.config.exif_panel,
-                            Action::ExifPanel.label(),
-                        );
-                        menu_button(ui, act, exif, Action::ExifPanel);
+                        let c = &self.config;
+                        menu_toggle(ui, act, c.toolbar, Action::Toolbar);
+                        menu_toggle(ui, act, c.path_bar, Action::PathBar);
+                        menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
+                        menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
                         menu_item(ui, act, Action::Refresh);
                         ui.separator();
                         let label = if self.slideshow.is_some() {
@@ -2651,12 +2648,10 @@ impl eframe::App for App {
                             "Start Slideshow"
                         };
                         menu_button(ui, act, egui::Button::new(label), Action::Slideshow);
-                        let pause = egui::Button::selectable(self.paused, "Pause Slideshow");
-                        menu_button(ui, act, pause, Action::Pause);
+                        menu_toggle(ui, act, self.paused, Action::Pause);
                         menu_item(ui, act, Action::Faster);
                         menu_item(ui, act, Action::Slower);
-                        let random = egui::Button::selectable(self.config.random, "Random Order");
-                        menu_button(ui, act, random, Action::RandomOrder);
+                        menu_toggle(ui, act, self.config.random, Action::RandomOrder);
                     });
                     ui.menu_button("Window", |ui| {
                         menu_item(ui, act, Action::NewWindow);
