@@ -96,7 +96,7 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Panels",
-        "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, Ctrl+K the EXIF panel, Ctrl+H hides the file list, F or F11 \
+        "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \
          hides the name, place and EXIF over the image.",
     ),

@@ -92,6 +92,7 @@ enum Action {
     Overlay,
     Histogram,
     HistogramLog,
+    Compare,
     Icons,
     Toolbar,
     PathBar,
@@ -159,6 +160,7 @@ impl Action {
             Overlay => "Show Image Info in Full Screen",
             Histogram => "Histogram: Off, RGB, Brightness",
             HistogramLog => "Logarithmic Histogram",
+            Compare => "Compare Side by Side",
             Icons => "View Images as Icons",
             Toolbar => "Show Toolbar",
             PathBar => "Show Folder Path",
@@ -243,6 +245,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Overlay, NONE, Key::I),
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
+        (Compare, NONE, Key::E),
         (ExifPanel, CTRL, Key::K),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
@@ -361,6 +364,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Images as icons (Ctrl+I)",
         "Ctrl+I switches between list and icons",
         "Ctrl+I icons, Ctrl+L list",
+    ),
+    (
+        "Compare (E)",
+        "E shows the next image (or the other of two selected) beside the shown one, at the same zoom and offset",
+        "E, U and Y split into panes with an image each; Y back to one",
     ),
     (
         "Histogram (K, J)",
@@ -578,6 +586,8 @@ struct App {
     tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
     /// The folder the tree was last opened up to; it opens again when the folder changes.
     tree_shown: PathBuf,
+    /// Two images side by side (E): the shown one and `compare_other`.
+    compare: bool,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
     grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
@@ -1700,6 +1710,7 @@ impl App {
             mounting: None,
             login: None,
             grid_cols: 1,
+            compare: false,
             tree: HashMap::new(),
             tree_tx,
             tree_rx,
@@ -2074,6 +2085,9 @@ impl App {
     /// Called when the selection changes: update the title and compute the size in the background.
     fn selection_changed(&mut self, ctx: &egui::Context) {
         self.title(ctx);
+        if self.compare {
+            self.refill();
+        }
         self.selected_size = None;
         self.selected_rx = None;
         if self.selected.is_empty() {
@@ -2485,6 +2499,18 @@ impl App {
 
     /// Drop textures outside the preload window, and full-resolution versions of images other
     /// than the shown one; request the missing ones.
+    /// The image shown next to the current one when comparing: the other of two selected
+    /// files, else the next image.
+    fn compare_other(&self) -> Option<usize> {
+        if !self.compare {
+            return None;
+        }
+        match self.selected.iter().collect::<Vec<_>>()[..] {
+            [&a, &b] => Some(if a == self.cur { b } else { a }),
+            _ => self.step(self.cur, 1, false).filter(|&i| i != self.cur),
+        }
+    }
+
     fn refill(&mut self) {
         if self.files.is_empty() {
             return;
@@ -2496,6 +2522,9 @@ impl App {
             if let Some(i) = self.step(cur, d, false).filter(|i| !window.contains(i)) {
                 window.push(i);
             }
+        }
+        if let Some(other) = self.compare_other().filter(|i| !window.contains(i)) {
+            window.push(other);
         }
         self.slots
             .retain(|i, s| window.contains(i) && (!s.full || *i == cur));
@@ -2987,6 +3016,42 @@ impl App {
             });
     }
 
+    /// The compared image in `rect`: at the same zoom and offset as the shown one when zoomed,
+    /// else fitted, with its name above.
+    fn paint_other(&self, ui: &egui::Ui, rect: egui::Rect, zoom: Option<f32>) {
+        let p = ui.painter();
+        p.vline(
+            rect.left() - 1.0,
+            rect.y_range(),
+            egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
+        );
+        let Some(other) = self.compare_other() else {
+            return;
+        };
+        let ppp = ui.ctx().pixels_per_point();
+        if let Some(slot) = self.slots.get(&other) {
+            let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
+            let scale = zoom.unwrap_or_else(|| {
+                let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
+                if self.config.enlarge {
+                    fit
+                } else {
+                    fit.min(1.0)
+                }
+            });
+            let at = egui::Rect::from_center_size(rect.center() + self.pan, size * scale / ppp);
+            let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+            p.with_clip_rect(rect)
+                .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
+        }
+        let name = self.files[other].to_string_lossy();
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let galley = p.layout_no_wrap(name.into_owned(), font, egui::Color32::WHITE);
+        let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
+        p.rect_filled(text.expand(4.0), 3.0, egui::Color32::from_black_alpha(160));
+        p.galley(text.min, galley, egui::Color32::WHITE);
+    }
+
     /// The shown image's histogram in the bottom right corner of `area`.
     fn paint_histogram(&self, ui: &egui::Ui, area: egui::Rect) {
         let Some(slot) = self.slots.get(&self.cur) else {
@@ -3323,6 +3388,10 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
+            Action::Compare => {
+                self.compare = !self.compare;
+                self.refill();
+            }
             Action::Histogram => {
                 self.config.histogram = (self.config.histogram + 1) % 3;
                 self.config.save();
@@ -4226,7 +4295,17 @@ impl eframe::App for App {
                 egui::Color32::from_rgb(r, g, b)
             }))
             .show(ui, |ui| {
-                let area = ui.max_rect();
+                // Comparing: the shown image on the left, the other on the right.
+                let full = ui.max_rect();
+                let (area, right) = if self.compare {
+                    let (l, r) = full.split_left_right_at_fraction(0.5);
+                    (
+                        l.shrink2(egui::vec2(1.0, 0.0)),
+                        Some(r.shrink2(egui::vec2(1.0, 0.0))),
+                    )
+                } else {
+                    (full, None)
+                };
                 // Decode to the image area, not the whole screen: a small window on a 4K screen
                 // needs a fraction of the memory (3840×2160 is 33 MB per image).
                 let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
@@ -4411,6 +4490,9 @@ impl eframe::App for App {
                 }
                 if self.config.histogram > 0 {
                     self.paint_histogram(ui, area);
+                }
+                if let Some(right) = right {
+                    self.paint_other(ui, right, self.zoom);
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(
