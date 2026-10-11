@@ -15,6 +15,7 @@ use std::time::Instant;
 
 mod exif;
 mod help;
+mod raw;
 mod search;
 mod thumbs;
 #[cfg(feature = "video")]
@@ -618,7 +619,7 @@ fn is_video(_: &Path) -> bool {
 
 /// Shown in the file list: an image, or a video with the video feature and `videos` on.
 fn is_listed(path: &Path, videos: bool) -> bool {
-    has_ext(path, EXTS) || (videos && is_video(path))
+    has_ext(path, EXTS) || has_ext(path, raw::EXTS) || (videos && is_video(path))
 }
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
@@ -1215,6 +1216,9 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     #[cfg(feature = "video")]
     if is_video(path) {
         return video::preview(path);
+    }
+    if has_ext(path, raw::EXTS) {
+        return raw::load(path, rotate);
     }
     let mut dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())

@@ -16,8 +16,18 @@ pub fn date(path: &Path, digitized: bool) -> Option<String> {
     t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
 }
 
+/// The Orientation tag of a TIFF block (a TIFF-based RAW file's header).
+pub fn orientation(raw: &[u8]) -> Option<image::metadata::Orientation> {
+    let (t, ifd0, _, _) = ifds(raw)?;
+    let e = ifd0.iter().find(|(tag, _)| *tag == 0x0112)?.1;
+    image::metadata::Orientation::from_exif(t.int(e)? as u8)
+}
+
 fn raw(path: &Path) -> Option<Vec<u8>> {
     use image::ImageDecoder;
+    if crate::has_ext(path, crate::raw::EXTS) {
+        return crate::raw::exif(path);
+    }
     image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()?
