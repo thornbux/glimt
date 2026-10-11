@@ -72,7 +72,8 @@ const MANUAL: &[(&str, &str)] = &[
          ] and [ rotate the view, Shift+R turns it upside down, Shift+M mirrors and Shift+F \
          flips it (Edit → Orientation); the next image is shown as it is. Edit → Orientation \
          → Save Orientation to File stores the rotation in a JPEG as its EXIF orientation, \
-         without touching the pixels; a setting does it on every change of image.",
+         without touching the pixels; a setting does it on every change of image. PNG and \
+         WebP are turned and saved again without loss (a lossy WebP grows).",
     ),
     (
         "Slideshow",

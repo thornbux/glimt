@@ -1819,6 +1819,63 @@ fn decode(
     Ok((vec![(color_image(img), 0)], orig, pages))
 }
 
+/// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
+/// pixels are turned and the file written again without loss (WebP as lossless, so a lossy one
+/// grows) and with its ICC profile. The new file replaces the old in one rename.
+fn save_rotated(path: &Path, rotate: bool, turns: u8, mirrored: bool) -> Result<(), String> {
+    use image::ImageEncoder;
+    let png = has_ext(path, &["png"]);
+    if !png && !has_ext(path, &["webp"]) {
+        return Err("only JPEG, PNG and WebP can store the rotation".into());
+    }
+    if !png {
+        let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
+        let dec = image::codecs::webp::WebPDecoder::new(file).map_err(|e| e.to_string())?;
+        if dec.has_animation() {
+            return Err("animated WebP files are not turned".into());
+        }
+    }
+    let (mut img, icc) = load_icc(path, rotate)?;
+    if mirrored {
+        img = img.fliph();
+    }
+    img = match turns % 4 {
+        1 => img.rotate90(),
+        2 => img.rotate180(),
+        3 => img.rotate270(),
+        _ => img,
+    };
+    let tmp = path.with_extension("glimt-tmp");
+    let out = std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| e.to_string())?);
+    let written = if png {
+        let mut enc = image::codecs::png::PngEncoder::new(out);
+        if let Some(icc) = icc {
+            let _ = enc.set_icc_profile(icc);
+        }
+        img.write_with_encoder(enc)
+    } else {
+        let mut enc = image::codecs::webp::WebPEncoder::new_lossless(out);
+        if let Some(icc) = icc {
+            let _ = enc.set_icc_profile(icc);
+        }
+        // The WebP encoder takes 8-bit RGB or RGBA.
+        let img = if img.color().has_alpha() {
+            image::DynamicImage::from(img.into_rgba8())
+        } else {
+            image::DynamicImage::from(img.into_rgb8())
+        };
+        img.write_with_encoder(enc)
+    };
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    if let Ok(meta) = std::fs::metadata(path) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
 /// The number of pages (images) in a TIFF file; reads only their directories.
 fn tiff_pages(path: &Path) -> usize {
     let Ok(file) = std::fs::File::open(path) else {
@@ -2947,11 +3004,18 @@ impl App {
             return;
         }
         let path = self.path(self.cur);
-        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
+        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned.
+        let jpeg = has_ext(&path, &["jpg", "jpeg"]);
+        let saved = if jpeg {
+            exif::write_orientation(&path, turns, mirrored)
+        } else {
+            save_rotated(&path, self.config.exif_rotate, turns, mirrored)
+        };
+        if let Err(e) = saved {
             self.notice = Some(format!("Could not save the orientation: {e}"));
             return;
         }
-        if !self.config.exif_rotate {
+        if jpeg && !self.config.exif_rotate {
             self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
         }
         // Decode again with the new orientation, and make a new thumbnail.
@@ -4693,7 +4757,7 @@ impl eframe::App for App {
                     changed |= ui
                         .checkbox(
                             &mut self.config.save_orientation,
-                            "Save rotation to the file when changing image (JPEG)",
+                            "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
                         )
                         .changed();
                     ui.horizontal(|ui| {
