@@ -5114,13 +5114,7 @@ impl App {
         std::thread::spawn(move || {
             let mut errors = 0;
             for path in &paths {
-                let mut m = meta::read(path);
-                for k in &keywords {
-                    if !m.keywords.contains(k) {
-                        m.keywords.push(k.clone());
-                    }
-                }
-                errors += meta::write(path, &m).is_err() as usize;
+                errors += meta::add(path, &keywords).is_err() as usize;
             }
             let _ = tx.send(match errors {
                 0 => format!("Keywords added to {} files", thousands(paths.len())),
