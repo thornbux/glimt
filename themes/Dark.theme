@@ -1,2 +1,10 @@
-# Glimt theme: the desktop's look, always dark.
+# Glimt theme: Dark, the default. Deep neutral greys that leave the colours to the picture, and
+# a calm blue of its own, whatever the desktop uses.
 dark=true
+accent=#4f8fe6
+panel=#141414
+window=#1c1c1c
+field=#0b0b0b
+faint=#181818
+hover=#2a2a2a
+active=#363636

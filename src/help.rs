@@ -171,7 +171,7 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Themes",
         "Edit → Preferences → Theme changes the look: Dark (the default), Light, Desktop (light \
-         or dark as the desktop), Nord, and for low vision High Contrast (white on black) and \
+         or dark and the accent colour as the desktop), Nord, and for low vision High Contrast (white on black) and \
          Contrast (black on white), both with larger text. Themes are small text files: Save \
          as Theme… writes the look shown as one to edit, Open Themes Folder shows where they \
          go (~/.config/glimt/themes), and Get More Themes… opens the collection on GitHub. \

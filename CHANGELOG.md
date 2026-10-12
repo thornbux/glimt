@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The Dark theme has a look of its own: deeper neutral greys and its own blue, instead of the
+  desktop's accent, so it no longer looks the same as Desktop on a dark desktop.
+
 ## [0.11.1] - 2026-10-12
 
 ### Added
