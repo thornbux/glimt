@@ -66,6 +66,11 @@ pub fn find(
         }
         By::Dimensions => {
             let dims = parallel(&paths, p, |path| {
+                if crate::has_ext(path, &["jpg", "jpeg"])
+                    && let Some(size) = jpeg_size(path)
+                {
+                    return Some(size);
+                }
                 image::ImageReader::open(path)
                     .ok()?
                     .with_guessed_format()
@@ -91,6 +96,19 @@ pub fn find(
     }
     groups.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
     groups
+}
+
+/// A JPEG's width and height from its first 256 KB, where its frame header is: the decoder
+/// would read the whole file. `None` if it is not there, so the decoder is asked after all.
+fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
+    let mut head = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(1 << 18)
+        .read_to_end(&mut head)
+        .ok()?;
+    head.starts_with(&[0xff, 0xd8])
+        .then(|| crate::raw::size(&head))?
 }
 
 fn size(path: &Path) -> Option<u64> {
@@ -265,6 +283,10 @@ mod tests {
             [[a, c, b]]
         );
         assert_eq!(p.done.load(Ordering::Relaxed), 4);
+        // A JPEG's size from its frame header: width first.
+        let jpeg = dir.join("e.jpg");
+        image::RgbImage::new(40, 20).save(&jpeg).unwrap();
+        assert_eq!(jpeg_size(&jpeg), Some((40, 20)));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
