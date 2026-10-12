@@ -953,6 +953,9 @@ struct App {
     /// at least three letters.
     search: String,
     matches: Option<Vec<usize>>,
+    /// The shown file's row among the matches, as (file, row): found once per image and search,
+    /// not in every frame, as the matches can be 300,000 long.
+    cur_row: std::cell::Cell<Option<(usize, Option<usize>)>>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     match_rx: Option<mpsc::Receiver<u64>>,
@@ -2551,6 +2554,7 @@ impl App {
             busy: Arc::new(AtomicUsize::new(0)),
             search: String::new(),
             matches: None,
+            cur_row: Default::default(),
             match_size: 0,
             match_rx: None,
             exif_index: None,
@@ -3545,10 +3549,10 @@ impl App {
         if self.files.is_empty() || self.paused {
             return;
         }
-        let Some(next) = self.step(self.cur, 1, true) else {
+        let Some(next) = self.step(1, true) else {
             return;
         };
-        let first = self.step(self.cur, -isize::MAX / 2, false);
+        let first = self.step(-isize::MAX / 2, false);
         let delay = std::time::Duration::from_secs(self.config.delay);
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
@@ -3574,7 +3578,7 @@ impl App {
         }
         match self.selected.iter().collect::<Vec<_>>()[..] {
             [&a, &b] => Some(if a == self.cur { b } else { a }),
-            _ => self.step(self.cur, 1, false).filter(|&i| i != self.cur),
+            _ => self.step(1, false).filter(|&i| i != self.cur),
         }
     }
 
@@ -3590,7 +3594,7 @@ impl App {
         window.extend(other);
         self.full_ok.store(window.len(), Ordering::Relaxed);
         for d in (1..=ahead).flat_map(|d| [d, -d]) {
-            if let Some(i) = self.step(cur, d, false).filter(|i| !window.contains(i)) {
+            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
                 window.push(i);
             }
         }
@@ -3832,7 +3836,7 @@ impl App {
     /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
     fn place(&self) -> String {
         match &self.matches {
-            Some(m) => match m.iter().position(|&i| i == self.cur) {
+            Some(m) => match self.cur_row(m) {
                 Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
                 None => format!("[–/{}]", thousands(m.len())),
             },
@@ -4237,18 +4241,30 @@ impl App {
         (self.matches.clone()).unwrap_or_else(|| (0..self.files.len()).collect())
     }
 
-    /// The file `delta` rows from file `from`, in the order the list shows (the search matches
+    /// The row of the shown file among the search matches `m`; `None` if the search hides it.
+    fn cur_row(&self, m: &[usize]) -> Option<usize> {
+        match self.cur_row.get() {
+            Some((cur, row)) if cur == self.cur => row,
+            _ => {
+                let row = m.iter().position(|&i| i == self.cur);
+                self.cur_row.set(Some((self.cur, row)));
+                row
+            }
+        }
+    }
+
+    /// The file `delta` rows from the shown one, in the order the list shows (the search matches
     /// while searching); clamped at the ends, or going round with `wrap`. A file the search
     /// hides counts as being before the first row.
-    fn step(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
+    fn step(&self, delta: isize, wrap: bool) -> Option<usize> {
         let m = self.matches.as_deref();
         let n = m.map_or(self.files.len(), <[usize]>::len) as isize;
         if n == 0 {
             return None;
         }
         let row = match m {
-            Some(m) => m.iter().position(|&x| x == from).map_or(-1, |r| r as isize),
-            None => from as isize,
+            Some(m) => self.cur_row(m).map_or(-1, |r| r as isize),
+            None => self.cur as isize,
         };
         let r = if wrap {
             (row + delta).rem_euclid(n)
@@ -4275,6 +4291,7 @@ impl App {
     /// Run the search again; file indices change when the list does.
     fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.trim();
+        self.cur_row.set(None);
         self.matches = match query.strip_prefix("exif:") {
             Some(words) => Some(self.exif_matches(ctx, &words.to_lowercase())),
             None => self.mark_matches(query).or_else(|| {
@@ -4475,7 +4492,7 @@ impl App {
                     Action::Next => row,
                     _ => isize::MAX / 2,
                 };
-                let Some(to) = self.step(self.cur, delta, false) else {
+                let Some(to) = self.step(delta, false) else {
                     return;
                 };
                 // With Shift the selection runs from where it started to the new image, as in
