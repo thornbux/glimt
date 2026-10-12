@@ -41,10 +41,12 @@ The images in the screenshots are generated for the purpose.
 
 | | |
 |---|---|
+| ![Four images at once, with their names](docs/screenshots/layout.png) | ![Find Duplicates by similarity](docs/screenshots/duplicates.png) |
+| Layout 2×2 (View → Layout), with the file names shown | Find Duplicates (D) by similarity, also in subfolders |
 | ![File size and date columns, and the EXIF panel](docs/screenshots/exif-and-columns.png) | ![Fuzzy file name search](docs/screenshots/fuzzy-search.png) |
 | File size and date columns, and the EXIF panel (Ctrl+K) | Fuzzy search: "sun" finds sunflower and sunrise, and also de**s**ert_d**un**es |
-| ![The sort menu](docs/screenshots/sort-menu.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
-| The sort menu in the status bar | Help → Keyboard Map |
+| ![Pan view in the Light theme](docs/screenshots/pan.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
+| Pan view (Ctrl+J), here in the Light theme | Help → Keyboard Map |
 
 ## Features
 
