@@ -1415,8 +1415,15 @@ fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool, cas
         Sort::Name if case => {}
         Sort::Name => files.sort_by_cached_key(name),
         Sort::Number => {
-            files.sort_by_cached_key(name);
-            files.sort_by(|a, b| natural_cmp(&name(a), &name(b)));
+            // Each name made once, not twice in each of millions of comparisons.
+            let mut keyed: Vec<(String, OsString)> = (files.iter_mut())
+                .map(|f| (name(f), std::mem::take(f)))
+                .collect();
+            // Equal numbers ("img010", "img10") in name order.
+            keyed.sort_by(|a, b| natural_cmp(&a.0, &b.0).then_with(|| a.0.cmp(&b.0)));
+            for (f, (_, k)) in files.iter_mut().zip(keyed) {
+                *f = k;
+            }
         }
         Sort::Date => files.sort_by_cached_key(|f| (meta(f).map(|m| secs(m.modified())), name(f))),
         Sort::Created => files.sort_by_cached_key(|f| {
@@ -6309,11 +6316,15 @@ mod tests {
             false,
         );
         assert_eq!(v, ["b10", "b9", "B2", "a1"]);
+        // Equal numbers in name order.
+        let mut v: Vec<std::ffi::OsString> = ["a1", "a01"].iter().map(Into::into).collect();
+        let dot = std::path::Path::new(".");
+        super::sort_files(dot, &mut v, super::Sort::Number, true, false);
+        assert_eq!(v, ["a01", "a1"]);
         let mut v: Vec<std::ffi::OsString> = ["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]
             .iter()
             .map(Into::into)
             .collect();
-        let dot = std::path::Path::new(".");
         super::sort_files(dot, &mut v, super::Sort::Extension, true, false);
         assert_eq!(v, ["e", "c.JPG", "d.jpg", "a.mp4", "b.png"]);
     }
