@@ -1722,6 +1722,15 @@ fn sort_folders_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "sort-folders")
 }
 
+/// The folders of the sort-folders file, as bytes: one that is not UTF-8 is kept.
+fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    (text.split(|&b| b == b'\n'))
+        .filter(|l| !l.is_empty())
+        .map(|l| PathBuf::from(std::ffi::OsStr::from_bytes(l)))
+        .collect()
+}
+
 /// `$XDG_STATE_HOME/glimt/state`, otherwise `~/.local/state/glimt/state`.
 /// State (such as the last folder) is not configuration, and belongs here according to XDG.
 fn state_path() -> Option<PathBuf> {
@@ -2799,8 +2808,8 @@ impl App {
             mounting: None,
             login: None,
             print: None,
-            sort_folders: (sort_folders_path().and_then(|p| std::fs::read_to_string(p).ok()))
-                .map_or_else(Vec::new, |t| t.lines().map(PathBuf::from).collect()),
+            sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
+                .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             grid_cols: 1,
             compare: false,
@@ -4884,9 +4893,15 @@ impl App {
     }
 
     fn save_sort_folders(&mut self) {
-        let text: String = (self.sort_folders.iter())
-            .map(|d| format!("{}\n", d.display()))
-            .collect();
+        // As bytes: a name that is not UTF-8 (an old Windows share) must come back the same.
+        let mut text = Vec::new();
+        for d in &self.sort_folders {
+            let bytes = d.as_os_str().as_encoded_bytes();
+            if !bytes.contains(&b'\n') {
+                text.extend(bytes);
+                text.push(b'\n');
+            }
+        }
         let saved = sort_folders_path()
             .ok_or("no home folder".to_owned())
             .and_then(|p| {
@@ -7886,6 +7901,17 @@ mod tests {
         assert_eq!(pixel(&png), ((800, 1200), image::Rgb([255, 0, 0])));
         assert_eq!(pixel(&webp), ((800, 1200), image::Rgb([0, 0, 255])));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The sort manager's folders come back as they were, also a name that is not UTF-8.
+    #[test]
+    fn reads_sort_folders_as_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let latin = std::ffi::OsStr::from_bytes(b"/caf\xe9");
+        assert_eq!(
+            super::sort_folders_from(b"/a b\n/caf\xe9\n\n"),
+            [std::path::PathBuf::from("/a b"), latin.into()]
+        );
     }
 
     #[test]
