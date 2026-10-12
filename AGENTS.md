@@ -82,6 +82,45 @@ python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 - New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
   separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 
+## Packages
+
+A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`, which builds against
+glibc 2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb` and an `.rpm`. Both package
+formats are described in `Cargo.toml` (`[package.metadata.deb]`, `[package.metadata.generate-rpm]`);
+new installed files go in both lists and in the tar.gz step. To build and check them locally,
+after `cargo build --release --features full`:
+
+```sh
+cargo deb --no-build -o /tmp/pkg/          # cargo install cargo-deb
+dpkg-deb -I /tmp/pkg/*.deb; dpkg-deb -c /tmp/pkg/*.deb
+cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
+```
+
+- Dependencies are written by hand (glibc 2.28): `dpkg-shlibdeps` rounds glibc up to 2.34, and
+  cargo-generate-rpm's own list has `[WEAK]` symbol versions that dnf cannot resolve.
+- A local build links against the build machine's glibc; only the release binary runs on 2.28.
+- Test an `.rpm` without rpm tools in a container, with the storage on `/tmp`:
+  `podman --root /tmp/pod --runroot /tmp/podrun --storage-driver vfs run --rm -v /tmp/pkg:/pkg:Z
+  registry.fedoraproject.org/fedora:latest bash -c 'dnf -y install /pkg/*.rpm && glimt --help'`
+  (also `docker.io/library/almalinux:8` for glibc 2.28). Remove the storage afterwards with
+  `podman unshare rm -rf /tmp/pod /tmp/podrun`.
+
+The Flatpak (`flatpak/io.github.thornbux.Glimt.yml`) is built by hand; its runtime, SDK and Rust
+extension take about 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
+
+```sh
+export FLATPAK_USER_DIR=/tmp/fp/flatpak
+flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak-builder --user --install --install-deps-from=flathub --force-clean \
+    --state-dir=/tmp/fp/state /tmp/fp/build flatpak/io.github.thornbux.Glimt.yml
+flatpak run io.github.thornbux.Glimt
+```
+
+- In the sandbox, external programs go through `command()` in `src/main.rs`, which runs them on
+  the host with `flatpak-spawn --host`; use it for every new external program.
+- To run it in a virtual X display, add `--nosocket=wayland --nosocket=fallback-x11
+  --socket=x11`, and `--filesystem=/tmp/...` for test files: `/tmp` is private in the sandbox.
+
 ## Privacy
 
 Screenshots and examples must never show the maintainer's own folders or files. Use generated
