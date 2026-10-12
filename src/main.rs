@@ -942,8 +942,9 @@ struct App {
     details: HashMap<OsString, (u64, i64)>,
     /// Names being deleted in the background; kept out of refreshed listings until done.
     deleting: HashSet<OsString>,
-    deleted_tx: mpsc::Sender<Vec<PathBuf>>,
-    deleted_rx: mpsc::Receiver<Vec<PathBuf>>,
+    /// Deletes and moves done, and whether one failed: then the files may still be there.
+    deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
+    deleted_rx: mpsc::Receiver<(Vec<PathBuf>, bool)>,
     /// PNG and WebP files saved turned in the background.
     saved_tx: mpsc::Sender<PathBuf>,
     saved_rx: mpsc::Receiver<PathBuf>,
@@ -2813,7 +2814,7 @@ impl App {
             if let Some(first) = errors.first() {
                 let _ = tx.send(format!("Delete failed ({} errors): {first}", errors.len()));
             }
-            let _ = deleted_tx.send(paths);
+            let _ = deleted_tx.send((paths, !errors.is_empty()));
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
@@ -2845,10 +2846,12 @@ impl App {
     }
 
     fn receive_deleted(&mut self) {
-        for paths in self.deleted_rx.try_iter() {
+        for (paths, failed) in self.deleted_rx.try_iter() {
             for p in paths.iter().filter(|p| p.parent() == Some(&self.dir)) {
                 self.deleting.remove(p.file_name().unwrap_or_default());
             }
+            // The files that are still there come back into the list.
+            self.stale |= failed;
         }
     }
 
@@ -2998,6 +3001,7 @@ impl App {
             }
         }
         let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
+        let deleted_tx = self.deleted_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         let busy = self.busy.clone();
         busy.fetch_add(1, Ordering::Relaxed);
@@ -3027,6 +3031,9 @@ impl App {
             if let Some(first) = errors.first() {
                 let verb = if keep { "Copy" } else { "Move" };
                 let _ = tx.send(format!("{verb} failed ({} errors): {first}", errors.len()));
+                if !keep {
+                    let _ = deleted_tx.send((paths, true));
+                }
             }
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
@@ -4895,9 +4902,6 @@ impl eframe::App for App {
             self.list(ctx);
         }
         while let Ok(msg) = self.notices.try_recv() {
-            // A delete or move may have failed, so the file may still exist: read the folder again,
-            // keeping the shown image, the order and the subfolder mode.
-            self.stale = true;
             self.notice = Some(msg);
             ctx.request_repaint();
         }
