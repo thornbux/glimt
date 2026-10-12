@@ -73,9 +73,20 @@ The images in the screenshots are generated for the purpose.
 - Plugins: run any command on the selected images from the Edit menu.
 - Remote control from scripts and desktop shortcuts: `glimt --remote next`.
 
-**Formats**
-- JPEG, PNG, WebP, GIF, TIFF (also animated and multi-page), the previews inside camera RAW
-  files, HEIC, AVIF, JPEG XL, SVG, and video thumbnails.
+## Supported formats
+
+- **Everyday:** JPEG, PNG, WebP, GIF and TIFF, with animated GIF and WebP playing in a loop and
+  every page of a multi-page TIFF.
+- **Camera RAW:** CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more, shown at once through
+  the JPEG preview the camera stores in them.
+- **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL and SVG.
+- **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
+- **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
+  they do not look dull.
+
+The release packages have every format built in; HEIC, AVIF and video also need `ffmpeg`. When
+building from source, HEIC, AVIF, JPEG XL, SVG and video are optional features (`heic`, `avif`,
+`jxl`, `svg`, `video`).
 
 ## Installing
 
@@ -254,12 +265,6 @@ Sway, X11 with a window manager) are very welcome.
 | Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` (`~/.cache/thumbnails/normal`), shared with other programs |
 
 The first two are plain `key=value` text files written atomically.
-
-## Supported formats
-
-JPEG, PNG, WebP, GIF and TIFF; animated GIF and WebP play in a loop. Camera RAW files (CR2, CR3,
-NEF, ARW, DNG, ORF, RAF, RW2, PEF and more) show the JPEG preview the camera stores in them. HEIC/HEIF with the `heic` feature, AVIF with `avif`, JPEG XL with `jxl`, SVG with `svg`. Photos with an ICC profile (Adobe RGB,
-Display P3 …) are converted to sRGB, so they do not look dull.
 
 ## SBOM
 
