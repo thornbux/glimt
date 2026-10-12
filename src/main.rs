@@ -2883,7 +2883,11 @@ impl App {
             self.slots.insert(cur, slot);
         }
         self.update_search(ctx);
+        // go() clears the notice for a new image; a new list is not one, and a notice is often
+        // why the list was read again.
+        let notice = self.notice.take();
         self.go(ctx, cur);
+        self.notice = notice;
     }
 
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
@@ -4799,9 +4803,11 @@ impl eframe::App for App {
             self.list(ctx);
         }
         while let Ok(msg) = self.notices.try_recv() {
-            // Deleting failed, so the file probably still exists: re-read the folder so the list is right.
-            self.open(ctx, self.location());
+            // A delete or move may have failed, so the file may still exist: read the folder again,
+            // keeping the shown image, the order and the subfolder mode.
+            self.stale = true;
             self.notice = Some(msg);
+            ctx.request_repaint();
         }
         self.slideshow_tick(ctx);
         if let Some(Ok(picked)) = self.dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
