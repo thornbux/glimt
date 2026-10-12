@@ -3387,9 +3387,12 @@ impl App {
             self.exif = None;
         }
         self.slots.retain(|_, s| s.path != path);
+        // Its size changed: the status bar and the list read it again.
+        self.cur_size = None;
         if let Ok(name) = path.strip_prefix(&self.dir) {
             self.thumbs.remove(name.as_os_str());
             self.thumbs_pending.remove(name.as_os_str());
+            self.details.remove(name.as_os_str());
         }
         self.refill();
     }
