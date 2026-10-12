@@ -106,6 +106,9 @@ dialog. Compare timings with the last release, built the same way.
 - **Thumbnails:** with Auto Rotate off, nothing new in `$XDG_CACHE_HOME/thumbnails`.
 - **Flatpak:** two windows (Ctrl+N), `--remote next` to the focused one, `--remote-all next` to
   both, `--remote-all quit`.
+- **Known vulnerabilities:** `cargo audit` (`cargo install cargo-audit`). The release workflow
+  runs it too and stops on a vulnerable crate; warnings such as an unmaintained crate are shown
+  but do not stop it.
 - **Large folder:** 500,000 hard links to one JPEG; the "first image" time and RssAnon. Put them
   in `/dev/shm`: `/tmp` allows about a million inodes, and every link takes one.
 

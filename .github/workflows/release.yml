@@ -41,7 +41,9 @@ jobs:
           version: 0.14.1
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
-          tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm
+          tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm,cargo-audit
+      - name: Known vulnerabilities in the crates (RustSec)
+        run: cargo audit
       - name: Build against glibc ${{ env.GLIBC }}
         run: cargo zigbuild --release --locked --features full --target "$TARGET.$GLIBC"
       - name: Check the glibc it needs
