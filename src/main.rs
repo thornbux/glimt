@@ -190,7 +190,6 @@ enum Action {
 }
 
 impl Action {
-    /// The name shown in menus and in the help window.
     /// For the marks actions: 'm' (toggle mark), 's' (select by mark) or 'r' (stars), and the
     /// number.
     #[cfg(feature = "marks")]
@@ -224,6 +223,7 @@ impl Action {
         })
     }
 
+    /// The name shown in menus and in the help window.
     fn label(self) -> &'static str {
         use Action::*;
         match self {
@@ -620,7 +620,6 @@ fn menu_button(
     }
 }
 
-/// The first shortcut of an action, as shown in menus ("Ctrl+K").
 /// The user's own keys (Preferences), which replace the defaults of their actions.
 static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
@@ -684,6 +683,7 @@ impl std::fmt::Display for Keys {
     }
 }
 
+/// The first shortcut of an action, as shown in menus ("Ctrl+K").
 fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
     let (_, mods, key) = shortcuts().into_iter().find(|s| s.0 == action)?;
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
@@ -1288,8 +1288,6 @@ fn is_listed(path: &Path, videos: bool) -> bool {
         || (videos && is_video(path))
 }
 
-/// One pass over the folder: (subfolders, image file names), both sorted by name.
-/// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
 /// The images in `dir` and every folder below it, as paths relative to `dir`. A folder reached
 /// again through a link is read once.
 fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
@@ -1312,6 +1310,8 @@ fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
     out
 }
 
+/// One pass over the folder: (subfolders, image file names), both sorted by name.
+/// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
 fn list_folder(dir: &Path, videos: bool) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -1802,7 +1802,6 @@ fn total_size(paths: &[PathBuf]) -> u64 {
         .sum()
 }
 
-/// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units).
 #[repr(C)]
 struct Tm {
     sec: i32,
@@ -1843,6 +1842,7 @@ fn local_time(secs: i64) -> String {
     )
 }
 
+/// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units).
 fn human_size(bytes: u64) -> String {
     let (value, unit) = match bytes {
         b if b >= 1_000_000_000 => (b as f64 / 1e9, "GB"),
@@ -2175,8 +2175,8 @@ fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     (!out.is_empty()).then_some((out, orig))
 }
 
-/// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`.
-/// The whole image, and its ICC profile if it has one.
+/// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
+/// ICC profile if it has one.
 fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
     #[cfg(feature = "video")]
     if is_video(path) {
@@ -2687,7 +2687,6 @@ impl App {
         }
     }
 
-    /// Open `path` as a new step in the Back/Forward history.
     /// Open a network location such as smb://server/share/folder, mounting it in the background.
     fn mount(&mut self, ctx: &egui::Context, uri: String) {
         let login = Login {
@@ -2709,6 +2708,7 @@ impl App {
         self.mounting = Some(rx);
     }
 
+    /// Open `path` as a new step in the Back/Forward history.
     fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
         self.back.push(self.location());
         self.forward.clear();
@@ -3371,7 +3371,7 @@ impl App {
         }
     }
 
-    /// Decode everything again with or without EXIF rotation.
+    /// Thumbnails in the file list, or none.
     fn set_thumbnails(&mut self, on: bool) {
         self.config.thumbnails = on;
         self.config.save();
@@ -3488,6 +3488,7 @@ impl App {
         self.refill();
     }
 
+    /// Decode everything again with or without EXIF rotation.
     fn set_exif_rotate(&mut self, on: bool) {
         self.config.exif_rotate = on;
         self.config.save();
@@ -3564,8 +3565,6 @@ impl App {
         }
     }
 
-    /// Drop textures outside the preload window, and full-resolution versions of images other
-    /// than the shown one; request the missing ones.
     /// The image shown next to the current one when comparing: the other of two selected
     /// files, else the next image.
     fn compare_other(&self) -> Option<usize> {
@@ -3578,6 +3577,8 @@ impl App {
         }
     }
 
+    /// Drop textures outside the preload window, and full-resolution versions of images other
+    /// than the shown one; request the missing ones.
     fn refill(&mut self) {
         if self.files.is_empty() {
             return;
@@ -4447,7 +4448,7 @@ impl App {
                 self.pick(ctx, true, purpose);
             }
             Action::Copy | Action::Move => {}
-            // ponytail: the default application only; an app chooser (`gio mime`) if wanted.
+            // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.launch(""),
             // Enter: videos play in a player (images have nothing to play).
             Action::Play => {
