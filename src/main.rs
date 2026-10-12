@@ -17,6 +17,7 @@ mod exif;
 mod help;
 #[cfg(feature = "marks")]
 mod marks;
+mod plugins;
 mod raw;
 mod remote;
 mod search;
@@ -555,6 +556,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "A new window in the same process, saved layouts",
     ),
     (
+        "Plugins",
+        "Desktop files in ~/.local/share/glimt/plugins, in Edit → Plugins; no hotkeys or menu paths",
+        "Desktop files in geeqie/applications, also with hotkeys, filters and menu paths",
+    ),
+    (
         "Images as icons (Ctrl+I)",
         "Ctrl+I switches between list and icons",
         "Ctrl+I icons, Ctrl+L list",
@@ -858,6 +864,8 @@ struct App {
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
     apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    /// Edit → Plugins, read at start.
+    plugins: Vec<plugins::Plugin>,
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
     /// Commands from `glimt --remote`.
     remote: mpsc::Receiver<String>,
@@ -2562,6 +2570,7 @@ impl App {
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
+            plugins: plugins::find(),
             apps_rx,
             row_step: 1,
             notices,
@@ -3241,6 +3250,60 @@ impl App {
                 Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
                 Err(e) => drop(tx.send(e)),
             }
+        });
+    }
+
+    /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
+    /// they are read again afterwards, as plugins change them.
+    fn plugins_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Plugins", |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
+            if self.plugins.is_empty() {
+                ui.weak("No plugins");
+            }
+            let mut chosen = None;
+            for (k, plugin) in self.plugins.iter().enumerate() {
+                if ui.button(&plugin.name).clicked() {
+                    chosen = Some(k);
+                }
+            }
+            ui.separator();
+            if ui
+                .button("Open the Plugins Folder")
+                .on_hover_text(
+                    "Desktop files there, as Geeqie's, show in this menu after a restart",
+                )
+                .clicked()
+                && let Some(dir) = dir
+            {
+                let _ = std::fs::create_dir_all(&dir);
+                open_url(&dir.to_string_lossy());
+            }
+            let Some(k) = chosen.filter(|_| !self.files.is_empty()) else {
+                return;
+            };
+            let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+            let plugin = self.plugins[k].clone();
+            let (dir, ctx) = (self.dir.clone(), ui.ctx().clone());
+            let (tx, saved, deleted) = (
+                self.notices_tx.clone(),
+                self.saved_tx.clone(),
+                self.deleted_tx.clone(),
+            );
+            let busy = self.busy.clone();
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                if let Err(e) = plugin.run(&files, &dir) {
+                    let _ = tx.send(format!("{}: {e}", plugin.name));
+                }
+                for f in files {
+                    let _ = saved.send((f, Ok(())));
+                }
+                let _ = deleted.send((Vec::new(), true));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
         });
     }
 
@@ -5174,6 +5237,8 @@ impl eframe::App for App {
                             ui.separator();
                             menu_item(ui, act, Action::SaveOrientation);
                         });
+                        ui.separator();
+                        self.plugins_menu(ui);
                         ui.separator();
                         menu_item(ui, act, Action::Preferences);
                     });

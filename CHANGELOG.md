@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Plugins, as in Geeqie: desktop files in `~/.local/share/glimt/plugins` run their command on
+  the selected files from Edit → Plugins, and the files are shown again afterwards.
+
 ## [0.9.4] - 2026-10-12
 
 ### Changed

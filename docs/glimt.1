@@ -110,6 +110,10 @@ The last folder and the window size and position (default
 .I $XDG_STATE_HOME/glimt/marks
 Marks and stars, in builds with the marks feature.
 .TP
+.I $XDG_DATA_HOME/glimt/plugins
+Plugins: desktop files whose command runs on the selected files (default
+.IR ~/.local/share/glimt/plugins ).
+.TP
 .I $XDG_CACHE_HOME/thumbnails
 Thumbnails, shared with other programs as the freedesktop specification says.
 .TP
@@ -117,7 +121,7 @@ Thumbnails, shared with other programs as the freedesktop specification says.
 The sockets for remote control.
 .SH ENVIRONMENT
 .TP
-.BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_CACHE_HOME ", " XDG_RUNTIME_DIR
+.BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_CACHE_HOME ", " XDG_DATA_HOME ", " XDG_RUNTIME_DIR
 Where the files above are kept.
 .SH EXAMPLES
 .TP
