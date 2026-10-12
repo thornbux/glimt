@@ -75,10 +75,10 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
         .recursive(true)
         .mode(0o700)
         .create(dir)?;
-    // Process and thread in the name: several workers may write at once.
+    // This Glimt and the thread in the name: several workers and windows may write at once.
     let tmp = file.with_extension(format!(
         "{}.{:?}.tmp",
-        std::process::id(),
+        crate::remote::me(),
         std::thread::current().id()
     ));
     let out = std::fs::OpenOptions::new()

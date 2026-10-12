@@ -34,14 +34,18 @@ fn dir() -> Option<PathBuf> {
 
 /// This Glimt's name: its process ID, and in a Flatpak, where every instance can have the same
 /// process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the instance).
-pub fn me() -> String {
-    let info =
-        std::env::var_os("FLATPAK_ID").and_then(|_| std::fs::read_to_string("/.flatpak-info").ok());
-    let instance = info
-        .as_deref()
-        .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
-    let pid = std::process::id();
-    instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
+/// Found once, as every new thumbnail asks.
+pub fn me() -> &'static str {
+    static ME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ME.get_or_init(|| {
+        let info = std::env::var_os("FLATPAK_ID")
+            .and_then(|_| std::fs::read_to_string("/.flatpak-info").ok());
+        let instance = info
+            .as_deref()
+            .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
+        let pid = std::process::id();
+        instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
+    })
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
@@ -89,7 +93,7 @@ pub fn send_all(command: &str) -> usize {
 
 /// Listen for commands in the background and pass each line to `tx`.
 pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
-    let Some(path) = socket(&me()) else {
+    let Some(path) = socket(me()) else {
         return;
     };
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
@@ -122,7 +126,7 @@ pub fn focused() {
 
 /// Glimt is closing: remove its socket.
 pub fn stop() {
-    if let Some(path) = socket(&me()) {
+    if let Some(path) = socket(me()) {
         let _ = std::fs::remove_file(path);
     }
 }

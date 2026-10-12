@@ -1775,9 +1775,10 @@ impl Config {
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
-/// The process ID is in the name, so concurrent sessions never write to the same temporary file.
+/// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
+/// so concurrent sessions never write to the same temporary file.
 fn write_atomic(path: &Path, text: &str) {
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    let tmp = path.with_extension(format!("{}.tmp", crate::remote::me()));
     let result = std::fs::create_dir_all(path.parent().unwrap())
         .and_then(|_| std::fs::write(&tmp, text))
         .and_then(|_| std::fs::rename(&tmp, path));
