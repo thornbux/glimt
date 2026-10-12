@@ -19,6 +19,7 @@ mod help;
 #[cfg(feature = "marks")]
 mod marks;
 mod meta;
+mod print;
 mod raw;
 mod remote;
 mod search;
@@ -186,6 +187,7 @@ enum Action {
     Slower,
     Escape,
     NewWindow,
+    Print,
     Help,
     Shortcuts,
     KeyboardMap,
@@ -331,6 +333,7 @@ impl Action {
             Slower => "Slower",
             Escape => "Stop Slideshow, Leave Full Screen",
             NewWindow => "New Window",
+            Print => "Print…",
             Help => "Help Manual",
             Shortcuts => "Keyboard Shortcuts",
             KeyboardMap => "Keyboard Map",
@@ -456,6 +459,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Escape, NONE, Key::Escape),
         (Escape, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
+        (Print, CTRL, Key::P),
         (Help, NONE, Key::F1),
     ]
 };
@@ -465,6 +469,32 @@ enum Pick {
     Open,
     CopyTo(Vec<PathBuf>),
     MoveTo(Vec<PathBuf>),
+    /// Where to save the PDF of these images.
+    SavePdf(PrintJob),
+}
+
+/// Images to print, and how.
+struct PrintJob {
+    paths: Vec<PathBuf>,
+    paper: [f32; 2],
+    caption: bool,
+    rotate: bool,
+    copies: u32,
+}
+
+/// Where a print job goes.
+enum PrintTo {
+    Printer(String),
+    File(PathBuf),
+}
+
+/// The Print dialog (Ctrl+P).
+struct PrintDialog {
+    paths: Vec<PathBuf>,
+    /// The printers and the default, from lpstat in the background; `None` until known.
+    printers: Option<Vec<String>>,
+    printers_rx: mpsc::Receiver<(Vec<String>, Option<String>)>,
+    copies: u32,
 }
 
 /// What the one-line text dialog is asking for.
@@ -563,6 +593,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Keywords and comment",
         "In the EXIF panel (Ctrl+K), kept in the sidecar photo.jpg.xmp; found by exif: searches",
         "Info sidebar with a keyword tree; kept in the image, a sidecar or Geeqie's own folder",
+    ),
+    (
+        "Print (Ctrl+P)",
+        "One image per page, to a CUPS printer or a PDF file; A4 or Letter",
+        "GTK print dialog: several images per page, text, page setup",
     ),
     (
         "Images as icons (Ctrl+I)",
@@ -874,6 +909,7 @@ struct App {
     mounting: Option<mpsc::Receiver<(Mounted, Login)>>,
     /// The login dialog for a network share that needs one.
     login: Option<Login>,
+    print: Option<PrintDialog>,
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
@@ -1776,6 +1812,10 @@ config! {
     videos: bool = true,
     /// Video feature: command line that plays a video; empty = the default application.
     video_player: String = String::new(),
+    /// Print dialog: the printer chosen last (empty: a PDF file), the paper and file names.
+    print_printer: String = String::new(),
+    print_paper: String = String::from("A4"),
+    print_caption: bool = true,
 }
 
 impl Config {
@@ -2574,6 +2614,7 @@ impl App {
             notices_tx,
             mounting: None,
             login: None,
+            print: None,
             grid_cols: 1,
             compare: false,
             capturing: None,
@@ -3052,12 +3093,24 @@ impl App {
     fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
         let (tx, rx) = mpsc::channel();
-        let (ctx, start) = (ctx.clone(), self.dir.join(""));
+        let start = match &purpose {
+            // A name for the file to save: the first image's, as a PDF.
+            Pick::SavePdf(job) => self.dir.join(
+                (job.paths.first())
+                    .map_or("print".into(), |p| p.with_extension("pdf"))
+                    .file_name()
+                    .unwrap_or_default(),
+            ),
+            _ => self.dir.join(""),
+        };
+        let save = matches!(purpose, Pick::SavePdf(_));
+        let ctx = ctx.clone();
         let title = match purpose {
             Pick::Open if folder => "Open Folder",
             Pick::Open => "Open File",
             Pick::CopyTo(_) => "Copy to Folder",
             Pick::MoveTo(_) => "Move to Folder",
+            Pick::SavePdf(_) => "Save as PDF",
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -3065,6 +3118,9 @@ impl App {
                 let mut cmd = command("zenity");
                 cmd.arg("--file-selection").arg("--title").arg(title);
                 cmd.arg("--filename").arg(&start);
+                if save {
+                    cmd.arg("--save").arg("--confirm-overwrite");
+                }
                 if folder {
                     cmd.arg("--directory");
                 }
@@ -3072,7 +3128,9 @@ impl App {
             };
             // KDE desktops often have kdialog but not zenity.
             let kdialog = || {
-                let mode = if folder {
+                let mode = if save {
+                    "--getsavefilename"
+                } else if folder {
                     "--getexistingdirectory"
                 } else {
                     "--getopenfilename"
@@ -3159,6 +3217,39 @@ impl App {
             if listed || (!keep && !errors.is_empty()) {
                 let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, true));
             }
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Print `job` in the background.
+    fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let max = print::max_pixels(job.paper);
+            let failed = std::cell::Cell::new(0);
+            let pages = job.paths.iter().filter_map(|path| {
+                let img = load(path, job.rotate).and_then(|img| shrink(img, [max, max]));
+                failed.set(failed.get() + img.is_err() as usize);
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                Some((img.ok()?, job.caption.then(|| name.into_owned())))
+            });
+            let pdf = print::pdf(pages, job.paper);
+            let n = job.paths.len() - failed.get();
+            let title = format!("Glimt: {n} images");
+            let done = match &to {
+                PrintTo::Printer(printer) => print::send(&pdf, printer, job.copies, &title)
+                    .map(|_| format!("{n} pages sent to {printer}")),
+                PrintTo::File(file) => std::fs::write(file, &pdf)
+                    .map(|_| format!("{n} pages saved in {}", file.display()))
+                    .map_err(|e| e.to_string()),
+            };
+            let _ = tx.send(match (done, failed.get()) {
+                (Ok(msg), 0) => msg,
+                (Ok(msg), f) => format!("{msg}; {f} could not be read"),
+                (Err(e), _) => format!("Printing failed: {e}"),
+            });
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
@@ -3352,6 +3443,7 @@ impl App {
             || self.confirm.is_some()
             || self.prompt.is_some()
             || self.login.is_some()
+            || self.print.is_some()
     }
 
     /// The text dialog was answered with `text`.
@@ -4969,6 +5061,21 @@ impl App {
                 c.save();
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
+            Action::Print if !self.files.is_empty() => {
+                let (tx, rx) = mpsc::channel();
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(print::printers());
+                    ctx.request_repaint();
+                });
+                self.print = Some(PrintDialog {
+                    paths: self.targets().iter().map(|&i| self.path(i)).collect(),
+                    printers: None,
+                    printers_rx: rx,
+                    copies: 1,
+                });
+            }
+            Action::Print => {}
             Action::Rename if self.targets().len() > 1 => {
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
@@ -5192,6 +5299,7 @@ impl eframe::App for App {
                 (Pick::Open, Some(path)) => self.visit(ctx, path),
                 (Pick::CopyTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, true),
                 (Pick::MoveTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, false),
+                (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
             }
         }
 
@@ -5260,6 +5368,7 @@ impl eframe::App for App {
                         self.open_with_menu(ui);
                         #[cfg(feature = "video")]
                         menu_item(ui, act, Action::Play);
+                        menu_item(ui, act, Action::Print);
                         ui.separator();
                         menu_item(ui, act, Action::Delete);
                         menu_item(ui, act, Action::DeletePermanently);
@@ -5735,6 +5844,92 @@ impl eframe::App for App {
                 self.answer_prompt(ctx, prompt, text.trim());
             } else if !modal.should_close() {
                 self.prompt = Some((prompt, text));
+            }
+        }
+
+        if let Some(mut dialog) = self.print.take() {
+            if let Ok((names, default)) = dialog.printers_rx.try_recv() {
+                // The printer used last, else CUPS's default; a PDF file if neither is there.
+                let c = &mut self.config;
+                if !names.contains(&c.print_printer) {
+                    c.print_printer = default.filter(|d| names.contains(d)).unwrap_or_default();
+                }
+                dialog.printers = Some(names);
+            }
+            let mut go = false;
+            let modal = egui::Modal::new(egui::Id::new("print")).show(ctx, |ui| {
+                let n = dialog.paths.len();
+                ui.strong(match n {
+                    1 => "Print the image".to_owned(),
+                    n => format!("Print {} images, one per page", thousands(n)),
+                });
+                let c = &mut self.config;
+                egui::Grid::new("print fields").show(ui, |ui| {
+                    ui.label("Printer:");
+                    let shown = |p: &str| if p.is_empty() { "PDF file" } else { p }.to_owned();
+                    egui::ComboBox::from_id_salt("printer")
+                        .selected_text(shown(&c.print_printer))
+                        .show_ui(ui, |ui| {
+                            for p in dialog.printers.iter().flatten() {
+                                ui.selectable_value(&mut c.print_printer, p.clone(), p);
+                            }
+                            ui.selectable_value(&mut c.print_printer, String::new(), "PDF file");
+                        });
+                    match &dialog.printers {
+                        None => drop(ui.spinner()),
+                        Some(p) if p.is_empty() => drop(ui.weak("No printers found")),
+                        Some(_) => {}
+                    }
+                    ui.end_row();
+                    ui.label("Paper:");
+                    egui::ComboBox::from_id_salt("paper")
+                        .selected_text(c.print_paper.clone())
+                        .show_ui(ui, |ui| {
+                            for (name, _) in print::PAPERS {
+                                ui.selectable_value(&mut c.print_paper, name.to_owned(), name);
+                            }
+                        });
+                    ui.end_row();
+                    if !c.print_printer.is_empty() {
+                        ui.label("Copies:");
+                        ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
+                        ui.end_row();
+                    }
+                });
+                ui.checkbox(&mut c.print_caption, "File name under each image");
+                ui.horizontal(|ui| {
+                    let label = if c.print_printer.is_empty() {
+                        "Save PDF… (Enter)"
+                    } else {
+                        "Print (Enter)"
+                    };
+                    go =
+                        ui.button(label).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Cancel (Esc)").clicked() {
+                        ui.close();
+                    }
+                });
+            });
+            if go {
+                self.config.save();
+                let c = &self.config;
+                let paper = (print::PAPERS.iter())
+                    .find(|p| p.0 == c.print_paper)
+                    .unwrap_or(&print::PAPERS[0])
+                    .1;
+                let job = PrintJob {
+                    paths: dialog.paths,
+                    paper,
+                    caption: c.print_caption,
+                    rotate: c.exif_rotate,
+                    copies: dialog.copies,
+                };
+                match c.print_printer.clone() {
+                    p if p.is_empty() => self.pick(ctx, false, Pick::SavePdf(job)),
+                    p => self.print(ctx, job, PrintTo::Printer(p)),
+                }
+            } else if !modal.should_close() {
+                self.print = Some(dialog);
             }
         }
 

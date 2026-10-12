@@ -119,6 +119,13 @@ const MANUAL: &[(&str, &str)] = &[
          and deleting in Glimt take the sidecar along.",
     ),
     (
+        "Printing",
+        "File → Print (Ctrl+P) prints the selected images, or the shown one, one per page, as \
+         large as fits and turned to landscape for wide images, with the file name below if \
+         you like. It goes to a printer through CUPS (lp), or into a PDF file. The printer, \
+         paper and file names are remembered.",
+    ),
+    (
         "Panels",
         "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \
