@@ -3450,7 +3450,14 @@ impl App {
         let mut failed = false;
         for (k, (a, b)) in moves.iter().enumerate() {
             if let Err(e) = std::fs::rename(a, b) {
-                self.notice = Some(format!("{}: {e}; nothing renamed", a.display()));
+                // Named by the file and its new name, not a temporary one.
+                let j = k % from.len();
+                let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
+                self.notice = Some(format!(
+                    "Could not rename {} to {}: {e}; nothing renamed",
+                    name(&from[j]),
+                    name(&to[j])
+                ));
                 // Undone, so that no file is left under a hidden temporary name.
                 for (a, b) in moves[..k].iter().rev() {
                     let _ = std::fs::rename(b, a);
