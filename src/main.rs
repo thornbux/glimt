@@ -3355,9 +3355,15 @@ impl App {
         } else {
             moves.extend(from.iter().cloned().zip(to.iter().cloned()));
         }
-        for (a, b) in &moves {
+        let mut failed = false;
+        for (k, (a, b)) in moves.iter().enumerate() {
             if let Err(e) = std::fs::rename(a, b) {
-                self.notice = Some(format!("{}: {e}", a.display()));
+                self.notice = Some(format!("{}: {e}; nothing renamed", a.display()));
+                // Undone, so that no file is left under a hidden temporary name.
+                for (a, b) in moves[..k].iter().rev() {
+                    let _ = std::fs::rename(b, a);
+                }
+                failed = true;
                 break;
             }
         }
@@ -3366,8 +3372,8 @@ impl App {
         self.selected.clear();
         self.selection_changed(ctx);
         match shown {
-            Some(k) => self.open(ctx, to[k].clone()),
-            None => self.list(ctx),
+            Some(k) if !failed => self.open(ctx, to[k].clone()),
+            _ => self.list(ctx),
         }
     }
 
