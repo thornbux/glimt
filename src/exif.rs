@@ -255,6 +255,30 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
     })
 }
 
+/// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
+/// turned upright. A block without the field is left as it is.
+pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
+    let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
+    let Some(e) = ifd0.iter().find(|(tag, _)| *tag == 0x0112).map(|e| e.1) else {
+        return Ok(());
+    };
+    if e.kind != 3 {
+        return Err("unusual orientation field".into());
+    }
+    // Offsets count from the TIFF header, after any "Exif\0\0" before it.
+    let at = block.len() - t.data.len() + e.at;
+    let one = if t.little {
+        1u16.to_le_bytes()
+    } else {
+        1u16.to_be_bytes()
+    };
+    block
+        .get_mut(at..at + 2)
+        .ok_or("cut off")?
+        .copy_from_slice(&one);
+    Ok(())
+}
+
 /// Add an orientation field to an EXIF block that has none: a copy of IFD0 with the field is
 /// put at the end of the block and the header pointed at it. Everything else stays where it
 /// is, so no other offset changes.

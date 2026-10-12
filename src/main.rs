@@ -1951,10 +1951,10 @@ fn decode(
 }
 
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
-/// pixels are turned and the file written again with its ICC profile. PNG and lossless WebP
-/// lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in sRGB as ffmpeg
-/// drops the profile. The new file replaces the old in one rename. Files with an EXIF block are
-/// left alone, as it would be lost.
+/// pixels are turned and the file written again with its ICC profile and EXIF block. PNG and
+/// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
+/// sRGB as ffmpeg drops the profile, and gets its EXIF block back afterwards. The new file
+/// replaces the old in one rename.
 fn save_rotated(
     path: &Path,
     rotate: bool,
@@ -1974,14 +1974,17 @@ fn save_rotated(
             return Err("animated WebP files are not turned".into());
         }
     }
-    // Writing the pixels again would drop the EXIF block (camera, date, place).
-    let exif = image::ImageReader::open(path)
+    // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
+    // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
+    // view did not turn them by it: else other programs would turn them again.
+    let mut exif = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
         .and_then(|mut d| d.exif_metadata().ok().flatten());
-    if exif.is_some() {
-        return Err("the file has EXIF data, which saving it again would lose".into());
+    let lossy = !png && webp_lossless(path) == Some(false);
+    if let Some(exif) = &mut exif {
+        exif::set_upright(exif)?;
     }
     let (mut img, icc) = load_icc(path, rotate)?;
     if mirrored {
@@ -1994,9 +1997,20 @@ fn save_rotated(
         _ => img,
     };
     let tmp = path.with_extension("glimt-tmp");
-    if !png && webp_lossless(path) == Some(false) {
+    if lossy {
         let img = to_srgb(img, icc.as_deref());
         lossy_webp(&img, &tmp, webp_quality)?;
+        // ffmpeg writes no EXIF: it is added to its file.
+        if let Some(exif) = &exif {
+            let added = std::fs::read(&tmp)
+                .map_err(|e| e.to_string())
+                .and_then(|webp| webp_with_exif(&webp, exif, img.width(), img.height()))
+                .and_then(|webp| std::fs::write(&tmp, webp).map_err(|e| e.to_string()));
+            if let Err(e) = added {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(e);
+            }
+        }
         if let Ok(meta) = std::fs::metadata(path) {
             let _ = std::fs::set_permissions(&tmp, meta.permissions());
         }
@@ -2008,7 +2022,10 @@ fn save_rotated(
         if let Some(icc) = icc {
             let _ = enc.set_icc_profile(icc);
         }
-        img.write_with_encoder(enc)
+        match exif.map(|e| enc.set_exif_metadata(e)) {
+            Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
+            _ => img.write_with_encoder(enc),
+        }
     } else {
         let mut enc = image::codecs::webp::WebPEncoder::new_lossless(out);
         if let Some(icc) = icc {
@@ -2020,7 +2037,10 @@ fn save_rotated(
         } else {
             image::DynamicImage::from(img.into_rgb8())
         };
-        img.write_with_encoder(enc)
+        match exif.map(|e| enc.set_exif_metadata(e)) {
+            Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
+            _ => img.write_with_encoder(enc),
+        }
     };
     if let Err(e) = written {
         let _ = std::fs::remove_file(&tmp);
@@ -2087,6 +2107,35 @@ fn lossy_webp(img: &image::DynamicImage, to: &Path, quality: u8) -> Result<(), S
         let _ = std::fs::remove_file(to);
         Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
     }
+}
+
+/// `webp` with an EXIF chunk, at the end where the format puts it, and its flag set in the
+/// extended format's VP8X header, which is made for a simple file.
+fn webp_with_exif(webp: &[u8], exif: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+    if !webp.starts_with(b"RIFF") || webp.get(8..12) != Some(&b"WEBP"[..]) {
+        return Err("not a WebP file".into());
+    }
+    let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
+    let chunks = &webp[12..];
+    if chunks.starts_with(b"VP8X") {
+        out.extend(chunks);
+        *out.get_mut(20).ok_or("cut off")? |= 0x08;
+    } else {
+        out.extend(b"VP8X\x0a\0\0\0\x08\0\0\0");
+        out.extend(&width.saturating_sub(1).to_le_bytes()[..3]);
+        out.extend(&height.saturating_sub(1).to_le_bytes()[..3]);
+        out.extend(chunks);
+    }
+    out.extend(b"EXIF");
+    out.extend((exif.len() as u32).to_le_bytes());
+    out.extend(exif);
+    // Chunks have an even length.
+    if exif.len() % 2 == 1 {
+        out.push(0);
+    }
+    let size = (out.len() - 8) as u32;
+    out[4..8].copy_from_slice(&size.to_le_bytes());
+    Ok(out)
 }
 
 /// The number of pages (images) in a TIFF file; reads only their directories.
@@ -6258,6 +6307,84 @@ mod tests {
         let pos = |a| all.iter().position(|s| s.0 == a).unwrap();
         assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
         super::OWN_KEYS.write().unwrap().clear();
+    }
+
+    /// A PNG turned upright by its EXIF orientation and then a quarter turn keeps its EXIF,
+    /// with an upright orientation.
+    #[test]
+    fn saves_rotated_png_with_exif() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = std::env::temp_dir().join(format!("glimt-rotated-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        // IFD0 with Orientation 6 (turn 90° clockwise) and Make "Canon".
+        let exif = b"MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
+            \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif.to_vec()).unwrap();
+        image::RgbImage::new(4, 2).write_with_encoder(enc).unwrap();
+        super::save_rotated(&file, true, 1, false, 90).unwrap();
+        let mut dec = image::ImageReader::open(&file)
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.dimensions(), (4, 2));
+        assert_eq!(
+            dec.orientation().unwrap(),
+            image::metadata::Orientation::NoTransforms
+        );
+        let rows = super::exif::read(&file);
+        assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Saved as the view showed it, also with a mirroring orientation: turned by it with Auto
+    /// Rotate on, as it is without, and in both cases with an upright orientation after.
+    #[test]
+    fn saves_rotated_as_seen() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = std::env::temp_dir().join(format!("glimt-seen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let (red, blue) = (image::Rgb([255, 0, 0]), image::Rgb([0, 0, 255]));
+        // Orientation 2: mirrored left to right.
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x02\0\0\0\0\0\0";
+        for (auto_rotate, top) in [(false, red), (true, blue)] {
+            let mut enc =
+                image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+            enc.set_exif_metadata(exif.to_vec()).unwrap();
+            image::RgbImage::from_fn(2, 1, |x, _| if x == 0 { red } else { blue })
+                .write_with_encoder(enc)
+                .unwrap();
+            // A quarter turn clockwise: the left pixel of what the view shows goes on top.
+            super::save_rotated(&file, auto_rotate, 1, false, 90).unwrap();
+            let mut dec = image::ImageReader::open(&file)
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            assert_eq!(
+                dec.orientation().unwrap(),
+                image::metadata::Orientation::NoTransforms
+            );
+            let img = image::DynamicImage::from_decoder(dec).unwrap().into_rgb8();
+            assert_eq!((img.dimensions(), *img.get_pixel(0, 0)), ((1, 2), top));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A simple WebP gets the extended header and an EXIF chunk that the decoder reads back.
+    #[test]
+    fn adds_exif_to_webp() {
+        use image::{ImageDecoder, ImageEncoder};
+        let mut webp = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut webp)
+            .write_image(&[0; 5 * 3 * 3], 5, 3, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let exif = b"II*\0\x08\0\0\0\0\0\0\0\0";
+        let with = super::webp_with_exif(&webp, exif, 5, 3).unwrap();
+        let mut dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
+        assert_eq!(dec.dimensions(), (5, 3));
+        assert_eq!(dec.exif_metadata().unwrap().as_deref(), Some(&exif[..]));
     }
 
     #[test]

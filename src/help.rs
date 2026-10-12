@@ -74,8 +74,8 @@ const MANUAL: &[(&str, &str)] = &[
          flips it (Edit → Orientation); the next image is shown as it is. Edit → Orientation \
          → Save Orientation to File stores the rotation in a JPEG as its EXIF orientation, \
          without touching the pixels; a setting does it on every change of image. PNG and \
-         WebP are turned and saved again: PNG and lossless WebP without loss, a lossy WebP \
-         as lossy again (through ffmpeg, at the quality set in Preferences).",
+         WebP are turned and saved again with their EXIF data: PNG and lossless WebP without \
+         loss, a lossy WebP as lossy again (through ffmpeg, at the quality set in Preferences).",
     ),
     (
         "Slideshow",
