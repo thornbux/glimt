@@ -7,13 +7,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Collections, as in Geeqie: lists of images from any folders, made with C or File → Add to
+  Collection and opened with O or File → Collections, shown in the file list. They are Geeqie
+  `.gqv` files, so Geeqie's collections open too.
+- Find Duplicates (D), as in Geeqie: groups of the images in the list that are identical, have
+  the same name, size or dimensions, or look alike; checked files go to the trash.
 - Keywords and a comment for each image, as in Geeqie, in the EXIF panel (Ctrl+K, Alt+K):
   saved to the XMP sidecar `photo.jpg.xmp` that darktable and digiKam read, and found by
   `exif:` searches. Keywords inside the image are shown too, and can be added to many files.
+- Printing (Ctrl+P), as in Geeqie: the selected images one per page, to a printer through CUPS
+  or into a PDF file, on A4 or Letter, with the file names below if chosen.
+- Pan view (Ctrl+J), as Geeqie's timeline: the images of the list as thumbnails under a
+  heading for each day, by file or EXIF date; fast also with 300,000 files.
+- Plugins, as in Geeqie: desktop files in `~/.local/share/glimt/plugins` run their command on
+  the selected files from Edit → Plugins, and the files are shown again afterwards.
+- The sort manager (Shift+S), as in Geeqie: a list of folders on the right; a click on one
+  copies or moves the selected files there.
 
 ### Changed
 
 - Renaming, moving, copying and deleting take a file's XMP sidecar along.
+- The release workflow stops on crates with known vulnerabilities (`cargo audit`), and no
+  longer uses actions that run on Node.js 20.
 
 ## [0.9.4] - 2026-10-12
 
