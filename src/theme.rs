@@ -43,51 +43,184 @@ pub fn fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// `pref`: "system", "dark" or "light". The style of both themes, with `accent` if the desktop
-/// has one.
+/// A theme: what a `.theme` file sets, as `key=value` lines; what it leaves out follows the
+/// desktop (light or dark, accent) or Glimt's defaults.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct Theme {
+    pub dark: Option<bool>,
+    pub accent: Option<egui::Color32>,
+    pub panel: Option<egui::Color32>,
+    pub window: Option<egui::Color32>,
+    pub field: Option<egui::Color32>,
+    pub faint: Option<egui::Color32>,
+    pub hover: Option<egui::Color32>,
+    pub active: Option<egui::Color32>,
+    pub border: Option<egui::Color32>,
+    pub text: Option<egui::Color32>,
+    pub radius: Option<u8>,
+    pub text_size: Option<f32>,
+}
+
+/// The themes that come with Glimt; "Desktop" sets nothing.
+const BUILT_IN: [(&str, &str); 6] = [
+    ("Desktop", ""),
+    ("Light", include_str!("../themes/Light.theme")),
+    ("Dark", include_str!("../themes/Dark.theme")),
+    ("Nord", include_str!("../themes/Nord.theme")),
+    // For low vision: white on black, and black on white.
+    (
+        "High Contrast",
+        include_str!("../themes/High Contrast.theme"),
+    ),
+    ("Contrast", include_str!("../themes/Contrast.theme")),
+];
+
+/// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.
+pub fn dir() -> Option<std::path::PathBuf> {
+    crate::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
+}
+
+/// The built-in themes, then the user's, by name.
+pub fn names() -> Vec<String> {
+    let mut own: Vec<String> = (dir().and_then(|d| std::fs::read_dir(d).ok()))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "theme"))
+        .filter_map(|p| Some(p.file_stem()?.to_string_lossy().into_owned()))
+        .filter(|n| !BUILT_IN.iter().any(|b| b.0 == n))
+        .collect();
+    own.sort_by_key(|n| n.to_lowercase());
+    BUILT_IN.iter().map(|b| b.0.to_owned()).chain(own).collect()
+}
+
+/// The theme of that name: the user's file if there is one, else the built-in one, else
+/// "Desktop". Read each time, so a changed file shows when it is chosen again.
+pub fn load(name: &str) -> Theme {
+    let file = dir().map(|d| d.join(format!("{name}.theme")));
+    match file.and_then(|f| std::fs::read_to_string(f).ok()) {
+        Some(text) => Theme::parse(&text),
+        None => BUILT_IN
+            .iter()
+            .find(|b| b.0 == name)
+            .map_or_else(Theme::default, |b| Theme::parse(b.1)),
+    }
+}
+
+impl Theme {
+    /// Lines `key=value`; `#` starts a comment; colours as `#rrggbb`. Unknown keys and bad
+    /// values are left out, so an older Glimt reads a newer theme.
+    pub fn parse(text: &str) -> Theme {
+        let mut t = Theme::default();
+        for line in text.lines().map(str::trim) {
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let (key, value) = (key.trim(), value.trim());
+            let color = || {
+                let hex = value.strip_prefix('#').filter(|h| h.len() == 6)?;
+                let [_, r, g, b] = u32::from_str_radix(hex, 16).ok()?.to_be_bytes();
+                Some(egui::Color32::from_rgb(r, g, b))
+            };
+            match key {
+                "dark" => t.dark = value.parse().ok(),
+                "accent" => t.accent = color(),
+                "panel" => t.panel = color(),
+                "window" => t.window = color(),
+                "field" => t.field = color(),
+                "faint" => t.faint = color(),
+                "hover" => t.hover = color(),
+                "active" => t.active = color(),
+                "border" => t.border = color(),
+                "text" => t.text = color(),
+                "radius" => t.radius = value.parse::<u8>().ok().map(|r| r.min(20)),
+                "text_size" => t.text_size = value.parse::<f32>().ok().map(|s| s.clamp(10.0, 24.0)),
+                _ => {}
+            }
+        }
+        t
+    }
+
+    /// The theme as a file, every value filled in from what `ctx` shows now, to start a new one.
+    pub fn file_from(ctx: &egui::Context) -> String {
+        let (s, dark) = (ctx.style_of(ctx.theme()), ctx.theme() == egui::Theme::Dark);
+        let v = &s.visuals;
+        let hex = |c: egui::Color32| format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+        let size = s
+            .text_styles
+            .get(&egui::TextStyle::Body)
+            .map_or(14.0, |f| f.size);
+        format!(
+            "# Glimt theme: every value may be left out, to follow the desktop or the defaults.\n\
+             dark={dark}\naccent={}\npanel={}\nwindow={}\nfield={}\nfaint={}\nhover={}\n\
+             active={}\nborder={}\ntext={}\nradius={}\ntext_size={size:.1}\n",
+            hex(v.selection.bg_fill),
+            hex(v.panel_fill),
+            hex(v.window_fill),
+            hex(v.extreme_bg_color),
+            hex(v.faint_bg_color),
+            hex(v.widgets.hovered.bg_fill),
+            hex(v.widgets.active.bg_fill),
+            hex(v.window_stroke.color),
+            hex(v.text_color()),
+            v.widgets.inactive.corner_radius.nw,
+        )
+    }
+}
+
+/// Show `theme`, with the desktop's light or dark style and accent where it sets none.
 pub fn apply(
     ctx: &egui::Context,
-    pref: &str,
+    theme: &Theme,
     desktop_dark: Option<bool>,
-    accent: Option<egui::Color32>,
+    desktop_accent: Option<egui::Color32>,
 ) {
-    let dark = match pref {
-        "dark" => true,
-        "light" => false,
-        _ => desktop_dark.unwrap_or(true),
-    };
+    let dark = theme.dark.or(desktop_dark).unwrap_or(true);
     ctx.set_theme(if dark {
         egui::Theme::Dark
     } else {
         egui::Theme::Light
     });
     // GNOME's blue when the desktop names none.
-    let accent = accent.unwrap_or(egui::Color32::from_rgb(0x35, 0x84, 0xe4));
-    for theme in [egui::Theme::Dark, egui::Theme::Light] {
-        ctx.style_mut_of(theme, |s| style(s, theme == egui::Theme::Dark, accent));
+    let accent =
+        (theme.accent.or(desktop_accent)).unwrap_or(egui::Color32::from_rgb(0x35, 0x84, 0xe4));
+    for t in [egui::Theme::Dark, egui::Theme::Light] {
+        ctx.style_mut_of(t, |s| style(s, t == egui::Theme::Dark, accent, theme));
     }
 }
 
-fn style(s: &mut egui::Style, dark: bool, accent: egui::Color32) {
+fn style(s: &mut egui::Style, dark: bool, accent: egui::Color32, t: &Theme) {
     let gray = |v: u8| egui::Color32::from_gray(v);
+    let pick =
+        |own: Option<egui::Color32>, d: u8, l: u8| own.unwrap_or(gray(if dark { d } else { l }));
     let sp = &mut s.spacing;
     sp.item_spacing = egui::vec2(8.0, 6.0);
     sp.button_padding = egui::vec2(8.0, 4.0);
     sp.menu_margin = egui::Margin::same(6);
     sp.window_margin = egui::Margin::same(12);
+    if let Some(size) = t.text_size {
+        // The body text at that size, and every other text style in proportion to it.
+        let defaults = egui::Style::default().text_styles;
+        let body = defaults
+            .get(&egui::TextStyle::Body)
+            .map_or(size, |f| f.size);
+        for (style, font) in s.text_styles.iter_mut() {
+            font.size = defaults.get(style).map_or(font.size, |f| f.size) * size / body;
+        }
+    }
+    let radius = t.radius.unwrap_or(7);
+    let (hover, active) = (pick(t.hover, 58, 225), pick(t.active, 70, 210));
     let v = &mut s.visuals;
-    let (panel, window, field, hover, active) = if dark {
-        (gray(30), gray(36), gray(22), gray(58), gray(70))
-    } else {
-        (gray(246), gray(252), gray(255), gray(225), gray(210))
-    };
-    v.panel_fill = panel;
-    v.window_fill = window;
-    v.extreme_bg_color = field;
-    v.faint_bg_color = if dark { gray(34) } else { gray(240) };
-    v.window_stroke = egui::Stroke::new(1.0, if dark { gray(50) } else { gray(215) });
-    v.window_corner_radius = egui::CornerRadius::same(12);
-    v.menu_corner_radius = egui::CornerRadius::same(10);
+    v.panel_fill = pick(t.panel, 30, 246);
+    v.window_fill = pick(t.window, 36, 252);
+    v.extreme_bg_color = pick(t.field, 22, 255);
+    v.faint_bg_color = pick(t.faint, 34, 240);
+    v.override_text_color = t.text;
+    let border = pick(t.border, 50, 215);
+    v.window_stroke = egui::Stroke::new(1.0, border);
+    v.window_corner_radius = egui::CornerRadius::same(radius.saturating_add(5));
+    v.menu_corner_radius = egui::CornerRadius::same(radius.saturating_add(3));
     let shadow = egui::Shadow {
         offset: [0, 6],
         blur: 24,
@@ -98,7 +231,9 @@ fn style(s: &mut egui::Style, dark: bool, accent: egui::Color32) {
     v.popup_shadow = shadow;
     v.hyperlink_color = accent;
     v.selection.bg_fill = accent;
-    v.selection.stroke.color = gray(255);
+    // Black on a light accent (yellow), white on a dark one.
+    let light = 0.299 * accent.r() as f32 + 0.587 * accent.g() as f32 + 0.114 * accent.b() as f32;
+    v.selection.stroke.color = gray(if light > 160.0 { 0 } else { 255 });
     let w = &mut v.widgets;
     for state in [
         &mut w.noninteractive,
@@ -107,18 +242,21 @@ fn style(s: &mut egui::Style, dark: bool, accent: egui::Color32) {
         &mut w.active,
         &mut w.open,
     ] {
-        state.corner_radius = egui::CornerRadius::same(7);
+        state.corner_radius = egui::CornerRadius::same(radius);
     }
-    // Flat buttons that light up under the pointer, as in GNOME and KDE.
+    // Flat buttons that light up under the pointer, as in GNOME and KDE. A theme that names a
+    // border colour gets edges on fields and buttons too, which the contrast themes need.
     w.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
-    w.inactive.bg_stroke = egui::Stroke::NONE;
+    w.inactive.bg_stroke = t
+        .border
+        .map_or(egui::Stroke::NONE, |c| egui::Stroke::new(1.0, c));
     w.hovered.weak_bg_fill = hover;
     w.hovered.bg_fill = hover;
     w.hovered.bg_stroke = egui::Stroke::NONE;
     w.active.weak_bg_fill = active;
     w.active.bg_fill = active;
     w.active.bg_stroke = egui::Stroke::NONE;
-    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, if dark { gray(48) } else { gray(220) });
+    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
 }
 
 /// The desktop's dark style and accent colour, from the XDG desktop portal; `None` where it says
@@ -184,5 +322,33 @@ mod tests {
         assert_eq!(orange, Some(eframe::egui::Color32::from_rgb(237, 91, 0)));
         // KDE and GNOME without an accent give a colour out of range.
         assert_eq!(super::parse_accent("(<(-1.0, -1.0, -1.0)>,)"), None);
+    }
+
+    #[test]
+    fn reads_themes() {
+        let t = super::Theme::parse(
+            "# x\ndark = true\naccent=#88c0d0\nradius=99\ntext=#fff\nnew_key=1\n",
+        );
+        assert_eq!(t.dark, Some(true));
+        assert_eq!(
+            t.accent,
+            Some(eframe::egui::Color32::from_rgb(0x88, 0xc0, 0xd0))
+        );
+        assert_eq!(t.radius, Some(20));
+        assert_eq!(t.text, None);
+        // Every built-in theme reads, and sets what it says.
+        for (name, text) in super::BUILT_IN {
+            let t = super::Theme::parse(text);
+            assert_eq!(t == super::Theme::default(), name == "Desktop", "{name}");
+        }
+        // A saved theme reads back as it was shown.
+        let ctx = eframe::egui::Context::default();
+        let nord = super::Theme::parse(super::BUILT_IN[3].1);
+        super::apply(&ctx, &nord, None, None);
+        let saved = super::Theme::parse(&super::Theme::file_from(&ctx));
+        assert_eq!(
+            (saved.accent, saved.panel, saved.text),
+            (nord.accent, nord.panel, nord.text)
+        );
     }
 }

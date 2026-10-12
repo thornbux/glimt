@@ -5,10 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Themes (Preferences → Theme): Dark (the default), Light, Desktop, Nord, and High Contrast
+  and Contrast for low vision. Own themes are `key=value` files in `~/.config/glimt/themes`;
+  Save as Theme… starts one from the look shown.
+
 ### Changed
 
 - A newer look: the Inter typeface, Phosphor icons, rounder and roomier widgets, and the
-  desktop's light or dark style and accent colour (Preferences can choose light or dark).
+  desktop's accent colour.
 
 ## [0.10.0] - 2026-10-12
 

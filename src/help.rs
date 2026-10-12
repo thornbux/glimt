@@ -169,6 +169,15 @@ const MANUAL: &[(&str, &str)] = &[
          group) and move them to the trash.",
     ),
     (
+        "Themes",
+        "Edit → Preferences → Theme changes the look: Dark (the default), Light, Desktop (light \
+         or dark as the desktop), Nord, and for low vision High Contrast (white on black) and \
+         Contrast (black on white), both with larger text. Themes are small text files: Save \
+         as Theme… writes the look shown as one to edit, Open Themes Folder shows where they \
+         go (~/.config/glimt/themes), and Get More Themes… opens the collection on GitHub. \
+         Without an accent colour of its own, a theme takes the desktop's.",
+    ),
+    (
         "Panels",
         "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \
@@ -177,8 +186,7 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, \
-         the style (light or dark as the desktop, which also gives the accent colour), what is \
-         shown, window and memory use, and how deleting works. Under Keyboard shortcuts, \
+         the theme, what is shown, window and memory use, and how deleting works. Under Keyboard shortcuts, \
          Change gives an action the next key you press; Reset gives it Geeqie's keys back.",
     ),
 ];

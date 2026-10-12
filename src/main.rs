@@ -591,6 +591,8 @@ enum Prompt {
     RenameMany,
     /// A new collection with the selected files.
     NewCollection,
+    /// Save the look shown as a theme file of this name.
+    SaveTheme,
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
@@ -1939,8 +1941,9 @@ config! {
     icons: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
-    /// "system" (the desktop's light or dark style), "dark" or "light".
-    theme: String = String::from("system"),
+    /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows
+    /// the desktop's light or dark style), or a file in `$XDG_CONFIG_HOME/glimt/themes`.
+    theme: String = String::from("Dark"),
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -2724,7 +2727,7 @@ impl App {
         let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
         let (exif_tx, exif_done) = mpsc::channel();
         theme::fonts(&cc.egui_ctx);
-        theme::apply(&cc.egui_ctx, &config.theme, None, None);
+        theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
         // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
         let (desktop_tx, desktop_rx) = mpsc::channel();
         let ctx = cc.egui_ctx.clone();
@@ -3801,6 +3804,12 @@ impl App {
         });
     }
 
+    /// The chosen theme, read from its file again, with the desktop's look where it sets none.
+    fn apply_theme(&self, ctx: &egui::Context) {
+        let (dark, accent) = self.desktop_look;
+        theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
+    }
+
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
         self.show_settings
@@ -3822,6 +3831,24 @@ impl App {
             self.notice = Some(format!("Not a valid name: \"{text}\""));
             return;
         }
+        if let Prompt::SaveTheme = prompt {
+            let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
+            let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
+                let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
+                std::fs::write(&f, theme::Theme::file_from(ctx))
+                    .map(|_| f)
+                    .map_err(|e| e.to_string())
+            });
+            self.notice = Some(match saved {
+                Ok(f) => {
+                    self.config.theme = text.to_owned();
+                    self.config.save();
+                    format!("Saved as {}: edit it, then choose it again", f.display())
+                }
+                Err(e) => format!("Could not save the theme: {e}"),
+            });
+            return;
+        }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
@@ -3837,7 +3864,7 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
-            Prompt::NewCollection => return,
+            Prompt::NewCollection | Prompt::SaveTheme => return,
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target)
                 .inspect(|_| meta::follow(&self.path(self.cur), &target, false)),
         };
@@ -5980,7 +6007,7 @@ impl eframe::App for App {
         if let Some(look) = self.desktop_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.desktop_look = look;
             self.desktop_rx = None;
-            theme::apply(ctx, &self.config.theme, look.0, look.1);
+            self.apply_theme(ctx);
         }
         let ppp = ctx.pixels_per_point();
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
@@ -6372,25 +6399,34 @@ impl eframe::App for App {
                         .text("quality when a lossy WebP is saved again");
                     changed |= ui.add(quality).changed();
                     ui.horizontal(|ui| {
-                        let before = self.config.theme.clone();
+                        let mut chosen = false;
                         egui::ComboBox::from_id_salt("theme")
-                            .selected_text(match before.as_str() {
-                                "dark" => "Dark",
-                                "light" => "Light",
-                                _ => "As the desktop",
-                            })
+                            .selected_text(self.config.theme.clone())
                             .show_ui(ui, |ui| {
-                                for (value, label) in
-                                    [("system", "As the desktop"), ("dark", "Dark"), ("light", "Light")]
-                                {
-                                    ui.selectable_value(&mut self.config.theme, value.into(), label);
+                                for name in theme::names() {
+                                    let c = &mut self.config.theme;
+                                    chosen |= ui.selectable_value(c, name.clone(), name).clicked();
                                 }
                             });
-                        ui.label("Style");
-                        if self.config.theme != before {
+                        ui.label("Theme");
+                        // Chosen again too, so a theme file just edited shows.
+                        if chosen {
                             changed = true;
-                            let (dark, accent) = self.desktop_look;
-                            theme::apply(ui.ctx(), &self.config.theme, dark, accent);
+                            self.apply_theme(ui.ctx());
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("Save as Theme…").clicked() {
+                            self.prompt = Some((Prompt::SaveTheme, String::new()));
+                        }
+                        if ui.button("Open Themes Folder").clicked()
+                            && let Some(dir) = theme::dir()
+                        {
+                            let _ = std::fs::create_dir_all(&dir);
+                            open_url(&dir.to_string_lossy());
+                        }
+                        if ui.button("Get More Themes…").clicked() {
+                            open_url("https://github.com/thornbux/glimt/tree/main/themes");
                         }
                     });
                     ui.horizontal(|ui| {
@@ -6623,6 +6659,7 @@ impl eframe::App for App {
         if let Some((prompt, mut text)) = self.prompt.take() {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:".to_owned(),
+                Prompt::SaveTheme => "Name of the new theme:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
                     "Name of a new collection with {} images:",
