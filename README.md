@@ -33,11 +33,11 @@ feature built in and run on systems with glibc 2.28 or newer (RHEL 8, Debian 10,
 and later).
 
 ```sh
-sudo apt install ./glimt_0.9.1_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
-sudo dnf install ./glimt-0.9.1-1.x86_64.rpm  # Fedora, RHEL: the same
+sudo apt install ./glimt_0.9.2_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+sudo dnf install ./glimt-0.9.2-1.x86_64.rpm  # Fedora, RHEL: the same
 
-tar xzf glimt-0.9.1-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
-./glimt-0.9.1-x86_64-linux/glimt
+tar xzf glimt-0.9.2-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
+./glimt-0.9.2-x86_64-linux/glimt
 ```
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.

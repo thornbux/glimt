@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-12
+
 ### Added
 
 - An `.rpm` package for Fedora and RHEL in each release.
@@ -67,6 +69,7 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/thornbux/glimt/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/thornbux/glimt/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/thornbux/glimt/releases/tag/v0.9.0
