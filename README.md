@@ -3,8 +3,8 @@
 [![CI](https://github.com/thornbux/glimt/actions/workflows/ci.yml/badge.svg)](https://github.com/thornbux/glimt/actions/workflows/ci.yml)
 
 A fast, memory-frugal image viewer for Linux, written in Rust with egui and inspired by
-[Geeqie](https://www.geeqie.org/). It has fewer features than Geeqie (no collections,
-duplicate finder, keyword editing or printing) and focuses on showing images quickly, in
+[Geeqie](https://www.geeqie.org/). It has fewer features than Geeqie (no duplicate
+finder, keyword editing or printing) and focuses on showing images quickly, in
 folders of any size, from a few images to several hundred thousand. The name *Glimt* is
 Norwegian for "glimpse": a quick look, which is what an image viewer is for.
 
@@ -196,6 +196,7 @@ Sway, X11 with a window manager) are very welcome.
 |---|---|
 | Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
 | Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
+| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |
 | Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` (`~/.cache/thumbnails/normal`), shared with other programs |
 
 The first two are plain `key=value` text files written atomically.

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Collections, as in Geeqie: lists of images from any folders, made with C or File → Add to
+  Collection and opened with O or File → Collections, shown in the file list. They are Geeqie
+  `.gqv` files, so Geeqie's collections open too.
+
 ## [0.9.3] - 2026-10-12
 
 ### Added

@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
+mod collections;
 mod exif;
 mod help;
 #[cfg(feature = "marks")]
@@ -129,6 +130,9 @@ enum Action {
     Compare,
     Animate,
     Subfolders,
+    NewCollection,
+    OpenCollection,
+    RemoveFromCollection,
     NextPage,
     PrevPage,
     // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
@@ -274,6 +278,9 @@ impl Action {
             Compare => "Compare Side by Side",
             Animate => "Play Animations",
             Subfolders => "Include Subfolders",
+            NewCollection => "New Collection…",
+            OpenCollection => "Open Collection…",
+            RemoveFromCollection => "Remove from Collection",
             NextPage => "Next Page",
             PrevPage => "Previous Page",
             #[cfg(feature = "marks")]
@@ -359,6 +366,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (RotateCw, NONE, Key::CloseBracket),
         (RotateCcw, NONE, Key::OpenBracket),
         (DeletePermanently, SHIFT, Key::Delete),
+        // Only in a collection, where Delete takes the file out of it, as in Geeqie.
+        (RemoveFromCollection, NONE, Key::Delete),
         (Delete, NONE, Key::Delete),
         (Delete, CTRL, Key::D),
         (NewFolder, CTRL, Key::F),
@@ -451,6 +460,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Escape, NONE, Key::Escape),
         (Escape, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
+        (NewCollection, NONE, Key::C),
+        (OpenCollection, NONE, Key::O),
         (Help, NONE, Key::F1),
     ]
 };
@@ -458,6 +469,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 /// What a zenity file dialog was opened for.
 enum Pick {
     Open,
+    /// Open a collection: the dialog starts in the collections folder.
+    Collection,
     CopyTo(Vec<PathBuf>),
     MoveTo(Vec<PathBuf>),
 }
@@ -470,6 +483,8 @@ enum Prompt {
     Rename,
     /// Rename the selected files with a pattern: * = old name, # = number.
     RenameMany,
+    /// A new collection with the selected files.
+    NewCollection,
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
@@ -553,6 +568,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "Collections (C, O)",
+        "Shown in the file list of the main window; C makes one of the selected files; saved at every change",
+        "Own window: C opens an empty one, S saves, drag to change the order",
     ),
     (
         "Images as icons (Ctrl+I)",
@@ -878,6 +898,11 @@ struct App {
     marks: marks::Marks,
     /// The list holds the images of the subfolders too (slideshow with subfolders).
     recursive: bool,
+    /// The open collection's file. The list is then its images, with `dir` "/" and the paths
+    /// without their leading "/" as names, so `path()` works unchanged.
+    collection: Option<PathBuf>,
+    /// The collection's next listing is sorted (Sort menu), and saved in that order.
+    sort_collection: bool,
     /// The next listing is shuffled as a whole instead of merged into the current order.
     whole_shuffle: bool,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
@@ -2323,7 +2348,9 @@ impl App {
         let path = path
             .or_else(|| {
                 let state = std::fs::read_to_string(state_path()?).ok()?;
-                parse_last_dir(&state).filter(|d| config.remember_dir && d.is_dir())
+                parse_last_dir(&state).filter(|d| {
+                    config.remember_dir && (d.is_dir() || collections::is_collection(d))
+                })
             })
             .unwrap_or_else(|| ".".into());
         let ahead = Arc::new(AtomicUsize::new(config.preload));
@@ -2463,6 +2490,8 @@ impl App {
             compare: false,
             capturing: None,
             recursive: false,
+            collection: None,
+            sort_collection: false,
             whole_shuffle: false,
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
@@ -2575,6 +2604,10 @@ impl App {
 
     /// Open a folder, or the folder of a file with that file shown.
     fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
+        if collections::is_collection(&path) {
+            return self.open_collection(ctx, path);
+        }
+        self.collection = None;
         let (dir, file) = if path.is_dir() {
             (path, None)
         } else {
@@ -2608,7 +2641,93 @@ impl App {
         self.title(ctx);
     }
 
+    /// Show the collection in `file` as the list.
+    fn open_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
+        let paths = match collections::load(&file) {
+            Ok(paths) => paths,
+            Err(e) => return self.notice = Some(format!("{}: {e}", file.display())),
+        };
+        let root = Path::new("/");
+        let files: Vec<OsString> = (paths.iter())
+            .filter_map(|p| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
+            .collect();
+        self.subdirs.clear();
+        self.deleting.clear();
+        self.random = false;
+        self.recursive = false;
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.exif_index = None;
+        self.exif_rx = None;
+        // No folder to watch: stop the watcher of the last one.
+        self.watching.fetch_add(1, Ordering::Relaxed);
+        self.dir = root.to_path_buf();
+        self.collection = Some(file);
+        let first = files.first().cloned();
+        self.replace_files(ctx, files, first);
+        self.list(ctx);
+        self.title(ctx);
+    }
+
+    /// Write the open collection with the list as it is now.
+    fn save_collection(&mut self) {
+        let Some(file) = &self.collection else { return };
+        let paths: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+        if let Err(e) = collections::save(file, &paths) {
+            self.notice = Some(format!("Could not save the collection: {e}"));
+        }
+    }
+
+    /// Add the selected files, or the shown image, to the collection in `file`.
+    fn add_to_collection(&mut self, file: &Path) {
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        self.notice = Some(match collections::append(file, &paths) {
+            Ok(n) => format!("{n} added to the collection \"{name}\""),
+            Err(e) => format!("Could not save the collection: {e}"),
+        });
+    }
+
+    /// File menu entries for collections; the ones listing collections read the folder only
+    /// while open.
+    fn collections_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::NewCollection);
+        menu_item(ui, act, Action::OpenCollection);
+        let mut open = None;
+        ui.menu_button("Collections", |ui| {
+            let all = collections::list();
+            if all.is_empty() {
+                ui.label("No collections yet");
+            }
+            for (name, file) in all {
+                if ui.button(name).clicked() {
+                    open = Some(file);
+                }
+            }
+        });
+        if !self.files.is_empty() {
+            ui.menu_button("Add to Collection", |ui| {
+                let all = collections::list();
+                if all.is_empty() {
+                    ui.label("No collections yet");
+                }
+                for (name, file) in all {
+                    if ui.button(name).clicked() {
+                        self.add_to_collection(&file);
+                    }
+                }
+            });
+        }
+        if self.collection.is_some() {
+            menu_item(ui, act, Action::RemoveFromCollection);
+        }
+        if let Some(file) = open {
+            self.visit(ui.ctx(), file);
+        }
+    }
+
     /// Read the folder (and then the sizes) in the background; `receive_listing` merges it in.
+    /// A collection is checked for files that are gone instead.
     fn list(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
@@ -2616,7 +2735,24 @@ impl App {
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
         let (recursive, shuffled) = (self.recursive, self.whole_shuffle);
+        let collection = self.collection.is_some().then(|| self.files.clone());
+        // A collection keeps its own order unless the Sort menu was used.
+        let sort = collection.is_none() || self.sort_collection;
         std::thread::spawn(move || {
+            if let Some(mut files) = collection {
+                files.retain(|f| list_dir.join(f).exists());
+                if sort {
+                    sort_files(&list_dir, &mut files, by, ascending, case);
+                }
+                let sizes: Vec<u64> = (files.iter())
+                    .filter_map(|f| Some(list_dir.join(f).metadata().ok()?.len()))
+                    .collect();
+                if tx.send((Vec::new(), files)).is_ok() {
+                    ctx2.request_repaint();
+                    send_sizes(sizes.into_iter(), size_tx, &ctx2);
+                }
+                return;
+            }
             let (dirs, mut files) = list_folder(&list_dir, videos);
             if recursive {
                 files = list_tree(&list_dir, videos);
@@ -2721,7 +2857,9 @@ impl App {
             return;
         };
         self.listing = None;
-        self.tree.insert(self.dir.clone(), Some(dirs.clone()));
+        if self.collection.is_none() {
+            self.tree.insert(self.dir.clone(), Some(dirs.clone()));
+        }
         self.subdirs = dirs;
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
@@ -2737,6 +2875,9 @@ impl App {
         };
         let shown = self.files.get(self.cur).cloned();
         self.replace_files(ctx, files, shown);
+        if std::mem::take(&mut self.sort_collection) {
+            self.save_collection();
+        }
     }
 
     /// To the trash at once, permanently after confirmation.
@@ -2822,6 +2963,7 @@ impl App {
         self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
+        self.save_collection();
         // The next remaining file after the shown one (or the last).
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
@@ -2916,10 +3058,15 @@ impl App {
     fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
         let (tx, rx) = mpsc::channel();
-        let (ctx, start) = (ctx.clone(), self.dir.join(""));
+        let start = match purpose {
+            Pick::Collection => collections::dir().unwrap_or_default().join(""),
+            _ => self.dir.join(""),
+        };
+        let ctx = ctx.clone();
         let title = match purpose {
             Pick::Open if folder => "Open Folder",
             Pick::Open => "Open File",
+            Pick::Collection => "Open Collection",
             Pick::CopyTo(_) => "Copy to Folder",
             Pick::MoveTo(_) => "Move to Folder",
         };
@@ -2971,7 +3118,22 @@ impl App {
     /// Copy or move `paths` into `dest` in the background. Existing files are never
     /// overwritten; a move across file systems falls back to copy + delete.
     fn transfer(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>, dest: PathBuf, keep: bool) {
-        if !keep {
+        if !keep && self.collection.is_some() {
+            // The collection follows the files to their new place.
+            // ponytail: before the move is done; a file that fails to move drops out of the
+            // collection at the next refresh.
+            for i in 0..self.files.len() {
+                let path = self.path(i);
+                if paths.contains(&path)
+                    && let Ok(rel) = dest
+                        .join(path.file_name().unwrap_or_default())
+                        .strip_prefix(&self.dir)
+                {
+                    self.files[i] = rel.as_os_str().to_owned();
+                }
+            }
+            self.save_collection();
+        } else if !keep {
             // Moved out of the shown folder: out of the list at once, as when deleting.
             let names: HashSet<&std::ffi::OsStr> = paths
                 .iter()
@@ -3019,6 +3181,18 @@ impl App {
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
+    }
+
+    /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
+    fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
+        let name = self.files[i].as_os_str();
+        match self.collection {
+            Some(_) => Path::new(name)
+                .file_name()
+                .unwrap_or(name)
+                .to_string_lossy(),
+            None => name.to_string_lossy(),
+        }
     }
 
     /// Full path of image `i`.
@@ -3213,6 +3387,12 @@ impl App {
 
     /// The text dialog was answered with `text`.
     fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
+        if let Prompt::NewCollection = prompt {
+            return match collections::new_file(text) {
+                Ok(file) => self.add_to_collection(&file),
+                Err(e) => self.notice = Some(e),
+            };
+        }
         if text.is_empty() || text.contains('/') || text == "." || text == ".." {
             self.notice = Some(format!("Not a valid name: \"{text}\""));
             return;
@@ -3232,6 +3412,7 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
+            Prompt::NewCollection => return,
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target),
         };
         match (result, prompt) {
@@ -3241,6 +3422,7 @@ impl App {
                 if let Ok(rel) = target.strip_prefix(&self.dir) {
                     self.files[self.cur] = rel.as_os_str().to_owned();
                 }
+                self.save_collection();
                 self.title(ctx);
                 self.list(ctx);
             }
@@ -3344,14 +3526,14 @@ impl App {
             return;
         }
         let swap = to.iter().any(|t| sources.contains(t));
-        let tmp = |k: usize| {
-            self.dir
-                .join(format!(".glimt-rename-{}-{k}", std::process::id()))
+        // Next to the file: in a collection the files are in different folders.
+        let tmp = |f: &Path, k: usize| {
+            f.with_file_name(format!(".glimt-rename-{}-{k}", std::process::id()))
         };
         let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
         if swap {
-            moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(k))));
-            moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(k), t.clone())));
+            moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(f, k))));
+            moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(t, k), t.clone())));
         } else {
             moves.extend(from.iter().cloned().zip(to.iter().cloned()));
         }
@@ -3365,6 +3547,17 @@ impl App {
         let shown = from.iter().position(|f| *f == self.path(self.cur));
         self.selected.clear();
         self.selection_changed(ctx);
+        if self.collection.is_some() {
+            // The collection keeps the files, under their new names.
+            for (f, t) in from.iter().zip(&to) {
+                let i = (0..self.files.len()).find(|&i| self.is_file(i, f));
+                if let (Some(i), Ok(rel)) = (i, t.strip_prefix(&self.dir)) {
+                    self.files[i] = rel.as_os_str().to_owned();
+                }
+            }
+            self.save_collection();
+            return self.list(ctx);
+        }
         match shown {
             Some(k) => self.open(ctx, to[k].clone()),
             None => self.list(ctx),
@@ -3526,9 +3719,10 @@ impl App {
 
     /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no images.
     fn title(&self, ctx: &egui::Context) {
-        let name = match self.files.get(self.cur) {
-            Some(file) => file.to_string_lossy().into_owned(),
-            None => self.dir.display().to_string(),
+        let name = match (self.files.get(self.cur), &self.collection) {
+            (Some(_), _) => self.name(self.cur).into_owned(),
+            (None, Some(file)) => file.display().to_string(),
+            (None, None) => self.dir.display().to_string(),
         };
         let title = if self.config.app_name_first {
             format!("Glimt - {name}")
@@ -3678,6 +3872,7 @@ impl App {
             self.config.save();
             // A chosen order replaces a shuffled one (kept after a random slideshow).
             self.random = false;
+            self.sort_collection = self.collection.is_some();
             self.list(ctx);
         }
     }
@@ -3742,7 +3937,8 @@ impl App {
             }
         }
         if !response.has_focus() {
-            self.path_text = self.dir.display().to_string();
+            let shown = self.collection.as_ref().unwrap_or(&self.dir);
+            self.path_text = shown.display().to_string();
         }
     }
 
@@ -3804,7 +4000,7 @@ impl App {
         if !marks.is_empty() {
             info.push(marks);
         }
-        let name = self.files[self.cur].to_string_lossy();
+        let name = self.name(self.cur);
         let text = format!("{name}  {}\n{}", self.place(), info.join(" · "));
         let p = ui.painter();
         let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
@@ -3854,7 +4050,7 @@ impl App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
                         ui.weak("File");
-                        ui.label(self.files[self.cur].to_string_lossy());
+                        ui.label(self.name(self.cur));
                         ui.end_row();
                         if let Some(s) = self.slots.get(&self.cur) {
                             ui.weak("Dimensions");
@@ -3978,7 +4174,7 @@ impl App {
         ui.painter().with_clip_rect(name_rect).text(
             egui::pos2(name_rect.min.x, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            self.files[i].to_string_lossy(),
+            self.name(i),
             font,
             text_color,
         );
@@ -4048,7 +4244,7 @@ impl App {
         let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
         self.paint_thumb(ui, i, frame);
         let font = egui::TextStyle::Small.resolve(ui.style());
-        let name = self.files[i].to_string_lossy().into_owned();
+        let name = self.name(i).into_owned();
         let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
         let galley = ui.painter().layout_job(job);
@@ -4069,7 +4265,10 @@ impl App {
             p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
             p.galley(at.min, galley, gold);
         }
-        response.on_hover_text_at_pointer(self.files[i].to_string_lossy())
+        response.on_hover_text_at_pointer(match self.collection {
+            Some(_) => self.path(i).display().to_string(),
+            None => self.name(i).into_owned(),
+        })
     }
 
     /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
@@ -4163,7 +4362,7 @@ impl App {
             p.with_clip_rect(rect)
                 .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
         }
-        let name = self.files[other].to_string_lossy();
+        let name = self.name(other);
         let font = egui::TextStyle::Body.resolve(ui.style());
         let galley = p.layout_no_wrap(name.into_owned(), font, egui::Color32::WHITE);
         let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
@@ -4408,7 +4607,7 @@ impl App {
 
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
-    fn shortcut(ctx: &egui::Context, delete_key: bool) -> Option<Action> {
+    fn shortcut(ctx: &egui::Context, delete_key: bool, collection: bool) -> Option<Action> {
         ctx.input_mut(|i| {
             // egui-winit turns Ctrl+C into a Copy event instead of a key press.
             let all = shortcuts();
@@ -4421,7 +4620,10 @@ impl App {
                     .map(|s| s.0);
             }
             all.iter()
-                .filter(|s| delete_key || s.2 != egui::Key::Delete)
+                .filter(|s| collection || s.0 != Action::RemoveFromCollection)
+                .filter(|s| {
+                    delete_key || s.2 != egui::Key::Delete || s.0 == Action::RemoveFromCollection
+                })
                 .find(|&&(_, mods, key)| {
                     i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))
                 })
@@ -4438,6 +4640,16 @@ impl App {
         match action {
             Action::OpenFile => self.pick(ctx, false, Pick::Open),
             Action::OpenFolder => self.pick(ctx, true, Pick::Open),
+            Action::NewCollection if !self.files.is_empty() => {
+                self.prompt = Some((Prompt::NewCollection, String::new()));
+            }
+            Action::NewCollection => self.notice = Some("No images for a collection here".into()),
+            Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
+            Action::RemoveFromCollection if self.collection.is_some() && !self.files.is_empty() => {
+                let targets = self.targets();
+                self.remove_indices(ctx, &targets);
+            }
+            Action::RemoveFromCollection => {}
             Action::Copy | Action::Move if !self.files.is_empty() => {
                 let paths = self.targets().iter().map(|&i| self.path(i)).collect();
                 let purpose = match action {
@@ -4785,7 +4997,8 @@ impl eframe::App for App {
         // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
         let mut state = String::new();
         if self.config.remember_dir {
-            state += &format!("last_dir={}\n", self.dir.display());
+            let last = self.collection.as_ref().unwrap_or(&self.dir);
+            state += &format!("last_dir={}\n", last.display());
         }
         if self.config.remember_window {
             state += &self.window.to_text();
@@ -4893,7 +5106,7 @@ impl eframe::App for App {
             let (purpose, _) = self.dialog.take().unwrap();
             match (purpose, picked) {
                 (_, None) => {}
-                (Pick::Open, Some(path)) => self.visit(ctx, path),
+                (Pick::Open | Pick::Collection, Some(path)) => self.visit(ctx, path),
                 (Pick::CopyTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, true),
                 (Pick::MoveTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, false),
             }
@@ -4926,7 +5139,7 @@ impl eframe::App for App {
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
         self.row_step = if vertical { self.grid_cols as isize } else { 1 };
         let mut act = (!self.dialog_open() && !typing)
-            .then(|| Self::shortcut(ctx, self.config.delete_key))
+            .then(|| Self::shortcut(ctx, self.config.delete_key, self.collection.is_some()))
             .flatten();
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
@@ -4967,6 +5180,8 @@ impl eframe::App for App {
                         ui.separator();
                         menu_item(ui, act, Action::Delete);
                         menu_item(ui, act, Action::DeletePermanently);
+                        ui.separator();
+                        self.collections_menu(ui, act);
                         ui.separator();
                         menu_item(ui, act, Action::CloseWindow);
                         menu_item(ui, act, Action::Quit);
@@ -5406,6 +5621,10 @@ impl eframe::App for App {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
+                Prompt::NewCollection => format!(
+                    "Name of a new collection with {} images:",
+                    self.targets().len()
+                ),
                 Prompt::RenameMany => format!(
                     "New names for {} files (* = old name, # = number, ### = 001):",
                     self.targets().len()
@@ -5444,7 +5663,7 @@ impl eframe::App for App {
         if self.exif_window && !self.files.is_empty() {
             self.want_exif();
             let mut open = true;
-            let title = format!("EXIF: {}", self.files[self.cur].to_string_lossy());
+            let title = format!("EXIF: {}", self.name(self.cur));
             egui::Window::new(title)
                 .id(egui::Id::new("exif window"))
                 .open(&mut open)
@@ -5506,7 +5725,7 @@ impl eframe::App for App {
 
         if let Some(trash) = self.confirm {
             let what = match self.targets().as_slice() {
-                [i] => format!("\"{}\"", self.files[*i].to_string_lossy()),
+                [i] => format!("\"{}\"", self.name(*i)),
                 many => format!("{} files", many.len()),
             };
             let mut delete = false;
@@ -5722,7 +5941,7 @@ impl eframe::App for App {
                             } else if thumbs || self.config.file_details {
                                 self.file_row(ui, i, row_h, marked)
                             } else {
-                                let name = self.files[i].to_string_lossy();
+                                let name = self.name(i);
                                 let marks = self.mark_text(i);
                                 if marks.is_empty() {
                                     ui.selectable_label(marked, name)
@@ -5778,6 +5997,17 @@ impl eframe::App for App {
                                     menu_item(ui, &mut list_act, action);
                                 }
                                 self.open_with_menu(ui);
+                                ui.menu_button("Add to Collection", |ui| {
+                                    for (name, file) in collections::list() {
+                                        if ui.button(name).clicked() {
+                                            self.add_to_collection(&file);
+                                        }
+                                    }
+                                    menu_item(ui, &mut list_act, Action::NewCollection);
+                                });
+                                if self.collection.is_some() {
+                                    menu_item(ui, &mut list_act, Action::RemoveFromCollection);
+                                }
                                 ui.separator();
                                 menu_item(ui, &mut list_act, Action::Delete);
                                 menu_item(ui, &mut list_act, Action::DeletePermanently);

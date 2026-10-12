@@ -109,6 +109,17 @@ const MANUAL: &[(&str, &str)] = &[
          the bottom left sorts by name, number, date, EXIF date, size or extension.",
     ),
     (
+        "Collections",
+        "A collection is a list of images from any folders, as in Geeqie. C makes a new one of \
+         the selected files (or the shown image), File → Add to Collection (also in the \
+         right-click menu) adds to one, and File → Collections or O opens one: the file list \
+         then shows its images, which browse, sort and play as a slideshow like a folder. \
+         Delete takes the shown or selected images out of the collection, leaving the files; \
+         renaming and moving in Glimt keep them in it. Each change is saved at once, as a \
+         Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
+         too (O, or a .gqv file on the command line).",
+    ),
+    (
         "Panels",
         "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \
