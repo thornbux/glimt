@@ -32,15 +32,16 @@ fn dir() -> Option<PathBuf> {
     Some(dir.join("glimt"))
 }
 
-/// This Glimt's name: its process ID, or in a Flatpak, where every instance has the same
-/// process ID, the Flatpak instance ID.
-fn me() -> String {
+/// This Glimt's name: its process ID, and in a Flatpak, where every instance can have the same
+/// process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the instance).
+pub fn me() -> String {
     let info =
         std::env::var_os("FLATPAK_ID").and_then(|_| std::fs::read_to_string("/.flatpak-info").ok());
     let instance = info
         .as_deref()
         .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
-    instance.map_or_else(|| std::process::id().to_string(), String::from)
+    let pid = std::process::id();
+    instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
