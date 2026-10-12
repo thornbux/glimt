@@ -3337,8 +3337,10 @@ impl App {
                         .collect(),
                 );
             }
-            for p in paths.iter().filter(|p| p.parent() == Some(&self.dir)) {
-                self.deleting.remove(p.file_name().unwrap_or_default());
+            // By the name the list has, with its folders in the list with subfolders and in a
+            // collection.
+            for rel in paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok()) {
+                self.deleting.remove(rel.as_os_str());
             }
             // The files that are still there come back into the list.
             self.stale |= failed;
