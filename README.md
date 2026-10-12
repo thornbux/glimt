@@ -117,6 +117,23 @@ objdump -T target/x86_64-unknown-linux-gnu/release/glimt | grep -o 'GLIBC_[0-9.]
 musl-based distributions (Alpine) are not supported, because the viewer calls glibc's
 `malloc_trim` to return decoder memory to the system.
 
+### Flatpak
+
+`flatpak/io.github.thornbux.Glimt.yml` builds a Flatpak from the checkout, with every feature.
+The runtime, SDK and Rust extension take about 4 GB:
+
+```sh
+flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak-builder --user --install --install-deps-from=flathub --force-clean \
+    build-flatpak flatpak/io.github.thornbux.Glimt.yml
+flatpak run io.github.thornbux.Glimt
+```
+
+The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity and gio on the host
+through `flatpak-spawn --host`, so those must be installed there. The thumbnail cache is the
+host's. Settings live in `~/.var/app/io.github.thornbux.Glimt`. Remote control works between
+Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.
+
 ## Remote control
 
 As with `geeqie --remote`, a running Glimt takes commands from the command line, for example

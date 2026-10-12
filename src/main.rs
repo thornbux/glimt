@@ -981,7 +981,7 @@ fn ffmpeg_frame(path: &Path, at: &str) -> Result<image::DynamicImage, String> {
 /// image size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
 fn heif(path: &Path) -> Result<image::DynamicImage, String> {
-    let probe = std::process::Command::new("ffprobe")
+    let probe = command("ffprobe")
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .arg(path)
         .output()
@@ -1033,7 +1033,7 @@ fn heif(path: &Path) -> Result<image::DynamicImage, String> {
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 fn ffmpeg_ppm(path: &Path, before: &[&str], after: &[&str]) -> Result<image::DynamicImage, String> {
-    let out = std::process::Command::new("ffmpeg")
+    let out = command("ffmpeg")
         .args(["-v", "error"])
         .args(before)
         .arg("-i")
@@ -1084,7 +1084,7 @@ struct Login {
 fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
     let local = || {
-        let out = std::process::Command::new("gio")
+        let out = command("gio")
             .args(["info", "-a", "standard::name", uri])
             .output()
             .ok()?;
@@ -1096,7 +1096,7 @@ fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     if let Some(path) = local() {
         return Ok(path);
     }
-    let mut child = std::process::Command::new("gio")
+    let mut child = command("gio")
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1148,7 +1148,7 @@ fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
 /// itself left out.
 fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
     let gio = |args: &[&std::ffi::OsStr]| {
-        std::process::Command::new("gio")
+        command("gio")
             .args(args)
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
@@ -1249,12 +1249,7 @@ fn pattern_name(pattern: &str, old: &Path, n: usize) -> String {
 fn open_url(url: &str) {
     let url = url.to_owned();
     std::thread::spawn(move || {
-        let run = |cmd: &str, args: &[&str]| {
-            std::process::Command::new(cmd)
-                .args(args)
-                .arg(&url)
-                .status()
-        };
+        let run = |cmd: &str, args: &[&str]| command(cmd).args(args).arg(&url).status();
         if !run("gio", &["open"]).is_ok_and(|s| s.success()) {
             let _ = run("xdg-open", &[]);
         }
@@ -1454,6 +1449,17 @@ fn state_path() -> Option<PathBuf> {
 
 fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
     Some(xdg_dir(var, home_fallback, "glimt")?.join(name))
+}
+
+/// An external program: ffmpeg, gio, zenity, a player. Inside a Flatpak it runs on the host,
+/// which has them, through `flatpak-spawn --host`.
+fn command(program: &str) -> std::process::Command {
+    if std::env::var_os("FLATPAK_ID").is_none() {
+        return std::process::Command::new(program);
+    }
+    let mut cmd = std::process::Command::new("flatpak-spawn");
+    cmd.args(["--host", program]);
+    cmd
 }
 
 fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
@@ -2000,7 +2006,7 @@ fn lossy_webp(img: &image::DynamicImage, to: &Path, quality: u8) -> Result<(), S
     let mut png = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
-    let mut child = std::process::Command::new("ffmpeg")
+    let mut child = command("ffmpeg")
         .args([
             "-v", "error", "-y", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
         ])
@@ -2715,12 +2721,7 @@ impl App {
             if trash {
                 // Many files per gio call, so thousands of files do not become thousands of processes.
                 for chunk in paths.chunks(500) {
-                    match std::process::Command::new("gio")
-                        .arg("trash")
-                        .arg("--")
-                        .args(chunk)
-                        .output()
-                    {
+                    match command("gio").arg("trash").arg("--").args(chunk).output() {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => errors.push(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
                         Err(e) => {
@@ -2860,7 +2861,7 @@ impl App {
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
             let zenity = || {
-                let mut cmd = std::process::Command::new("zenity");
+                let mut cmd = command("zenity");
                 cmd.arg("--file-selection").arg("--title").arg(title);
                 cmd.arg("--filename").arg(&start);
                 if folder {
@@ -2875,7 +2876,7 @@ impl App {
                 } else {
                     "--getopenfilename"
                 };
-                let mut cmd = std::process::Command::new("kdialog");
+                let mut cmd = command("kdialog");
                 cmd.arg("--title").arg(title).arg(mode).arg(&start);
                 cmd.output()
             };
@@ -3062,10 +3063,7 @@ impl App {
         let mut words: Vec<String> = player.split_whitespace().map(String::from).collect();
         std::thread::spawn(move || {
             let run = |cmd: &str, args: &[String]| {
-                let out = std::process::Command::new(cmd)
-                    .args(args)
-                    .arg(&path)
-                    .output();
+                let out = command(cmd).args(args).arg(&path).output();
                 out.map_err(|e| format!("{cmd}: {e}"))
             };
             let out = if words.is_empty() {
@@ -3108,7 +3106,7 @@ impl App {
                 let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
                 let tx = self.notices_tx.clone();
                 std::thread::spawn(move || {
-                    let out = std::process::Command::new("gio")
+                    let out = command("gio")
                         .arg("launch")
                         .arg(&desktop)
                         .args(&files)
@@ -3599,7 +3597,7 @@ impl App {
             ],
         ];
         self.inhibitor = commands.iter().find_map(|c| {
-            std::process::Command::new(c[0])
+            command(c[0])
                 .args(&c[1..])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
