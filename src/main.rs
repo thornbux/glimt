@@ -3576,16 +3576,21 @@ impl App {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 Some((img.ok()?, job.caption.then(|| name.into_owned())))
             });
-            let pdf = print::pdf(pages, job.paper);
-            let n = job.paths.len() - failed.get();
-            let title = format!("Glimt: {n} images");
+            // Written as it is made, so only one page is in memory, not the whole PDF.
+            let title = format!("Glimt: {} images", job.paths.len());
             let done = match &to {
-                PrintTo::Printer(printer) => print::send(&pdf, printer, job.copies, &title)
-                    .map(|_| format!("{n} pages sent to {printer}")),
-                PrintTo::File(file) => std::fs::write(file, &pdf)
-                    .map(|_| format!("{n} pages saved in {}", file.display()))
+                PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
+                    print::pdf(pages, job.paper, w)
+                }),
+                PrintTo::File(file) => std::fs::File::create(file)
+                    .and_then(|f| print::pdf(pages, job.paper, std::io::BufWriter::new(f)))
                     .map_err(|e| e.to_string()),
             };
+            let n = job.paths.len() - failed.get();
+            let done = done.map(|()| match &to {
+                PrintTo::Printer(printer) => format!("{n} pages sent to {printer}"),
+                PrintTo::File(file) => format!("{n} pages saved in {}", file.display()),
+            });
             let _ = tx.send(match (done, failed.get()) {
                 (Ok(msg), 0) => msg,
                 (Ok(msg), f) => format!("{msg}; {f} could not be read"),

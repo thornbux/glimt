@@ -3,6 +3,8 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! ponytail: one image per page; Geeqie also puts several on a page.
 
+use std::io::Write;
+
 /// Paper sizes in points (1/72 inch), portrait.
 pub const PAPERS: [(&str, [f32; 2]); 2] = [("A4", [595.28, 841.89]), ("Letter", [612.0, 792.0])];
 
@@ -19,29 +21,26 @@ pub fn max_pixels(paper: [f32; 2]) -> u32 {
 }
 
 /// A PDF with each image on a page of `paper`, as large as fits, turned to landscape for wide
-/// images, with its caption below it if there is one. The images are taken one at a time, so
-/// only one is in memory.
+/// images, with its caption below it if there is one, written to `out` as it is made: the
+/// images are taken one at a time, and only one page is ever in memory.
 pub fn pdf(
     pages: impl Iterator<Item = (image::DynamicImage, Option<String>)>,
     paper: [f32; 2],
-) -> Vec<u8> {
-    let mut out = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
-    // Byte offsets of the objects by number: 1 catalog, 2 page tree (written last, when the
-    // pages are counted), 3 font, then a page, its contents and its image for each.
-    let mut offsets: Vec<usize> = Vec::new();
-    let mut object = |out: &mut Vec<u8>, num: usize, body: &[u8]| {
-        offsets.resize(offsets.len().max(num), 0);
-        offsets[num - 1] = out.len();
-        out.extend(format!("{num} 0 obj\n").as_bytes());
-        out.extend(body);
-        out.extend(b"\nendobj\n");
+    out: impl Write,
+) -> std::io::Result<()> {
+    let mut pdf = Pdf {
+        out,
+        at: 0,
+        offsets: Vec::new(),
     };
-    object(&mut out, 1, b"<< /Type /Catalog /Pages 2 0 R >>");
-    object(
-        &mut out,
+    pdf.put(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")?;
+    // Objects by number: 1 catalog, 2 page tree (written last, when the pages are counted),
+    // 3 font, then a page, its contents and its image for each.
+    pdf.object(1, b"<< /Type /Catalog /Pages 2 0 R >>")?;
+    pdf.object(
         3,
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-    );
+    )?;
     let mut kids = Vec::new();
     for (i, (img, caption)) in pages.into_iter().enumerate() {
         let (w, h) = (img.width() as f32, img.height() as f32);
@@ -64,8 +63,7 @@ pub fn pdf(
         }
         let (page, contents, image) = (4 + 3 * i, 5 + 3 * i, 6 + 3 * i);
         kids.push(format!("{page} 0 R"));
-        object(
-            &mut out,
+        pdf.object(
             page,
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pw:.2} {ph:.2}] /Contents \
@@ -73,11 +71,11 @@ pub fn pdf(
                  >> >> >>"
             )
             .as_bytes(),
-        );
+        )?;
         let mut stream = format!("<< /Length {} >>\nstream\n", draw.len()).into_bytes();
         stream.extend(draw.as_bytes());
         stream.extend(b"\nendstream");
-        object(&mut out, contents, &stream);
+        pdf.object(contents, &stream)?;
         // Transparent parts printed on white, as they show on paper.
         let rgba = img.into_rgba8();
         let flat = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
@@ -98,27 +96,45 @@ pub fn pdf(
         .into_bytes();
         stream.extend(jpeg);
         stream.extend(b"\nendstream");
-        object(&mut out, image, &stream);
+        pdf.object(image, &stream)?;
     }
     let tree = format!(
         "<< /Type /Pages /Kids [{}] /Count {} >>",
         kids.join(" "),
         kids.len()
     );
-    object(&mut out, 2, tree.as_bytes());
-    let xref = out.len();
-    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
-    for o in &offsets {
-        out.extend(format!("{o:010} 00000 n \n").as_bytes());
+    pdf.object(2, tree.as_bytes())?;
+    let (xref, count) = (pdf.at, pdf.offsets.len() + 1);
+    let mut table = format!("xref\n0 {count}\n0000000000 65535 f \n");
+    for o in &pdf.offsets {
+        table += &format!("{o:010} 00000 n \n");
     }
-    out.extend(
-        format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
-            offsets.len() + 1
-        )
-        .as_bytes(),
-    );
-    out
+    table += &format!("trailer\n<< /Size {count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+    pdf.put(table.as_bytes())?;
+    pdf.out.flush()
+}
+
+/// A PDF being written: where it is, and where each object starts, for the table at the end.
+struct Pdf<W> {
+    out: W,
+    at: usize,
+    offsets: Vec<usize>,
+}
+
+impl<W: Write> Pdf<W> {
+    fn put(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        self.out.write_all(bytes)?;
+        self.at += bytes.len();
+        Ok(())
+    }
+
+    fn object(&mut self, num: usize, body: &[u8]) -> std::io::Result<()> {
+        self.offsets.resize(self.offsets.len().max(num), 0);
+        self.offsets[num - 1] = self.at;
+        self.put(format!("{num} 0 obj\n").as_bytes())?;
+        self.put(body)?;
+        self.put(b"\nendobj\n")
+    }
 }
 
 /// `text` as a PDF string in WinAnsi (Latin-1 for the letters most names have); others become ?.
@@ -148,10 +164,14 @@ pub fn printers() -> (Vec<String>, Option<String>) {
     (names, default)
 }
 
-/// Send `pdf` to `printer` with `lp`, through its input, so no file is left behind (and the
-/// Flatpak's private /tmp does not matter).
-pub fn send(pdf: &[u8], printer: &str, copies: u32, title: &str) -> Result<(), String> {
-    use std::io::Write;
+/// Send the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
+/// left behind (and the Flatpak's private /tmp does not matter).
+pub fn send(
+    printer: &str,
+    copies: u32,
+    title: &str,
+    write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+) -> Result<(), String> {
     let mut child = crate::command("lp")
         .args(["-d", printer, "-n", &copies.to_string(), "-t", title])
         .stdin(std::process::Stdio::piped())
@@ -159,18 +179,15 @@ pub fn send(pdf: &[u8], printer: &str, copies: u32, title: &str) -> Result<(), S
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("lp (from CUPS): {e}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or("no input")?
-        .write_all(pdf)
-        .map_err(|e| e.to_string())?;
+    let written = match child.stdin.take() {
+        Some(input) => write(&mut std::io::BufWriter::new(input)),
+        None => Err(std::io::Error::other("no input")),
+    };
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
     }
+    written.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -179,10 +196,13 @@ mod tests {
     fn writes_a_pdf() {
         let wide = image::DynamicImage::new_rgba8(40, 20);
         let tall = image::DynamicImage::new_rgb8(20, 40);
-        let pdf = super::pdf(
+        let mut pdf = Vec::new();
+        super::pdf(
             [(wide, Some("Ålesund (1).jpg".into())), (tall, None)].into_iter(),
             super::PAPERS[0].1,
-        );
+            &mut pdf,
+        )
+        .unwrap();
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.starts_with("%PDF-1.4"));
         assert!(text.contains("/Count 2"));
