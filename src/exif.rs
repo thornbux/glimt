@@ -266,22 +266,6 @@ fn add_orientation(
     value: u16,
 ) -> Result<(), String> {
     let tiff = start + 6;
-    let get16 = |b: &[u8], at: usize| -> Option<u16> {
-        let x: [u8; 2] = b.get(at..at + 2)?.try_into().ok()?;
-        Some(if little {
-            u16::from_le_bytes(x)
-        } else {
-            u16::from_be_bytes(x)
-        })
-    };
-    let get32 = |b: &[u8], at: usize| -> Option<u32> {
-        let x: [u8; 4] = b.get(at..at + 4)?.try_into().ok()?;
-        Some(if little {
-            u32::from_le_bytes(x)
-        } else {
-            u32::from_be_bytes(x)
-        })
-    };
     let p16 = |v: u16| {
         if little {
             v.to_le_bytes()
@@ -296,8 +280,9 @@ fn add_orientation(
             v.to_be_bytes()
         }
     };
-    let ifd = tiff + get32(data, tiff + 4).ok_or("cut off")? as usize;
-    let n = get16(data, ifd).ok_or("cut off")? as usize;
+    let read = Tiff { data, little };
+    let ifd = tiff + read.u32(tiff + 4).ok_or("cut off")? as usize;
+    let n = read.u16(ifd).ok_or("cut off")? as usize;
     let entries = data.get(ifd + 2..ifd + 2 + 12 * n).ok_or("cut off")?;
     let mut list: Vec<Vec<u8>> = entries.chunks(12).map(<[u8]>::to_vec).collect();
     let next = data
@@ -312,7 +297,7 @@ fn add_orientation(
     entry.extend([0, 0]);
     list.push(entry);
     // Fields are sorted by tag.
-    list.sort_by_key(|e| get16(e, 0).unwrap_or(0));
+    list.sort_by_key(|e| Tiff { data: e, little }.u16(0).unwrap_or(0));
     let tiff_len = len - 6;
     let mut added = vec![0; tiff_len % 2]; // word aligned
     let new_ifd = (tiff_len + added.len()) as u32;
