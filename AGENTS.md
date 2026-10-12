@@ -75,6 +75,8 @@ cargo test --release --all-features
 python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 ```
 
+- **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
+  into `main` when a release is made, so that a release gathers several changes.
 - **One feature or fix per commit.** Formatting-only changes in a commit of their own.
 - Use `--release` for tests too; a separate debug build doubles the space in `target/`.
 - A release: the version in `Cargo.toml` and in the header of `docs/glimt.1`, a section in
