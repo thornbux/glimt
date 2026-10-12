@@ -945,8 +945,10 @@ struct App {
     deleted_tx: mpsc::Sender<Vec<PathBuf>>,
     deleted_rx: mpsc::Receiver<Vec<PathBuf>>,
     /// PNG and WebP files saved turned in the background.
-    saved_tx: mpsc::Sender<PathBuf>,
-    saved_rx: mpsc::Receiver<PathBuf>,
+    saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
+    saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
+    /// Those still being saved.
+    saving: HashSet<PathBuf>,
     /// Background deletes, copies and moves still running, for the busy pointer.
     busy: Arc<AtomicUsize>,
     /// File name search above the file list, and the matching files best first while it has
@@ -2548,6 +2550,7 @@ impl App {
             deleted_rx,
             saved_tx,
             saved_rx,
+            saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
             search: String::new(),
             matches: None,
@@ -3256,22 +3259,20 @@ impl App {
             return;
         }
         let path = self.path(self.cur);
+        // Being saved already, with this rotation: the rotate keys wait for the save.
+        if self.saving.contains(&path) {
+            return;
+        }
         // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned, which
         // takes seconds for a large one, so in the background.
         if !has_ext(&path, &["jpg", "jpeg"]) {
             let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
-            let (saved, notices, busy, ctx) = (
-                self.saved_tx.clone(),
-                self.notices_tx.clone(),
-                self.busy.clone(),
-                ctx.clone(),
-            );
+            let (saved, busy, ctx) = (self.saved_tx.clone(), self.busy.clone(), ctx.clone());
+            self.saving.insert(path.clone());
             busy.fetch_add(1, Ordering::Relaxed);
             std::thread::spawn(move || {
-                match save_rotated(&path, rotate, turns, mirrored, quality) {
-                    Ok(()) => drop(saved.send(path)),
-                    Err(e) => drop(notices.send(format!("Could not save the orientation: {e}"))),
-                }
+                let result = survive(|| save_rotated(&path, rotate, turns, mirrored, quality));
+                let _ = saved.send((path, result));
                 busy.fetch_sub(1, Ordering::Relaxed);
                 ctx.request_repaint();
             });
@@ -4717,6 +4718,12 @@ impl App {
             | Action::Rotate180
             | Action::Mirror
             | Action::Flip => {
+                // Until it is saved the old picture shows: turned again, it would be saved twice,
+                // into the same temporary file.
+                if !self.files.is_empty() && self.saving.contains(&self.path(self.cur)) {
+                    self.notice = Some("Still saving the last rotation of this file".into());
+                    return;
+                }
                 let (q, m) = self.orient;
                 self.orient = match action {
                     Action::RotateCw => ((q + 1) % 4, m),
@@ -4806,8 +4813,12 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes(ctx);
         self.receive_deleted();
-        while let Ok(path) = self.saved_rx.try_recv() {
-            self.saved(&path);
+        while let Ok((path, result)) = self.saved_rx.try_recv() {
+            self.saving.remove(&path);
+            match result {
+                Ok(()) => self.saved(&path),
+                Err(e) => self.notice = Some(format!("Could not save the orientation: {e}")),
+            }
         }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.has_focus && self.config.remote_control {
