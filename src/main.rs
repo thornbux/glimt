@@ -3137,22 +3137,33 @@ impl App {
             self.notice = Some(format!("Not a valid name: \"{text}\""));
             return;
         }
-        let target = self.dir.join(text);
+        // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
+        let target = match prompt {
+            Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
+            _ => self.dir.join(text),
+        };
         let result = match prompt {
             Prompt::NewFolder => {
                 self.tree.remove(&self.dir);
                 std::fs::create_dir(&target)
             }
-            Prompt::Rename if self.files.get(self.cur) == Some(&OsString::from(text)) => return,
+            Prompt::Rename if self.files.is_empty() => return,
+            Prompt::Rename if target == self.path(self.cur) => return,
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
-            Prompt::Rename if self.files.is_empty() => return,
             Prompt::RenameMany => return self.rename_many(ctx, text),
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target),
         };
         match (result, prompt) {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
-            (Ok(()), _) => self.open(ctx, target),
+            // The list keeps its folder and mode; the shown entry takes the new name.
+            (Ok(()), _) => {
+                if let Ok(rel) = target.strip_prefix(&self.dir) {
+                    self.files[self.cur] = rel.as_os_str().to_owned();
+                }
+                self.title(ctx);
+                self.list(ctx);
+            }
             (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
         }
     }
@@ -4573,7 +4584,12 @@ impl App {
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
-                if let Some(name) = self.files.get(self.cur) {
+                // The name only: in the list with subfolders the entry has its folders too.
+                if let Some(name) = self
+                    .files
+                    .get(self.cur)
+                    .and_then(|f| Path::new(f).file_name())
+                {
                     self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
                 }
             }
