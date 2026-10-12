@@ -244,7 +244,7 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             data.splice(at..at, app1);
         }
     }
-    let tmp = path.with_extension("glimt-tmp");
+    let tmp = crate::tmp_path(path);
     std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
     if let Ok(meta) = std::fs::metadata(path) {
         let _ = std::fs::set_permissions(&tmp, meta.permissions());

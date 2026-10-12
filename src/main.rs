@@ -978,6 +978,14 @@ struct App {
     max_pan: egui::Vec2,
 }
 
+/// Where a new version of `path` is written before it is renamed over it: its whole name and
+/// ".glimt-tmp", so that "a.png" and "a.webp", which can be saved at the same time, never share one.
+fn tmp_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_owned();
+    name.push(".glimt-tmp");
+    path.with_file_name(name)
+}
+
 fn has_ext(path: &Path, exts: &[&str]) -> bool {
     let ext = path.extension().and_then(|e| e.to_str());
     ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
@@ -1996,7 +2004,7 @@ fn save_rotated(
         3 => img.rotate270(),
         _ => img,
     };
-    let tmp = path.with_extension("glimt-tmp");
+    let tmp = tmp_path(path);
     if lossy {
         let img = to_srgb(img, icc.as_deref());
         lossy_webp(&img, &tmp, webp_quality)?;
@@ -6385,6 +6393,38 @@ mod tests {
         let mut dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
         assert_eq!(dec.dimensions(), (5, 3));
         assert_eq!(dec.exif_metadata().unwrap().as_deref(), Some(&exif[..]));
+    }
+
+    /// "a.png" and "a.webp" saved turned at the same time: each keeps its own pixels and format.
+    #[test]
+    fn saves_same_names_at_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-same-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (png, webp) = (dir.join("a.png"), dir.join("a.webp"));
+        assert_ne!(super::tmp_path(&png), super::tmp_path(&webp));
+        image::RgbImage::from_pixel(1200, 800, image::Rgb([255, 0, 0]))
+            .save(&png)
+            .unwrap();
+        image::RgbImage::from_pixel(1200, 800, image::Rgb([0, 0, 255]))
+            .save(&webp)
+            .unwrap();
+        let start = std::sync::Barrier::new(2);
+        std::thread::scope(|s| {
+            for path in [&png, &webp] {
+                let start = &start;
+                s.spawn(move || {
+                    start.wait();
+                    super::save_rotated(path, false, 1, false, 90).unwrap();
+                });
+            }
+        });
+        let pixel = |p: &std::path::Path| {
+            let img = image::open(p).unwrap().into_rgb8();
+            (img.dimensions(), *img.get_pixel(0, 0))
+        };
+        assert_eq!(pixel(&png), ((800, 1200), image::Rgb([255, 0, 0])));
+        assert_eq!(pixel(&webp), ((800, 1200), image::Rgb([0, 0, 255])));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
