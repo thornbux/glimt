@@ -5,9 +5,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-12
+
 ### Added
 
 - A Flatpak manifest, `flatpak/io.github.thornbux.Glimt.yml`, to build a Flatpak from the source.
+
+### Changed
+
+- Saving the rotation of a PNG or WebP runs in the background, so a large one no longer freezes
+  the window; files with an EXIF block are left alone, as saving them again would lose it.
+- "Open With" reads the applications in the background.
+
+### Fixed
+
+- An SVG claiming a huge size, or a huge JPEG XL or RAW preview, could use gigabytes of memory
+  and end Glimt; SVGs are drawn at most 8192 pixels wide, the others refused above 512 MB.
+- A decoder crashing on a broken file stopped all later images or thumbnails.
+- Marks and stars set in two Glimt windows were lost from the one that saved first.
+- A wrong password for a network share was sent again at every prompt.
+- Messages from background jobs reopened the folder, which ended random order and the list
+  with subfolders, and the message itself disappeared before it was seen.
+- Renaming a file in a subfolder, in the list with subfolders, moved it to the top folder.
 
 ## [0.9.2] - 2026-10-12
 
@@ -73,7 +92,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/thornbux/glimt/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/thornbux/glimt/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/thornbux/glimt/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/thornbux/glimt/releases/tag/v0.9.0
