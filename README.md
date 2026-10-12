@@ -4,7 +4,7 @@
 
 A fast, memory-frugal image viewer for Linux, written in Rust with egui and inspired by
 [Geeqie](https://www.geeqie.org/). It has fewer features than Geeqie (no collections,
-duplicate finder, keyword editing or printing) and focuses on showing images quickly, in
+keyword editing or printing) and focuses on showing images quickly, in
 folders of any size, from a few images to several hundred thousand. The name *Glimt* is
 Norwegian for "glimpse": a quick look, which is what an image viewer is for.
 

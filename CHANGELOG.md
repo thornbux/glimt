@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Find Duplicates (D), as in Geeqie: groups of the images in the list that are identical, have
+  the same name, size or dimensions, or look alike; checked files go to the trash.
+
 ## [0.9.3] - 2026-10-12
 
 ### Added
