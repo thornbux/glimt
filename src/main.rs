@@ -2246,6 +2246,13 @@ fn svg(path: &Path) -> Result<image::DynamicImage, String> {
         .ok_or_else(|| "SVG size mismatch".into())
 }
 
+/// `work`, or an error if it panics: a decoder crashing on a broken file must not end the
+/// worker thread, which would leave every later image or thumbnail waiting forever.
+fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+        .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
+}
+
 /// Scale down to fit within `max`.
 fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicImage, String> {
     if img.width() > max[0] || img.height() > max[1] {
@@ -2329,7 +2336,7 @@ impl App {
                     let max = limits.lock().unwrap()[full as usize];
                     let rotated = rotate.load(Ordering::Relaxed);
                     // The histogram here too, so the UI thread never walks the pixels.
-                    let result = Some(decode(&path, max, rotated, page).map(
+                    let result = Some(survive(|| decode(&path, max, rotated, page)).map(
                         |(frames, orig, pages)| {
                             let hist = histogram(&frames[0].0);
                             (frames, orig, hist, pages)
@@ -2377,7 +2384,7 @@ impl App {
                             let (rotate, save) =
                                 (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
                             let large = LARGE_THUMBS.load(Ordering::Relaxed);
-                            thumbs::thumbnail(&path, rotate, save, large)
+                            survive(|| thumbs::thumbnail(&path, rotate, save, large))
                                 .ok()
                                 .map(|img| color_image(img.into()))
                         });
@@ -6082,6 +6089,12 @@ mod tests {
         let pos = |a| all.iter().position(|s| s.0 == a).unwrap();
         assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
         super::OWN_KEYS.write().unwrap().clear();
+    }
+
+    #[test]
+    fn survives_a_panic() {
+        assert_eq!(super::survive(|| Ok::<_, String>(1)), Ok(1));
+        assert!(super::survive(|| -> Result<(), String> { panic!("broken file") }).is_err());
     }
 
     #[test]
