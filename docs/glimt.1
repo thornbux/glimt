@@ -90,7 +90,10 @@ Start or stop the slideshow, pause it, random order.
 Rotate the view clockwise and counterclockwise.
 .TP
 .B Delete
-Move the selected files, or the shown one, to the trash.
+Move the selected files, or the shown one, to the trash; in a collection, take them out of it.
+.TP
+.BR C ", " O
+New collection of the selected files; open a collection.
 .TP
 .BR Ctrl+K ", " Alt+K
 The EXIF panel, with the keywords and comment; Alt+K to edit the keywords.
@@ -129,6 +132,9 @@ next to it, read by darktable and digiKam too.
 .I $XDG_DATA_HOME/glimt/plugins
 Plugins: desktop files whose command runs on the selected files (default
 .IR ~/.local/share/glimt/plugins ).
+.I $XDG_DATA_HOME/glimt/collections
+Collections, as Geeqie .gqv files (default
+.IR ~/.local/share/glimt/collections ).
 .TP
 .I $XDG_CACHE_HOME/thumbnails
 Thumbnails, shared with other programs as the freedesktop specification says.
@@ -138,6 +144,7 @@ The sockets for remote control.
 .SH ENVIRONMENT
 .TP
 .BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_CACHE_HOME ", " XDG_DATA_HOME ", " XDG_RUNTIME_DIR
+.BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME ", " XDG_RUNTIME_DIR
 Where the files above are kept.
 .SH EXAMPLES
 .TP

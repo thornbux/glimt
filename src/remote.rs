@@ -19,7 +19,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("fullscreen", "Enter or leave full screen"),
     (
         "open PATH",
-        "Show a file or folder (starts Glimt if it is not running)",
+        "Show a file, folder or collection (starts Glimt if it is not running)",
     ),
     ("quit", "Close Glimt"),
 ];

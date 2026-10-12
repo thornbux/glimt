@@ -196,6 +196,7 @@ Sway, X11 with a window manager) are very welcome.
 |---|---|
 | Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
 | Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
+| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |
 | Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` (`~/.cache/thumbnails/normal`), shared with other programs |
 
 The first two are plain `key=value` text files written atomically.
