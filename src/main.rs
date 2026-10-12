@@ -942,7 +942,8 @@ struct App {
     details: HashMap<OsString, (u64, i64)>,
     /// Names being deleted in the background; kept out of refreshed listings until done.
     deleting: HashSet<OsString>,
-    /// Deletes and moves done, and whether one failed: then the files may still be there.
+    /// Deletes and moves done, and whether to read the folder again: one failed, so the files
+    /// may still be there, or files were moved or copied into the list.
     deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
     deleted_rx: mpsc::Receiver<(Vec<PathBuf>, bool)>,
     /// PNG and WebP files saved turned in the background.
@@ -2975,22 +2976,24 @@ impl App {
     /// overwritten; a move across file systems falls back to copy + delete.
     fn transfer(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>, dest: PathBuf, keep: bool) {
         if !keep {
-            // Moved out of the shown folder: out of the list at once, as when deleting.
+            // Moved out of its folder: out of the list at once, as when deleting. Names in the
+            // list are relative to the folder, also those in subfolders.
             let names: HashSet<&std::ffi::OsStr> = paths
                 .iter()
-                .filter(|p| p.parent() == Some(self.dir.as_path()))
-                .filter_map(|p| p.file_name())
+                .filter(|p| p.parent() != Some(dest.as_path()))
+                .filter_map(|p| p.strip_prefix(&self.dir).ok())
+                .map(Path::as_os_str)
                 .collect();
             let gone: Vec<usize> = (0..self.files.len())
                 .filter(|&i| names.contains(self.files[i].as_os_str()))
                 .collect();
-            if dest != self.dir {
-                self.remove_indices(ctx, &gone);
-            }
+            self.remove_indices(ctx, &gone);
         }
         let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
         let deleted_tx = self.deleted_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
+        // Into the folder, or one below it in the list with subfolders: the files join the list.
+        let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
         let busy = self.busy.clone();
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
@@ -3019,9 +3022,9 @@ impl App {
             if let Some(first) = errors.first() {
                 let verb = if keep { "Copy" } else { "Move" };
                 let _ = tx.send(format!("{verb} failed ({} errors): {first}", errors.len()));
-                if !keep {
-                    let _ = deleted_tx.send((paths, true));
-                }
+            }
+            if listed || (!keep && !errors.is_empty()) {
+                let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, true));
             }
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
