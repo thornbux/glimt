@@ -169,6 +169,16 @@ fn signature(img: &image::RgbaImage) -> Vec<u8> {
     small.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect()
 }
 
+fn mean(s: &[u8]) -> f32 {
+    s.iter().map(|&v| v as f32).sum::<f32>() / s.len() as f32
+}
+
+/// The means of the four bands of a signature, top to bottom.
+fn bands(s: &[u8]) -> [f32; 4] {
+    let mut each = s.chunks(s.len().div_ceil(4)).map(mean);
+    [(); 4].map(|_| each.next().unwrap_or(0.0))
+}
+
 /// How alike two signatures are, 0–100: 100 less the mean difference of their values.
 fn likeness(a: &[u8], b: &[u8]) -> f32 {
     let diff: u32 = a.iter().zip(b).map(|(&x, &y)| x.abs_diff(y) as u32).sum();
@@ -179,18 +189,20 @@ fn likeness(a: &[u8], b: &[u8]) -> f32 {
 /// so a chain of small changes does not make one long group. Pictures are taken in order of
 /// mean value, and each is compared only with those whose mean is close enough to match at
 /// all: pictures `percent` alike differ by at most that much in mean too, so none are missed.
-/// ponytail: still all pairs when all pictures are about as bright; fine for thousands.
+/// Within that, the means of the four bands of the picture rule out most pairs before all 768
+/// values are compared: their differences add up to at most four times as much.
+/// ponytail: still a four-step check for every pair about as bright; slow when hundreds of
+/// thousands of pictures are.
 fn similar(
     paths: Vec<PathBuf>,
     signatures: Vec<Option<Vec<u8>>>,
     percent: u8,
     p: &Progress,
 ) -> Vec<Vec<PathBuf>> {
-    let mut items: Vec<(f32, usize, Vec<u8>)> = (signatures.into_iter().enumerate())
+    let mut items: Vec<(f32, usize, [f32; 4], Vec<u8>)> = (signatures.into_iter().enumerate())
         .filter_map(|(i, s)| {
             let s = s?;
-            let mean = s.iter().map(|&v| v as f32).sum::<f32>() / s.len() as f32;
-            Some((mean, i, s))
+            Some((mean(&s), i, bands(&s), s))
         })
         .collect();
     items.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -204,13 +216,20 @@ fn similar(
         if grouped[k] {
             continue;
         }
-        let (mean, i, sig) = &items[k];
+        let (mean, i, bands, sig) = &items[k];
         let mut group = vec![paths[*i].clone()];
-        for (n, (other_mean, j, other)) in items.iter().enumerate().skip(k + 1) {
+        for (n, (other_mean, j, other_bands, other)) in items.iter().enumerate().skip(k + 1) {
             if other_mean - mean > reach {
                 break;
             }
-            if !grouped[n] && likeness(sig, other) >= percent as f32 {
+            let apart: f32 = bands
+                .iter()
+                .zip(other_bands)
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+            // A little room for rounding: this only rules out pairs that cannot match.
+            let near = apart <= 4.0 * reach + 0.01;
+            if !grouped[n] && near && likeness(sig, other) >= percent as f32 {
                 grouped[n] = true;
                 group.push(paths[*j].clone());
             }
@@ -225,6 +244,33 @@ fn similar(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The band means never rule out a pair that is alike enough.
+    #[test]
+    fn bands_never_miss_a_match() {
+        let mut seed = 1u32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8
+        };
+        for _ in 0..2000 {
+            let a: Vec<u8> = (0..768).map(|_| next()).collect();
+            // Changed by up to ±40 here and there, more in one band than the others.
+            let b: Vec<u8> = (a.iter().enumerate())
+                .map(|(i, &v)| match (i < 192, next() % 3) {
+                    (true, 0) => v.saturating_add(next() % 40),
+                    (_, 1) => v.saturating_sub(next() % 20),
+                    _ => v,
+                })
+                .collect();
+            let alike = likeness(&a, &b);
+            let apart: f32 = (bands(&a).iter().zip(bands(&b)))
+                .map(|(x, y)| (x - y).abs())
+                .sum();
+            let reach = (100.0 - alike) * 255.0 / 100.0;
+            assert!(apart <= 4.0 * reach + 0.01, "{apart} > 4 × {reach}");
+        }
+    }
 
     #[test]
     fn finds_duplicates() {
