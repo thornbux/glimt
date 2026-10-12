@@ -174,6 +174,7 @@ enum Action {
     Thumbnails,
     ExifPanel,
     ExifWindow,
+    SortManager,
     FolderTree,
     Refresh,
     Slideshow,
@@ -317,6 +318,7 @@ impl Action {
             PathBar => "Show Folder Path",
             Thumbnails => "Show Thumbnails",
             ExifPanel => "Show EXIF Panel",
+            SortManager => "Show Sort Manager",
             ExifWindow => "EXIF Window",
             FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
@@ -442,6 +444,8 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (ExifWindow, CTRL, Key::E),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
+        // Before S (slideshow), which would also match with Shift.
+        (SortManager, SHIFT, Key::S),
         (Slideshow, NONE, Key::S),
         (Pause, NONE, Key::P),
         (RandomOrder, NONE, Key::R),
@@ -460,6 +464,8 @@ enum Pick {
     Open,
     CopyTo(Vec<PathBuf>),
     MoveTo(Vec<PathBuf>),
+    /// A folder for the sort manager.
+    SortFolder,
 }
 
 /// What the one-line text dialog is asking for.
@@ -553,6 +559,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "Sort manager (Shift+S)",
+        "Copies or moves; kept in ~/.config/glimt/sort-folders",
+        "Also links, copies the path, and undoes the last one",
     ),
     (
         "Images as icons (Ctrl+I)",
@@ -854,6 +865,8 @@ struct App {
     mounting: Option<mpsc::Receiver<(Mounted, Login)>>,
     /// The login dialog for a network share that needs one.
     login: Option<Login>,
+    /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
+    sort_folders: Vec<PathBuf>,
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
@@ -1499,6 +1512,11 @@ fn config_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "config")
 }
 
+/// `$XDG_CONFIG_HOME/glimt/sort-folders`: the sort manager's folders, one on each line.
+fn sort_folders_path() -> Option<PathBuf> {
+    xdg_file("XDG_CONFIG_HOME", ".config", "sort-folders")
+}
+
 /// `$XDG_STATE_HOME/glimt/state`, otherwise `~/.local/state/glimt/state`.
 /// State (such as the last folder) is not configuration, and belongs here according to XDG.
 fn state_path() -> Option<PathBuf> {
@@ -1702,6 +1720,10 @@ config! {
     save_thumbnails: bool = true,
     /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
     exif_panel: bool = false,
+    /// Sort manager on the right (Shift+S): folders to copy or move the selected files to.
+    sort_manager: bool = false,
+    /// The sort manager moves the files; off, it copies them.
+    sort_move: bool = false,
     /// Folders as a tree from / (Ctrl+T) instead of the subfolders of the current one.
     folder_tree: bool = false,
     /// Toolbar under the menu, as in Geeqie.
@@ -2545,6 +2567,8 @@ impl App {
             notices_tx,
             mounting: None,
             login: None,
+            sort_folders: (sort_folders_path().and_then(|p| std::fs::read_to_string(p).ok()))
+                .map_or_else(Vec::new, |t| t.lines().map(PathBuf::from).collect()),
             grid_cols: 1,
             compare: false,
             capturing: None,
@@ -3014,6 +3038,7 @@ impl App {
             Pick::Open => "Open File",
             Pick::CopyTo(_) => "Copy to Folder",
             Pick::MoveTo(_) => "Move to Folder",
+            Pick::SortFolder => "Add to the Sort Manager",
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -3957,6 +3982,80 @@ impl App {
         }
     }
 
+    /// The sort manager (Shift+S), as in Geeqie: a click on a folder copies or moves the selected
+    /// files, or the shown one, there.
+    fn sort_manager(&mut self, ui: &mut egui::Ui) {
+        let mut remove = None;
+        egui::Panel::right("sort manager")
+            .resizable(true)
+            .default_size(200.0)
+            .show(ui, |ui| {
+                ui.strong("Sort Manager");
+                ui.horizontal(|ui| {
+                    let c = &mut self.config;
+                    let changed = ui.radio_value(&mut c.sort_move, false, "Copy").changed()
+                        | ui.radio_value(&mut c.sort_move, true, "Move").changed();
+                    if changed {
+                        c.save();
+                    }
+                });
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui.small_button("×").on_hover_text("Remove").clicked() {
+                                remove = Some(k);
+                            }
+                            let name = dir.file_name().unwrap_or(dir.as_os_str());
+                            let here = dir == self.dir;
+                            let button = ui.add_enabled(
+                                !here && !self.files.is_empty(),
+                                egui::Button::new(name.to_string_lossy()),
+                            );
+                            if button.on_hover_text(dir.display().to_string()).clicked() {
+                                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+                                self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
+                            }
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Add This Folder").clicked() {
+                            self.add_sort_folder(self.dir.clone());
+                        }
+                        if ui.button("Add…").clicked() {
+                            self.pick(ui.ctx(), true, Pick::SortFolder);
+                        }
+                    });
+                });
+            });
+        if let Some(k) = remove {
+            self.sort_folders.remove(k);
+            self.save_sort_folders();
+        }
+    }
+
+    fn add_sort_folder(&mut self, dir: PathBuf) {
+        if !self.sort_folders.contains(&dir) {
+            self.sort_folders.push(dir);
+            self.save_sort_folders();
+        }
+    }
+
+    fn save_sort_folders(&mut self) {
+        let text: String = (self.sort_folders.iter())
+            .map(|d| format!("{}\n", d.display()))
+            .collect();
+        let saved = sort_folders_path()
+            .ok_or("no home folder".to_owned())
+            .and_then(|p| {
+                let _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
+                std::fs::write(&p, text).map_err(|e| e.to_string())
+            });
+        if let Err(e) = saved {
+            self.notice = Some(format!("Could not save the sort manager's folders: {e}"));
+        }
+    }
+
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
     fn exif_panel(&mut self, ui: &mut egui::Ui) {
         self.want_exif();
@@ -4786,6 +4885,7 @@ impl App {
             Action::PathBar
             | Action::Toolbar
             | Action::ExifPanel
+            | Action::SortManager
             | Action::Overlay
             | Action::Icons
             | Action::FolderTree
@@ -4801,6 +4901,7 @@ impl App {
                     Action::FolderTree => &mut c.folder_tree,
                     Action::HistogramLog => &mut c.histogram_log,
                     Action::Animate => &mut c.animate,
+                    Action::SortManager => &mut c.sort_manager,
                     _ => &mut c.exif_panel,
                 };
                 *flag = !*flag;
@@ -5029,6 +5130,7 @@ impl eframe::App for App {
                 (Pick::Open, Some(path)) => self.visit(ctx, path),
                 (Pick::CopyTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, true),
                 (Pick::MoveTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, false),
+                (Pick::SortFolder, Some(dir)) => self.add_sort_folder(dir),
             }
         }
 
@@ -5194,6 +5296,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
                         menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+                        menu_toggle(ui, act, c.sort_manager, Action::SortManager);
                         menu_toggle(ui, act, self.exif_window, Action::ExifWindow);
                         menu_toggle(ui, act, c.osd, Action::Overlay);
                         menu_item(ui, act, Action::Histogram);
@@ -5929,6 +6032,9 @@ impl eframe::App for App {
             self.run(ctx, action);
         }
 
+        if !bare && self.config.sort_manager {
+            self.sort_manager(ui);
+        }
         if !bare && self.config.exif_panel && !self.files.is_empty() {
             self.exif_panel(ui);
         }

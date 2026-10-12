@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The sort manager (Shift+S), as in Geeqie: a list of folders on the right; a click on one
+  copies or moves the selected files there.
+
 ## [0.9.4] - 2026-10-12
 
 ### Changed
