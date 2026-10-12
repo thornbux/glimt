@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Keywords and a comment for each image, as in Geeqie, in the EXIF panel (Ctrl+K, Alt+K):
+  saved to the XMP sidecar `photo.jpg.xmp` that darktable and digiKam read, and found by
+  `exif:` searches. Keywords inside the image are shown too, and can be added to many files.
+
+### Changed
+
+- Renaming, moving, copying and deleting take a file's XMP sidecar along.
+
 ## [0.9.4] - 2026-10-12
 
 ### Changed

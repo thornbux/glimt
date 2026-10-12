@@ -285,10 +285,11 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
     Some((segments, false))
 }
 
-/// The EXIF block of a JPEG from its first 256 KB, where it is: the decoder would read the whole
-/// file, and sorting by EXIF date reads every file of the folder. `Some(None)` if it has none;
-/// `None` if that part is not enough to tell, so the decoder reads the whole file after all.
-fn jpeg_exif(path: &Path) -> Option<Option<Vec<u8>>> {
+/// The APP1 segment of a JPEG that starts with `prefix` (EXIF or XMP), from its first 256 KB,
+/// where it is: the decoder would read the whole file, and sorting by EXIF date reads every file
+/// of the folder. `Some(None)` if it has none; `None` if it is no JPEG or that part is not enough
+/// to tell, so the decoder reads the whole file after all.
+pub fn jpeg_app1(path: &Path, prefix: &[u8]) -> Option<Option<Vec<u8>>> {
     use std::io::Read;
     let mut head = Vec::new();
     let file = std::fs::File::open(path).ok()?;
@@ -297,10 +298,10 @@ fn jpeg_exif(path: &Path) -> Option<Option<Vec<u8>>> {
         return None;
     }
     let (segments, done) = jpeg_segments(&head)?;
-    let exif = segments
+    let found = segments
         .iter()
-        .find(|s| s.0 == 0xe1 && head[s.1..].starts_with(b"Exif\0\0"));
-    match exif {
+        .find(|s| s.0 == 0xe1 && head[s.1..].starts_with(prefix));
+    match found {
         Some(&(_, start, len)) => Some(Some(head.get(start..start + len)?.to_vec())),
         None => done.then_some(None),
     }
@@ -385,7 +386,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         return Some(data[at..].to_vec());
     }
     if crate::has_ext(path, &["jpg", "jpeg"])
-        && let Some(exif) = jpeg_exif(path)
+        && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
     {
         return exif;
     }
@@ -681,7 +682,7 @@ mod tests {
             let rows = super::read(&file);
             rows.iter().find(|r| r.0 == "Camera").map(|r| r.1.clone())
         };
-        let from_head = || super::jpeg_exif(&dir.join("a.jpg"));
+        let from_head = || super::jpeg_app1(&dir.join("a.jpg"), b"Exif\0\0");
         assert_eq!(camera(&jpeg(0)), Some("Canon".into()));
         assert!(matches!(from_head(), Some(Some(_))));
         assert_eq!(camera(&jpeg(5)), Some("Canon".into()));

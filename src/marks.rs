@@ -134,23 +134,7 @@ fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
 /// An existing sidecar keeps everything else: only the rating changes, or is added to its first
 /// rdf:Description. Without a sidecar, 0 stars writes none.
 pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
-    let mut name = path.file_name().ok_or("no file name")?.to_owned();
-    name.push(".xmp");
-    let side = path.with_file_name(name);
-    let text = match std::fs::read_to_string(&side) {
-        Ok(text) => set_rating(&text, stars).ok_or("unreadable XMP sidecar")?,
-        Err(_) if stars == 0 => return Ok(()),
-        Err(_) => format!(
-            "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
-             <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
-             <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
-             <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" \
-             xmp:Rating=\"{stars}\"/>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
-        ),
-    };
-    let tmp = side.with_extension("xmp.tmp");
-    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &side).map_err(|e| e.to_string())
+    crate::meta::update_sidecar(path, stars == 0, |x| set_rating(x, stars))
 }
 
 /// `xmp` with its rating set to `stars`, as an attribute or element, or added; `None` if it has
