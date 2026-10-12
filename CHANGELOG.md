@@ -5,6 +5,37 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-12
+
+### Changed
+
+- A PNG or WebP turned and saved keeps its EXIF block (camera, date, place), also a lossy
+  WebP, and its orientation is set upright, as the pixels are saved as the view showed them.
+  Files with EXIF were left alone before.
+- Sorting by EXIF date and the `exif:` search read only the start of a JPEG, where its EXIF
+  block is, not the whole file: much faster in large folders and on network shares.
+- With Auto Rotate Using EXIF off, new thumbnails are no longer saved to the shared cache,
+  where the file manager showed them on their side.
+- A message from a background job keeps the selection; only a failed delete or move reads the
+  folder again.
+- Faster in large folders: "Sort by number", the status bar and slideshow while searching, and
+  the total size in the list with subfolders, which no longer holds a second list of the tree.
+- The release workflow uses other projects' actions pinned to a commit.
+
+### Fixed
+
+- Two images with the same name and another extension (`a.png`, `a.webp`) saved turned at the
+  same time could replace one with the other's bytes.
+- A PNG or WebP turned again, or saved again, while it was still being saved could end up
+  broken or turned twice; a decoder crash while saving left the busy pointer on.
+- Rename Many failing halfway left files under hidden temporary names; the renames done are
+  now undone.
+- Moved files stayed in the list with subfolders, and files moved or copied into a folder the
+  list shows only appeared with auto refresh on.
+- In the Flatpak, a window opened with Ctrl+N took over the first one's remote control, and
+  windows could write the same temporary marks, config or thumbnail file.
+- Values from ffprobe that are not numbers no longer reach ffmpeg's filter for HEIC photos.
+
 ## [0.9.3] - 2026-10-12
 
 ### Added
