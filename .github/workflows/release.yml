@@ -1,6 +1,6 @@
 # Build and publish a release when a tag vX.Y.Z is pushed (or by hand, for an existing tag):
-# a portable binary linked against glibc 2.28 with every feature, as a tar.gz and a .deb, and the
-# version's section of CHANGELOG.md as the release notes.
+# a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb and an .rpm,
+# and the version's section of CHANGELOG.md as the release notes.
 name: Release
 
 on:
@@ -39,7 +39,7 @@ jobs:
           version: 0.14.1
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-zigbuild,cargo-deb
+          tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm
       - name: Build against glibc ${{ env.GLIBC }}
         run: cargo zigbuild --release --locked --features full --target "$TARGET.$GLIBC"
       - name: Check the glibc it needs
@@ -56,6 +56,8 @@ jobs:
           tar czf "$dir.tar.gz" "$dir"
       - name: .deb
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"
+      - name: .rpm
+        run: cargo generate-rpm --target "$TARGET" -o "glimt-${VERSION}-1.x86_64.rpm"
       - name: Release notes from CHANGELOG.md
         run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
       - uses: softprops/action-gh-release@v2
@@ -66,3 +68,4 @@ jobs:
           files: |
             glimt-${{ env.VERSION }}-x86_64-linux.tar.gz
             glimt_${{ env.VERSION }}_amd64.deb
+            glimt-${{ env.VERSION }}-1.x86_64.rpm

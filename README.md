@@ -27,12 +27,14 @@ The images in the screenshots are generated for the purpose.
 
 ## Installing
 
-Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debian and Ubuntu
-and a `.tar.gz` for other distributions. Both have every optional feature built in and run on
-systems with glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04 and later).
+Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debian and Ubuntu, an
+`.rpm` for Fedora and RHEL, and a `.tar.gz` for other distributions. All have every optional
+feature built in and run on systems with glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04
+and later).
 
 ```sh
 sudo apt install ./glimt_0.9.1_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+sudo dnf install ./glimt-0.9.1-1.x86_64.rpm  # Fedora, RHEL: the same
 
 tar xzf glimt-0.9.1-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
 ./glimt-0.9.1-x86_64-linux/glimt

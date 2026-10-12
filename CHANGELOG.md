@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An `.rpm` package for Fedora and RHEL in each release.
+
 ### Fixed
 
 - The `.deb` asked for glibc 2.34 although Glimt needs only 2.28, so it would not install on
