@@ -2166,6 +2166,7 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
         let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;
+        check_size(&dec)?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
@@ -2187,6 +2188,18 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
     Ok((img, icc))
 }
 
+/// The size limit `ImageReader` applies, for decoders made directly: a header that claims a
+/// huge image must not make Glimt allocate gigabytes (which aborts the process).
+fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
+    match dec.total_bytes() {
+        n if n > MAX_DECODE => Err(format!("image too large ({})", human_size(n))),
+        _ => Ok(()),
+    }
+}
+
+/// image's default limit (`Limits::max_alloc`).
+const MAX_DECODE: u64 = 512 << 20;
+
 /// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
 /// stays sharp when fitted to the window.
 #[cfg(feature = "svg")]
@@ -2207,7 +2220,10 @@ fn svg(path: &Path) -> Result<image::DynamicImage, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
-    let scale = (2048.0 / size.width().max(size.height())).max(1.0);
+    // At most 8192 pixels on the longer side: an SVG may claim any size, and the pixmap is
+    // 4 bytes per pixel (60000×60000 would be 14 GB).
+    let longer = size.width().max(size.height());
+    let scale = (2048.0 / longer).max(1.0).min(8192.0 / longer);
     let (w, h) = (
         (size.width() * scale).ceil() as u32,
         (size.height() * scale).ceil() as u32,
