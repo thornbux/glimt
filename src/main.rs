@@ -855,7 +855,10 @@ struct App {
     /// The login dialog for a network share that needs one.
     login: Option<Login>,
     /// "Open With" applications by file extension, found once per extension.
-    apps: HashMap<String, Vec<(String, PathBuf)>>,
+    /// `None` while `apps_for` runs in the background.
+    apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
+    apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
     /// Commands from `glimt --remote`.
     remote: mpsc::Receiver<String>,
     /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
@@ -2430,6 +2433,7 @@ impl App {
         });
         let (notices_tx, notices) = mpsc::channel();
         let (tree_tx, tree_rx) = mpsc::channel();
+        let (apps_tx, apps_rx) = mpsc::channel();
         let (remote_tx, remote_rx) = mpsc::channel();
         if config.remote_control {
             remote::listen(remote_tx, cc.egui_ctx.clone());
@@ -2457,6 +2461,8 @@ impl App {
             remote: remote_rx,
             has_focus: true,
             apps: HashMap::new(),
+            apps_tx,
+            apps_rx,
             row_step: 1,
             notices,
             notice: None,
@@ -3135,7 +3141,24 @@ impl App {
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
         let path = self.path(self.cur);
         ui.menu_button("Open With", |ui| {
-            let apps = self.apps.entry(ext).or_insert_with(|| apps_for(&path));
+            // The menu keeps the width of its first frame, "…": names must not wrap to it.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            for (ext, apps) in self.apps_rx.try_iter() {
+                self.apps.insert(ext, Some(apps));
+            }
+            // apps_for runs gio twice: in the background, so the menu never stalls.
+            let apps = self.apps.entry(ext.clone()).or_insert_with(|| {
+                let (tx, ctx) = (self.apps_tx.clone(), ui.ctx().clone());
+                std::thread::spawn(move || {
+                    let _ = tx.send((ext, apps_for(&path)));
+                    ctx.request_repaint();
+                });
+                None
+            });
+            let Some(apps) = apps else {
+                ui.label("…");
+                return;
+            };
             if apps.is_empty() {
                 ui.label("No applications found");
             }
