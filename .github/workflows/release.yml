@@ -59,7 +59,7 @@ jobs:
           dir="glimt-$VERSION-x86_64-linux"
           mkdir -p "$dir"
           cp "target/$TARGET/release/glimt" assets/glimt.desktop assets/glimt.svg assets/glimt-256.png \
-             docs/glimt.1 LICENSE README.md CHANGELOG.md "$dir/"
+             docs/glimt.1 LICENSE README.md CHANGELOG.md assets/fonts/LICENSE-*.txt "$dir/"
           tar czf "$dir.tar.gz" "$dir"
       - name: .deb
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"

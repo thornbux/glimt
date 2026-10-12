@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A newer look: the Inter typeface, Phosphor icons, rounder and roomier widgets, and the
+  desktop's light or dark style and accent colour (Preferences can choose light or dark).
+
 ## [0.10.0] - 2026-10-12
 
 ### Added

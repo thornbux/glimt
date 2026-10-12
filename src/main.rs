@@ -27,6 +27,7 @@ mod print;
 mod raw;
 mod remote;
 mod search;
+mod theme;
 mod thumbs;
 #[cfg(feature = "video")]
 mod video;
@@ -1027,6 +1028,9 @@ struct App {
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
     apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    /// The desktop's dark style and accent colour, once read from the portal.
+    desktop_look: (Option<bool>, Option<egui::Color32>),
+    desktop_rx: Option<mpsc::Receiver<(Option<bool>, Option<egui::Color32>)>>,
     /// Edit → Plugins, read at start.
     plugins: Vec<plugins::Plugin>,
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
@@ -1935,6 +1939,8 @@ config! {
     icons: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
+    /// "system" (the desktop's light or dark style), "dark" or "light".
+    theme: String = String::from("system"),
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -2717,6 +2723,15 @@ impl App {
         // One EXIF reader that skips to the newest request, so fast browsing never queues up.
         let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
         let (exif_tx, exif_done) = mpsc::channel();
+        theme::fonts(&cc.egui_ctx);
+        theme::apply(&cc.egui_ctx, &config.theme, None, None);
+        // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
+        let (desktop_tx, desktop_rx) = mpsc::channel();
+        let ctx = cc.egui_ctx.clone();
+        std::thread::spawn(move || {
+            let _ = desktop_tx.send(theme::desktop());
+            ctx.request_repaint();
+        });
         let ctx = cc.egui_ctx.clone();
         std::thread::spawn(move || {
             while let Ok(mut path) = exif_rx.recv() {
@@ -2771,6 +2786,8 @@ impl App {
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
+            desktop_look: (None, None),
+            desktop_rx: Some(desktop_rx),
             plugins: plugins::find(),
             apps_rx,
             row_step: 1,
@@ -4549,25 +4566,37 @@ impl App {
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
             ui.horizontal(|ui| {
-                tool_button(ui, act, "⬅", Action::Back, false);
-                tool_button(ui, act, "➡", Action::Forward, false);
-                tool_button(ui, act, "⬆", Action::Up, false);
-                tool_button(ui, act, "🏠", Action::Home, false);
-                tool_button(ui, act, "🔄", Action::Refresh, false);
+                tool_button(ui, act, theme::icon::BACK, Action::Back, false);
+                tool_button(ui, act, theme::icon::FORWARD, Action::Forward, false);
+                tool_button(ui, act, theme::icon::UP, Action::Up, false);
+                tool_button(ui, act, theme::icon::HOME, Action::Home, false);
+                tool_button(ui, act, theme::icon::REFRESH, Action::Refresh, false);
                 ui.separator();
-                tool_button(ui, act, "➕", Action::ZoomIn, false);
-                tool_button(ui, act, "➖", Action::ZoomOut, false);
+                tool_button(ui, act, theme::icon::ZOOM_IN, Action::ZoomIn, false);
+                tool_button(ui, act, theme::icon::ZOOM_OUT, Action::ZoomOut, false);
                 tool_button(ui, act, "1:1", Action::Zoom1To1, false);
-                tool_button(ui, act, "⛶", Action::ZoomFit, self.zoom.is_none());
+                tool_button(
+                    ui,
+                    act,
+                    theme::icon::FIT,
+                    Action::ZoomFit,
+                    self.zoom.is_none(),
+                );
                 ui.separator();
-                tool_button(ui, act, "🖼", Action::Thumbnails, self.config.thumbnails);
+                tool_button(
+                    ui,
+                    act,
+                    theme::icon::THUMBNAILS,
+                    Action::Thumbnails,
+                    self.config.thumbnails,
+                );
                 let show = if self.slideshow.is_some() {
-                    "⏹"
+                    theme::icon::STOP
                 } else {
-                    "▶"
+                    theme::icon::PLAY
                 };
                 tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
-                tool_button(ui, act, "⚙", Action::Preferences, false);
+                tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
             });
         });
     }
@@ -4673,7 +4702,11 @@ impl App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
                         ui.horizontal(|ui| {
-                            if ui.small_button("×").on_hover_text("Remove").clicked() {
+                            if ui
+                                .small_button(theme::icon::CLOSE)
+                                .on_hover_text("Remove")
+                                .clicked()
+                            {
                                 remove = Some(k);
                             }
                             let name = dir.file_name().unwrap_or(dir.as_os_str());
@@ -5298,7 +5331,7 @@ impl App {
     /// Fuzzy search box above the file list.
     fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if !self.search.is_empty() && ui.small_button("✖").clicked() {
+            if !self.search.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
                 self.search.clear();
                 self.update_search(ui.ctx());
                 self.scroll_to_cur = true;
@@ -5944,6 +5977,11 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
+        if let Some(look) = self.desktop_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.desktop_look = look;
+            self.desktop_rx = None;
+            theme::apply(ctx, &self.config.theme, look.0, look.1);
+        }
         let ppp = ctx.pixels_per_point();
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.limits.lock().unwrap()[1] = [max_side, max_side];
@@ -6333,6 +6371,28 @@ impl eframe::App for App {
                     let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
                         .text("quality when a lossy WebP is saved again");
                     changed |= ui.add(quality).changed();
+                    ui.horizontal(|ui| {
+                        let before = self.config.theme.clone();
+                        egui::ComboBox::from_id_salt("theme")
+                            .selected_text(match before.as_str() {
+                                "dark" => "Dark",
+                                "light" => "Light",
+                                _ => "As the desktop",
+                            })
+                            .show_ui(ui, |ui| {
+                                for (value, label) in
+                                    [("system", "As the desktop"), ("dark", "Dark"), ("light", "Light")]
+                                {
+                                    ui.selectable_value(&mut self.config.theme, value.into(), label);
+                                }
+                            });
+                        ui.label("Style");
+                        if self.config.theme != before {
+                            changed = true;
+                            let (dark, accent) = self.desktop_look;
+                            theme::apply(ui.ctx(), &self.config.theme, dark, accent);
+                        }
+                    });
                     ui.horizontal(|ui| {
                         changed |= ui
                             .color_edit_button_srgb(&mut self.config.background.0)
@@ -6884,11 +6944,20 @@ impl eframe::App for App {
                                 .show_rows(ui, row_h, rows, |ui, range| {
                                     for row in range {
                                         let (label, target) = match (row, &up) {
-                                            (0, Some(parent)) => ("⬆ ..".to_owned(), parent),
+                                            (0, Some(parent)) => {
+                                                (format!("{}  ..", theme::icon::UP), parent)
+                                            }
                                             _ => {
                                                 let d = &self.subdirs[row - up.is_some() as usize];
                                                 let name = d.file_name().unwrap_or_default();
-                                                (format!("📁 {}", name.to_string_lossy()), d)
+                                                (
+                                                    format!(
+                                                        "{}  {}",
+                                                        theme::icon::FOLDER,
+                                                        name.to_string_lossy()
+                                                    ),
+                                                    d,
+                                                )
                                             }
                                         };
                                         if ui.selectable_label(false, label).clicked() {

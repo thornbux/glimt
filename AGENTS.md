@@ -47,6 +47,7 @@ documentation.
 | `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
+| `src/theme.rs` | The look: Inter and Phosphor fonts, widget style, the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
 | `tools/sbom.py` | Writes `sbom.cdx.json` |

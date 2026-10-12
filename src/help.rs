@@ -177,9 +177,9 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, \
-         what is shown, window and memory use, and how deleting works. Under Keyboard \
-         shortcuts, Change gives an action the next key you press; Reset gives it Geeqie's \
-         keys back.",
+         the style (light or dark as the desktop, which also gives the accent colour), what is \
+         shown, window and memory use, and how deleting works. Under Keyboard shortcuts, \
+         Change gives an action the next key you press; Reset gives it Geeqie's keys back.",
     ),
 ];
 
@@ -449,6 +449,12 @@ const CREDITS: &[(&str, &str, &str)] = &[
         "MIT or Apache-2.0",
     ),
     ("fast_image_resize", "Kirill Kuzminykh", "MIT or Apache-2.0"),
+    (
+        "Inter",
+        "The Inter Project Authors",
+        "SIL Open Font License 1.1",
+    ),
+    ("Phosphor Icons", "Phosphor Icons", "MIT"),
     ("Ubuntu font", "Dalton Maag", "Ubuntu Font Licence 1.0"),
     ("Noto Emoji", "Google", "SIL Open Font License 1.1"),
     ("emoji-icon-font, Hack", "Font authors", "MIT"),
