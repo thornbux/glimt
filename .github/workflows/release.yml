@@ -1,6 +1,6 @@
 # Build and publish a release when a tag vX.Y.Z is pushed (or by hand, for an existing tag):
 # a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb and an .rpm,
-# and the version's section of CHANGELOG.md as the release notes.
+# a Flatpak bundle, and the version's section of CHANGELOG.md as the release notes.
 name: Release
 
 on:
@@ -78,3 +78,38 @@ jobs:
           # Run again by hand for a tag with a release already: replace its files.
           gh release create "$TAG" --title "Glimt $VERSION" --notes-file notes.md $files ||
             gh release upload "$TAG" --clobber $files
+
+  # Built beside the release in Flathub's image, and added to it afterwards, so that a broken
+  # Flatpak build does not hold back the other packages.
+  flatpak:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Build the bundle
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          flatpak-builder --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo \
+              build flatpak/io.github.thornbux.Glimt.yml
+          flatpak build-bundle repo "glimt-${TAG#v}-x86_64.flatpak" io.github.thornbux.Glimt \
+              --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak
+          path: glimt-*.flatpak
+
+  flatpak-publish:
+    needs: [release, flatpak]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: flatpak
+      - name: Add it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag || github.ref_name }}" --clobber -R "$GITHUB_REPOSITORY" glimt-*.flatpak
