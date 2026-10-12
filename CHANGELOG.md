@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The `.deb` asked for glibc 2.34 although Glimt needs only 2.28, so it would not install on
+  Debian 10 and 11 or Ubuntu 20.04.
+
 ## [0.9.1] - 2026-10-12
 
 ### Added

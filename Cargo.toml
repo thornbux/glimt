@@ -51,7 +51,8 @@ extended-description = """\
 A fast, memory-frugal image viewer with Geeqie's keyboard shortcuts. It handles folders of any \
 size, reads JPEG, PNG, WebP, GIF, TIFF, camera RAW, HEIC, AVIF, JPEG XL and SVG, and shares \
 its thumbnails with the file manager."""
-depends = "$auto"
+# Not "$auto": dpkg-shlibdeps rounds glibc up to 2.34, the binary needs 2.28.
+depends = "libc6 (>= 2.28)"
 recommends = "ffmpeg, zenity, libglib2.0-bin"
 assets = [
     ["target/release/glimt", "usr/bin/", "755"],
