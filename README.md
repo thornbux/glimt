@@ -13,6 +13,26 @@ quick look, which is what an image viewer is for.
 > welcome: open an issue or send a pull request (see
 > [CONTRIBUTING.md](CONTRIBUTING.md)).
 
+## Why Glimt
+
+- **It keeps up with you.** Hold down the arrow key and the images follow: the ones on each side
+  are decoded in advance, at the size of the window. The file list draws only what is on screen,
+  so it scrolls, searches and sorts as smoothly with 300,000 images as with ten.
+- **It stays small.** Images are kept at the size they are shown, not at full resolution, and
+  memory goes back to the system when you move on. A broken file cannot take gigabytes or bring
+  the viewer down.
+- **It feels at home on Linux.** Dark by default, or following the desktop's light or dark style
+  and accent colour, with themes for low vision. The thumbnail cache is the one the file
+  manager uses, network shares open through GVfs, deleted files go to the trash.
+- **Geeqie users know it already.** The keyboard shortcuts are Geeqie's, collections are Geeqie
+  `.gqv` files, plugins are Geeqie's desktop files, and the help lists every difference.
+- **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable and
+  digiKam read, and follow the file when it is renamed, moved or copied. Turning a JPEG changes
+  its orientation tag, not its pixels. Copy and move never overwrite a file.
+- **No setup.** One binary that runs on any distribution with glibc 2.28 or newer, packaged as
+  `.deb`, `.rpm`, `.tar.gz` and Flatpak. No library to import, no database to build: open a
+  folder and look.
+
 ## Screenshots
 
 The images in the screenshots are generated for the purpose.
@@ -25,6 +45,35 @@ The images in the screenshots are generated for the purpose.
 | File size and date columns, and the EXIF panel (Ctrl+K) | Fuzzy search: "sun" finds sunflower and sunrise, and also de**s**ert_d**un**es |
 | ![The sort menu](docs/screenshots/sort-menu.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
 | The sort menu in the status bar | Help → Keyboard Map |
+
+## Features
+
+**Viewing**
+- Zoom, fit, 1:1, zoom kept between images, full screen, rotate, mirror and flip.
+- Layouts with two or four images at once, and Compare (E) side by side at the same zoom.
+- Slideshow with random order, repeat, all subfolders, and every pane of a layout.
+- Histogram, information over the image, an EXIF panel and a window with every EXIF field.
+- Colour-managed: photos with Adobe RGB or Display P3 profiles are shown correctly.
+
+**Finding and organising**
+- Fuzzy search on file names, and search in EXIF, keywords and comments (`exif:canon 2024:05`).
+- Sort by name, number, date, EXIF date, size or extension.
+- Marks 1–6 and 0–5 stars, keywords and a comment for each image.
+- Collections: lists of images from any folders, saved and opened again.
+- Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
+- The sort manager: move or copy images to favourite folders with one click.
+- Pan view: every image in the folder as a timeline of thumbnails by day.
+
+**Files**
+- Copy, move, rename (many at once with a pattern), delete to the trash.
+- Save the rotation to the file. Copy images or paths to the clipboard, open them with another
+  application, and print them to any CUPS printer or a PDF.
+- Plugins: run any command on the selected images from the Edit menu.
+- Remote control from scripts and desktop shortcuts: `glimt --remote next`.
+
+**Formats**
+- JPEG, PNG, WebP, GIF, TIFF (also animated and multi-page), the previews inside camera RAW
+  files, HEIC, AVIF, JPEG XL, SVG, and video thumbnails.
 
 ## Installing
 
