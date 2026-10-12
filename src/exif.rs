@@ -186,20 +186,7 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err("only JPEG files can store the orientation".into());
     }
-    // The segments before the image data: (marker, start of its data, length of its data).
-    let mut segments = Vec::new();
-    let mut i = 2;
-    while let (Some(&0xff), Some(&marker)) = (data.get(i), data.get(i + 1)) {
-        if marker == 0xda {
-            break;
-        }
-        let len = u16::from_be_bytes([
-            *data.get(i + 2).ok_or("cut off")?,
-            *data.get(i + 3).ok_or("cut off")?,
-        ]) as usize;
-        segments.push((marker, i + 4, len.saturating_sub(2)));
-        i += 2 + len;
-    }
+    let (segments, _) = jpeg_segments(&data).ok_or("cut off")?;
     let exif = segments
         .iter()
         .find(|s| s.0 == 0xe1 && data[s.1..].starts_with(b"Exif\0\0"));
@@ -279,6 +266,46 @@ pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// JPEG segments: (marker, start of its data, length of its data).
+type Segments = Vec<(u8, usize, usize)>;
+
+/// The segments of a JPEG before its image data, and whether the image data was reached; `None`
+/// if a segment's length is cut off.
+fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
+    let mut segments = Vec::new();
+    let mut i = 2;
+    while let (Some(&0xff), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+        if marker == 0xda {
+            return Some((segments, true));
+        }
+        let len = u16::from_be_bytes([*data.get(i + 2)?, *data.get(i + 3)?]) as usize;
+        segments.push((marker, i + 4, len.saturating_sub(2)));
+        i += 2 + len;
+    }
+    Some((segments, false))
+}
+
+/// The EXIF block of a JPEG from its first 256 KB, where it is: the decoder would read the whole
+/// file, and sorting by EXIF date reads every file of the folder. `Some(None)` if it has none;
+/// `None` if that part is not enough to tell, so the decoder reads the whole file after all.
+fn jpeg_exif(path: &Path) -> Option<Option<Vec<u8>>> {
+    use std::io::Read;
+    let mut head = Vec::new();
+    let file = std::fs::File::open(path).ok()?;
+    file.take(1 << 18).read_to_end(&mut head).ok()?;
+    if !head.starts_with(&[0xff, 0xd8]) {
+        return None;
+    }
+    let (segments, done) = jpeg_segments(&head)?;
+    let exif = segments
+        .iter()
+        .find(|s| s.0 == 0xe1 && head[s.1..].starts_with(b"Exif\0\0"));
+    match exif {
+        Some(&(_, start, len)) => Some(Some(head.get(start..start + len)?.to_vec())),
+        None => done.then_some(None),
+    }
+}
+
 /// Add an orientation field to an EXIF block that has none: a copy of IFD0 with the field is
 /// put at the end of the block and the header pointed at it. Everything else stays where it
 /// is, so no other offset changes.
@@ -356,6 +383,11 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
             .windows(8)
             .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
         return Some(data[at..].to_vec());
+    }
+    if crate::has_ext(path, &["jpg", "jpeg"])
+        && let Some(exif) = jpeg_exif(path)
+    {
+        return exif;
     }
     image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
@@ -613,6 +645,52 @@ mod tests {
     }
 
     /// A JPEG without EXIF gets one; turning again changes the field in place.
+    /// The EXIF block from the head of a JPEG; past the head, as after big other segments, from
+    /// the whole file; none if the image data comes first.
+    #[test]
+    fn reads_jpeg_exif_from_head() {
+        let dir = std::env::temp_dir().join(format!("glimt-head-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut base = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(
+                &mut std::io::Cursor::new(&mut base),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let app1 =
+            b"Exif\0\0II*\0\x08\0\0\0\x01\0\x0f\x01\x02\0\x06\0\0\0\x1a\0\0\0\0\0\0\0Canon\0";
+        let segment = |marker: u8, data: &[u8]| {
+            let mut s = vec![0xff, marker];
+            s.extend(((data.len() + 2) as u16).to_be_bytes());
+            s.extend(data);
+            s
+        };
+        let jpeg = |before: usize| {
+            let mut j = vec![0xff, 0xd8];
+            for _ in 0..before {
+                j.extend(segment(0xe2, &[0; 60_000]));
+            }
+            j.extend(segment(0xe1, app1));
+            j.extend(&base[2..]);
+            j
+        };
+        let camera = |data: &[u8]| {
+            let file = dir.join("a.jpg");
+            std::fs::write(&file, data).unwrap();
+            let rows = super::read(&file);
+            rows.iter().find(|r| r.0 == "Camera").map(|r| r.1.clone())
+        };
+        let from_head = || super::jpeg_exif(&dir.join("a.jpg"));
+        assert_eq!(camera(&jpeg(0)), Some("Canon".into()));
+        assert!(matches!(from_head(), Some(Some(_))));
+        assert_eq!(camera(&jpeg(5)), Some("Canon".into()));
+        assert_eq!(from_head(), None);
+        assert_eq!(camera(&base), None);
+        assert_eq!(from_head(), Some(None));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn writes_orientation() {
         let dir = std::env::temp_dir().join(format!("glimt-orient-{}", std::process::id()));
