@@ -1018,7 +1018,11 @@ fn heif(path: &Path) -> Result<image::DynamicImage, String> {
 #[cfg(any(feature = "heic", feature = "avif", test))]
 fn heif_filter(probe: &str) -> Option<String> {
     let grid = probe.lines().find(|l| l.contains("type=Tile Grid"))?;
-    let fields: Vec<(&str, &str)> = grid.split('|').filter_map(|f| f.split_once('=')).collect();
+    // Numbers only: the values go into ffmpeg's filter text, where other text could add filters.
+    let fields: Vec<(&str, &str)> = (grid.split('|'))
+        .filter_map(|f| f.split_once('='))
+        .filter(|f| f.1.parse::<i64>().is_ok())
+        .collect();
     let get = |key: &str| {
         fields
             .iter()
@@ -6625,5 +6629,8 @@ mod tests {
             )
         );
         assert_eq!(super::heif_filter("stream|index=0\n"), None);
+        // A value that is not a number is left out, and adds no filter of its own.
+        let hostile = probe.replace("t:stream_index=1", "t:stream_index=1];movie=x[a");
+        assert!(!super::heif_filter(&hostile).unwrap().contains("movie"));
     }
 }
