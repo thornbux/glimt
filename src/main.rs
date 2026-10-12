@@ -941,6 +941,9 @@ struct App {
     deleting: HashSet<OsString>,
     deleted_tx: mpsc::Sender<Vec<PathBuf>>,
     deleted_rx: mpsc::Receiver<Vec<PathBuf>>,
+    /// PNG and WebP files saved turned in the background.
+    saved_tx: mpsc::Sender<PathBuf>,
+    saved_rx: mpsc::Receiver<PathBuf>,
     /// Background deletes, copies and moves still running, for the busy pointer.
     busy: Arc<AtomicUsize>,
     /// File name search above the file list, and the matching files best first while it has
@@ -1901,7 +1904,8 @@ fn decode(
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
 /// pixels are turned and the file written again with its ICC profile. PNG and lossless WebP
 /// lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in sRGB as ffmpeg
-/// drops the profile. The new file replaces the old in one rename.
+/// drops the profile. The new file replaces the old in one rename. Files with an EXIF block are
+/// left alone, as it would be lost.
 fn save_rotated(
     path: &Path,
     rotate: bool,
@@ -1920,6 +1924,15 @@ fn save_rotated(
         if dec.has_animation() {
             return Err("animated WebP files are not turned".into());
         }
+    }
+    // Writing the pixels again would drop the EXIF block (camera, date, place).
+    let exif = image::ImageReader::open(path)
+        .and_then(|r| r.with_guessed_format())
+        .ok()
+        .and_then(|r| r.into_decoder().ok())
+        .and_then(|mut d| d.exif_metadata().ok().flatten());
+    if exif.is_some() {
+        return Err("the file has EXIF data, which saving it again would lose".into());
     }
     let (mut img, icc) = load_icc(path, rotate)?;
     if mirrored {
@@ -2391,6 +2404,7 @@ impl App {
         }
         let (freed_tx, freed_rx) = mpsc::channel();
         let (deleted_tx, deleted_rx) = mpsc::channel();
+        let (saved_tx, saved_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
@@ -2481,6 +2495,8 @@ impl App {
             deleting: HashSet::new(),
             deleted_tx,
             deleted_rx,
+            saved_tx,
+            saved_rx,
             busy: Arc::new(AtomicUsize::new(0)),
             search: String::new(),
             matches: None,
@@ -2991,7 +3007,7 @@ impl App {
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.orient != (0, false);
         if saved {
-            self.save_orientation();
+            self.save_orientation(ctx);
         }
         let notice = if saved { self.notice.take() } else { None };
         self.cur = idx.min(self.files.len() - 1);
@@ -3157,36 +3173,57 @@ impl App {
         }
     }
 
-    /// Write the view's rotation into the shown JPEG as its EXIF orientation and show the file
-    /// as it is now. ponytail: in the UI thread; a JPEG is read and written in milliseconds.
-    fn save_orientation(&mut self) {
+    /// Write the view's rotation into the shown file and show it as it is now.
+    /// ponytail: a JPEG in the UI thread, as it is read and written in milliseconds.
+    fn save_orientation(&mut self, ctx: &egui::Context) {
         let (turns, mirrored) = self.orient;
         if self.files.is_empty() || (turns, mirrored) == (0, false) {
             return;
         }
         let path = self.path(self.cur);
-        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned.
-        let jpeg = has_ext(&path, &["jpg", "jpeg"]);
-        let saved = if jpeg {
-            exif::write_orientation(&path, turns, mirrored)
-        } else {
-            let quality = self.config.webp_quality;
-            save_rotated(&path, self.config.exif_rotate, turns, mirrored, quality)
-        };
-        if let Err(e) = saved {
+        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned, which
+        // takes seconds for a large one, so in the background.
+        if !has_ext(&path, &["jpg", "jpeg"]) {
+            let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
+            let (saved, notices, busy, ctx) = (
+                self.saved_tx.clone(),
+                self.notices_tx.clone(),
+                self.busy.clone(),
+                ctx.clone(),
+            );
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                match save_rotated(&path, rotate, turns, mirrored, quality) {
+                    Ok(()) => drop(saved.send(path)),
+                    Err(e) => drop(notices.send(format!("Could not save the orientation: {e}"))),
+                }
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+            return;
+        }
+        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
             self.notice = Some(format!("Could not save the orientation: {e}"));
             return;
         }
-        if jpeg && !self.config.exif_rotate {
+        if !self.config.exif_rotate {
             self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
         }
-        // Decode again with the new orientation, and make a new thumbnail.
-        self.orient = (0, false);
-        self.slots.remove(&self.cur);
-        self.pending.retain(|p| p.0 != self.cur);
-        self.thumbs.remove(&self.files[self.cur]);
-        self.thumbs_pending.remove(&self.files[self.cur]);
-        self.exif = None;
+        self.saved(&path);
+    }
+
+    /// `path` was saved turned: decode it again and make a new thumbnail.
+    fn saved(&mut self, path: &Path) {
+        if self.is_file(self.cur, path) {
+            self.orient = (0, false);
+            self.pending.retain(|p| p.0 != self.cur);
+            self.exif = None;
+        }
+        self.slots.retain(|_, s| s.path != path);
+        if let Ok(name) = path.strip_prefix(&self.dir) {
+            self.thumbs.remove(name.as_os_str());
+            self.thumbs_pending.remove(name.as_os_str());
+        }
         self.refill();
     }
 
@@ -4470,7 +4507,7 @@ impl App {
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
-            Action::SaveOrientation => self.save_orientation(),
+            Action::SaveOrientation => self.save_orientation(ctx),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::NextPage | Action::PrevPage => {
                 let pages = self.slots.get(&self.cur).map_or(1, |s| s.pages);
@@ -4689,6 +4726,9 @@ impl eframe::App for App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes(ctx);
         self.receive_deleted();
+        while let Ok(path) = self.saved_rx.try_recv() {
+            self.saved(&path);
+        }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.has_focus && self.config.remote_control {
             remote::focused();
