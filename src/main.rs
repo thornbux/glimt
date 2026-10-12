@@ -4239,7 +4239,13 @@ impl App {
                 .filter(|&i| dups.checked.contains(&self.path(i)))
                 .collect();
             self.selection_changed(ctx);
-            self.request_delete(ctx, true);
+            // With none selected the delete takes the shown image: only when the list still has
+            // every checked file, else it would be another one, or too few.
+            if self.selected.len() == dups.checked.len() {
+                self.request_delete(ctx, true);
+            } else {
+                self.notice = Some("The checked files are no longer all in the list".into());
+            }
         }
         if open {
             self.dups = Some(dups);
