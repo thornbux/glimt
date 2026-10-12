@@ -21,6 +21,7 @@ mod marks;
 mod meta;
 mod print;
 mod plugins;
+mod pan;
 mod raw;
 mod remote;
 mod search;
@@ -180,6 +181,7 @@ enum Action {
     ExifWindow,
     Keywords,
     SortManager,
+    PanView,
     FolderTree,
     Refresh,
     Slideshow,
@@ -327,6 +329,7 @@ impl Action {
             SortManager => "Show Sort Manager",
             ExifWindow => "EXIF Window",
             Keywords => "Keywords and Comment",
+            PanView => "Pan View",
             FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
@@ -451,6 +454,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (ExifPanel, CTRL, Key::K),
         (ExifWindow, CTRL, Key::E),
         (Keywords, ALT, Key::K),
+        (PanView, CTRL, Key::J),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
         // Before S (slideshow), which would also match with Shift.
@@ -468,6 +472,20 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Help, NONE, Key::F1),
     ]
 };
+
+/// The pan view's window (Ctrl+J).
+#[derive(Default)]
+struct Pan {
+    /// Days from the EXIF dates instead of the file dates.
+    exif: bool,
+    /// The days, and the folder and number of files they are for.
+    days: Option<(Vec<pan::Day>, PathBuf, usize)>,
+    rx: Option<mpsc::Receiver<Vec<pan::Day>>>,
+    /// The rows for this many columns, and their height.
+    rows: Vec<(f32, pan::Row)>,
+    columns: usize,
+    height: f32,
+}
 
 /// What a zenity file dialog was opened for.
 enum Pick {
@@ -615,6 +633,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Sort manager (Shift+S)",
         "Copies or moves; kept in ~/.config/glimt/sort-folders",
         "Also links, copies the path, and undoes the last one",
+    ),
+    (
+        "Pan view (Ctrl+J)",
+        "A timeline by day in a window over the main one",
+        "Its own window: timeline, calendar, folder tree and grid, with zoom",
     ),
     (
         "Images as icons (Ctrl+I)",
@@ -929,6 +952,7 @@ struct App {
     print: Option<PrintDialog>,
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
+    pan_window: Option<Pan>,
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
@@ -2647,6 +2671,7 @@ impl App {
             print: None,
             sort_folders: (sort_folders_path().and_then(|p| std::fs::read_to_string(p).ok()))
                 .map_or_else(Vec::new, |t| t.lines().map(PathBuf::from).collect()),
+            pan_window: None,
             grid_cols: 1,
             compare: false,
             capturing: None,
@@ -4278,6 +4303,114 @@ impl App {
         }
     }
 
+    /// The pan view (Ctrl+J): the images of the list by day. A click shows one, a double click
+    /// also closes the view.
+    fn pan_view(&mut self, ctx: &egui::Context) {
+        let Some(mut pan) = self.pan_window.take() else {
+            return;
+        };
+        // The days again when the list changed; only the visible rows are drawn.
+        let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.dir || d.2 != self.files.len());
+        if stale && pan.rx.is_none() {
+            let (tx, rx) = mpsc::channel();
+            let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
+            let (busy, ctx) = (self.busy.clone(), ctx.clone());
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let _ = tx.send(pan::timeline(&dir, &files, exif));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+            pan.rx = Some(rx);
+        }
+        if let Some(days) = pan.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            pan.days = Some((days, self.dir.clone(), self.files.len()));
+            pan.rx = None;
+            pan.columns = 0;
+        }
+        let (mut open, mut show, mut close) = (true, None, false);
+        egui::Window::new("Pan View")
+            .open(&mut open)
+            .default_size([900.0, 640.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut pan.exif, "EXIF date").changed() {
+                        pan.days = None;
+                        pan.rx = None;
+                    }
+                    match &pan.days {
+                        Some((days, ..)) => {
+                            let n = days.iter().filter(|d| d.0 != "No date").count();
+                            ui.weak(format!(
+                                "{} images on {} {}",
+                                thousands(days.iter().map(|d| d.1.len()).sum()),
+                                thousands(n),
+                                if n == 1 { "day" } else { "days" }
+                            ))
+                        }
+                        None => ui.spinner(),
+                    };
+                });
+                ui.separator();
+                let Some((days, ..)) = &pan.days else { return };
+                let cell = self.cell();
+                let heading = 26.0;
+                let columns = ((ui.available_width() / cell.x) as usize).max(1);
+                if columns != pan.columns {
+                    (pan.rows, pan.height) = pan::layout(days, columns, heading, cell.y);
+                    pan.columns = columns;
+                }
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show_viewport(ui, |ui, view| {
+                        ui.set_height(pan.height);
+                        let top = ui.min_rect().min;
+                        let first = pan.rows.partition_point(|r| r.0 + cell.y < view.min.y);
+                        for &(y, row) in &pan.rows[first..] {
+                            if y > view.max.y {
+                                break;
+                            }
+                            match row {
+                                pan::Row::Heading(d) => {
+                                    let (day, list) = &days[d];
+                                    ui.painter().text(
+                                        top + egui::vec2(4.0, y + heading - 6.0),
+                                        egui::Align2::LEFT_BOTTOM,
+                                        format!("{day}   {} images", thousands(list.len())),
+                                        egui::TextStyle::Body.resolve(ui.style()),
+                                        ui.visuals().strong_text_color(),
+                                    );
+                                }
+                                pan::Row::Cells(d, start) => {
+                                    let list = &days[d].1;
+                                    let end = (start + columns).min(list.len());
+                                    for (j, &i) in list[start..end].iter().enumerate() {
+                                        if i >= self.files.len() {
+                                            continue;
+                                        }
+                                        let at = top + egui::vec2(j as f32 * cell.x, y);
+                                        let rect = egui::Rect::from_min_size(at, cell);
+                                        let r = self.file_cell(ui, i, rect, i == self.cur);
+                                        if r.clicked() {
+                                            show = Some(i);
+                                        }
+                                        if r.double_clicked() {
+                                            (show, close) = (Some(i), true);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+            });
+        if let Some(i) = show {
+            self.go(ctx, i);
+        }
+        if open && !close {
+            self.pan_window = Some(pan);
+        }
+    }
+
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
     fn exif_panel(&mut self, ui: &mut egui::Ui) {
         self.want_exif();
@@ -5140,6 +5273,12 @@ impl App {
                 self.config.save();
                 self.focus_keywords = true;
             }
+            Action::PanView => {
+                self.pan_window = match self.pan_window {
+                    Some(_) => None,
+                    None => Some(Pan::default()),
+                }
+            }
             Action::Compare => {
                 self.compare = !self.compare;
                 self.refill();
@@ -5636,6 +5775,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
                         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
                         menu_toggle(ui, act, self.exif_window, Action::ExifWindow);
+                        menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
                         menu_toggle(ui, act, c.osd, Action::Overlay);
                         menu_item(ui, act, Action::Histogram);
                         menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
@@ -6100,6 +6240,7 @@ impl eframe::App for App {
                 self.print = Some(dialog);
             }
         }
+        self.pan_view(ctx);
 
         if self.exif_window && !self.files.is_empty() {
             self.want_exif();

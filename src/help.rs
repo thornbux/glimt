@@ -142,6 +142,13 @@ const MANUAL: &[(&str, &str)] = &[
          Handy for sorting a card's photos into albums.",
     ),
     (
+        "Pan view",
+        "Ctrl+J (View → Pan View) shows the images of the list as a timeline, as Geeqie's pan \
+         view does: thumbnails under a heading for each day, oldest first, by the file date or, \
+         with EXIF date ticked, the date the photo was taken. A click shows the image, a double \
+         click also closes the view. With Include Subfolders it covers the whole tree.",
+    ),
+    (
         "Panels",
         "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \

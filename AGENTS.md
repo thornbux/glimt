@@ -41,6 +41,7 @@ documentation.
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
 | `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
 | `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files |
+| `src/pan.rs` | Pan view: the list by day, and its rows |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/meta.rs` | Keywords and comment in XMP sidecars; sidecars that follow their files |
 | `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
