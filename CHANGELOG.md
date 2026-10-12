@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Layouts (View → Layout): two images side by side, two above each other, or four, also in
+  full screen and in the slideshow, which changes them all together or one at a time.
+
 ## [0.10.0] - 2026-10-12
 
 ### Added

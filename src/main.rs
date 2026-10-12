@@ -543,6 +543,21 @@ impl Dups {
     }
 }
 
+/// View → Layout: the config value, the menu label and the panes as [columns, rows].
+const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
+    ("1", "One Image", [1, 1]),
+    ("2x1", "Two Side by Side", [2, 1]),
+    ("1x2", "Two Above Each Other", [1, 2]),
+    ("2x2", "Four (2 × 2)", [2, 2]),
+];
+
+fn layout_grid(layout: &str) -> [usize; 2] {
+    LAYOUTS
+        .iter()
+        .find(|l| l.0 == layout)
+        .map_or([1, 1], |l| l.2)
+}
+
 /// What a zenity file dialog was opened for.
 enum Pick {
     Open,
@@ -708,6 +723,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Find Duplicates (D)",
         "Compares the images in the list; checked files go to the trash",
         "Files and folders dropped on its window; more methods, two sets, results to a collection",
+    ),
+    (
+        "Layouts (View → Layout)",
+        "1, 2 side by side, 2 above each other or 2 × 2, from the list; the slideshow changes them together or in turn",
+        "Split view (E, U, Y) with a file list for each pane; one image in a slideshow",
     ),
     (
         "Images as icons (Ctrl+I)",
@@ -1062,6 +1082,12 @@ struct App {
     capturing: Option<Action>,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
+    /// The images of a layout's panes after the first, which shows `cur`.
+    panes: Vec<usize>,
+    /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
+    /// shown last.
+    turn: usize,
+    latest: usize,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
     grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
@@ -1863,6 +1889,11 @@ config! {
     enlarge: bool = true,
     /// A slideshow starts again from the first image after the last; off, it stops there.
     slideshow_repeat: bool = true,
+    /// Several images at once (View → Layout): "1", "2x1", "1x2" or "2x2" (columns × rows).
+    layout: String = String::from("1"),
+    /// The layouts whose slideshow changes one image at a time, round the panes, separated by
+    /// commas; the others change them all together.
+    layout_turns: String = String::new(),
     /// Animated GIF and WebP play (A); off, the first frame is shown.
     animate: bool = true,
     /// Embedded ICC profiles are converted to sRGB.
@@ -2753,6 +2784,9 @@ impl App {
             pan_window: None,
             grid_cols: 1,
             compare: false,
+            panes: Vec::new(),
+            turn: 0,
+            latest: 0,
             capturing: None,
             recursive: false,
             collection: None,
@@ -4340,7 +4374,15 @@ impl App {
         if self.files.is_empty() || self.paused {
             return;
         }
-        let Some(next) = self.step(1, true) else {
+        // Several panes: the next set together, or the next image into one pane at a time.
+        let n = self.panes.len() + 1;
+        let turns = n > 1 && self.one_at_a_time();
+        let next = match n {
+            1 => self.step(1, true),
+            _ if turns => self.step_from(self.latest, 1, true),
+            _ => self.step(n as isize, true),
+        };
+        let Some(next) = next else {
             return;
         };
         let first = self.step(-isize::MAX / 2, false);
@@ -4354,7 +4396,15 @@ impl App {
             // New round: shuffle again instead of repeating the same order.
             self.set_random(ctx, true);
         } else if !self.pending.contains(&(next, false)) {
-            self.go(ctx, next);
+            if turns && self.turn > 0 {
+                self.panes[self.turn - 1] = next;
+                self.refill();
+            } else {
+                self.go(ctx, next);
+            }
+            if turns {
+                (self.latest, self.turn) = (next, (self.turn + 1) % n);
+            }
             self.slideshow = Some(Instant::now());
         }
     }
@@ -4371,12 +4421,44 @@ impl App {
         }
     }
 
+    /// The layout's slideshow changes one pane at a time.
+    fn one_at_a_time(&self) -> bool {
+        let layout = &self.config.layout;
+        self.config.layout_turns.split(',').any(|l| l == layout)
+    }
+
+    /// The panes after the first show the images that follow the shown one, except while a
+    /// slideshow changes them one at a time.
+    fn fill_panes(&mut self) {
+        let [c, r] = layout_grid(&self.config.layout);
+        let n = c * r;
+        let kept = self.slideshow.is_some()
+            && self.one_at_a_time()
+            && self.panes.len() + 1 == n
+            && self.panes.iter().all(|&i| i < self.files.len());
+        if kept {
+            return;
+        }
+        self.panes = (1..n as isize).filter_map(|k| self.step(k, true)).collect();
+        self.latest = self.panes.last().copied().unwrap_or(self.cur);
+        self.turn = 0;
+    }
+
+    fn set_layout(&mut self, layout: &str) {
+        self.config.layout = layout.to_owned();
+        self.config.save();
+        // Comparing is a layout of its own.
+        self.compare = false;
+        self.refill();
+    }
+
     /// Drop textures outside the preload window, and full-resolution versions of images other
     /// than the shown one; request the missing ones.
     fn refill(&mut self) {
         if self.files.is_empty() {
             return;
         }
+        self.fill_panes();
         // The shown image first, then its neighbours in the order the list shows.
         let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed) as isize);
         let mut window = vec![cur];
@@ -4384,6 +4466,19 @@ impl App {
         let other = self.compare_other().filter(|&i| i != cur);
         window.extend(other);
         self.full_ok.store(window.len(), Ordering::Relaxed);
+        // The other panes, and the images a slideshow shows in them next.
+        let n = self.panes.len() + 1;
+        let upcoming = (1..=n as isize).filter_map(|d| self.step_from(self.latest, d, true));
+        for i in self
+            .panes
+            .iter()
+            .copied()
+            .chain(upcoming.collect::<Vec<_>>())
+        {
+            if !window.contains(&i) {
+                window.push(i);
+            }
+        }
         for d in (1..=ahead).flat_map(|d| [d, -d]) {
             if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
                 window.push(i);
@@ -5209,6 +5304,58 @@ impl App {
             });
     }
 
+    /// View → Layout: one image, two or four, and how a slideshow changes them.
+    fn layout_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Layout", |ui| {
+            for (key, label, _) in LAYOUTS {
+                if ui.radio(self.config.layout == key, label).clicked() {
+                    self.set_layout(key);
+                }
+            }
+            if self.config.layout == "1" {
+                return;
+            }
+            ui.separator();
+            ui.weak("Slideshow in this layout:");
+            let turns = self.one_at_a_time();
+            let mut chosen = turns;
+            ui.radio_value(&mut chosen, false, "All Images Change Together");
+            ui.radio_value(&mut chosen, true, "One Image at a Time");
+            if chosen != turns {
+                let layout = self.config.layout.clone();
+                let mut list: Vec<&str> = (self.config.layout_turns.split(','))
+                    .filter(|l| !l.is_empty() && *l != layout)
+                    .collect();
+                if chosen {
+                    list.push(&layout);
+                }
+                self.config.layout_turns = list.join(",");
+                self.config.save();
+                self.refill();
+            }
+        });
+    }
+
+    /// Image `i` fitted into `rect`: one of a layout's panes after the first.
+    fn paint_pane(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
+        let Some(slot) = self.slots.get(&i) else {
+            return;
+        };
+        let ppp = ui.ctx().pixels_per_point();
+        let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
+        let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
+        let scale = if self.config.enlarge {
+            fit
+        } else {
+            fit.min(1.0)
+        };
+        let at = egui::Rect::from_center_size(rect.center(), size * scale / ppp);
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        ui.painter()
+            .with_clip_rect(rect)
+            .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
+    }
+
     /// The compared image in `rect`: at the same zoom and offset as the shown one when zoomed,
     /// else fitted, with its name above.
     fn paint_other(&mut self, ui: &egui::Ui, rect: egui::Rect, zoom: Option<f32>) {
@@ -5336,15 +5483,22 @@ impl App {
     /// while searching); clamped at the ends, or going round with `wrap`. A file the search
     /// hides counts as being before the first row.
     fn step(&self, delta: isize, wrap: bool) -> Option<usize> {
+        self.step_from(self.cur, delta, wrap)
+    }
+
+    /// As `step`, from file `from`.
+    fn step_from(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
         let m = self.matches.as_deref();
         let n = m.map_or(self.files.len(), <[usize]>::len) as isize;
         if n == 0 {
             return None;
         }
         let row = match m {
-            Some(m) => self.cur_row(m).map_or(-1, |r| r as isize),
-            None => self.cur as isize,
-        };
+            Some(m) if from == self.cur => self.cur_row(m),
+            Some(m) => m.iter().position(|&i| i == from),
+            None => Some(from),
+        }
+        .map_or(-1, |r| r as isize);
         let r = if wrap {
             (row + delta).rem_euclid(n)
         } else {
@@ -5721,6 +5875,10 @@ impl App {
             }
             Action::Compare => {
                 self.compare = !self.compare;
+                if self.compare && self.config.layout != "1" {
+                    self.config.layout = "1".into();
+                    self.config.save();
+                }
                 self.refill();
             }
             #[cfg(feature = "marks")]
@@ -6201,6 +6359,7 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::Preferences);
                     });
                     ui.menu_button("View", |ui| {
+                        self.layout_menu(ui);
                         ui.menu_button("Zoom", |ui| {
                             menu_item(ui, act, Action::ZoomIn);
                             menu_item(ui, act, Action::ZoomOut);
@@ -7075,9 +7234,23 @@ impl eframe::App for App {
                 egui::Color32::from_rgb(r, g, b)
             }))
             .show(ui, |ui| {
+                // A layout: the shown image in the first pane, the following ones in the rest.
+                let [cols, rows] = layout_grid(&self.config.layout);
+                let cell = ui.max_rect().size() / egui::vec2(cols as f32, rows as f32);
+                let panes: Vec<egui::Rect> = (0..rows * cols)
+                    .map(|k| {
+                        let at = egui::vec2((k % cols) as f32, (k / cols) as f32) * cell;
+                        let rect = egui::Rect::from_min_size(ui.max_rect().min + at, cell);
+                        if cols * rows > 1 {
+                            rect.shrink(1.0)
+                        } else {
+                            rect
+                        }
+                    })
+                    .collect();
                 // Comparing: the shown image on the left, the other on the right.
-                let full = ui.max_rect();
-                let (area, right) = if self.compare {
+                let full = panes[0];
+                let (area, right) = if self.compare && panes.len() == 1 {
                     let (l, r) = full.split_left_right_at_fraction(0.5);
                     (
                         l.shrink2(egui::vec2(1.0, 0.0)),
@@ -7278,6 +7451,9 @@ impl eframe::App for App {
                 }
                 if let Some(right) = right {
                     self.paint_other(ui, right, self.zoom);
+                }
+                for (rect, &i) in panes[1..].iter().zip(&self.panes) {
+                    self.paint_pane(ui, *rect, i);
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(
