@@ -29,7 +29,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A PNG or WebP turned again, or saved again, while it was still being saved could end up
   broken or turned twice; a decoder crash while saving left the busy pointer on.
 - Rename Many failing halfway left files under hidden temporary names; the renames done are
-  now undone.
+  now undone, and the message names the file instead of a temporary name.
+- After an image was saved turned, the status bar and the list still showed its old size.
 - Moved files stayed in the list with subfolders, and files moved or copied into a folder the
   list shows only appeared with auto refresh on.
 - In the Flatpak, a window opened with Ctrl+N took over the first one's remote control, and
