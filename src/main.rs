@@ -494,9 +494,9 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 struct Pan {
     /// Days from the EXIF dates instead of the file dates.
     exif: bool,
-    /// The days, and the folder and number of files they are for.
-    days: Option<(Vec<pan::Day>, PathBuf, usize)>,
-    rx: Option<mpsc::Receiver<Vec<pan::Day>>>,
+    /// The days, and the version of the file list they are for (`App::files_gen`).
+    days: Option<(Vec<pan::Day>, usize)>,
+    rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize)>>,
     /// The rows for this many columns, and their height.
     rows: Vec<(f32, pan::Row)>,
     columns: usize,
@@ -1046,6 +1046,9 @@ struct App {
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
     pan_window: Option<Pan>,
+    /// Goes up whenever the file list changes, so what was worked out from its indices can tell
+    /// that it is old, also when the list kept its length (another order).
+    files_gen: usize,
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
@@ -2811,6 +2814,7 @@ impl App {
             sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
+            files_gen: 0,
             grid_cols: 1,
             compare: false,
             panes: Vec::new(),
@@ -3307,6 +3311,7 @@ impl App {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
+        self.files_gen += 1;
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.errors = without_indices(std::mem::take(&mut self.errors), removed);
         self.selected.clear();
@@ -3399,6 +3404,7 @@ impl App {
     ) {
         let slot = self.slots.remove(&self.cur);
         self.files = files;
+        self.files_gen += 1;
         self.details.clear();
         self.anchor = None;
         self.selected.clear();
@@ -4921,22 +4927,24 @@ impl App {
         let Some(mut pan) = self.pan_window.take() else {
             return;
         };
-        // The days again when the list changed; only the visible rows are drawn.
-        let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.dir || d.2 != self.files.len());
+        // The days again when the list changed, also only its order; only the visible rows are
+        // drawn.
+        let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.files_gen);
         if stale && pan.rx.is_none() {
             let (tx, rx) = mpsc::channel();
             let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
-            let (busy, ctx) = (self.busy.clone(), ctx.clone());
+            let (busy, ctx, made) = (self.busy.clone(), ctx.clone(), self.files_gen);
             busy.fetch_add(1, Ordering::Relaxed);
             std::thread::spawn(move || {
-                let _ = tx.send(pan::timeline(&dir, &files, exif));
+                let _ = tx.send((pan::timeline(&dir, &files, exif), made));
                 busy.fetch_sub(1, Ordering::Relaxed);
                 ctx.request_repaint();
             });
             pan.rx = Some(rx);
         }
+        // Days for a list that changed meanwhile are taken as old, and made again.
         if let Some(days) = pan.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            pan.days = Some((days, self.dir.clone(), self.files.len()));
+            pan.days = Some(days);
             pan.rx = None;
             pan.columns = 0;
         }
@@ -4950,8 +4958,10 @@ impl App {
                         pan.days = None;
                         pan.rx = None;
                     }
-                    match &pan.days {
-                        Some((days, ..)) => {
+                    // Days of an older list are not shown while new ones are made: they point
+                    // at other images now.
+                    match pan.days.as_ref().filter(|d| d.1 == self.files_gen) {
+                        Some((days, _)) => {
                             let n = days.iter().filter(|d| d.0 != "No date").count();
                             ui.weak(format!(
                                 "{} images on {} {}",
@@ -4964,7 +4974,9 @@ impl App {
                     };
                 });
                 ui.separator();
-                let Some((days, ..)) = &pan.days else { return };
+                let Some((days, _)) = pan.days.as_ref().filter(|d| d.1 == self.files_gen) else {
+                    return;
+                };
                 let cell = self.cell();
                 let heading = 26.0;
                 let columns = ((ui.available_width() / cell.x) as usize).max(1);
