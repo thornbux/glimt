@@ -1106,6 +1106,8 @@ fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     // Prompts end in ": " without a newline, the next one printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
+    // gio asks again after a wrong password; answering again and again could lock the account.
+    let mut passwords = 0;
     while let Ok(n @ 1..) = out.read(&mut buf) {
         text.push_str(&String::from_utf8_lossy(&buf[..n]));
         let prompt = &text[answered..];
@@ -1119,6 +1121,14 @@ fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         };
         let prompt = prompt.rsplit('\n').next().unwrap_or(prompt).to_lowercase();
         let answer = if prompt.contains("password") {
+            passwords += 1;
+            if passwords > 1 {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Some(format!(
+                    "Could not mount {uri}: wrong user name or password"
+                )));
+            }
             &login.password
         } else if prompt.contains("domain") {
             &login.domain
