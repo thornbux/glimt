@@ -36,9 +36,12 @@ jobs:
       - name: System libraries for the window (Wayland, X11, OpenGL)
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
       - uses: dtolnay/rust-toolchain@stable
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.14.1
+      - name: Zig 0.14.1, for cargo-zigbuild
+        run: |
+          curl -sSfL -o zig.tar.xz https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+          echo "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c  zig.tar.xz" | sha256sum -c
+          tar xJf zig.tar.xz && rm zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.14.1" >> "$GITHUB_PATH"
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm
@@ -62,12 +65,11 @@ jobs:
         run: cargo generate-rpm --target "$TARGET" -o "glimt-${VERSION}-1.x86_64.rpm"
       - name: Release notes from CHANGELOG.md
         run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          tag_name: ${{ env.TAG }}
-          name: Glimt ${{ env.VERSION }}
-          body_path: notes.md
-          files: |
-            glimt-${{ env.VERSION }}-x86_64-linux.tar.gz
-            glimt_${{ env.VERSION }}_amd64.deb
-            glimt-${{ env.VERSION }}-1.x86_64.rpm
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files="glimt-$VERSION-x86_64-linux.tar.gz glimt_${VERSION}_amd64.deb glimt-$VERSION-1.x86_64.rpm"
+          # Run again by hand for a tag with a release already: replace its files.
+          gh release create "$TAG" --title "Glimt $VERSION" --notes-file notes.md $files ||
+            gh release upload "$TAG" --clobber $files
