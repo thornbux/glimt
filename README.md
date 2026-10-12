@@ -17,7 +17,7 @@ quick look, which is what an image viewer is for.
 
 - **It keeps up with you.** Hold down the arrow key and the images follow: the ones on each side
   are decoded in advance, at the size of the window. The file list draws only what is on screen,
-  so it scrolls, searches and sorts as smoothly with 300,000 images as with ten.
+  so it scrolls, searches and sorts as smoothly with 500,000 images as with ten.
 - **It stays small.** Images are kept at the size they are shown, not at full resolution, and
   memory goes back to the system when you move on. A broken file cannot take gigabytes or bring
   the viewer down.

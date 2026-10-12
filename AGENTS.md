@@ -8,10 +8,10 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - **Fast and snappy, always.** Nothing heavy on the UI thread: decoding, folder listing, file
   operations, mounting and external programs run in background threads and report back over
   `mpsc` channels, with a repaint request. Show the busy pointer (`busy` counter) while they run.
-- **As fast with 300,000 files in a folder as with 10.** No O(n) work per frame, no system call
+- **As fast with 500,000 files in a folder as with 10.** No O(n) work per frame, no system call
   per file in the list (use `DirEntry::file_type`), draw lists with `show_rows`, compare file
   names as bytes. Test large folders with hard links to one image, for example
-  `mkdir big && for i in $(seq 300000); do ln a.jpg big/$i.jpg; done` on tmpfs.
+  `mkdir big && for i in $(seq 500000); do ln a.jpg big/$i.jpg; done` on tmpfs.
 - **Little memory.** Decode to screen size; full resolution only when zoomed. Preloading has a
   fixed budget (N images on each side). Measure RssAnon before and after changes that touch
   decoding or caches.
