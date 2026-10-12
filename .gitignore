@@ -1,2 +1,4 @@
 /target
 /demo/
+/build-flatpak
+/.flatpak-builder

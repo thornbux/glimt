@@ -22,7 +22,7 @@ pub fn thumbnail(
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs());
     let uri = format!("file://{}", uri_path(path));
-    let cache = crate::xdg_dir("XDG_CACHE_HOME", ".cache", "thumbnails");
+    let cache = cache_dir();
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
     if let (Some(file), Some(mtime)) = (&file, mtime)
         && let Some(img) = read_cached(file, mtime)
@@ -105,11 +105,21 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     }
 }
 
+/// The shared cache. A Flatpak points XDG_CACHE_HOME to a folder of its own; the shared one is
+/// the host's.
+fn cache_dir() -> Option<std::path::PathBuf> {
+    let var = match std::env::var_os("FLATPAK_ID") {
+        Some(_) => "HOST_XDG_CACHE_HOME",
+        None => "XDG_CACHE_HOME",
+    };
+    crate::xdg_dir(var, ".cache", "thumbnails")
+}
+
 /// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is
 /// removed only when the file's folder is still there, so thumbnails of a disk that is not
 /// plugged in are kept.
 pub fn clean() -> (usize, usize) {
-    let Some(cache) = crate::xdg_dir("XDG_CACHE_HOME", ".cache", "thumbnails") else {
+    let Some(cache) = cache_dir() else {
         return (0, 0);
     };
     let (mut removed, mut seen) = (0, 0);
