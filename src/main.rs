@@ -6,6 +6,7 @@
 
 use eframe::egui;
 use image::ImageDecoder;
+use meta::Meta;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ mod exif;
 mod help;
 #[cfg(feature = "marks")]
 mod marks;
+mod meta;
 mod raw;
 mod remote;
 mod search;
@@ -174,6 +176,7 @@ enum Action {
     Thumbnails,
     ExifPanel,
     ExifWindow,
+    Keywords,
     FolderTree,
     Refresh,
     Slideshow,
@@ -318,6 +321,7 @@ impl Action {
             Thumbnails => "Show Thumbnails",
             ExifPanel => "Show EXIF Panel",
             ExifWindow => "EXIF Window",
+            Keywords => "Keywords and Comment",
             FolderTree => "Show Folder Tree",
             Refresh => "Refresh",
             Slideshow => "Start/Stop Slideshow",
@@ -440,6 +444,7 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Mark6, NONE, Key::Num6),
         (ExifPanel, CTRL, Key::K),
         (ExifWindow, CTRL, Key::E),
+        (Keywords, ALT, Key::K),
         (FolderTree, CTRL, Key::T),
         (Refresh, NONE, Key::F5),
         (Slideshow, NONE, Key::S),
@@ -553,6 +558,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "New Window (Ctrl+N)",
         "A new process in the same folder",
         "A new window in the same process, saved layouts",
+    ),
+    (
+        "Keywords and comment",
+        "In the EXIF panel (Ctrl+K), kept in the sidecar photo.jpg.xmp; found by exif: searches",
+        "Info sidebar with a keyword tree; kept in the image, a sidecar or Geeqie's own folder",
     ),
     (
         "Images as icons (Ctrl+I)",
@@ -730,12 +740,22 @@ struct Decoded {
 /// The frames, the original size after EXIF rotation, the histogram and the number of pages.
 type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
 
-/// A file's EXIF from the reader thread: the panel's rows and every field.
+/// A file's EXIF from the reader thread: the panel's rows, every field, keywords and comment.
 type ExifRead = (
     PathBuf,
     Vec<(&'static str, String)>,
     Vec<(&'static str, String, String)>,
+    meta::Meta,
 );
+
+/// Keywords and comment of the shown image as being edited in the EXIF panel, and as last read
+/// or saved, to tell whether they changed.
+struct MetaEdit {
+    path: PathBuf,
+    keywords: String,
+    comment: String,
+    saved: meta::Meta,
+}
 
 /// Pixel counts per level of red, green, blue and brightness.
 type Hist = [[u32; 256]; 4];
@@ -929,6 +949,11 @@ struct App {
     exif_all: Vec<(&'static str, String, String)>,
     exif_window: bool,
     exif_asked: Option<PathBuf>,
+    /// Keywords and comment in the EXIF panel; saved when a field loses the focus, or another
+    /// image is shown.
+    meta: Option<MetaEdit>,
+    /// Alt+K: put the focus in the keywords field when the panel shows next.
+    focus_keywords: bool,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Size in bytes of the shown file, for the status bar.
     cur_size: Option<(PathBuf, u64)>,
@@ -1245,8 +1270,11 @@ fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
                 s.spawn(move || {
                     part.iter()
                         .map(|name| {
-                            let rows = exif::read(&dir.join(name));
-                            let text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+                            let path = dir.join(name);
+                            let rows = exif::read(&path);
+                            let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+                            let meta = meta::read(&path).text();
+                            text.push(&meta);
                             (name.clone(), text.join(" ").to_lowercase())
                         })
                         .collect::<Vec<_>>()
@@ -2524,7 +2552,8 @@ impl App {
                 let mut rows = vec![("File size", human_size(size))];
                 rows.extend(exif::read(&path));
                 let all = exif::all(&path);
-                if exif_tx.send((path, rows, all)).is_err() {
+                let meta = meta::read(&path);
+                if exif_tx.send((path, rows, all, meta)).is_err() {
                     return;
                 }
                 ctx.request_repaint();
@@ -2623,6 +2652,8 @@ impl App {
             exif_all: Vec::new(),
             exif_window: false,
             exif_asked: None,
+            meta: None,
+            focus_keywords: false,
             exif: None,
             cur_size: None,
             path_text: String::new(),
@@ -2891,6 +2922,19 @@ impl App {
             if let Some(first) = errors.first() {
                 let _ = tx.send(format!("Delete failed ({} errors): {first}", errors.len()));
             }
+            // Their sidecars go the same way; a new file of the same name must not get their
+            // keywords.
+            let sides: Vec<PathBuf> = (paths.iter().filter(|p| !p.exists()))
+                .map(|p| meta::sidecar(p))
+                .filter(|s| s.exists())
+                .collect();
+            for chunk in sides.chunks(500) {
+                if trash {
+                    let _ = command("gio").arg("trash").arg("--").args(chunk).output();
+                } else {
+                    chunk.iter().for_each(|s| drop(std::fs::remove_file(s)));
+                }
+            }
             let _ = deleted_tx.send((paths, !errors.is_empty()));
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
@@ -3103,8 +3147,9 @@ impl App {
                         std::fs::copy(path, &target).and_then(|_| std::fs::remove_file(path))
                     })
                 };
-                if let Err(e) = result {
-                    errors.push(format!("{}: {e}", target.display()));
+                match result {
+                    Ok(()) => meta::follow(path, &target, keep),
+                    Err(e) => errors.push(format!("{}: {e}", target.display())),
                 }
             }
             if let Some(first) = errors.first() {
@@ -3330,7 +3375,8 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
-            Prompt::Rename => std::fs::rename(self.path(self.cur), &target),
+            Prompt::Rename => std::fs::rename(self.path(self.cur), &target)
+                .inspect(|_| meta::follow(&self.path(self.cur), &target, false)),
         };
         match (result, prompt) {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
@@ -3443,6 +3489,16 @@ impl App {
             return;
         }
         let swap = to.iter().any(|t| sources.contains(t));
+        // Sidecars go with their files, through the same steps.
+        let (mut from, mut to) = (from, to);
+        let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
+            .map(|(f, t)| (meta::sidecar(f), meta::sidecar(t)))
+            .filter(|(f, _)| f.exists())
+            .collect();
+        for (f, t) in sides {
+            from.push(f);
+            to.push(t);
+        }
         let tmp = |k: usize| {
             self.dir
                 .join(format!(".glimt-rename-{}-{k}", std::process::id()))
@@ -3936,7 +3992,18 @@ impl App {
             let _ = self.exif_jobs.send(path.clone());
             self.exif_asked = Some(path);
         }
-        for (path, rows, all) in self.exif_done.try_iter() {
+        let done: Vec<ExifRead> = self.exif_done.try_iter().collect();
+        for (path, rows, all, meta) in done {
+            // Kept while being edited: the reader may answer for the image again.
+            if self.meta.as_ref().is_none_or(|m| m.path != path) {
+                self.save_meta();
+                self.meta = Some(MetaEdit {
+                    path: path.clone(),
+                    keywords: meta.keywords_text(),
+                    comment: meta.comment.clone(),
+                    saved: meta,
+                });
+            }
             self.exif = Some((path, rows));
             self.exif_all = all;
         }
@@ -3993,8 +4060,98 @@ impl App {
                             ui.end_row();
                         }
                     });
+                    ui.separator();
+                    self.meta_fields(ui);
                 });
             });
+    }
+
+    /// Keywords and comment of the shown image, as in Geeqie's info sidebar.
+    fn meta_fields(&mut self, ui: &mut egui::Ui) {
+        let path = self.path(self.cur);
+        let Some(edit) = self.meta.as_mut().filter(|m| m.path == path) else {
+            return;
+        };
+        ui.weak("Keywords");
+        let keywords = ui.add(
+            egui::TextEdit::singleline(&mut edit.keywords)
+                .hint_text("Separated by commas")
+                .desired_width(f32::INFINITY),
+        );
+        if std::mem::take(&mut self.focus_keywords) {
+            keywords.request_focus();
+        }
+        ui.weak("Comment");
+        let comment = ui.add(
+            egui::TextEdit::multiline(&mut edit.comment)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY),
+        );
+        let add = Meta::parse_keywords(&edit.keywords);
+        let n = self.selected.len();
+        if n > 1
+            && !add.is_empty()
+            && ui
+                .button(format!("Add the keywords to the {} selected", thousands(n)))
+                .on_hover_text("Each file keeps its own keywords and gets these too")
+                .clicked()
+        {
+            self.add_keywords(ui.ctx(), add);
+        }
+        if keywords.lost_focus() || comment.lost_focus() {
+            self.save_meta();
+        }
+    }
+
+    /// Save the keywords and comment being edited, if they changed.
+    fn save_meta(&mut self) {
+        let Some(edit) = &mut self.meta else { return };
+        let meta = Meta {
+            keywords: Meta::parse_keywords(&edit.keywords),
+            comment: edit.comment.trim().to_owned(),
+        };
+        if meta == edit.saved {
+            return;
+        }
+        match meta::write(&edit.path, &meta) {
+            Ok(()) => {
+                edit.keywords = meta.keywords_text();
+                edit.saved = meta;
+                // "exif:" searches find keywords and comments too.
+                self.exif_index = None;
+            }
+            Err(e) => self.notice = Some(format!("Could not save the keywords: {e}")),
+        }
+    }
+
+    /// Add `keywords` to every selected file, in the background.
+    fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
+        // The shown image's own edit first; it is read again afterwards, with the added ones.
+        self.save_meta();
+        self.meta = None;
+        self.exif_asked = None;
+        self.exif_index = None;
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let mut errors = 0;
+            for path in &paths {
+                let mut m = meta::read(path);
+                for k in &keywords {
+                    if !m.keywords.contains(k) {
+                        m.keywords.push(k.clone());
+                    }
+                }
+                errors += meta::write(path, &m).is_err() as usize;
+            }
+            let _ = tx.send(match errors {
+                0 => format!("Keywords added to {} files", thousands(paths.len())),
+                n => format!("Keywords could not be saved for {} files", thousands(n)),
+            });
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
     }
 
     fn receive_thumbs(&mut self, ctx: &egui::Context) {
@@ -4724,6 +4881,11 @@ impl App {
                 }
             }
             Action::ExifWindow => self.exif_window = !self.exif_window,
+            Action::Keywords => {
+                self.config.exif_panel = true;
+                self.config.save();
+                self.focus_keywords = true;
+            }
             Action::Compare => {
                 self.compare = !self.compare;
                 self.refill();
@@ -4914,6 +5076,7 @@ impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         remote::stop();
+        self.save_meta();
         // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
         let mut state = String::new();
         if self.config.remember_dir {
@@ -5174,6 +5337,7 @@ impl eframe::App for App {
                             ui.separator();
                             menu_item(ui, act, Action::SaveOrientation);
                         });
+                        menu_item(ui, act, Action::Keywords);
                         ui.separator();
                         menu_item(ui, act, Action::Preferences);
                     });
@@ -5931,6 +6095,9 @@ impl eframe::App for App {
 
         if !bare && self.config.exif_panel && !self.files.is_empty() {
             self.exif_panel(ui);
+        } else {
+            // Hidden while a field had the focus: it never lost it.
+            self.save_meta();
         }
 
         // Actions from the image area, run after drawing it.

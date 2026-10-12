@@ -40,6 +40,7 @@ documentation.
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
+| `src/meta.rs` | Keywords and comment in XMP sidecars; sidecars that follow their files |
 | `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |

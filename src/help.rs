@@ -100,13 +100,23 @@ const MANUAL: &[(&str, &str)] = &[
         "Finding and sorting",
         "Type three or more letters in the search field above the file list: the list shows \
          the matching names, best first, ignoring case and gaps (like fzf). Start with exif: \
-         to search the EXIF instead, for example exif:canon 2024:05 for photos from a Canon \
+         to search the EXIF, keywords and comments instead, for example exif:canon 2024:05 for photos from a Canon \
          camera taken in May 2024; every word must match. The first EXIF search in a folder \
          reads all files once, which takes a while in large folders. With the marks feature, \
          1–6 toggle a mark, Ctrl+1–6 select the files with it and Alt+0–5 give stars; \
          mark:2 or stars:3 in the search field shows those files; a \
          setting also writes the stars to XMP sidecars for darktable and digiKam. The sort menu at \
          the bottom left sorts by name, number, date, EXIF date, size or extension.",
+    ),
+    (
+        "Keywords and comments",
+        "The EXIF panel (Ctrl+K) shows the keywords and comment of the image below its EXIF; \
+         Alt+K puts the cursor in the keywords, separated by commas. They are saved when you \
+         leave the field, to the sidecar photo.jpg.xmp that darktable and digiKam also read \
+         (as dc:subject and dc:description); keywords written into the image by other \
+         programs are shown too. With several files selected, a button adds the keywords to \
+         all of them. exif: searches find keywords and comments. Renaming, moving, copying \
+         and deleting in Glimt take the sidecar along.",
     ),
     (
         "Panels",
