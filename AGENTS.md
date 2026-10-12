@@ -39,6 +39,7 @@ documentation.
 | `src/main.rs` | The app: `Action` enum and `SHORTCUTS` table, `Config` (the `config!` macro), decode workers, file list, menus, dialogs, `DIFFERENCES` |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
+| `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |

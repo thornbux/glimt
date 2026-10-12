@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Printing (Ctrl+P), as in Geeqie: the selected images one per page, to a printer through CUPS
+  or into a PDF file, on A4 or Letter, with the file names below if chosen.
+
 ## [0.9.4] - 2026-10-12
 
 ### Changed
