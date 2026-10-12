@@ -142,8 +142,10 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
   (also `docker.io/library/almalinux:8` for glibc 2.28). Remove the storage afterwards with
   `podman unshare rm -rf /tmp/pod /tmp/podrun`.
 
-The Flatpak (`flatpak/io.github.thornbux.Glimt.yml`) is built by hand; its runtime, SDK and Rust
-extension take about 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
+The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
+Flathub's `freedesktop-26.08` image (change the image with `runtime-version`), and adds it to the
+release in a job of its own. To build it locally: its runtime, SDK and Rust extension take about
+4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
 
 ```sh
 export FLATPAK_USER_DIR=/tmp/fp/flatpak

@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A Flatpak bundle, `glimt-X.Y.Z-x86_64.flatpak`, in each release.
+
 ## [0.11.0] - 2026-10-12
 
 ### Added

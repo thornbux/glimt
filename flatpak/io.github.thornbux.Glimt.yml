@@ -1,8 +1,9 @@
 # Flatpak, built from this checkout:
 #   flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 #       build-flatpak flatpak/io.github.thornbux.Glimt.yml
-# Cargo fetches the crates during the build, so it needs the network; fine locally, not on
-# Flathub. ffmpeg, zenity and gio run on the host through flatpak-spawn, so the sandbox is loose.
+# The release workflow makes a bundle of it. Cargo fetches the crates during the build, so it
+# needs the network; fine locally and in the workflow, not on Flathub. ffmpeg, zenity and gio
+# run on the host through flatpak-spawn, so the sandbox is loose.
 id: io.github.thornbux.Glimt
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"
