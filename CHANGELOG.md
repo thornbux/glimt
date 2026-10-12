@@ -8,7 +8,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Layouts (View → Layout): two images side by side, two above each other, or four, also in
-  full screen and in the slideshow, which changes them all together or one at a time.
+  full screen and in the slideshow, which changes them all together or one at a time; the
+  file names in every pane or none.
 
 ## [0.10.0] - 2026-10-12
 

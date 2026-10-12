@@ -1894,6 +1894,8 @@ config! {
     /// The layouts whose slideshow changes one image at a time, round the panes, separated by
     /// commas; the others change them all together.
     layout_turns: String = String::new(),
+    /// Layouts with several panes show each image's file name in its pane.
+    layout_names: bool = false,
     /// Animated GIF and WebP play (A); off, the first frame is shown.
     animate: bool = true,
     /// Embedded ICC profiles are converted to sRGB.
@@ -5316,6 +5318,12 @@ impl App {
                 return;
             }
             ui.separator();
+            if ui
+                .checkbox(&mut self.config.layout_names, "Show File Names")
+                .changed()
+            {
+                self.config.save();
+            }
             ui.weak("Slideshow in this layout:");
             let turns = self.one_at_a_time();
             let mut chosen = turns;
@@ -5393,9 +5401,14 @@ impl App {
             p.with_clip_rect(rect)
                 .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
         }
-        let name = self.name(other);
+        self.paint_name(ui, rect, other);
+    }
+
+    /// The name of image `i` in the top left corner of `rect`.
+    fn paint_name(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
+        let p = ui.painter();
         let font = egui::TextStyle::Body.resolve(ui.style());
-        let galley = p.layout_no_wrap(name.into_owned(), font, egui::Color32::WHITE);
+        let galley = p.layout_no_wrap(self.name(i).into_owned(), font, egui::Color32::WHITE);
         let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
         p.rect_filled(text.expand(4.0), 3.0, egui::Color32::from_black_alpha(160));
         p.galley(text.min, galley, egui::Color32::WHITE);
@@ -7443,7 +7456,9 @@ impl eframe::App for App {
                         later = Some(Action::Play);
                     }
                 }
-                if bare && self.config.osd && !self.files.is_empty() {
+                // Several panes: the name in each or in none (after the panes are drawn), not the
+                // shown image's details in one.
+                if panes.len() == 1 && bare && self.config.osd && !self.files.is_empty() {
                     self.overlay(ui, area);
                 }
                 if self.config.histogram > 0 {
@@ -7454,6 +7469,12 @@ impl eframe::App for App {
                 }
                 for (rect, &i) in panes[1..].iter().zip(&self.panes) {
                     self.paint_pane(ui, *rect, i);
+                }
+                if panes.len() > 1 && self.config.layout_names && !self.files.is_empty() {
+                    let shown = std::iter::once(self.cur).chain(self.panes.iter().copied());
+                    for (rect, i) in panes.iter().zip(shown) {
+                        self.paint_name(ui, *rect, i);
+                    }
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(

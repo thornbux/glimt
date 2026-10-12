@@ -174,8 +174,8 @@ const MANUAL: &[(&str, &str)] = &[
          four (2 × 2). The first pane is the shown image, with zoom; the others show the images \
          that follow it in the list, so with random order (R) they are random too. For each \
          layout, the slideshow either changes all images together or one at a time, round the \
-         panes; choose in the same menu. With full screen (F) the panes fill the screen, as \
-         two or four borderless pictures.",
+         panes; choose in the same menu, as well as Show File Names, in every pane or none. \
+         With full screen (F) the panes fill the screen, as two or four borderless pictures.",
     ),
     (
         "Panels",
