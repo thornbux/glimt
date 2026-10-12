@@ -70,9 +70,37 @@ pub fn write(path: &Path, meta: &Meta) -> Result<(), String> {
     update_sidecar(path, *meta == Meta::default(), |x| set(x, meta))
 }
 
+/// Add `keywords` to those `path` has, read and written as one change.
+pub fn add(path: &Path, keywords: &[String]) -> Result<(), String> {
+    let _held = held();
+    let mut meta = read(path);
+    for k in keywords {
+        if !meta.keywords.contains(k) {
+            meta.keywords.push(k.clone());
+        }
+    }
+    update(path, meta == Meta::default(), |x| set(x, &meta))
+}
+
+/// Held while a sidecar is read and written again: keywords are added in the background while
+/// the stars or the comment of the same file may be saved, each through the same temporary file.
+fn held() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Change the sidecar of `path` with `change`, or a new, empty one unless `nothing` is to be
 /// written. Written to a temporary file first, so a crash never leaves half a sidecar.
 pub fn update_sidecar(
+    path: &Path,
+    nothing: bool,
+    change: impl FnOnce(&str) -> Option<String>,
+) -> Result<(), String> {
+    let _held = held();
+    update(path, nothing, change)
+}
+
+fn update(
     path: &Path,
     nothing: bool,
     change: impl FnOnce(&str) -> Option<String>,
@@ -271,6 +299,26 @@ mod tests {
             Meta::parse_keywords(" a, b,,a ,c "),
             ["a", "b", "c"].map(String::from)
         );
+    }
+
+    /// Keywords added from several threads at once: none is lost.
+    #[test]
+    fn changes_at_once_are_all_kept() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.png");
+        std::thread::scope(|s| {
+            for k in 0..8 {
+                let path = &path;
+                s.spawn(move || {
+                    for n in 0..10 {
+                        add(path, &[format!("k{k}-{n}")]).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(read(&path).keywords.len(), 80);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
