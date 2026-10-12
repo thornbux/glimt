@@ -84,6 +84,31 @@ python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 - New thumbnails are saved to the shared cache by default (`save_thumbnails`). Test with a
   separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 
+## Before a release
+
+Test the release branch by hand, built with `--features full`, with a separate `HOME`,
+`XDG_CACHE_HOME` and `XDG_RUNTIME_DIR` under `/tmp`, generated pictures and a virtual X display
+(`Xvfb :98`). A script named `zenity` early in `PATH` that prints a folder stands in for the file
+dialog. Compare timings with the last release, built the same way.
+
+- **Saving turned:** a PNG, a lossless WebP and a lossy WebP with EXIF orientation 6, turned with
+  `]` and saved (Edit → Orientation), with Auto Rotate on and off. `exiftool` must show the EXIF
+  kept and orientation 1, and the pixels must be as the view showed them.
+- **Saves at once:** `a.png` and `a.webp` of 6000×4000, both turned straight after each other
+  with saving on image change. Both must be turned and whole.
+- **Subfolders:** with Include Subfolders on and auto refresh off, copy and move files to the
+  folder and to a subfolder; the list must follow.
+- **Rename Many failing halfway:** names that swap, and one new name too long (over 255 bytes).
+  The files must keep their names, with no `.glimt-rename-*` left. A read-only file is no test,
+  as Linux renames it.
+- **Sorting by EXIF date:** 3,000 JPEGs of about 1 MB with different dates; compare the
+  "first image" time on stderr with the last release.
+- **Thumbnails:** with Auto Rotate off, nothing new in `$XDG_CACHE_HOME/thumbnails`.
+- **Flatpak:** two windows (Ctrl+N), `--remote next` to the focused one, `--remote-all next` to
+  both, `--remote-all quit`.
+- **Large folder:** 500,000 hard links to one JPEG; the "first image" time and RssAnon. Put them
+  in `/dev/shm`: `/tmp` allows about a million inodes, and every link takes one.
+
 ## Packages
 
 A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`, which builds against
