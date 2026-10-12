@@ -38,12 +38,14 @@ documentation.
 |---|---|
 | `src/main.rs` | The app: `Action` enum and `SHORTCUTS` table, `Config` (the `config!` macro), decode workers, file list, menus, dialogs, `DIFFERENCES` |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About |
+| `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders |
+| `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
-| `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
-| `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files |
-| `src/pan.rs` | Pan view: the list by day, and its rows |
-| `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/meta.rs` | Keywords and comment in XMP sidecars; sidecars that follow their files |
+| `src/pan.rs` | Pan view: the list by day, and its rows |
+| `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files |
+| `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
+| `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
