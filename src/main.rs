@@ -986,10 +986,17 @@ fn heif(path: &Path) -> Result<image::DynamicImage, String> {
         .arg(path)
         .output()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
-    let text = String::from_utf8_lossy(&probe.stdout);
-    let Some(grid) = text.lines().find(|l| l.contains("type=Tile Grid")) else {
-        return ffmpeg_frame(path, "0");
-    };
+    match heif_filter(&String::from_utf8_lossy(&probe.stdout)) {
+        Some(filter) => ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"]),
+        None => ffmpeg_frame(path, "0"),
+    }
+}
+
+/// The ffmpeg filter that puts the tiles of the "Tile Grid" in ffprobe's compact output
+/// together; `None` for an image that is not split into tiles.
+#[cfg(any(feature = "heic", feature = "avif", test))]
+fn heif_filter(probe: &str) -> Option<String> {
+    let grid = probe.lines().find(|l| l.contains("type=Tile Grid"))?;
     let fields: Vec<(&str, &str)> = grid.split('|').filter_map(|f| f.split_once('=')).collect();
     let get = |key: &str| {
         fields
@@ -1010,7 +1017,7 @@ fn heif(path: &Path) -> Result<image::DynamicImage, String> {
         }
     }
     if layout.len() < 2 {
-        return ffmpeg_frame(path, "0");
+        return None;
     }
     let turn = match get("rotation") {
         "-90" | "270" => ",transpose=clock",
@@ -1018,7 +1025,7 @@ fn heif(path: &Path) -> Result<image::DynamicImage, String> {
         "180" | "-180" => ",hflip,vflip",
         _ => "",
     };
-    let filter = format!(
+    Some(format!(
         "{inputs}xstack=inputs={}:layout={},crop={}:{}:{}:{}{turn}[out]",
         layout.len(),
         layout.join("|"),
@@ -1026,8 +1033,7 @@ fn heif(path: &Path) -> Result<image::DynamicImage, String> {
         get("tile_grid:height"),
         get("tile_grid:horizontal_offset"),
         get("tile_grid:vertical_offset"),
-    );
-    ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"])
+    ))
 }
 
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
@@ -6238,5 +6244,24 @@ mod tests {
         );
         assert_eq!(super::parse_last_dir("last_dir=\n"), None);
         assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
+    }
+
+    /// Two tiles side by side, cut to 1000×500 and turned a quarter: the keys as the parser
+    /// reads them from ffprobe's compact output.
+    #[test]
+    fn heif_grid_filter() {
+        let probe = "stream_group|index=0|type=Tile Grid|c:tile_grid:width=1000|\
+            c:tile_grid:height=500|c:tile_grid:horizontal_offset=0|\
+            c:tile_grid:vertical_offset=0|c:rotation=-90|\
+            t:stream_index=0|t:tile_horizontal_offset=0|t:tile_vertical_offset=0|\
+            t:stream_index=1|t:tile_horizontal_offset=512|t:tile_vertical_offset=0\n";
+        assert_eq!(
+            super::heif_filter(probe).as_deref(),
+            Some(
+                "[0:0][0:1]xstack=inputs=2:layout=0_0|512_0,crop=1000:500:0:0,\
+                 transpose=clock[out]"
+            )
+        );
+        assert_eq!(super::heif_filter("stream|index=0\n"), None);
     }
 }
