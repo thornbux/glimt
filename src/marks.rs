@@ -34,53 +34,91 @@ impl Marks {
     pub fn toggle(&mut self, paths: &[PathBuf], n: u8) {
         let bit = 1 << (n - 1);
         let all = paths.iter().all(|p| self.get(p).0 & bit != 0);
-        self.change(paths, |(bits, stars)| {
-            (if all { bits & !bit } else { bits | bit }, stars)
-        });
+        self.change(paths, Change::Mark(bit, !all));
     }
 
     pub fn rate(&mut self, paths: &[PathBuf], stars: u8) {
-        self.change(paths, |(bits, _)| (bits, stars));
+        self.change(paths, Change::Stars(stars));
     }
 
-    fn change(&mut self, paths: &[PathBuf], f: impl Fn((u8, u8)) -> (u8, u8)) {
-        for path in paths {
-            match f(self.get(path)) {
-                (0, 0) => drop(self.map.remove(path)),
-                v => drop(self.map.insert(path.clone(), v)),
-            }
-        }
-        self.save();
+    fn change(&mut self, paths: &[PathBuf], change: Change) {
+        apply(&mut self.map, paths, change);
+        save(paths.to_vec(), change);
     }
+}
 
-    /// Written in the background, renamed into place so a crash never leaves half a file.
-    /// ponytail: the whole file each time; fine for thousands of marked files.
-    #[cfg(not(test))]
-    fn save(&self) {
-        let Some(file) = file() else { return };
-        let mut text = Vec::new();
-        for (path, (bits, stars)) in &self.map {
-            let path = path.as_os_str().as_encoded_bytes();
-            if !path.contains(&b'\n') {
-                text.extend(format!("{bits}\t{stars}\t").as_bytes());
-                text.extend(path);
-                text.push(b'\n');
-            }
+/// A change, rather than the new value, so that applied to the file it keeps what another
+/// Glimt window set on the same file meanwhile.
+#[derive(Clone, Copy)]
+enum Change {
+    /// A mark bit set or cleared.
+    Mark(u8, bool),
+    Stars(u8),
+}
+
+/// Apply `change` to each path's marks and stars; a path with neither is removed.
+fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change) {
+    for path in paths {
+        let (bits, stars) = map.get(path).copied().unwrap_or_default();
+        let new = match change {
+            Change::Mark(bit, true) => (bits | bit, stars),
+            Change::Mark(bit, false) => (bits & !bit, stars),
+            Change::Stars(stars) => (bits, stars),
+        };
+        match new {
+            (0, 0) => drop(map.remove(path)),
+            v => drop(map.insert(path.clone(), v)),
         }
+    }
+}
+
+fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
+    let mut text = Vec::new();
+    for (path, (bits, stars)) in map {
+        let path = path.as_os_str().as_encoded_bytes();
+        if !path.contains(&b'\n') {
+            text.extend(format!("{bits}\t{stars}\t").as_bytes());
+            text.extend(path);
+            text.push(b'\n');
+        }
+    }
+    text
+}
+
+/// Only the changes go to the file: one writer thread, so they land in order, merges them into
+/// the file as it is now, so the marks another Glimt window wrote meanwhile are kept. Renamed
+/// into place so a crash never leaves half a file.
+/// ponytail: the whole file each time; fine for thousands of marked files.
+#[cfg(not(test))]
+fn save(paths: Vec<PathBuf>, change: Change) {
+    use std::sync::{OnceLock, mpsc};
+    type Changes = (Vec<PathBuf>, Change);
+    static WRITER: OnceLock<mpsc::Sender<Changes>> = OnceLock::new();
+    let writer = WRITER.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<Changes>();
         std::thread::spawn(move || {
-            let tmp = file.with_extension("tmp");
-            let _ = std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")));
-            if std::fs::write(&tmp, text).is_ok() {
-                let _ = std::fs::rename(tmp, file);
+            for (paths, change) in rx.iter() {
+                let Some(file) = file() else { continue };
+                let mut map = Marks::load().map;
+                apply(&mut map, &paths, change);
+                for (paths, change) in rx.try_iter() {
+                    apply(&mut map, &paths, change);
+                }
+                // The process ID in the name: other Glimt windows write the same file.
+                let tmp = file.with_extension(format!("{}.tmp", std::process::id()));
+                let _ = std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")));
+                if std::fs::write(&tmp, to_text(&map)).is_ok() {
+                    let _ = std::fs::rename(tmp, file);
+                }
             }
         });
-    }
+        tx
+    });
+    let _ = writer.send((paths, change));
 }
 
 #[cfg(test)]
-impl Marks {
-    fn save(&self) {}
-}
+fn save(_: Vec<PathBuf>, _: Change) {}
 
 fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     let mut parts = line.splitn(3, |&b| b == b'\t');
@@ -175,6 +213,16 @@ mod tests {
             Some((PathBuf::from("/x y.jpg"), (5, 5)))
         );
         assert_eq!(super::parse_line(b"junk"), None);
+        // Another window's file: its marks stay when this one's changes are applied, also on
+        // the same file.
+        let other = super::to_text(&std::collections::HashMap::from([(a.clone(), (1, 0))]));
+        let mut map: std::collections::HashMap<_, _> = other
+            .split(|&b| b == b'\n')
+            .filter_map(super::parse_line)
+            .collect();
+        super::apply(&mut map, &[a.clone()], super::Change::Mark(4, true));
+        super::apply(&mut map, &[b.clone()], super::Change::Stars(4));
+        assert_eq!((map[&a], map[&b]), ((5, 0), (0, 4)));
         // A darktable sidecar keeps its fields; the rating is changed or added.
         let dt = r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1" darktable:x="y">"#;
         assert!(
