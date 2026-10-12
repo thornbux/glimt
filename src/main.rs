@@ -1288,23 +1288,33 @@ fn is_listed(path: &Path, videos: bool) -> bool {
         || (videos && is_video(path))
 }
 
-/// The images in `dir` and every folder below it, as paths relative to `dir`. A folder reached
-/// again through a link is read once.
-fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
-    let (mut seen, mut out, mut todo) = (HashSet::new(), Vec::new(), vec![PathBuf::new()]);
-    while let Some(rel) = todo.pop() {
-        let full = dir.join(&rel);
-        if !seen.insert(full.canonicalize().unwrap_or_else(|_| full.clone())) {
-            continue;
+/// `dir` and every folder below it, one at a time: (its path relative to `dir`, its images).
+/// A folder reached again through a link is read once.
+fn walk(dir: &Path, videos: bool) -> impl Iterator<Item = (PathBuf, Vec<OsString>)> {
+    let (dir, mut seen, mut todo) = (dir.to_path_buf(), HashSet::new(), vec![PathBuf::new()]);
+    std::iter::from_fn(move || {
+        loop {
+            let rel = todo.pop()?;
+            let full = dir.join(&rel);
+            if !seen.insert(full.canonicalize().unwrap_or_else(|_| full.clone())) {
+                continue;
+            }
+            let (dirs, files) = list_folder(&full, videos);
+            todo.extend(
+                dirs.iter()
+                    .filter_map(|d| d.file_name())
+                    .map(|n| rel.join(n)),
+            );
+            return Some((rel, files));
         }
-        let (dirs, files) = list_folder(&full, videos);
-        out.extend(files.into_iter().map(|f| rel.join(f).into_os_string()));
-        todo.extend(
-            dirs.iter()
-                .filter_map(|d| d.file_name())
-                .map(|n| rel.join(n)),
-        );
-    }
+    })
+}
+
+/// The images in `dir` and every folder below it, as paths relative to `dir`.
+fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
+    let mut out: Vec<OsString> = walk(dir, videos)
+        .flat_map(|(rel, files)| files.into_iter().map(move |f| rel.join(f).into_os_string()))
+        .collect();
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
     out
@@ -2632,11 +2642,13 @@ impl App {
             ctx2.request_repaint();
             // Sizes afterwards: read the folder once more and sum from the directory entries in
             // chunks, so the status bar fills in gradually without a copy of the whole list in memory.
+            // A tree a folder at a time, unsorted.
             if recursive {
-                let tree = list_tree(&list_dir, videos);
-                let sizes = tree
-                    .iter()
-                    .filter_map(|f| Some(list_dir.join(f).metadata().ok()?.len()));
+                let sizes = walk(&list_dir, videos).flat_map(|(rel, files)| {
+                    let folder = list_dir.join(rel);
+                    (files.into_iter())
+                        .filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
+                });
                 return send_sizes(sizes, size_tx, &ctx2);
             }
             let images = std::fs::read_dir(&list_dir)
@@ -6141,6 +6153,13 @@ mod tests {
         let (frames, orig, _) = super::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
         let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
         assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
+        // The tree: a folder reached again through a link is read once.
+        std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();
+        assert_eq!(
+            super::list_tree(&dir, true),
+            ["a.png", "b.gif", "sub/c.png"]
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
