@@ -48,6 +48,9 @@ jobs:
       - name: Known vulnerabilities in the crates (RustSec)
         run: cargo audit
       - name: Build against glibc ${{ env.GLIBC }}
+        # Zig's linker says it ignores the -O1 that rustc gives it; nothing else is wrong.
+        env:
+          RUSTFLAGS: -A linker-messages
         run: cargo zigbuild --release --locked --features full --target "$TARGET.$GLIBC"
       - name: Check the glibc it needs
         run: |
