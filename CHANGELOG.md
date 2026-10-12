@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Pan view (Ctrl+J), as Geeqie's timeline: the images of the list as thumbnails under a
+  heading for each day, by file or EXIF date; fast also with 300,000 files.
+
 ## [0.9.4] - 2026-10-12
 
 ### Changed
