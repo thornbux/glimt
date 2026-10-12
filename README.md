@@ -29,16 +29,18 @@ The images in the screenshots are generated for the purpose.
 ## Installing
 
 Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debian and Ubuntu, an
-`.rpm` for Fedora and RHEL, and a `.tar.gz` for other distributions. All have every optional
-feature built in and run on systems with glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04
-and later).
+`.rpm` for Fedora and RHEL, a `.tar.gz` for other distributions, and a `.flatpak`. All have every
+optional feature built in; the first three run on systems with glibc 2.28 or newer (RHEL 8,
+Debian 10, Ubuntu 20.04 and later).
 
 ```sh
-sudo apt install ./glimt_0.11.0_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
-sudo dnf install ./glimt-0.11.0-1.x86_64.rpm  # Fedora, RHEL: the same
+sudo apt install ./glimt_0.11.1_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+sudo dnf install ./glimt-0.11.1-1.x86_64.rpm  # Fedora, RHEL: the same
 
-tar xzf glimt-0.11.0-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
-./glimt-0.11.0-x86_64-linux/glimt
+tar xzf glimt-0.11.1-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
+./glimt-0.11.1-x86_64-linux/glimt
+
+flatpak install --user ./glimt-0.11.1-x86_64.flatpak  # any distribution with Flatpak
 ```
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
@@ -120,8 +122,9 @@ musl-based distributions (Alpine) are not supported, because the viewer calls gl
 
 ### Flatpak
 
-`flatpak/io.github.thornbux.Glimt.yml` builds a Flatpak from the checkout, with every feature.
-The runtime, SDK and Rust extension take about 4 GB:
+The `.flatpak` in each release takes its runtime from Flathub when installed.
+`flatpak/io.github.thornbux.Glimt.yml` builds one from the checkout, with every feature. The
+runtime, SDK and Rust extension take about 4 GB:
 
 ```sh
 flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo

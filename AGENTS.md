@@ -51,6 +51,7 @@ documentation.
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
 | `tools/sbom.py` | Writes `sbom.cdx.json` |
+| `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb |
 
 ## How to add things
 
@@ -93,31 +94,37 @@ python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 
 ## Before a release
 
-Test the release branch by hand, built with `--features full`, with a separate `HOME`,
-`XDG_CACHE_HOME` and `XDG_RUNTIME_DIR` under `/tmp`, generated pictures and a virtual X display
-(`Xvfb :98`). A script named `zenity` early in `PATH` that prints a folder stands in for the file
-dialog. Compare timings with the last release, built the same way.
+Run `tools/release-tests/run.sh` on the release branch. It builds the branch and the last
+release with every feature in Docker (`rust:1`) and runs `tools/release-tests/tests.sh` there:
+a virtual X display, an ordinary user, a separate `HOME` and XDG folders, generated pictures,
+and a script named `zenity` early in `PATH` that answers for the file dialog. Each check prints
+PASS or FAIL; timings and memory are printed for both versions, to compare. `QUICK=1` leaves out
+the large folder and the EXIF timings. Screenshots of the steps are in
+`~/.cache/glimt-release-tests/out`.
 
-- **Saving turned:** a PNG, a lossless WebP and a lossy WebP with EXIF orientation 6, turned with
-  `]` and saved (Edit → Orientation), with Auto Rotate on and off. `exiftool` must show the EXIF
-  kept and orientation 1, and the pixels must be as the view showed them.
-- **Saves at once:** `a.png` and `a.webp` of 6000×4000, both turned straight after each other
-  with saving on image change. Both must be turned and whole.
-- **Subfolders:** with Include Subfolders on and auto refresh off, copy and move files to the
-  folder and to a subfolder; the list must follow.
-- **Rename Many failing halfway:** names that swap, and one new name too long (over 255 bytes).
-  The files must keep their names, with no `.glimt-rename-*` left. A read-only file is no test,
-  as Linux renames it.
-- **Sorting by EXIF date:** 3,000 JPEGs of about 1 MB with different dates; compare the
-  "first image" time on stderr with the last release.
+- **Saving turned:** a PNG, a lossless WebP and a lossy WebP with EXIF orientation 6, turned and
+  saved with Auto Rotate on and off: EXIF kept, orientation 1, pixels as the view showed them.
+- **Saves at once:** `a.png` and `a.webp` of 6000×4000 turned one after the other: both whole.
+- **Subfolders:** with Include Subfolders on and auto refresh off, copy and move to the folder
+  and to subfolders; the list must follow.
+- **A failed delete** in a read-only subfolder: the file is in the list again.
 - **Thumbnails:** with Auto Rotate off, nothing new in `$XDG_CACHE_HOME/thumbnails`.
-- **Flatpak:** two windows (Ctrl+N), `--remote next` to the focused one, `--remote-all next` to
-  both, `--remote-all quit`.
-- **Known vulnerabilities:** `cargo audit` (`cargo install cargo-audit`). The release workflow
-  runs it too and stops on a vulnerable crate; warnings such as an unmaintained crate are shown
-  but do not stop it.
-- **Large folder:** 500,000 hard links to one JPEG; the "first image" time and RssAnon. Put them
-  in `/dev/shm`: `/tmp` allows about a million inodes, and every link takes one.
+- **Rename Many failing halfway:** names that swap and one too long (over 255 bytes); every name
+  kept, no `.glimt-rename-*` left. A read-only file is no test, as Linux renames it.
+- **Find Duplicates:** the checked files go to the trash, but nothing does once the list changed.
+- **Pan view:** after another sort order each date keeps its image.
+- **Printing** 80 images to a PDF: 80 pages, and memory that does not grow with them.
+- **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
+  time and RssAnon of both versions.
+- **Known vulnerabilities:** `cargo audit`; the release workflow runs it too and stops on a
+  vulnerable crate, while warnings such as an unmaintained crate do not stop it.
+
+By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
+`--remote-all next` to both and `--remote-all quit`.
+
+A fix in the window code that a unit test cannot reach gets a check in `tests.sh`: the steps
+with keys, clicks and `--remote`, and the result read from the files or from a colour in a
+screenshot. Run it against the last release as well, to see that it fails there.
 
 ## Packages
 
@@ -142,8 +149,10 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
   (also `docker.io/library/almalinux:8` for glibc 2.28). Remove the storage afterwards with
   `podman unshare rm -rf /tmp/pod /tmp/podrun`.
 
-The Flatpak (`flatpak/io.github.thornbux.Glimt.yml`) is built by hand; its runtime, SDK and Rust
-extension take about 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
+The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
+Flathub's `freedesktop-26.08` image (change the image with `runtime-version`), and adds it to the
+release in a job of its own. To build it locally: its runtime, SDK and Rust extension take about
+4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
 
 ```sh
 export FLATPAK_USER_DIR=/tmp/fp/flatpak

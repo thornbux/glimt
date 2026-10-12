@@ -1,0 +1,360 @@
+#!/bin/bash
+# Release tests, run by run.sh in a rust:1 container with the work folder at /t. As root this
+# installs the tools, builds /t/new and /t/old with every feature, starts a virtual X display,
+# runs the tests as an ordinary user (so file permissions count) and then cargo audit.
+#
+# Each check prints PASS or FAIL and only NEW is checked. OLD, the last release, goes through
+# the same steps where that tells something: memory and timings, and the bugs NEW fixes.
+#
+# The clicks and colour probes assume Glimt's default window (1280×800 at the top left) and
+# layout; a change to the layout needs the coordinates here changed too. Screenshots of every
+# step are in out/, to look at when a check fails.
+
+if [ "$(id -u)" = 0 ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    echo "-- installing tools"
+    apt-get update -qq >/dev/null
+    apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
+        poppler-utils libglib2.0-bin python3 procps libgl1-mesa-dri libegl1 libgl1 \
+        libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
+        libxrandr2 libxi6 libx11-xcb1 >/dev/null 2>&1
+    for v in new old; do
+        echo "-- building $v"
+        (cd /t/$v && CARGO_TARGET_DIR=/work-target/release-tests-$v \
+            cargo build -q --release --locked --features full) || exit 1
+        cp /work-target/release-tests-$v/release/glimt /opt/glimt-$v
+    done
+    useradd -m tester
+    chmod 777 /t/out
+    su tester -c "Xvfb :98 -screen 0 1600x1000x24 >/tmp/xvfb.log 2>&1 &"
+    sleep 2
+    su tester -c "QUICK=$QUICK bash /t/tests.sh"
+    status=$?
+    echo "-- cargo audit"
+    tools=/usr/local/cargo/registry/tools
+    [ -x $tools/bin/cargo-audit ] || cargo install -q --locked --root $tools cargo-audit
+    if (set -o pipefail; cd /t/new && $tools/bin/cargo-audit audit 2>&1 | tail -12); then
+        echo "PASS cargo audit: no known vulnerabilities"
+    else
+        echo "FAIL cargo audit: a crate with a known vulnerability"
+        status=1
+    fi
+    exit $status
+fi
+
+# ---------------------------------------------------------------- as the user "tester"
+
+export DISPLAY=:98 LIBGL_ALWAYS_SOFTWARE=1
+FAILED=0
+pass() { echo "PASS $1"; }
+fail() { echo "FAIL $1"; FAILED=$((FAILED + 1)); }
+# expect NAME GOT WANT
+expect() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: got '$2', want '$3'"; fi; }
+note() { echo "     $*"; }
+
+# The environment of one version: a fresh HOME and XDG folders, and a stand-in for zenity.
+use() {
+    export V=$1 BIN=/opt/glimt-$1 H=/tmp/home-$1
+    export HOME=$H XDG_CACHE_HOME=$H/.cache XDG_CONFIG_HOME=$H/.config XDG_RUNTIME_DIR=$H/run \
+        XDG_STATE_HOME=$H/.local/state XDG_DATA_HOME=$H/.local/share
+    mkdir -p $XDG_CACHE_HOME $XDG_CONFIG_HOME/glimt $XDG_RUNTIME_DIR /tmp/stub
+    chmod 700 $XDG_RUNTIME_DIR
+    export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
+}
+config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
+# The file or folder the stand-in file dialog answers with.
+answer() { printf '#!/bin/sh\necho "%s"\n' "$1" >/tmp/stub/zenity; chmod +x /tmp/stub/zenity; }
+# Start Glimt on ARGS and wait for its window; a second try if X refused the first.
+start() {
+    for try in 1 2; do
+        $BIN "$@" 2>/tmp/glimt.err &
+        GPID=$!
+        for i in $(seq 100); do
+            WIN=$(xdotool search --pid $GPID 2>/dev/null | tail -1)
+            [ -n "$WIN" ] && break
+            kill -0 $GPID 2>/dev/null || break
+            sleep 0.2
+        done
+        [ -n "$WIN" ] && break
+        sleep 2
+    done
+    sleep 1.5
+    xdotool windowfocus $WIN 2>/dev/null
+    xdotool mousemove 800 400 2>/dev/null
+}
+key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
+click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
+quit() {
+    $BIN --remote-all quit >/dev/null 2>&1
+    sleep 1
+    kill $GPID 2>/dev/null
+    wait $GPID 2>/dev/null
+}
+shot() { import -window root /t/out/$1.png; }
+# The colour at X,Y of a screenshot: red, green, blue, yellow, magenta, cyan or other.
+colour() {
+    convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)] %[fx:int(255*p{$2,$3}.g)] \
+%[fx:int(255*p{$2,$3}.b)]" info: | {
+        read r g b
+        hi() { [ $1 -ge 110 ]; }
+        lo() { [ $1 -le 90 ]; }
+        if hi $r && lo $g && lo $b; then echo red
+        elif lo $r && hi $g && lo $b; then echo green
+        elif lo $r && lo $g && hi $b; then echo blue
+        elif hi $r && hi $g && lo $b; then echo yellow
+        elif hi $r && lo $g && hi $b; then echo magenta
+        elif lo $r && hi $g && hi $b; then echo cyan
+        else echo other; fi
+    }
+}
+# Red or blue at X,Y of an image file, for the pictures that are half red, half blue.
+side() { [ "$(convert "$1" -format "%[fx:p{$2}.r>0.5]" info:)" = 1 ] && echo red || echo blue; }
+# Rows of the file list with thumbnails, at x 57.
+ROWS=(337 419 501 583 665)
+rows() { for y in "${ROWS[@]:0:$2}"; do colour $1 57 $y; done | tr '\n' ' ' | sed 's/ $//'; }
+first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
+wait_first() { for i in $(seq 240); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done; }
+rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
+hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
+
+cd /tmp
+
+echo "-- saving turned: PNG, lossless WebP and lossy WebP with EXIF orientation 6"
+use new
+for rotate in true false; do
+    d=/tmp/turned-$rotate
+    mkdir -p $d && cd $d
+    convert -size 200x200 xc:red -size 200x200 xc:blue +append -depth 8 a.png
+    convert a.png -define webp:lossless=true b.webp
+    convert a.png -quality 90 c.webp
+    exiftool -q -q -overwrite_original -Orientation#=6 -Make=Canon a.png b.webp c.webp
+    cd /tmp
+    config save_orientation=true exif_rotate=$rotate
+    start $d
+    for f in a b c; do key bracketright; key space; done
+    sleep 6
+    quit
+    for f in a.png b.webp c.webp; do
+        p() { side $d/$f $1; }
+        size=$(identify -format '%wx%h' $d/$f)
+        # Turned upright by EXIF and then a quarter turn: blue left; without EXIF, red on top.
+        if [ $rotate = true ]; then got="$size $(p 10,100) $(p 390,100)"; want="400x200 blue red"
+        else got="$size $(p 100,10) $(p 100,390)"; want="200x400 red blue"; fi
+        expect "$f, Auto Rotate $rotate: pixels as shown" "$got" "$want"
+        expect "$f, Auto Rotate $rotate: EXIF kept, upright" \
+            "$(exiftool -s3 -n -Orientation -Make $d/$f | tr '\n' ' ')" "1 Canon "
+    done
+done
+
+echo "-- saves at once: a.png and a.webp of 6000x4000, turned one after the other"
+d=/tmp/at-once
+mkdir -p $d && cd $d
+convert -size 3000x4000 xc:red -size 3000x4000 xc:blue +append a.png
+convert a.png -define webp:lossless=true a.webp
+cd /tmp
+config save_orientation=true
+start $d
+key bracketright; key space; key bracketright; key space
+for i in $(seq 60); do sleep 1; ls $d | grep -q glimt-tmp || break; done
+sleep 2
+quit
+for f in a.png a.webp; do
+    expect "$f: whole and turned" \
+        "$(identify -format '%wx%h' $d/$f) $(side $d/$f 2000,10) $(side $d/$f 2000,5990)" \
+        "4000x6000 red blue"
+done
+expect "no temporary files left" "$(ls $d | tr '\n' ' ')" "a.png a.webp "
+
+echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
+d=/tmp/subfolders
+mkdir -p $d/sub/deep && cd $d
+convert -size 300x200 xc:red a.jpg
+convert -size 300x200 xc:lime b.jpg
+convert -size 300x200 xc:blue sub/c.jpg
+convert -size 300x200 xc:yellow sub/d.jpg
+cd /tmp
+config show_subfolders=true auto_refresh=false
+start $d
+answer $d/sub; key ctrl+c; sleep 2
+key space; key space; key space; answer $d; key ctrl+m; sleep 2
+key Home; key space; answer $d/sub/deep; key ctrl+m; sleep 2
+shot subfolders
+quit
+expect "files on disk" "$(cd $d && find . -name '*.jpg' | sort | tr '\n' ' ')" \
+    "./a.jpg ./c.jpg ./sub/a.jpg ./sub/d.jpg ./sub/deep/b.jpg "
+# a.jpg, c.jpg, sub/a.jpg, sub/d.jpg, sub/deep/b.jpg
+expect "the list follows" "$(rows subfolders 5)" "red blue red yellow green"
+
+echo "-- a delete that fails in a subfolder: the file comes back"
+for v in new old; do
+    use $v
+    d=/tmp/failed-delete-$v
+    mkdir -p $d/sub && cd $d
+    convert -size 300x200 xc:blue a.jpg
+    convert -size 300x200 xc:red sub/b.jpg
+    convert -size 300x200 xc:lime sub/c.jpg
+    chmod 555 sub
+    cd /tmp
+    config show_subfolders=true auto_refresh=false confirm_delete=false
+    start $d
+    key space; key shift+Delete; sleep 3
+    shot failed-delete-$v
+    quit
+    chmod 755 $d/sub
+    # a.jpg, sub/b.jpg (not deleted), sub/c.jpg
+    if [ $v = new ]; then expect "the file is in the list again" "$(rows failed-delete-new 3)" "blue red green"
+    else note "old: $(rows failed-delete-old 3)"; fi
+done
+use new
+
+echo "-- thumbnails with Auto Rotate off"
+rm -rf $XDG_CACHE_HOME/thumbnails
+config exif_rotate=false
+start /tmp/subfolders
+sleep 3
+quit
+expect "none saved to the shared cache" "$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)" "0"
+
+echo "-- Rename Many failing halfway: names that swap, and one too long"
+d=/tmp/rename-many
+long=$(printf 'b%.0s' $(seq 251))
+mkdir -p $d && cd $d
+for f in 1 a a2 $long; do convert -size 100x100 xc:blue $f.jpg; done
+cd /tmp
+config
+start $d
+key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+xdotool type --delay 30 '*#'; sleep 0.4
+key Return; sleep 2
+quit
+# 1 -> 11, a -> a2 (a name in use: temporary names first), a2 -> a23, the long one too long.
+expect "every name kept" "$(ls -A $d | sed "s/$long/LONG/" | tr '\n' ' ')" "1.jpg a.jpg a2.jpg LONG.jpg "
+
+echo "-- Find Duplicates: trash the checked files"
+for v in new old; do
+    use $v
+    d=/tmp/duplicates-$v
+    rm -rf $H/.local/share/Trash
+    mkdir -p $d/other && cd $d
+    convert -size 300x200 xc:red a.jpg; cp a.jpg b.jpg; cp a.jpg c.jpg
+    convert -size 300x200 xc:lime other/x.jpg
+    cd /tmp
+    config confirm_trash=false
+    # Checked, then another folder opened while the window is open: nothing may be deleted.
+    start $d
+    key d; click 525 82 2; click 147 129
+    $BIN --remote open $d/other/x.jpg; sleep 2
+    click 459 129 3
+    shot duplicates-$v
+    quit
+    trash=$(ls $H/.local/share/Trash/files 2>/dev/null | tr '\n' ' ')
+    if [ $v = new ]; then expect "the list changed: nothing in the trash" "$trash" ""
+    else note "old, in the trash: $trash"; fi
+done
+use new
+rm -rf $H/.local/share/Trash
+start /tmp/duplicates-new
+key d; click 525 82 2; click 147 129; click 459 129 3
+quit
+expect "the list as it was: the checked in the trash" \
+    "$(ls $H/.local/share/Trash/files 2>/dev/null | tr '\n' ' ')" "b.jpg c.jpg "
+
+echo "-- pan view: another sort order keeps each date's image"
+for v in new old; do
+    use $v
+    d=/tmp/pan-$v
+    mkdir -p $d
+    n=1
+    for c in red lime blue yellow magenta cyan; do
+        convert -size 300x200 xc:$c $d/$c.jpg
+        touch -d "2024-01-0$n 12:00" $d/$c.jpg
+        n=$((n + 1))
+    done
+    config
+    start $d
+    key ctrl+j; sleep 2
+    click 60 787; click 55 581 3   # the sort menu in the status bar: Sort by date
+    shot pan-$v
+    quit
+    got="$(colour pan-$v 80 173) $(colour pan-$v 80 297) $(colour pan-$v 80 545)"
+    if [ $v = new ]; then expect "2024-01-01, -02 and -04" "$got" "red green yellow"
+    else note "old: $got"; fi
+done
+
+echo "-- printing 80 images of 3000x2000 to a PDF"
+src=/tmp/print
+mkdir -p $src
+convert -size 3000x2000 xc: +noise Random -quality 92 /tmp/noise.jpg
+for i in $(seq -w 1 80); do ln /tmp/noise.jpg $src/p$i.jpg; done
+for v in new old; do
+    use $v
+    pdf=/tmp/print-$v.pdf
+    # No thumbnails: their decoding would count as memory used by printing.
+    config thumbnails=false
+    start $src
+    sleep 2
+    before=$(hwm)
+    answer $pdf; key ctrl+a; key ctrl+p; sleep 1; key Return
+    last=-1
+    for i in $(seq 300); do
+        sleep 1
+        s=$(stat -c %s $pdf 2>/dev/null || echo 0)
+        [ "$s" -gt 0 ] && [ "$s" = "$last" ] && break
+        last=$s
+    done
+    grow=$((($(hwm) - before) / 1024))
+    quit
+    pages=$(pdfinfo $pdf 2>/dev/null | awk '/^Pages/ {print $2}')
+    if [ $v = new ]; then
+        expect "a valid PDF of 80 pages" "$pages" "80"
+        [ $grow -lt 300 ] && pass "memory grew $grow MB while printing" ||
+            fail "memory grew $grow MB while printing (the PDF is $(du -m $pdf | cut -f1) MB)"
+    else note "old: memory grew $grow MB"; fi
+done
+
+if [ -n "$QUICK" ]; then
+    echo "-- QUICK: large folder and EXIF timings left out"
+else
+    echo "-- large folder: 500,000 hard links (ten files: ext4 links one at most 65,000 times)"
+    big=/tmp/big
+    mkdir -p $big
+    convert -size 1200x800 plasma: /tmp/big-0.jpg
+    python3 -c "
+import os, shutil
+for s in range(10):
+    src = f'/tmp/big-{s}.jpg'
+    if s: shutil.copy('/tmp/big-0.jpg', src)
+    for i in range(s, 500000, 10):
+        os.link(src, f'$big/{i}.jpg')"
+    for run in 1 2; do for v in new old; do
+        use $v
+        config thumbnails=false
+        start $big
+        wait_first
+        sleep 15
+        note "$v run $run: $(first_image), RssAnon $(rss)"
+        quit
+    done; done
+
+    echo "-- sorting 3,000 JPEGs of about 1 MB by EXIF date"
+    e=/tmp/exif-dates
+    mkdir -p $e
+    convert -size 1400x1000 xc: +noise Random -quality 85 /tmp/noise-1mb.jpg
+    for i in $(seq -w 1 3000); do cp /tmp/noise-1mb.jpg $e/$i.jpg; done
+    exiftool -q -q -overwrite_original \
+        '-DateTimeOriginal<${FileName;s/\.jpg//;$_=sprintf("2020:01:01 %02d:%02d:%02d",$_/3600,$_/60%60,$_%60)}' $e
+    cat $e/* >/dev/null   # read once, so the first run is not timing the disk
+    for run in 1 2; do for v in new old; do
+        use $v
+        config sort=exif_original thumbnails=false
+        start $e
+        wait_first
+        note "$v run $run: $(first_image)"
+        quit
+    done; done
+fi
+
+echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"
+echo "   focused one, --remote-all next to both, --remote-all quit)"
+if [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit 1; fi
+echo "every check passed"
