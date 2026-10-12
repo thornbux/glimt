@@ -5,9 +5,26 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-12
+
+### Added
+
+- Layouts (View → Layout): two images side by side, two above each other, or four, also in
+  full screen and in the slideshow, which changes them all together or one at a time; the
+  file names in every pane or none.
+- Themes (Preferences → Theme): Dark (the default), Light, Desktop, Nord, and High Contrast
+  and Contrast for low vision. Own themes are `key=value` files in `~/.config/glimt/themes`;
+  Save as Theme… starts one from the look shown.
+
+### Changed
+
+- A newer look: the Inter typeface, Phosphor icons, rounder and roomier widgets, and the
+  desktop's accent colour.
+
 ### Fixed
 
 - Open Collection (O) failed before the first collection was made, as its folder was not there.
+- The release build no longer warns that Zig's linker ignores an optimisation setting.
 
 ## [0.10.0] - 2026-10-12
 
@@ -155,7 +172,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/thornbux/glimt/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/thornbux/glimt/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/thornbux/glimt/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/thornbux/glimt/compare/v0.9.2...v0.9.3
