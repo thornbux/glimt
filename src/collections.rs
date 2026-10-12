@@ -58,7 +58,12 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
 
 /// Add `paths` to the collection in `file` (made if new), leaving out those it has.
 pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
-    let mut all = load(file).unwrap_or_default();
+    // Only a collection that is not there yet starts empty: one that cannot be read would be
+    // written over.
+    let mut all = match load(file) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        loaded => loaded?,
+    };
     let before = all.len();
     for path in paths {
         if !all.contains(path) {
@@ -117,5 +122,17 @@ mod tests {
         let geeqie =
             b"#GQview collection\n#geometry: 0 0 400 300\n\"/p/1.jpg\"\n\"rel.jpg\"\n#end\n";
         assert_eq!(super::parse(geeqie), [PathBuf::from("/p/1.jpg")]);
+        // Added to: a new one is made, one that cannot be read is left as it is.
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.gqv");
+        assert_eq!(super::append(&file, &paths).unwrap(), 2);
+        assert_eq!(super::append(&file, &paths[..1]).unwrap(), 0);
+        // A link to itself: reading fails, though not as missing.
+        let unreadable = dir.join("b.gqv");
+        std::os::unix::fs::symlink(&unreadable, &unreadable).unwrap();
+        assert!(super::append(&unreadable, &paths).is_err());
+        assert!(unreadable.symlink_metadata().unwrap().is_symlink());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
