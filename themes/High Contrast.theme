@@ -1,0 +1,13 @@
+# Glimt theme: dark high contrast for low vision: white on black, large text, clear edges.
+dark=true
+accent=#ffd700
+panel=#000000
+window=#000000
+field=#000000
+faint=#101010
+hover=#303030
+active=#505050
+border=#ffffff
+text=#ffffff
+radius=4
+text_size=16

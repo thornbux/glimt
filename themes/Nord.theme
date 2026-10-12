@@ -1,0 +1,12 @@
+# Glimt theme: Nord (https://www.nordtheme.com), cool and calm.
+dark=true
+accent=#88c0d0
+panel=#2e3440
+window=#3b4252
+field=#272c36
+faint=#353b47
+hover=#434c5e
+active=#4c566a
+border=#434c5e
+text=#d8dee9
+radius=8

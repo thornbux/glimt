@@ -27,6 +27,7 @@ mod print;
 mod raw;
 mod remote;
 mod search;
+mod theme;
 mod thumbs;
 #[cfg(feature = "video")]
 mod video;
@@ -590,6 +591,8 @@ enum Prompt {
     RenameMany,
     /// A new collection with the selected files.
     NewCollection,
+    /// Save the look shown as a theme file of this name.
+    SaveTheme,
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
@@ -1027,6 +1030,9 @@ struct App {
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
     apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    /// The desktop's dark style and accent colour, once read from the portal.
+    desktop_look: (Option<bool>, Option<egui::Color32>),
+    desktop_rx: Option<mpsc::Receiver<(Option<bool>, Option<egui::Color32>)>>,
     /// Edit → Plugins, read at start.
     plugins: Vec<plugins::Plugin>,
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
@@ -1935,6 +1941,9 @@ config! {
     icons: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
+    /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows
+    /// the desktop's light or dark style), or a file in `$XDG_CONFIG_HOME/glimt/themes`.
+    theme: String = String::from("Dark"),
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -2717,6 +2726,15 @@ impl App {
         // One EXIF reader that skips to the newest request, so fast browsing never queues up.
         let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
         let (exif_tx, exif_done) = mpsc::channel();
+        theme::fonts(&cc.egui_ctx);
+        theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
+        // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
+        let (desktop_tx, desktop_rx) = mpsc::channel();
+        let ctx = cc.egui_ctx.clone();
+        std::thread::spawn(move || {
+            let _ = desktop_tx.send(theme::desktop());
+            ctx.request_repaint();
+        });
         let ctx = cc.egui_ctx.clone();
         std::thread::spawn(move || {
             while let Ok(mut path) = exif_rx.recv() {
@@ -2771,6 +2789,8 @@ impl App {
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
+            desktop_look: (None, None),
+            desktop_rx: Some(desktop_rx),
             plugins: plugins::find(),
             apps_rx,
             row_step: 1,
@@ -3788,6 +3808,12 @@ impl App {
         });
     }
 
+    /// The chosen theme, read from its file again, with the desktop's look where it sets none.
+    fn apply_theme(&self, ctx: &egui::Context) {
+        let (dark, accent) = self.desktop_look;
+        theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
+    }
+
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
         self.show_settings
@@ -3809,6 +3835,24 @@ impl App {
             self.notice = Some(format!("Not a valid name: \"{text}\""));
             return;
         }
+        if let Prompt::SaveTheme = prompt {
+            let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
+            let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
+                let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
+                std::fs::write(&f, theme::Theme::file_from(ctx))
+                    .map(|_| f)
+                    .map_err(|e| e.to_string())
+            });
+            self.notice = Some(match saved {
+                Ok(f) => {
+                    self.config.theme = text.to_owned();
+                    self.config.save();
+                    format!("Saved as {}: edit it, then choose it again", f.display())
+                }
+                Err(e) => format!("Could not save the theme: {e}"),
+            });
+            return;
+        }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
@@ -3824,7 +3868,7 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
-            Prompt::NewCollection => return,
+            Prompt::NewCollection | Prompt::SaveTheme => return,
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target)
                 .inspect(|_| meta::follow(&self.path(self.cur), &target, false)),
         };
@@ -4553,25 +4597,37 @@ impl App {
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
             ui.horizontal(|ui| {
-                tool_button(ui, act, "⬅", Action::Back, false);
-                tool_button(ui, act, "➡", Action::Forward, false);
-                tool_button(ui, act, "⬆", Action::Up, false);
-                tool_button(ui, act, "🏠", Action::Home, false);
-                tool_button(ui, act, "🔄", Action::Refresh, false);
+                tool_button(ui, act, theme::icon::BACK, Action::Back, false);
+                tool_button(ui, act, theme::icon::FORWARD, Action::Forward, false);
+                tool_button(ui, act, theme::icon::UP, Action::Up, false);
+                tool_button(ui, act, theme::icon::HOME, Action::Home, false);
+                tool_button(ui, act, theme::icon::REFRESH, Action::Refresh, false);
                 ui.separator();
-                tool_button(ui, act, "➕", Action::ZoomIn, false);
-                tool_button(ui, act, "➖", Action::ZoomOut, false);
+                tool_button(ui, act, theme::icon::ZOOM_IN, Action::ZoomIn, false);
+                tool_button(ui, act, theme::icon::ZOOM_OUT, Action::ZoomOut, false);
                 tool_button(ui, act, "1:1", Action::Zoom1To1, false);
-                tool_button(ui, act, "⛶", Action::ZoomFit, self.zoom.is_none());
+                tool_button(
+                    ui,
+                    act,
+                    theme::icon::FIT,
+                    Action::ZoomFit,
+                    self.zoom.is_none(),
+                );
                 ui.separator();
-                tool_button(ui, act, "🖼", Action::Thumbnails, self.config.thumbnails);
+                tool_button(
+                    ui,
+                    act,
+                    theme::icon::THUMBNAILS,
+                    Action::Thumbnails,
+                    self.config.thumbnails,
+                );
                 let show = if self.slideshow.is_some() {
-                    "⏹"
+                    theme::icon::STOP
                 } else {
-                    "▶"
+                    theme::icon::PLAY
                 };
                 tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
-                tool_button(ui, act, "⚙", Action::Preferences, false);
+                tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
             });
         });
     }
@@ -4677,7 +4733,11 @@ impl App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
                         ui.horizontal(|ui| {
-                            if ui.small_button("×").on_hover_text("Remove").clicked() {
+                            if ui
+                                .small_button(theme::icon::CLOSE)
+                                .on_hover_text("Remove")
+                                .clicked()
+                            {
                                 remove = Some(k);
                             }
                             let name = dir.file_name().unwrap_or(dir.as_os_str());
@@ -5302,7 +5362,7 @@ impl App {
     /// Fuzzy search box above the file list.
     fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if !self.search.is_empty() && ui.small_button("✖").clicked() {
+            if !self.search.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
                 self.search.clear();
                 self.update_search(ui.ctx());
                 self.scroll_to_cur = true;
@@ -5948,6 +6008,11 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
+        if let Some(look) = self.desktop_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.desktop_look = look;
+            self.desktop_rx = None;
+            self.apply_theme(ctx);
+        }
         let ppp = ctx.pixels_per_point();
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.limits.lock().unwrap()[1] = [max_side, max_side];
@@ -6338,6 +6403,37 @@ impl eframe::App for App {
                         .text("quality when a lossy WebP is saved again");
                     changed |= ui.add(quality).changed();
                     ui.horizontal(|ui| {
+                        let mut chosen = false;
+                        egui::ComboBox::from_id_salt("theme")
+                            .selected_text(self.config.theme.clone())
+                            .show_ui(ui, |ui| {
+                                for name in theme::names() {
+                                    let c = &mut self.config.theme;
+                                    chosen |= ui.selectable_value(c, name.clone(), name).clicked();
+                                }
+                            });
+                        ui.label("Theme");
+                        // Chosen again too, so a theme file just edited shows.
+                        if chosen {
+                            changed = true;
+                            self.apply_theme(ui.ctx());
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("Save as Theme…").clicked() {
+                            self.prompt = Some((Prompt::SaveTheme, String::new()));
+                        }
+                        if ui.button("Open Themes Folder").clicked()
+                            && let Some(dir) = theme::dir()
+                        {
+                            let _ = std::fs::create_dir_all(&dir);
+                            open_url(&dir.to_string_lossy());
+                        }
+                        if ui.button("Get More Themes…").clicked() {
+                            open_url("https://github.com/thornbux/glimt/tree/main/themes");
+                        }
+                    });
+                    ui.horizontal(|ui| {
                         changed |= ui
                             .color_edit_button_srgb(&mut self.config.background.0)
                             .changed();
@@ -6567,6 +6663,7 @@ impl eframe::App for App {
         if let Some((prompt, mut text)) = self.prompt.take() {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:".to_owned(),
+                Prompt::SaveTheme => "Name of the new theme:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
                     "Name of a new collection with {} images:",
@@ -6888,11 +6985,20 @@ impl eframe::App for App {
                                 .show_rows(ui, row_h, rows, |ui, range| {
                                     for row in range {
                                         let (label, target) = match (row, &up) {
-                                            (0, Some(parent)) => ("⬆ ..".to_owned(), parent),
+                                            (0, Some(parent)) => {
+                                                (format!("{}  ..", theme::icon::UP), parent)
+                                            }
                                             _ => {
                                                 let d = &self.subdirs[row - up.is_some() as usize];
                                                 let name = d.file_name().unwrap_or_default();
-                                                (format!("📁 {}", name.to_string_lossy()), d)
+                                                (
+                                                    format!(
+                                                        "{}  {}",
+                                                        theme::icon::FOLDER,
+                                                        name.to_string_lossy()
+                                                    ),
+                                                    d,
+                                                )
                                             }
                                         };
                                         if ui.selectable_label(false, label).clicked() {
