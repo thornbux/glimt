@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-12
+
 ### Added
 
 - Collections, as in Geeqie: lists of images from any folders, made with C or File → Add to
@@ -149,7 +151,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/thornbux/glimt/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/thornbux/glimt/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/thornbux/glimt/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/thornbux/glimt/compare/v0.9.1...v0.9.2
