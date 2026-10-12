@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [0.11.1] - 2026-10-12
 
+### Added
+
+- A Flatpak bundle, `glimt-X.Y.Z-x86_64.flatpak`, in each release.
+
 ### Changed
 
 - Find Duplicates by dimensions reads a JPEG's size from the start of the file, not the whole
