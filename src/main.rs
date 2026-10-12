@@ -3364,7 +3364,11 @@ impl App {
                     .file_name()
                     .unwrap_or_default(),
             ),
-            Pick::Collection => collections::dir().unwrap_or_default().join(""),
+            // Made first: the file dialog cannot start in a folder that is not there.
+            Pick::Collection => (collections::dir())
+                .inspect(|d| drop(std::fs::create_dir_all(d)))
+                .unwrap_or_default()
+                .join(""),
             _ => self.dir.join(""),
         };
         let save = matches!(purpose, Pick::SavePdf(_));

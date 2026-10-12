@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Open Collection (O) failed before the first collection was made, as its folder was not there.
+
 ## [0.10.0] - 2026-10-12
 
 ### Added
