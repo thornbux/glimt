@@ -55,13 +55,17 @@ fn preview(data: &[u8]) -> Option<&[u8]> {
         .collect();
     starts
         .into_iter()
-        .filter_map(|i| Some((area(&data[i - 1..])?, &data[i - 1..])))
+        .filter_map(|i| {
+            let (w, h) = size(&data[i - 1..])?;
+            Some((w as u64 * h as u64, &data[i - 1..]))
+        })
         .max_by_key(|f| f.0)
         .map(|f| f.1)
 }
 
-/// Width × height from the frame header, by walking the segments after the start marker.
-fn area(jpeg: &[u8]) -> Option<u64> {
+/// Width and height of a baseline or progressive JPEG from its frame header, by walking the
+/// segments after the start marker.
+pub fn size(jpeg: &[u8]) -> Option<(u32, u32)> {
     let be = |i: usize| Some(u16::from_be_bytes([*jpeg.get(i)?, *jpeg.get(i + 1)?]) as usize);
     let mut i = 2;
     loop {
@@ -69,7 +73,7 @@ fn area(jpeg: &[u8]) -> Option<u64> {
             return None;
         }
         match *jpeg.get(i + 1)? {
-            0xc0..=0xc2 => return Some(be(i + 5)? as u64 * be(i + 7)? as u64),
+            0xc0..=0xc2 => return Some((be(i + 7)? as u32, be(i + 5)? as u32)),
             // Other frame types (lossless, arithmetic), or image data before any frame.
             0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf | 0xda => return None,
             _ => i += 2 + be(i + 2)?,
