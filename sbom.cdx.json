@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:dbca0c12-2f40-500d-bc30-ef2153f7b50e",
+ "serialNumber": "urn:uuid:23c0a904-aee5-5a39-93b9-63b8a8a5fedd",
  "version": 1,
  "metadata": {
   "tools": {
@@ -2080,6 +2080,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/rust-lang/jobserver-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/jpeg-decoder@0.3.2",
+   "name": "jpeg-decoder",
+   "version": "0.3.2",
+   "description": "JPEG decoder",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/jpeg-decoder@0.3.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/image-rs/jpeg-decoder"
     }
    ]
   },
@@ -6235,6 +6260,7 @@
     "pkg:cargo/eframe@0.36.2",
     "pkg:cargo/fast_image_resize@6.1.0",
     "pkg:cargo/image@0.25.10",
+    "pkg:cargo/jpeg-decoder@0.3.2",
     "pkg:cargo/jxl-oxide@0.12.6",
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/png@0.18.1",
@@ -6358,6 +6384,10 @@
    "dependsOn": [
     "pkg:cargo/libc@0.2.190"
    ]
+  },
+  {
+   "ref": "pkg:cargo/jpeg-decoder@0.3.2",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/jxl-bitstream@1.1.0",

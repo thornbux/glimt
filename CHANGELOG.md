@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A JPEG much larger than the window is decoded at 1/2, 1/4 or 1/8 of its size while decoding,
+  instead of whole and then scaled down: a 12 MP photo takes 6 MB instead of 44 MB on its way to
+  the window and about a third less time, and the peak memory while browsing photos drops from
+  about 286 to 180 MB. Zoom 1:1 still shows every pixel.
+
 ## [0.13.0] - 2026-10-13
 
 ### Added

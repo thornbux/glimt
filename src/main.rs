@@ -2320,12 +2320,18 @@ fn decode(
     } else {
         1
     };
-    let (img, icc) = if page > 0 {
-        (tiff_page(path, page)?, None)
-    } else {
-        load_icc(path, rotate)?
+    let (img, icc, orig) = match scaled_jpeg(path, max, rotate) {
+        Some(scaled) => scaled,
+        None => {
+            let (img, icc) = if page > 0 {
+                (tiff_page(path, page)?, None)
+            } else {
+                load_icc(path, rotate)?
+            };
+            let orig = [img.width() as usize, img.height() as usize];
+            (img, icc, orig)
+        }
     };
-    let orig = [img.width() as usize, img.height() as usize];
     let img = to_display(shrink(img, max)?, icc.as_deref());
     Ok((vec![(color_image(img), 0)], orig, pages))
 }
@@ -3018,6 +3024,58 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
         img.apply_orientation(orientation);
     }
     Ok((img, icc))
+}
+
+/// A JPEG decoded at 1/2, 1/4 or 1/8 of its size when that still covers `max`, turned upright by
+/// EXIF if `rotate`, with its ICC profile (or Adobe RGB from EXIF) and its full size upright.
+/// `None` where the whole image is needed or jpeg-decoder cannot help (CMYK, an error): then it is
+/// decoded whole, as other images.
+fn scaled_jpeg(
+    path: &Path,
+    max: [u32; 2],
+    rotate: bool,
+) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
+    use jpeg_decoder::PixelFormat;
+    if !has_ext(path, &["jpg", "jpeg"]) {
+        return None;
+    }
+    let data = std::fs::read(path).ok()?;
+    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(&data));
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
+        return None;
+    }
+    let orientation = (dec.exif_data().and_then(exif::orientation))
+        .filter(|_| rotate)
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let (w, h) = (info.width as f64, info.height as f64);
+    // Upright size, which is what has to fit.
+    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
+    let turned = matches!(
+        orientation,
+        Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH
+    );
+    let (uw, uh) = if turned { (h, w) } else { (w, h) };
+    let scale = (max[0] as f64 / uw).min(max[1] as f64 / uh);
+    if scale > 0.5 {
+        return None;
+    }
+    // jpeg-decoder takes the smallest of 1/8, 1/4, 1/2 and 1/1 at least this large.
+    let (want_w, want_h) = ((w * scale).ceil() as u16, (h * scale).ceil() as u16);
+    let (sw, sh) = dec.scale(want_w, want_h).ok()?;
+    let pixels = dec.decode().ok()?;
+    let (sw, sh) = (sw as u32, sh as u32);
+    let mut img: image::DynamicImage = match info.pixel_format {
+        PixelFormat::L8 => image::GrayImage::from_raw(sw, sh, pixels)?.into(),
+        _ => image::RgbImage::from_raw(sw, sh, pixels)?.into(),
+    };
+    img.apply_orientation(orientation);
+    let icc = dec.icc_profile().or_else(|| {
+        let exif = dec.exif_data()?;
+        exif::adobe_rgb(exif).then(|| ADOBE_RGB.clone())
+    });
+    Some((img, icc, [uw as usize, uh as usize]))
 }
 
 /// The size limit `ImageReader` applies, for decoders made directly: a header that claims a
@@ -8589,6 +8647,36 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
+    /// A JPEG far larger than the window is decoded scaled, turned upright by its EXIF, with
+    /// its full upright size; one that needs more than half its pixels is left to image.
+    #[test]
+    fn decodes_jpeg_scaled_and_upright() {
+        let dir = std::env::temp_dir().join(format!("glimt-scaled-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("wide.jpg");
+        // Red on the left half, blue on the right.
+        let img = image::RgbImage::from_fn(400, 200, |x, _| match x < 200 {
+            true => image::Rgb([255, 0, 0]),
+            false => image::Rgb([0, 0, 255]),
+        });
+        img.save(&file).unwrap();
+        // A quarter turn clockwise (EXIF orientation 6): the left half ends up on top.
+        super::exif::write_orientation(&file, 1, false).unwrap();
+        let (img, _, orig) = super::scaled_jpeg(&file, [60, 100], true).unwrap();
+        assert_eq!(orig, [200, 400]);
+        assert_eq!((img.width(), img.height()), (50, 100));
+        let rgb = img.to_rgb8();
+        let (top, bottom) = (rgb.get_pixel(25, 10), rgb.get_pixel(25, 90));
+        assert!(top[0] > 200 && top[2] < 60, "{top:?}");
+        assert!(bottom[2] > 200 && bottom[0] < 60, "{bottom:?}");
+        // Not turned: the stored size; and no gain at more than half: None.
+        let (_, _, orig) = super::scaled_jpeg(&file, [100, 60], false).unwrap();
+        assert_eq!(orig, [400, 200]);
+        assert!(super::scaled_jpeg(&file, [300, 300], true).is_none());
+        assert!(super::scaled_jpeg(&dir.join("none.jpg"), [10, 10], true).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The Types menu: images, RAW and videos each on their own; an opened file's type.
     #[test]
     fn lists_by_type() {
