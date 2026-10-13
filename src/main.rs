@@ -1191,6 +1191,8 @@ struct App {
     cur_row: std::cell::Cell<Option<(usize, Option<usize>)>>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
+    /// Why a re: search pattern is not one, shown under the search field.
+    search_error: Option<String>,
     match_rx: Option<mpsc::Receiver<u64>>,
     /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
     /// first one, dropped with the folder.
@@ -3254,6 +3256,7 @@ impl App {
             matches: None,
             cur_row: Default::default(),
             match_size: 0,
+            search_error: None,
             match_rx: None,
             exif_index: None,
             exif_rx: None,
@@ -6078,12 +6081,15 @@ impl App {
             // widget, which would lose the focus after the first letter.
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::new("file search"))
-                .hint_text("Search file names (3+ letters), or exif: camera, date …")
+                .hint_text("Search file names (3+ letters), re: pattern, or exif: camera, date …")
                 .desired_width(f32::INFINITY);
             if ui.add(edit).changed() {
                 self.update_search(ui.ctx());
             }
         });
+        if let Some(e) = &self.search_error {
+            ui.colored_label(ui.visuals().error_fg_color, format!("Not a pattern: {e}"));
+        }
     }
 
     /// The files the list shows: the search matches, or all.
@@ -6147,11 +6153,20 @@ impl App {
 
     /// Run the search again; file indices change when the list does.
     fn update_search(&mut self, ctx: &egui::Context) {
-        let query = self.search.trim();
+        let query = self.search.trim().to_owned();
+        let query = query.as_str();
         self.cur_row.set(None);
-        self.matches = match query.strip_prefix("exif:") {
-            Some(words) => Some(self.exif_matches(ctx, &words.to_lowercase())),
-            None => self.mark_matches(query).or_else(|| {
+        self.search_error = None;
+        self.matches = match (query.strip_prefix("exif:"), query.strip_prefix("re:")) {
+            (Some(words), _) => Some(self.exif_matches(ctx, words)),
+            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern) {
+                Ok(re) => search::regex_matches(&self.files, &re),
+                Err(e) => {
+                    self.search_error = Some(e);
+                    Vec::new()
+                }
+            }),
+            _ => self.mark_matches(query).or_else(|| {
                 (query.chars().count() >= 3).then(|| search::matches(&self.files, query))
             }),
         };
@@ -6172,11 +6187,19 @@ impl App {
         self.match_rx = Some(rx);
     }
 
-    /// Files whose EXIF contains every word, in list order. The first such search in a folder
-    /// reads the EXIF of all files in the background (the busy pointer shows meanwhile) and
-    /// finds nothing until that is done.
+    /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
+    /// list order. The first such search in a folder reads the EXIF of all files in the
+    /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
     /// ponytail: files added after the index was built do not match until the folder is reopened.
     fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
+        let re = match words.strip_prefix("re:").map(search::regex) {
+            Some(Err(e)) => {
+                self.search_error = Some(e);
+                return Vec::new();
+            }
+            Some(Ok(re)) => Some(re),
+            None => None,
+        };
         let Some(index) = &self.exif_index else {
             if self.exif_rx.is_none() {
                 let (tx, rx) = mpsc::channel();
@@ -6192,13 +6215,15 @@ impl App {
             }
             return Vec::new();
         };
+        // The index is lowercase, as the words are made; a regular expression ignores case.
+        let words = words.to_lowercase();
         let words: Vec<&str> = words.split_whitespace().collect();
+        let found = |text: &String| match &re {
+            Some(re) => re.is_match(text.as_bytes()),
+            None => words.iter().all(|w| text.contains(w)),
+        };
         (0..self.files.len())
-            .filter(|&i| {
-                index
-                    .get(&self.files[i])
-                    .is_some_and(|text| words.iter().all(|w| text.contains(w)))
-            })
+            .filter(|&i| index.get(&self.files[i]).is_some_and(found))
             .collect()
     }
 

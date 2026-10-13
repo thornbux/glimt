@@ -32,6 +32,27 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
     (q == query.len()).then_some(score)
 }
 
+/// A `re:` search, ignoring case; for a pattern that is not one, why, to show while typing.
+pub fn regex(pattern: &str) -> Result<regex::bytes::Regex, String> {
+    regex::bytes::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .map_err(|e| {
+            // The last line says what is wrong; the ones before point at where.
+            let text = e.to_string();
+            let last = text.lines().last().unwrap_or_default();
+            last.trim_start_matches("error: ").to_owned()
+        })
+}
+
+/// Indices of the names `re` finds, in list order, split over the cores like `matches`.
+pub fn regex_matches(names: &[std::ffi::OsString], re: &regex::bytes::Regex) -> Vec<usize> {
+    let hits = in_parallel(names, |name, _| {
+        re.is_match(name.as_encoded_bytes()).then_some(0)
+    });
+    hits.into_iter().map(|h| h.1).collect()
+}
+
 /// Indices of the matching names, best first, then in list order. Split over the cores:
 /// 300,000 names take a few milliseconds.
 pub fn matches(names: &[std::ffi::OsString], query: &str) -> Vec<usize> {
@@ -57,11 +78,22 @@ pub fn matches(names: &[std::ffi::OsString], query: &str) -> Vec<usize> {
             }
         }
     };
+    let mut hits = in_parallel(names, score_one);
+    hits.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    hits.into_iter().map(|h| h.1).collect()
+}
+
+/// (score, index) of the names `score_one` matches, in list order, split over the cores; each
+/// thread lends it a buffer of its own.
+fn in_parallel(
+    names: &[std::ffi::OsString],
+    score_one: impl Fn(&std::ffi::OsString, &mut Vec<u8>) -> Option<i32> + Sync,
+) -> Vec<(i32, usize)> {
     let threads = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
         .min(8);
     let chunk = names.len().div_ceil(threads).max(1);
-    let mut hits: Vec<(i32, usize)> = std::thread::scope(|s| {
+    std::thread::scope(|s| {
         let parts: Vec<_> = names
             .chunks(chunk)
             .enumerate()
@@ -80,9 +112,7 @@ pub fn matches(names: &[std::ffi::OsString], query: &str) -> Vec<usize> {
             .into_iter()
             .flat_map(|p| p.join().unwrap_or_default())
             .collect()
-    });
-    hits.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    hits.into_iter().map(|h| h.1).collect()
+    })
 }
 
 #[cfg(test)]
@@ -111,5 +141,22 @@ mod tests {
             .map(Into::into)
             .collect();
         assert_eq!(super::matches(&names, "BÆR"), [0, 1]);
+    }
+
+    /// re: finds names by a regular expression, ignoring case, in list order; a broken one
+    /// says why in one line.
+    #[test]
+    fn finds_by_regex() {
+        let names: Vec<std::ffi::OsString> =
+            ["IMG_0012.JPG", "img_0013.png", "Blåbær 7.jpg", "notes.txt"]
+                .iter()
+                .map(Into::into)
+                .collect();
+        let find = |p| super::regex_matches(&names, &super::regex(p).unwrap());
+        assert_eq!(find(r"^img_\d+\.jpe?g$"), [0]);
+        assert_eq!(find(r"\.(jpg|png)$"), [0, 1, 2]);
+        assert_eq!(find("blåbær \\d"), [2]);
+        assert!(find("^x").is_empty());
+        assert_eq!(super::regex("(").unwrap_err(), "unclosed group");
     }
 }

@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Regular expressions in the search field: re: for file names, exif:re: for the EXIF, keywords
+  and comments, ignoring case. A pattern that is not one says why under the field.
+
 ## [0.12.0] - 2026-10-13
 
 ### Added
