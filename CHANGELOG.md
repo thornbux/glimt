@@ -10,6 +10,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Layouts: L changes to the next layout, U to two above each other and Y back to one image, as
   in Geeqie. A click on a pane makes its image the shown one, and zoom and moving a zoomed
   image apply to every pane, at full resolution when zoomed in.
+- The mouse wheel and dragging work over every pane, and over the compared half (E); Alt+arrow
+  makes the image in the pane beside, above or below the shown one, as Geeqie's Alt+arrows
+  move between panes.
 
 ## [0.14.0] - 2026-10-13
 

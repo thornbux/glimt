@@ -169,6 +169,10 @@ enum Action {
     OneImage,
     AboveEachOther,
     NextLayout,
+    PaneLeft,
+    PaneRight,
+    PaneUp,
+    PaneDown,
     Animate,
     Subfolders,
     NewCollection,
@@ -325,6 +329,10 @@ impl Action {
             OneImage => "One Image",
             AboveEachOther => "Two Above Each Other",
             NextLayout => "Next Layout",
+            PaneLeft => "Pane to the Left",
+            PaneRight => "Pane to the Right",
+            PaneUp => "Pane Above",
+            PaneDown => "Pane Below",
             Animate => "Play Animations",
             Subfolders => "Include Subfolders",
             NewCollection => "New Collection…",
@@ -433,6 +441,11 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (CloseWindow, CTRL, Key::W),
         (Quit, CTRL, Key::Q),
         (First, NONE, Key::Home),
+        // Before the plain arrows, which would also match with Alt.
+        (PaneLeft, ALT, Key::ArrowLeft),
+        (PaneRight, ALT, Key::ArrowRight),
+        (PaneUp, ALT, Key::ArrowUp),
+        (PaneDown, ALT, Key::ArrowDown),
         (Prev, NONE, Key::Backspace),
         (Prev, NONE, Key::PageUp),
         (Prev, NONE, Key::ArrowLeft),
@@ -821,7 +834,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Compare (E)",
         "E shows the next image (or the other of two selected) beside the shown one, at the same zoom \
-         and offset; U and Y as in Geeqie; L the next layout; a click on a pane shows its image",
+         and offset; U and Y as in Geeqie; L the next layout; a click on a pane or Alt+arrow shows \
+         the image there in the first pane",
         "E, U and Y split into panes with an image each; Y back to one",
     ),
     (
@@ -6999,6 +7013,24 @@ impl App {
             }
             Action::OneImage => self.set_layout("1"),
             Action::AboveEachOther => self.set_layout("1x2"),
+            // As a click on that pane: its image becomes the shown one, in the first pane.
+            Action::PaneLeft | Action::PaneRight | Action::PaneUp | Action::PaneDown => {
+                let cols = layout_grid(&self.config.layout)[0] as isize;
+                let step = match action {
+                    Action::PaneLeft => -1,
+                    Action::PaneRight => 1,
+                    Action::PaneUp => -cols,
+                    _ => cols,
+                };
+                // Forward, the panes say which image is there (a slideshow may change them
+                // one at a time); back, the list does.
+                let pane = (step > 0)
+                    .then(|| self.panes.get(step as usize - 1))
+                    .flatten();
+                if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
+                    self.go(ctx, i);
+                }
+            }
             Action::NextLayout => {
                 let at = LAYOUTS.iter().position(|l| l.0 == self.config.layout);
                 let next = LAYOUTS[at.map_or(0, |k| (k + 1) % LAYOUTS.len())].0;
@@ -8472,7 +8504,10 @@ impl eframe::App for App {
                 // needs a fraction of the memory (3840×2160 is 33 MB per image).
                 let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 self.limits.lock().unwrap()[0] = view;
-                let response = ui.allocate_rect(area, egui::Sense::click_and_drag());
+                // The wheel and dragging work over every pane, and the compared half.
+                let several = panes.len() > 1 || right.is_some();
+                let input = if several { ui.max_rect() } else { area };
+                let response = ui.allocate_rect(input, egui::Sense::click_and_drag());
                 let max_fit = if self.config.enlarge {
                     f32::INFINITY
                 } else {
@@ -8525,7 +8560,11 @@ impl eframe::App for App {
                         self.zoom = Some(new);
                         // Keep the point under the pointer in place, as in other viewers.
                         if let Some(p) = response.hover_pos() {
-                            let from_centre = p - area.center();
+                            // From the centre of the pane under the pointer: they share the offset.
+                            let under = (right.iter().chain(&panes))
+                                .find(|r| r.contains(p))
+                                .map_or(area, |r| if *r == full { area } else { *r });
+                            let from_centre = p - under.center();
                             self.pan = from_centre - (from_centre - self.pan) * (new / old);
                         }
                     }
