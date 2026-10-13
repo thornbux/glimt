@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Layouts: L changes to the next layout, U to two above each other and Y back to one image, as
+  in Geeqie. A click on a pane makes its image the shown one, and zoom and moving a zoomed
+  image apply to every pane, at full resolution when zoomed in.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added
