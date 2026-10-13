@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The Dark theme has a look of its own: deeper neutral greys and its own blue, instead of the
+  desktop's accent, so it no longer looks the same as Desktop on a dark desktop.
+- The Light theme likewise: soft neutral greys and its own deeper blue, instead of the
+  desktop's accent, so it no longer looks the same as Desktop on a light desktop.
+- Themes are easier to find: View → Theme lists them, and Theme comes first in Preferences.
+
 ### Fixed
 
 - Pan view said "1 images" for a day or a list with one image.
