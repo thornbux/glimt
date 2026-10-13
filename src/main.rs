@@ -168,6 +168,7 @@ enum Action {
     Compare,
     Animate,
     Subfolders,
+    HiddenFiles,
     NewCollection,
     OpenCollection,
     RemoveFromCollection,
@@ -321,6 +322,7 @@ impl Action {
             Compare => "Compare Side by Side",
             Animate => "Play Animations",
             Subfolders => "Include Subfolders",
+            HiddenFiles => "Show Hidden Files",
             NewCollection => "New Collection…",
             OpenCollection => "Open Collection…",
             RemoveFromCollection => "Remove from Collection",
@@ -808,6 +810,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Types menu beside the sort menu: images, RAW and videos; a file opened directly is \
          listed whatever it says",
         "File classes in the file filter, and each file type in Preferences → File Filters",
+    ),
+    (
+        "Hidden files",
+        "View → Show Hidden Files, for files and folders; off by default; no key (Ctrl+H hides \
+         the file list)",
+        "Preferences → Files, and the folder pane's menu",
     ),
     (
         "Compare (E)",
@@ -1612,6 +1620,8 @@ struct Types {
     raw: bool,
     /// With the video feature.
     videos: bool,
+    /// Names starting with a dot, files and folders.
+    hidden: bool,
 }
 
 impl Types {
@@ -1620,6 +1630,7 @@ impl Types {
         images: false,
         raw: false,
         videos: false,
+        hidden: false,
     };
 
     /// The type of the file at `path`.
@@ -1638,12 +1649,23 @@ impl Types {
                 videos: true,
                 ..Types::NONE
             }),
+            hidden: is_hidden(path),
         }
     }
 }
 
 /// Shown in the file list: an image, a RAW file or a video (video feature), of the `types` on.
 fn is_listed(path: &Path, types: Types) -> bool {
+    (types.hidden || !is_hidden(path)) && is_listed_type(path, types)
+}
+
+/// A name starting with a dot, which Geeqie and file managers hide.
+fn is_hidden(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|n| n.as_encoded_bytes().starts_with(b"."))
+}
+
+fn is_listed_type(path: &Path, types: Types) -> bool {
     (types.images
         && (has_ext(path, EXTS)
             || is_heif(path)
@@ -1693,7 +1715,7 @@ fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
         let path = entry.path();
         if is_listed(&path, types) {
             images.push(entry.file_name());
-        } else if !entry.file_name().as_encoded_bytes().starts_with(b".")
+        } else if (types.hidden || !entry.file_name().as_encoded_bytes().starts_with(b"."))
             && entry
                 .file_type()
                 .is_ok_and(|t| t.is_dir() || (t.is_symlink() && path.is_dir()))
@@ -2142,6 +2164,8 @@ config! {
     list_images: bool = true,
     /// List camera RAW files.
     list_raw: bool = true,
+    /// List files and folders whose names start with a dot.
+    show_hidden: bool = false,
     /// Video feature: list video files.
     videos: bool = true,
     /// Video feature: command line that plays a video; empty = the default application.
@@ -5472,6 +5496,7 @@ impl App {
             images: self.config.list_images || o.images,
             raw: self.config.list_raw || o.raw,
             videos: self.config.videos || o.videos,
+            hidden: self.config.show_hidden || o.hidden,
         }
     }
 
@@ -6366,8 +6391,12 @@ impl App {
                     self.tree.insert(path.to_path_buf(), None);
                     let (dir, tx, ctx) =
                         (path.to_path_buf(), self.tree_tx.clone(), ui.ctx().clone());
+                    let folders = Types {
+                        hidden: self.config.show_hidden,
+                        ..Types::NONE
+                    };
                     std::thread::spawn(move || {
-                        let subdirs = list_folder(&dir, Types::NONE).0;
+                        let subdirs = list_folder(&dir, folders).0;
                         let _ = tx.send((dir, subdirs));
                         ctx.request_repaint();
                     });
@@ -6968,6 +6997,14 @@ impl App {
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::SaveOrientation => self.save_orientation(ctx),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
+            Action::HiddenFiles => {
+                self.config.show_hidden = !self.config.show_hidden;
+                self.config.save();
+                // Read again, and scrolled back to the open folder.
+                self.tree.clear();
+                self.tree_shown = PathBuf::new();
+                self.list(ctx);
+            }
             Action::NextPage | Action::PrevPage => {
                 let pages = self.slots.get(&self.cur).map_or(1, |s| s.pages);
                 let page = match action {
@@ -7513,6 +7550,7 @@ impl eframe::App for App {
                         menu_toggle(ui, act, c.path_bar, Action::PathBar);
                         menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
                         menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
+                        menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
                         menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
                         menu_toggle(ui, act, c.icons, Action::Icons);
                         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
@@ -8814,11 +8852,13 @@ mod tests {
             Types {
                 videos: true,
                 images: true,
-                raw: true
+                raw: true,
+                hidden: false
             }
         ));
         let t = Types::of(Path::new("x/a.nef"));
-        assert!(t.raw && !t.images && !t.videos);
+        assert!(t.raw && !t.images && !t.videos && !t.hidden);
+        assert!(Types::of(Path::new("x/.a.nef")).hidden);
         assert!(!Types::of(Path::new("a.txt")).images);
     }
 
@@ -8833,14 +8873,22 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), "").unwrap();
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".hidden")).unwrap();
-        let all = super::Types {
+        std::fs::write(dir.join(".b.png"), "").unwrap();
+        let mut all = super::Types {
             images: true,
             raw: true,
             videos: true,
+            hidden: false,
         };
         let (dirs, images) = super::list_folder(&dir, all);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
+        // Hidden files and folders, when shown.
+        all.hidden = true;
+        let (dirs, images) = super::list_folder(&dir, all);
+        assert_eq!(images, [".b.png", "a.png"].map(std::ffi::OsString::from));
+        assert_eq!(dirs, vec![dir.join(".hidden"), dir.join("sub")]);
+        std::fs::remove_file(dir.join(".b.png")).unwrap();
         let (frames, orig, _) = super::decode(&dir.join("a.png"), [100, 100], true, 0).unwrap();
         assert_eq!(
             (frames.len(), frames[0].0.size, orig),
@@ -8867,7 +8915,8 @@ mod tests {
                 super::Types {
                     images: true,
                     raw: true,
-                    videos: true
+                    videos: true,
+                    hidden: false
                 }
             ),
             ["a.png", "b.gif", "sub/c.png"]
