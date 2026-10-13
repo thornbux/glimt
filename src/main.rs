@@ -592,6 +592,8 @@ const START_OPTIONS: &[(&str, &str)] = &[
     ),
     ("--fullscreen", "Start in full screen"),
     ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
+    ("-V, --version", "Print the version"),
+    ("-h, --help", "Print this help"),
 ];
 
 /// What the start options ask for.
@@ -621,7 +623,7 @@ impl Start {
                     start.layout = Some(layout.0);
                     args.remove(0);
                 }
-                "--help" | "-h" | "--remote" | "--remote-all" => break,
+                "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all" => break,
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
                 _ => break,
             }
@@ -8759,6 +8761,10 @@ fn main() -> eframe::Result {
     let args: Vec<String> = (args_os.iter())
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
+    if args.first().is_some_and(|a| a == "--version" || a == "-V") {
+        println!("glimt {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
         println!(
             "Usage: glimt [OPTIONS] [FILE_OR_FOLDER]\n       glimt --remote COMMAND      to the Glimt used last\n       glimt --remote-all COMMAND  to every running Glimt\n\nOptions:"
@@ -8900,6 +8906,8 @@ mod tests {
         assert!(Start::parse(args(&["--layout", "3x3"])).is_err());
         assert!(Start::parse(args(&["--layout"])).is_err());
         assert!(Start::parse(args(&["--bogus"])).is_err());
+        let (_, rest) = Start::parse(args(&["--version"])).unwrap();
+        assert_eq!(rest, args(&["--version"]));
     }
 
     /// The Types menu: images, RAW and videos each on their own; an opened file's type.
