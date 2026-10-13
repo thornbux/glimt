@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Menus taller than the window scroll, instead of running off it or over the menu bar.
+
 ## [0.12.0] - 2026-10-13
 
 ### Added

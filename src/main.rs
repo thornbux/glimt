@@ -614,6 +614,23 @@ enum Prompt {
     SaveTheme,
 }
 
+/// A menu that scrolls when it is taller than the window, instead of running off it.
+fn scroll_menu<R>(
+    ui: &mut egui::Ui,
+    title: impl Into<egui::WidgetText>,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) {
+    ui.menu_button(title, |ui| {
+        // From where it opens to the bottom of the window; submenus open further down. egui
+        // limits a menu to its size the frame before, which a scroll area could only keep or
+        // shrink: the limit is set here instead.
+        let margin = ui.spacing().menu_margin.bottom as f32 + ui.spacing().item_spacing.y;
+        let max = ui.ctx().content_rect().bottom() - ui.next_widget_position().y - margin;
+        ui.set_max_height(max);
+        egui::ScrollArea::vertical().max_height(max).show(ui, add);
+    });
+}
+
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
 fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
     menu_button(ui, act, egui::Button::new(action.label()), action);
@@ -3367,7 +3384,7 @@ impl App {
         menu_item(ui, act, Action::NewCollection);
         menu_item(ui, act, Action::OpenCollection);
         let mut open = None;
-        ui.menu_button("Collections", |ui| {
+        scroll_menu(ui, "Collections", |ui| {
             let all = collections::list();
             if all.is_empty() {
                 ui.label("No collections yet");
@@ -3379,7 +3396,7 @@ impl App {
             }
         });
         if !self.files.is_empty() {
-            ui.menu_button("Add to Collection", |ui| {
+            scroll_menu(ui, "Add to Collection", |ui| {
                 let all = collections::list();
                 if all.is_empty() {
                     ui.label("No collections yet");
@@ -4100,7 +4117,7 @@ impl App {
     /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
     /// they are read again afterwards, as plugins change them.
     fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Plugins", |ui| {
+        scroll_menu(ui, "Plugins", |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
             if self.plugins.is_empty() {
@@ -4161,7 +4178,7 @@ impl App {
             .extension()
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
         let path = self.path(self.cur);
-        ui.menu_button("Open With", |ui| {
+        scroll_menu(ui, "Open With", |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             for (ext, apps) in self.apps_rx.try_iter() {
@@ -5133,7 +5150,7 @@ impl App {
     /// Geeqie's sort menu in the status bar.
     fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
-        ui.menu_button(format!("{} ⏷", self.config.sort.entry().2), |ui| {
+        scroll_menu(ui, format!("{} ⏷", self.config.sort.entry().2), |ui| {
             for (sort, _, label) in SORTS {
                 if ui
                     .selectable_label(self.config.sort == sort, label)
@@ -5919,7 +5936,7 @@ impl App {
 
     /// View → Layout: one image, two or four, and how a slideshow changes them.
     fn layout_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Layout", |ui| {
+        scroll_menu(ui, "Layout", |ui| {
             for (key, label, _) in LAYOUTS {
                 if ui.radio(self.config.layout == key, label).clicked() {
                     self.set_layout(key);
@@ -6902,7 +6919,7 @@ impl eframe::App for App {
             egui::Panel::top("menu").show(ui, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     let act = &mut act;
-                    ui.menu_button("File", |ui| {
+                    scroll_menu(ui, "File", |ui| {
                         menu_item(ui, act, Action::OpenFile);
                         menu_item(ui, act, Action::OpenFolder);
                         menu_item(ui, act, Action::NewFolder);
@@ -6924,7 +6941,7 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::CloseWindow);
                         menu_item(ui, act, Action::Quit);
                     });
-                    ui.menu_button("Go", |ui| {
+                    scroll_menu(ui, "Go", |ui| {
                         menu_item(ui, act, Action::First);
                         menu_item(ui, act, Action::Prev);
                         menu_item(ui, act, Action::Next);
@@ -6935,7 +6952,7 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::Home);
                         menu_item(ui, act, Action::Up);
                     });
-                    ui.menu_button("Select", |ui| {
+                    scroll_menu(ui, "Select", |ui| {
                         menu_item(ui, act, Action::SelectAll);
                         menu_item(ui, act, Action::SelectNone);
                         menu_item(ui, act, Action::InvertSelection);
@@ -6945,9 +6962,9 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::CopyImage);
                         menu_item(ui, act, Action::CopyFiles);
                     });
-                    ui.menu_button("Edit", |ui| {
+                    scroll_menu(ui, "Edit", |ui| {
                         #[cfg(feature = "marks")]
-                        ui.menu_button("Marks and Stars", |ui| {
+                        scroll_menu(ui, "Marks and Stars", |ui| {
                             for action in [
                                 Action::Mark1,
                                 Action::Mark2,
@@ -6981,7 +6998,7 @@ impl eframe::App for App {
                                 menu_item(ui, act, action);
                             }
                         });
-                        ui.menu_button("Orientation", |ui| {
+                        scroll_menu(ui, "Orientation", |ui| {
                             for action in [
                                 Action::RotateCw,
                                 Action::RotateCcw,
@@ -7000,11 +7017,11 @@ impl eframe::App for App {
                         ui.separator();
                         menu_item(ui, act, Action::Preferences);
                     });
-                    ui.menu_button("View", |ui| {
+                    scroll_menu(ui, "View", |ui| {
                         self.layout_menu(ui);
-                        ui.menu_button("Theme", |ui| self.theme_menu(ui));
-                        ui.menu_button("Colour Management", |ui| self.colour_settings(ui));
-                        ui.menu_button("Zoom", |ui| {
+                        scroll_menu(ui, "Theme", |ui| self.theme_menu(ui));
+                        scroll_menu(ui, "Colour Management", |ui| self.colour_settings(ui));
+                        scroll_menu(ui, "Zoom", |ui| {
                             menu_item(ui, act, Action::ZoomIn);
                             menu_item(ui, act, Action::ZoomOut);
                             menu_item(ui, act, Action::Zoom1To1);
@@ -7039,11 +7056,11 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::Slower);
                         menu_toggle(ui, act, self.config.random, Action::RandomOrder);
                     });
-                    ui.menu_button("Window", |ui| {
+                    scroll_menu(ui, "Window", |ui| {
                         menu_item(ui, act, Action::NewWindow);
                         menu_item(ui, act, Action::CloseWindow);
                     });
-                    ui.menu_button("Help", |ui| {
+                    scroll_menu(ui, "Help", |ui| {
                         menu_item(ui, act, Action::Help);
                         menu_item(ui, act, Action::Shortcuts);
                         menu_item(ui, act, Action::KeyboardMap);
@@ -7854,7 +7871,7 @@ impl eframe::App for App {
                                     menu_item(ui, &mut list_act, action);
                                 }
                                 self.open_with_menu(ui);
-                                ui.menu_button("Add to Collection", |ui| {
+                                scroll_menu(ui, "Add to Collection", |ui| {
                                     for (name, file) in collections::list() {
                                         if ui.button(name).clicked() {
                                             self.add_to_collection(&file);
