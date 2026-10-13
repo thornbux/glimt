@@ -33,6 +33,53 @@ quick look, which is what an image viewer is for.
   `.deb`, `.rpm`, `.tar.gz` and Flatpak. No library to import, no database to build: open a
   folder and look.
 
+## Glimt and Geeqie
+
+Measured on the same machine and the same files, with Glimt 0.13.0 and Geeqie 2.6.1: a
+1280×800 window, the file given on the command line, the time until the image is on screen
+and the memory (RSS) 3 seconds later, the median of five runs (three for the large folder).
+Geeqie decodes in helper processes; its memory is the sum over them, which counts the shared
+libraries more than once.
+
+| | Glimt | Geeqie |
+|---|---|---|
+| First image, 12 MP JPEG photos | **0.46 s** | 0.83 s |
+| First image, 20 screenshots (PNG) | **0.38 s** | 0.85 s |
+| First image, folder of 500,000 files | **0.47 s** | 27 s |
+| Memory, folder of 500,000 files | **159 MB** | 1,165 MB |
+| Memory, 12 MP photos | **142 MB** | 213 MB |
+
+What each has. ✓ is there, – is not; Glimt follows Geeqie's keys, so most of it works the
+same way in both.
+
+| | Glimt | Geeqie |
+|---|---|---|
+| Keyboard shortcuts | Geeqie's (differences listed in the help) | ✓ |
+| Thumbnails in the file list, folder tree, icon grid | ✓ | ✓ |
+| Fuzzy file name search (like fzf) | ✓ | – |
+| Regular expression filter | ✓ | ✓ |
+| Search EXIF, keywords and comments from the search field | ✓ | Search window |
+| Memory use as one setting (Low, Medium, High) | ✓ | Cache size |
+| Layouts with two or four images; Compare at the same zoom | ✓ | ✓ (also three) |
+| Slideshow: random order, subfolders, one pane at a time | ✓ | ✓ |
+| Start options (`--slideshow --layout 2x2 …`) and named windows for remote control | ✓ | Remote control |
+| Kiosk mode for a picture screen | ✓ | – |
+| Camera RAW | Embedded preview | Embedded preview or LibRaw |
+| HEIC, AVIF, JPEG XL, SVG | ✓ | ✓ |
+| Video | Still frame; plays in your player | ✓ |
+| Colour management (ICC, screen profile from colord) | ✓ | ✓ |
+| Ratings, keywords and comments in XMP sidecars | ✓ | ✓ |
+| Keyword tree | – | ✓ |
+| Find Duplicates, also by similarity | ✓ | ✓ |
+| Pan view | Timeline | Timeline, calendar, folders |
+| Collections (`.gqv`) | ✓ | ✓ |
+| Plugins (desktop files) | ✓ | ✓ |
+| Lua scripts, external editors | – | ✓ |
+| Several windows in one process | One per process | ✓ |
+| Printing | One image per page, CUPS or PDF | ✓ |
+| Install | One binary: `.deb`, `.rpm`, `.tar.gz`, Flatpak | Distribution packages, AppImage |
+| Written in | Rust (egui) | C/C++ (GTK 3) |
+
 ## Screenshots
 
 The images in the screenshots are generated for the purpose.
@@ -209,7 +256,7 @@ from a script or a keyboard shortcut of the desktop. `--remote` goes to the Glim
 last, `--remote-all` to every one:
 
 ```sh
-glimt --remote next          # also prev, first, last, slideshow, fullscreen, quit
+glimt --remote next          # also prev, first, last, slideshow, random, fullscreen, quit
 glimt --remote open ~/Pictures/holiday   # starts Glimt if it is not running
 glimt --remote-all quit      # close every Glimt
 glimt --help                 # all commands
