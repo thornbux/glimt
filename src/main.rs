@@ -3872,6 +3872,36 @@ impl App {
         theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
     }
 
+    /// View → Theme: the themes to choose from, then where to make and find more.
+    fn theme_menu(&mut self, ui: &mut egui::Ui) {
+        for name in theme::names() {
+            // Chosen again too, so a theme file just edited shows.
+            if ui.radio(self.config.theme == name, &name).clicked() {
+                self.config.theme = name;
+                self.config.save();
+                self.apply_theme(ui.ctx());
+            }
+        }
+        ui.separator();
+        self.theme_buttons(ui);
+    }
+
+    /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
+    fn theme_buttons(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Save as Theme…").clicked() {
+            self.prompt = Some((Prompt::SaveTheme, String::new()));
+        }
+        if ui.button("Open Themes Folder").clicked()
+            && let Some(dir) = theme::dir()
+        {
+            let _ = std::fs::create_dir_all(&dir);
+            open_url(&dir.to_string_lossy());
+        }
+        if ui.button("Get More Themes…").clicked() {
+            open_url("https://github.com/thornbux/glimt/tree/main/themes");
+        }
+    }
+
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
         self.show_settings
@@ -6476,6 +6506,7 @@ impl eframe::App for App {
                     });
                     ui.menu_button("View", |ui| {
                         self.layout_menu(ui);
+                        ui.menu_button("Theme", |ui| self.theme_menu(ui));
                         ui.menu_button("Zoom", |ui| {
                             menu_item(ui, act, Action::ZoomIn);
                             menu_item(ui, act, Action::ZoomOut);
@@ -6553,6 +6584,28 @@ impl eframe::App for App {
                 // takes its own space instead of covering the text.
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    // Plain settings set `changed`; the config is saved once at the end.
+                    let mut changed = false;
+                    // The look first, where it is found (also under View → Theme).
+                    ui.horizontal(|ui| {
+                        let mut chosen = false;
+                        egui::ComboBox::from_id_salt("theme")
+                            .selected_text(self.config.theme.clone())
+                            .show_ui(ui, |ui| {
+                                for name in theme::names() {
+                                    let c = &mut self.config.theme;
+                                    chosen |= ui.selectable_value(c, name.clone(), name).clicked();
+                                }
+                            });
+                        ui.label("Theme");
+                        // Chosen again too, so a theme file just edited shows.
+                        if chosen {
+                            changed = true;
+                            self.apply_theme(ui.ctx());
+                        }
+                    });
+                    ui.horizontal(|ui| self.theme_buttons(ui));
+                    ui.separator();
                     let mut n = self.ahead.load(Ordering::Relaxed);
                     let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
                     ui.label("Preload next and previous images:");
@@ -6567,8 +6620,6 @@ impl eframe::App for App {
                     ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
                     ui.separator();
                     ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
-                    // Plain settings set `changed`; the config is saved once at the end.
-                    let mut changed = false;
                     let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
                         .text("seconds per image");
                     if ui.add(delay).changed() {
@@ -6608,37 +6659,6 @@ impl eframe::App for App {
                     let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
                         .text("quality when a lossy WebP is saved again");
                     changed |= ui.add(quality).changed();
-                    ui.horizontal(|ui| {
-                        let mut chosen = false;
-                        egui::ComboBox::from_id_salt("theme")
-                            .selected_text(self.config.theme.clone())
-                            .show_ui(ui, |ui| {
-                                for name in theme::names() {
-                                    let c = &mut self.config.theme;
-                                    chosen |= ui.selectable_value(c, name.clone(), name).clicked();
-                                }
-                            });
-                        ui.label("Theme");
-                        // Chosen again too, so a theme file just edited shows.
-                        if chosen {
-                            changed = true;
-                            self.apply_theme(ui.ctx());
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        if ui.button("Save as Theme…").clicked() {
-                            self.prompt = Some((Prompt::SaveTheme, String::new()));
-                        }
-                        if ui.button("Open Themes Folder").clicked()
-                            && let Some(dir) = theme::dir()
-                        {
-                            let _ = std::fs::create_dir_all(&dir);
-                            open_url(&dir.to_string_lossy());
-                        }
-                        if ui.button("Get More Themes…").clicked() {
-                            open_url("https://github.com/thornbux/glimt/tree/main/themes");
-                        }
-                    });
                     ui.horizontal(|ui| {
                         changed |= ui
                             .color_edit_button_srgb(&mut self.config.background.0)

@@ -2,7 +2,7 @@
 
 Each `.theme` file here is a theme for [Glimt](../README.md). The ones in this folder are built
 in; to add another, save its file in `~/.config/glimt/themes/` and choose it in
-Preferences → Theme. Edit → Preferences → Save as Theme… writes the look shown now as a file
+View → Theme (or Preferences). View → Theme → Save as Theme… writes the look shown now as a file
 to start from.
 
 A theme is `key=value` lines; `#` starts a comment. Every key may be left out: the light or

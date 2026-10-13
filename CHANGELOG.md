@@ -11,6 +11,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   desktop's accent, so it no longer looks the same as Desktop on a dark desktop.
 - The Light theme likewise: soft neutral greys and its own deeper blue, instead of the
   desktop's accent, so it no longer looks the same as Desktop on a light desktop.
+- Themes are easier to find: View → Theme lists them, and Theme comes first in Preferences.
 
 ## [0.11.1] - 2026-10-12
 
