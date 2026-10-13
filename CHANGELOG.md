@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Regular expressions in the search field: re: for file names, exif:re: for the EXIF, keywords
+  and comments, ignoring case. A pattern that is not one says why under the field.
+- A setting for the search field: fuzzy (the default) or a regular expression always, from the
+  first letter and in list order, as Geeqie's file filter.
+
 ### Fixed
 
 - Menus taller than the window scroll, instead of running off it or over the menu bar.

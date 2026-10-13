@@ -759,6 +759,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Ctrl+I icons, Ctrl+L list",
     ),
     (
+        "Search field",
+        "Above the file list; fuzzy (like fzf) by default, re: for a regular expression; a \
+         setting makes it a regular expression always, as Geeqie's",
+        "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
+    ),
+    (
         "Compare (E)",
         "E shows the next image (or the other of two selected) beside the shown one, at the same zoom and offset",
         "E, U and Y split into panes with an image each; Y back to one",
@@ -1208,6 +1214,8 @@ struct App {
     cur_row: std::cell::Cell<Option<(usize, Option<usize>)>>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
+    /// Why a re: search pattern is not one, shown under the search field.
+    search_error: Option<String>,
     match_rx: Option<mpsc::Receiver<u64>>,
     /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
     /// first one, dropped with the folder.
@@ -2030,6 +2038,9 @@ config! {
     /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows
     /// the desktop's light or dark style), or a file in `$XDG_CONFIG_HOME/glimt/themes`.
     theme: String = String::from("Dark"),
+    /// The search field finds names fuzzily (like fzf); off, by regular expression, as Geeqie's
+    /// file filter.
+    fuzzy_search: bool = true,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -3324,6 +3335,7 @@ impl App {
             matches: None,
             cur_row: Default::default(),
             match_size: 0,
+            search_error: None,
             match_rx: None,
             exif_index: None,
             exif_rx: None,
@@ -6146,14 +6158,21 @@ impl App {
             }
             // A fixed ID: the ✖ button appearing in front of it must not make it a new
             // widget, which would lose the focus after the first letter.
+            let hint = match self.config.fuzzy_search {
+                true => "Search file names (3+ letters), re: pattern, or exif: camera, date …",
+                false => "Filter file names by pattern, or exif: camera, date …",
+            };
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::new("file search"))
-                .hint_text("Search file names (3+ letters), or exif: camera, date …")
+                .hint_text(hint)
                 .desired_width(f32::INFINITY);
             if ui.add(edit).changed() {
                 self.update_search(ui.ctx());
             }
         });
+        if let Some(e) = &self.search_error {
+            ui.colored_label(ui.visuals().error_fg_color, format!("Not a pattern: {e}"));
+        }
     }
 
     /// The files the list shows: the search matches, or all.
@@ -6217,13 +6236,34 @@ impl App {
 
     /// Run the search again; file indices change when the list does.
     fn update_search(&mut self, ctx: &egui::Context) {
-        let query = self.search.trim();
+        let query = self.search.trim().to_owned();
+        let query = query.as_str();
         self.cur_row.set(None);
-        self.matches = match query.strip_prefix("exif:") {
-            Some(words) => Some(self.exif_matches(ctx, &words.to_lowercase())),
-            None => self.mark_matches(query).or_else(|| {
-                (query.chars().count() >= 3).then(|| search::matches(&self.files, query))
+        self.search_error = None;
+        self.matches = match (query.strip_prefix("exif:"), query.strip_prefix("re:")) {
+            (Some(words), _) => Some(self.exif_matches(ctx, words)),
+            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern) {
+                Ok(re) => search::regex_matches(&self.files, &re),
+                Err(e) => {
+                    self.search_error = Some(e);
+                    Vec::new()
+                }
             }),
+            _ => {
+                self.mark_matches(query)
+                    .or_else(|| match self.config.fuzzy_search {
+                        true => (query.chars().count() >= 3)
+                            .then(|| search::matches(&self.files, query)),
+                        // As Geeqie's file filter: a regular expression, from the first letter.
+                        false => (!query.is_empty()).then(|| match search::regex(query) {
+                            Ok(re) => search::regex_matches(&self.files, &re),
+                            Err(e) => {
+                                self.search_error = Some(e);
+                                Vec::new()
+                            }
+                        }),
+                    })
+            }
         };
         // Size of the matches in the background; a new search drops the receiver, which
         // stops the old sum.
@@ -6242,11 +6282,19 @@ impl App {
         self.match_rx = Some(rx);
     }
 
-    /// Files whose EXIF contains every word, in list order. The first such search in a folder
-    /// reads the EXIF of all files in the background (the busy pointer shows meanwhile) and
-    /// finds nothing until that is done.
+    /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
+    /// list order. The first such search in a folder reads the EXIF of all files in the
+    /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
     /// ponytail: files added after the index was built do not match until the folder is reopened.
     fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
+        let re = match words.strip_prefix("re:").map(search::regex) {
+            Some(Err(e)) => {
+                self.search_error = Some(e);
+                return Vec::new();
+            }
+            Some(Ok(re)) => Some(re),
+            None => None,
+        };
         let Some(index) = &self.exif_index else {
             if self.exif_rx.is_none() {
                 let (tx, rx) = mpsc::channel();
@@ -6262,13 +6310,15 @@ impl App {
             }
             return Vec::new();
         };
+        // The index is lowercase, as the words are made; a regular expression ignores case.
+        let words = words.to_lowercase();
         let words: Vec<&str> = words.split_whitespace().collect();
+        let found = |text: &String| match &re {
+            Some(re) => re.is_match(text.as_bytes()),
+            None => words.iter().all(|w| text.contains(w)),
+        };
         (0..self.files.len())
-            .filter(|&i| {
-                index
-                    .get(&self.files[i])
-                    .is_some_and(|text| words.iter().all(|w| text.contains(w)))
-            })
+            .filter(|&i| index.get(&self.files[i]).is_some_and(found))
             .collect()
     }
 
@@ -7254,6 +7304,19 @@ impl eframe::App for App {
                             "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
                         )
                         .changed();
+                    ui.separator();
+                    ui.label("Search field above the file list:");
+                    let fuzzy = self.config.fuzzy_search;
+                    for (on, label) in [
+                        (true, "Fuzzy, best matches first (like fzf)"),
+                        (false, "Regular expression, in list order (like Geeqie's file filter)"),
+                    ] {
+                        if ui.radio(fuzzy == on, label).clicked() && fuzzy != on {
+                            self.config.fuzzy_search = on;
+                            changed = true;
+                            self.update_search(ctx);
+                        }
+                    }
                     ui.separator();
                     let mut show = self.config.thumbnails;
                     if ui
