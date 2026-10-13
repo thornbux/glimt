@@ -794,7 +794,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Search field",
         "Above the file list; fuzzy (like fzf) by default, re: for a regular expression; a \
-         setting makes it a regular expression always, as Geeqie's",
+         setting makes it a regular expression always, as Geeqie's, with a Case checkbox beside it",
         "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
     ),
     (
@@ -2134,6 +2134,8 @@ config! {
     /// The search field finds names fuzzily (like fzf); off, by regular expression, as Geeqie's
     /// file filter.
     fuzzy_search: bool = true,
+    /// Without fuzzy search: the regular expression tells upper and lower case apart.
+    search_case: bool = false,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
@@ -6540,9 +6542,21 @@ impl App {
             };
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::new("file search"))
-                .hint_text(hint)
-                .desired_width(f32::INFINITY);
-            if ui.add(edit).changed() {
+                .hint_text(hint);
+            // Geeqie's file filter has its Case checkbox to the right.
+            let geeqie = !self.config.fuzzy_search;
+            let width = ui.available_width() - if geeqie { 64.0 } else { 0.0 };
+            let mut changed = ui.add(edit.desired_width(width)).changed();
+            if geeqie
+                && ui
+                    .checkbox(&mut self.config.search_case, "Case")
+                    .on_hover_text("Tell upper and lower case apart")
+                    .changed()
+            {
+                self.config.save();
+                changed = true;
+            }
+            if changed {
                 self.update_search(ui.ctx());
             }
         });
@@ -6616,9 +6630,11 @@ impl App {
         let query = query.as_str();
         self.cur_row.set(None);
         self.search_error = None;
+        // Geeqie's Case checkbox, shown beside the field in its mode.
+        let case = self.config.search_case && !self.config.fuzzy_search;
         self.matches = match (query.strip_prefix("exif:"), query.strip_prefix("re:")) {
             (Some(words), _) => Some(self.exif_matches(ctx, words)),
-            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern) {
+            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern, case) {
                 Ok(re) => search::regex_matches(&self.files, &re),
                 Err(e) => {
                     self.search_error = Some(e);
@@ -6631,7 +6647,7 @@ impl App {
                         true => (query.chars().count() >= 3)
                             .then(|| search::matches(&self.files, query)),
                         // As Geeqie's file filter: a regular expression, from the first letter.
-                        false => (!query.is_empty()).then(|| match search::regex(query) {
+                        false => (!query.is_empty()).then(|| match search::regex(query, case) {
                             Ok(re) => search::regex_matches(&self.files, &re),
                             Err(e) => {
                                 self.search_error = Some(e);
@@ -6663,7 +6679,7 @@ impl App {
     /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
     /// ponytail: files added after the index was built do not match until the folder is reopened.
     fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
-        let re = match words.strip_prefix("re:").map(search::regex) {
+        let re = match words.strip_prefix("re:").map(|p| search::regex(p, false)) {
             Some(Err(e)) => {
                 self.search_error = Some(e);
                 return Vec::new();

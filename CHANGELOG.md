@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Case beside the search field when it is a regular expression always (Preferences), as the
+  checkbox of Geeqie's file filter: upper and lower case told apart.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added
