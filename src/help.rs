@@ -107,8 +107,8 @@ const MANUAL: &[(&str, &str)] = &[
          a regular expression instead, ignoring case: re:^img_\\d+\\.jpe?g$, or \
          exif:re:canon.*2024:0[5-7] for the EXIF. A setting in Preferences makes the field a \
          regular expression always, from the first letter and in list order, as Geeqie's file \
-         filter. The first EXIF search in a folder reads all files once, which takes a while in \
-         large folders. With the marks feature, 1–6 toggle a mark, Ctrl+1–6 select the files with \
+         filter; Case beside the field then tells upper and lower case apart. The first EXIF \
+         search in a folder reads all files once, which takes a while in large folders. With the marks feature, 1–6 toggle a mark, Ctrl+1–6 select the files with \
          it and Alt+0–5 give stars; mark:2 or stars:3 in the search field shows those files; a \
          setting also writes the stars to XMP sidecars for darktable and digiKam. The sort menu \
          at the bottom left sorts by name, number, date, EXIF date, size or extension; the Types \

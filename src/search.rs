@@ -32,10 +32,11 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
     (q == query.len()).then_some(score)
 }
 
-/// A `re:` search, ignoring case; for a pattern that is not one, why, to show while typing.
-pub fn regex(pattern: &str) -> Result<regex::bytes::Regex, String> {
+/// A `re:` search, ignoring case unless `case`; for a pattern that is not one, why, to show
+/// while typing.
+pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, String> {
     regex::bytes::RegexBuilder::new(pattern)
-        .case_insensitive(true)
+        .case_insensitive(!case)
         .build()
         .map_err(|e| {
             // The last line says what is wrong; the ones before point at where.
@@ -152,11 +153,14 @@ mod tests {
                 .iter()
                 .map(Into::into)
                 .collect();
-        let find = |p| super::regex_matches(&names, &super::regex(p).unwrap());
+        let find = |p| super::regex_matches(&names, &super::regex(p, false).unwrap());
         assert_eq!(find(r"^img_\d+\.jpe?g$"), [0]);
         assert_eq!(find(r"\.(jpg|png)$"), [0, 1, 2]);
         assert_eq!(find("blåbær \\d"), [2]);
         assert!(find("^x").is_empty());
-        assert_eq!(super::regex("(").unwrap_err(), "unclosed group");
+        assert_eq!(super::regex("(", false).unwrap_err(), "unclosed group");
+        // Case, as Geeqie's checkbox.
+        let re = super::regex("^img", true).unwrap();
+        assert_eq!(super::regex_matches(&names, &re), [1]);
     }
 }
