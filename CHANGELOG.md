@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Pan view said "1 images" for a day or a list with one image.
+
 ## [0.11.1] - 2026-10-12
 
 ### Added

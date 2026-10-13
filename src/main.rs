@@ -4963,9 +4963,11 @@ impl App {
                     match pan.days.as_ref().filter(|d| d.1 == self.files_gen) {
                         Some((days, _)) => {
                             let n = days.iter().filter(|d| d.0 != "No date").count();
+                            let total: usize = days.iter().map(|d| d.1.len()).sum();
                             ui.weak(format!(
-                                "{} images on {} {}",
-                                thousands(days.iter().map(|d| d.1.len()).sum()),
+                                "{} {} on {} {}",
+                                thousands(total),
+                                if total == 1 { "image" } else { "images" },
                                 thousands(n),
                                 if n == 1 { "day" } else { "days" }
                             ))
@@ -5000,7 +5002,11 @@ impl App {
                                     ui.painter().text(
                                         top + egui::vec2(4.0, y + heading - 6.0),
                                         egui::Align2::LEFT_BOTTOM,
-                                        format!("{day}   {} images", thousands(list.len())),
+                                        format!(
+                                            "{day}   {} {}",
+                                            thousands(list.len()),
+                                            if list.len() == 1 { "image" } else { "images" }
+                                        ),
                                         egui::TextStyle::Body.resolve(ui.style()),
                                         ui.visuals().strong_text_color(),
                                     );
