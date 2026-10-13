@@ -8,6 +8,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Menus taller than the window scroll, instead of running off it or over the menu bar.
+- With the desktop's screen profile, the first images are no longer shown in sRGB and a moment
+  later again in the screen's colours: at start they wait for colord, at most 150 ms.
 
 ## [0.12.0] - 2026-10-13
 
