@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Several folders as one list, for a slideshow across folders that are not inside each
+  other: glimt --slideshow ~/Holiday ~/Family, File → Open Several Folders…, or Show Together
+  with These Images in a folder's right-click menu. Names show as folder/file, random order
+  mixes all of them, and Include Subfolders takes in the folders below each.
+
 ## [0.15.0] - 2026-10-13
 
 ### Added

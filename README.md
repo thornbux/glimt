@@ -53,7 +53,8 @@ The images in the screenshots are generated for the purpose.
 **Viewing**
 - Zoom, fit, 1:1, zoom kept between images, full screen, rotate, mirror and flip.
 - Layouts with two or four images at once, and Compare (E) side by side at the same zoom.
-- Slideshow with random order, repeat, all subfolders, and every pane of a layout.
+- Slideshow with random order, repeat, all subfolders, several folders at once
+  (`glimt --slideshow ~/Holiday ~/Family`), and every pane of a layout.
 - Histogram, information over the image, an EXIF panel and a window with every EXIF field.
 - Colour-managed: photos with Adobe RGB or Display P3 profiles are shown correctly.
 
