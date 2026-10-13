@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   instead of whole and then scaled down: a 12 MP photo takes 6 MB instead of 44 MB on its way to
   the window and about a third less time, and the peak memory while browsing photos drops from
   about 286 to 180 MB. Zoom 1:1 still shows every pixel.
+- Thumbnails of JPEG files are made the same way, at 1/8: under 1 MB each instead of 38 MB for a
+  12 MP photo, and a third faster.
 
 ## [0.13.0] - 2026-10-13
 
