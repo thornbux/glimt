@@ -193,6 +193,15 @@ const MANUAL: &[(&str, &str)] = &[
          hides the name, place and EXIF over the image.",
     ),
     (
+        "Colour",
+        "Photos with an ICC profile (Adobe RGB, Display P3 …) are shown in their own colours: \
+         converted to sRGB, or, for a calibrated or wide-gamut screen, straight to the screen \
+         profile chosen in Preferences (Choose… under Colour management). Images without a \
+         profile are taken to be sRGB. With a screen profile every image is converted, a few \
+         milliseconds each in the background; files Glimt writes and the thumbnails it shares \
+         with other programs stay sRGB.",
+    ),
+    (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, \
          the theme, what is shown, window and memory use, and how deleting works. Under Keyboard shortcuts, \

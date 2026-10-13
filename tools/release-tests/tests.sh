@@ -15,7 +15,7 @@ if [ "$(id -u)" = 0 ]; then
     echo "-- installing tools"
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
-        poppler-utils libglib2.0-bin python3 procps libgl1-mesa-dri libegl1 libgl1 \
+        poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
         libxrandr2 libxi6 libx11-xcb1 >/dev/null 2>&1
     for v in new old; do
@@ -112,6 +112,8 @@ side() { [ "$(convert "$1" -format "%[fx:p{$2}.r>0.5]" info:)" = 1 ] && echo red
 # Rows of the file list with thumbnails, at x 57.
 ROWS=(337 419 501 583 665)
 rows() { for y in "${ROWS[@]:0:$2}"; do colour $1 57 $y; done | tr '\n' ' ' | sed 's/ $//'; }
+# The red value, 0-255, at X,Y of a screenshot.
+red() { convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)]" info:; }
 first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
 wait_first() { for i in $(seq 240); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done; }
 rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
@@ -312,6 +314,25 @@ for v in new old; do
     else note "old: memory grew $grow MB"; fi
 done
 
+echo "-- screen profile: Adobe RGB, so sRGB red is shown less red"
+use new
+adobe=/usr/share/color/icc/colord/AdobeRGB1998.icc
+d=/tmp/screen
+mkdir -p $d
+convert -size 600x400 xc:red $d/red.png
+echo junk >/tmp/junk.icc
+for profile in "" $adobe /tmp/junk.icc; do
+    config "screen_profile=$profile"
+    start $d
+    sleep 1
+    shot screen-$(basename "${profile:-none}" .icc)
+    quit
+done
+expect "no screen profile: red as it is" "$(red screen-none 760 400)" "255"
+r=$(red screen-AdobeRGB1998 760 400)
+[ "$r" -lt 240 ] && pass "Adobe RGB screen: red shown as $r" || fail "Adobe RGB screen: red shown as $r"
+expect "a file that is no profile: red as it is" "$(red screen-junk 760 400)" "255"
+
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"
 else
@@ -335,6 +356,13 @@ for s in range(10):
         note "$v run $run: $(first_image), RssAnon $(rss)"
         quit
     done; done
+    use new
+    config thumbnails=false screen_profile=$adobe
+    start $big
+    wait_first
+    sleep 15
+    note "new with a screen profile: $(first_image), RssAnon $(rss)"
+    quit
 
     echo "-- sorting 3,000 JPEGs of about 1 MB by EXIF date"
     e=/tmp/exif-dates

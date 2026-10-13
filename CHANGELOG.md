@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A screen profile (Preferences → Colour management → Choose…): photos are converted from their
+  own ICC profile straight to the screen's, for calibrated and wide-gamut screens. Without one
+  nothing changes: the screen is taken to be sRGB.
+
 ## [0.11.1] - 2026-10-12
 
 ### Added
