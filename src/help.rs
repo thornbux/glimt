@@ -58,7 +58,9 @@ const MANUAL: &[(&str, &str)] = &[
          Files is used without asking). Options before the folder start it a certain way: \
          glimt --fullscreen --layout 2x2 --random --slideshow ~/Pictures shows four random \
          images at a time on the whole screen. glimt --remote next (or prev, slideshow, random, \
-         open PATH …) controls a running Glimt from a script; glimt --help lists the options and \
+         open PATH …) controls a running Glimt from a script. Several can be told apart by name: \
+         start them with glimt --name left and glimt --name right, and glimt --name left \
+         --remote slideshow reaches only the left one. glimt --help lists the options and \
          commands.",
     ),
     (

@@ -60,6 +60,23 @@ Show several images at once, as View \(-> Layout:
 .B 2x2
 (four). Kept for later starts.
 .TP
+.BI \-\-name " NAME"
+Name this Glimt: letters, digits,
+.B \-
+and
+.BR _ ,
+not only digits. The window title shows it, and
+.B glimt \-\-name
+.I NAME
+.B \-\-remote
+.I COMMAND
+sends
+.I COMMAND
+to this Glimt only (with
+.BR open ,
+it starts one with that name if none runs). A named Glimt listens even when remote
+control is off in Preferences.
+.TP
 .BI \-\-remote " COMMAND"
 Send
 .I COMMAND

@@ -592,17 +592,22 @@ const START_OPTIONS: &[(&str, &str)] = &[
     ),
     ("--fullscreen", "Start in full screen"),
     ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
+    (
+        "--name NAME",
+        "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it",
+    ),
     ("-V, --version", "Print the version"),
     ("-h, --help", "Print this help"),
 ];
 
 /// What the start options ask for.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Start {
     slideshow: bool,
     random: bool,
     fullscreen: bool,
     layout: Option<&'static str>,
+    name: Option<String>,
 }
 
 impl Start {
@@ -621,6 +626,16 @@ impl Start {
                         format!("--layout takes one of {}", all.join(", "))
                     })?;
                     start.layout = Some(layout.0);
+                    args.remove(0);
+                }
+                "--name" => {
+                    let name = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
+                    if !remote::valid_name(name) || name.is_empty() {
+                        return Err(
+                            "--name takes letters, digits, - and _ (not only digits)".into()
+                        );
+                    }
+                    start.name = Some(name.to_owned());
                     args.remove(0);
                 }
                 "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all" => break,
@@ -3446,7 +3461,8 @@ impl App {
         let (tree_tx, tree_rx) = mpsc::channel();
         let (apps_tx, apps_rx) = mpsc::channel();
         let (remote_tx, remote_rx) = mpsc::channel();
-        if config.remote_control {
+        // A name is only of use with remote control, so it listens anyway.
+        if config.remote_control || remote::name().is_some() {
             remote::listen(remote_tx, cc.egui_ctx.clone());
         }
         let (freed_tx, freed_rx) = mpsc::channel();
@@ -5270,10 +5286,15 @@ impl App {
             (None, Some(file)) => file.display().to_string(),
             (None, None) => self.dir.display().to_string(),
         };
+        // A named Glimt says which it is.
+        let app = match remote::name() {
+            Some(n) => format!("Glimt ({n})"),
+            None => "Glimt".to_owned(),
+        };
         let title = if self.config.app_name_first {
-            format!("Glimt - {name}")
+            format!("{app} - {name}")
         } else {
-            format!("{name} - Glimt")
+            format!("{name} - {app}")
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
@@ -8787,10 +8808,10 @@ fn main() -> eframe::Result {
             let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
             command = format!("open {}", path.display());
         }
-        let sent = if to_all {
-            remote::send_all(&command) > 0
-        } else {
-            remote::send(&command)
+        let sent = match (&start.name, to_all) {
+            (_, true) => remote::send_all(&command) > 0,
+            (Some(name), false) => remote::send_to(name, &command),
+            (None, false) => remote::send(&command),
         };
         if sent {
             return Ok(());
@@ -8798,7 +8819,10 @@ fn main() -> eframe::Result {
         match command.strip_prefix("open ") {
             Some(path) => arg = Some(path.into()),
             None => {
-                eprintln!("Glimt is not running");
+                match &start.name {
+                    Some(name) => eprintln!("No Glimt named {name} is running"),
+                    None => eprintln!("Glimt is not running"),
+                }
                 std::process::exit(1);
             }
         }
@@ -8830,6 +8854,9 @@ fn main() -> eframe::Result {
     }
     if start.fullscreen {
         viewport = viewport.with_fullscreen(true);
+    }
+    if let Some(name) = start.name.clone() {
+        remote::set_name(name);
     }
     let options = eframe::NativeOptions {
         viewport,
@@ -8906,6 +8933,14 @@ mod tests {
         assert!(Start::parse(args(&["--layout", "3x3"])).is_err());
         assert!(Start::parse(args(&["--layout"])).is_err());
         assert!(Start::parse(args(&["--bogus"])).is_err());
+        let (s, rest) = Start::parse(args(&["--name", "left", "--remote", "next"])).unwrap();
+        assert_eq!(
+            (s.name.as_deref(), rest),
+            (Some("left"), args(&["--remote", "next"]))
+        );
+        assert!(Start::parse(args(&["--name", "123"])).is_err());
+        assert!(Start::parse(args(&["--name", "a/b"])).is_err());
+        assert!(Start::parse(args(&["--name"])).is_err());
         let (_, rest) = Start::parse(args(&["--version"])).unwrap();
         assert_eq!(rest, args(&["--version"]));
     }
