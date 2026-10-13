@@ -60,7 +60,10 @@ const MANUAL: &[(&str, &str)] = &[
          images at a time on the whole screen. glimt --remote next (or prev, slideshow, random, \
          open PATH …) controls a running Glimt from a script. Several can be told apart by name: \
          start them with glimt --name left and glimt --name right, and glimt --name left \
-         --remote slideshow reaches only the left one. glimt --help lists the options and \
+         --remote slideshow reaches only the left one. glimt --kiosk is for a picture screen: \
+         full screen with only the image, browsing and the slideshow but nothing that changes \
+         files, and no way out but glimt --remote quit (in a kiosk session such as cage or GNOME \
+         Kiosk, the desktop's keys are gone too; see man glimt). glimt --help lists the options and \
          commands.",
     ),
     (

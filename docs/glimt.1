@@ -49,6 +49,20 @@ Show the slideshow in random order. Kept for later starts, as in the View menu.
 .B \-\-fullscreen
 Start in full screen.
 .TP
+.B \-\-kiosk
+Full screen with only the image, for a picture screen: the keys and the mouse browse, zoom,
+change the layout and run the slideshow, but there are no menus or panels, nothing changes
+files or settings beyond these, and Escape, Q, Ctrl+Q and closing the window are refused.
+Only
+.B glimt \-\-remote quit
+(or
+.BR \-\-remote\-all )
+ends it. The desktop's own keys (switching windows, logging out) still work; to keep them
+away, run Glimt as the only program of a kiosk session, for example
+.B cage \-\- glimt \-\-kiosk \-\-slideshow
+.I ~/Pictures
+or as the program of a GNOME Kiosk session.
+.TP
 .BI \-\-layout " LAYOUT"
 Show several images at once, as View \(-> Layout:
 .B 1
