@@ -94,7 +94,9 @@ const MANUAL: &[(&str, &str)] = &[
          are never overwritten. File → Open With (also in the \
          right-click menu) opens them in another application, such as GIMP. Ctrl+Shift+C \
          copies the image itself to the clipboard, to paste into other programs; Select → \
-         Copy Files to Clipboard copies the files, to paste in a file manager.",
+         Copy Files to Clipboard copies the files, to paste in a file manager. Right-click a \
+         folder, in the list or the tree, to rename it or move it and all in it to the trash; \
+         File → New Folder (Ctrl+F) makes one.",
     ),
     (
         "Finding and sorting",

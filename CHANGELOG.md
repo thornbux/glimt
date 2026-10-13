@@ -11,6 +11,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and comments, ignoring case. A pattern that is not one says why under the field.
 - A setting for the search field: fuzzy (the default) or a regular expression always, from the
   first letter and in list order, as Geeqie's file filter.
+- Folders can be renamed or moved to the trash with all in them: right-click a folder in the
+  list or the folder tree. Renaming the open folder, or one above it, follows it.
 
 ### Fixed
 
