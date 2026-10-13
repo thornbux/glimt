@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-13
+
 ### Added
 
 - View → Show Hidden Files lists files and folders whose names start with a dot, as Geeqie's
@@ -288,7 +290,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/thornbux/glimt/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/thornbux/glimt/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/thornbux/glimt/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/thornbux/glimt/compare/v0.11.1...v0.12.0
