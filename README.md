@@ -146,13 +146,13 @@ optional feature built in; the first three run on systems with glibc 2.28 or new
 Debian 10, Ubuntu 20.04 and later).
 
 ```sh
-sudo apt install ./glimt_0.15.0_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
-sudo dnf install ./glimt-0.15.0-1.x86_64.rpm  # Fedora, RHEL: the same
+sudo apt install ./glimt_0.16.0_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+sudo dnf install ./glimt-0.16.0-1.x86_64.rpm  # Fedora, RHEL: the same
 
-tar xzf glimt-0.15.0-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
-./glimt-0.15.0-x86_64-linux/glimt
+tar xzf glimt-0.16.0-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
+./glimt-0.16.0-x86_64-linux/glimt
 
-flatpak install --user ./glimt-0.15.0-x86_64.flatpak  # any distribution with Flatpak
+flatpak install --user ./glimt-0.16.0-x86_64.flatpak  # any distribution with Flatpak
 ```
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
