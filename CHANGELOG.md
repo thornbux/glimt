@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Display P3 or a file), and whether an image's own profile is used. A photo whose EXIF says
   Adobe RGB, as from a camera set to it, is shown as Adobe RGB. The EXIF panel says which
   profile an image is shown from.
+- The rendering intent under View → Colour Management (perceptual, relative colorimetric,
+  saturation, absolute colorimetric), for ICC profiles with tables for each.
 
 ## [0.11.1] - 2026-10-12
 

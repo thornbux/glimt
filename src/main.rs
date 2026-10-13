@@ -749,8 +749,10 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Colour management",
         "The image's own profile, Adobe RGB from its EXIF, or a chosen one for images without, \
-         to sRGB or a screen profile; the profile used is in the EXIF panel",
-        "The same, with a choice of rendering intent, and the profile used in the status bar",
+         to sRGB or a screen profile; the profile used is in the EXIF panel; absolute \
+         colorimetric is shown as relative colorimetric",
+        "The same, with the profile used in the status bar, and absolute colorimetric keeping \
+         the paper white of the profile",
     ),
     (
         "Files on the clipboard",
@@ -1930,6 +1932,9 @@ config! {
     /// An image's own ICC profile (or Adobe RGB from its EXIF) counts; off, the input profile
     /// is used for every image.
     own_profile: bool = true,
+    /// How colours outside the target are brought in: perceptual, relative, saturation or
+    /// absolute. Only profiles with tables for it (LUT profiles) tell them apart.
+    rendering_intent: String = "perceptual".to_owned(),
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
     /// The user's own keys, replacing the defaults of those actions (Preferences).
@@ -2485,6 +2490,8 @@ struct Colour {
     input: Option<moxcms::ColorProfile>,
     /// An image's own profile counts (Geeqie's "Use image's color profile").
     own: bool,
+    /// Geeqie's rendering intent.
+    intent: moxcms::RenderingIntent,
     /// Made once for each source and target: some profiles cost more to make a transform from
     /// than the transform itself. By (source, to the screen): 0 is sRGB, 1 the input profile,
     /// the rest a hash of the image's profile.
@@ -2499,6 +2506,7 @@ static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> = std::sync::LazyL
         screen: None,
         input: None,
         own: true,
+        intent: moxcms::RenderingIntent::Perceptual,
         transforms: Mutex::default(),
     })
 });
@@ -2507,7 +2515,7 @@ static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> = std::sync::LazyL
 /// profile with `screen`, else to sRGB. Unchanged when both are sRGB, with colour management off,
 /// or for a profile that does not fit (CMYK, grey).
 fn convert(img: image::DynamicImage, icc: Option<&[u8]>, screen: bool) -> image::DynamicImage {
-    use moxcms::{ColorProfile, Layout, TransformOptions};
+    use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
     if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
         return img;
     }
@@ -2542,8 +2550,15 @@ fn convert(img: image::DynamicImage, icc: Option<&[u8]>, screen: bool) -> image:
             (Some(p), true) => p.clone(),
             _ => ColorProfile::new_srgb(),
         };
-        let options = TransformOptions::default();
-        (source.create_transform_8bit(Layout::Rgba, &target, Layout::Rgba, options)).ok()
+        let make = |rendering_intent| {
+            let options = TransformOptions {
+                rendering_intent,
+                ..TransformOptions::default()
+            };
+            source.create_transform_8bit(Layout::Rgba, &target, Layout::Rgba, options)
+        };
+        // A profile without tables for the intent has the perceptual ones, as ICC says.
+        (make(c.intent).or_else(|_| make(RenderingIntent::Perceptual))).ok()
     });
     let t = t.clone();
     drop(transforms);
@@ -2609,6 +2624,39 @@ fn set_input(name: &str) -> Result<(), String> {
     };
     set_colour(|c| c.input = profile);
     Ok(())
+}
+
+/// The rendering intents: (config value, label, intent).
+const INTENTS: [(&str, &str, moxcms::RenderingIntent); 4] = [
+    (
+        "perceptual",
+        "Perceptual",
+        moxcms::RenderingIntent::Perceptual,
+    ),
+    (
+        "relative",
+        "Relative colorimetric",
+        moxcms::RenderingIntent::RelativeColorimetric,
+    ),
+    (
+        "saturation",
+        "Saturation",
+        moxcms::RenderingIntent::Saturation,
+    ),
+    (
+        "absolute",
+        "Absolute colorimetric",
+        moxcms::RenderingIntent::AbsoluteColorimetric,
+    ),
+];
+
+/// The rendering intent named `name` in `INTENTS`; another name is perceptual.
+fn set_intent(name: &str) {
+    let intent = INTENTS
+        .iter()
+        .find(|i| i.0 == name)
+        .map_or_else(Default::default, |i| i.2);
+    set_colour(|c| c.intent = intent);
 }
 
 /// The built-in input profiles: (config value, label).
@@ -2859,6 +2907,7 @@ impl App {
             .and_then(|()| set_input(&config.input_profile))
             .err();
         set_colour(|c| c.own = config.own_profile);
+        set_intent(&config.rendering_intent);
         if let Ok(mut own) = OWN_KEYS.write() {
             own.clone_from(&config.keys.0);
         }
@@ -4635,6 +4684,14 @@ impl App {
         self.redecode();
     }
 
+    /// The rendering intent, from `INTENTS`.
+    fn set_rendering_intent(&mut self, name: String) {
+        set_intent(&name);
+        self.config.rendering_intent = name;
+        self.config.save();
+        self.redecode();
+    }
+
     /// Colour management, as in Geeqie's View → Color Management and in Preferences: on or off,
     /// the profile of images without one, whether an image's own counts, and the screen profile.
     fn colour_settings(&mut self, ui: &mut egui::Ui) {
@@ -4677,6 +4734,13 @@ impl App {
                     self.set_screen_profile(String::new());
                 }
             });
+            ui.label("Rendering intent:");
+            let current = self.config.rendering_intent.clone();
+            for (value, label, _) in INTENTS {
+                if ui.radio(current == value, label).clicked() && current != value {
+                    self.set_rendering_intent(value.to_owned());
+                }
+            }
         });
     }
 
@@ -8114,6 +8178,59 @@ mod tests {
         assert_eq!(super::to_srgb(grey(), Some(b"junk")), grey());
         super::set_screen("").unwrap();
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A profile with a table for perceptual and another for colorimetric: the intent picks one,
+    /// and saturation, which has none, takes the perceptual one.
+    #[test]
+    fn rendering_intent_picks_its_table() {
+        use moxcms::{LutDataType, LutStore, LutType, LutWarehouse, Matrix3d};
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        // RGB to XYZ through a 2×2×2 grid, red and blue swapped in the colorimetric one.
+        let table = |swap: bool| {
+            let mut clut = Vec::new();
+            for r in [0, 1] {
+                for g in [0, 1] {
+                    for b in [0, 1] {
+                        let (x, z) = if swap { (b, r) } else { (r, b) };
+                        clut.extend([x * 30000, g * 30000, z * 30000]);
+                    }
+                }
+            }
+            LutWarehouse::Lut(LutDataType {
+                num_input_channels: 3,
+                num_output_channels: 3,
+                num_clut_grid_points: 2,
+                matrix: Matrix3d::IDENTITY,
+                num_input_table_entries: 2,
+                num_output_table_entries: 2,
+                input_table: LutStore::Store16([0, 65535].repeat(3)),
+                clut_table: LutStore::Store16(clut),
+                output_table: LutStore::Store16([0, 65535].repeat(3)),
+                lut_type: LutType::Lut16,
+            })
+        };
+        let mut profile = moxcms::ColorProfile::new_srgb();
+        profile.lut_a_to_b_perceptual = Some(table(false));
+        profile.lut_a_to_b_colorimetric = Some(table(true));
+        super::set_colour(|c| c.input = Some(profile));
+        let red = || {
+            image::DynamicImage::from(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([200, 40, 40, 255]),
+            ))
+        };
+        let shown = |intent| {
+            super::set_intent(intent);
+            *super::to_srgb(red(), None).into_rgba8().get_pixel(0, 0)
+        };
+        let perceptual = shown("perceptual");
+        assert_ne!(perceptual, red().into_rgba8()[(0, 0)]);
+        assert_ne!(shown("relative"), perceptual);
+        assert_eq!(shown("saturation"), perceptual);
+        super::set_input("srgb").unwrap();
+        super::set_intent("perceptual");
     }
 
     /// image writes lossless WebP (VP8L); anything else is not taken for one.
