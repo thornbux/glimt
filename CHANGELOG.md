@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- With several panes (a layout, or Compare), the status bar tells about the pane under the
+  pointer, which gets a thin outline, else the first: its size, bytes, place in the list and
+  its own zoom, with a small map of the panes beside it that shows which pane it is.
+
 ## [0.15.0] - 2026-10-13
 
 ### Added

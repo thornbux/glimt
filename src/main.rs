@@ -624,6 +624,26 @@ const START_OPTIONS: &[(&str, &str)] = &[
     ("-h, --help", "Print this help"),
 ];
 
+/// A small map of the panes in the status bar, with the one it tells about filled in.
+fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
+    let cell = egui::vec2(9.0, 7.0);
+    let size = egui::vec2(cols as f32, rows as f32) * (cell + egui::vec2(2.0, 2.0));
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let v = ui.visuals();
+    for k in 0..cols * rows {
+        let at = egui::vec2((k % cols) as f32, (k / cols) as f32) * (cell + egui::vec2(2.0, 2.0));
+        let r = egui::Rect::from_min_size(rect.min + at + egui::vec2(1.0, 1.0), cell);
+        if k == on {
+            ui.painter().rect_filled(r, 1.0, v.selection.bg_fill);
+        } else {
+            let stroke = egui::Stroke::new(1.0, v.weak_text_color());
+            ui.painter()
+                .rect_stroke(r, 1.0, stroke, egui::StrokeKind::Inside);
+        }
+    }
+    response.on_hover_text("The pane these details are of: the one under the pointer");
+}
+
 /// What the start options ask for.
 #[derive(Clone, Default)]
 struct Start {
@@ -1334,6 +1354,13 @@ struct App {
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Size in bytes of the shown file, for the status bar.
     cur_size: Option<(PathBuf, u64)>,
+    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
+    /// one under the pointer, else the first) and the panes as [columns, rows].
+    pane_info: Vec<(usize, Option<f32>)>,
+    status_pane: usize,
+    status_grid: [usize; 2],
+    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
+    status_place: Option<(usize, usize, String)>,
     /// The folder path in the toolbar, as typed.
     path_text: String,
     /// Window geometry seen in the last frame, saved at exit.
@@ -3625,6 +3652,10 @@ impl App {
             focus_keywords: false,
             exif: None,
             cur_size: None,
+            pane_info: Vec::new(),
+            status_pane: 0,
+            status_grid: [1, 1],
+            status_place: None,
             path_text: String::new(),
             window: WindowState::default(),
             inhibitor: None,
@@ -5835,6 +5866,25 @@ impl App {
     }
 
     /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
+    /// `place` of image `idx` in another pane; the search matches are looked through once per
+    /// image, not every frame.
+    fn place_of(&mut self, idx: usize) -> String {
+        let total = self.matches.as_ref().map_or(self.files.len(), Vec::len);
+        if let Some((i, t, text)) = &self.status_place
+            && (*i, *t) == (idx, total)
+        {
+            return text.clone();
+        }
+        let row = match &self.matches {
+            Some(m) => m.iter().position(|&x| x == idx),
+            None => Some(idx),
+        };
+        let row = row.map_or("–".into(), |r| thousands(r + 1));
+        let text = format!("[{row}/{}]", thousands(total));
+        self.status_place = Some((idx, total, text.clone()));
+        text
+    }
+
     fn place(&self) -> String {
         match &self.matches {
             Some(m) => match self.cur_row(m) {
@@ -6556,7 +6606,14 @@ impl App {
 
     /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
     /// the same zoom and offset as the shown one when zoomed, else fitted.
-    fn paint_pane(&mut self, ui: &egui::Ui, rect: egui::Rect, i: usize, zoom: Option<f32>) {
+    /// Returns the scale it is drawn at, for the status bar; `None` while it is decoded.
+    fn paint_pane(
+        &mut self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        i: usize,
+        zoom: Option<f32>,
+    ) -> Option<f32> {
         // Zoomed in further than the screen-size version holds: load the full resolution.
         let sharper = self.slots.get(&i).is_some_and(|s| {
             !s.full
@@ -6566,9 +6623,7 @@ impl App {
         if sharper {
             self.request(i, true);
         }
-        let Some(slot) = self.slots.get(&i) else {
-            return;
-        };
+        let slot = self.slots.get(&i)?;
         let ppp = ui.ctx().pixels_per_point();
         let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
         let (scale, pan) = match zoom {
@@ -6588,20 +6643,25 @@ impl App {
         ui.painter()
             .with_clip_rect(rect)
             .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
+        Some(scale)
     }
 
-    /// The compared image in `rect`, with its name above.
-    fn paint_other(&mut self, ui: &egui::Ui, rect: egui::Rect, zoom: Option<f32>) {
+    /// The compared image in `rect`, with its name above; which it is and its scale.
+    fn paint_other(
+        &mut self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        zoom: Option<f32>,
+    ) -> Option<(usize, Option<f32>)> {
         ui.painter().vline(
             rect.left() - 1.0,
             rect.y_range(),
             egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
         );
-        let Some(other) = self.compare_other() else {
-            return;
-        };
-        self.paint_pane(ui, rect, other, zoom);
+        let other = self.compare_other()?;
+        let scale = self.paint_pane(ui, rect, other, zoom);
         self.paint_name(ui, rect, other);
+        Some((other, scale))
     }
 
     /// The name of image `i` in the top left corner of `rect`.
@@ -8343,8 +8403,12 @@ impl eframe::App for App {
                         if n == 0 {
                             return;
                         }
-                        // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom.
-                        let path = self.path(self.cur);
+                        // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom;
+                        // with several panes, of the one under the pointer.
+                        let (idx, scale) = (self.pane_info.get(self.status_pane).copied())
+                            .filter(|p| p.0 < n)
+                            .unwrap_or((self.cur, Some(self.last_scale)));
+                        let path = self.path(idx);
                         if self.cur_size.as_ref().is_none_or(|c| c.0 != path) {
                             // ponytail: one stat in the UI thread per image change; move it to
                             // a thread if slow network folders make browsing stutter.
@@ -8352,14 +8416,20 @@ impl eframe::App for App {
                             self.cur_size = Some((path, bytes));
                         }
                         let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
-                        let place = self.place();
+                        let place = if idx == self.cur {
+                            self.place()
+                        } else {
+                            self.place_of(idx)
+                        };
                         let bytes = format!("{} bytes", thousands(bytes as usize));
-                        match self.slots.get(&self.cur) {
+                        match self.slots.get(&idx) {
                             Some(slot) => {
                                 let [w, h] = slot.orig;
-                                ui.label(format!("{} %", (self.last_scale * 100.0).round()));
-                                ui.separator();
-                                let page = if slot.pages > 1 {
+                                if let Some(scale) = scale {
+                                    ui.label(format!("{} %", (scale * 100.0).round()));
+                                    ui.separator();
+                                }
+                                let page = if slot.pages > 1 && idx == self.cur {
                                     format!(" page {}/{}", self.page + 1, slot.pages)
                                 } else {
                                     String::new()
@@ -8369,6 +8439,9 @@ impl eframe::App for App {
                             None => {
                                 ui.label(format!("{bytes} {place}"));
                             }
+                        }
+                        if self.status_grid != [1, 1] {
+                            pane_map(ui, self.status_grid, self.status_pane);
                         }
                     });
                 });
@@ -8845,11 +8918,13 @@ impl eframe::App for App {
                 if self.config.histogram > 0 {
                     self.paint_histogram(ui, area);
                 }
+                // What each pane shows, for the status bar: the one under the pointer.
+                let mut shown = vec![(self.cur, Some(self.last_scale))];
                 if let Some(right) = right {
-                    self.paint_other(ui, right, self.zoom);
+                    shown.extend(self.paint_other(ui, right, self.zoom));
                 }
                 for (k, (rect, i)) in panes[1..].iter().zip(self.panes.clone()).enumerate() {
-                    self.paint_pane(ui, *rect, i, self.zoom);
+                    shown.push((i, self.paint_pane(ui, *rect, i, self.zoom)));
                     // A click makes it the shown image, in the first pane.
                     if ui
                         .interact(*rect, ui.id().with(("pane", k)), egui::Sense::click())
@@ -8858,6 +8933,27 @@ impl eframe::App for App {
                         clicked_pane = Some(i);
                     }
                 }
+                let rects: Vec<egui::Rect> = match right {
+                    Some(r) => vec![area, r],
+                    None => panes.clone(),
+                };
+                let pointer = ui.ctx().pointer_hover_pos();
+                let hovered = pointer.and_then(|p| rects.iter().position(|r| r.contains(p)));
+                // The pane the status bar tells about gets a thin outline.
+                if let Some(k) = hovered.filter(|_| rects.len() > 1 && !bare)
+                    && k < shown.len()
+                {
+                    let stroke = egui::Stroke::new(1.5, ui.visuals().selection.bg_fill);
+                    ui.painter()
+                        .rect_stroke(rects[k], 0.0, stroke, egui::StrokeKind::Inside);
+                }
+                self.status_pane = hovered.filter(|&k| k < shown.len()).unwrap_or(0);
+                self.status_grid = if right.is_some() {
+                    [2, 1]
+                } else {
+                    [cols, rows]
+                };
+                self.pane_info = shown;
                 if panes.len() > 1 && self.config.layout_names && !self.files.is_empty() {
                     let shown = std::iter::once(self.cur).chain(self.panes.iter().copied());
                     for (rect, i) in panes.iter().zip(shown) {
