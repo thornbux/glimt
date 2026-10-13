@@ -85,7 +85,38 @@ const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
 /// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
 const MAX_THUMBS: usize = 600;
 /// Decoded frames kept of one animation (bytes); longer ones loop the first part.
-const MAX_ANIMATION: usize = 128 << 20;
+static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
+
+/// Memory use in Preferences: (name, preload, decoding threads, animation limit in MB, one malloc
+/// arena). The config holds the values; the level shown is the one they match, or Custom.
+const MEMORY_LEVELS: [(&str, usize, usize, usize, bool, &str); 3] = [
+    (
+        "Low",
+        1,
+        1,
+        32,
+        true,
+        "Least memory: one image decoded at a time, one preloaded on each side. Slow storage \
+         (SMB, NFS, USB) makes browsing wait for each file.",
+    ),
+    (
+        "Medium",
+        DEFAULT_AHEAD,
+        4,
+        128,
+        true,
+        "The default: four images decoded at once, two preloaded on each side.",
+    ),
+    (
+        "High",
+        5,
+        8,
+        256,
+        false,
+        "Fastest browsing: eight images decoded at once, five preloaded on each side; hides \
+         the wait of slow storage (SMB, NFS) best.",
+    ),
+];
 
 /// Everything the user can do from a menu or a shortcut.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -2062,6 +2093,10 @@ config! {
     /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
     /// Read at startup only, since glibc must be set before threads start.
     low_memory: bool = true,
+    /// Images decoded at once, at most the number of cores; read at startup.
+    decode_threads: usize = 4,
+    /// Frames of an animation kept, in MB.
+    animation_mb: usize = 128,
     /// Folder path above the folder list.
     path_bar: bool = true,
     /// Restore the window's size, position and maximized state at startup.
@@ -2124,6 +2159,8 @@ impl Config {
             c.set(key.trim(), value.trim());
         }
         c.preload = c.preload.min(20);
+        c.decode_threads = c.decode_threads.clamp(1, 8);
+        c.animation_mb = c.animation_mb.clamp(8, 1024);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
         c.webp_quality = c.webp_quality.min(100);
@@ -2964,7 +3001,7 @@ fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
         let img = color_image(to_display(shrink(img.into(), max).ok()?, None));
         bytes += img.pixels.len() * 4;
         out.push((img, ms));
-        if bytes > MAX_ANIMATION {
+        if bytes > MAX_ANIMATION.load(Ordering::Relaxed) {
             break;
         }
     }
@@ -3143,7 +3180,9 @@ impl App {
         let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf, usize)>();
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
-        let workers = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
+        MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        let workers = cores.min(config.decode_threads);
         for _ in 0..workers {
             let (keep, full_ok, rotate, limits, job_rx, done_tx, ctx) = (
                 keep.clone(),
@@ -3207,7 +3246,8 @@ impl App {
         let thumb_rx = Arc::new(Mutex::new(thumb_rx));
         let thumb_view = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
-        for _ in 0..2 {
+        // One with the low memory level, so two full-size images are not decoded at once.
+        for _ in 0..workers.min(2) {
             let (rx, tx, view, rotate, save, ctx) = (
                 thumb_rx.clone(),
                 thumbs_tx.clone(),
@@ -5280,6 +5320,75 @@ impl App {
                 _ => {}
             }
         }
+    }
+
+    /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
+    /// values are Custom.
+    fn memory_settings(&mut self, ui: &mut egui::Ui) {
+        let c = &self.config;
+        let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
+        let level = MEMORY_LEVELS.iter().find(|l| (l.1, l.2, l.3, l.4) == now);
+        let (mut chosen, mut custom) = (None, false);
+        ui.horizontal(|ui| {
+            ui.label("Memory use:");
+            for l in &MEMORY_LEVELS {
+                let on = level.is_some_and(|m| m.0 == l.0);
+                if ui.radio(on, l.0).on_hover_text(l.5).clicked() {
+                    chosen = Some(*l);
+                }
+            }
+            // Chosen by changing the details, which it opens.
+            custom = ui.radio(level.is_none(), "Custom").clicked();
+        });
+        if let Some((_, preload, threads, animation, low, _)) = chosen {
+            self.set_preload(preload);
+            (self.config.decode_threads, self.config.animation_mb) = (threads, animation);
+            self.config.low_memory = low;
+            MAX_ANIMATION.store(animation << 20, Ordering::Relaxed);
+            self.config.save();
+        }
+        let restart = "Decoding threads and one malloc arena take effect after a restart.";
+        egui::CollapsingHeader::new("Details")
+            .open((level.is_none() || custom).then_some(true))
+            .show(ui, |ui| {
+                let mut n = self.config.preload;
+                ui.label("Preload next and previous images:");
+                let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
+                if ui.add(slider).changed() {
+                    self.set_preload(n);
+                    self.config.save();
+                }
+                let [w, h] = self.limits.lock().unwrap()[0];
+                let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
+                ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
+                let c = &mut self.config;
+                let mut changed = ui
+                    .add(
+                        egui::Slider::new(&mut c.decode_threads, 1..=8)
+                            .text("images decoded at once"),
+                    )
+                    .changed();
+                let animation = egui::Slider::new(&mut c.animation_mb, 8..=1024)
+                    .logarithmic(true)
+                    .text("MB at most for an animation's frames");
+                if ui.add(animation).changed() {
+                    MAX_ANIMATION.store(c.animation_mb << 20, Ordering::Relaxed);
+                    changed = true;
+                }
+                let low = "One malloc arena: much less memory, decoding up to ~8 % slower";
+                changed |= ui.checkbox(&mut c.low_memory, low).changed();
+                ui.weak(restart);
+                if changed {
+                    c.save();
+                }
+            });
+    }
+
+    /// Preload `n` images on each side.
+    fn set_preload(&mut self, n: usize) {
+        self.ahead.store(n, Ordering::Relaxed);
+        self.refill();
+        self.config.preload = n;
     }
 
     /// The file types the list shows, from the Types menu.
@@ -7417,18 +7526,7 @@ impl eframe::App for App {
                     });
                     ui.horizontal(|ui| self.theme_buttons(ui));
                     ui.separator();
-                    let mut n = self.ahead.load(Ordering::Relaxed);
-                    let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
-                    ui.label("Preload next and previous images:");
-                    if ui.add(slider).changed() {
-                        self.ahead.store(n, Ordering::Relaxed);
-                        self.refill();
-                        self.config.preload = n;
-                        self.config.save();
-                    }
-                    let [w, h] = self.limits.lock().unwrap()[0];
-                    let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
-                    ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
+                    self.memory_settings(ui);
                     ui.separator();
                     ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
                     let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
@@ -7608,9 +7706,6 @@ impl eframe::App for App {
                             ctx.request_repaint();
                         });
                     }
-                    ui.separator();
-                    let low = "Use less memory (decoding up to ~8 % slower; after restart)";
-                    changed |= ui.checkbox(&mut c.low_memory, low).changed();
                     ui.separator();
                     changed |= ui.checkbox(&mut c.toolbar, "Show the toolbar").changed();
                     changed |= ui
@@ -9075,6 +9170,18 @@ mod tests {
         use super::Config;
         assert_eq!(Config::parse("# comment\npreload= 5\n").preload, 5);
         assert_eq!(Config::parse("preload=99").preload, 20);
+        let c = Config::parse("decode_threads=0\nanimation_mb=5000");
+        assert_eq!((c.decode_threads, c.animation_mb), (1, 1024));
+        // The defaults are the Medium level.
+        let d = Config::default();
+        let medium = super::MEMORY_LEVELS
+            .iter()
+            .find(|l| l.0 == "Medium")
+            .unwrap();
+        assert_eq!(
+            (d.preload, d.decode_threads, d.animation_mb, d.low_memory),
+            (medium.1, medium.2, medium.3, medium.4)
+        );
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
         // Every setting survives a save and load.

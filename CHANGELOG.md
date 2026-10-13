@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Memory use in Preferences: Low, Medium (the default) or High set preloading, the images decoded
+  at once, the limit for animations and the malloc arena together; Details shows them, and
+  other values are Custom. Low takes about 40 % less memory at its peak (173 against 286 MB for
+  a 12 MP photo); Medium or High keep browsing quick on slow storage such as SMB or NFS.
+
 ## [0.13.0] - 2026-10-13
 
 ### Added
