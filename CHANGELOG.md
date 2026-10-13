@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   about 286 to 180 MB. Zoom 1:1 still shows every pixel.
 - Thumbnails of JPEG files are made the same way, at 1/8: under 1 MB each instead of 38 MB for a
   12 MP photo, and a third faster.
+- The JPEG preview in a RAW file is decoded the same way, for the window and for thumbnails: the
+  peak memory while browsing RAW files drops from about 300 to 180 MB.
 
 ## [0.13.0] - 2026-10-13
 

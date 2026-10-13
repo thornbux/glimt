@@ -3026,27 +3026,42 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
     Ok((img, icc))
 }
 
-/// A JPEG decoded at 1/2, 1/4 or 1/8 of its size when that still covers `max`, turned upright by
-/// EXIF if `rotate`, with its ICC profile (or Adobe RGB from EXIF) and its full size upright.
-/// `None` where the whole image is needed or jpeg-decoder cannot help (CMYK, an error): then it is
-/// decoded whole, as other images.
+/// A JPEG, or the preview in a RAW file, decoded at 1/2, 1/4 or 1/8 of its size when that still
+/// covers `max`, turned upright by EXIF if `rotate`, with its ICC profile (or Adobe RGB from EXIF)
+/// and its full size upright. `None` where the whole image is needed or jpeg-decoder cannot help
+/// (CMYK, an error): then it is decoded whole, as other images.
 fn scaled_jpeg(
     path: &Path,
     max: [u32; 2],
     rotate: bool,
 ) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
-    use jpeg_decoder::PixelFormat;
-    if !has_ext(path, &["jpg", "jpeg"]) {
-        return None;
+    if has_ext(path, &["jpg", "jpeg"]) {
+        return scaled(&std::fs::read(path).ok()?, max, rotate, None);
     }
-    let data = std::fs::read(path).ok()?;
-    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(&data));
+    if has_ext(path, raw::EXTS) {
+        let data = std::fs::read(path).ok()?;
+        // As raw::load: the orientation from a TIFF-based RAW's own header, and no profile.
+        let (img, _, orig) = scaled(raw::preview(&data)?, max, rotate, exif::orientation(&data))?;
+        return Some((img, None, orig));
+    }
+    None
+}
+
+/// `scaled_jpeg` of the JPEG in `data`; `orientation` overrides the one in its EXIF.
+fn scaled(
+    data: &[u8],
+    max: [u32; 2],
+    rotate: bool,
+    orientation: Option<image::metadata::Orientation>,
+) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
+    use jpeg_decoder::PixelFormat;
+    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(data));
     dec.read_info().ok()?;
     let info = dec.info()?;
     if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
         return None;
     }
-    let orientation = (dec.exif_data().and_then(exif::orientation))
+    let orientation = (orientation.or_else(|| dec.exif_data().and_then(exif::orientation)))
         .filter(|_| rotate)
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let (w, h) = (info.width as f64, info.height as f64);
@@ -8674,6 +8689,13 @@ mod tests {
         assert_eq!(orig, [400, 200]);
         assert!(super::scaled_jpeg(&file, [300, 300], true).is_none());
         assert!(super::scaled_jpeg(&dir.join("none.jpg"), [10, 10], true).is_none());
+        // A RAW file's preview, scaled the same way.
+        let mut raw = b"FUJIFILMCCD-RAW ".to_vec();
+        raw.extend(std::fs::read(&file).unwrap());
+        std::fs::write(dir.join("a.raf"), raw).unwrap();
+        let (img, icc, orig) = super::scaled_jpeg(&dir.join("a.raf"), [60, 100], true).unwrap();
+        assert_eq!((orig, img.width(), img.height()), ([200, 400], 50, 100));
+        assert!(icc.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

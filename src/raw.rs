@@ -47,7 +47,7 @@ pub fn exif(path: &Path) -> Option<Vec<u8>> {
 
 /// The largest JPEG in `data` that the decoder handles: baseline or progressive. Lossless JPEG
 /// (raw sensor data in DNG and CR2) is passed over.
-fn preview(data: &[u8]) -> Option<&[u8]> {
+pub fn preview(data: &[u8]) -> Option<&[u8]> {
     // Find the start markers first, then look at them: one tight loop is ~7× faster through
     // a 20 MB file (15 ms) than reading the headers along the way.
     let starts: Vec<usize> = (1..data.len().saturating_sub(1))
