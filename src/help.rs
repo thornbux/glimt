@@ -55,8 +55,11 @@ const MANUAL: &[(&str, &str)] = &[
          the list. ⬆ .. goes to the parent folder. Network shares work too: type \
          smb://server/share (or sftp://…) and Glimt mounts it with gio, asking for user, \
          domain and password if the share needs them (a password saved in the keyring from \
-         Files is used without asking). glimt --remote next (or prev, slideshow, open PATH …) controls a running Glimt \
-         from a script; glimt --help lists the commands.",
+         Files is used without asking). Options before the folder start it a certain way: \
+         glimt --fullscreen --layout 2x2 --random --slideshow ~/Pictures shows four random \
+         images at a time on the whole screen. glimt --remote next (or prev, slideshow, random, \
+         open PATH …) controls a running Glimt from a script; glimt --help lists the options and \
+         commands.",
     ),
     (
         "Browsing",

@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Start options before the file or folder: --slideshow, --random, --fullscreen and
+  --layout 1|2x1|1x2|2x2, for example glimt --fullscreen --layout 2x2 --random --slideshow
+  ~/Pictures. Random order and the layout are kept, as the View menu keeps them.
+- random as a remote command: glimt --remote random turns random order on or off.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added

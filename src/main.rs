@@ -583,6 +583,54 @@ const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
     ("2x2", "Four (2 × 2)", [2, 2]),
 ];
 
+/// Options on the command line before the file or folder, for --help.
+const START_OPTIONS: &[(&str, &str)] = &[
+    ("--slideshow", "Start the slideshow"),
+    (
+        "--random",
+        "Random order in the slideshow (kept, as in the View menu)",
+    ),
+    ("--fullscreen", "Start in full screen"),
+    ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
+];
+
+/// What the start options ask for.
+#[derive(Clone, Copy, Default)]
+struct Start {
+    slideshow: bool,
+    random: bool,
+    fullscreen: bool,
+    layout: Option<&'static str>,
+}
+
+impl Start {
+    /// The options in front of `args`, and the arguments after them.
+    fn parse(mut args: Vec<OsString>) -> Result<(Start, Vec<OsString>), String> {
+        let mut start = Start::default();
+        while let Some(arg) = args.first().and_then(|a| a.to_str()).map(str::to_owned) {
+            match arg.as_str() {
+                "--slideshow" => start.slideshow = true,
+                "--random" => start.random = true,
+                "--fullscreen" => start.fullscreen = true,
+                "--layout" => {
+                    let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
+                    let layout = LAYOUTS.iter().find(|l| l.0 == value).ok_or_else(|| {
+                        let all: Vec<&str> = LAYOUTS.iter().map(|l| l.0).collect();
+                        format!("--layout takes one of {}", all.join(", "))
+                    })?;
+                    start.layout = Some(layout.0);
+                    args.remove(0);
+                }
+                "--help" | "-h" | "--remote" | "--remote-all" => break,
+                a if a.starts_with("--") => return Err(format!("unknown option {a}")),
+                _ => break,
+            }
+            args.remove(0);
+        }
+        Ok((start, args))
+    }
+}
+
 fn layout_grid(layout: &str) -> [usize; 2] {
     LAYOUTS
         .iter()
@@ -1174,6 +1222,8 @@ struct App {
     whole_shuffle: bool,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
     capturing: Option<Action>,
+    /// --slideshow: start it once the folder is read.
+    start_slideshow: bool,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// The images of a layout's panes after the first, which shows `cur`.
@@ -3221,10 +3271,18 @@ fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext, path: Option<PathBuf>) -> Self {
+    fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
         let keep = Arc::new(Mutex::new(vec![0]));
         let full_ok = Arc::new(AtomicUsize::new(1));
-        let config = Config::load();
+        let mut config = Config::load();
+        // Start options are kept, as choosing them in the View menu would.
+        if let Some(layout) = start.layout {
+            config.layout = layout.into();
+        }
+        config.random |= start.random;
+        if start.layout.is_some() || start.random {
+            config.save();
+        }
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
         let screen_error = (set_screen(&config.screen_profile))
             .and_then(|_| set_input(&config.input_profile))
@@ -3455,6 +3513,7 @@ impl App {
             wheel: 0.0,
             config,
             slideshow: None,
+            start_slideshow: start.slideshow,
             random: false,
             limits,
             jobs,
@@ -7249,6 +7308,11 @@ impl eframe::App for App {
                 Err(e) => self.notice = Some(format!("Could not save the orientation: {e}")),
             }
         }
+        // --slideshow: once the folder is read, so random order shuffles all of it.
+        if self.start_slideshow && self.listing.is_none() {
+            self.start_slideshow = false;
+            self.start_slideshow(ctx);
+        }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.has_focus && self.config.remote_control {
             remote::focused();
@@ -7261,6 +7325,7 @@ impl eframe::App for App {
                 "first" => Some(Action::First),
                 "last" => Some(Action::Last),
                 "slideshow" => Some(Action::Slideshow),
+                "random" => Some(Action::RandomOrder),
                 "fullscreen" => Some(Action::FullScreen),
                 "quit" => Some(Action::Quit),
                 other => {
@@ -8684,17 +8749,30 @@ fn main() -> eframe::Result {
         // SAFETY: called before any other thread exists.
         unsafe { mallopt(M_ARENA_MAX, 1) };
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (start, args_os) = match Start::parse(std::env::args_os().skip(1).collect()) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            eprintln!("glimt: {e}\nTry glimt --help");
+            std::process::exit(2);
+        }
+    };
+    let args: Vec<String> = (args_os.iter())
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
         println!(
-            "Usage: glimt [FILE_OR_FOLDER]\n       glimt --remote COMMAND      to the Glimt used last\n       glimt --remote-all COMMAND  to every running Glimt\n\nCommands:"
+            "Usage: glimt [OPTIONS] [FILE_OR_FOLDER]\n       glimt --remote COMMAND      to the Glimt used last\n       glimt --remote-all COMMAND  to every running Glimt\n\nOptions:"
         );
+        for (option, does) in START_OPTIONS {
+            println!("  {option:<24} {does}");
+        }
+        println!("\nCommands:");
         for (command, does) in remote::COMMANDS {
             println!("  {command:<12} {does}");
         }
         return Ok(());
     }
-    let mut arg = std::env::args_os().nth(1).map(PathBuf::from);
+    let mut arg = args_os.first().map(PathBuf::from);
     let to_all = args.first().is_some_and(|a| a == "--remote-all");
     if args.first().is_some_and(|a| a == "--remote") || to_all {
         let mut command = args[1..].join(" ");
@@ -8744,6 +8822,9 @@ fn main() -> eframe::Result {
         }
         viewport = viewport.with_maximized(win.maximized);
     }
+    if start.fullscreen {
+        viewport = viewport.with_fullscreen(true);
+    }
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()
@@ -8751,7 +8832,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "glimt",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, arg)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, arg, start)))),
     )
 }
 
@@ -8792,6 +8873,33 @@ mod tests {
         assert_eq!((orig, img.width(), img.height()), ([200, 400], 50, 100));
         assert!(icc.is_none());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Start options in front of the file or folder; the rest is left as it was.
+    #[test]
+    fn parses_start_options() {
+        use super::Start;
+        let args = |a: &[&str]| {
+            a.iter()
+                .map(Into::into)
+                .collect::<Vec<std::ffi::OsString>>()
+        };
+        let (s, rest) = Start::parse(args(&[
+            "--fullscreen",
+            "--layout",
+            "2x2",
+            "--slideshow",
+            "d",
+        ]))
+        .unwrap();
+        assert!(s.fullscreen && s.slideshow && !s.random && s.layout == Some("2x2"));
+        assert_eq!(rest, args(&["d"]));
+        let (s, rest) = Start::parse(args(&["--random", "--remote", "next"])).unwrap();
+        assert!(s.random && s.layout.is_none());
+        assert_eq!(rest, args(&["--remote", "next"]));
+        assert!(Start::parse(args(&["--layout", "3x3"])).is_err());
+        assert!(Start::parse(args(&["--layout"])).is_err());
+        assert!(Start::parse(args(&["--bogus"])).is_err());
     }
 
     /// The Types menu: images, RAW and videos each on their own; an opened file's type.

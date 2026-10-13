@@ -16,6 +16,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("first", "Show the first image"),
     ("last", "Show the last image"),
     ("slideshow", "Start or stop the slideshow"),
+    ("random", "Turn random order on or off"),
     ("fullscreen", "Enter or leave full screen"),
     (
         "open PATH",

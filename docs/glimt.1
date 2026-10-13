@@ -3,6 +3,7 @@
 glimt \- fast, lightweight image viewer
 .SH SYNOPSIS
 .B glimt
+.RI [ OPTIONS ]
 .RI [ FILE_OR_FOLDER ]
 .br
 .B glimt
@@ -36,6 +37,26 @@ files by their embedded preview. Builds with optional features also read videos,
 JPEG XL and SVG.
 .SH OPTIONS
 .TP
+.B \-\-slideshow
+Start the slideshow once the folder is read.
+.TP
+.B \-\-random
+Show the slideshow in random order. Kept for later starts, as in the View menu.
+.TP
+.B \-\-fullscreen
+Start in full screen.
+.TP
+.BI \-\-layout " LAYOUT"
+Show several images at once, as View \(-> Layout:
+.B 1
+(one image),
+.B 2x1
+(side by side),
+.B 1x2
+(above each other) or
+.B 2x2
+(four). Kept for later starts.
+.TP
 .BI \-\-remote " COMMAND"
 Send
 .I COMMAND
@@ -55,6 +76,9 @@ Show the next, previous, first or last image.
 .TP
 .B slideshow
 Start or stop the slideshow.
+.TP
+.B random
+Turn random order on or off.
 .TP
 .B fullscreen
 Enter or leave full screen.
