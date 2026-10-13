@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- View → Show Hidden Files lists files and folders whose names start with a dot, as Geeqie's
+  setting; off by default. Hidden images were listed before, hidden folders not.
+
 ## [0.14.0] - 2026-10-13
 
 ### Added
