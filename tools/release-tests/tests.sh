@@ -112,6 +112,13 @@ side() { [ "$(convert "$1" -format "%[fx:p{$2}.r>0.5]" info:)" = 1 ] && echo red
 # Rows of the file list with thumbnails, at x 57.
 ROWS=(337 419 501 583 665)
 rows() { for y in "${ROWS[@]:0:$2}"; do colour $1 57 $y; done | tr '\n' ' ' | sed 's/ $//'; }
+# The colour at X,Y of a screenshot as "r g b", 0-255 each.
+pixel() {
+    convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)] %[fx:int(255*p{$2,$3}.g)] \
+%[fx:int(255*p{$2,$3}.b)]" info:
+}
+# differ NAME A B: a check that A and B are not the same.
+differ() { if [ "$2" != "$3" ]; then pass "$1"; else fail "$1: both '$2'"; fi; }
 # The red value, 0-255, at X,Y of a screenshot.
 red() { convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)]" info:; }
 first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
@@ -332,6 +339,33 @@ expect "no screen profile: red as it is" "$(red screen-none 760 400)" "255"
 r=$(red screen-AdobeRGB1998 760 400)
 [ "$r" -lt 240 ] && pass "Adobe RGB screen: red shown as $r" || fail "Adobe RGB screen: red shown as $r"
 expect "a file that is no profile: red as it is" "$(red screen-junk 760 400)" "255"
+
+echo "-- images without a profile, Adobe RGB from EXIF, and the image's own profile left out"
+d=/tmp/input
+mkdir -p $d
+convert -size 600x400 'xc:rgb(60,160,60)' $d/plain.png
+cp $d/plain.png $d/exif.png
+exiftool -q -q -overwrite_original -ColorSpace=Uncalibrated -InteropIndex=R03 $d/exif.png
+cp $d/plain.png $d/icc.png
+exiftool -q -q -overwrite_original "-ICC_Profile<=$adobe" $d/icc.png
+# show FILE SETTINGS…: the colour shown in the middle of the image.
+show() {
+    local file=$1
+    shift
+    config "$@"
+    start $d/$file
+    sleep 1
+    shot input
+    quit
+    pixel input 760 400
+}
+plain=$(show plain.png)
+expect "without a profile: as it is" "$plain" "60 160 60"
+as_adobe=$(show plain.png input_profile=adobe)
+differ "without a profile, taken as Adobe RGB" "$as_adobe" "$plain"
+expect "EXIF says Adobe RGB (R03): shown as Adobe RGB" "$(show exif.png)" "$as_adobe"
+expect "its own Adobe RGB profile: shown as Adobe RGB" "$(show icc.png)" "$as_adobe"
+expect "its own profile left out: as sRGB" "$(show icc.png own_profile=false)" "$plain"
 
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"

@@ -196,10 +196,13 @@ const MANUAL: &[(&str, &str)] = &[
         "Colour",
         "Photos with an ICC profile (Adobe RGB, Display P3 …) are shown in their own colours: \
          converted to sRGB, or, for a calibrated or wide-gamut screen, straight to the screen \
-         profile chosen in Preferences (Choose… under Colour management). Images without a \
-         profile are taken to be sRGB. With a screen profile every image is converted, a few \
-         milliseconds each in the background; files Glimt writes and the thumbnails it shares \
-         with other programs stay sRGB.",
+         profile chosen under View → Colour Management (also in Preferences). A photo without \
+         one whose EXIF says Adobe RGB, as from a camera set to it, is taken as Adobe RGB; other \
+         images without one as sRGB, or the profile chosen there for them (Adobe RGB, Display \
+         P3 or a file). Use the image's own profile off takes that one for every image. The \
+         EXIF panel (Ctrl+K) says which profile an image is shown from. With a screen profile \
+         every image is converted, a few milliseconds each in the background; files Glimt \
+         writes and the thumbnails it shares with other programs stay sRGB.",
     ),
     (
         "Preferences",

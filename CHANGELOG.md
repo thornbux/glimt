@@ -10,6 +10,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A screen profile (Preferences → Colour management → Choose…): photos are converted from their
   own ICC profile straight to the screen's, for calibrated and wide-gamut screens. Without one
   nothing changes: the screen is taken to be sRGB.
+- View → Colour Management, as in Geeqie: the profile of images without one (sRGB, Adobe RGB,
+  Display P3 or a file), and whether an image's own profile is used. A photo whose EXIF says
+  Adobe RGB, as from a camera set to it, is shown as Adobe RGB. The EXIF panel says which
+  profile an image is shown from.
 
 ## [0.11.1] - 2026-10-12
 

@@ -572,6 +572,8 @@ enum Pick {
     SortFolder,
     /// An ICC profile for the screen.
     ScreenProfile,
+    /// An ICC profile for images without one.
+    InputProfile,
 }
 
 /// Images to print, and how.
@@ -746,9 +748,9 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Colour management",
-        "Embedded ICC profiles converted to sRGB or to a chosen screen profile; images without \
-         one are sRGB",
-        "Also input profiles for images without one, and the rendering intent",
+        "The image's own profile, Adobe RGB from its EXIF, or a chosen one for images without, \
+         to sRGB or a screen profile; the profile used is in the EXIF panel",
+        "The same, with a choice of rendering intent, and the profile used in the status bar",
     ),
     (
         "Files on the clipboard",
@@ -1923,6 +1925,11 @@ config! {
     color_management: bool = true,
     /// The screen's ICC profile file, chosen in Preferences; empty: the screen is taken to be sRGB.
     screen_profile: String = String::new(),
+    /// The profile of images without one: srgb, adobe, p3 or an ICC file.
+    input_profile: String = "srgb".to_owned(),
+    /// An image's own ICC profile (or Adobe RGB from its EXIF) counts; off, the input profile
+    /// is used for every image.
+    own_profile: bool = true,
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
     /// The user's own keys, replacing the defaults of those actions (Preferences).
@@ -2455,115 +2462,207 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     Ok(to_srgb(img, icc.as_deref()))
 }
 
-/// Colours from an embedded ICC profile (Adobe RGB, Display P3 …) converted to sRGB, which is
-/// what the screen is taken to show without a screen profile, and what files and the shared
-/// thumbnail cache get; without it such photos look dull. Done after scaling down, where it
-/// costs a few milliseconds. Profiles that do not fit (CMYK, grey) leave it as it is.
+/// Colours from the image's own ICC profile (Adobe RGB, Display P3 …), or from the profile set
+/// for images without one, converted to sRGB: what the screen is taken to show without a screen
+/// profile, and what files and the shared thumbnail cache get. Without it such photos look dull.
+/// Done after scaling down, where it costs a few milliseconds.
 fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
-    use moxcms::{ColorProfile, Layout, TransformOptions};
-    if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
-        return img;
-    }
-    let Some(from) = icc.and_then(|b| ColorProfile::new_from_slice(b).ok()) else {
-        return img;
-    };
-    let srgb = ColorProfile::new_srgb();
-    match from.create_transform_8bit(
-        Layout::Rgba,
-        &srgb,
-        Layout::Rgba,
-        TransformOptions::default(),
-    ) {
-        Ok(t) => transformed(&*t, img),
-        Err(_) => img,
-    }
+    convert(img, icc, false)
 }
 
-/// The screen profile chosen in Preferences, and the transforms to it; `None` while the screen
-/// is taken to be sRGB, as without one.
-static SCREEN: std::sync::RwLock<Option<Screen>> = std::sync::RwLock::new(None);
-
-struct Screen {
-    profile: moxcms::ColorProfile,
-    /// Made once for each source profile, by a hash of its bytes (0: sRGB, for images without
-    /// one): for some profiles that costs more than the transform itself.
-    transforms: Mutex<HashMap<u64, Option<Arc<moxcms::Transform8BitExecutor>>>>,
-}
-
-/// Read the screen profile in `path` (empty: none) for `to_display`. A profile that is not an
-/// RGB one is an error and the old one stays; one that shows sRGB as it is counts as none, so
-/// an sRGB screen costs nothing.
-fn set_screen(path: &str) -> Result<(), String> {
-    use moxcms::{ColorProfile, DataColorSpace, Layout, TransformOptions};
-    let profile = if path.is_empty() {
-        None
-    } else {
-        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-        let profile = ColorProfile::new_from_slice(&bytes)
-            .ok()
-            .filter(|p| p.color_space == DataColorSpace::Rgb)
-            .ok_or(format!("{path}: not an RGB screen profile"))?;
-        // A few colours through it: unchanged means an sRGB screen.
-        let samples = [
-            255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 128, 128, 255, 30, 60, 90, 255,
-        ];
-        let srgb = ColorProfile::new_srgb();
-        let mut out = [0; 20];
-        let same = srgb
-            .create_transform_8bit(
-                Layout::Rgba,
-                &profile,
-                Layout::Rgba,
-                TransformOptions::default(),
-            )
-            .is_ok_and(|t| t.transform(&samples, &mut out).is_ok())
-            && samples.iter().zip(out).all(|(a, b)| a.abs_diff(b) <= 1);
-        (!same).then_some(profile)
-    };
-    *SCREEN.write().unwrap_or_else(|e| e.into_inner()) = profile.map(|profile| Screen {
-        profile,
-        transforms: Mutex::default(),
-    });
-    Ok(())
-}
-
-/// The image as the screen is to get it: from its own profile (sRGB without one) straight to the
-/// screen profile, so that colours outside sRGB which the screen has are kept; without a screen
-/// profile as `to_srgb`. For what is shown, not for files or the shared thumbnail cache.
+/// The image as the screen is to get it: from its profile straight to the screen profile, so
+/// that colours outside sRGB which the screen has are kept; without a screen profile as
+/// `to_srgb`. For what is shown, not for files or the shared thumbnail cache.
 fn to_display(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
+    convert(img, icc, true)
+}
+
+/// The colour settings of Preferences, for the decoding threads.
+struct Colour {
+    /// `None`: the screen is taken to be sRGB.
+    screen: Option<moxcms::ColorProfile>,
+    /// For images without a profile of their own, or all with `own` off; `None`: sRGB.
+    input: Option<moxcms::ColorProfile>,
+    /// An image's own profile counts (Geeqie's "Use image's color profile").
+    own: bool,
+    /// Made once for each source and target: some profiles cost more to make a transform from
+    /// than the transform itself. By (source, to the screen): 0 is sRGB, 1 the input profile,
+    /// the rest a hash of the image's profile.
+    transforms: Mutex<Transforms>,
+}
+
+/// Colour transforms by (source, to the screen); `None` where none can be made.
+type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>>>;
+
+static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> = std::sync::LazyLock::new(|| {
+    std::sync::RwLock::new(Colour {
+        screen: None,
+        input: None,
+        own: true,
+        transforms: Mutex::default(),
+    })
+});
+
+/// The pixels of `img` from `icc` (when it counts, else the input profile or sRGB) to the screen
+/// profile with `screen`, else to sRGB. Unchanged when both are sRGB, with colour management off,
+/// or for a profile that does not fit (CMYK, grey).
+fn convert(img: image::DynamicImage, icc: Option<&[u8]>, screen: bool) -> image::DynamicImage {
     use moxcms::{ColorProfile, Layout, TransformOptions};
     if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
         return img;
     }
-    let screen = SCREEN.read().unwrap_or_else(|e| e.into_inner());
-    let Some(screen) = screen.as_ref() else {
-        drop(screen);
-        return to_srgb(img, icc);
-    };
-    let key = icc.map_or(0, |b| {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::hash::DefaultHasher::new();
-        b.hash(&mut h);
-        h.finish()
-    });
-    let mut transforms = screen.transforms.lock().unwrap_or_else(|e| e.into_inner());
-    let t = transforms.entry(key).or_insert_with(|| {
-        // A profile that cannot be read counts as sRGB, as for an image without one.
-        let from = icc
-            .and_then(|b| ColorProfile::new_from_slice(b).ok())
-            .unwrap_or_else(ColorProfile::new_srgb);
-        let options = TransformOptions::default();
-        (from.create_transform_8bit(Layout::Rgba, &screen.profile, Layout::Rgba, options)).ok()
-    });
-    match t.clone() {
-        Some(t) => {
-            drop(transforms);
-            transformed(&*t, img)
+    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+    let icc = icc.filter(|_| c.own);
+    let screen = screen && c.screen.is_some();
+    let from = match icc {
+        Some(bytes) => {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::hash::DefaultHasher::new();
+            bytes.hash(&mut h);
+            h.finish().max(2)
         }
-        // A profile that does not fit (CMYK, grey): left as it is, as in to_srgb.
+        None if c.input.is_some() => 1,
+        None => 0,
+    };
+    if from == 0 && !screen {
+        return img;
+    }
+    let mut transforms = c.transforms.lock().unwrap_or_else(|e| e.into_inner());
+    let t = transforms.entry((from, screen)).or_insert_with(|| {
+        let source = match icc {
+            // One that cannot be read: sRGB on the way to the screen, left as it is for sRGB.
+            Some(bytes) => match ColorProfile::new_from_slice(bytes) {
+                Ok(p) => p,
+                Err(_) if screen => ColorProfile::new_srgb(),
+                Err(_) => return None,
+            },
+            None => c.input.clone().unwrap_or_else(ColorProfile::new_srgb),
+        };
+        let target = match (&c.screen, screen) {
+            (Some(p), true) => p.clone(),
+            _ => ColorProfile::new_srgb(),
+        };
+        let options = TransformOptions::default();
+        (source.create_transform_8bit(Layout::Rgba, &target, Layout::Rgba, options)).ok()
+    });
+    let t = t.clone();
+    drop(transforms);
+    drop(c);
+    match t {
+        Some(t) => transformed(&*t, img),
         None => img,
     }
 }
+
+/// The RGB profile in the ICC file `path`, or `None` when it shows sRGB as it is (so that it
+/// costs nothing); an error for one that cannot be read or is not RGB.
+fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, String> {
+    use moxcms::{ColorProfile, DataColorSpace};
+    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let profile = ColorProfile::new_from_slice(&bytes)
+        .ok()
+        .filter(|p| p.color_space == DataColorSpace::Rgb)
+        .ok_or(format!("{path}: not an RGB colour profile"))?;
+    Ok((!like_srgb(&profile)).then_some(profile))
+}
+
+/// A few colours from sRGB through `profile` come out unchanged.
+fn like_srgb(profile: &moxcms::ColorProfile) -> bool {
+    use moxcms::{ColorProfile, Layout, TransformOptions};
+    let samples = [
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 128, 128, 128, 255, 30, 60, 90, 255,
+    ];
+    let mut out = [0; 20];
+    let srgb = ColorProfile::new_srgb();
+    let options = TransformOptions::default();
+    srgb.create_transform_8bit(Layout::Rgba, profile, Layout::Rgba, options)
+        .is_ok_and(|t| t.transform(&samples, &mut out).is_ok())
+        && samples.iter().zip(out).all(|(a, b)| a.abs_diff(b) <= 1)
+}
+
+/// Change the colour settings with `change`, and make the transforms again.
+fn set_colour(change: impl FnOnce(&mut Colour)) {
+    let mut c = COLOUR.write().unwrap_or_else(|e| e.into_inner());
+    change(&mut c);
+    c.transforms = Mutex::default();
+}
+
+/// The screen profile in `path` (empty: none, sRGB). A file that is not an RGB profile is an
+/// error, and the old one stays.
+fn set_screen(path: &str) -> Result<(), String> {
+    let profile = match path {
+        "" => None,
+        path => rgb_profile(path)?,
+    };
+    set_colour(|c| c.screen = profile);
+    Ok(())
+}
+
+/// The profile for images without one: "srgb" (or empty), "adobe", "p3", or an ICC file.
+fn set_input(name: &str) -> Result<(), String> {
+    use moxcms::ColorProfile;
+    let profile = match name {
+        "" | "srgb" => None,
+        "adobe" => Some(ColorProfile::new_adobe_rgb()),
+        "p3" => Some(ColorProfile::new_display_p3()),
+        path => rgb_profile(path)?,
+    };
+    set_colour(|c| c.input = profile);
+    Ok(())
+}
+
+/// The built-in input profiles: (config value, label).
+const INPUT_PROFILES: [(&str, &str); 3] = [
+    ("srgb", "sRGB"),
+    ("adobe", "Adobe RGB"),
+    ("p3", "Display P3"),
+];
+
+/// The profile an image is shown from, for the EXIF panel: its own (by name), Adobe RGB from
+/// its EXIF, or the one taken for images without a profile.
+fn colour_source(path: &Path) -> String {
+    use moxcms::{ColorProfile, ProfileText};
+    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+    let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
+    let dec = image::ImageReader::open(path)
+        .and_then(|r| r.with_guessed_format())
+        .ok()
+        .and_then(|r| r.into_decoder().ok());
+    let own = dec.and_then(|mut d| {
+        if let Some(icc) = d.icc_profile().ok().flatten() {
+            let p = ColorProfile::new_from_slice(&icc).ok()?;
+            return Some(format!("{}, in the file", name_of(&p)));
+        }
+        let exif = d.exif_metadata().ok().flatten()?;
+        exif::adobe_rgb(&exif).then(|| "Adobe RGB, from its EXIF".to_owned())
+    });
+    fn name_of(p: &ColorProfile) -> String {
+        match &p.description {
+            Some(ProfileText::PlainString(s)) => s.clone(),
+            Some(ProfileText::Localizable(l)) => {
+                l.first().map_or(String::new(), |s| s.value.clone())
+            }
+            Some(ProfileText::Description(d)) => d.ascii_string.clone(),
+            None => "unnamed".to_owned(),
+        }
+    }
+    match own {
+        Some(own) if c.own => own,
+        Some(own) => format!("{own}; {input} used instead"),
+        None => format!("none: taken as {input}"),
+    }
+}
+
+/// Held by the tests that change the colour settings or depend on them, as tests run at once.
+#[cfg(test)]
+static COLOUR_TEST: Mutex<()> = Mutex::new(());
+
+/// An Adobe RGB profile, for images whose EXIF says Adobe RGB without carrying one.
+static ADOBE_RGB: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+    moxcms::ColorProfile::new_adobe_rgb()
+        .encode()
+        .unwrap_or_default()
+});
 
 /// `img` through the colour transform `t`.
 fn transformed(t: &moxcms::Transform8BitExecutor, img: image::DynamicImage) -> image::DynamicImage {
@@ -2648,7 +2747,11 @@ fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Ve
     let orientation = dec
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let icc = dec.icc_profile().ok().flatten();
+    // Without a profile, the EXIF may say Adobe RGB (a camera set to it).
+    let icc = dec.icc_profile().ok().flatten().or_else(|| {
+        let exif = dec.exif_metadata().ok().flatten()?;
+        exif::adobe_rgb(&exif).then(|| ADOBE_RGB.clone())
+    });
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
     if rotate {
         img.apply_orientation(orientation);
@@ -2752,7 +2855,10 @@ impl App {
         let full_ok = Arc::new(AtomicUsize::new(1));
         let config = Config::load();
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
-        let screen_error = set_screen(&config.screen_profile).err();
+        let screen_error = (set_screen(&config.screen_profile))
+            .and_then(|()| set_input(&config.input_profile))
+            .err();
+        set_colour(|c| c.own = config.own_profile);
         if let Ok(mut own) = OWN_KEYS.write() {
             own.clone_from(&config.keys.0);
         }
@@ -2884,7 +2990,10 @@ impl App {
             while let Ok(mut path) = exif_rx.recv() {
                 path = exif_rx.try_iter().last().unwrap_or(path);
                 let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-                let mut rows = vec![("File size", human_size(size))];
+                let mut rows = vec![
+                    ("File size", human_size(size)),
+                    ("Colour profile", colour_source(&path)),
+                ];
                 rows.extend(exif::read(&path));
                 let all = exif::all(&path);
                 let meta = meta::read(&path);
@@ -3542,10 +3651,12 @@ impl App {
                 .unwrap_or_default()
                 .join(""),
             // Where colord and the user keep them.
-            Pick::ScreenProfile => (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
-                .filter(|d| d.is_dir())
-                .unwrap_or_else(|| "/usr/share/color/icc".into())
-                .join(""),
+            Pick::ScreenProfile | Pick::InputProfile => {
+                (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
+                    .filter(|d| d.is_dir())
+                    .unwrap_or_else(|| "/usr/share/color/icc".into())
+                    .join("")
+            }
             _ => self.dir.join(""),
         };
         let save = matches!(purpose, Pick::SavePdf(_));
@@ -3559,6 +3670,7 @@ impl App {
             Pick::SavePdf(_) => "Save as PDF",
             Pick::SortFolder => "Add to the Sort Manager",
             Pick::ScreenProfile => "Screen Profile",
+            Pick::InputProfile => "Profile of Images Without One",
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -4502,6 +4614,70 @@ impl App {
         self.config.screen_profile = path;
         self.config.save();
         self.redecode();
+    }
+
+    /// The profile for images without one: srgb, adobe, p3 or an ICC file.
+    fn set_input_profile(&mut self, name: String) {
+        if let Err(e) = set_input(&name) {
+            self.notice = Some(e);
+            return;
+        }
+        self.config.input_profile = name;
+        self.config.save();
+        self.redecode();
+    }
+
+    /// Whether an image's own profile counts, or the input profile is used for all.
+    fn set_own_profile(&mut self, on: bool) {
+        set_colour(|c| c.own = on);
+        self.config.own_profile = on;
+        self.config.save();
+        self.redecode();
+    }
+
+    /// Colour management, as in Geeqie's View → Color Management and in Preferences: on or off,
+    /// the profile of images without one, whether an image's own counts, and the screen profile.
+    fn colour_settings(&mut self, ui: &mut egui::Ui) {
+        let mut cm = self.config.color_management;
+        if ui.checkbox(&mut cm, "Colour management").changed() {
+            self.set_color_management(cm);
+        }
+        ui.add_enabled_ui(cm, |ui| {
+            let mut own = self.config.own_profile;
+            if ui
+                .checkbox(&mut own, "Use the image's own profile")
+                .changed()
+            {
+                self.set_own_profile(own);
+            }
+            ui.label("Images without a profile:");
+            let current = self.config.input_profile.clone();
+            for (value, label) in INPUT_PROFILES {
+                if ui.radio(current == value, label).clicked() && current != value {
+                    self.set_input_profile(value.to_owned());
+                }
+            }
+            let own_file = !INPUT_PROFILES.iter().any(|p| p.0 == current);
+            let file = Path::new(&current).file_name().filter(|_| own_file);
+            let label = file.map_or("Profile file…".into(), |n| {
+                format!("{}…", n.to_string_lossy())
+            });
+            if ui.radio(own_file, label).clicked() {
+                self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
+            }
+            ui.horizontal(|ui| {
+                ui.label("Screen profile:");
+                let file = Path::new(&self.config.screen_profile).file_name();
+                let name = file.map_or("none, sRGB".into(), |n| n.to_string_lossy());
+                ui.label(name).on_hover_text(&self.config.screen_profile);
+                if ui.button("Choose…").clicked() {
+                    self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
+                }
+                if !self.config.screen_profile.is_empty() && ui.button("None").clicked() {
+                    self.set_screen_profile(String::new());
+                }
+            });
+        });
     }
 
     /// Decode the images and thumbnails again, to be shown in other colours.
@@ -6443,6 +6619,9 @@ impl eframe::App for App {
                 (Pick::ScreenProfile, Some(file)) => {
                     self.set_screen_profile(file.to_string_lossy().into_owned())
                 }
+                (Pick::InputProfile, Some(file)) => {
+                    self.set_input_profile(file.to_string_lossy().into_owned())
+                }
             }
         }
 
@@ -6600,6 +6779,7 @@ impl eframe::App for App {
                     });
                     ui.menu_button("View", |ui| {
                         self.layout_menu(ui);
+                        ui.menu_button("Colour Management", |ui| self.colour_settings(ui));
                         ui.menu_button("Zoom", |ui| {
                             menu_item(ui, act, Action::ZoomIn);
                             menu_item(ui, act, Action::ZoomOut);
@@ -6850,28 +7030,9 @@ impl eframe::App for App {
                     changed |= ui
                         .checkbox(&mut c.animate, "Play animated GIF and WebP (A)")
                         .changed();
-                    let mut cm = c.color_management;
-                    if ui
-                        .checkbox(
-                            &mut cm,
-                            "Colour management: show ICC profiles (Adobe RGB, P3) as the screen does",
-                        )
-                        .changed()
-                    {
-                        self.set_color_management(cm);
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label("Screen profile:");
-                        let file = Path::new(&self.config.screen_profile).file_name();
-                        let name = file.map_or("none, sRGB".into(), |n| n.to_string_lossy());
-                        ui.label(name).on_hover_text(&self.config.screen_profile);
-                        if ui.button("Choose…").clicked() {
-                            self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
-                        }
-                        if !self.config.screen_profile.is_empty() && ui.button("None").clicked() {
-                            self.set_screen_profile(String::new());
-                        }
-                    });
+                    ui.separator();
+                    self.colour_settings(ui);
+                    ui.separator();
                     let c = &mut self.config;
                     changed |= ui
                         .checkbox(
@@ -7894,29 +8055,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An Adobe RGB photo is converted to sRGB: the same numbers mean a more saturated colour,
-    /// so in sRGB they come out different. Needs colord's profile; skipped without it.
-    #[test]
-    fn converts_icc_to_srgb() {
-        let Ok(adobe) = std::fs::read("/usr/share/color/icc/colord/AdobeRGB1998.icc") else {
-            return;
-        };
-        let img = image::DynamicImage::from(image::RgbaImage::from_pixel(
-            2,
-            2,
-            image::Rgba([60, 160, 60, 255]),
-        ));
-        let out = super::to_srgb(img.clone(), Some(&adobe)).into_rgba8();
-        assert_ne!(out.get_pixel(0, 0), img.into_rgba8().get_pixel(0, 0));
-        // Not a usable profile: unchanged.
-        let img = image::DynamicImage::from(image::RgbaImage::new(1, 1));
-        assert_eq!(super::to_srgb(img.clone(), Some(b"junk")), img);
-    }
-
     /// Through a Display P3 screen profile, sRGB red is less red in the screen's numbers. A file
     /// that is no profile leaves the one there; an sRGB screen profile counts as none.
     #[test]
     fn shows_through_a_screen_profile() {
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-screen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let write = |name: &str, bytes: Vec<u8>| {
@@ -7947,8 +8090,28 @@ mod tests {
         assert!(super::set_screen(&junk).is_err());
         assert_eq!(shown(), on_p3);
         super::set_screen(&srgb).unwrap();
-        assert!(super::SCREEN.read().unwrap().is_none());
+        assert!(super::COLOUR.read().unwrap().screen.is_none());
         assert_eq!(super::to_display(red(), None), red());
+        // Images without a profile taken as Adobe RGB: in sRGB the same numbers mean another colour.
+        super::set_input("adobe").unwrap();
+        let grey = || {
+            image::DynamicImage::from(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([60, 160, 60, 255]),
+            ))
+        };
+        assert_ne!(super::to_srgb(grey(), None), grey());
+        // The image's own profile left out: the input profile for all, here sRGB.
+        super::set_input("srgb").unwrap();
+        super::set_colour(|c| c.own = false);
+        let adobe = moxcms::ColorProfile::new_adobe_rgb().encode().unwrap();
+        assert_eq!(super::to_srgb(grey(), Some(&adobe)), grey());
+        super::set_colour(|c| c.own = true);
+        assert_ne!(super::to_srgb(grey(), Some(&adobe)), grey());
+        assert!(super::set_input(&junk).is_err());
+        // A profile that cannot be read: left as it is.
+        assert_eq!(super::to_srgb(grey(), Some(b"junk")), grey());
         super::set_screen("").unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
