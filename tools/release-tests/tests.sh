@@ -15,7 +15,7 @@ if [ "$(id -u)" = 0 ]; then
     echo "-- installing tools"
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
-        poppler-utils libglib2.0-bin python3 procps libgl1-mesa-dri libegl1 libgl1 \
+        poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
         libxrandr2 libxi6 libx11-xcb1 >/dev/null 2>&1
     for v in new old; do
@@ -112,6 +112,15 @@ side() { [ "$(convert "$1" -format "%[fx:p{$2}.r>0.5]" info:)" = 1 ] && echo red
 # Rows of the file list with thumbnails, at x 57.
 ROWS=(337 419 501 583 665)
 rows() { for y in "${ROWS[@]:0:$2}"; do colour $1 57 $y; done | tr '\n' ' ' | sed 's/ $//'; }
+# The colour at X,Y of a screenshot as "r g b", 0-255 each.
+pixel() {
+    convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)] %[fx:int(255*p{$2,$3}.g)] \
+%[fx:int(255*p{$2,$3}.b)]" info:
+}
+# differ NAME A B: a check that A and B are not the same.
+differ() { if [ "$2" != "$3" ]; then pass "$1"; else fail "$1: both '$2'"; fi; }
+# The red value, 0-255, at X,Y of a screenshot.
+red() { convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)]" info:; }
 first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
 wait_first() { for i in $(seq 240); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done; }
 rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
@@ -312,6 +321,76 @@ for v in new old; do
     else note "old: memory grew $grow MB"; fi
 done
 
+echo "-- screen profile: Adobe RGB, so sRGB red is shown less red"
+use new
+adobe=/usr/share/color/icc/colord/AdobeRGB1998.icc
+d=/tmp/screen
+mkdir -p $d
+convert -size 600x400 xc:red $d/red.png
+echo junk >/tmp/junk.icc
+for profile in "" $adobe /tmp/junk.icc; do
+    config "screen_profile=$profile"
+    start $d
+    sleep 1
+    shot screen-$(basename "${profile:-none}" .icc)
+    quit
+done
+expect "no screen profile: red as it is" "$(red screen-none 760 400)" "255"
+r=$(red screen-AdobeRGB1998 760 400)
+[ "$r" -lt 240 ] && pass "Adobe RGB screen: red shown as $r" || fail "Adobe RGB screen: red shown as $r"
+expect "a file that is no profile: red as it is" "$(red screen-junk 760 400)" "255"
+
+echo "-- the desktop's screen profile: a stand-in gdbus answers for colord with Adobe RGB"
+cat >/tmp/stub/gdbus <<STUB
+#!/bin/sh
+case "\$*" in
+*GetDevicesByKind*) echo "([objectpath '/org/freedesktop/ColorManager/devices/xrandr_1'],)" ;;
+*"Device Profiles"*) echo "(<[objectpath '/org/freedesktop/ColorManager/profiles/icc_1']>,)" ;;
+*Filename*) echo "(<'$adobe'>,)" ;;
+*) exit 1 ;;
+esac
+STUB
+chmod +x /tmp/stub/gdbus
+for on in true false; do
+    config "desktop_profile=$on"
+    start $d
+    sleep 2
+    shot desktop-$on
+    quit
+done
+rm /tmp/stub/gdbus
+r=$(red desktop-true 760 400)
+[ "$r" -lt 240 ] && pass "the desktop's Adobe RGB: red shown as $r" ||
+    fail "the desktop's Adobe RGB: red shown as $r"
+expect "the desktop's profile left out: red as it is" "$(red desktop-false 760 400)" "255"
+
+echo "-- images without a profile, Adobe RGB from EXIF, and the image's own profile left out"
+d=/tmp/input
+mkdir -p $d
+convert -size 600x400 'xc:rgb(60,160,60)' $d/plain.png
+cp $d/plain.png $d/exif.png
+exiftool -q -q -overwrite_original -ColorSpace=Uncalibrated -InteropIndex=R03 $d/exif.png
+cp $d/plain.png $d/icc.png
+exiftool -q -q -overwrite_original "-ICC_Profile<=$adobe" $d/icc.png
+# show FILE SETTINGS…: the colour shown in the middle of the image.
+show() {
+    local file=$1
+    shift
+    config "$@"
+    start $d/$file
+    sleep 1
+    shot input
+    quit
+    pixel input 760 400
+}
+plain=$(show plain.png)
+expect "without a profile: as it is" "$plain" "60 160 60"
+as_adobe=$(show plain.png input_profile=adobe)
+differ "without a profile, taken as Adobe RGB" "$as_adobe" "$plain"
+expect "EXIF says Adobe RGB (R03): shown as Adobe RGB" "$(show exif.png)" "$as_adobe"
+expect "its own Adobe RGB profile: shown as Adobe RGB" "$(show icc.png)" "$as_adobe"
+expect "its own profile left out: as sRGB" "$(show icc.png own_profile=false)" "$plain"
+
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"
 else
@@ -335,6 +414,13 @@ for s in range(10):
         note "$v run $run: $(first_image), RssAnon $(rss)"
         quit
     done; done
+    use new
+    config thumbnails=false screen_profile=$adobe
+    start $big
+    wait_first
+    sleep 15
+    note "new with a screen profile: $(first_image), RssAnon $(rss)"
+    quit
 
     echo "-- sorting 3,000 JPEGs of about 1 MB by EXIF date"
     e=/tmp/exif-dates

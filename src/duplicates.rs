@@ -292,6 +292,8 @@ mod tests {
 
     #[test]
     fn finds_duplicates() {
+        // Similarity goes through the colour settings, which another test changes.
+        let _held = crate::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-dups-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         let (a, b, c, d) = (

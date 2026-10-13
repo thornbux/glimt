@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A screen profile (Preferences → Colour management → Choose…): photos are converted from their
+  own ICC profile straight to the screen's, for calibrated and wide-gamut screens. Without one
+  nothing changes: the screen is taken to be sRGB.
+- View → Colour Management, as in Geeqie: the profile of images without one (sRGB, Adobe RGB,
+  Display P3 or a file), and whether an image's own profile is used. A photo whose EXIF says
+  Adobe RGB, as from a camera set to it, is shown as Adobe RGB. The EXIF panel says which
+  profile an image is shown from.
+- The desktop's screen profile, from colord as GNOME and KDE set it, on X and Wayland; it goes
+  before a chosen one, and can be turned off under View → Colour Management.
+- The rendering intent under View → Colour Management (perceptual, relative colorimetric,
+  saturation, absolute colorimetric), for ICC profiles with tables for each.
+
 ### Changed
 
 - The Dark theme has a look of its own: deeper neutral greys and its own blue, instead of the

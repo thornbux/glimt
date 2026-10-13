@@ -194,6 +194,22 @@ const MANUAL: &[(&str, &str)] = &[
          hides the name, place and EXIF over the image.",
     ),
     (
+        "Colour",
+        "Photos with an ICC profile (Adobe RGB, Display P3 …) are shown in their own colours: \
+         converted to sRGB, or, for a calibrated or wide-gamut screen, straight to the screen \
+         profile chosen under View → Colour Management (also in Preferences). The desktop's \
+         screen profile, which GNOME and KDE keep in colord, goes before the chosen one when \
+         there is one; Use the desktop's screen profile off leaves it out. A photo without \
+         one whose EXIF says Adobe RGB, as from a camera set to it, is taken as Adobe RGB; other \
+         images without one as sRGB, or the profile chosen there for them (Adobe RGB, Display \
+         P3 or a file). Use the image's own profile off takes that one for every image. The \
+         EXIF panel (Ctrl+K) says which profile an image is shown from. The rendering intent \
+         there decides how colours the target cannot show are brought in; only profiles with \
+         tables for each intent (LUT profiles) tell them apart. With a screen profile \
+         every image is converted, a few milliseconds each in the background; files Glimt \
+         writes and the thumbnails it shares with other programs stay sRGB.",
+    ),
+    (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, \
          the theme, what is shown, window and memory use, and how deleting works. Under Keyboard shortcuts, \

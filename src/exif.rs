@@ -133,6 +133,25 @@ pub fn date(path: &Path, digitized: bool) -> Option<String> {
     t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
 }
 
+/// Whether the EXIF block says the pixels are Adobe RGB without an ICC profile, as cameras set
+/// to Adobe RGB do: ColorSpace 2, or "uncalibrated" with the Interoperability index R03 (R98 is
+/// sRGB). Read as Geeqie reads it.
+pub fn adobe_rgb(raw: &[u8]) -> bool {
+    let Some((t, _, exif, _)) = ifds(raw) else {
+        return false;
+    };
+    let get = |ifd: &[(u16, Entry)], tag: u16| ifd.iter().find(|e| e.0 == tag).map(|e| e.1);
+    match get(&exif, 0xa001).and_then(|e| t.int(e)) {
+        Some(2) => true,
+        Some(0xffff) => {
+            let interop = get(&exif, 0xa005).and_then(|e| t.int(e));
+            let index = interop.and_then(|at| get(&t.ifd(at as usize), 0x0001));
+            index.and_then(|e| t.text(e)).is_some_and(|i| i == "R03")
+        }
+        _ => false,
+    }
+}
+
 /// The Orientation tag of a TIFF block (a TIFF-based RAW file's header).
 pub fn orientation(raw: &[u8]) -> Option<image::metadata::Orientation> {
     let (t, ifd0, _, _) = ifds(raw)?;
@@ -643,6 +662,28 @@ mod tests {
         assert_eq!(turned(3, 2, false), 1);
         // Mirror then a quarter turn clockwise is the transverse.
         assert_eq!(turned(1, 1, true), 7);
+    }
+
+    /// Adobe RGB from ColorSpace 2, or uncalibrated with R03; sRGB and R98 are not.
+    #[test]
+    fn tells_adobe_rgb() {
+        // IFD0 with a pointer to the Exif IFD (at 26): ColorSpace, and a pointer to Interop.
+        let block = |space: u16, index: &[u8; 4]| {
+            let mut d = b"II*\0\x08\0\0\0\x01\0\x69\x87\x04\0\x01\0\0\0\x1a\0\0\0\0\0\0\0".to_vec();
+            d.extend(b"\x02\0\x01\xa0\x03\0\x01\0\0\0");
+            d.extend(space.to_le_bytes());
+            d.extend(b"\0\0\x05\xa0\x04\0\x01\0\0\0\x38\0\0\0\0\0\0\0");
+            // Interop IFD at 56: InteroperabilityIndex, 4 ASCII bytes in the entry.
+            d.extend(b"\x01\0\x01\0\x02\0\x04\0\0\0");
+            d.extend(index);
+            d.extend(b"\0\0\0\0");
+            d
+        };
+        assert!(super::adobe_rgb(&block(2, b"R98\0")));
+        assert!(super::adobe_rgb(&block(0xffff, b"R03\0")));
+        assert!(!super::adobe_rgb(&block(0xffff, b"R98\0")));
+        assert!(!super::adobe_rgb(&block(1, b"R03\0")));
+        assert!(!super::adobe_rgb(b"junk"));
     }
 
     /// A JPEG without EXIF gets one; turning again changes the field in place.
