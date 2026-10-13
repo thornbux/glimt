@@ -749,10 +749,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Colour management",
         "The image's own profile, Adobe RGB from its EXIF, or a chosen one for images without, \
-         to sRGB or a screen profile; the profile used is in the EXIF panel; absolute \
-         colorimetric is shown as relative colorimetric",
-        "The same, with the profile used in the status bar, and absolute colorimetric keeping \
-         the paper white of the profile",
+         to sRGB or a screen profile, the desktop's from colord when it has one; the profile \
+         used is in the EXIF panel; absolute colorimetric is shown as relative colorimetric",
+        "The same, with the profile used in the status bar, the desktop's from X \
+         (_ICC_PROFILE, so not on Wayland), and absolute colorimetric keeping the paper white \
+         of the profile",
     ),
     (
         "Files on the clipboard",
@@ -1063,6 +1064,9 @@ struct App {
     /// The desktop's dark style and accent colour, once read from the portal.
     desktop_look: (Option<bool>, Option<egui::Color32>),
     desktop_rx: Option<mpsc::Receiver<(Option<bool>, Option<egui::Color32>)>>,
+    /// The desktop's screen profile file, once read from colord.
+    desktop_screen: Option<String>,
+    desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
     /// Edit → Plugins, read at start.
     plugins: Vec<plugins::Plugin>,
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
@@ -1927,6 +1931,9 @@ config! {
     color_management: bool = true,
     /// The screen's ICC profile file, chosen in Preferences; empty: the screen is taken to be sRGB.
     screen_profile: String = String::new(),
+    /// The desktop's screen profile, from colord, goes before `screen_profile` when there is one
+    /// (Geeqie's "Use system screen profile if available").
+    desktop_profile: bool = true,
     /// The profile of images without one: srgb, adobe, p3 or an ICC file.
     input_profile: String = "srgb".to_owned(),
     /// An image's own ICC profile (or Adobe RGB from its EXIF) counts; off, the input profile
@@ -2701,6 +2708,54 @@ fn colour_source(path: &Path) -> String {
     }
 }
 
+/// The desktop's screen profile file, read from colord in the background.
+fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>> {
+    let (tx, rx) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(desktop_screen_profile());
+        ctx.request_repaint();
+    });
+    rx
+}
+
+/// The file of the default profile of the first screen in colord, which GNOME and KDE set, on
+/// X and Wayland alike. Runs `gdbus`, so it belongs in a background thread.
+/// shortcut: the first screen's for every screen; per screen once Glimt knows which it is on.
+fn desktop_screen_profile() -> Option<String> {
+    let call = |object: &str, method: &[&str]| {
+        let out = (command("gdbus").args(["call", "--system", "--dest"]))
+            .args([
+                "org.freedesktop.ColorManager",
+                "--object-path",
+                object,
+                "--method",
+            ])
+            .args(method)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
+        first_quoted(&String::from_utf8_lossy(&out.stdout)).map(str::to_owned)
+    };
+    let get = "org.freedesktop.DBus.Properties.Get";
+    let manager = ["org.freedesktop.ColorManager.GetDevicesByKind", "display"];
+    let device = call("/org/freedesktop/ColorManager", &manager)?;
+    let profile = call(
+        &device,
+        &[get, "org.freedesktop.ColorManager.Device", "Profiles"],
+    )?;
+    call(
+        &profile,
+        &[get, "org.freedesktop.ColorManager.Profile", "Filename"],
+    )
+}
+
+/// The first text in single quotes of what gdbus prints: "([objectpath '/a', '/b'],)" is "/a";
+/// `None` for an empty list, "(@ao [],)".
+fn first_quoted(text: &str) -> Option<&str> {
+    text.split('\'').nth(1).filter(|s| !s.is_empty())
+}
+
 /// Held by the tests that change the colour settings or depend on them, as tests run at once.
 #[cfg(test)]
 static COLOUR_TEST: Mutex<()> = Mutex::new(());
@@ -3097,6 +3152,8 @@ impl App {
             apps_tx,
             desktop_look: (None, None),
             desktop_rx: Some(desktop_rx),
+            desktop_screen: None,
+            desktop_screen_rx: (config.desktop_profile).then(|| read_desktop_screen(&cc.egui_ctx)),
             plugins: plugins::find(),
             apps_rx,
             row_step: 1,
@@ -4662,6 +4719,29 @@ impl App {
         }
         self.config.screen_profile = path;
         self.config.save();
+        self.use_screen();
+    }
+
+    /// Whether the desktop's screen profile goes before the chosen one; read from colord when on.
+    fn set_desktop_profile(&mut self, on: bool, ctx: &egui::Context) {
+        self.config.desktop_profile = on;
+        self.config.save();
+        if on && self.desktop_screen.is_none() {
+            self.desktop_screen_rx = Some(read_desktop_screen(ctx));
+        }
+        self.use_screen();
+    }
+
+    /// Show through the desktop's screen profile when it counts and colord has one, else through
+    /// the chosen one.
+    fn use_screen(&mut self) {
+        let path = match &self.desktop_screen {
+            Some(p) if self.config.desktop_profile => p.clone(),
+            _ => self.config.screen_profile.clone(),
+        };
+        if let Err(e) = set_screen(&path) {
+            self.notice = Some(e);
+        }
         self.redecode();
     }
 
@@ -4722,8 +4802,24 @@ impl App {
             if ui.radio(own_file, label).clicked() {
                 self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
             }
+            let mut desktop = self.config.desktop_profile;
+            if ui
+                .checkbox(&mut desktop, "Use the desktop's screen profile")
+                .on_hover_text("From colord, which GNOME and KDE set")
+                .changed()
+            {
+                self.set_desktop_profile(desktop, ui.ctx());
+            }
+            let from_desktop =
+                (self.desktop_screen.clone()).filter(|_| self.config.desktop_profile);
             ui.horizontal(|ui| {
                 ui.label("Screen profile:");
+                if let Some(path) = from_desktop {
+                    let name = Path::new(&path).file_name().unwrap_or_default();
+                    let name = format!("{}, from the desktop", name.to_string_lossy());
+                    ui.label(name).on_hover_text(path);
+                    return;
+                }
                 let file = Path::new(&self.config.screen_profile).file_name();
                 let name = file.map_or("none, sRGB".into(), |n| n.to_string_lossy());
                 ui.label(name).on_hover_text(&self.config.screen_profile);
@@ -6579,6 +6675,13 @@ impl eframe::App for App {
             self.desktop_rx = None;
             self.apply_theme(ctx);
         }
+        if let Some(path) = (self.desktop_screen_rx.as_ref()).and_then(|rx| rx.try_recv().ok()) {
+            self.desktop_screen_rx = None;
+            self.desktop_screen = path;
+            if self.desktop_screen.is_some() {
+                self.use_screen();
+            }
+        }
         let ppp = ctx.pixels_per_point();
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.limits.lock().unwrap()[1] = [max_side, max_side];
@@ -8231,6 +8334,20 @@ mod tests {
         assert_eq!(shown("saturation"), perceptual);
         super::set_input("srgb").unwrap();
         super::set_intent("perceptual");
+    }
+
+    /// What gdbus prints for colord: the first object or file, and nothing for an empty list.
+    #[test]
+    fn reads_colord() {
+        let devices = "([objectpath '/org/freedesktop/ColorManager/devices/a', '/b'],)\n";
+        let first = super::first_quoted(devices);
+        assert_eq!(first, Some("/org/freedesktop/ColorManager/devices/a"));
+        assert_eq!(
+            super::first_quoted("(<'/x/edid.icc'>,)"),
+            Some("/x/edid.icc")
+        );
+        assert_eq!(super::first_quoted("(@ao [],)\n"), None);
+        assert_eq!(super::first_quoted("(<''>,)"), None);
     }
 
     /// image writes lossless WebP (VP8L); anything else is not taken for one.

@@ -82,7 +82,8 @@ The images in the screenshots are generated for the purpose.
 - **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL and SVG.
 - **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
 - **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
-  they do not look dull, or to your screen's own profile for a calibrated or wide-gamut screen.
+  they do not look dull, or to your screen's own profile for a calibrated or wide-gamut screen,
+  taken from the desktop (colord) when it has one.
   Adobe RGB photos without a profile are found from their EXIF, as in Geeqie.
 
 The release packages have every format built in; HEIC, AVIF and video also need `ffmpeg`. When

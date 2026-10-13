@@ -340,6 +340,30 @@ r=$(red screen-AdobeRGB1998 760 400)
 [ "$r" -lt 240 ] && pass "Adobe RGB screen: red shown as $r" || fail "Adobe RGB screen: red shown as $r"
 expect "a file that is no profile: red as it is" "$(red screen-junk 760 400)" "255"
 
+echo "-- the desktop's screen profile: a stand-in gdbus answers for colord with Adobe RGB"
+cat >/tmp/stub/gdbus <<STUB
+#!/bin/sh
+case "\$*" in
+*GetDevicesByKind*) echo "([objectpath '/org/freedesktop/ColorManager/devices/xrandr_1'],)" ;;
+*"Device Profiles"*) echo "(<[objectpath '/org/freedesktop/ColorManager/profiles/icc_1']>,)" ;;
+*Filename*) echo "(<'$adobe'>,)" ;;
+*) exit 1 ;;
+esac
+STUB
+chmod +x /tmp/stub/gdbus
+for on in true false; do
+    config "desktop_profile=$on"
+    start $d
+    sleep 2
+    shot desktop-$on
+    quit
+done
+rm /tmp/stub/gdbus
+r=$(red desktop-true 760 400)
+[ "$r" -lt 240 ] && pass "the desktop's Adobe RGB: red shown as $r" ||
+    fail "the desktop's Adobe RGB: red shown as $r"
+expect "the desktop's profile left out: red as it is" "$(red desktop-false 760 400)" "255"
+
 echo "-- images without a profile, Adobe RGB from EXIF, and the image's own profile left out"
 d=/tmp/input
 mkdir -p $d
