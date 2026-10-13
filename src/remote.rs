@@ -1,7 +1,8 @@
 //! Remote control, as `geeqie --remote`: `glimt --remote next` sends a command to the Glimt
 //! window used last, `glimt --remote-all quit` to every one. Each Glimt listens on its own Unix
 //! socket in `$XDG_RUNTIME_DIR/glimt`, which only the user can reach, and the one that gets
-//! the focus writes its process ID to `focused` there. In a Flatpak the folder is in the app's
+//! the focus writes its process ID to `focused` there. One started with `--name left` listens
+//! as `left` instead, and `glimt --name left --remote next` reaches only it. In a Flatpak the folder is in the app's
 //! own runtime folder, the part of `$XDG_RUNTIME_DIR` its instances share.
 
 use std::io::{BufRead, Write};
@@ -16,6 +17,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("first", "Show the first image"),
     ("last", "Show the last image"),
     ("slideshow", "Start or stop the slideshow"),
+    ("random", "Turn random order on or off"),
     ("fullscreen", "Enter or leave full screen"),
     (
         "open PATH",
@@ -46,6 +48,30 @@ pub fn me() -> &'static str {
         let pid = std::process::id();
         instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
     })
+}
+
+/// The name from `--name`, set before the window opens.
+static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Listen as `name` instead of the process ID.
+pub fn set_name(name: String) {
+    let _ = NAME.set(name);
+}
+
+/// The `--name` given, if any.
+pub fn name() -> Option<&'static str> {
+    NAME.get().map(String::as_str)
+}
+
+/// A name that cannot be taken for a process ID or a path: letters, digits, - and _.
+pub fn valid_name(name: &str) -> bool {
+    let ok = |c: char| c.is_alphanumeric() || c == '-' || c == '_';
+    name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit())
+}
+
+/// The socket's name: the --name, or the process ID.
+fn id() -> &'static str {
+    name().unwrap_or_else(me)
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
@@ -86,6 +112,11 @@ pub fn send(command: &str) -> bool {
     live().iter().any(|p| deliver(p, command))
 }
 
+/// Send `command` to the Glimt started with `--name name`; false if none runs.
+pub fn send_to(name: &str, command: &str) -> bool {
+    socket(name).is_some_and(|p| deliver(&p, command))
+}
+
 /// Send `command` to every running Glimt; how many got it.
 pub fn send_all(command: &str) -> usize {
     live().iter().filter(|p| deliver(p, command)).count()
@@ -93,7 +124,7 @@ pub fn send_all(command: &str) -> usize {
 
 /// Listen for commands in the background and pass each line to `tx`.
 pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
-    let Some(path) = socket(me()) else {
+    let Some(path) = socket(id()) else {
         return;
     };
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
@@ -120,13 +151,13 @@ pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
 /// This Glimt got the focus: `--remote` goes to it from now on.
 pub fn focused() {
     if let Some(d) = dir() {
-        let _ = std::fs::write(d.join("focused"), me());
+        let _ = std::fs::write(d.join("focused"), id());
     }
 }
 
 /// Glimt is closing: remove its socket.
 pub fn stop() {
-    if let Some(path) = socket(me()) {
+    if let Some(path) = socket(id()) {
         let _ = std::fs::remove_file(path);
     }
 }

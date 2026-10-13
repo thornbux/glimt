@@ -3,6 +3,7 @@
 glimt \- fast, lightweight image viewer
 .SH SYNOPSIS
 .B glimt
+.RI [ OPTIONS ]
 .RI [ FILE_OR_FOLDER ]
 .br
 .B glimt
@@ -15,6 +16,9 @@ glimt \- fast, lightweight image viewer
 .br
 .B glimt
 .B \-\-help
+.br
+.B glimt
+.B \-\-version
 .SH DESCRIPTION
 .B Glimt
 shows the images of a folder, one at a time, with a file list beside them. It is inspired by
@@ -36,6 +40,43 @@ files by their embedded preview. Builds with optional features also read videos,
 JPEG XL and SVG.
 .SH OPTIONS
 .TP
+.B \-\-slideshow
+Start the slideshow once the folder is read.
+.TP
+.B \-\-random
+Show the slideshow in random order. Kept for later starts, as in the View menu.
+.TP
+.B \-\-fullscreen
+Start in full screen.
+.TP
+.BI \-\-layout " LAYOUT"
+Show several images at once, as View \(-> Layout:
+.B 1
+(one image),
+.B 2x1
+(side by side),
+.B 1x2
+(above each other) or
+.B 2x2
+(four). Kept for later starts.
+.TP
+.BI \-\-name " NAME"
+Name this Glimt: letters, digits,
+.B \-
+and
+.BR _ ,
+not only digits. The window title shows it, and
+.B glimt \-\-name
+.I NAME
+.B \-\-remote
+.I COMMAND
+sends
+.I COMMAND
+to this Glimt only (with
+.BR open ,
+it starts one with that name if none runs). A named Glimt listens even when remote
+control is off in Preferences.
+.TP
 .BI \-\-remote " COMMAND"
 Send
 .I COMMAND
@@ -48,6 +89,9 @@ to every running Glimt.
 .TP
 .BR \-h ", " \-\-help
 List the options and remote commands.
+.TP
+.BR \-V ", " \-\-version
+Print the version.
 .SH REMOTE COMMANDS
 .TP
 .BR next ", " prev ", " first ", " last
@@ -55,6 +99,9 @@ Show the next, previous, first or last image.
 .TP
 .B slideshow
 Start or stop the slideshow.
+.TP
+.B random
+Turn random order on or off.
 .TP
 .B fullscreen
 Enter or leave full screen.
