@@ -98,15 +98,16 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Finding and sorting",
-        "Type three or more letters in the search field above the file list: the list shows \
-         the matching names, best first, ignoring case and gaps (like fzf). Start with exif: \
-         to search the EXIF, keywords and comments instead, for example exif:canon 2024:05 for photos from a Canon \
-         camera taken in May 2024; every word must match. The first EXIF search in a folder \
-         reads all files once, which takes a while in large folders. With the marks feature, \
-         1–6 toggle a mark, Ctrl+1–6 select the files with it and Alt+0–5 give stars; \
-         mark:2 or stars:3 in the search field shows those files; a \
-         setting also writes the stars to XMP sidecars for darktable and digiKam. The sort menu at \
-         the bottom left sorts by name, number, date, EXIF date, size or extension.",
+        "Type three or more letters in the search field above the file list: the list shows the \
+         matching names, best first, ignoring case and gaps (like fzf). Start with exif: to \
+         search the EXIF, keywords and comments instead, for example exif:canon 2024:05 for \
+         photos from a Canon camera taken in May 2024; every word must match. The first EXIF \
+         search in a folder reads all files once, which takes a while in large folders. With the \
+         marks feature, 1–6 toggle a mark, Ctrl+1–6 select the files with it and Alt+0–5 give \
+         stars; mark:2 or stars:3 in the search field shows those files; a setting also writes \
+         the stars to XMP sidecars for darktable and digiKam. The sort menu at the bottom left \
+         sorts by name, number, date, EXIF date, size or extension; the Types menu beside it \
+         chooses what the list shows: images, RAW files and videos.",
     ),
     (
         "Keywords and comments",

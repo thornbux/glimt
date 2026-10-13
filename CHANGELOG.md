@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A Types menu beside the sort menu, as the file classes of Geeqie's file filter: the list shows
+  images, RAW files and videos, or only some of them. A file opened directly is always listed.
+
 ## [0.12.0] - 2026-10-13
 
 ### Added
