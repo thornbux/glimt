@@ -2622,14 +2622,21 @@ fn set_colour(change: impl FnOnce(&mut Colour)) {
 }
 
 /// The screen profile in `path` (empty: none, sRGB). A file that is not an RGB profile is an
-/// error, and the old one stays.
-fn set_screen(path: &str) -> Result<(), String> {
+/// error, and the old one stays. False when it was sRGB and still is, so nothing need be shown
+/// again.
+fn set_screen(path: &str) -> Result<bool, String> {
     let profile = match path {
         "" => None,
         path => rgb_profile(path)?,
     };
+    let was = COLOUR
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .screen
+        .is_some();
+    let changed = was || profile.is_some();
     set_colour(|c| c.screen = profile);
-    Ok(())
+    Ok(changed)
 }
 
 /// The profile for images without one: "srgb" (or empty), "adobe", "p3", or an ICC file.
@@ -2971,7 +2978,7 @@ impl App {
         let config = Config::load();
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
         let screen_error = (set_screen(&config.screen_profile))
-            .and_then(|()| set_input(&config.input_profile))
+            .and_then(|_| set_input(&config.input_profile))
             .err();
         set_colour(|c| c.own = config.own_profile);
         set_intent(&config.rendering_intent);
@@ -4751,10 +4758,11 @@ impl App {
             Some(p) if self.config.desktop_profile => p.clone(),
             _ => self.config.screen_profile.clone(),
         };
-        if let Err(e) = set_screen(&path) {
-            self.notice = Some(e);
+        match set_screen(&path) {
+            Ok(false) => {}
+            Ok(true) => self.redecode(),
+            Err(e) => self.notice = Some(e),
         }
-        self.redecode();
     }
 
     /// The profile for images without one: srgb, adobe, p3 or an ICC file.
