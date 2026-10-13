@@ -166,6 +166,13 @@ enum Action {
     Histogram,
     HistogramLog,
     Compare,
+    OneImage,
+    AboveEachOther,
+    NextLayout,
+    PaneLeft,
+    PaneRight,
+    PaneUp,
+    PaneDown,
     Animate,
     Subfolders,
     HiddenFiles,
@@ -320,6 +327,13 @@ impl Action {
             Histogram => "Histogram: Off, RGB, Brightness",
             HistogramLog => "Logarithmic Histogram",
             Compare => "Compare Side by Side",
+            OneImage => "One Image",
+            AboveEachOther => "Two Above Each Other",
+            NextLayout => "Next Layout",
+            PaneLeft => "Pane to the Left",
+            PaneRight => "Pane to the Right",
+            PaneUp => "Pane Above",
+            PaneDown => "Pane Below",
             Animate => "Play Animations",
             Subfolders => "Include Subfolders",
             HiddenFiles => "Show Hidden Files",
@@ -429,6 +443,11 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (CloseWindow, CTRL, Key::W),
         (Quit, CTRL, Key::Q),
         (First, NONE, Key::Home),
+        // Before the plain arrows, which would also match with Alt.
+        (PaneLeft, ALT, Key::ArrowLeft),
+        (PaneRight, ALT, Key::ArrowRight),
+        (PaneUp, ALT, Key::ArrowUp),
+        (PaneDown, ALT, Key::ArrowDown),
         (Prev, NONE, Key::Backspace),
         (Prev, NONE, Key::PageUp),
         (Prev, NONE, Key::ArrowLeft),
@@ -457,6 +476,9 @@ const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Histogram, NONE, Key::K),
         (HistogramLog, NONE, Key::J),
         (Compare, NONE, Key::E),
+        (OneImage, NONE, Key::Y),
+        (AboveEachOther, NONE, Key::U),
+        (NextLayout, NONE, Key::L),
         (Animate, NONE, Key::A),
         (NextPage, CTRL, Key::PageDown),
         (PrevPage, CTRL, Key::PageUp),
@@ -819,7 +841,9 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Compare (E)",
-        "E shows the next image (or the other of two selected) beside the shown one, at the same zoom and offset",
+        "E shows the next image (or the other of two selected) beside the shown one, at the same zoom \
+         and offset; U and Y as in Geeqie; L the next layout; a click on a pane or Alt+arrow shows \
+         the image there in the first pane",
         "E, U and Y split into panes with an image each; Y back to one",
     ),
     (
@@ -5339,8 +5363,10 @@ impl App {
         // The compared image second: it may be loaded at full resolution too.
         let other = self.compare_other().filter(|&i| i != cur);
         window.extend(other);
-        self.full_ok.store(window.len(), Ordering::Relaxed);
-        // The other panes, and the images a slideshow shows in them next.
+        // The other panes, which may be zoomed too, and the images a slideshow shows in them next.
+        window.extend(self.panes.iter().filter(|&&i| i != cur && Some(i) != other));
+        let full = window.len();
+        self.full_ok.store(full, Ordering::Relaxed);
         let n = self.panes.len() + 1;
         let upcoming = (1..=n as isize).filter_map(|d| self.step_from(self.latest, d, true));
         for i in self
@@ -5359,7 +5385,7 @@ impl App {
             }
         }
         self.slots
-            .retain(|i, s| window.contains(i) && (!s.full || *i == cur || Some(*i) == other));
+            .retain(|i, s| window.contains(i) && (!s.full || window[..full].contains(i)));
         *self.keep.lock().unwrap() = window.clone();
         for i in window {
             self.request(i, false);
@@ -6405,8 +6431,10 @@ impl App {
     }
 
     /// View → Layout: one image, two or four, and how a slideshow changes them.
-    fn layout_menu(&mut self, ui: &mut egui::Ui) {
+    fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         scroll_menu(ui, "Layout", |ui| {
+            menu_item(ui, act, Action::NextLayout);
+            ui.separator();
             for (key, label, _) in LAYOUTS {
                 if ui.radio(self.config.layout == key, label).clicked() {
                     self.set_layout(key);
@@ -6442,31 +6470,45 @@ impl App {
         });
     }
 
-    /// Image `i` fitted into `rect`: one of a layout's panes after the first.
-    fn paint_pane(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
+    /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
+    /// the same zoom and offset as the shown one when zoomed, else fitted.
+    fn paint_pane(&mut self, ui: &egui::Ui, rect: egui::Rect, i: usize, zoom: Option<f32>) {
+        // Zoomed in further than the screen-size version holds: load the full resolution.
+        let sharper = self.slots.get(&i).is_some_and(|s| {
+            !s.full
+                && zoom
+                    .is_some_and(|z| s.tex.size()[0] as f32 + 1.0 < s.orig[0] as f32 * z.min(1.0))
+        });
+        if sharper {
+            self.request(i, true);
+        }
         let Some(slot) = self.slots.get(&i) else {
             return;
         };
         let ppp = ui.ctx().pixels_per_point();
         let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
-        let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
-        let scale = if self.config.enlarge {
-            fit
-        } else {
-            fit.min(1.0)
+        let (scale, pan) = match zoom {
+            Some(z) => (z, self.pan),
+            None => {
+                let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
+                let fit = if self.config.enlarge {
+                    fit
+                } else {
+                    fit.min(1.0)
+                };
+                (fit, egui::Vec2::ZERO)
+            }
         };
-        let at = egui::Rect::from_center_size(rect.center(), size * scale / ppp);
+        let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         ui.painter()
             .with_clip_rect(rect)
             .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
     }
 
-    /// The compared image in `rect`: at the same zoom and offset as the shown one when zoomed,
-    /// else fitted, with its name above.
+    /// The compared image in `rect`, with its name above.
     fn paint_other(&mut self, ui: &egui::Ui, rect: egui::Rect, zoom: Option<f32>) {
-        let p = ui.painter();
-        p.vline(
+        ui.painter().vline(
             rect.left() - 1.0,
             rect.y_range(),
             egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
@@ -6474,31 +6516,7 @@ impl App {
         let Some(other) = self.compare_other() else {
             return;
         };
-        let ppp = ui.ctx().pixels_per_point();
-        // Zoomed in further than the screen-size version holds: load the full resolution.
-        let sharper = self.slots.get(&other).is_some_and(|s| {
-            !s.full
-                && zoom
-                    .is_some_and(|z| s.tex.size()[0] as f32 + 1.0 < s.orig[0] as f32 * z.min(1.0))
-        });
-        if sharper {
-            self.request(other, true);
-        }
-        if let Some(slot) = self.slots.get(&other) {
-            let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
-            let scale = zoom.unwrap_or_else(|| {
-                let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
-                if self.config.enlarge {
-                    fit
-                } else {
-                    fit.min(1.0)
-                }
-            });
-            let at = egui::Rect::from_center_size(rect.center() + self.pan, size * scale / ppp);
-            let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
-            p.with_clip_rect(rect)
-                .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
-        }
+        self.paint_pane(ui, rect, other, zoom);
         self.paint_name(ui, rect, other);
     }
 
@@ -7030,6 +7048,31 @@ impl App {
                     None => Some(Pan::default()),
                 }
             }
+            Action::OneImage => self.set_layout("1"),
+            Action::AboveEachOther => self.set_layout("1x2"),
+            // As a click on that pane: its image becomes the shown one, in the first pane.
+            Action::PaneLeft | Action::PaneRight | Action::PaneUp | Action::PaneDown => {
+                let cols = layout_grid(&self.config.layout)[0] as isize;
+                let step = match action {
+                    Action::PaneLeft => -1,
+                    Action::PaneRight => 1,
+                    Action::PaneUp => -cols,
+                    _ => cols,
+                };
+                // Forward, the panes say which image is there (a slideshow may change them
+                // one at a time); back, the list does.
+                let pane = (step > 0)
+                    .then(|| self.panes.get(step as usize - 1))
+                    .flatten();
+                if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
+                    self.go(ctx, i);
+                }
+            }
+            Action::NextLayout => {
+                let at = LAYOUTS.iter().position(|l| l.0 == self.config.layout);
+                let next = LAYOUTS[at.map_or(0, |k| (k + 1) % LAYOUTS.len())].0;
+                self.set_layout(next);
+            }
             Action::Compare => {
                 self.compare = !self.compare;
                 if self.compare && self.config.layout != "1" {
@@ -7534,7 +7577,7 @@ impl eframe::App for App {
                         menu_item(ui, act, Action::Preferences);
                     });
                     scroll_menu(ui, "View", |ui| {
-                        self.layout_menu(ui);
+                        self.layout_menu(ui, act);
                         scroll_menu(ui, "Theme", |ui| self.theme_menu(ui));
                         scroll_menu(ui, "Colour Management", |ui| self.colour_settings(ui));
                         scroll_menu(ui, "Zoom", |ui| {
@@ -8463,6 +8506,7 @@ impl eframe::App for App {
 
         // Actions from the image area, run after drawing it.
         let mut later = None;
+        let mut clicked_pane = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill({
                 let [r, g, b] = self.config.background.0;
@@ -8498,7 +8542,10 @@ impl eframe::App for App {
                 // needs a fraction of the memory (3840×2160 is 33 MB per image).
                 let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 self.limits.lock().unwrap()[0] = view;
-                let response = ui.allocate_rect(area, egui::Sense::click_and_drag());
+                // The wheel and dragging work over every pane, and the compared half.
+                let several = panes.len() > 1 || right.is_some();
+                let input = if several { ui.max_rect() } else { area };
+                let response = ui.allocate_rect(input, egui::Sense::click_and_drag());
                 let max_fit = if self.config.enlarge {
                     f32::INFINITY
                 } else {
@@ -8551,7 +8598,11 @@ impl eframe::App for App {
                         self.zoom = Some(new);
                         // Keep the point under the pointer in place, as in other viewers.
                         if let Some(p) = response.hover_pos() {
-                            let from_centre = p - area.center();
+                            // From the centre of the pane under the pointer: they share the offset.
+                            let under = (right.iter().chain(&panes))
+                                .find(|r| r.contains(p))
+                                .map_or(area, |r| if *r == full { area } else { *r });
+                            let from_centre = p - under.center();
                             self.pan = from_centre - (from_centre - self.pan) * (new / old);
                         }
                     }
@@ -8602,10 +8653,14 @@ impl eframe::App for App {
                     } else {
                         &slot.tex
                     };
+                    // Within its pane or half, which zoom makes it overflow.
+                    let clip = ui.clip_rect();
+                    ui.set_clip_rect(area.intersect(clip));
                     egui::Image::new(tex)
                         .uv(uv)
                         .rotate(angle, egui::Vec2::splat(0.5))
                         .paint_at(ui, rect);
+                    ui.set_clip_rect(clip);
                     self.last_drawn = Some((slot.tex.clone(), slot.orig));
                 } else if let Some((tex, orig)) = &self.last_drawn
                     && !self.files.is_empty()
@@ -8689,8 +8744,15 @@ impl eframe::App for App {
                 if let Some(right) = right {
                     self.paint_other(ui, right, self.zoom);
                 }
-                for (rect, &i) in panes[1..].iter().zip(&self.panes) {
-                    self.paint_pane(ui, *rect, i);
+                for (k, (rect, i)) in panes[1..].iter().zip(self.panes.clone()).enumerate() {
+                    self.paint_pane(ui, *rect, i, self.zoom);
+                    // A click makes it the shown image, in the first pane.
+                    if ui
+                        .interact(*rect, ui.id().with(("pane", k)), egui::Sense::click())
+                        .clicked()
+                    {
+                        clicked_pane = Some(i);
+                    }
                 }
                 if panes.len() > 1 && self.config.layout_names && !self.files.is_empty() {
                     let shown = std::iter::once(self.cur).chain(self.panes.iter().copied());
@@ -8710,6 +8772,9 @@ impl eframe::App for App {
             });
         if let Some(action) = later {
             self.run(ctx, action);
+        }
+        if let Some(i) = clicked_pane {
+            self.go(ctx, i);
         }
     }
 }
