@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   first letter and in list order, as Geeqie's file filter.
 - Folders can be renamed or moved to the trash with all in them: right-click a folder in the
   list or the folder tree. Renaming the open folder, or one above it, follows it.
+- A Types menu beside the sort menu, as the file classes of Geeqie's file filter: the list shows
+  images, RAW files and videos, or only some of them. A file opened directly is always listed.
 
 ### Fixed
 

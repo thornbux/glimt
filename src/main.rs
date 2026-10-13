@@ -773,6 +773,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Rename and delete (to the trash or permanently, as for files) in the folder pane's menu",
     ),
     (
+        "File types",
+        "Types menu beside the sort menu: images, RAW and videos; a file opened directly is \
+         listed whatever it says",
+        "File classes in the file filter, and each file type in Preferences → File Filters",
+    ),
+    (
         "Compare (E)",
         "E shows the next image (or the other of two selected) beside the shown one, at the same zoom and offset",
         "E, U and Y split into panes with an image each; Y back to one",
@@ -1038,6 +1044,9 @@ struct App {
     /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
     folder_target: Option<PathBuf>,
     confirm_folder: bool,
+    /// The type of the file opened directly (not the folder), listed even when the Types menu
+    /// leaves it out.
+    opened_type: Types,
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
@@ -1565,19 +1574,57 @@ fn open_url(url: &str) {
     });
 }
 
-/// Shown in the file list: an image, or a video with the video feature and `videos` on.
-fn is_listed(path: &Path, videos: bool) -> bool {
-    has_ext(path, EXTS)
-        || has_ext(path, raw::EXTS)
-        || is_heif(path)
-        || has_ext(path, JXL_EXTS)
-        || has_ext(path, SVG_EXTS)
-        || (videos && is_video(path))
+/// The file types the list shows, as Geeqie's file classes in its file filter.
+#[derive(Clone, Copy)]
+struct Types {
+    images: bool,
+    raw: bool,
+    /// With the video feature.
+    videos: bool,
+}
+
+impl Types {
+    /// None: for reading only the folders.
+    const NONE: Types = Types {
+        images: false,
+        raw: false,
+        videos: false,
+    };
+
+    /// The type of the file at `path`.
+    fn of(path: &Path) -> Types {
+        let only = |t: Types| is_listed(path, t);
+        Types {
+            images: only(Types {
+                images: true,
+                ..Types::NONE
+            }),
+            raw: only(Types {
+                raw: true,
+                ..Types::NONE
+            }),
+            videos: only(Types {
+                videos: true,
+                ..Types::NONE
+            }),
+        }
+    }
+}
+
+/// Shown in the file list: an image, a RAW file or a video (video feature), of the `types` on.
+fn is_listed(path: &Path, types: Types) -> bool {
+    (types.images
+        && (has_ext(path, EXTS)
+            || is_heif(path)
+            || has_ext(path, JXL_EXTS)
+            || has_ext(path, SVG_EXTS)))
+        || (types.raw && has_ext(path, raw::EXTS))
+        || (types.videos && is_video(path))
 }
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its images).
 /// A folder reached again through a link is read once.
-fn walk(dir: &Path, videos: bool) -> impl Iterator<Item = (PathBuf, Vec<OsString>)> {
+fn walk(dir: &Path, types: Types) -> impl Iterator<Item = (PathBuf, Vec<OsString>)> {
     let (dir, mut seen, mut todo) = (dir.to_path_buf(), HashSet::new(), vec![PathBuf::new()]);
     std::iter::from_fn(move || {
         loop {
@@ -1586,7 +1633,7 @@ fn walk(dir: &Path, videos: bool) -> impl Iterator<Item = (PathBuf, Vec<OsString
             if !seen.insert(full.canonicalize().unwrap_or_else(|_| full.clone())) {
                 continue;
             }
-            let (dirs, files) = list_folder(&full, videos);
+            let (dirs, files) = list_folder(&full, types);
             todo.extend(
                 dirs.iter()
                     .filter_map(|d| d.file_name())
@@ -1598,8 +1645,8 @@ fn walk(dir: &Path, videos: bool) -> impl Iterator<Item = (PathBuf, Vec<OsString
 }
 
 /// The images in `dir` and every folder below it, as paths relative to `dir`.
-fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
-    let mut out: Vec<OsString> = walk(dir, videos)
+fn list_tree(dir: &Path, types: Types) -> Vec<OsString> {
+    let mut out: Vec<OsString> = walk(dir, types)
         .flat_map(|(rel, files)| files.into_iter().map(move |f| rel.join(f).into_os_string()))
         .collect();
     // In name order, as list_folder gives a single folder; sort_files builds on that.
@@ -1609,11 +1656,11 @@ fn list_tree(dir: &Path, videos: bool) -> Vec<OsString> {
 
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
 /// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
-fn list_folder(dir: &Path, videos: bool) -> (Vec<PathBuf>, Vec<OsString>) {
+fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        if is_listed(&path, videos) {
+        if is_listed(&path, types) {
             images.push(entry.file_name());
         } else if !entry.file_name().as_encoded_bytes().starts_with(b".")
             && entry
@@ -2056,6 +2103,10 @@ config! {
     auto_refresh: bool = true,
     /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
     exif_rotate: bool = true,
+    /// List images (Types menu in the status bar).
+    list_images: bool = true,
+    /// List camera RAW files.
+    list_raw: bool = true,
     /// Video feature: list video files.
     videos: bool = true,
     /// Video feature: command line that plays a video; empty = the default application.
@@ -3283,6 +3334,7 @@ impl App {
             confirm: None,
             folder_target: None,
             confirm_folder: false,
+            opened_type: Types::NONE,
             prompt: None,
             selected: Default::default(),
             last_drawn: None,
@@ -3394,6 +3446,7 @@ impl App {
             .as_deref()
             .and_then(Path::file_name)
             .map(OsString::from);
+        self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
         self.subdirs.clear();
         self.deleting.clear();
         self.random = false;
@@ -3499,7 +3552,7 @@ impl App {
     fn list(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
-        let (list_dir, ctx2, videos) = (self.dir.clone(), ctx.clone(), self.config.videos);
+        let (list_dir, ctx2, types) = (self.dir.clone(), ctx.clone(), self.types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
         let (recursive, shuffled) = (self.recursive, self.whole_shuffle);
@@ -3521,9 +3574,9 @@ impl App {
                 }
                 return;
             }
-            let (dirs, mut files) = list_folder(&list_dir, videos);
+            let (dirs, mut files) = list_folder(&list_dir, types);
             if recursive {
-                files = list_tree(&list_dir, videos);
+                files = list_tree(&list_dir, types);
             }
             sort_files(&list_dir, &mut files, by, ascending, case);
             if shuffled {
@@ -3538,7 +3591,7 @@ impl App {
             // chunks, so the status bar fills in gradually without a copy of the whole list in memory.
             // A tree a folder at a time, unsorted.
             if recursive {
-                let sizes = walk(&list_dir, videos).flat_map(|(rel, files)| {
+                let sizes = walk(&list_dir, types).flat_map(|(rel, files)| {
                     let folder = list_dir.join(rel);
                     (files.into_iter())
                         .filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
@@ -3549,7 +3602,7 @@ impl App {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter(|e| is_listed(&e.path(), videos));
+                .filter(|e| is_listed(&e.path(), types));
             let sizes = images.filter_map(|e| Some(e.metadata().ok()?.len()));
             send_sizes(sizes, size_tx, &ctx2);
         });
@@ -5229,6 +5282,42 @@ impl App {
         }
     }
 
+    /// The file types the list shows, from the Types menu.
+    /// The type of a file opened directly is listed too, in its folder.
+    fn types(&self) -> Types {
+        let o = self.opened_type;
+        Types {
+            images: self.config.list_images || o.images,
+            raw: self.config.list_raw || o.raw,
+            videos: self.config.videos || o.videos,
+        }
+    }
+
+    /// The file types to list, as the file classes of Geeqie's file filter; beside the sort menu.
+    fn types_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let c = &mut self.config;
+        let mut all = vec![("Images", &mut c.list_images), ("RAW", &mut c.list_raw)];
+        if cfg!(feature = "video") {
+            all.push(("Videos", &mut c.videos));
+        }
+        let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
+        let title = match on.len() {
+            n if n == all.len() => "All types".to_owned(),
+            0 => "No types".to_owned(),
+            _ => on.join(", "),
+        };
+        let mut changed = false;
+        ui.menu_button(format!("{title} ⏷"), |ui| {
+            for (label, on) in all {
+                changed |= ui.checkbox(on, label).changed();
+            }
+        });
+        if changed {
+            self.config.save();
+            self.list(ctx);
+        }
+    }
+
     /// Geeqie's sort menu in the status bar.
     fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
@@ -6096,7 +6185,7 @@ impl App {
                     let (dir, tx, ctx) =
                         (path.to_path_buf(), self.tree_tx.clone(), ui.ctx().clone());
                     std::thread::spawn(move || {
-                        let subdirs = list_folder(&dir, false).0;
+                        let subdirs = list_folder(&dir, Types::NONE).0;
                         let _ = tx.send((dir, subdirs));
                         ctx.request_repaint();
                     });
@@ -7894,6 +7983,7 @@ impl eframe::App for App {
                         left += &format!(", {m} selected ({size})");
                     }
                     self.sort_menu(ctx, ui);
+                    self.types_menu(ctx, ui);
                     ui.separator();
                     ui.label(left);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -8499,6 +8589,34 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
+    /// The Types menu: images, RAW and videos each on their own; an opened file's type.
+    #[test]
+    fn lists_by_type() {
+        use super::{Types, is_listed};
+        use std::path::Path;
+        let raw = Types {
+            raw: true,
+            ..Types::NONE
+        };
+        let images = Types {
+            images: true,
+            ..Types::NONE
+        };
+        assert!(is_listed(Path::new("a.CR2"), raw) && !is_listed(Path::new("a.cr2"), images));
+        assert!(is_listed(Path::new("a.jpg"), images) && !is_listed(Path::new("a.jpg"), raw));
+        assert!(!is_listed(
+            Path::new("a.txt"),
+            Types {
+                videos: true,
+                images: true,
+                raw: true
+            }
+        ));
+        let t = Types::of(Path::new("x/a.nef"));
+        assert!(t.raw && !t.images && !t.videos);
+        assert!(!Types::of(Path::new("a.txt")).images);
+    }
+
     #[test]
     fn lists_folder_and_decodes_to_screen_size() {
         let dir = std::env::temp_dir().join("glimt-test");
@@ -8510,7 +8628,12 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), "").unwrap();
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".hidden")).unwrap();
-        let (dirs, images) = super::list_folder(&dir, true);
+        let all = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+        };
+        let (dirs, images) = super::list_folder(&dir, all);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
         let (frames, orig, _) = super::decode(&dir.join("a.png"), [100, 100], true, 0).unwrap();
@@ -8534,7 +8657,14 @@ mod tests {
         std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();
         assert_eq!(
-            super::list_tree(&dir, true),
+            super::list_tree(
+                &dir,
+                super::Types {
+                    images: true,
+                    raw: true,
+                    videos: true
+                }
+            ),
             ["a.png", "b.gif", "sub/c.png"]
         );
         std::fs::remove_dir_all(dir).unwrap();
