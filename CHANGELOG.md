@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- CPU use in Preferences, below Memory use: Power saving (thumbnails one at a time;
+  searches, the EXIF index, Find Duplicates and pan view on two cores), Balanced (the
+  default, as before) or Full (thumbnails on every core too). It takes effect at once.
+
 ## [0.15.0] - 2026-10-13
 
 ### Added

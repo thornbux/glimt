@@ -232,7 +232,10 @@ const MANUAL: &[(&str, &str)] = &[
          preloads one on each side, Medium (the default) four and two, High eight and five; \
          Details shows them, and other values are Custom. On slow storage such as SMB or NFS \
          shares, Medium or High keep browsing quick, as the next images are read while you look; \
-         Low waits for each file.",
+         Low waits for each file. CPU use below it: Power saving makes thumbnails one at a time \
+         and runs searches, the EXIF index, Find Duplicates and pan view on two cores, kinder to \
+         a laptop battery; Balanced (the default) makes two thumbnails at once and runs the rest \
+         on every core; Full makes thumbnails on every core too. It takes effect at once.",
     ),
 ];
 

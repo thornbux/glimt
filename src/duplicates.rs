@@ -135,7 +135,7 @@ fn parallel<T: Send>(
     p.total.store(paths.len(), Ordering::Relaxed);
     p.done.store(0, Ordering::Relaxed);
     let next = AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let threads = crate::background_threads();
     let mut results: Vec<(usize, Option<T>)> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..threads)
             .map(|_| {
