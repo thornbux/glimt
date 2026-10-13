@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- glimt --kiosk for a picture screen: full screen with only the image; browsing, zoom,
+  layouts and the slideshow work, but no menus or panels, nothing that changes files, and
+  Escape, Ctrl+Q and closing the window are refused. glimt --remote quit ends it. The man
+  page says how to run it as a kiosk session (cage, GNOME Kiosk).
+
 ## [0.15.0] - 2026-10-13
 
 ### Added

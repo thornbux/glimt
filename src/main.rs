@@ -615,6 +615,10 @@ const START_OPTIONS: &[(&str, &str)] = &[
         "Random order in the slideshow (kept, as in the View menu)",
     ),
     ("--fullscreen", "Start in full screen"),
+    (
+        "--kiosk",
+        "Full screen, only the image, nothing changes files; ends by --remote quit",
+    ),
     ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
     (
         "--name NAME",
@@ -622,6 +626,38 @@ const START_OPTIONS: &[(&str, &str)] = &[
     ),
     ("-V, --version", "Print the version"),
     ("-h, --help", "Print this help"),
+];
+
+/// The actions a kiosk allows: showing and browsing, not changing files, settings or the
+/// window.
+const KIOSK_ACTIONS: &[Action] = &[
+    Action::Next,
+    Action::Prev,
+    Action::First,
+    Action::Last,
+    Action::Slideshow,
+    Action::Pause,
+    Action::Faster,
+    Action::Slower,
+    Action::RandomOrder,
+    Action::ZoomIn,
+    Action::ZoomOut,
+    Action::Zoom1To1,
+    Action::ZoomFit,
+    Action::Overlay,
+    Action::Histogram,
+    Action::HistogramLog,
+    Action::Compare,
+    Action::Animate,
+    Action::OneImage,
+    Action::AboveEachOther,
+    Action::NextLayout,
+    Action::PaneLeft,
+    Action::PaneRight,
+    Action::PaneUp,
+    Action::PaneDown,
+    Action::NextPage,
+    Action::PrevPage,
 ];
 
 /// What the start options ask for.
@@ -632,6 +668,7 @@ struct Start {
     fullscreen: bool,
     layout: Option<&'static str>,
     name: Option<String>,
+    kiosk: bool,
 }
 
 impl Start {
@@ -643,6 +680,7 @@ impl Start {
                 "--slideshow" => start.slideshow = true,
                 "--random" => start.random = true,
                 "--fullscreen" => start.fullscreen = true,
+                "--kiosk" => start.kiosk = true,
                 "--layout" => {
                     let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
                     let layout = LAYOUTS.iter().find(|l| l.0 == value).ok_or_else(|| {
@@ -1273,6 +1311,10 @@ struct App {
     capturing: Option<Action>,
     /// --slideshow: start it once the folder is read.
     start_slideshow: bool,
+    /// --kiosk: full screen, only the image, only actions that show and browse.
+    kiosk: bool,
+    /// `--remote quit` came: a kiosk may close.
+    kiosk_quit: bool,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// The images of a layout's panes after the first, which shows `cur`.
@@ -3595,6 +3637,8 @@ impl App {
             started: Some(Instant::now()),
             dialog: None,
             hide_tools: false,
+            kiosk: start.kiosk,
+            kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
             changed_rx,
@@ -6952,6 +6996,10 @@ impl App {
     }
 
     fn run(&mut self, ctx: &egui::Context, action: Action) {
+        // A kiosk shows and browses; it does not change files, settings or the window.
+        if self.kiosk && !KIOSK_ACTIONS.contains(&action) && !self.kiosk_quit {
+            return;
+        }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         match action {
             Action::OpenFile => self.pick(ctx, false, Pick::Open),
@@ -7446,7 +7494,11 @@ impl eframe::App for App {
                 "slideshow" => Some(Action::Slideshow),
                 "random" => Some(Action::RandomOrder),
                 "fullscreen" => Some(Action::FullScreen),
-                "quit" => Some(Action::Quit),
+                "quit" => {
+                    // The only way out of a kiosk.
+                    self.kiosk_quit = true;
+                    Some(Action::Quit)
+                }
                 other => {
                     if let Some(path) = other.strip_prefix("open ") {
                         self.visit(ctx, PathBuf::from(path));
@@ -7468,7 +7520,7 @@ impl eframe::App for App {
             let mut paths = i.raw.dropped_files.iter().map(|f| f.path().to_path_buf());
             paths.find(|p| !p.as_os_str().is_empty())
         });
-        if let Some(path) = dropped {
+        if let Some(path) = dropped.filter(|_| !self.kiosk) {
             self.visit(ctx, path);
         }
         // Busy pointer while the folder is read, files are deleted, copied or moved, or the
@@ -7559,7 +7611,16 @@ impl eframe::App for App {
             .flatten();
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        let bare = fullscreen || self.hide_tools;
+        let bare = fullscreen || self.hide_tools || self.kiosk;
+        if self.kiosk && !self.kiosk_quit {
+            // Closing the window is refused, and full screen comes back if the desktop ends it.
+            if ctx.input(|i| i.viewport().close_requested()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
+            if ctx.input(|i| i.viewport().fullscreen) == Some(false) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+            }
+        }
         self.inhibit(fullscreen && self.config.inhibit_screensaver);
         // Geometry of the normal window only, so leaving full screen or maximized restores it.
         // The size from egui's own area: the viewport's inner_rect needs the window position,
@@ -8711,7 +8772,7 @@ impl eframe::App for App {
                         }
                     }
                 }
-                if response.double_clicked() {
+                if response.double_clicked() && !self.kiosk {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
                 }
                 let scale = self.zoom.unwrap_or(fit);
@@ -8971,7 +9032,7 @@ fn main() -> eframe::Result {
         }
         viewport = viewport.with_maximized(win.maximized);
     }
-    if start.fullscreen {
+    if start.fullscreen || start.kiosk {
         viewport = viewport.with_fullscreen(true);
     }
     if let Some(name) = start.name.clone() {
@@ -9060,6 +9121,7 @@ mod tests {
         assert!(Start::parse(args(&["--name", "123"])).is_err());
         assert!(Start::parse(args(&["--name", "a/b"])).is_err());
         assert!(Start::parse(args(&["--name"])).is_err());
+        assert!(Start::parse(args(&["--kiosk", "d"])).unwrap().0.kiosk);
         let (_, rest) = Start::parse(args(&["--version"])).unwrap();
         assert_eq!(rest, args(&["--version"]));
     }
