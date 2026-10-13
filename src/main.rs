@@ -604,6 +604,8 @@ struct PrintDialog {
 #[derive(Clone, Copy)]
 enum Prompt {
     NewFolder,
+    /// Rename the folder in `App::folder_target`.
+    RenameFolder,
     /// Rename the shown image.
     Rename,
     /// Rename the selected files with a pattern: * = old name, # = number.
@@ -740,6 +742,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Images as icons (Ctrl+I)",
         "Ctrl+I switches between list and icons",
         "Ctrl+I icons, Ctrl+L list",
+    ),
+    (
+        "Folders",
+        "Right-click in the list or the tree: rename, or move to the trash with all in it; never \
+         deleted permanently",
+        "Rename and delete (to the trash or permanently, as for files) in the folder pane's menu",
     ),
     (
         "Compare (E)",
@@ -1004,6 +1012,9 @@ struct App {
     help: Option<help::Page>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm: Option<bool>,
+    /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
+    folder_target: Option<PathBuf>,
+    confirm_folder: bool,
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
@@ -3189,6 +3200,8 @@ impl App {
             show_settings: false,
             help: None,
             confirm: None,
+            folder_target: None,
+            confirm_folder: false,
             prompt: None,
             selected: Default::default(),
             last_drawn: None,
@@ -4248,6 +4261,7 @@ impl App {
     fn dialog_open(&self) -> bool {
         self.show_settings
             || self.confirm.is_some()
+            || self.confirm_folder
             || self.prompt.is_some()
             || self.login.is_some()
             || self.print.is_some()
@@ -4283,6 +4297,9 @@ impl App {
             });
             return;
         }
+        if let Prompt::RenameFolder = prompt {
+            return self.rename_folder(ctx, text);
+        }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
@@ -4298,7 +4315,7 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
-            Prompt::NewCollection | Prompt::SaveTheme => return,
+            Prompt::NewCollection | Prompt::SaveTheme | Prompt::RenameFolder => return,
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target)
                 .inspect(|_| meta::follow(&self.path(self.cur), &target, false)),
         };
@@ -5875,6 +5892,91 @@ impl App {
             .show(ui, |ui| self.tree_node(ui, Path::new("/"), open_dir));
     }
 
+    /// Right-click on a folder in the list or the tree: rename it, or move it to the trash.
+    fn folder_menu(&mut self, response: &egui::Response, dir: &Path) {
+        response.context_menu(|ui| {
+            if ui.button("Rename Folder…").clicked() {
+                let name = dir.file_name().unwrap_or_default().to_string_lossy();
+                self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
+                self.folder_target = Some(dir.to_path_buf());
+            }
+            if ui.button("Move Folder to Trash…").clicked() {
+                self.folder_target = Some(dir.to_path_buf());
+                self.confirm_folder = true;
+            }
+        });
+    }
+
+    /// Rename `folder_target` within its parent; never over another. The open folder, or one
+    /// inside it, is followed to the new name.
+    fn rename_folder(&mut self, ctx: &egui::Context, name: &str) {
+        let Some(old) = self.folder_target.take() else {
+            return;
+        };
+        let new = old.with_file_name(name);
+        if new == old {
+            return;
+        }
+        // rename() would replace an empty folder of that name.
+        let result = match new.exists() {
+            true => Err(std::io::ErrorKind::AlreadyExists.into()),
+            false => std::fs::rename(&old, &new),
+        };
+        if let Err(e) = result {
+            self.notice = Some(format!("{}: {e}", new.display()));
+            return;
+        }
+        self.forget_folder(&old);
+        match self.dir.strip_prefix(&old) {
+            Ok(rest) => self.visit(ctx, new.join(rest)),
+            Err(_) => self.list(ctx),
+        }
+    }
+
+    /// Move `folder_target` and all in it to the trash, in the background; the open folder, or
+    /// one inside it, is left for the folder above first.
+    fn trash_folder(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.folder_target.take() else {
+            return;
+        };
+        self.forget_folder(&dir);
+        self.subdirs.retain(|d| *d != dir);
+        if self.dir.starts_with(&dir)
+            && let Some(parent) = dir.parent()
+        {
+            self.visit(ctx, parent.to_path_buf());
+        }
+        let (tx, deleted_tx, ctx) = (
+            self.notices_tx.clone(),
+            self.deleted_tx.clone(),
+            ctx.clone(),
+        );
+        let busy = self.busy.clone();
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
+                Ok(o) if o.status.success() => None,
+                Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
+                Err(e) => Some(format!("gio trash (from glib): {e}")),
+            };
+            if let Some(e) = &error {
+                let _ = tx.send(format!("Could not move the folder to the trash: {e}"));
+            }
+            // Failed: listed again, as a failed delete of files is.
+            let _ = deleted_tx.send((vec![dir], error.is_some()));
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Forget what the folder tree read of `dir` and its parent, so it is read again.
+    fn forget_folder(&mut self, dir: &Path) {
+        self.tree.retain(|d, _| !d.starts_with(dir));
+        if let Some(parent) = dir.parent() {
+            self.tree.remove(parent);
+        }
+    }
+
     fn tree_node(&mut self, ui: &mut egui::Ui, path: &Path, open_dir: &mut Option<PathBuf>) {
         let id = ui.make_persistent_id(("tree", path));
         let on_way = self.dir.starts_with(path);
@@ -5895,6 +5997,9 @@ impl App {
                 }
                 if label.clicked() {
                     *open_dir = Some(path.to_path_buf());
+                }
+                if path.parent().is_some() {
+                    self.folder_menu(&label, path);
                 }
             })
             .body(|ui| match self.tree.get(path) {
@@ -7379,6 +7484,7 @@ impl eframe::App for App {
         if let Some((prompt, mut text)) = self.prompt.take() {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:".to_owned(),
+                Prompt::RenameFolder => "New folder name:".to_owned(),
                 Prompt::SaveTheme => "Name of the new theme:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
@@ -7598,6 +7704,33 @@ impl eframe::App for App {
                 self.confirm = None;
             }
         }
+        if self.confirm_folder {
+            let name = (self.folder_target.as_deref())
+                .and_then(Path::file_name)
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let mut trash = false;
+            let modal = egui::Modal::new(egui::Id::new("confirm-folder")).show(ctx, |ui| {
+                ui.label(format!(
+                    "Move the folder \"{name}\" and all in it to the trash?"
+                ));
+                ui.horizontal(|ui| {
+                    trash = ui.button("Move to Trash (Enter)").clicked()
+                        || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Cancel (Esc)").clicked() {
+                        ui.close();
+                    }
+                });
+            });
+            if trash {
+                self.confirm_folder = false;
+                self.trash_folder(ctx);
+            } else if modal.should_close() {
+                self.confirm_folder = false;
+                self.folder_target = None;
+            }
+        }
         self.duplicates_window(ctx);
         self.show_settings = open;
         help::window(ctx, &mut self.help);
@@ -7700,6 +7833,7 @@ impl eframe::App for App {
                                 .auto_shrink(false)
                                 .show_rows(ui, row_h, rows, |ui, range| {
                                     for row in range {
+                                        let is_up = row == 0 && up.is_some();
                                         let (label, target) = match (row, &up) {
                                             (0, Some(parent)) => {
                                                 (format!("{}  ..", theme::icon::UP), parent)
@@ -7717,8 +7851,13 @@ impl eframe::App for App {
                                                 )
                                             }
                                         };
-                                        if ui.selectable_label(false, label).clicked() {
+                                        let target = target.clone();
+                                        let response = ui.selectable_label(false, label);
+                                        if response.clicked() {
                                             open_dir = Some(target.clone());
+                                        }
+                                        if !is_up {
+                                            self.folder_menu(&response, &target);
                                         }
                                     }
                                 });

@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Folders can be renamed or moved to the trash with all in them: right-click a folder in the
+  list or the folder tree. Renaming the open folder, or one above it, follows it.
+
 ## [0.12.0] - 2026-10-13
 
 ### Added
