@@ -39,7 +39,7 @@ fn each<T: Send>(
     files: &[OsString],
     f: impl Fn(&Path) -> Option<T> + Sync,
 ) -> Vec<Option<T>> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let threads = crate::background_threads();
     let chunk = files.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let parts: Vec<_> = (files.chunks(chunk))

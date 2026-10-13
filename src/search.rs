@@ -90,9 +90,7 @@ fn in_parallel(
     names: &[std::ffi::OsString],
     score_one: impl Fn(&std::ffi::OsString, &mut Vec<u8>) -> Option<i32> + Sync,
 ) -> Vec<(i32, usize)> {
-    let threads = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .min(8);
+    let threads = crate::background_threads().min(8);
     let chunk = names.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let parts: Vec<_> = names

@@ -87,6 +87,59 @@ const MAX_THUMBS: usize = 600;
 /// Decoded frames kept of one animation (bytes); longer ones loop the first part.
 static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
 
+/// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
+/// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
+/// two thumbnails at once and runs those on every core; Full makes thumbnails on every core.
+const CPU_LEVELS: [(&str, &str); 3] = [
+    (
+        "Power saving",
+        "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two \
+         cores. Slower in large folders, kinder to a laptop battery.",
+    ),
+    (
+        "Balanced",
+        "Two thumbnails at once; searches and Find Duplicates on every core.",
+    ),
+    (
+        "Full",
+        "Every core: thumbnails and searches as fast as the machine allows.",
+    ),
+];
+
+/// The CPU use level (index in CPU_LEVELS), for the worker threads, and the signal that wakes
+/// the thumbnail workers it leaves idle when it changes.
+static CPU_USE: AtomicUsize = AtomicUsize::new(1);
+static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) = (Mutex::new(()), std::sync::Condvar::new());
+
+fn set_cpu_use(level: usize) {
+    let _lock = CPU_CHANGED.0.lock().unwrap();
+    CPU_USE.store(level, Ordering::Relaxed);
+    CPU_CHANGED.1.notify_all();
+}
+
+fn cores() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get())
+}
+
+/// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
+/// pan view.
+fn background_threads() -> usize {
+    match CPU_USE.load(Ordering::Relaxed) {
+        0 => cores().min(2),
+        _ => cores(),
+    }
+}
+
+/// Thumbnails made at once; Balanced keeps one with the low memory level (`decoders` 1), so
+/// two full-size images are not decoded at once.
+fn thumb_threads(decoders: usize) -> usize {
+    match CPU_USE.load(Ordering::Relaxed) {
+        0 => 1,
+        1 => decoders.min(2),
+        _ => cores(),
+    }
+}
+
 /// Memory use in Preferences: (name, preload, decoding threads, animation limit in MB, one malloc
 /// arena). The config holds the values; the level shown is the one they match, or Custom.
 const MEMORY_LEVELS: [(&str, usize, usize, usize, bool, &str); 3] = [
@@ -1709,7 +1762,7 @@ fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
 
 /// The EXIF fields of every file as one lowercase line, read on all cores.
 fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let threads = background_threads();
     let chunk = files.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let parts: Vec<_> = files
@@ -2277,6 +2330,8 @@ config! {
     low_memory: bool = true,
     /// Images decoded at once, at most the number of cores; read at startup.
     decode_threads: usize = 4,
+    /// CPU use: 0 power saving, 1 balanced, 2 full (CPU_LEVELS).
+    cpu_use: usize = 1,
     /// Frames of an animation kept, in MB.
     animation_mb: usize = 128,
     /// Folder path above the folder list.
@@ -2346,6 +2401,7 @@ impl Config {
         }
         c.preload = c.preload.min(20);
         c.decode_threads = c.decode_threads.clamp(1, 8);
+        c.cpu_use = c.cpu_use.min(CPU_LEVELS.len() - 1);
         c.animation_mb = c.animation_mb.clamp(8, 1024);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
@@ -3448,8 +3504,8 @@ impl App {
         let (done_tx, done) = mpsc::channel();
         let job_rx = Arc::new(Mutex::new(job_rx));
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
-        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
-        let workers = cores.min(config.decode_threads);
+        set_cpu_use(config.cpu_use);
+        let workers = cores().min(config.decode_threads);
         for _ in 0..workers {
             let (keep, full_ok, rotate, limits, job_rx, done_tx, ctx) = (
                 keep.clone(),
@@ -3513,8 +3569,9 @@ impl App {
         let thumb_rx = Arc::new(Mutex::new(thumb_rx));
         let thumb_view = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
-        // One with the low memory level, so two full-size images are not decoded at once.
-        for _ in 0..workers.min(2) {
+        // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
+        // changes without a restart.
+        for k in 0..cores() {
             let (rx, tx, view, rotate, save, ctx) = (
                 thumb_rx.clone(),
                 thumbs_tx.clone(),
@@ -3525,6 +3582,11 @@ impl App {
             );
             std::thread::spawn(move || {
                 loop {
+                    let mut idle = CPU_CHANGED.0.lock().unwrap();
+                    while k >= thumb_threads(workers) {
+                        idle = CPU_CHANGED.1.wait(idle).unwrap();
+                    }
+                    drop(idle);
                     let Ok((idx, path)) = rx.lock().unwrap().recv() else {
                         return;
                     };
@@ -5602,6 +5664,24 @@ impl App {
                 _ => {}
             }
         }
+    }
+
+    /// Preferences → CPU use: power saving, balanced or full.
+    fn cpu_settings(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("CPU use:");
+            for (k, (name, hover)) in CPU_LEVELS.iter().enumerate() {
+                if ui
+                    .radio(self.config.cpu_use == k, *name)
+                    .on_hover_text(*hover)
+                    .clicked()
+                {
+                    self.config.cpu_use = k;
+                    set_cpu_use(k);
+                    self.config.save();
+                }
+            }
+        });
     }
 
     /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
@@ -7906,6 +7986,7 @@ impl eframe::App for App {
                     ui.horizontal(|ui| self.theme_buttons(ui));
                     ui.separator();
                     self.memory_settings(ui);
+                    self.cpu_settings(ui);
                     ui.separator();
                     ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
                     let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
@@ -9182,6 +9263,22 @@ mod tests {
         assert_eq!((orig, img.width(), img.height()), ([200, 400], 50, 100));
         assert!(icc.is_none());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// CPU use: thumbnails and background threads for each level.
+    #[test]
+    fn cpu_levels() {
+        use super::{background_threads, cores, set_cpu_use, thumb_threads};
+        set_cpu_use(0);
+        assert_eq!(
+            (thumb_threads(4), background_threads()),
+            (1, cores().min(2))
+        );
+        set_cpu_use(2);
+        assert_eq!((thumb_threads(4), background_threads()), (cores(), cores()));
+        set_cpu_use(1);
+        assert_eq!((thumb_threads(4), thumb_threads(1)), (2.min(4), 1));
+        assert_eq!(background_threads(), cores());
     }
 
     /// Start options in front of the file or folder; the rest is left as it was.
