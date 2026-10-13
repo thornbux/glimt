@@ -2479,14 +2479,20 @@ fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
 /// profile, and what files and the shared thumbnail cache get. Without it such photos look dull.
 /// Done after scaling down, where it costs a few milliseconds.
 fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
-    convert(img, icc, false)
+    convert(img, icc, false, false)
 }
 
 /// The image as the screen is to get it: from its profile straight to the screen profile, so
 /// that colours outside sRGB which the screen has are kept; without a screen profile as
 /// `to_srgb`. For what is shown, not for files or the shared thumbnail cache.
 fn to_display(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
-    convert(img, icc, true)
+    convert(img, icc, true, false)
+}
+
+/// An image that is sRGB already (a thumbnail, made by `to_srgb` or read from the shared cache)
+/// to the screen profile, not through the profile for images without one a second time.
+fn srgb_to_display(img: image::DynamicImage) -> image::DynamicImage {
+    convert(img, None, true, true)
 }
 
 /// The colour settings of Preferences, for the decoding threads.
@@ -2518,10 +2524,15 @@ static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> = std::sync::LazyL
     })
 });
 
-/// The pixels of `img` from `icc` (when it counts, else the input profile or sRGB) to the screen
-/// profile with `screen`, else to sRGB. Unchanged when both are sRGB, with colour management off,
-/// or for a profile that does not fit (CMYK, grey).
-fn convert(img: image::DynamicImage, icc: Option<&[u8]>, screen: bool) -> image::DynamicImage {
+/// The pixels of `img` from `icc` (when it counts, else the input profile or sRGB; sRGB with
+/// `srgb`) to the screen profile with `screen`, else to sRGB. Unchanged when both are sRGB, with
+/// colour management off, or for a profile that does not fit (CMYK, grey).
+fn convert(
+    img: image::DynamicImage,
+    icc: Option<&[u8]>,
+    screen: bool,
+    srgb: bool,
+) -> image::DynamicImage {
     use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
     if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
         return img;
@@ -2536,7 +2547,7 @@ fn convert(img: image::DynamicImage, icc: Option<&[u8]>, screen: bool) -> image:
             bytes.hash(&mut h);
             h.finish().max(2)
         }
-        None if c.input.is_some() => 1,
+        None if c.input.is_some() && !srgb => 1,
         None => 0,
     };
     if from == 0 && !screen {
@@ -2551,7 +2562,8 @@ fn convert(img: image::DynamicImage, icc: Option<&[u8]>, screen: bool) -> image:
                 Err(_) if screen => ColorProfile::new_srgb(),
                 Err(_) => return None,
             },
-            None => c.input.clone().unwrap_or_else(ColorProfile::new_srgb),
+            None if from == 1 => c.input.clone().unwrap_or_else(ColorProfile::new_srgb),
+            None => ColorProfile::new_srgb(),
         };
         let target = match (&c.screen, screen) {
             (Some(p), true) => p.clone(),
@@ -3068,7 +3080,7 @@ impl App {
                             survive(|| thumbs::thumbnail(&path, rotate, save, large))
                                 .ok()
                                 // sRGB in the shared cache; to the screen only to be shown.
-                                .map(|img| color_image(to_display(img.into(), None)))
+                                .map(|img| color_image(srgb_to_display(img.into())))
                         });
                     let _ = tx.send((path, result));
                     // SAFETY: as for the image workers above.
@@ -8269,6 +8281,8 @@ mod tests {
             ))
         };
         assert_ne!(super::to_srgb(grey(), None), grey());
+        // A thumbnail is sRGB already: not taken as Adobe RGB a second time.
+        assert_eq!(super::srgb_to_display(grey()), grey());
         // The image's own profile left out: the input profile for all, here sRGB.
         super::set_input("srgb").unwrap();
         super::set_colour(|c| c.own = false);
