@@ -11,6 +11,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
   layouts and the slideshow work, but no menus or panels, nothing that changes files, and
   Escape, Ctrl+Q and closing the window are refused. glimt --remote quit ends it. The man
   page says how to run it as a kiosk session (cage, GNOME Kiosk).
+- CPU use in Preferences, below Memory use: Power saving (thumbnails one at a time;
+  searches, the EXIF index, Find Duplicates and pan view on two cores), Balanced (the
+  default, as before) or Full (thumbnails on every core too). It takes effect at once.
+- Several folders as one list, for a slideshow across folders that are not inside each
+  other: glimt --slideshow ~/Holiday ~/Family, File → Open Several Folders…, or Show Together
+  with These Images in a folder's right-click menu. Names show as folder/file, random order
+  mixes all of them, and Include Subfolders takes in the folders below each.
+
+### Changed
+
+- With several panes (a layout, or Compare), the status bar tells about the pane under the
+  pointer, which gets a thin outline, else the first: its size, bytes, place in the list and
+  its own zoom, with a small map of the panes beside it that shows which pane it is.
 
 ## [0.15.0] - 2026-10-13
 

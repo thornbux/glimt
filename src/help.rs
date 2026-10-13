@@ -199,7 +199,9 @@ const MANUAL: &[(&str, &str)] = &[
          first pane is the shown image; the others show the images that follow it in the list, \
          so with random order (R) they are random too. Zoom and moving a zoomed image apply to \
          every pane, with the mouse wheel and dragging over any of them, and a click on a pane \
-         or Alt+arrow makes the image there the shown one. For each \
+         or Alt+arrow makes the image there the shown one. The status bar tells about the pane \
+         under the pointer (outlined), else the first: its size, place and zoom, with a small \
+         map of the panes beside it that shows which. For each \
          layout, the slideshow either changes all images together or one at a time, round the \
          panes; choose in the same menu, as well as Show File Names, in every pane or none. \
          With full screen (F) the panes fill the screen, as two or four borderless pictures.",
