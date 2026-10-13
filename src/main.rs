@@ -2499,6 +2499,8 @@ fn srgb_to_display(img: image::DynamicImage) -> image::DynamicImage {
 struct Colour {
     /// `None`: the screen is taken to be sRGB.
     screen: Option<moxcms::ColorProfile>,
+    /// The file `screen` was read from; empty for none.
+    screen_path: String,
     /// For images without a profile of their own, or all with `own` off; `None`: sRGB.
     input: Option<moxcms::ColorProfile>,
     /// An image's own profile counts (Geeqie's "Use image's color profile").
@@ -2517,6 +2519,7 @@ type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>
 static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> = std::sync::LazyLock::new(|| {
     std::sync::RwLock::new(Colour {
         screen: None,
+        screen_path: String::new(),
         input: None,
         own: true,
         intent: moxcms::RenderingIntent::Perceptual,
@@ -2536,6 +2539,9 @@ fn convert(
     use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
     if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
         return img;
+    }
+    if screen {
+        wait_for_screen();
     }
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
     let icc = icc.filter(|_| c.own);
@@ -2625,18 +2631,47 @@ fn set_colour(change: impl FnOnce(&mut Colour)) {
 /// error, and the old one stays. False when it was sRGB and still is, so nothing need be shown
 /// again.
 fn set_screen(path: &str) -> Result<bool, String> {
+    let was = {
+        let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+        if c.screen_path == path {
+            return Ok(false);
+        }
+        c.screen.is_some()
+    };
     let profile = match path {
         "" => None,
         path => rgb_profile(path)?,
     };
-    let was = COLOUR
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .screen
-        .is_some();
     let changed = was || profile.is_some();
-    set_colour(|c| c.screen = profile);
+    set_colour(|c| {
+        c.screen = profile;
+        c.screen_path = path.to_owned();
+    });
     Ok(changed)
+}
+
+/// Until when images for the screen wait for the desktop's screen profile at start, so the first
+/// ones are not shown in sRGB and then again in the screen's colours; `None`: no waiting.
+static SCREEN_WAIT: (Mutex<Option<Instant>>, std::sync::Condvar) =
+    (Mutex::new(None), std::sync::Condvar::new());
+
+/// How long images wait at start for colord, which usually answers in about 50 ms.
+const SCREEN_WAIT_MS: u64 = 150;
+
+/// Wait while the desktop's screen profile is being read at start, at most until the deadline.
+fn wait_for_screen() {
+    let (lock, ready) = &SCREEN_WAIT;
+    let mut until = lock.lock().unwrap_or_else(|e| e.into_inner());
+    while let Some(deadline) = *until {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+            *until = None;
+            break;
+        };
+        until = ready
+            .wait_timeout(until, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
 }
 
 /// The profile for images without one: "srgb" (or empty), "adobe", "p3", or an ICC file.
@@ -2728,11 +2763,25 @@ fn colour_source(path: &Path) -> String {
 }
 
 /// The desktop's screen profile file, read from colord in the background.
+/// At start (`SCREEN_WAIT` set), the profile is used at once if it came in time, and the images
+/// waiting for it go on.
 fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>> {
     let (tx, rx) = mpsc::channel();
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        let _ = tx.send(desktop_screen_profile());
+        let path = desktop_screen_profile();
+        let (lock, ready) = &SCREEN_WAIT;
+        let mut until = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if until.is_some_and(|t| Instant::now() < t) {
+            // An error is shown when the window takes it up.
+            if let Some(path) = &path {
+                let _ = set_screen(path);
+            }
+        }
+        *until = None;
+        ready.notify_all();
+        drop(until);
+        let _ = tx.send(path);
         ctx.request_repaint();
     });
     rx
@@ -2982,6 +3031,10 @@ impl App {
             .err();
         set_colour(|c| c.own = config.own_profile);
         set_intent(&config.rendering_intent);
+        if config.desktop_profile && config.color_management {
+            let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
+            *SCREEN_WAIT.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(deadline);
+        }
         if let Ok(mut own) = OWN_KEYS.write() {
             own.clone_from(&config.keys.0);
         }
@@ -8382,6 +8435,19 @@ mod tests {
         assert_eq!(shown("saturation"), perceptual);
         super::set_input("srgb").unwrap();
         super::set_intent("perceptual");
+    }
+
+    /// Images for the screen wait for colord at start until the deadline, and not at all after.
+    #[test]
+    fn waits_for_the_screen_profile_until_the_deadline() {
+        let start = std::time::Instant::now();
+        *super::SCREEN_WAIT.0.lock().unwrap() = Some(start + std::time::Duration::from_millis(40));
+        super::wait_for_screen();
+        let waited = start.elapsed().as_millis();
+        assert!((35..1000).contains(&waited), "{waited} ms");
+        let start = std::time::Instant::now();
+        super::wait_for_screen();
+        assert!(start.elapsed().as_millis() < 5);
     }
 
     /// What gdbus prints for colord: the first object or file, and nothing for an empty list.
