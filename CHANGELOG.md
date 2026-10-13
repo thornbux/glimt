@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-13
+
 ### Added
 
 - A screen profile (Preferences → Colour management → Choose…): photos are converted from their
@@ -227,7 +229,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/thornbux/glimt/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/thornbux/glimt/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/thornbux/glimt/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/thornbux/glimt/compare/v0.9.4...v0.10.0
