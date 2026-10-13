@@ -217,9 +217,14 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Preferences",
-        "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, \
-         the theme, what is shown, window and memory use, and how deleting works. Under Keyboard shortcuts, \
-         Change gives an action the next key you press; Reset gives it Geeqie's keys back.",
+        "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, the \
+         theme, what is shown, window and memory use, and how deleting works. Under Keyboard \
+         shortcuts, Change gives an action the next key you press; Reset gives it Geeqie's keys \
+         back. Memory use at the top sets several at once: Low decodes one image at a time and \
+         preloads one on each side, Medium (the default) four and two, High eight and five; \
+         Details shows them, and other values are Custom. On slow storage such as SMB or NFS \
+         shares, Medium or High keep browsing quick, as the next images are read while you look; \
+         Low waits for each file.",
     ),
 ];
 
