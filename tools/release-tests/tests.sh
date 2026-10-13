@@ -13,11 +13,12 @@
 if [ "$(id -u)" = 0 ]; then
     export DEBIAN_FRONTEND=noninteractive
     echo "-- installing tools"
+    # A failed install (an unreachable mirror) stops here: without Xvfb every check would fail.
     apt-get update -qq >/dev/null
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 >/dev/null 2>&1
+        libxrandr2 libxi6 libx11-xcb1 >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     for v in new old; do
         echo "-- building $v"
         (cd /t/$v && CARGO_TARGET_DIR=/work-target/release-tests-$v \
