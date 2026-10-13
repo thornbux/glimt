@@ -176,6 +176,7 @@ const MEMORY_LEVELS: [(&str, usize, usize, usize, bool, &str); 3] = [
 enum Action {
     OpenFile,
     OpenFolder,
+    OpenFolders,
     NewFolder,
     Rename,
     Copy,
@@ -337,6 +338,7 @@ impl Action {
         match self {
             OpenFile => "Open File…",
             OpenFolder => "Open Folder…",
+            OpenFolders => "Open Several Folders…",
             NewFolder => "New Folder…",
             Rename => "Rename…",
             Copy => "Copy…",
@@ -742,6 +744,8 @@ struct Start {
     layout: Option<&'static str>,
     name: Option<String>,
     kiosk: bool,
+    /// More folders after the first, to show together.
+    more: Vec<PathBuf>,
 }
 
 impl Start {
@@ -793,6 +797,8 @@ fn layout_grid(layout: &str) -> [usize; 2] {
 /// What a zenity file dialog was opened for.
 enum Pick {
     Open,
+    /// Several folders to show as one list.
+    Folders,
     /// Open a collection: the dialog starts in the collections folder.
     Collection,
     CopyTo(Vec<PathBuf>),
@@ -1374,6 +1380,11 @@ struct App {
     /// The open collection's file. The list is then its images, with `dir` "/" and the paths
     /// without their leading "/" as names, so `path()` works unchanged.
     collection: Option<PathBuf>,
+    /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
+    /// are relative to /, as in a collection, and the folders are read again on refresh.
+    folders: Vec<PathBuf>,
+    /// Folders to show together, chosen in a folder's menu; opened after the frame.
+    together: Option<Vec<PathBuf>>,
     /// The collection's next listing is sorted (Sort menu), and saved in that order.
     sort_collection: bool,
     /// The Find Duplicates window, while open.
@@ -3667,6 +3678,8 @@ impl App {
             capturing: None,
             recursive: false,
             collection: None,
+            folders: Vec::new(),
+            together: None,
             sort_collection: false,
             dups: None,
             whole_shuffle: false,
@@ -3792,6 +3805,10 @@ impl App {
                 app.open(&cc.egui_ctx, ".".into());
                 app.mount(&cc.egui_ctx, uri.to_owned());
             }
+            None if !start.more.is_empty() => {
+                let all = std::iter::once(path).chain(start.more.iter().cloned());
+                app.open_folders(&cc.egui_ctx, all.collect());
+            }
             None => app.open(&cc.egui_ctx, path),
         }
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
@@ -3805,6 +3822,7 @@ impl App {
             return self.open_collection(ctx, path);
         }
         self.collection = None;
+        self.folders.clear();
         let (dir, file) = if path.is_dir() {
             (path, None)
         } else {
@@ -3861,8 +3879,47 @@ impl App {
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = root.to_path_buf();
         self.collection = Some(file);
+        self.folders.clear();
         let first = files.first().cloned();
         self.replace_files(ctx, files, first);
+        self.list(ctx);
+        self.title(ctx);
+    }
+
+    /// Show the images of several folders as one list, for a slideshow across them; one folder
+    /// is opened as usual. A file stands for its folder.
+    fn open_folders(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>) {
+        let mut folders: Vec<PathBuf> = Vec::new();
+        for p in paths {
+            let p = std::path::absolute(&p).unwrap_or(p);
+            let dir = if p.is_dir() {
+                p
+            } else {
+                p.parent().map_or(p.clone(), Path::to_path_buf)
+            };
+            if !folders.contains(&dir) {
+                folders.push(dir);
+            }
+        }
+        if folders.len() < 2 {
+            if let Some(dir) = folders.pop() {
+                self.open(ctx, dir);
+            }
+            return;
+        }
+        self.collection = None;
+        self.subdirs.clear();
+        self.deleting.clear();
+        self.random = false;
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.exif_index = None;
+        self.exif_rx = None;
+        // No one folder to watch: stop the watcher of the last one.
+        self.watching.fetch_add(1, Ordering::Relaxed);
+        self.dir = PathBuf::from("/");
+        self.folders = folders;
+        self.replace_files(ctx, Vec::new(), None);
         self.list(ctx);
         self.title(ctx);
     }
@@ -3936,7 +3993,37 @@ impl App {
         let collection = self.collection.is_some().then(|| self.files.clone());
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.sort_collection;
+        let folders = self.folders.clone();
         std::thread::spawn(move || {
+            // Several folders: their images, each folder (with its subfolders) after the other.
+            if !folders.is_empty() {
+                let rel = |dir: &Path, names: Vec<OsString>| -> Vec<OsString> {
+                    let at = dir.strip_prefix("/").unwrap_or(dir).to_path_buf();
+                    (names.into_iter())
+                        .map(|n| at.join(n).into_os_string())
+                        .collect()
+                };
+                let mut files: Vec<OsString> = (folders.iter())
+                    .flat_map(|d| match recursive {
+                        true => rel(d, list_tree(d, types)),
+                        false => rel(d, list_folder(d, types).1),
+                    })
+                    .collect();
+                sort_files(&list_dir, &mut files, by, ascending, case);
+                if shuffled {
+                    shuffle(&mut files);
+                }
+                // Sizes after, as for a folder: the list shows first.
+                let paths: Vec<PathBuf> = files.iter().map(|f| list_dir.join(f)).collect();
+                if tx.send((Vec::new(), files)).is_ok() {
+                    ctx2.request_repaint();
+                    let sizes = paths
+                        .into_iter()
+                        .filter_map(|p| Some(p.metadata().ok()?.len()));
+                    send_sizes(sizes, size_tx, &ctx2);
+                }
+                return;
+            }
             if let Some(mut files) = collection {
                 files.retain(|f| list_dir.join(f).exists());
                 if sort {
@@ -4310,10 +4397,12 @@ impl App {
             _ => self.dir.join(""),
         };
         let save = matches!(purpose, Pick::SavePdf(_));
+        let several = matches!(purpose, Pick::Folders);
         let ctx = ctx.clone();
         let title = match purpose {
             Pick::Open if folder => "Open Folder",
             Pick::Open => "Open File",
+            Pick::Folders => "Open Folders (Ctrl+click for several)",
             Pick::Collection => "Open Collection",
             Pick::CopyTo(_) => "Copy to Folder",
             Pick::MoveTo(_) => "Move to Folder",
@@ -4333,6 +4422,9 @@ impl App {
                 }
                 if folder {
                     cmd.arg("--directory");
+                }
+                if several {
+                    cmd.arg("--multiple").arg("--separator=\n");
                 }
                 cmd.output()
             };
@@ -4488,6 +4580,18 @@ impl App {
     /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
     fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
         let name = self.files[i].as_os_str();
+        // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
+        if !self.folders.is_empty() {
+            let path = Path::new(name);
+            let last = |p: &Path| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let folder = path.parent().map(last).unwrap_or_default();
+            return format!("{folder}/{}", last(path)).into();
+        }
         match self.collection {
             Some(_) => Path::new(name)
                 .file_name()
@@ -5879,7 +5983,14 @@ impl App {
         }
         if !response.has_focus() {
             let shown = self.collection.as_ref().unwrap_or(&self.dir);
-            self.path_text = shown.display().to_string();
+            self.path_text = match self.folders.is_empty() {
+                true => shown.display().to_string(),
+                // Several folders: each of them.
+                false => (self.folders.iter())
+                    .map(|f| f.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" + "),
+            };
         }
     }
 
@@ -6557,6 +6668,19 @@ impl App {
     /// Right-click on a folder in the list or the tree: rename it, or move it to the trash.
     fn folder_menu(&mut self, response: &egui::Response, dir: &Path) {
         response.context_menu(|ui| {
+            // Its images in the list together with those shown now.
+            let shown = self.folders.contains(&dir.to_path_buf()) || dir == self.dir;
+            if !shown
+                && self.collection.is_none()
+                && ui.button("Show Together with These Images").clicked()
+            {
+                let mut all = match self.folders.is_empty() {
+                    true => vec![self.dir.clone()],
+                    false => self.folders.clone(),
+                };
+                all.push(dir.to_path_buf());
+                self.together = Some(all);
+            }
             if ui.button("Rename Folder…").clicked() {
                 let name = dir.file_name().unwrap_or_default().to_string_lossy();
                 self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
@@ -7144,6 +7268,7 @@ impl App {
         match action {
             Action::OpenFile => self.pick(ctx, false, Pick::Open),
             Action::OpenFolder => self.pick(ctx, true, Pick::Open),
+            Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::NewCollection if !self.files.is_empty() => {
                 self.prompt = Some((Prompt::NewCollection, String::new()));
             }
@@ -7702,11 +7827,24 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         self.slideshow_tick(ctx);
+        if let Some(all) = self.together.take() {
+            self.open_folders(ctx, all);
+        }
         if let Some(Ok(picked)) = self.dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
             let (purpose, _) = self.dialog.take().unwrap();
             match (purpose, picked) {
                 (_, None) => {}
                 (Pick::Open | Pick::Collection, Some(path)) => self.visit(ctx, path),
+                // One per line, from zenity's --multiple.
+                (Pick::Folders, Some(paths)) => {
+                    use std::os::unix::ffi::OsStringExt;
+                    let bytes = paths.into_os_string().into_encoded_bytes();
+                    let all = (bytes.split(|&b| b == b'\n'))
+                        .filter(|p| !p.is_empty())
+                        .map(|p| PathBuf::from(OsString::from_vec(p.to_vec())))
+                        .collect();
+                    self.open_folders(ctx, all);
+                }
                 (Pick::CopyTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, true),
                 (Pick::MoveTo(paths), Some(dest)) => self.transfer(ctx, paths, dest, false),
                 (Pick::SavePdf(job), Some(file)) => self.print(ctx, job, PrintTo::File(file)),
@@ -7786,6 +7924,7 @@ impl eframe::App for App {
                     scroll_menu(ui, "File", |ui| {
                         menu_item(ui, act, Action::OpenFile);
                         menu_item(ui, act, Action::OpenFolder);
+                        menu_item(ui, act, Action::OpenFolders);
                         menu_item(ui, act, Action::NewFolder);
                         menu_item(ui, act, Action::Copy);
                         menu_item(ui, act, Action::Move);
@@ -9145,7 +9284,7 @@ fn main() -> eframe::Result {
     }
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
         println!(
-            "Usage: glimt [OPTIONS] [FILE_OR_FOLDER]\n       glimt --remote COMMAND      to the Glimt used last\n       glimt --remote-all COMMAND  to every running Glimt\n\nOptions:"
+            "Usage: glimt [OPTIONS] [FILE_OR_FOLDER …]   several folders show as one list\n       glimt --remote COMMAND      to the Glimt used last\n       glimt --remote-all COMMAND  to every running Glimt\n\nOptions:"
         );
         for (option, does) in START_OPTIONS {
             println!("  {option:<24} {does}");
@@ -9157,6 +9296,11 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let mut arg = args_os.first().map(PathBuf::from);
+    let mut start = start;
+    // glimt DIR DIR …: the images of every folder in one list.
+    if !args.first().is_some_and(|a| a.starts_with("--remote")) {
+        start.more = args_os.iter().skip(1).map(PathBuf::from).collect();
+    }
     let to_all = args.first().is_some_and(|a| a == "--remote-all");
     if args.first().is_some_and(|a| a == "--remote") || to_all {
         let mut command = args[1..].join(" ");

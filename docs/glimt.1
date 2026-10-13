@@ -4,7 +4,7 @@ glimt \- fast, lightweight image viewer
 .SH SYNOPSIS
 .B glimt
 .RI [ OPTIONS ]
-.RI [ FILE_OR_FOLDER ]
+.RI [ FILE_OR_FOLDER " ...]"
 .br
 .B glimt
 .B \-\-remote
@@ -29,6 +29,8 @@ thousands of files list as quickly as small ones.
 .PP
 Given a file, Glimt shows it with the rest of its folder; given a folder, its first image;
 given nothing, the folder used last (if that is set in Preferences) or the current folder.
+Given several folders, Glimt shows the images of all of them as one list, for example for a
+slideshow across them; random order mixes them all.
 A URI such as
 .I smb://server/share
 is mounted with
