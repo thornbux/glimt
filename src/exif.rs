@@ -250,7 +250,7 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             data.splice(at..at, app1);
         }
     }
-    let tmp = crate::tmp_path(path);
+    let tmp = crate::save::tmp_path(path);
     std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
     if let Ok(meta) = std::fs::metadata(path) {
         let _ = std::fs::set_permissions(&tmp, meta.permissions());
@@ -387,24 +387,24 @@ fn add_orientation(
 
 fn raw(path: &Path) -> Option<Vec<u8>> {
     use image::ImageDecoder;
-    if crate::has_ext(path, crate::raw::EXTS) {
+    if crate::files::has_ext(path, crate::raw::EXTS) {
         return crate::raw::exif(path);
     }
     #[cfg(feature = "jxl")]
-    if crate::has_ext(path, crate::JXL_EXTS) {
+    if crate::files::has_ext(path, crate::files::JXL_EXTS) {
         let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.exif_metadata().ok().flatten();
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
-    if crate::is_heif(path) {
+    if crate::external::is_heif(path) {
         let data = std::fs::read(path).ok()?;
         let at = data
             .windows(8)
             .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
         return Some(data[at..].to_vec());
     }
-    if crate::has_ext(path, &["jpg", "jpeg"])
+    if crate::files::has_ext(path, &["jpg", "jpeg"])
         && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
     {
         return exif;
@@ -686,7 +686,6 @@ mod tests {
         assert!(!super::adobe_rgb(b"junk"));
     }
 
-    /// A JPEG without EXIF gets one; turning again changes the field in place.
     /// The EXIF block from the head of a JPEG; past the head, as after big other segments, from
     /// the whole file; none if the image data comes first.
     #[test]
@@ -733,6 +732,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A JPEG without EXIF gets one; turning again changes the field in place.
     #[test]
     fn writes_orientation() {
         let dir = std::env::temp_dir().join(format!("glimt-orient-{}", std::process::id()));

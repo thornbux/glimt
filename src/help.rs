@@ -1,6 +1,7 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
-use crate::{Action, DIFFERENCES, MOUSE, shortcuts as all_shortcuts};
+use crate::actions::Action;
+use crate::actions::shortcuts as all_shortcuts;
 use eframe::egui;
 use egui::Key;
 
@@ -251,6 +252,186 @@ const MANUAL: &[(&str, &str)] = &[
     ),
 ];
 
+/// Where Glimt differs from Geeqie: what, Glimt, Geeqie. Shown in the Help Manual (F1).
+const DIFFERENCES: &[(&str, &str, &str)] = &[
+    (
+        "R",
+        "Toggles random order in the slideshow, also while it runs",
+        "Refresh",
+    ),
+    ("Refresh", "F5", "R"),
+    (
+        "Random order",
+        "R, the View menu and Preferences",
+        "Only in Preferences",
+    ),
+    (
+        "Arrow keys",
+        "←/↑ previous, →/↓ next image; they move a zoomed image that is larger than the window",
+        "Scroll a zoomed image, move in the file list",
+    ),
+    (
+        "Mouse wheel",
+        "Zooms by default; a setting makes it go to the next or previous image",
+        "Next or previous image",
+    ),
+    (
+        "Esc / Q",
+        "Stops the slideshow and leaves full screen; never quits",
+        "Leaves full screen",
+    ),
+    (
+        "Slideshow delay",
+        "Whole seconds 1–60, Ctrl+= / Ctrl+- change it by 1 s",
+        "Tenths of a second, Faster/Slower change it by 0.5 s",
+    ),
+    (
+        "Browsing in a slideshow",
+        "The new image gets the full delay",
+        "",
+    ),
+    (
+        "Small images",
+        "\"Enlarge small images to fit the window\", on by default",
+        "\"Allow enlargement\"",
+    ),
+    (
+        "Close Window (Ctrl+W)",
+        "Same as Quit (one window per process)",
+        "Closes one of several windows",
+    ),
+    (
+        "Keypad /, *, +, -",
+        "Not supported",
+        "Zoom 1:1, fit, in, out",
+    ),
+    (
+        "Marks and stars (marks feature)",
+        "1–6 toggle, Ctrl+1–6 select, Alt+0–5 stars (main keyboard); kept in ~/.local/state/glimt/marks; mark: and stars: in the search field",
+        "Alt+keypad for stars, kept in XMP; marks filter buttons",
+    ),
+    (
+        "Copy, Move (Ctrl+C, Ctrl+M)",
+        "Target folder from a file dialog; never overwrites",
+        "Own dialog",
+    ),
+    (
+        "New Window (Ctrl+N)",
+        "A new process in the same folder",
+        "A new window in the same process, saved layouts",
+    ),
+    (
+        "Keywords and comment",
+        "In the EXIF panel (Ctrl+K), kept in the sidecar photo.jpg.xmp; found by exif: searches",
+        "Info sidebar with a keyword tree; kept in the image, a sidecar or Geeqie's own folder",
+    ),
+    (
+        "Print (Ctrl+P)",
+        "One image per page, to a CUPS printer or a PDF file; A4 or Letter",
+        "GTK print dialog: several images per page, text, page setup",
+    ),
+    (
+        "Plugins",
+        "Desktop files in ~/.local/share/glimt/plugins, in Edit → Plugins; no hotkeys or menu paths",
+        "Desktop files in geeqie/applications, also with hotkeys, filters and menu paths",
+    ),
+    (
+        "Sort manager (Shift+S)",
+        "Copies or moves; kept in ~/.config/glimt/sort-folders",
+        "Also links, copies the path, and undoes the last one",
+    ),
+    (
+        "Pan view (Ctrl+J)",
+        "A timeline by day in a window over the main one",
+        "Its own window: timeline, calendar, folder tree and grid, with zoom",
+    ),
+    (
+        "Collections (C, O)",
+        "Shown in the file list of the main window; C makes one of the selected files; saved at every change",
+        "Own window: C opens an empty one, S saves, drag to change the order",
+    ),
+    (
+        "Find Duplicates (D)",
+        "Compares the images in the list; checked files go to the trash",
+        "Files and folders dropped on its window; more methods, two sets, results to a collection",
+    ),
+    (
+        "Layouts (View → Layout)",
+        "1, 2 side by side, 2 above each other or 2 × 2, from the list; the slideshow changes them together or in turn",
+        "Split view (E, U, Y) with a file list for each pane; one image in a slideshow",
+    ),
+    (
+        "Images as icons (Ctrl+I)",
+        "Ctrl+I switches between list and icons",
+        "Ctrl+I icons, Ctrl+L list",
+    ),
+    (
+        "Search field",
+        "Above the file list; fuzzy (like fzf) by default, re: for a regular expression; a \
+         setting makes it a regular expression always, as Geeqie's, with a Case checkbox beside it",
+        "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
+    ),
+    (
+        "Folders",
+        "Right-click in the list or the tree: rename, or move to the trash with all in it; never \
+         deleted permanently",
+        "Rename and delete (to the trash or permanently, as for files) in the folder pane's menu",
+    ),
+    (
+        "File types",
+        "Types menu beside the sort menu: images, RAW and videos; a file opened directly is \
+         listed whatever it says",
+        "File classes in the file filter, and each file type in Preferences → File Filters",
+    ),
+    (
+        "Hidden files",
+        "View → Show Hidden Files, for files and folders; off by default; no key (Ctrl+H hides \
+         the file list)",
+        "Preferences → Files, and the folder pane's menu",
+    ),
+    (
+        "Compare (E)",
+        "E shows the next image (or the other of two selected) beside the shown one, at the same zoom \
+         and offset; U and Y as in Geeqie; L the next layout; a click on a pane or Alt+arrow shows \
+         the image there in the first pane",
+        "E, U and Y split into panes with an image each; Y back to one",
+    ),
+    (
+        "Colour management",
+        "The image's own profile, Adobe RGB from its EXIF, or a chosen one for images without, \
+         to sRGB or a screen profile, the desktop's from colord when it has one; the profile \
+         used is in the EXIF panel; absolute colorimetric is shown as relative colorimetric",
+        "The same, with the profile used in the status bar, the desktop's from X \
+         (_ICC_PROFILE, so not on Wayland), and absolute colorimetric keeping the paper white \
+         of the profile",
+    ),
+    (
+        "Files on the clipboard",
+        "Select → Copy Files to Clipboard copies them for a file manager; no Cut (Ctrl+X)",
+        "Ctrl+C copies, Ctrl+X cuts",
+    ),
+    (
+        "Histogram (K, J)",
+        "In the image's corner: K cycles off, RGB and brightness, J logarithmic",
+        "In the overlay: K cycles channels, J modes",
+    ),
+    (
+        "Image info in full screen (I)",
+        "On or off",
+        "I cycles through several overlay layouts",
+    ),
+    (
+        "Thumbnail cache",
+        "The shared ~/.cache/thumbnails; new ones are saved only if the setting is on",
+        "Own cache, or the shared one",
+    ),
+    (
+        "Refresh on change",
+        "Setting, on by default; checks the folder once a second",
+        "Setting",
+    ),
+];
+
 fn manual(ui: &mut egui::Ui) {
     for (heading, text) in MANUAL {
         ui.strong(*heading);
@@ -274,6 +455,15 @@ fn manual(ui: &mut egui::Ui) {
 }
 
 /// Every shortcut of an action on one row, in menu order, then the mouse.
+/// Mouse use, for the help window.
+const MOUSE: &[(&str, &str)] = &[
+    ("Mouse wheel", "Zoom, or next/previous image (Preferences)"),
+    ("Ctrl+mouse wheel", "Zoom"),
+    ("Drag", "Move a zoomed image"),
+    ("Double-click", "Full Screen"),
+    ("Ctrl+click in the list", "Select or unselect a file"),
+];
+
 fn shortcuts(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();

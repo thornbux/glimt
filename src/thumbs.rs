@@ -30,11 +30,12 @@ pub fn thumbnail(
         return Ok(img);
     }
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38.
-    let (img, icc) = match crate::scaled_jpeg(path, [size, size], rotate) {
+    let (img, icc) = match crate::decode::scaled_jpeg(path, [size, size], rotate) {
         Some((img, icc, _)) => (img, icc),
-        None => crate::load_icc(path, rotate)?,
+        None => crate::decode::load_icc(path, rotate)?,
     };
-    let img = crate::to_srgb(crate::shrink(img, [size, size])?, icc.as_deref()).into_rgba8();
+    let img = crate::colour::to_srgb(crate::decode::shrink(img, [size, size])?, icc.as_deref())
+        .into_rgba8();
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
     // one not turned upright by EXIF (Auto Rotate off) is not shared.
     if save
@@ -118,7 +119,7 @@ fn cache_dir() -> Option<std::path::PathBuf> {
         Some(_) => "HOST_XDG_CACHE_HOME",
         None => "XDG_CACHE_HOME",
     };
-    crate::xdg_dir(var, ".cache", "thumbnails")
+    crate::config::xdg_dir(var, ".cache", "thumbnails")
 }
 
 /// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is

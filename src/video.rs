@@ -12,5 +12,5 @@ pub const EXTS: &[&str] = &[
 /// A frame one second in (the very first one is often black), or the first frame for
 /// shorter videos. ffmpeg applies the rotation stored in the video.
 pub fn preview(path: &Path) -> Result<image::DynamicImage, String> {
-    crate::ffmpeg_frame(path, "1").or_else(|_| crate::ffmpeg_frame(path, "0"))
+    crate::external::ffmpeg_frame(path, "1").or_else(|_| crate::external::ffmpeg_frame(path, "0"))
 }

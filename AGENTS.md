@@ -22,7 +22,7 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 ## Behaviour
 
 - Shortcuts and behaviour follow **Geeqie's defaults** (see its keyboard reference). Every
-  deliberate deviation goes in the `DIFFERENCES` table in `src/main.rs`, which the Help Manual
+  deliberate deviation goes in the `DIFFERENCES` table in `src/help.rs`, which the Help Manual
   (F1) shows. Remove a row when Glimt starts behaving like Geeqie.
 - New user-visible features are described in `src/help.rs` (manual, shortcuts, keyboard map)
   and, where relevant, in `README.md`.
@@ -36,8 +36,15 @@ documentation.
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `Action` enum and `SHORTCUTS` table, `Config` (the `config!` macro), decode workers, file list, menus, dialogs, `DIFFERENCES` |
-| `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About |
+| `src/main.rs` | The app: `App`, its decode and thumbnail workers, the file list, menus, panels and dialogs, `run` for every action |
+| `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys |
+| `src/config.rs` | `Config` (the `config!` macro), the window state, XDG paths, `write_atomic` |
+| `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram |
+| `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
+| `src/files.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`) |
+| `src/save.rs` | Saving a turned image with its EXIF, also lossy WebP |
+| `src/external.rs` | External programs: `command()`, ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
 | `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders |
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
@@ -162,7 +169,7 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
-- In the sandbox, external programs go through `command()` in `src/main.rs`, which runs them on
+- In the sandbox, external programs go through `command()` in `src/external.rs`, which runs them on
   the host with `flatpak-spawn --host`; use it for every new external program.
 - To run it in a virtual X display, add `--nosocket=wayland --nosocket=fallback-x11
   --socket=x11`, and `--filesystem=/tmp/...` for test files: `/tmp` is private in the sandbox.
