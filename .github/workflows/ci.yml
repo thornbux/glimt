@@ -7,6 +7,10 @@ on:
     branches: [main]
   pull_request:
 
+# Reads the code only; actions from others are pinned to a commit, as in release.yml.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -20,12 +24,15 @@ jobs:
         features: ["", "--all-features"]
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: System libraries for the window (Wayland, X11, OpenGL)
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.features }}
       - run: cargo fmt --check
