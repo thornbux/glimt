@@ -113,6 +113,11 @@ fn update(
     let side = sidecar(path);
     let old = match std::fs::read_to_string(&side) {
         Ok(text) => text,
+        // One that is there but cannot be read (not UTF-8, no permission) is not written over:
+        // it may hold another program's edits.
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(format!("{}: {e}", side.display()));
+        }
         Err(_) if only_if_there => return Ok(()),
         Err(_) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
              <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
@@ -289,6 +294,25 @@ mod tests {
         std::fs::write(&file, jpeg).unwrap();
         assert!(read(&file).keywords.is_empty());
         std::fs::remove_file(file).unwrap();
+    }
+
+    /// A sidecar that cannot be read as text is left as it is, not replaced by a new one.
+    #[test]
+    fn keeps_a_sidecar_it_cannot_read() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-bad-xmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(sidecar(&file), b"\xff\xfe not UTF-8").unwrap();
+        let meta = Meta {
+            keywords: vec!["x".into()],
+            comment: String::new(),
+        };
+        assert!(write(&file, &meta).is_err());
+        assert_eq!(
+            std::fs::read(sidecar(&file)).unwrap(),
+            b"\xff\xfe not UTF-8"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Keywords inside a JPEG, cleared: they stay cleared, not read from the image again.

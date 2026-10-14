@@ -20,9 +20,7 @@ impl Marks {
         let text = file()
             .and_then(|f| std::fs::read(f).ok())
             .unwrap_or_default();
-        Marks {
-            map: text.split(|&b| b == b'\n').filter_map(parse_line).collect(),
-        }
+        Marks { map: parse(&text) }
     }
 
     /// (mark bits, stars) of `path`.
@@ -100,7 +98,13 @@ fn save(paths: Vec<PathBuf>, change: Change) {
         std::thread::spawn(move || {
             for (paths, change) in rx.iter() {
                 let Some(file) = file() else { continue };
-                let mut map = Marks::load().map;
+                // A file that is there but cannot be read is not written over with this change
+                // alone: every other mark would be lost.
+                let mut map = match std::fs::read(&file) {
+                    Ok(text) => parse(&text),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+                    Err(_) => continue,
+                };
                 apply(&mut map, &paths, change);
                 for (paths, change) in rx.try_iter() {
                     apply(&mut map, &paths, change);
@@ -115,6 +119,11 @@ fn save(paths: Vec<PathBuf>, change: Change) {
 
 #[cfg(test)]
 fn save(_: Vec<PathBuf>, _: Change) {}
+
+/// The marks file: a line for each file.
+fn parse(text: &[u8]) -> HashMap<PathBuf, (u8, u8)> {
+    text.split(|&b| b == b'\n').filter_map(parse_line).collect()
+}
 
 fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     let mut parts = line.splitn(3, |&b| b == b'\t');
