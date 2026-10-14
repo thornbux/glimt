@@ -213,7 +213,9 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     }
     let start = xmp.find("<rdf:Description")?;
     let end = start + xmp[start..].find('>')?;
-    let ns = if xmp.contains("xmlns:dc=") {
+    // Declared on this Description or above it: exiftool gives each namespace a Description of
+    // its own, and "dc" declared on a later one is not in force here.
+    let ns = if xmp[..end].contains("xmlns:dc=") {
         ""
     } else {
         " xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
@@ -316,6 +318,24 @@ mod tests {
             b"\xff\xfe not UTF-8"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// exiftool's layout, a Description for each namespace: "dc" declared on the second one is
+    /// declared again on the first, where the keywords go.
+    #[test]
+    fn declares_dc_where_it_writes() {
+        let exiftool = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF>\
+                        <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\
+                        </rdf:Description><rdf:Description rdf:about=\"\" \
+                        xmlns:dc=\"http://purl.org/dc/elements/1.1/\"></rdf:Description>\
+                        </rdf:RDF></x:xmpmeta>";
+        let meta = Meta {
+            keywords: vec!["x".into()],
+            comment: String::new(),
+        };
+        let written = set(exiftool, &meta, false).unwrap();
+        let first = &written[..written.find("<dc:subject").unwrap()];
+        assert_eq!(first.matches("xmlns:dc=").count(), 1, "{written}");
     }
 
     /// Keywords inside a JPEG, cleared: they stay cleared, not read from the image again.
