@@ -426,12 +426,24 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         return dec.exif_metadata().ok().flatten();
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
+    // From the first MB, where it usually is, before the whole file; a MB of it at most.
     if crate::external::is_heif(path) {
-        let data = std::fs::read(path).ok()?;
-        let at = data
-            .windows(8)
-            .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
-        return Some(data[at..].to_vec());
+        use std::io::Read;
+        let find = |data: &[u8]| {
+            let at = (data.windows(8))
+                .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
+            Some(data[at..data.len().min(at + (1 << 20))].to_vec())
+        };
+        let mut head = Vec::new();
+        std::fs::File::open(path)
+            .ok()?
+            .take(1 << 20)
+            .read_to_end(&mut head)
+            .ok()?;
+        // Found too near the head's end, it may be cut short (EXIF blocks reach 64 KB).
+        let whole = head.len() < 1 << 20;
+        let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);
+        return in_head.or_else(|| find(&std::fs::read(path).ok()?));
     }
     if crate::files::has_ext(path, &["jpg", "jpeg"])
         && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
