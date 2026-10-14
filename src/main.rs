@@ -6563,6 +6563,49 @@ impl App {
         response
     }
 
+    /// The film strip along the bottom of `area` in full screen, shown while the pointer is
+    /// near the bottom: thumbnails of the images before and after the shown one, which is
+    /// outlined. Returns the image clicked.
+    fn filmstrip(&mut self, ui: &egui::Ui, area: egui::Rect) -> Option<usize> {
+        let cell = self.thumb() + egui::vec2(8.0, 8.0);
+        let height = cell.y + 16.0;
+        let strip =
+            egui::Rect::from_min_max(egui::pos2(area.left(), area.bottom() - height), area.max);
+        if !ui.rect_contains_pointer(strip) {
+            return None;
+        }
+        let k = ((area.width() / cell.x) as isize - 1).max(0) / 2;
+        let mut shown: Vec<usize> = (-k..=k).filter_map(|d| self.step(d, false)).collect();
+        shown.dedup();
+        // Thumbnails for these, as for the rows of the file list.
+        if let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max()) {
+            self.thumb_view[0].store(first, Ordering::Relaxed);
+            self.thumb_view[1].store(last, Ordering::Relaxed);
+            self.trim_thumbs(first, last);
+        }
+        ui.painter()
+            .rect_filled(strip, 0.0, egui::Color32::from_black_alpha(190));
+        // The shown image in the middle, where it is when there are images on both sides.
+        let at = shown.iter().position(|&i| i == self.cur).unwrap_or(0) as f32;
+        let x0 = strip.center().x - (at + 0.5) * cell.x;
+        let mut clicked = None;
+        for (n, &i) in shown.iter().enumerate() {
+            let min = egui::pos2(x0 + n as f32 * cell.x, strip.top() + 8.0);
+            let frame = egui::Rect::from_min_size(min, cell).shrink(4.0);
+            self.paint_thumb(ui, i, frame);
+            if i == self.cur {
+                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+                ui.painter()
+                    .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
+            }
+            let id = ui.id().with(("strip", i));
+            if ui.interact(frame, id, egui::Sense::click()).clicked() {
+                clicked = Some(i);
+            }
+        }
+        clicked
+    }
+
     /// Thumbnail `i` fitted into `frame`, or a request for it.
     fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
         let name = &self.files[i];
@@ -9240,6 +9283,11 @@ impl eframe::App for App {
                     for (rect, i) in panes.iter().zip(shown) {
                         self.paint_name(ui, *rect, i);
                     }
+                }
+                // Full screen: a film strip of the images around this one, while the pointer
+                // is near the bottom.
+                if fullscreen && !self.kiosk && !self.files.is_empty() {
+                    clicked_pane = self.filmstrip(ui, ui.max_rect()).or(clicked_pane);
                 }
                 if let Some(notice) = &self.notice {
                     ui.painter().text(

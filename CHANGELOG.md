@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A film strip in full screen: with the pointer at the bottom of the screen, thumbnails of
+  the images before and after the shown one, which is outlined; a click shows that image.
+  Not in kiosk mode.
+
 ## [0.16.0] - 2026-10-14
 
 ### Added
