@@ -17,7 +17,7 @@ pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     let jpeg = preview(&data).ok_or("no preview image in the RAW file")?;
     let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg))
         .map_err(|e| e.to_string())?;
-    crate::check_size(&dec)?;
+    crate::decode::check_size(&dec)?;
     // TIFF-based RAW files carry the orientation in their own header; others in the JPEG.
     let orientation = crate::exif::orientation(&data)
         .or_else(|| dec.orientation().ok())

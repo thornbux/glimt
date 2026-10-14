@@ -5,13 +5,15 @@
 //! the current image is kept in memory.
 
 use colour::{
-    ADOBE_RGB, COLOR_MANAGEMENT, INPUT_PROFILES, INTENTS, SCREEN_WAIT, SCREEN_WAIT_MS,
-    colour_source, read_desktop_screen, set_colour, set_input, set_intent, set_screen,
-    srgb_to_display, to_display, to_srgb,
+    COLOR_MANAGEMENT, INPUT_PROFILES, INTENTS, SCREEN_WAIT, SCREEN_WAIT_MS, colour_source,
+    read_desktop_screen, set_colour, set_input, set_intent, set_screen, srgb_to_display, to_srgb,
 };
 use config::{
     Config, WindowState, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
     write_atomic, xdg_dir,
+};
+use decode::{
+    Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load, load_icc, shrink, survive,
 };
 use eframe::egui;
 use image::ImageDecoder;
@@ -26,6 +28,7 @@ use std::time::Instant;
 mod collections;
 mod colour;
 mod config;
+mod decode;
 mod duplicates;
 mod exif;
 mod help;
@@ -93,8 +96,6 @@ const DATE_WIDTH: f32 = 140.0;
 const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
 /// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
 const MAX_THUMBS: usize = 600;
-/// Decoded frames kept of one animation (bytes); longer ones loop the first part.
-static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
 
 /// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
 /// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
@@ -1243,22 +1244,6 @@ unsafe extern "C" {
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
 
-struct Decoded {
-    idx: usize,
-    full: bool,
-    /// The file the job was for; rejects results from a folder that has since been replaced.
-    path: PathBuf,
-    /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
-    rotated: bool,
-    /// The page of a multi-page TIFF; 0 for everything else.
-    page: usize,
-    /// `None` = skipped because the user has already moved past it.
-    result: Option<Result<DecodedImage, String>>,
-}
-
-/// The frames, the original size after EXIF rotation, the histogram and the number of pages.
-type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
-
 /// A file's EXIF from the reader thread: the panel's rows, every field, keywords and comment.
 type ExifRead = (
     PathBuf,
@@ -1275,25 +1260,6 @@ struct MetaEdit {
     comment: String,
     saved: meta::Meta,
 }
-
-/// Pixel counts per level of red, green, blue and brightness.
-type Hist = [[u32; 256]; 4];
-
-fn histogram(img: &egui::ColorImage) -> Box<Hist> {
-    let mut h = Box::new([[0; 256]; 4]);
-    for p in &img.pixels {
-        let [r, g, b, _] = p.to_array();
-        h[0][r as usize] += 1;
-        h[1][g as usize] += 1;
-        h[2][b as usize] += 1;
-        // Rec. 709 luma.
-        h[3][((54 * r as u32 + 183 * g as u32 + 19 * b as u32) >> 8) as usize] += 1;
-    }
-    h
-}
-
-/// The decoded frames with their delays in ms; one frame for a still image.
-type Frames = Vec<(egui::ColorImage, u32)>;
 
 struct Slot {
     tex: egui::TextureHandle,
@@ -2323,38 +2289,6 @@ fn shuffle<T>(v: &mut [T]) {
     }
 }
 
-/// Image `path` scaled to fit `max`, its original size and its number of pages; `page` picks a
-/// page of a multi-page TIFF.
-fn decode(
-    path: &Path,
-    max: [u32; 2],
-    rotate: bool,
-    page: usize,
-) -> Result<(Frames, [usize; 2], usize), String> {
-    if let Some((frames, orig)) = animation(path, max) {
-        return Ok((frames, orig, 1));
-    }
-    let pages = if has_ext(path, &["tif", "tiff"]) {
-        tiff_pages(path)
-    } else {
-        1
-    };
-    let (img, icc, orig) = match scaled_jpeg(path, max, rotate) {
-        Some(scaled) => scaled,
-        None => {
-            let (img, icc) = if page > 0 {
-                (tiff_page(path, page)?, None)
-            } else {
-                load_icc(path, rotate)?
-            };
-            let orig = [img.width() as usize, img.height() as usize];
-            (img, icc, orig)
-        }
-    };
-    let img = to_display(shrink(img, max)?, icc.as_deref());
-    Ok((vec![(color_image(img), 0)], orig, pages))
-}
-
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
 /// pixels are turned and the file written again with its ICC profile and EXIF block. PNG and
 /// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
@@ -2541,294 +2475,6 @@ fn webp_with_exif(webp: &[u8], exif: &[u8], width: u32, height: u32) -> Result<V
     let size = (out.len() - 8) as u32;
     out[4..8].copy_from_slice(&size.to_le_bytes());
     Ok(out)
-}
-
-/// The number of pages (images) in a TIFF file; reads only their directories.
-fn tiff_pages(path: &Path) -> usize {
-    let Ok(file) = std::fs::File::open(path) else {
-        return 1;
-    };
-    let Ok(mut dec) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
-        return 1;
-    };
-    let mut pages = 1;
-    while dec.more_images() && dec.next_image().is_ok() {
-        pages += 1;
-    }
-    pages
-}
-
-/// Page `page` of a TIFF. The image crate reads only the first, so the tiff crate (which it
-/// uses) decodes the others; 8- and 16-bit grey and colour, which covers scanned documents.
-fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
-    use image::DynamicImage as D;
-    use tiff::ColorType as C;
-    use tiff::decoder::DecodingResult as R;
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut dec =
-        tiff::decoder::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
-    dec.seek_to_image(page).map_err(|e| e.to_string())?;
-    let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
-    let color = dec.colortype().map_err(|e| e.to_string())?;
-    let img = match (color, dec.read_image().map_err(|e| e.to_string())?) {
-        (C::Gray(8), R::U8(v)) => image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8),
-        (C::GrayA(8), R::U8(v)) => image::GrayAlphaImage::from_raw(w, h, v).map(D::ImageLumaA8),
-        (C::RGB(8), R::U8(v)) => image::RgbImage::from_raw(w, h, v).map(D::ImageRgb8),
-        (C::RGBA(8), R::U8(v)) => image::RgbaImage::from_raw(w, h, v).map(D::ImageRgba8),
-        (C::Gray(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageLuma16),
-        (C::RGB(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgb16),
-        (C::RGBA(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgba16),
-        _ => None,
-    };
-    img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1))
-}
-
-/// The whole image in sRGB.
-fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
-    let (img, icc) = load_icc(path, rotate)?;
-    Ok(to_srgb(img, icc.as_deref()))
-}
-
-/// The frames of an animated GIF or WebP; `None` for other files, which `load` decodes.
-fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
-    use image::AnimationDecoder;
-    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
-    let frames = match ext.as_str() {
-        "gif" => image::codecs::gif::GifDecoder::new(file)
-            .ok()?
-            .into_frames(),
-        "webp" => {
-            let dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
-            if !dec.has_animation() {
-                return None;
-            }
-            dec.into_frames()
-        }
-        _ => return None,
-    };
-    let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
-    for frame in frames {
-        let frame = frame.ok()?;
-        let (n, d) = frame.delay().numer_denom_ms();
-        // Browsers show delays under 20 ms as 100 ms; many GIFs rely on it.
-        let ms = Some(n / d.max(1)).filter(|&ms| ms >= 20).unwrap_or(100);
-        let img = frame.into_buffer();
-        orig = [img.width() as usize, img.height() as usize];
-        let img = color_image(to_display(shrink(img.into(), max).ok()?, None));
-        bytes += img.pixels.len() * 4;
-        out.push((img, ms));
-        if bytes > MAX_ANIMATION.load(Ordering::Relaxed) {
-            break;
-        }
-    }
-    (!out.is_empty()).then_some((out, orig))
-}
-
-/// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
-/// ICC profile if it has one.
-fn load_icc(path: &Path, rotate: bool) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    #[cfg(feature = "video")]
-    if is_video(path) {
-        return Ok((video::preview(path)?, None));
-    }
-    if has_ext(path, raw::EXTS) {
-        return Ok((raw::load(path, rotate)?, None));
-    }
-    #[cfg(any(feature = "heic", feature = "avif"))]
-    if is_heif(path) {
-        return Ok((heif(path)?, None));
-    }
-    #[cfg(feature = "svg")]
-    if has_ext(path, SVG_EXTS) {
-        return Ok((svg(path)?, None));
-    }
-    #[cfg(feature = "jxl")]
-    if has_ext(path, JXL_EXTS) {
-        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-        let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
-            .map_err(|e| e.to_string())?;
-        check_size(&dec)?;
-        // jxl-oxide already renders the image upright.
-        let icc = dec.icc_profile().ok().flatten();
-        let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
-        return Ok((img, icc));
-    }
-    let mut dec = image::ImageReader::open(path)
-        .and_then(|r| r.with_guessed_format())
-        .map_err(|e| e.to_string())?
-        .into_decoder()
-        .map_err(|e| e.to_string())?;
-    let orientation = dec
-        .orientation()
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
-    // Without a profile, the EXIF may say Adobe RGB (a camera set to it).
-    let icc = dec.icc_profile().ok().flatten().or_else(|| {
-        let exif = dec.exif_metadata().ok().flatten()?;
-        exif::adobe_rgb(&exif).then(|| ADOBE_RGB.clone())
-    });
-    let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
-    if rotate {
-        img.apply_orientation(orientation);
-    }
-    Ok((img, icc))
-}
-
-/// A JPEG, or the preview in a RAW file, decoded at 1/2, 1/4 or 1/8 of its size when that still
-/// covers `max`, turned upright by EXIF if `rotate`, with its ICC profile (or Adobe RGB from EXIF)
-/// and its full size upright. `None` where the whole image is needed or jpeg-decoder cannot help
-/// (CMYK, an error): then it is decoded whole, as other images.
-fn scaled_jpeg(
-    path: &Path,
-    max: [u32; 2],
-    rotate: bool,
-) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
-    if has_ext(path, &["jpg", "jpeg"]) {
-        return scaled(&std::fs::read(path).ok()?, max, rotate, None);
-    }
-    if has_ext(path, raw::EXTS) {
-        let data = std::fs::read(path).ok()?;
-        // As raw::load: the orientation from a TIFF-based RAW's own header, and no profile.
-        let (img, _, orig) = scaled(raw::preview(&data)?, max, rotate, exif::orientation(&data))?;
-        return Some((img, None, orig));
-    }
-    None
-}
-
-/// `scaled_jpeg` of the JPEG in `data`; `orientation` overrides the one in its EXIF.
-fn scaled(
-    data: &[u8],
-    max: [u32; 2],
-    rotate: bool,
-    orientation: Option<image::metadata::Orientation>,
-) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
-    use jpeg_decoder::PixelFormat;
-    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(data));
-    dec.read_info().ok()?;
-    let info = dec.info()?;
-    if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
-        return None;
-    }
-    let orientation = (orientation.or_else(|| dec.exif_data().and_then(exif::orientation)))
-        .filter(|_| rotate)
-        .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let (w, h) = (info.width as f64, info.height as f64);
-    // Upright size, which is what has to fit.
-    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
-    let turned = matches!(
-        orientation,
-        Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH
-    );
-    let (uw, uh) = if turned { (h, w) } else { (w, h) };
-    let scale = (max[0] as f64 / uw).min(max[1] as f64 / uh);
-    if scale > 0.5 {
-        return None;
-    }
-    // jpeg-decoder takes the smallest of 1/8, 1/4, 1/2 and 1/1 at least this large.
-    let (want_w, want_h) = ((w * scale).ceil() as u16, (h * scale).ceil() as u16);
-    let (sw, sh) = dec.scale(want_w, want_h).ok()?;
-    let pixels = dec.decode().ok()?;
-    let (sw, sh) = (sw as u32, sh as u32);
-    let mut img: image::DynamicImage = match info.pixel_format {
-        PixelFormat::L8 => image::GrayImage::from_raw(sw, sh, pixels)?.into(),
-        _ => image::RgbImage::from_raw(sw, sh, pixels)?.into(),
-    };
-    img.apply_orientation(orientation);
-    let icc = dec.icc_profile().or_else(|| {
-        let exif = dec.exif_data()?;
-        exif::adobe_rgb(exif).then(|| ADOBE_RGB.clone())
-    });
-    Some((img, icc, [uw as usize, uh as usize]))
-}
-
-/// The size limit `ImageReader` applies, for decoders made directly: a header that claims a
-/// huge image must not make Glimt allocate gigabytes (which aborts the process).
-fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
-    match dec.total_bytes() {
-        n if n > MAX_DECODE => Err(format!("image too large ({})", human_size(n))),
-        _ => Ok(()),
-    }
-}
-
-/// image's default limit (`Limits::max_alloc`).
-const MAX_DECODE: u64 = 512 << 20;
-
-/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
-/// stays sharp when fitted to the window.
-#[cfg(feature = "svg")]
-fn svg(path: &Path) -> Result<image::DynamicImage, String> {
-    use resvg::{tiny_skia, usvg};
-    // The system fonts, for text in SVGs, are read once: it takes tens of milliseconds.
-    static FONTS: std::sync::OnceLock<Arc<usvg::fontdb::Database>> = std::sync::OnceLock::new();
-    let fonts = FONTS.get_or_init(|| {
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        Arc::new(db)
-    });
-    let options = usvg::Options {
-        resources_dir: path.parent().map(Path::to_path_buf),
-        fontdb: fonts.clone(),
-        ..usvg::Options::default()
-    };
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
-    let size = tree.size();
-    // At most 8192 pixels on the longer side: an SVG may claim any size, and the pixmap is
-    // 4 bytes per pixel (60000×60000 would be 14 GB).
-    let longer = size.width().max(size.height());
-    let scale = (2048.0 / longer).max(1.0).min(8192.0 / longer);
-    let (w, h) = (
-        (size.width() * scale).ceil() as u32,
-        (size.height() * scale).ceil() as u32,
-    );
-    let mut pixmap = tiny_skia::Pixmap::new(w.max(1), h.max(1)).ok_or("SVG too large")?;
-    resvg::render(
-        &tree,
-        tiny_skia::Transform::from_scale(scale, scale),
-        &mut pixmap.as_mut(),
-    );
-    // tiny-skia keeps premultiplied alpha; image wants it straight.
-    let rgba: Vec<u8> = (pixmap.pixels().iter())
-        .flat_map(|p| {
-            let c = p.demultiply();
-            [c.red(), c.green(), c.blue(), c.alpha()]
-        })
-        .collect();
-    image::RgbaImage::from_raw(w.max(1), h.max(1), rgba)
-        .map(image::DynamicImage::from)
-        .ok_or_else(|| "SVG size mismatch".into())
-}
-
-/// `work`, or an error if it panics: a decoder crashing on a broken file must not end the
-/// worker thread, which would leave every later image or thumbnail waiting forever.
-fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-        .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
-}
-
-/// Scale down to fit within `max`.
-fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicImage, String> {
-    if img.width() > max[0] || img.height() > max[1] {
-        let scale = (max[0] as f64 / img.width() as f64).min(max[1] as f64 / img.height() as f64);
-        let w = ((img.width() as f64 * scale).round() as u32).max(1);
-        let h = ((img.height() as f64 * scale).round() as u32).max(1);
-        let mut small = image::DynamicImage::new(w, h, img.color());
-        // SIMD downscaling; image's thumbnail took ~150–330 ms on 12 MP.
-        let opts = fast_image_resize::ResizeOptions::new().resize_alg(
-            fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
-        );
-        fast_image_resize::Resizer::new()
-            .resize(&img, &mut small, &opts)
-            .map_err(|e| e.to_string())?;
-        return Ok(small);
-    }
-    Ok(img)
-}
-
-fn color_image(img: image::DynamicImage) -> egui::ColorImage {
-    let rgba = img.into_rgba8();
-    let size = [rgba.width() as usize, rgba.height() as usize];
-    egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw())
 }
 
 impl App {
@@ -8890,7 +8536,7 @@ mod tests {
         img.save(&file).unwrap();
         // A quarter turn clockwise (EXIF orientation 6): the left half ends up on top.
         super::exif::write_orientation(&file, 1, false).unwrap();
-        let (img, _, orig) = super::scaled_jpeg(&file, [60, 100], true).unwrap();
+        let (img, _, orig) = super::decode::scaled_jpeg(&file, [60, 100], true).unwrap();
         assert_eq!(orig, [200, 400]);
         assert_eq!((img.width(), img.height()), (50, 100));
         let rgb = img.to_rgb8();
@@ -8898,15 +8544,16 @@ mod tests {
         assert!(top[0] > 200 && top[2] < 60, "{top:?}");
         assert!(bottom[2] > 200 && bottom[0] < 60, "{bottom:?}");
         // Not turned: the stored size; and no gain at more than half: None.
-        let (_, _, orig) = super::scaled_jpeg(&file, [100, 60], false).unwrap();
+        let (_, _, orig) = super::decode::scaled_jpeg(&file, [100, 60], false).unwrap();
         assert_eq!(orig, [400, 200]);
-        assert!(super::scaled_jpeg(&file, [300, 300], true).is_none());
-        assert!(super::scaled_jpeg(&dir.join("none.jpg"), [10, 10], true).is_none());
+        assert!(super::decode::scaled_jpeg(&file, [300, 300], true).is_none());
+        assert!(super::decode::scaled_jpeg(&dir.join("none.jpg"), [10, 10], true).is_none());
         // A RAW file's preview, scaled the same way.
         let mut raw = b"FUJIFILMCCD-RAW ".to_vec();
         raw.extend(std::fs::read(&file).unwrap());
         std::fs::write(dir.join("a.raf"), raw).unwrap();
-        let (img, icc, orig) = super::scaled_jpeg(&dir.join("a.raf"), [60, 100], true).unwrap();
+        let (img, icc, orig) =
+            super::decode::scaled_jpeg(&dir.join("a.raf"), [60, 100], true).unwrap();
         assert_eq!((orig, img.width(), img.height()), ([200, 400], 50, 100));
         assert!(icc.is_none());
         std::fs::remove_dir_all(dir).unwrap();
@@ -9028,7 +8675,8 @@ mod tests {
         assert_eq!(images, [".b.png", "a.png"].map(std::ffi::OsString::from));
         assert_eq!(dirs, vec![dir.join(".hidden"), dir.join("sub")]);
         std::fs::remove_file(dir.join(".b.png")).unwrap();
-        let (frames, orig, _) = super::decode(&dir.join("a.png"), [100, 100], true, 0).unwrap();
+        let (frames, orig, _) =
+            super::decode::decode(&dir.join("a.png"), [100, 100], true, 0).unwrap();
         assert_eq!(
             (frames.len(), frames[0].0.size, orig),
             (1, [100, 50], [400, 200])
@@ -9042,7 +8690,8 @@ mod tests {
         image::codecs::gif::GifEncoder::new(gif)
             .encode_frames([frame(50), frame(5)])
             .unwrap();
-        let (frames, orig, _) = super::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
+        let (frames, orig, _) =
+            super::decode::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
         let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
         assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
         // The tree: a folder reached again through a link is read once.
@@ -9370,8 +9019,10 @@ mod tests {
 
     #[test]
     fn survives_a_panic() {
-        assert_eq!(super::survive(|| Ok::<_, String>(1)), Ok(1));
-        assert!(super::survive(|| -> Result<(), String> { panic!("broken file") }).is_err());
+        assert_eq!(super::decode::survive(|| Ok::<_, String>(1)), Ok(1));
+        assert!(
+            super::decode::survive(|| -> Result<(), String> { panic!("broken file") }).is_err()
+        );
     }
 
     #[test]
