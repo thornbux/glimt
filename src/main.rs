@@ -607,7 +607,7 @@ struct App {
     show_settings: bool,
     help: Option<help::Page>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
-    confirm: Option<bool>,
+    confirm_delete: Option<bool>,
     /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
     folder_target: Option<PathBuf>,
     confirm_folder: bool,
@@ -631,16 +631,16 @@ struct App {
     /// Max decode size in physical pixels: [image area in the window, max texture side].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
     /// (image index, full resolution, file, page of a multi-page TIFF)
-    jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
+    decode_jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
-    done: mpsc::Receiver<Decoded>,
+    decoded_rx: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
     errors: HashMap<usize, String>,
     /// Physical screen pixels per original pixel; `None` = fit to window.
     zoom: Option<f32>,
-    pan: egui::Vec2,
+    pan_offset: egui::Vec2,
     /// Set at startup; taken when the first image is shown.
     started: Option<Instant>,
     /// Answer from an open file dialog (zenity).
@@ -651,7 +651,7 @@ struct App {
     changed_tx: mpsc::Sender<()>,
     changed_rx: mpsc::Receiver<()>,
     /// The folder changed while a listing was running; list again when it is done.
-    stale: bool,
+    relist: bool,
     /// View → Hide File List: only the image, as in full screen but in a window.
     hide_tools: bool,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
@@ -660,7 +660,7 @@ struct App {
     /// Error messages from background tasks (deleting), and the one shown now.
     notices_tx: mpsc::Sender<String>,
     /// A network location (smb:// …) being mounted: its local path, or why it failed.
-    mounting: Option<mpsc::Receiver<(Mounted, Login)>>,
+    mounting_rx: Option<mpsc::Receiver<(Mounted, Login)>>,
     /// The login dialog for a network share that needs one.
     login: Option<Login>,
     print: Option<PrintDialog>,
@@ -687,14 +687,14 @@ struct App {
     plugins: Vec<plugins::Plugin>,
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
     /// Commands from `glimt --remote`.
-    remote: mpsc::Receiver<String>,
+    remote_rx: mpsc::Receiver<String>,
     /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
     /// talks to.
     has_focus: bool,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
-    clip: Option<mpsc::Receiver<egui::ColorImage>>,
+    clip_rx: Option<mpsc::Receiver<egui::ColorImage>>,
     /// Subfolders by folder for the folder tree; `None` while being read.
     tree: HashMap<PathBuf, Option<Vec<PathBuf>>>,
     tree_tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
@@ -736,13 +736,13 @@ struct App {
     panes: Vec<usize>,
     /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
     /// shown last.
-    turn: usize,
-    latest: usize,
+    next_pane: usize,
+    last_slide: usize,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
     grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
     row_step: isize,
-    notices: mpsc::Receiver<String>,
+    notices_rx: mpsc::Receiver<String>,
     notice: Option<String>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
@@ -756,7 +756,7 @@ struct App {
     selected_size: Option<u64>,
     selected_rx: Option<mpsc::Receiver<u64>>,
     /// Folder listing in the background: (subfolders, images).
-    listing: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
     /// Scroll the file list to the current image on the next frame.
     scroll_to_cur: bool,
     /// Slideshow: when the previous image was shown; `None` = off.
@@ -838,7 +838,7 @@ struct App {
     /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
     /// first one, dropped with the folder.
     exif_index: Option<HashMap<OsString, String>>,
-    exif_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
+    exif_index_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
@@ -1147,7 +1147,7 @@ impl App {
         let (apps_tx, apps_rx) = mpsc::channel();
         let (remote_tx, remote_rx) = mpsc::channel();
         // A name is only of use with remote control, so it listens anyway.
-        if config.remote_control || remote::name().is_some() {
+        if config.remote_control || remote::given_name().is_some() {
             remote::listen(remote_tx, cc.egui_ctx.clone());
         }
         let (freed_tx, freed_rx) = mpsc::channel();
@@ -1156,7 +1156,7 @@ impl App {
         let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
-            mounting: None,
+            mounting_rx: None,
             login: None,
             print: None,
             sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
@@ -1167,8 +1167,8 @@ impl App {
             grid_cols: 1,
             compare: false,
             panes: Vec::new(),
-            turn: 0,
-            latest: 0,
+            next_pane: 0,
+            last_slide: 0,
             capturing: None,
             recursive: false,
             collection: None,
@@ -1184,9 +1184,9 @@ impl App {
             tree_tx,
             tree_rx,
             tree_shown: PathBuf::new(),
-            clip: None,
+            clip_rx: None,
             clipboard: None,
-            remote: remote_rx,
+            remote_rx,
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
@@ -1197,7 +1197,7 @@ impl App {
             plugins: plugins::find(),
             apps_rx,
             row_step: 1,
-            notices,
+            notices_rx: notices,
             notice: screen_error,
             dir: PathBuf::new(),
             subdirs: Vec::new(),
@@ -1209,7 +1209,7 @@ impl App {
             rotate,
             show_settings: false,
             help: None,
-            confirm: None,
+            confirm_delete: None,
             folder_target: None,
             confirm_folder: false,
             opened_type: Types::NONE,
@@ -1224,14 +1224,14 @@ impl App {
             start_slideshow: start.slideshow,
             random: false,
             limits,
-            jobs,
+            decode_jobs: jobs,
             page: 0,
-            done,
+            decoded_rx: done,
             slots: HashMap::new(),
             pending: HashSet::new(),
             errors: HashMap::new(),
             zoom: None,
-            pan: egui::Vec2::ZERO,
+            pan_offset: egui::Vec2::ZERO,
             started: Some(Instant::now()),
             dialog: None,
             hide_tools: false,
@@ -1240,11 +1240,11 @@ impl App {
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
             changed_rx,
-            stale: false,
+            relist: false,
             paused: false,
             back: Vec::new(),
             forward: Vec::new(),
-            listing: None,
+            listing_rx: None,
             total_size: 0,
             size_rx: None,
             freed_tx,
@@ -1290,7 +1290,7 @@ impl App {
             search_error: None,
             match_rx: None,
             exif_index: None,
-            exif_rx: None,
+            exif_index_rx: None,
             anchor: None,
             orient: (0, false),
             opened: Instant::now(),
@@ -1347,7 +1347,7 @@ impl App {
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
-        self.exif_rx = None;
+        self.exif_index_rx = None;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         self.list(ctx);
@@ -1373,7 +1373,7 @@ impl App {
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
-        self.exif_rx = None;
+        self.exif_index_rx = None;
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = root.to_path_buf();
@@ -1417,7 +1417,7 @@ impl App {
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
-        self.exif_rx = None;
+        self.exif_index_rx = None;
         // No one folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = PathBuf::from("/");
@@ -1576,10 +1576,10 @@ impl App {
             let sizes = images.filter_map(|e| Some(e.metadata().ok()?.len()));
             send_sizes(sizes, size_tx, &ctx2);
         });
-        self.listing = Some(rx);
+        self.listing_rx = Some(rx);
         self.size_rx = Some(size_rx);
         self.total_size = 0;
-        self.stale = false;
+        self.relist = false;
     }
 
     /// Poll the folder's modification time once a second in the background (one `stat`, no
@@ -1634,7 +1634,7 @@ impl App {
             let _ = tx.send((result, login));
             ctx.request_repaint();
         });
-        self.mounting = Some(rx);
+        self.mounting_rx = Some(rx);
     }
 
     /// Open `path` as a new step in the Back/Forward history.
@@ -1646,10 +1646,11 @@ impl App {
 
     /// Take the folder listing if it is ready, waiting up to `wait`.
     fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
-        let Some(Ok((dirs, files))) = self.listing.as_ref().map(|rx| rx.recv_timeout(wait)) else {
+        let Some(Ok((dirs, files))) = self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait))
+        else {
             return;
         };
-        self.listing = None;
+        self.listing_rx = None;
         if self.collection.is_none() {
             self.tree.insert(self.dir.clone(), Some(dirs.clone()));
         }
@@ -1684,7 +1685,7 @@ impl App {
             self.config.confirm_delete
         } {
             self.asked_for = (self.files_gen, self.cur);
-            self.confirm = Some(trash);
+            self.confirm_delete = Some(trash);
         } else {
             self.delete_targets_now(ctx, trash);
         }
@@ -1818,11 +1819,11 @@ impl App {
             }
             // The files that are still there come back into the list. A listing that started
             // before the files went still has them: the folder is read again after it.
-            self.stale |= failed || self.listing.is_some();
+            self.relist |= failed || self.listing_rx.is_some();
         }
     }
 
-    fn receive_sizes(&mut self, ctx: &egui::Context) {
+    fn receive_sizes(&mut self) {
         while let Ok(freed) = self.freed_rx.try_recv() {
             // shortcut: a delete while the sum is still being computed can make it slightly off;
             // fine for a status bar figure.
@@ -1833,12 +1834,20 @@ impl App {
             self.selected_rx = None;
         }
         drain(&mut self.match_rx, &mut self.match_size);
-        if let Some(index) = self.exif_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.exif_rx = None;
+        drain(&mut self.size_rx, &mut self.total_size);
+    }
+
+    /// The exif: search index once it is read, and the search again with it.
+    fn receive_exif_index(&mut self, ctx: &egui::Context) {
+        if let Some(index) = self
+            .exif_index_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.exif_index_rx = None;
             self.exif_index = Some(index);
             self.update_search(ctx);
         }
-        drain(&mut self.size_rx, &mut self.total_size);
     }
 
     /// Called when the selection changes: update the title and compute the size in the background.
@@ -2158,7 +2167,7 @@ impl App {
         if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
             // The neighbours are preloaded at their first page.
             let page = if idx == self.cur { self.page } else { 0 };
-            let _ = self.jobs.send((idx, full, self.path(idx), page));
+            let _ = self.decode_jobs.send((idx, full, self.path(idx), page));
         }
     }
 
@@ -2177,7 +2186,7 @@ impl App {
         // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
         if !self.config.keep_zoom {
             self.zoom = None;
-            self.pan = egui::Vec2::ZERO;
+            self.pan_offset = egui::Vec2::ZERO;
         }
         self.opened = Instant::now();
         self.scroll_to_cur = true;
@@ -2206,7 +2215,7 @@ impl App {
     }
 
     /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
-    fn set_random(&mut self, ctx: &egui::Context, on: bool) {
+    fn shuffle_list(&mut self, ctx: &egui::Context, on: bool) {
         if self.files.is_empty() {
             return;
         }
@@ -2233,7 +2242,7 @@ impl App {
             self.whole_shuffle = self.random;
             self.list(ctx);
         } else if self.config.random != self.random {
-            self.set_random(ctx, self.config.random);
+            self.shuffle_list(ctx, self.config.random);
         }
         // The first slide comes at once: start as if the delay has already run out.
         let delay = std::time::Duration::from_secs(self.config.delay);
@@ -2424,7 +2433,7 @@ impl App {
     /// Preferences or a modal dialog is open: keys go there.
     fn dialog_open(&self) -> bool {
         self.show_settings
-            || self.confirm.is_some()
+            || self.confirm_delete.is_some()
             || self.confirm_folder
             || self.prompt.is_some()
             || self.login.is_some()
@@ -3100,7 +3109,7 @@ impl App {
         self.config.random = on;
         self.config.save();
         if self.slideshow.is_some() {
-            self.set_random(ctx, on);
+            self.shuffle_list(ctx, on);
             self.title(ctx);
         }
     }
@@ -3115,7 +3124,7 @@ impl App {
             self.random = false;
             self.list(ctx);
         } else if self.random {
-            self.set_random(ctx, false);
+            self.shuffle_list(ctx, false);
         }
         self.title(ctx);
     }
@@ -3128,7 +3137,7 @@ impl App {
             (None, None) => self.dir.display().to_string(),
         };
         // A named Glimt says which it is.
-        let app = match remote::name() {
+        let app = match remote::given_name() {
             Some(n) => format!("Glimt ({n})"),
             None => "Glimt".to_owned(),
         };
@@ -3145,7 +3154,11 @@ impl App {
     fn slideshow_tick(&mut self, ctx: &egui::Context) {
         let Some(last) = self.slideshow else { return };
         // Waits while Rename or a delete asks about the shown image.
-        if self.files.is_empty() || self.paused || self.prompt.is_some() || self.confirm.is_some() {
+        if self.files.is_empty()
+            || self.paused
+            || self.prompt.is_some()
+            || self.confirm_delete.is_some()
+        {
             return;
         }
         // Several panes: the next set together, or the next image into one pane at a time.
@@ -3153,7 +3166,7 @@ impl App {
         let turns = n > 1 && self.one_at_a_time();
         let next = match n {
             1 => self.step(1, true),
-            _ if turns => self.step_from(self.latest, 1, true),
+            _ if turns => self.step_from(self.last_slide, 1, true),
             _ => self.step(n as isize, true),
         };
         let Some(next) = next else {
@@ -3168,18 +3181,18 @@ impl App {
             self.stop_slideshow(ctx);
         } else if self.random && Some(next) == first && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
-            self.set_random(ctx, true);
+            self.shuffle_list(ctx, true);
         } else if !self.pending.contains(&(next, false)) {
             let before = self.shown_textures();
-            if turns && self.turn > 0 {
-                self.panes[self.turn - 1] = next;
+            if turns && self.next_pane > 0 {
+                self.panes[self.next_pane - 1] = next;
                 self.refill();
             } else {
                 self.go(ctx, next);
             }
             self.fade = before.map(|b| (Instant::now(), b));
             if turns {
-                (self.latest, self.turn) = (next, (self.turn + 1) % n);
+                (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
             }
             self.slideshow = Some(Instant::now());
         }
@@ -3252,8 +3265,8 @@ impl App {
             return;
         }
         self.panes = (1..n as isize).filter_map(|k| self.step(k, true)).collect();
-        self.latest = self.panes.last().copied().unwrap_or(self.cur);
-        self.turn = 0;
+        self.last_slide = self.panes.last().copied().unwrap_or(self.cur);
+        self.next_pane = 0;
     }
 
     fn set_layout(&mut self, layout: &str) {
@@ -3282,7 +3295,7 @@ impl App {
         let full = window.len();
         self.full_ok.store(full, Ordering::Relaxed);
         let n = self.panes.len() + 1;
-        let upcoming = (1..=n as isize).filter_map(|d| self.step_from(self.latest, d, true));
+        let upcoming = (1..=n as isize).filter_map(|d| self.step_from(self.last_slide, d, true));
         for i in self
             .panes
             .iter()
@@ -3306,8 +3319,8 @@ impl App {
         }
     }
 
-    fn receive(&mut self, ctx: &egui::Context) {
-        while let Ok(d) = self.done.try_recv() {
+    fn receive_decoded(&mut self, ctx: &egui::Context) {
+        while let Ok(d) = self.decoded_rx.try_recv() {
             self.pending.remove(&(d.idx, d.full));
             let wanted = self.is_file(d.idx, &d.path)
                 && d.rotated == self.config.exif_rotate
@@ -4524,7 +4537,7 @@ impl App {
         let ppp = ui.ctx().pixels_per_point();
         let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
         let (scale, pan) = match zoom {
-            Some(z) => (z, self.pan),
+            Some(z) => (z, self.pan_offset),
             None => {
                 let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
                 let fit = if self.config.enlarge {
@@ -4782,7 +4795,7 @@ impl App {
             None => None,
         };
         let Some(index) = &self.exif_index else {
-            if self.exif_rx.is_none() {
+            if self.exif_index_rx.is_none() {
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
                 let busy = self.busy.clone();
@@ -4792,7 +4805,7 @@ impl App {
                     busy.fetch_sub(1, Ordering::Relaxed);
                     ctx.request_repaint();
                 });
-                self.exif_rx = Some(rx);
+                self.exif_index_rx = Some(rx);
             }
             return Vec::new();
         };
@@ -5047,7 +5060,7 @@ impl App {
                 let (path, rotate) = (self.path(self.cur), self.config.exif_rotate);
                 let (busy, tx, ctx) = (self.busy.clone(), self.notices_tx.clone(), ctx.clone());
                 let (clip_tx, clip_rx) = mpsc::channel();
-                self.clip = Some(clip_rx);
+                self.clip_rx = Some(clip_rx);
                 busy.fetch_add(1, Ordering::Relaxed);
                 std::thread::spawn(move || {
                     match load(&path, rotate) {
@@ -5309,7 +5322,7 @@ impl App {
             Action::Zoom1To1 => self.zoom = Some(1.0),
             Action::ZoomFit => {
                 self.zoom = None;
-                self.pan = egui::Vec2::ZERO;
+                self.pan_offset = egui::Vec2::ZERO;
             }
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
@@ -5376,10 +5389,11 @@ impl App {
         }
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.limits.lock().unwrap()[1] = [max_side, max_side];
-        self.receive(ctx);
+        self.receive_decoded(ctx);
         self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
-        self.receive_sizes(ctx);
+        self.receive_sizes();
+        self.receive_exif_index(ctx);
         self.receive_deleted();
         while let Ok((path, result)) = self.saved_rx.try_recv() {
             self.saving.remove(&path);
@@ -5389,20 +5403,20 @@ impl App {
             }
         }
         // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.start_slideshow && self.listing.is_none() {
+        if self.start_slideshow && self.listing_rx.is_none() {
             self.start_slideshow = false;
             self.start_slideshow(ctx);
         }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.has_focus && self.config.remote_control {
-            remote::focused();
+            remote::mark_focused();
         }
         self.has_focus = focus;
-        while let Ok(command) = self.remote.try_recv() {
+        while let Ok(command) = self.remote_rx.try_recv() {
             self.remote_command(ctx, &command);
         }
-        if let Some(img) = self.clip.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.clip = None;
+        if let Some(img) = self.clip_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.clip_rx = None;
             ctx.copy_image(img);
         }
         // A file or folder dropped on the window opens there, as File → Open would.
@@ -5418,8 +5432,8 @@ impl App {
         let decoding = !self.files.is_empty()
             && !self.slots.contains_key(&self.cur)
             && !self.errors.contains_key(&self.cur);
-        if let Some(done) = self.mounting.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.mounting = None;
+        if let Some(done) = self.mounting_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.mounting_rx = None;
             match done {
                 (Ok(path), _) => self.visit(ctx, path),
                 (Err(Some(e)), _) => self.notice = Some(e),
@@ -5434,20 +5448,20 @@ impl App {
                 }
             }
         }
-        if self.listing.is_some()
+        if self.listing_rx.is_some()
             || decoding
-            || self.mounting.is_some()
+            || self.mounting_rx.is_some()
             || self.busy.load(Ordering::Relaxed) > 0
         {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
         if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
-            self.stale = true;
+            self.relist = true;
         }
-        if self.stale && self.listing.is_none() {
+        if self.relist && self.listing_rx.is_none() {
             self.list(ctx);
         }
-        while let Ok(msg) = self.notices.try_recv() {
+        while let Ok(msg) = self.notices_rx.try_recv() {
             self.notice = Some(msg);
             ctx.request_repaint();
         }
@@ -5532,7 +5546,7 @@ impl App {
                 ] {
                     let along = if d.x != 0.0 { max.x } else { max.y };
                     if along > 0.0 && i.consume_key(egui::Modifiers::NONE, key) {
-                        self.pan = (self.pan + d).clamp(-max, max);
+                        self.pan_offset = (self.pan_offset + d).clamp(-max, max);
                     }
                 }
             });
@@ -5748,7 +5762,7 @@ impl App {
         // of it is the one Esc is meant for.
         if open
             && self.prompt.is_none()
-            && self.confirm.is_none()
+            && self.confirm_delete.is_none()
             && self.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
@@ -6292,7 +6306,7 @@ impl App {
 
     /// Asks before files go to the trash or are deleted for good.
     fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(trash) = self.confirm {
+        if let Some(trash) = self.confirm_delete {
             let what = match self.targets().as_slice() {
                 [i] => format!("\"{}\"", self.name(*i)),
                 many => format!("{} files", many.len()),
@@ -6314,12 +6328,12 @@ impl App {
                 });
             });
             if delete {
-                self.confirm = None;
+                self.confirm_delete = None;
                 if self.still_asked() {
                     self.delete_targets_now(ctx, trash);
                 }
             } else if modal.should_close() {
-                self.confirm = None;
+                self.confirm_delete = None;
             }
         }
     }
@@ -6363,7 +6377,7 @@ impl App {
                 let n = self.files.len();
                 let size = size_text(self.size_rx.is_none().then_some(self.total_size));
                 let mut left = match &self.matches {
-                    _ if self.listing.is_some() => "Reading folder…".to_owned(),
+                    _ if self.listing_rx.is_some() => "Reading folder…".to_owned(),
                     // A search shows the matches: count and size of what the list shows.
                     Some(found) => {
                         let size = size_text(self.match_rx.is_none().then_some(self.match_size));
@@ -6783,7 +6797,8 @@ impl App {
                                 .find(|r| r.contains(p))
                                 .map_or(area, |r| if *r == full { area } else { *r });
                             let from_centre = p - under.center();
-                            self.pan = from_centre - (from_centre - self.pan) * (new / old);
+                            self.pan_offset =
+                                from_centre - (from_centre - self.pan_offset) * (new / old);
                         }
                     }
                 }
@@ -6798,11 +6813,11 @@ impl App {
                     .or(self.last_drawn.as_ref().map(|d| d.1));
                 if let Some([w, h]) = orig.map(turned) {
                     if response.dragged() {
-                        self.pan += response.drag_delta();
+                        self.pan_offset += response.drag_delta();
                     }
                     let size = egui::vec2(w as f32, h as f32) * scale / ppp;
                     let max = ((size - area.size()) / 2.0).max(egui::Vec2::ZERO);
-                    self.pan = self.pan.clamp(-max, max);
+                    self.pan_offset = self.pan_offset.clamp(-max, max);
                     self.max_pan = max;
                 }
 
@@ -6822,7 +6837,7 @@ impl App {
                 let fade = now.and_then(|id| self.fading(ctx, 0, id));
                 if let Some(slot) = self.slots.get(&self.cur) {
                     let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
-                    let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
+                    let rect = egui::Rect::from_center_size(area.center() + self.pan_offset, size);
                     let (turns, mirrored) = self.orient;
                     let uv = if mirrored {
                         egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
@@ -6869,7 +6884,7 @@ impl App {
                     egui::Image::new(tex).paint_at(ui, rect);
                 } else {
                     let text = if self.files.is_empty() {
-                        if self.listing.is_some() {
+                        if self.listing_rx.is_some() {
                             "Reading folder…"
                         } else {
                             "No images in folder"

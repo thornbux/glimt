@@ -89,26 +89,26 @@ fn held() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Change the sidecar of `path` with `change`, or a new, empty one unless `nothing` is to be
-/// written. Written to a temporary file first, so a crash never leaves half a sidecar.
+/// Change the sidecar of `path` with `change`, or a new, empty one unless `only_if_there`: then
+/// a file without a sidecar keeps having none. Written to a temporary file first, so a crash never leaves half a sidecar.
 pub fn update_sidecar(
     path: &Path,
-    nothing: bool,
+    only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
     let _held = held();
-    update(path, nothing, change)
+    update(path, only_if_there, change)
 }
 
 fn update(
     path: &Path,
-    nothing: bool,
+    only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
     let side = sidecar(path);
     let old = match std::fs::read_to_string(&side) {
         Ok(text) => text,
-        Err(_) if nothing => return Ok(()),
+        Err(_) if only_if_there => return Ok(()),
         Err(_) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
              <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
              <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \

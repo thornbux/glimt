@@ -85,7 +85,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     // This Glimt and the thread in the name: several workers and windows may write at once.
     let tmp = file.with_extension(format!(
         "{}.{:?}.tmp",
-        crate::remote::me(),
+        crate::remote::instance_id(),
         std::thread::current().id()
     ));
     let out = std::fs::OpenOptions::new()
