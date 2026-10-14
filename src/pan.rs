@@ -32,14 +32,15 @@ pub fn timeline(dir: &Path, files: &[OsString], exif: bool) -> Vec<Day> {
     })
 }
 
-/// `f` of the path of every file, on all cores. Each thread reuses one path: Glimt's allocator
-/// has a single arena, so allocating in every thread would make them wait for each other.
+/// `f` of the path of every file, in parallel. Each thread reuses one path: Glimt's allocator
+/// has a single arena, so allocating in every thread would make them wait for each other; for
+/// the same reason they are two at most then (small_alloc_threads).
 fn each<T: Send>(
     dir: &Path,
     files: &[OsString],
     f: impl Fn(&Path) -> Option<T> + Sync,
 ) -> Vec<Option<T>> {
-    let threads = crate::background_threads();
+    let threads = crate::small_alloc_threads();
     let chunk = files.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let parts: Vec<_> = (files.chunks(chunk))

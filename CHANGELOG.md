@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The exif: search index and pan view read the files on two threads at most when Glimt uses
+  one malloc arena (the default): more threads waited for each other in the allocator, and
+  2,000 files took 551 ms on four threads against 128 ms on two. Find Duplicates, which
+  spends its time decoding, still uses every core.
+
 ## [0.16.0] - 2026-10-14
 
 ### Added
