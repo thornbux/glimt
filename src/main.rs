@@ -5938,278 +5938,31 @@ impl App {
                     self.memory_settings(ui);
                     self.cpu_settings(ui);
                     ui.separator();
-                    ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
-                    let delay = egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY)
-                        .text("seconds per image");
-                    if ui.add(delay).changed() {
-                        changed = true;
-                        self.title(ctx);
-                    }
-                    let mut random = self.config.random;
-                    if ui.checkbox(&mut random, "Random order").changed() {
-                        self.set_random_order(ctx, random);
-                    }
-                    changed |= ui
-                        .checkbox(
-                            &mut self.config.slideshow_subfolders,
-                            "Include the images in subfolders",
-                        )
-                        .changed();
-                    changed |= ui
-                        .checkbox(
-                            &mut self.config.slideshow_repeat,
-                            "Repeat: start again after the last image",
-                        )
-                        .changed();
-                    ui.horizontal(|ui| {
-                        ui.label("Fade to the next image:");
-                        for (k, (_, label, _)) in FADES.iter().enumerate() {
-                            changed |= ui
-                                .radio_value(&mut self.config.fade, k, *label)
-                                .on_hover_text("Not with CPU use Power saving")
-                                .changed();
-                        }
-                    });
+                    changed |= self.slideshow_settings(ui, ctx);
                     ui.separator();
-                    let mut rotate = self.config.exif_rotate;
-                    if ui
-                        .checkbox(&mut rotate, "Auto rotate images using EXIF (Alt+X)")
-                        .changed()
-                    {
-                        self.set_exif_rotate(rotate);
-                    }
-                    changed |= ui
-                        .checkbox(
-                            &mut self.config.save_orientation,
-                            "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
-                        )
-                        .changed();
-                    let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
-                        .text("quality when a lossy WebP is saved again");
-                    changed |= ui.add(quality).changed();
-                    ui.horizontal(|ui| {
-                        changed |= ui
-                            .color_edit_button_srgb(&mut self.config.background.0)
-                            .changed();
-                        ui.label("Background behind the image");
-                        if self.config.background.0 != [0, 0, 0]
-                            && ui.small_button("Black").clicked()
-                        {
-                            self.config.background.0 = [0, 0, 0];
-                            changed = true;
-                        }
-                    });
-                    let c = &mut self.config;
-                    changed |= ui
-                        .checkbox(&mut c.enlarge, "Enlarge small images to fit the window")
-                        .changed();
-                    changed |= ui
-                        .checkbox(
-                            &mut c.keep_zoom,
-                            "Keep zoom and position when changing image",
-                        )
-                        .changed();
-                    changed |= ui
-                        .checkbox(
-                            &mut c.wheel_zoom,
-                            "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
-                        )
-                        .changed();
+                    changed |= self.image_settings(ui);
                     ui.separator();
-                    ui.label("Search field above the file list:");
-                    let fuzzy = self.config.fuzzy_search;
-                    for (on, label) in [
-                        (true, "Fuzzy, best matches first (like fzf)"),
-                        (false, "Regular expression, in list order (like Geeqie's file filter)"),
-                    ] {
-                        if ui.radio(fuzzy == on, label).clicked() && fuzzy != on {
-                            self.config.fuzzy_search = on;
-                            changed = true;
-                            self.update_search(ctx);
-                        }
-                    }
+                    changed |= self.search_settings(ui, ctx);
                     ui.separator();
-                    let mut show = self.config.thumbnails;
-                    if ui
-                        .checkbox(&mut show, "Show thumbnails in the file list (T)")
-                        .changed()
-                    {
-                        self.set_thumbnails(show);
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label("Thumbnail size:");
-                        let mut size = self.config.thumb_size;
-                        for (n, name) in [(0, "Small"), (1, "Medium"), (2, "Large")] {
-                            if ui.radio_value(&mut size, n, name).changed() {
-                                self.set_thumb_size(size);
-                            }
-                        }
-                    });
-                    let c = &mut self.config;
-                    changed |= ui
-                        .checkbox(&mut c.icons, "Show the file list as icons (Ctrl+I)")
-                        .changed();
-                    changed |= ui
-                        .checkbox(&mut c.folder_tree, "Show folders as a tree (Ctrl+T)")
-                        .changed();
-                    let mut sub = c.show_subfolders;
-                    if ui
-                        .checkbox(
-                            &mut sub,
-                            "Include the images in subfolders in the file list",
-                        )
-                        .changed()
-                    {
-                        self.set_subfolders(ctx, sub);
-                    }
-                    let c = &mut self.config;
-                    #[cfg(feature = "marks")]
-                    {
-                        changed |= ui
-                            .checkbox(&mut c.show_marks, "Show marks and stars in the file list")
-                            .changed();
-                        changed |= ui
-                            .checkbox(
-                                &mut c.xmp_stars,
-                                "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam",
-                            )
-                            .changed();
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label("Histogram (K):");
-                        for (n, name) in [(0, "Off"), (1, "RGB"), (2, "Brightness")] {
-                            changed |= ui.radio_value(&mut c.histogram, n, name).changed();
-                        }
-                        changed |= ui
-                            .checkbox(&mut c.histogram_log, "Logarithmic (J)")
-                            .changed();
-                    });
-                    changed |= ui
-                        .checkbox(&mut c.animate, "Play animated GIF and WebP (A)")
-                        .changed();
+                    changed |= self.list_settings(ui, ctx);
                     ui.separator();
                     self.colour_settings(ui);
                     ui.separator();
-                    let c = &mut self.config;
-                    changed |= ui
-                        .checkbox(
-                            &mut c.file_details,
-                            "Show file size and date in the file list",
-                        )
-                        .changed();
-                    let save =
-                        "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)";
-                    if ui.checkbox(&mut c.save_thumbnails, save).changed() {
-                        self.save_thumbs.store(c.save_thumbnails, Ordering::Relaxed);
-                        changed = true;
-                    }
-                    // Geeqie's cache maintenance: thumbnails of files that are gone.
-                    if ui
-                        .button("Remove thumbnails of deleted files")
-                        .on_hover_text(
-                            "In ~/.cache/thumbnails; kept for disks that are not plugged in",
-                        )
-                        .clicked()
-                    {
-                        let (tx, busy, ctx) =
-                            (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-                        busy.fetch_add(1, Ordering::Relaxed);
-                        std::thread::spawn(move || {
-                            let (removed, seen) = thumbs::clean();
-                            let _ = tx.send(format!(
-                                "Removed {} of {} thumbnails",
-                                thousands(removed),
-                                thousands(seen)
-                            ));
-                            busy.fetch_sub(1, Ordering::Relaxed);
-                            ctx.request_repaint();
-                        });
-                    }
+                    changed |= self.cache_settings(ui, ctx);
                     ui.separator();
-                    changed |= ui.checkbox(&mut c.toolbar, "Show the toolbar").changed();
-                    changed |= ui
-                        .checkbox(&mut c.path_bar, "Show the folder path")
-                        .changed();
-                    if ui
-                        .checkbox(&mut c.search_bar, "Show the file name search")
-                        .changed()
-                    {
-                        changed = true;
-                        if !c.search_bar {
-                            self.search.clear();
-                            self.update_search(ctx);
-                        }
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label("Toolbar icons:");
-                        for (n, label) in ["Small", "Medium", "Large"].into_iter().enumerate() {
-                            changed |= ui
-                                .radio_value(&mut self.config.toolbar_icons, n, label)
-                                .changed();
-                        }
-                    });
-                    let c = &mut self.config;
-                    let exif = "Show the EXIF panel (Ctrl+K; reads a little from each image shown)";
-                    changed |= ui.checkbox(&mut c.exif_panel, exif).changed();
-                    let osd = "Show image info in full screen (I)";
-                    changed |= ui.checkbox(&mut c.osd, osd).changed();
+                    changed |= self.panel_settings(ui, ctx);
                     ui.separator();
-                    changed |= ui
-                        .checkbox(&mut c.auto_refresh, "Refresh the folder when files change")
-                        .changed();
-                    changed |= ui
-                        .checkbox(&mut c.remember_dir, "Start in the last used folder")
-                        .changed();
-                    let window = "Remember the window size and position";
-                    changed |= ui.checkbox(&mut c.remember_window, window).changed();
-                    let remote = "Listen for glimt --remote commands (after restart)";
-                    changed |= ui.checkbox(&mut c.remote_control, remote).changed();
-                    let inhibit = "Keep the screen saver off in full screen";
-                    changed |= ui.checkbox(&mut c.inhibit_screensaver, inhibit).changed();
-                    let order = "Window title \"Glimt - image name\" (off: \"image name - Glimt\")";
-                    if ui.checkbox(&mut c.app_name_first, order).changed() {
-                        changed = true;
-                        self.title(ctx);
-                    }
+                    changed |= self.window_settings(ui, ctx);
                     ui.separator();
                     egui::CollapsingHeader::new("Keyboard shortcuts").show(ui, |ui| {
                         self.key_settings(ui);
                     });
                     ui.separator();
-                    ui.label("Delete behaviour:");
-                    let c = &mut self.config;
-                    changed |= ui
-                        .checkbox(&mut c.confirm_delete, "Confirm permanent file delete")
-                        .changed();
-                    changed |= ui
-                        .checkbox(&mut c.confirm_trash, "Confirm move file to Trash")
-                        .changed();
-                    changed |= ui
-                        .checkbox(&mut c.delete_key, "Enable Delete key")
-                        .changed();
-                    let mut no_trash = !c.trash;
-                    let none = "Use no trash at all (Delete deletes permanently)";
-                    if ui.checkbox(&mut no_trash, none).changed() {
-                        c.trash = !no_trash;
-                        changed = true;
-                    }
+                    changed |= self.delete_settings(ui);
                     #[cfg(feature = "video")]
                     {
                         ui.separator();
-                        ui.label("Video (needs ffmpeg for previews):");
-                        if ui
-                            .checkbox(&mut c.videos, "Show videos in the file list")
-                            .changed()
-                        {
-                            changed = true;
-                            self.list(ctx);
-                        }
-                        ui.horizontal(|ui| {
-                            ui.label("Player (Enter):");
-                            let player = egui::TextEdit::singleline(&mut self.config.video_player)
-                                .hint_text("default application");
-                            changed |= ui.add(player).changed();
-                        });
+                        changed |= self.video_settings(ui, ctx);
                     }
                     if changed {
                         self.config.save();
@@ -6217,6 +5970,320 @@ impl App {
                 });
             });
         self.show_settings = open;
+    }
+
+    /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.
+    fn slideshow_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        ui.label("Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):");
+        let delay =
+            egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY).text("seconds per image");
+        if ui.add(delay).changed() {
+            changed = true;
+            self.title(ctx);
+        }
+        let mut random = self.config.random;
+        if ui.checkbox(&mut random, "Random order").changed() {
+            self.set_random_order(ctx, random);
+        }
+        changed |= ui
+            .checkbox(
+                &mut self.config.slideshow_subfolders,
+                "Include the images in subfolders",
+            )
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut self.config.slideshow_repeat,
+                "Repeat: start again after the last image",
+            )
+            .changed();
+        ui.horizontal(|ui| {
+            ui.label("Fade to the next image:");
+            for (k, (_, label, _)) in FADES.iter().enumerate() {
+                changed |= ui
+                    .radio_value(&mut self.config.fade, k, *label)
+                    .on_hover_text("Not with CPU use Power saving")
+                    .changed();
+            }
+        });
+        changed
+    }
+
+    /// Preferences: rotation by EXIF and saving it, the background, enlarging, zoom and the wheel.
+    fn image_settings(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        let mut rotate = self.config.exif_rotate;
+        if ui
+            .checkbox(&mut rotate, "Auto rotate images using EXIF (Alt+X)")
+            .changed()
+        {
+            self.set_exif_rotate(rotate);
+        }
+        changed |= ui
+            .checkbox(
+                &mut self.config.save_orientation,
+                "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
+            )
+            .changed();
+        let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
+            .text("quality when a lossy WebP is saved again");
+        changed |= ui.add(quality).changed();
+        ui.horizontal(|ui| {
+            changed |= ui
+                .color_edit_button_srgb(&mut self.config.background.0)
+                .changed();
+            ui.label("Background behind the image");
+            if self.config.background.0 != [0, 0, 0] && ui.small_button("Black").clicked() {
+                self.config.background.0 = [0, 0, 0];
+                changed = true;
+            }
+        });
+        let c = &mut self.config;
+        changed |= ui
+            .checkbox(&mut c.enlarge, "Enlarge small images to fit the window")
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut c.keep_zoom,
+                "Keep zoom and position when changing image",
+            )
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut c.wheel_zoom,
+                "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
+            )
+            .changed();
+        changed
+    }
+
+    /// Preferences: fuzzy or regular expression search.
+    fn search_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        ui.label("Search field above the file list:");
+        let fuzzy = self.config.fuzzy_search;
+        for (on, label) in [
+            (true, "Fuzzy, best matches first (like fzf)"),
+            (
+                false,
+                "Regular expression, in list order (like Geeqie's file filter)",
+            ),
+        ] {
+            if ui.radio(fuzzy == on, label).clicked() && fuzzy != on {
+                self.config.fuzzy_search = on;
+                changed = true;
+                self.update_search(ctx);
+            }
+        }
+        changed
+    }
+
+    /// Preferences: thumbnails, icons, the folder tree, subfolders, marks, the histogram and
+    /// animations.
+    fn list_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        let mut show = self.config.thumbnails;
+        if ui
+            .checkbox(&mut show, "Show thumbnails in the file list (T)")
+            .changed()
+        {
+            self.set_thumbnails(show);
+        }
+        ui.horizontal(|ui| {
+            ui.label("Thumbnail size:");
+            let mut size = self.config.thumb_size;
+            for (n, name) in [(0, "Small"), (1, "Medium"), (2, "Large")] {
+                if ui.radio_value(&mut size, n, name).changed() {
+                    self.set_thumb_size(size);
+                }
+            }
+        });
+        let c = &mut self.config;
+        changed |= ui
+            .checkbox(&mut c.icons, "Show the file list as icons (Ctrl+I)")
+            .changed();
+        changed |= ui
+            .checkbox(&mut c.folder_tree, "Show folders as a tree (Ctrl+T)")
+            .changed();
+        let mut sub = c.show_subfolders;
+        if ui
+            .checkbox(
+                &mut sub,
+                "Include the images in subfolders in the file list",
+            )
+            .changed()
+        {
+            self.set_subfolders(ctx, sub);
+        }
+        let c = &mut self.config;
+        #[cfg(feature = "marks")]
+        {
+            changed |= ui
+                .checkbox(&mut c.show_marks, "Show marks and stars in the file list")
+                .changed();
+            changed |= ui
+                .checkbox(
+                    &mut c.xmp_stars,
+                    "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam",
+                )
+                .changed();
+        }
+        ui.horizontal(|ui| {
+            ui.label("Histogram (K):");
+            for (n, name) in [(0, "Off"), (1, "RGB"), (2, "Brightness")] {
+                changed |= ui.radio_value(&mut c.histogram, n, name).changed();
+            }
+            changed |= ui
+                .checkbox(&mut c.histogram_log, "Logarithmic (J)")
+                .changed();
+        });
+        changed |= ui
+            .checkbox(&mut c.animate, "Play animated GIF and WebP (A)")
+            .changed();
+        changed
+    }
+
+    /// Preferences: file details, and saving and cleaning the shared thumbnail cache.
+    fn cache_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        let c = &mut self.config;
+        changed |= ui
+            .checkbox(
+                &mut c.file_details,
+                "Show file size and date in the file list",
+            )
+            .changed();
+        let save = "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)";
+        if ui.checkbox(&mut c.save_thumbnails, save).changed() {
+            self.save_thumbs.store(c.save_thumbnails, Ordering::Relaxed);
+            changed = true;
+        }
+        // Geeqie's cache maintenance: thumbnails of files that are gone.
+        if ui
+            .button("Remove thumbnails of deleted files")
+            .on_hover_text("In ~/.cache/thumbnails; kept for disks that are not plugged in")
+            .clicked()
+        {
+            let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let (removed, seen) = thumbs::clean();
+                let _ = tx.send(format!(
+                    "Removed {} of {} thumbnails",
+                    thousands(removed),
+                    thousands(seen)
+                ));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+        }
+        changed
+    }
+
+    /// Preferences: the toolbar, folder path, search field, EXIF panel and full-screen info.
+    fn panel_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        let c = &mut self.config;
+        changed |= ui.checkbox(&mut c.toolbar, "Show the toolbar").changed();
+        changed |= ui
+            .checkbox(&mut c.path_bar, "Show the folder path")
+            .changed();
+        if ui
+            .checkbox(&mut c.search_bar, "Show the file name search")
+            .changed()
+        {
+            changed = true;
+            if !c.search_bar {
+                self.search.clear();
+                self.update_search(ctx);
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.label("Toolbar icons:");
+            for (n, label) in ["Small", "Medium", "Large"].into_iter().enumerate() {
+                changed |= ui
+                    .radio_value(&mut self.config.toolbar_icons, n, label)
+                    .changed();
+            }
+        });
+        let c = &mut self.config;
+        let exif = "Show the EXIF panel (Ctrl+K; reads a little from each image shown)";
+        changed |= ui.checkbox(&mut c.exif_panel, exif).changed();
+        let osd = "Show image info in full screen (I)";
+        changed |= ui.checkbox(&mut c.osd, osd).changed();
+        changed
+    }
+
+    /// Preferences: refreshing, the folder and window at start, remote control, the screen saver
+    /// and the window title.
+    fn window_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        let c = &mut self.config;
+        changed |= ui
+            .checkbox(&mut c.auto_refresh, "Refresh the folder when files change")
+            .changed();
+        changed |= ui
+            .checkbox(&mut c.remember_dir, "Start in the last used folder")
+            .changed();
+        let window = "Remember the window size and position";
+        changed |= ui.checkbox(&mut c.remember_window, window).changed();
+        let remote = "Listen for glimt --remote commands (after restart)";
+        changed |= ui.checkbox(&mut c.remote_control, remote).changed();
+        let inhibit = "Keep the screen saver off in full screen";
+        changed |= ui.checkbox(&mut c.inhibit_screensaver, inhibit).changed();
+        let order = "Window title \"Glimt - image name\" (off: \"image name - Glimt\")";
+        if ui.checkbox(&mut c.app_name_first, order).changed() {
+            changed = true;
+            self.title(ctx);
+        }
+        changed
+    }
+
+    /// Preferences: confirmations, the Delete key and the trash.
+    fn delete_settings(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        ui.label("Delete behaviour:");
+        let c = &mut self.config;
+        changed |= ui
+            .checkbox(&mut c.confirm_delete, "Confirm permanent file delete")
+            .changed();
+        changed |= ui
+            .checkbox(&mut c.confirm_trash, "Confirm move file to Trash")
+            .changed();
+        changed |= ui
+            .checkbox(&mut c.delete_key, "Enable Delete key")
+            .changed();
+        let mut no_trash = !c.trash;
+        let none = "Use no trash at all (Delete deletes permanently)";
+        if ui.checkbox(&mut no_trash, none).changed() {
+            c.trash = !no_trash;
+            changed = true;
+        }
+        changed
+    }
+
+    /// Preferences: videos in the list and the player.
+    #[cfg(feature = "video")]
+    fn video_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        let c = &mut self.config;
+        ui.separator();
+        ui.label("Video (needs ffmpeg for previews):");
+        if ui
+            .checkbox(&mut c.videos, "Show videos in the file list")
+            .changed()
+        {
+            changed = true;
+            self.list(ctx);
+        }
+        ui.horizontal(|ui| {
+            ui.label("Player (Enter):");
+            let player = egui::TextEdit::singleline(&mut self.config.video_player)
+                .hint_text("default application");
+            changed |= ui.add(player).changed();
+        });
+        changed
     }
 
     /// Asks for a name: a new folder, a new name for a folder or file, Rename Many's pattern, a new
