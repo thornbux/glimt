@@ -1765,6 +1765,10 @@ impl App {
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
         self.save_collection();
+        // A collection being read meanwhile would bring the removed back: read it again.
+        if self.collection.is_some() && self.listing_rx.is_some() {
+            self.list(ctx);
+        }
         // The next remaining file after the shown one (or the last).
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
