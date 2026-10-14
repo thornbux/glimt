@@ -128,7 +128,9 @@ the large folder and the EXIF timings. Screenshots of the steps are in
 - **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
   time and RssAnon of both versions.
 - **Known vulnerabilities:** `cargo audit`; the release workflow runs it too and stops on a
-  vulnerable crate, while warnings such as an unmaintained crate do not stop it.
+  vulnerable crate, while warnings such as an unmaintained crate do not stop it. Between
+  releases `.github/workflows/audit.yml` runs it every Monday and when `Cargo.lock` changes,
+  and Dependabot (`.github/dependabot.yml`) proposes updates of the crates and pinned actions.
 
 By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
 `--remote-all next` to both and `--remote-all quit`; the AppImage, with a second window (Ctrl+N)
