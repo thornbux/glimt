@@ -143,9 +143,9 @@ screenshot. Run it against the last release as well, to see that it fails there.
 A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`, which builds against
 glibc 2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb`, an `.rpm` and an AppImage.
 Both package formats are described in `Cargo.toml` (`[package.metadata.deb]`,
-`[package.metadata.generate-rpm]`); new installed files go in both lists and in the tar.gz and
-AppImage steps. To build and check them locally,
-after `cargo build --release --features full`:
+`[package.metadata.generate-rpm]`); new installed files go in both lists, in the Flatpak
+manifest and in the tar.gz and AppImage steps. To build and check them locally, after
+`cargo build --release --features full`:
 
 ```sh
 cargo deb --no-build -o /tmp/pkg/          # cargo install cargo-deb
