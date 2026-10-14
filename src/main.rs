@@ -7106,10 +7106,12 @@ fn main() -> eframe::Result {
             }
         }
     }
-    // The app ID matches glimt.desktop, so the desktop shows its icon for the window.
+    // The app ID matches the desktop file, so the desktop shows its icon for the window:
+    // glimt.desktop, or in a Flatpak io.github.thornbux.Glimt.desktop (FLATPAK_ID).
+    let app_id = std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into());
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")
-        .with_app_id("glimt")
+        .with_app_id(app_id)
         .with_inner_size([1280.0, 800.0]);
     if let Ok(icon) = image::load_from_memory(include_bytes!("../assets/glimt-256.png")) {
         let icon = icon.into_rgba8();
