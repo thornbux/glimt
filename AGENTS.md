@@ -48,11 +48,13 @@ documentation.
 | `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders |
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
+| `src/marks.rs` | Optional marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks`, and stars in XMP |
 | `src/meta.rs` | Keywords and comment in XMP sidecars; sidecars that follow their files |
 | `src/pan.rs` | Pan view: the list by day, and its rows |
 | `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files |
 | `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
+| `src/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, and `COMMANDS` |
 | `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
