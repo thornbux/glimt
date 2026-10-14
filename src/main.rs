@@ -2193,8 +2193,11 @@ impl App {
         if !self.compare {
             return None;
         }
-        match self.selected.iter().collect::<Vec<_>>()[..] {
-            [&a, &b] => Some(if a == self.cur { b } else { a }),
+        // Two selected: the other of them. Not collected first: Select All in a large folder
+        // would copy the whole selection every frame.
+        let mut two = self.selected.iter().copied();
+        match (self.selected.len(), two.next(), two.next()) {
+            (2, Some(a), Some(b)) => Some(if a == self.cur { b } else { a }),
             _ => self.step(1, false).filter(|&i| i != self.cur),
         }
     }
