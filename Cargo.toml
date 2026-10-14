@@ -56,8 +56,11 @@ extended-description = """\
 A fast, memory-frugal image viewer with Geeqie's keyboard shortcuts. It handles folders of any \
 size, reads JPEG, PNG, WebP, GIF, TIFF, camera RAW, HEIC, AVIF, JPEG XL and SVG, and shares \
 its thumbnails with the file manager."""
-# Not "$auto": dpkg-shlibdeps rounds glibc up to 2.34, the binary needs 2.28.
-depends = "libc6 (>= 2.28)"
+# Not "$auto": dpkg-shlibdeps rounds glibc up to 2.34, the binary needs 2.28. OpenGL and
+# xkbcommon are loaded as the window opens, so no linker sees them: named here, as in Ubuntu
+# 20.04 and Debian 10.
+depends = "libc6 (>= 2.28), libegl1, libgl1, libxkbcommon0, libxkbcommon-x11-0"
+license-file = ["LICENSE", "0"]
 recommends = "ffmpeg, zenity, libglib2.0-bin"
 assets = [
     ["target/release/glimt", "usr/bin/", "755"],
@@ -74,7 +77,9 @@ assets = [
 [package.metadata.generate-rpm]
 # Its own list of libraries writes "[WEAK]" symbol versions that dnf cannot resolve.
 auto-req = "no"
-requires = { glibc = ">= 2.28" }
+# As for the .deb, OpenGL (EGL) and xkbcommon, which the window loads as it opens; names as in
+# RHEL 8.
+requires = { glibc = ">= 2.28", libglvnd-egl = "*", libxkbcommon = "*", libxkbcommon-x11 = "*" }
 assets = [
     { source = "target/release/glimt", dest = "/usr/bin/glimt", mode = "755" },
     { source = "assets/glimt.desktop", dest = "/usr/share/applications/glimt.desktop", mode = "644" },
