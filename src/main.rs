@@ -670,6 +670,9 @@ struct App {
     /// Goes up whenever the file list changes, so what was worked out from its indices can tell
     /// that it is old, also when the list kept its length (another order).
     files_gen: usize,
+    /// `files_gen` and `cur` when Rename or a delete was asked: the answer acts on those files
+    /// only if the list and the shown image are still the same.
+    asked_for: (usize, usize),
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
@@ -1151,6 +1154,7 @@ impl App {
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             files_gen: 0,
+            asked_for: (0, 0),
             grid_cols: 1,
             compare: false,
             panes: Vec::new(),
@@ -1662,10 +1666,21 @@ impl App {
         } else {
             self.config.confirm_delete
         } {
+            self.asked_for = (self.files_gen, self.cur);
             self.confirm = Some(trash);
         } else {
             self.delete_targets_now(ctx, trash);
         }
+    }
+
+    /// The list and the shown image are still those a dialog asked about; else a notice.
+    fn still_asked(&mut self) -> bool {
+        let same = self.asked_for == (self.files_gen, self.cur);
+        if !same {
+            self.notice =
+                Some("The list changed while the dialog was open: nothing was done".into());
+        }
+        same
     }
 
     /// File operations act on the selected files, otherwise on the shown image. Sorted.
@@ -2422,6 +2437,9 @@ impl App {
         if let Prompt::RenameFolder = prompt {
             return self.rename_folder(ctx, text);
         }
+        if matches!(prompt, Prompt::Rename | Prompt::RenameMany) && !self.still_asked() {
+            return;
+        }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
@@ -3100,7 +3118,8 @@ impl App {
     /// decoding, so the slideshow never shows a black screen.
     fn slideshow_tick(&mut self, ctx: &egui::Context) {
         let Some(last) = self.slideshow else { return };
-        if self.files.is_empty() || self.paused {
+        // Waits while Rename or a delete asks about the shown image.
+        if self.files.is_empty() || self.paused || self.prompt.is_some() || self.confirm.is_some() {
             return;
         }
         // Several panes: the next set together, or the next image into one pane at a time.
@@ -5187,6 +5206,7 @@ impl App {
             }
             Action::Print => {}
             Action::Rename if self.targets().len() > 1 => {
+                self.asked_for = (self.files_gen, self.cur);
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
@@ -5196,6 +5216,7 @@ impl App {
                     .get(self.cur)
                     .and_then(|f| Path::new(f).file_name())
                 {
+                    self.asked_for = (self.files_gen, self.cur);
                     self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
                 }
             }
@@ -6248,7 +6269,9 @@ impl App {
             });
             if delete {
                 self.confirm = None;
-                self.delete_targets_now(ctx, trash);
+                if self.still_asked() {
+                    self.delete_targets_now(ctx, trash);
+                }
             } else if modal.should_close() {
                 self.confirm = None;
             }

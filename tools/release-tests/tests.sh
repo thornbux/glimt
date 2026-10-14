@@ -245,6 +245,27 @@ sleep 3
 quit
 expect "none saved to the shared cache" "$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)" "0"
 
+echo "-- Rename answered after --remote next: nothing renamed, not the next image"
+for v in new old; do
+    use $v
+    d=/tmp/rename-next-$v
+    mkdir -p $d
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d
+    key ctrl+r
+    $BIN --remote-all next >/dev/null 2>&1
+    sleep 1
+    key ctrl+a
+    xdotool type x
+    key Return
+    quit
+    got="$(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then expect "every name kept" "$got" "a.png b.png c.png "
+    else note "old: $got"; fi
+done
+use new
+
 echo "-- Rename Many failing halfway: names that swap, and one too long"
 d=/tmp/rename-many
 long=$(printf 'b%.0s' $(seq 251))
