@@ -1986,9 +1986,10 @@ impl App {
             // The collection follows the files to their new place.
             // ponytail: before the move is done; a file that fails to move drops out of the
             // collection at the next refresh.
+            let moving: HashSet<&PathBuf> = paths.iter().collect();
             for i in 0..self.files.len() {
                 let path = self.path(i);
-                if paths.contains(&path)
+                if moving.contains(&path)
                     && let Ok(rel) = dest
                         .join(path.file_name().unwrap_or_default())
                         .strip_prefix(&self.dir)
