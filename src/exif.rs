@@ -216,10 +216,11 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             let little = t.little;
             let found = ifd0.iter().find(|(tag, _)| *tag == 0x0112).map(|e| e.1);
             match found {
-                Some(e) if e.kind == 3 => {
+                // One value, so it sits in the entry itself, inside the block.
+                Some(e) if e.kind == 3 && e.count == 1 => {
                     let new = turned(t.int(e).unwrap_or(1) as u8, turns, mirrored) as u16;
-                    // Offsets in the block count from the TIFF header, after "Exif\0\0".
-                    let at = start + 6 + e.at;
+                    // Offsets count from the TIFF header, which ends the block as `t.data` does.
+                    let at = start + len - t.data.len() + e.at;
                     let bytes = if little {
                         new.to_le_bytes()
                     } else {
@@ -733,6 +734,32 @@ mod tests {
     }
 
     /// A JPEG without EXIF gets one; turning again changes the field in place.
+    /// An orientation field with several values points elsewhere, maybe out of the EXIF block
+    /// into the picture: it is refused and the file left as it was.
+    #[test]
+    fn refuses_an_orientation_field_with_several_values() {
+        let dir = std::env::temp_dir().join(format!("glimt-orient-many-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let mut base = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(
+                &mut std::io::Cursor::new(&mut base),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        // Orientation: SHORT, 3 values at offset 64, past the 26 bytes of TIFF data.
+        let app1 = b"Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x03\0\0\0\x40\0\0\0\0\0\0\0";
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend(((app1.len() + 2) as u16).to_be_bytes());
+        jpeg.extend(app1);
+        jpeg.extend(&base[2..]);
+        std::fs::write(&file, &jpeg).unwrap();
+        assert!(super::write_orientation(&file, 1, false).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), jpeg);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn writes_orientation() {
         let dir = std::env::temp_dir().join(format!("glimt-orient-{}", std::process::id()));
