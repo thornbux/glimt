@@ -81,8 +81,11 @@ start() {
         [ -n "$WIN" ] && break
         sleep 2
     done
-    # Without a window every check that expects nothing to change would pass.
-    [ -n "$WIN" ] || fail "no window: $V $*"
+    # Without a window every check that expects nothing to change would pass. The last release
+    # may lack an option a new check uses: noted only.
+    if [ -z "$WIN" ]; then
+        if [ "$V" = new ]; then fail "no window: $*"; else note "old: no window: $*"; fi
+    fi
     sleep 1.5
     xdotool windowfocus $WIN 2>/dev/null
     xdotool mousemove 800 400 2>/dev/null
