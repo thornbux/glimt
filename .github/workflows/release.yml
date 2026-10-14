@@ -34,10 +34,17 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
       - name: Version from the tag
+        # A tag without the version in Cargo.toml would publish packages named for one version
+        # holding another, and one without a CHANGELOG section empty release notes.
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          grep -qx "version = \"$VERSION\"" Cargo.toml ||
+            { echo "::error::Cargo.toml is not at version $VERSION"; exit 1; }
+          grep -q "^## \[$VERSION\]" CHANGELOG.md ||
+            { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: System libraries for the window (Wayland, X11, OpenGL)
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
