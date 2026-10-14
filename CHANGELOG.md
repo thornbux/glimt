@@ -5,6 +5,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-10-15
+
+### Security
+
+- ffmpeg and ffprobe open only local files of the formats Glimt lists. A file named like a
+  video but holding a playlist (concat, HLS) was followed to the files or addresses it named,
+  and its preview, made as soon as the list showed it, showed what it pointed to.
+- Each release has SHA256SUMS and a build provenance signed by GitHub for every file, so a
+  download can be checked (see Installing in the README).
+- The crates are checked for known vulnerabilities every week, and Dependabot proposes updates
+  of the crates and of the pinned actions.
+
+### Changed
+
+- Every parser of file contents is tested with thousands of damaged inputs in each test run,
+  and five million every week.
+
 ## [0.17.4] - 2026-10-14
 
 ### Fixed
@@ -452,7 +469,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.4...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.5...HEAD
+[0.17.5]: https://github.com/thornbux/glimt/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/thornbux/glimt/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/thornbux/glimt/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/thornbux/glimt/compare/v0.17.1...v0.17.2
