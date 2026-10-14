@@ -34,7 +34,8 @@ pub fn thumbnail(
         Some((img, icc, _)) => (img, icc),
         None => crate::load_icc(path, rotate)?,
     };
-    let img = crate::to_srgb(crate::shrink(img, [size, size])?, icc.as_deref()).into_rgba8();
+    let img =
+        crate::colour::to_srgb(crate::shrink(img, [size, size])?, icc.as_deref()).into_rgba8();
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
     // one not turned upright by EXIF (Auto Rotate off) is not shared.
     if save
