@@ -4144,7 +4144,12 @@ impl App {
         if let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max()) {
             self.thumb_view[0].store(first, Ordering::Relaxed);
             self.thumb_view[1].store(last, Ordering::Relaxed);
-            self.trim_thumbs(first, last);
+            let row = match self.matches.as_deref() {
+                Some(m) => self.cur_row(m).unwrap_or(0),
+                None => self.cur,
+            };
+            let k = k as usize;
+            self.trim_thumbs(row.saturating_sub(k)..row + k + 1);
         }
         ui.painter()
             .rect_filled(strip, 0.0, egui::Color32::from_black_alpha(190));
@@ -4831,7 +4836,9 @@ impl App {
     }
 
     /// Drop thumbnails far from view once there are many, so memory stays flat in huge folders.
-    fn trim_thumbs(&mut self, first: usize, last: usize) {
+    /// Over the budget, drop the thumbnails of all but the rows `rows` of the list as shown (the
+    /// search matches, or all files) and those near them.
+    fn trim_thumbs(&mut self, rows: std::ops::Range<usize>) {
         // Big thumbnails take four times the memory: keep a quarter as many.
         let max = if self.config.thumb_size == 2 {
             MAX_THUMBS / 4
@@ -4841,8 +4848,7 @@ impl App {
         if self.thumbs.len() <= max {
             return;
         }
-        let keep = first.saturating_sub(max / 3)..(last + max / 3).min(self.files.len());
-        let keep: HashSet<&OsString> = self.files[keep].iter().collect();
+        let keep = thumbs_to_keep(&self.files, self.matches.as_deref(), rows, max);
         self.thumbs.retain(|name, _| keep.contains(name));
     }
 
@@ -6520,15 +6526,15 @@ impl App {
         area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
             let rows = rows.start * cols..(rows.end * cols).min(count);
             let shown: Vec<usize> = match &self.matches {
-                Some(m) => m[rows].to_vec(),
-                None => rows.collect(),
+                Some(m) => m[rows.clone()].to_vec(),
+                None => rows.clone().collect(),
             };
 
             if thumbs && let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max())
             {
                 self.thumb_view[0].store(first, Ordering::Relaxed);
                 self.thumb_view[1].store(last, Ordering::Relaxed);
-                self.trim_thumbs(first, last);
+                self.trim_thumbs(rows);
             }
             let mut line = egui::Rect::NOTHING;
             for (k, i) in shown.into_iter().enumerate() {
@@ -7027,6 +7033,22 @@ impl eframe::App for App {
     }
 }
 
+/// The names whose thumbnails stay: rows `rows` of the list as shown (`matches`, or all of
+/// `files`) and a third of `max` rows on each side. Rows, not file indices: search matches are
+/// spread over the whole folder, so a range of indices would keep almost every file.
+fn thumbs_to_keep<'a>(
+    files: &'a [OsString],
+    matches: Option<&[usize]>,
+    rows: std::ops::Range<usize>,
+    max: usize,
+) -> HashSet<&'a OsString> {
+    let count = matches.map_or(files.len(), <[usize]>::len);
+    let around = rows.start.saturating_sub(max / 3)..(rows.end + max / 3).min(count);
+    around
+        .map(|row| &files[matches.map_or(row, |m| m[row])])
+        .collect()
+}
+
 /// The program New Window starts: from an AppImage the AppImage, as the binary is in its mount,
 /// which goes when this window closes; else the binary. Every program started from an AppImage
 /// inherits its APPIMAGE, so it counts only when the binary is inside APPDIR.
@@ -7502,6 +7524,25 @@ mod tests {
         );
         assert_eq!(super::colour::first_quoted("(@ao [],)\n"), None);
         assert_eq!(super::colour::first_quoted("(<''>,)"), None);
+    }
+
+    /// Thumbnails are kept by rows of the list as shown: with search matches spread over a large
+    /// folder, a few hundred names, not the whole folder.
+    #[test]
+    fn keeps_thumbnails_near_the_rows() {
+        use std::ffi::OsString;
+        let files: Vec<OsString> = (0..100_000)
+            .map(|i| OsString::from(i.to_string()))
+            .collect();
+        let matches = [12, 99_000, 50_000, 7, 80_000];
+        let keep = super::thumbs_to_keep(&files, Some(&matches), 0..2, 6);
+        let mut names: Vec<_> = keep.into_iter().map(|n| n.to_str().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, ["12", "50000", "7", "99000"]);
+        assert_eq!(
+            super::thumbs_to_keep(&files, None, 500..510, 600).len(),
+            410
+        );
     }
 
     /// New Window starts the AppImage only from inside it, not when Glimt was merely started
