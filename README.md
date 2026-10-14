@@ -35,19 +35,21 @@ quick look, which is what an image viewer is for.
 
 ## Glimt and Geeqie
 
-Measured on the same machine and the same files, with Glimt 0.13.0 and Geeqie 2.6.1: a
+Measured on the same machine and the same files, with Glimt 0.17.0 and Geeqie 2.6.1: a
 1280×800 window, the file given on the command line, the time until the image is on screen
-and the memory (RSS) 3 seconds later, the median of five runs (three for the large folder).
+and the memory (RSS) 3 seconds later, the median of five runs (three for the large folders).
 Geeqie decodes in helper processes; its memory is the sum over them, which counts the shared
 libraries more than once.
 
 | | Glimt | Geeqie |
 |---|---|---|
-| First image, 12 MP JPEG photos | **0.46 s** | 0.83 s |
-| First image, 20 screenshots (PNG) | **0.38 s** | 0.85 s |
-| First image, folder of 500,000 files | **0.47 s** | 27 s |
-| Memory, folder of 500,000 files | **159 MB** | 1,165 MB |
-| Memory, 12 MP photos | **142 MB** | 213 MB |
+| First image, 12 MP JPEG photos | **0.44 s** | 0.90 s |
+| First image, 20 screenshots (PNG) | **0.39 s** | 0.89 s |
+| First image, folder of 500,000 PNG files | **0.46 s** | 26 s |
+| First image, folder of 500,000 JPEG photos | **0.46 s** | over a minute |
+| Memory, folder of 500,000 files | **159 MB** | 1,134 MB |
+| Memory, 12 MP photos | **143 MB** | 214 MB |
+| Peak memory, 12 MP photos | **184 MB** | 215 MB |
 
 What each has. ✓ is there, – is not; Glimt follows Geeqie's keys, so most of it works the
 same way in both.
