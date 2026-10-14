@@ -45,6 +45,9 @@ pub fn find(
     save: bool,
     p: &Progress,
 ) -> Vec<Vec<PathBuf>> {
+    // A link is the same file as its target: it would be a "duplicate" of it, and the target,
+    // checked and trashed, would leave the link pointing at nothing.
+    let paths: Vec<PathBuf> = paths.into_iter().filter(|p| !p.is_symlink()).collect();
     let mut groups = match by {
         By::Name => {
             let names = paths
@@ -330,9 +333,14 @@ mod tests {
         assert_eq!(find(all.clone(), By::Dimensions, false, false, &p).len(), 1);
         assert_eq!(
             find(all.clone(), By::Similar(95), false, false, &p),
-            [[a, c, b]]
+            [[a.clone(), c, b]]
         );
         assert_eq!(p.done.load(Ordering::Relaxed), 4);
+        // A link to a is not a duplicate of it.
+        let link = dir.join("0link.png");
+        std::os::unix::fs::symlink(&a, &link).unwrap();
+        let linked = vec![a.clone(), link, d.clone()];
+        assert!(find(linked, By::Checksum, false, false, &p).is_empty());
         // A JPEG's size from its frame header: width first.
         let jpeg = dir.join("e.jpg");
         image::RgbImage::new(40, 20).save(&jpeg).unwrap();
