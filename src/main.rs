@@ -3104,7 +3104,14 @@ impl App {
             return self.list(ctx);
         }
         match shown {
-            Some(k) if !failed => self.open(ctx, to[k].clone()),
+            Some(k) if !failed => {
+                // A turn not saved yet goes to the shown file under its new name: its old name
+                // may now be another file's.
+                if let Ok(rel) = to[k].strip_prefix(&self.dir) {
+                    self.files[self.cur] = rel.as_os_str().to_owned();
+                }
+                self.open(ctx, to[k].clone())
+            }
             _ => self.list(ctx),
         }
     }
@@ -3186,7 +3193,11 @@ impl App {
         }
         self.forget_folder(&old);
         match self.dir.strip_prefix(&old) {
-            Ok(rest) => self.visit(ctx, new.join(rest)),
+            Ok(rest) => {
+                // The shown file is under the new name now, also for a turn not saved yet.
+                self.dir = new.join(rest);
+                self.visit(ctx, self.dir.clone())
+            }
             Err(_) => self.list(ctx),
         }
     }
