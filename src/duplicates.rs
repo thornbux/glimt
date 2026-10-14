@@ -108,7 +108,7 @@ fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
         .read_to_end(&mut head)
         .ok()?;
     head.starts_with(&[0xff, 0xd8])
-        .then(|| crate::raw::size(&head))?
+        .then(|| crate::raw::jpeg_size(&head))?
 }
 
 fn size(path: &Path) -> Option<u64> {
