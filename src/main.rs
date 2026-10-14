@@ -1002,6 +1002,8 @@ fn thousands(n: usize) -> String {
 }
 
 impl App {
+    // ---- Starting up ----
+
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
         let keep = Arc::new(Mutex::new(vec![0]));
         let full_ok = Arc::new(AtomicUsize::new(1));
@@ -1353,6 +1355,8 @@ impl App {
         app
     }
 
+    // ---- Opening a folder, a collection or several folders, and listing it ----
+
     /// Open a folder, or the folder of a file with that file shown.
     fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
         if collections::is_collection(&path) {
@@ -1467,64 +1471,40 @@ impl App {
         self.title(ctx);
     }
 
-    /// Write the open collection with the list as it is now.
-    fn save_collection(&mut self) {
-        let Some(file) = &self.collection else { return };
-        let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
-        let on_disk = collections::load(file).unwrap_or_default();
-        let paths = collections::merged(ours, &self.collection_read, on_disk);
-        match collections::save(file, &paths) {
-            Ok(()) => self.collection_read = paths.into_iter().collect(),
-            Err(e) => self.notice = Some(format!("Could not save the collection: {e}")),
+    /// Open `path` as a new step in the Back/Forward history.
+    fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.back.push(self.location());
+        self.forward.clear();
+        self.open(ctx, path);
+    }
+
+    /// The file shown, or the folder when it has no images.
+    fn location(&self) -> PathBuf {
+        match self.files.get(self.cur) {
+            Some(name) => self.dir.join(name),
+            None => self.dir.clone(),
         }
     }
 
-    /// Add the selected files, or the shown image, to the collection in `file`.
-    fn add_to_collection(&mut self, file: &Path) {
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let name = file.file_stem().unwrap_or_default().to_string_lossy();
-        self.notice = Some(match collections::append(file, &paths) {
-            Ok(n) => format!("{n} added to the collection \"{name}\""),
-            Err(e) => format!("Could not save the collection: {e}"),
-        });
+    /// Open a network location such as smb://server/share/folder, mounting it in the background.
+    fn mount(&mut self, ctx: &egui::Context, uri: String) {
+        let login = Login {
+            uri,
+            ..Login::default()
+        };
+        self.mount_as(ctx, login, false);
     }
 
-    /// File menu entries for collections; the ones listing collections read the folder only
-    /// while open.
-    fn collections_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        menu_item(ui, act, Action::NewCollection);
-        menu_item(ui, act, Action::OpenCollection);
-        let mut open = None;
-        scroll_menu(ui, "Collections", |ui| {
-            let all = collections::list();
-            if all.is_empty() {
-                ui.label("No collections yet");
-            }
-            for (name, file) in all {
-                if ui.button(name).clicked() {
-                    open = Some(file);
-                }
-            }
+    /// Mount `login.uri`, answering gio's questions from `login` if `answer`.
+    fn mount_as(&mut self, ctx: &egui::Context, login: Login, answer: bool) {
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = gio_mount(&login.uri, answer.then_some(&login));
+            let _ = tx.send((result, login));
+            ctx.request_repaint();
         });
-        if !self.files.is_empty() {
-            scroll_menu(ui, "Add to Collection", |ui| {
-                let all = collections::list();
-                if all.is_empty() {
-                    ui.label("No collections yet");
-                }
-                for (name, file) in all {
-                    if ui.button(name).clicked() {
-                        self.add_to_collection(&file);
-                    }
-                }
-            });
-        }
-        if self.collection.is_some() {
-            menu_item(ui, act, Action::RemoveFromCollection);
-        }
-        if let Some(file) = open {
-            self.visit(ui.ctx(), file);
-        }
+        self.mounting_rx = Some(rx);
     }
 
     /// Read the folder (and then the sizes) in the background; `receive_listing` merges it in.
@@ -1648,42 +1628,6 @@ impl App {
         });
     }
 
-    /// The file shown, or the folder when it has no images.
-    fn location(&self) -> PathBuf {
-        match self.files.get(self.cur) {
-            Some(name) => self.dir.join(name),
-            None => self.dir.clone(),
-        }
-    }
-
-    /// Open a network location such as smb://server/share/folder, mounting it in the background.
-    fn mount(&mut self, ctx: &egui::Context, uri: String) {
-        let login = Login {
-            uri,
-            ..Login::default()
-        };
-        self.mount_as(ctx, login, false);
-    }
-
-    /// Mount `login.uri`, answering gio's questions from `login` if `answer`.
-    fn mount_as(&mut self, ctx: &egui::Context, login: Login, answer: bool) {
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let result = gio_mount(&login.uri, answer.then_some(&login));
-            let _ = tx.send((result, login));
-            ctx.request_repaint();
-        });
-        self.mounting_rx = Some(rx);
-    }
-
-    /// Open `path` as a new step in the Back/Forward history.
-    fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
-        self.back.push(self.location());
-        self.forward.clear();
-        self.open(ctx, path);
-    }
-
     /// Take the folder listing if it is ready, waiting up to `wait`.
     fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
         let Some(Ok((dirs, files))) = self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait))
@@ -1714,6 +1658,958 @@ impl App {
         }
     }
 
+    /// Replace the file list and go to `shown` (otherwise the first image). The texture shown now
+    /// is kept if it was made from the same file. All index-based state is reset; jobs in flight
+    /// are rejected by path when they arrive.
+    fn replace_files(
+        &mut self,
+        ctx: &egui::Context,
+        files: Vec<OsString>,
+        shown: Option<OsString>,
+    ) {
+        self.leave_image(ctx);
+        let slot = self.slots.remove(&self.cur);
+        self.files = files;
+        self.files_gen += 1;
+        self.details.clear();
+        self.anchor = None;
+        self.selected.clear();
+        self.slots.clear();
+        self.pending.clear();
+        self.errors.clear();
+        let cur = shown
+            .and_then(|p| self.files.iter().position(|f| *f == p))
+            .unwrap_or(0);
+        if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
+            self.slots.insert(cur, slot);
+        }
+        self.update_search(ctx);
+        // go() clears the notice for a new image; a new list is not one, and a notice is often
+        // why the list was read again.
+        let notice = self.notice.take();
+        self.go(ctx, cur);
+        self.notice = notice;
+    }
+
+    /// Remove the (sorted) indices from the list in one pass and shift index-based state
+    /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
+    fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
+        if removed.binary_search(&self.cur).is_ok() {
+            // The shown image is gone, and its rotation with it.
+            self.orient = (0, false);
+            self.page = 0;
+        } else {
+            self.leave_image(ctx);
+        }
+        let mut idx = 0;
+        self.files.retain(|_| {
+            idx += 1;
+            removed.binary_search(&(idx - 1)).is_err()
+        });
+        self.files_gen += 1;
+        self.slots = without_indices(std::mem::take(&mut self.slots), removed);
+        self.errors = without_indices(std::mem::take(&mut self.errors), removed);
+        self.selected.clear();
+        self.anchor = None;
+        self.update_search(ctx);
+        // Jobs in flight have old indices and are rejected by path; refill requests them again.
+        self.pending.clear();
+        self.save_collection();
+        // The next remaining file after the shown one (or the last).
+        let cur = self.cur - removed.partition_point(|&r| r < self.cur);
+        if self.files.is_empty() {
+            self.cur = 0;
+            self.title(ctx);
+        } else {
+            self.go(ctx, cur.min(self.files.len() - 1));
+        }
+    }
+
+    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no images.
+    fn title(&self, ctx: &egui::Context) {
+        let name = match (self.files.get(self.cur), &self.collection) {
+            (Some(_), _) => self.name(self.cur).into_owned(),
+            (None, Some(file)) => file.display().to_string(),
+            (None, None) => self.dir.display().to_string(),
+        };
+        // A named Glimt says which it is.
+        let app = match remote::given_name() {
+            Some(n) => format!("Glimt ({n})"),
+            None => "Glimt".to_owned(),
+        };
+        let title = if self.config.app_name_first {
+            format!("{app} - {name}")
+        } else {
+            format!("{name} - {app}")
+        };
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+    }
+
+    // ---- Collections ----
+
+    /// Write the open collection with the list as it is now.
+    fn save_collection(&mut self) {
+        let Some(file) = &self.collection else { return };
+        let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+        let on_disk = collections::load(file).unwrap_or_default();
+        let paths = collections::merged(ours, &self.collection_read, on_disk);
+        match collections::save(file, &paths) {
+            Ok(()) => self.collection_read = paths.into_iter().collect(),
+            Err(e) => self.notice = Some(format!("Could not save the collection: {e}")),
+        }
+    }
+
+    /// Add the selected files, or the shown image, to the collection in `file`.
+    fn add_to_collection(&mut self, file: &Path) {
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        self.notice = Some(match collections::append(file, &paths) {
+            Ok(n) => format!("{n} added to the collection \"{name}\""),
+            Err(e) => format!("Could not save the collection: {e}"),
+        });
+    }
+
+    /// File menu entries for collections; the ones listing collections read the folder only
+    /// while open.
+    fn collections_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::NewCollection);
+        menu_item(ui, act, Action::OpenCollection);
+        let mut open = None;
+        scroll_menu(ui, "Collections", |ui| {
+            let all = collections::list();
+            if all.is_empty() {
+                ui.label("No collections yet");
+            }
+            for (name, file) in all {
+                if ui.button(name).clicked() {
+                    open = Some(file);
+                }
+            }
+        });
+        if !self.files.is_empty() {
+            scroll_menu(ui, "Add to Collection", |ui| {
+                let all = collections::list();
+                if all.is_empty() {
+                    ui.label("No collections yet");
+                }
+                for (name, file) in all {
+                    if ui.button(name).clicked() {
+                        self.add_to_collection(&file);
+                    }
+                }
+            });
+        }
+        if self.collection.is_some() {
+            menu_item(ui, act, Action::RemoveFromCollection);
+        }
+        if let Some(file) = open {
+            self.visit(ui.ctx(), file);
+        }
+    }
+
+    // ---- Moving through the list, and the selection ----
+
+    /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
+    fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
+        let name = self.files[i].as_os_str();
+        // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
+        if !self.folders.is_empty() {
+            let path = Path::new(name);
+            let last = |p: &Path| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let folder = path.parent().map(last).unwrap_or_default();
+            return format!("{folder}/{}", last(path)).into();
+        }
+        match self.collection {
+            Some(_) => Path::new(name)
+                .file_name()
+                .unwrap_or(name)
+                .to_string_lossy(),
+            None => name.to_string_lossy(),
+        }
+    }
+
+    /// Full path of image `i`.
+    fn path(&self, i: usize) -> PathBuf {
+        self.dir.join(&self.files[i])
+    }
+
+    /// Is `path` image number `i` in the list? (Without building the path.)
+    fn is_file(&self, i: usize, path: &Path) -> bool {
+        // Names are relative to the folder; in a slideshow with subfolders they have folders too.
+        self.files.get(i).is_some_and(|name| {
+            path.strip_prefix(&self.dir)
+                .is_ok_and(|rest| rest.as_os_str() == name)
+        })
+    }
+
+    fn go(&mut self, ctx: &egui::Context, idx: usize) {
+        if self.files.is_empty() {
+            return;
+        }
+        // Browsing by hand shows the image at once; the slideshow sets a fade after this.
+        self.fade = None;
+        // Saving the old image's rotation may leave a notice, which must outlive the move.
+        let saved = self.config.save_orientation && self.orient != (0, false);
+        self.leave_image(ctx);
+        let notice = if saved { self.notice.take() } else { None };
+        self.cur = idx.min(self.files.len() - 1);
+        self.notice = notice;
+        // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
+        if !self.config.keep_zoom {
+            self.zoom = None;
+            self.pan_offset = egui::Vec2::ZERO;
+        }
+        self.opened = Instant::now();
+        self.scroll_to_cur = true;
+        // Every image gets the full delay, also when the user moves back or forward by hand.
+        if self.slideshow.is_some() {
+            self.slideshow = Some(Instant::now());
+        }
+        self.refill();
+        self.title(ctx);
+    }
+
+    /// The shown image is left: its rotation saved (with Save Orientation on) or dropped, and a
+    /// TIFF page other than the first let go. Called while `dir` and `cur` still name the image,
+    /// so before the folder or the list changes.
+    fn leave_image(&mut self, ctx: &egui::Context) {
+        // A TIFF shown at another page than the first: its decoded page must not stay for when
+        // it is shown again from the first page.
+        if self.page > 0 {
+            self.slots.remove(&self.cur);
+            self.page = 0;
+        }
+        if self.config.save_orientation && self.orient != (0, false) {
+            self.save_orientation(ctx);
+        }
+        self.orient = (0, false);
+    }
+
+    /// The file `delta` rows from the shown one, in the order the list shows (the search matches
+    /// while searching); clamped at the ends, or going round with `wrap`. A file the search
+    /// hides counts as being before the first row.
+    fn step(&self, delta: isize, wrap: bool) -> Option<usize> {
+        self.step_from(self.cur, delta, wrap)
+    }
+
+    /// As `step`, from file `from`.
+    fn step_from(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
+        let m = self.matches.as_deref();
+        let n = m.map_or(self.files.len(), <[usize]>::len) as isize;
+        if n == 0 {
+            return None;
+        }
+        let row = match m {
+            Some(m) if from == self.cur => self.cur_row(m),
+            Some(m) => m.iter().position(|&i| i == from),
+            None => Some(from),
+        }
+        .map_or(-1, |r| r as isize);
+        let r = if wrap {
+            (row + delta).rem_euclid(n)
+        } else {
+            (row + delta).clamp(0, n - 1)
+        } as usize;
+        Some(m.map_or(r, |m| m[r]))
+    }
+
+    /// The row of the shown file among the search matches `m`; `None` if the search hides it.
+    fn cur_row(&self, m: &[usize]) -> Option<usize> {
+        match self.cur_row.get() {
+            Some((cur, row)) if cur == self.cur => row,
+            _ => {
+                let row = m.iter().position(|&i| i == self.cur);
+                self.cur_row.set(Some((self.cur, row)));
+                row
+            }
+        }
+    }
+
+    fn place(&self) -> String {
+        match &self.matches {
+            Some(m) => match self.cur_row(m) {
+                Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
+                None => format!("[–/{}]", thousands(m.len())),
+            },
+            None => format!(
+                "[{}/{}]",
+                thousands(self.cur + 1),
+                thousands(self.files.len())
+            ),
+        }
+    }
+
+    /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
+    /// `place` of image `idx` in another pane; the search matches are looked through once per
+    /// image, not every frame.
+    fn place_of(&mut self, idx: usize) -> String {
+        let total = self.matches.as_ref().map_or(self.files.len(), Vec::len);
+        if let Some((i, t, text)) = &self.status_place
+            && (*i, *t) == (idx, total)
+        {
+            return text.clone();
+        }
+        let row = match &self.matches {
+            Some(m) => m.iter().position(|&x| x == idx),
+            None => Some(idx),
+        };
+        let row = row.map_or("–".into(), |r| thousands(r + 1));
+        let text = format!("[{row}/{}]", thousands(total));
+        self.status_place = Some((idx, total, text.clone()));
+        text
+    }
+
+    /// The files the list shows: the search matches, or all.
+    fn shown_files(&self) -> Vec<usize> {
+        (self.matches.clone()).unwrap_or_else(|| (0..self.files.len()).collect())
+    }
+
+    /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
+    /// search matches while searching).
+    fn select_range(&mut self, a: usize, b: usize) {
+        let m = self.matches.as_deref();
+        let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
+        match (row(a), row(b), m) {
+            (Some(ra), Some(rb), Some(m)) => self.selected.extend(&m[ra.min(rb)..=ra.max(rb)]),
+            (Some(ra), Some(rb), None) => self.selected.extend(ra.min(rb)..=ra.max(rb)),
+            _ => {
+                self.selected.insert(b);
+            }
+        }
+    }
+
+    /// Called when the selection changes: update the title and compute the size in the background.
+    fn selection_changed(&mut self, ctx: &egui::Context) {
+        self.title(ctx);
+        if self.compare {
+            self.refill();
+        }
+        self.selected_size = None;
+        self.selected_rx = None;
+        if self.selected.is_empty() {
+            return;
+        }
+        let paths: Vec<PathBuf> = self.selected.iter().map(|&i| self.path(i)).collect();
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            // The receiver is gone if the selection changed again; then the answer is dropped.
+            if tx.send(total_size(&paths)).is_ok() {
+                ctx.request_repaint();
+            }
+        });
+        self.selected_rx = Some(rx);
+    }
+
+    /// File operations act on the selected files, otherwise on the shown image. Sorted.
+    fn targets(&self) -> Vec<usize> {
+        if self.selected.is_empty() {
+            vec![self.cur]
+        } else {
+            self.selected.iter().copied().collect()
+        }
+    }
+
+    // ---- Decoding and painting the image ----
+
+    fn request(&mut self, idx: usize, full: bool) {
+        let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
+        if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
+            // The neighbours are preloaded at their first page.
+            let page = if idx == self.cur { self.page } else { 0 };
+            let _ = self.decode_jobs.send((idx, full, self.path(idx), page));
+        }
+    }
+
+    /// Drop textures outside the preload window, and full-resolution versions of images other
+    /// than the shown one; request the missing ones.
+    fn refill(&mut self) {
+        if self.files.is_empty() {
+            return;
+        }
+        self.fill_panes();
+        // The shown image first, then its neighbours in the order the list shows.
+        let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed) as isize);
+        let mut window = vec![cur];
+        // The compared image second: it may be loaded at full resolution too.
+        let other = self.compare_other().filter(|&i| i != cur);
+        window.extend(other);
+        // The other panes, which may be zoomed too, and the images a slideshow shows in them next.
+        window.extend(self.panes.iter().filter(|&&i| i != cur && Some(i) != other));
+        let full = window.len();
+        self.full_ok.store(full, Ordering::Relaxed);
+        let n = self.panes.len() + 1;
+        let upcoming = (1..=n as isize).filter_map(|d| self.step_from(self.last_slide, d, true));
+        for i in self
+            .panes
+            .iter()
+            .copied()
+            .chain(upcoming.collect::<Vec<_>>())
+        {
+            if !window.contains(&i) {
+                window.push(i);
+            }
+        }
+        for d in (1..=ahead).flat_map(|d| [d, -d]) {
+            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
+                window.push(i);
+            }
+        }
+        self.slots
+            .retain(|i, s| window.contains(i) && (!s.full || window[..full].contains(i)));
+        *self.keep.lock().unwrap() = window.clone();
+        for i in window {
+            self.request(i, false);
+        }
+    }
+
+    fn receive_decoded(&mut self, ctx: &egui::Context) {
+        while let Ok(d) = self.decoded_rx.try_recv() {
+            self.pending.remove(&(d.idx, d.full));
+            let wanted = self.is_file(d.idx, &d.path)
+                && d.rotated == self.config.exif_rotate
+                && d.page == if d.idx == self.cur { self.page } else { 0 }
+                && self.keep.lock().unwrap().contains(&d.idx)
+                && (!d.full || d.idx == self.cur || Some(d.idx) == self.compare_other());
+            match d.result {
+                Some(Ok((frames, orig, hist, pages))) if wanted => {
+                    // A screen-size version must not replace a full-resolution one already loaded.
+                    if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
+                        continue;
+                    }
+                    let mut anim: Vec<_> = (frames.into_iter().enumerate())
+                        .map(|(n, (img, ms))| {
+                            let name = format!("img{} {n}", d.idx);
+                            (
+                                ctx.load_texture(name, img, egui::TextureOptions::LINEAR),
+                                ms,
+                            )
+                        })
+                        .collect();
+                    let tex = anim[0].0.clone();
+                    if anim.len() == 1 {
+                        anim.clear();
+                    }
+                    self.slots.insert(
+                        d.idx,
+                        Slot {
+                            tex,
+                            path: d.path,
+                            full: d.full,
+                            orig,
+                            anim,
+                            hist,
+                            pages,
+                        },
+                    );
+                    if d.idx == self.cur
+                        && let Some(t) = self.started.take()
+                    {
+                        eprintln!("first image: {} ms", t.elapsed().as_millis());
+                    }
+                }
+                Some(Err(e)) if wanted => {
+                    self.errors.insert(d.idx, e);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Decode the images and thumbnails again, to be shown in other colours.
+    fn redecode(&mut self) {
+        self.slots.clear();
+        self.pending.clear();
+        self.errors.clear();
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.last_drawn = None;
+        self.refill();
+    }
+
+    /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
+    fn want_exif(&mut self) {
+        let path = self.path(self.cur);
+        if self.exif_asked.as_ref() != Some(&path) {
+            let _ = self.exif_jobs.send(path.clone());
+            self.exif_asked = Some(path);
+        }
+        let done: Vec<ExifRead> = self.exif_done.try_iter().collect();
+        for (path, rows, all, meta) in done {
+            // Kept while being edited: the reader may answer for the image again.
+            if self.meta.as_ref().is_none_or(|m| m.path != path) {
+                self.save_meta();
+                self.meta = Some(MetaEdit {
+                    path: path.clone(),
+                    keywords: meta.keywords_text(),
+                    comment: meta.comment.clone(),
+                    saved: meta,
+                });
+            }
+            self.exif = Some((path, rows));
+            self.exif_all = all;
+        }
+    }
+
+    /// The textures each pane shows now, for a fade to start from; `None` with fading off.
+    fn shown_textures(&self) -> Option<Vec<Option<Shown>>> {
+        (self.fade_ms() > 0).then(|| {
+            (std::iter::once(self.cur).chain(self.panes.iter().copied()))
+                .map(|i| self.slots.get(&i).map(|s| (s.tex.clone(), s.orig)))
+                .collect()
+        })
+    }
+
+    /// Pane `k` fading from another image to `now`: how far (0 to 1, eased), and the image it
+    /// fades from. Ends the fade when it is done; asks for the next frame while it runs.
+    fn fading(
+        &mut self,
+        ctx: &egui::Context,
+        k: usize,
+        now: egui::TextureId,
+    ) -> Option<(f32, egui::TextureHandle, [usize; 2])> {
+        let (start, from) = self.fade.as_ref()?;
+        let t = start.elapsed().as_millis() as f32 / self.fade_ms().max(1) as f32;
+        if t >= 1.0 {
+            self.fade = None;
+            return None;
+        }
+        ctx.request_repaint();
+        let (tex, orig) = from.get(k)?.as_ref().filter(|f| f.0.id() != now)?;
+        Some((t * t * (3.0 - 2.0 * t), tex.clone(), *orig))
+    }
+
+    /// The image shown next to the current one when comparing: the other of two selected
+    /// files, else the next image.
+    fn compare_other(&self) -> Option<usize> {
+        if !self.compare {
+            return None;
+        }
+        match self.selected.iter().collect::<Vec<_>>()[..] {
+            [&a, &b] => Some(if a == self.cur { b } else { a }),
+            _ => self.step(1, false).filter(|&i| i != self.cur),
+        }
+    }
+
+    /// The layout's slideshow changes one pane at a time.
+    fn one_at_a_time(&self) -> bool {
+        let layout = &self.config.layout;
+        self.config.layout_turns.split(',').any(|l| l == layout)
+    }
+
+    /// The panes after the first show the images that follow the shown one, except while a
+    /// slideshow changes them one at a time.
+    fn fill_panes(&mut self) {
+        let [c, r] = layout_grid(&self.config.layout);
+        let n = c * r;
+        let kept = self.slideshow.is_some()
+            && self.one_at_a_time()
+            && self.panes.len() + 1 == n
+            && self.panes.iter().all(|&i| i < self.files.len());
+        if kept {
+            return;
+        }
+        self.panes = (1..n as isize).filter_map(|k| self.step(k, true)).collect();
+        self.last_slide = self.panes.last().copied().unwrap_or(self.cur);
+        self.next_pane = 0;
+    }
+
+    fn set_layout(&mut self, layout: &str) {
+        self.config.layout = layout.to_owned();
+        self.config.save();
+        // Comparing is a layout of its own.
+        self.compare = false;
+        self.refill();
+    }
+
+    /// View → Layout: one image, two or four, and how a slideshow changes them.
+    fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        scroll_menu(ui, "Layout", |ui| {
+            menu_item(ui, act, Action::NextLayout);
+            ui.separator();
+            for (key, label, _) in LAYOUTS {
+                if ui.radio(self.config.layout == key, label).clicked() {
+                    self.set_layout(key);
+                }
+            }
+            if self.config.layout == "1" {
+                return;
+            }
+            ui.separator();
+            if ui
+                .checkbox(&mut self.config.layout_names, "Show File Names")
+                .changed()
+            {
+                self.config.save();
+            }
+            ui.weak("Slideshow in this layout:");
+            let turns = self.one_at_a_time();
+            let mut chosen = turns;
+            ui.radio_value(&mut chosen, false, "All Images Change Together");
+            ui.radio_value(&mut chosen, true, "One Image at a Time");
+            if chosen != turns {
+                let layout = self.config.layout.clone();
+                let mut list: Vec<&str> = (self.config.layout_turns.split(','))
+                    .filter(|l| !l.is_empty() && *l != layout)
+                    .collect();
+                if chosen {
+                    list.push(&layout);
+                }
+                self.config.layout_turns = list.join(",");
+                self.config.save();
+                self.refill();
+            }
+        });
+    }
+
+    fn zoom_by(&mut self, factor: f32) {
+        self.zoom = Some((self.zoom.unwrap_or(self.last_scale) * factor).clamp(0.02, 32.0));
+    }
+
+    /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
+    /// the same zoom and offset as the shown one when zoomed, else fitted.
+    /// Returns the scale it is drawn at, for the status bar; `None` while it is decoded.
+    /// `k` is the pane's number, for a slideshow fading it; `None` for the compared image.
+    fn paint_pane(
+        &mut self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        i: usize,
+        zoom: Option<f32>,
+        k: Option<usize>,
+    ) -> Option<f32> {
+        // Zoomed in further than the screen-size version holds: load the full resolution.
+        let sharper = self.slots.get(&i).is_some_and(|s| {
+            !s.full
+                && zoom
+                    .is_some_and(|z| s.tex.size()[0] as f32 + 1.0 < s.orig[0] as f32 * z.min(1.0))
+        });
+        if sharper {
+            self.request(i, true);
+        }
+        let now = self.slots.get(&i)?.tex.id();
+        let fade = k.and_then(|k| self.fading(ui.ctx(), k, now));
+        let slot = self.slots.get(&i)?;
+        let ppp = ui.ctx().pixels_per_point();
+        let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
+        let (scale, pan) = match zoom {
+            Some(z) => (z, self.pan_offset),
+            None => {
+                let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
+                let fit = if self.config.enlarge {
+                    fit
+                } else {
+                    fit.min(1.0)
+                };
+                (fit, egui::Vec2::ZERO)
+            }
+        };
+        let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
+        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+        let p = ui.painter().with_clip_rect(rect);
+        let shown = match &fade {
+            Some((t, old, orig)) => {
+                let from = fitted(rect, *orig, ppp, self.config.enlarge);
+                p.image(old.id(), from, uv, alpha(1.0 - t.powi(4)));
+                *t
+            }
+            None => 1.0,
+        };
+        p.image(slot.tex.id(), at, uv, alpha(shown));
+        Some(scale)
+    }
+
+    /// The compared image in `rect`, with its name above; which it is and its scale.
+    fn paint_other(
+        &mut self,
+        ui: &egui::Ui,
+        rect: egui::Rect,
+        zoom: Option<f32>,
+    ) -> Option<(usize, Option<f32>)> {
+        ui.painter().vline(
+            rect.left() - 1.0,
+            rect.y_range(),
+            egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
+        );
+        let other = self.compare_other()?;
+        let scale = self.paint_pane(ui, rect, other, zoom, None);
+        self.paint_name(ui, rect, other);
+        Some((other, scale))
+    }
+
+    /// The name of image `i` in the top left corner of `rect`.
+    fn paint_name(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
+        let p = ui.painter();
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let galley = p.layout_no_wrap(self.name(i).into_owned(), font, egui::Color32::WHITE);
+        let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
+        p.rect_filled(text.expand(4.0), 3.0, egui::Color32::from_black_alpha(160));
+        p.galley(text.min, galley, egui::Color32::WHITE);
+    }
+
+    /// The shown image's histogram in the bottom right corner of `area`.
+    fn paint_histogram(&self, ui: &egui::Ui, area: egui::Rect) {
+        let Some(slot) = self.slots.get(&self.cur) else {
+            return;
+        };
+        let size = egui::vec2(256.0, 100.0);
+        let rect =
+            egui::Rect::from_min_size(area.right_bottom() - size - egui::vec2(16.0, 16.0), size);
+        let p = ui.painter();
+        p.rect_filled(rect.expand(6.0), 4.0, egui::Color32::from_black_alpha(170));
+        use egui::Color32 as C;
+        let channels: &[(usize, C)] = if self.config.histogram == 1 {
+            &[
+                (0, C::from_rgb(255, 80, 80)),
+                (1, C::from_rgb(80, 220, 80)),
+                (2, C::from_rgb(90, 140, 255)),
+            ]
+        } else {
+            &[(3, C::from_gray(230))]
+        };
+        let log = self.config.histogram_log;
+        let height = |v: u32| if log { (v as f32).ln_1p() } else { v as f32 };
+        let max = channels
+            .iter()
+            .flat_map(|c| slot.hist[c.0].iter())
+            .map(|&v| height(v))
+            .fold(1.0, f32::max);
+        for &(c, color) in channels {
+            let points = (0..256)
+                .map(|i| {
+                    let x = rect.left() + i as f32 * rect.width() / 255.0;
+                    egui::pos2(
+                        x,
+                        rect.bottom() - height(slot.hist[c][i]) / max * rect.height(),
+                    )
+                })
+                .collect();
+            p.add(egui::Shape::line(points, egui::Stroke::new(1.5, color)));
+        }
+    }
+
+    /// Full screen info in the top left corner: name and place, then size and EXIF.
+    fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
+        self.want_exif();
+        let mut info = Vec::new();
+        if let Some(s) = self.slots.get(&self.cur) {
+            info.push(format!("{} × {}", s.orig[0], s.orig[1]));
+        }
+        let path = self.path(self.cur);
+        if let Some((_, rows)) = self.exif.as_ref().filter(|e| e.0 == path) {
+            let wanted = [
+                "File size",
+                "Taken",
+                "Exposure",
+                "Aperture",
+                "ISO",
+                "Focal length",
+            ];
+            for (label, value) in rows.iter().filter(|r| wanted.contains(&r.0)) {
+                info.push(if *label == "ISO" {
+                    format!("ISO {value}")
+                } else {
+                    value.clone()
+                });
+            }
+        }
+        let marks = self.mark_text(self.cur);
+        if !marks.is_empty() {
+            info.push(marks);
+        }
+        let name = self.name(self.cur);
+        let text = format!("{name}  {}\n{}", self.place(), info.join(" · "));
+        let p = ui.painter();
+        let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
+        let at = egui::Rect::from_min_size(
+            area.min + egui::vec2(12.0, 12.0),
+            galley.size() + egui::vec2(20.0, 12.0),
+        );
+        p.rect_filled(at, 6.0, egui::Color32::from_black_alpha(150));
+        p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
+    }
+
+    // ---- The slideshow ----
+
+    /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
+    fn shuffle_list(&mut self, ctx: &egui::Context, on: bool) {
+        if self.files.is_empty() {
+            return;
+        }
+        self.leave_image(ctx);
+        self.random = on;
+        if !on {
+            // Back to the chosen sort order; listing keeps the shown image.
+            self.list(ctx);
+            return;
+        }
+        let mut files = std::mem::take(&mut self.files);
+        let shown = files[self.cur].clone();
+        files.swap(0, self.cur);
+        shuffle(&mut files[1..]);
+        self.replace_files(ctx, files, Some(shown));
+    }
+
+    fn start_slideshow(&mut self, ctx: &egui::Context) {
+        if self.config.slideshow_subfolders {
+            // The images of the subfolders too, listed in the background; random order
+            // shuffles them all together.
+            self.recursive = true;
+            self.random = self.config.random;
+            self.whole_shuffle = self.random;
+            self.list(ctx);
+        } else if self.config.random != self.random {
+            self.shuffle_list(ctx, self.config.random);
+        }
+        // The first slide comes at once: start as if the delay has already run out.
+        let delay = std::time::Duration::from_secs(self.config.delay);
+        self.slideshow = Some(
+            Instant::now()
+                .checked_sub(delay)
+                .unwrap_or_else(Instant::now),
+        );
+        self.title(ctx);
+        ctx.request_repaint();
+    }
+
+    /// A random order ends with the slideshow: the list goes back to the chosen sort order,
+    /// keeping the shown image.
+    fn stop_slideshow(&mut self, ctx: &egui::Context) {
+        self.slideshow = None;
+        self.paused = false;
+        if self.recursive != self.config.show_subfolders {
+            self.recursive = self.config.show_subfolders;
+            self.random = false;
+            self.list(ctx);
+        } else if self.random {
+            self.shuffle_list(ctx, false);
+        }
+        self.title(ctx);
+    }
+
+    /// Switch image when the time is up. Waits for a preloaded image that is still
+    /// decoding, so the slideshow never shows a black screen.
+    fn slideshow_tick(&mut self, ctx: &egui::Context) {
+        let Some(last) = self.slideshow else { return };
+        // Waits while Rename or a delete asks about the shown image.
+        if self.files.is_empty()
+            || self.paused
+            || self.prompt.is_some()
+            || self.confirm_delete.is_some()
+        {
+            return;
+        }
+        // Several panes: the next set together, or the next image into one pane at a time.
+        let n = self.panes.len() + 1;
+        let turns = n > 1 && self.one_at_a_time();
+        let next = match n {
+            1 => self.step(1, true),
+            _ if turns => self.step_from(self.last_slide, 1, true),
+            _ => self.step(n as isize, true),
+        };
+        let Some(next) = next else {
+            return;
+        };
+        let first = self.step(-isize::MAX / 2, false);
+        let delay = std::time::Duration::from_secs(self.config.delay);
+        let left = delay.saturating_sub(last.elapsed());
+        if !left.is_zero() {
+            ctx.request_repaint_after(left);
+        } else if Some(next) == first && !self.config.slideshow_repeat {
+            self.stop_slideshow(ctx);
+        } else if self.random && Some(next) == first && self.files.len() > 2 {
+            // New round: shuffle again instead of repeating the same order.
+            self.shuffle_list(ctx, true);
+        } else if !self.pending.contains(&(next, false)) {
+            let before = self.shown_textures();
+            if turns && self.next_pane > 0 {
+                self.panes[self.next_pane - 1] = next;
+                self.refill();
+            } else {
+                self.go(ctx, next);
+            }
+            self.fade = before.map(|b| (Instant::now(), b));
+            if turns {
+                (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
+            }
+            self.slideshow = Some(Instant::now());
+        }
+    }
+
+    /// The fade's length: none in power saving, where every frame counts.
+    fn fade_ms(&self) -> u64 {
+        match self.config.cpu_use {
+            0 => 0,
+            _ => FADES[self.config.fade].2,
+        }
+    }
+
+    /// Random order changed in the menu or preferences: reshuffle now if a slideshow runs.
+    fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
+        self.config.random = on;
+        self.config.save();
+        if self.slideshow.is_some() {
+            self.shuffle_list(ctx, on);
+            self.title(ctx);
+        }
+    }
+
+    /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
+    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
+    fn inhibit(&mut self, on: bool) {
+        if on == self.inhibitor.is_some() {
+            return;
+        }
+        if let Some(mut child) = self.inhibitor.take() {
+            let _ = child.kill();
+            std::thread::spawn(move || child.wait());
+            return;
+        }
+        let commands: [&[&str]; 2] = [
+            &[
+                "gnome-session-inhibit",
+                "--inhibit",
+                "idle",
+                "--reason",
+                "Glimt full screen",
+                "cat",
+            ],
+            &[
+                "systemd-inhibit",
+                "--what=idle",
+                "--who=Glimt",
+                "--why=Full screen",
+                "cat",
+            ],
+        ];
+        self.inhibitor = commands.iter().find_map(|c| {
+            command(c[0])
+                .args(&c[1..])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok()
+        });
+    }
+
+    // ---- File operations: delete, copy and move, rename, save the orientation ----
+
+    /// Preferences or a modal dialog is open: keys go there.
+    fn dialog_open(&self) -> bool {
+        self.show_settings
+            || self.confirm_delete.is_some()
+            || self.confirm_folder
+            || self.prompt.is_some()
+            || self.login.is_some()
+            || self.print.is_some()
+    }
+
     /// To the trash at once, permanently after confirmation.
     fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
         if self.files.is_empty() {
@@ -1739,15 +2635,6 @@ impl App {
                 Some("The list changed while the dialog was open: nothing was done".into());
         }
         same
-    }
-
-    /// File operations act on the selected files, otherwise on the shown image. Sorted.
-    fn targets(&self) -> Vec<usize> {
-        if self.selected.is_empty() {
-            vec![self.cur]
-        } else {
-            self.selected.iter().copied().collect()
-        }
     }
 
     fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
@@ -1806,40 +2693,6 @@ impl App {
         });
     }
 
-    /// Remove the (sorted) indices from the list in one pass and shift index-based state
-    /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
-    fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
-        if removed.binary_search(&self.cur).is_ok() {
-            // The shown image is gone, and its rotation with it.
-            self.orient = (0, false);
-            self.page = 0;
-        } else {
-            self.leave_image(ctx);
-        }
-        let mut idx = 0;
-        self.files.retain(|_| {
-            idx += 1;
-            removed.binary_search(&(idx - 1)).is_err()
-        });
-        self.files_gen += 1;
-        self.slots = without_indices(std::mem::take(&mut self.slots), removed);
-        self.errors = without_indices(std::mem::take(&mut self.errors), removed);
-        self.selected.clear();
-        self.anchor = None;
-        self.update_search(ctx);
-        // Jobs in flight have old indices and are rejected by path; refill requests them again.
-        self.pending.clear();
-        self.save_collection();
-        // The next remaining file after the shown one (or the last).
-        let cur = self.cur - removed.partition_point(|&r| r < self.cur);
-        if self.files.is_empty() {
-            self.cur = 0;
-            self.title(ctx);
-        } else {
-            self.go(ctx, cur.min(self.files.len() - 1));
-        }
-    }
-
     fn receive_deleted(&mut self) {
         for (paths, failed) in self.deleted_rx.try_iter() {
             if let Some(dups) = &mut self.dups {
@@ -1875,75 +2728,6 @@ impl App {
         }
         drain(&mut self.match_rx, &mut self.match_size);
         drain(&mut self.size_rx, &mut self.total_size);
-    }
-
-    /// The exif: search index once it is read, and the search again with it.
-    fn receive_exif_index(&mut self, ctx: &egui::Context) {
-        if let Some(index) = self
-            .exif_index_rx
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.exif_index_rx = None;
-            self.exif_index = Some(index);
-            self.update_search(ctx);
-        }
-    }
-
-    /// Called when the selection changes: update the title and compute the size in the background.
-    fn selection_changed(&mut self, ctx: &egui::Context) {
-        self.title(ctx);
-        if self.compare {
-            self.refill();
-        }
-        self.selected_size = None;
-        self.selected_rx = None;
-        if self.selected.is_empty() {
-            return;
-        }
-        let paths: Vec<PathBuf> = self.selected.iter().map(|&i| self.path(i)).collect();
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            // The receiver is gone if the selection changed again; then the answer is dropped.
-            if tx.send(total_size(&paths)).is_ok() {
-                ctx.request_repaint();
-            }
-        });
-        self.selected_rx = Some(rx);
-    }
-
-    /// Replace the file list and go to `shown` (otherwise the first image). The texture shown now
-    /// is kept if it was made from the same file. All index-based state is reset; jobs in flight
-    /// are rejected by path when they arrive.
-    fn replace_files(
-        &mut self,
-        ctx: &egui::Context,
-        files: Vec<OsString>,
-        shown: Option<OsString>,
-    ) {
-        self.leave_image(ctx);
-        let slot = self.slots.remove(&self.cur);
-        self.files = files;
-        self.files_gen += 1;
-        self.details.clear();
-        self.anchor = None;
-        self.selected.clear();
-        self.slots.clear();
-        self.pending.clear();
-        self.errors.clear();
-        let cur = shown
-            .and_then(|p| self.files.iter().position(|f| *f == p))
-            .unwrap_or(0);
-        if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
-            self.slots.insert(cur, slot);
-        }
-        self.update_search(ctx);
-        // go() clears the notice for a new image; a new list is not one, and a notice is often
-        // why the list was read again.
-        let notice = self.notice.take();
-        self.go(ctx, cur);
-        self.notice = notice;
     }
 
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
@@ -2123,363 +2907,6 @@ impl App {
         });
     }
 
-    /// Print `job` in the background.
-    fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            let max = print::max_pixels(job.paper, job.per_page);
-            let failed = std::cell::Cell::new(0);
-            let pages = job.paths.iter().filter_map(|path| {
-                let img = load(path, job.rotate).and_then(|img| shrink(img, [max, max]));
-                failed.set(failed.get() + img.is_err() as usize);
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                Some((img.ok()?, job.caption.then(|| name.into_owned())))
-            });
-            // Written as it is made, so only one page is in memory, not the whole PDF.
-            let title = format!("Glimt: {} images", job.paths.len());
-            let done = match &to {
-                PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
-                    print::pdf(pages, job.paper, job.per_page, w)
-                }),
-                PrintTo::File(file) => std::fs::File::create(file)
-                    .and_then(|f| {
-                        let out = std::io::BufWriter::new(f);
-                        print::pdf(pages, job.paper, job.per_page, out)
-                    })
-                    .map_err(|e| e.to_string()),
-            };
-            let n = job.paths.len() - failed.get();
-            let done = done.map(|()| match &to {
-                PrintTo::Printer(printer) => format!("{n} pages sent to {printer}"),
-                PrintTo::File(file) => format!("{n} pages saved in {}", file.display()),
-            });
-            let _ = tx.send(match (done, failed.get()) {
-                (Ok(msg), 0) => msg,
-                (Ok(msg), f) => format!("{msg}; {f} could not be read"),
-                (Err(e), _) => format!("Printing failed: {e}"),
-            });
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
-    }
-
-    /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
-    fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
-        let name = self.files[i].as_os_str();
-        // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
-        if !self.folders.is_empty() {
-            let path = Path::new(name);
-            let last = |p: &Path| {
-                p.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            let folder = path.parent().map(last).unwrap_or_default();
-            return format!("{folder}/{}", last(path)).into();
-        }
-        match self.collection {
-            Some(_) => Path::new(name)
-                .file_name()
-                .unwrap_or(name)
-                .to_string_lossy(),
-            None => name.to_string_lossy(),
-        }
-    }
-
-    /// Full path of image `i`.
-    fn path(&self, i: usize) -> PathBuf {
-        self.dir.join(&self.files[i])
-    }
-
-    /// Is `path` image number `i` in the list? (Without building the path.)
-    fn is_file(&self, i: usize, path: &Path) -> bool {
-        // Names are relative to the folder; in a slideshow with subfolders they have folders too.
-        self.files.get(i).is_some_and(|name| {
-            path.strip_prefix(&self.dir)
-                .is_ok_and(|rest| rest.as_os_str() == name)
-        })
-    }
-
-    fn request(&mut self, idx: usize, full: bool) {
-        let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
-        if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
-            // The neighbours are preloaded at their first page.
-            let page = if idx == self.cur { self.page } else { 0 };
-            let _ = self.decode_jobs.send((idx, full, self.path(idx), page));
-        }
-    }
-
-    fn go(&mut self, ctx: &egui::Context, idx: usize) {
-        if self.files.is_empty() {
-            return;
-        }
-        // Browsing by hand shows the image at once; the slideshow sets a fade after this.
-        self.fade = None;
-        // Saving the old image's rotation may leave a notice, which must outlive the move.
-        let saved = self.config.save_orientation && self.orient != (0, false);
-        self.leave_image(ctx);
-        let notice = if saved { self.notice.take() } else { None };
-        self.cur = idx.min(self.files.len() - 1);
-        self.notice = notice;
-        // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
-        if !self.config.keep_zoom {
-            self.zoom = None;
-            self.pan_offset = egui::Vec2::ZERO;
-        }
-        self.opened = Instant::now();
-        self.scroll_to_cur = true;
-        // Every image gets the full delay, also when the user moves back or forward by hand.
-        if self.slideshow.is_some() {
-            self.slideshow = Some(Instant::now());
-        }
-        self.refill();
-        self.title(ctx);
-    }
-
-    /// The shown image is left: its rotation saved (with Save Orientation on) or dropped, and a
-    /// TIFF page other than the first let go. Called while `dir` and `cur` still name the image,
-    /// so before the folder or the list changes.
-    fn leave_image(&mut self, ctx: &egui::Context) {
-        // A TIFF shown at another page than the first: its decoded page must not stay for when
-        // it is shown again from the first page.
-        if self.page > 0 {
-            self.slots.remove(&self.cur);
-            self.page = 0;
-        }
-        if self.config.save_orientation && self.orient != (0, false) {
-            self.save_orientation(ctx);
-        }
-        self.orient = (0, false);
-    }
-
-    /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
-    fn shuffle_list(&mut self, ctx: &egui::Context, on: bool) {
-        if self.files.is_empty() {
-            return;
-        }
-        self.leave_image(ctx);
-        self.random = on;
-        if !on {
-            // Back to the chosen sort order; listing keeps the shown image.
-            self.list(ctx);
-            return;
-        }
-        let mut files = std::mem::take(&mut self.files);
-        let shown = files[self.cur].clone();
-        files.swap(0, self.cur);
-        shuffle(&mut files[1..]);
-        self.replace_files(ctx, files, Some(shown));
-    }
-
-    fn start_slideshow(&mut self, ctx: &egui::Context) {
-        if self.config.slideshow_subfolders {
-            // The images of the subfolders too, listed in the background; random order
-            // shuffles them all together.
-            self.recursive = true;
-            self.random = self.config.random;
-            self.whole_shuffle = self.random;
-            self.list(ctx);
-        } else if self.config.random != self.random {
-            self.shuffle_list(ctx, self.config.random);
-        }
-        // The first slide comes at once: start as if the delay has already run out.
-        let delay = std::time::Duration::from_secs(self.config.delay);
-        self.slideshow = Some(
-            Instant::now()
-                .checked_sub(delay)
-                .unwrap_or_else(Instant::now),
-        );
-        self.title(ctx);
-        ctx.request_repaint();
-    }
-
-    /// Open the shown file in `player` (a command line), or in the default application when
-    /// `player` is empty. Runs in its own thread, which waits for the program to exit.
-    fn launch(&self, player: &str) {
-        if self.files.is_empty() {
-            return;
-        }
-        let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
-        let mut words: Vec<String> = player.split_whitespace().map(String::from).collect();
-        std::thread::spawn(move || {
-            let run = |cmd: &str, args: &[String]| {
-                let out = command(cmd).args(args).arg(&path).output();
-                out.map_err(|e| format!("{cmd}: {e}"))
-            };
-            let out = if words.is_empty() {
-                // gio is part of glib; xdg-open covers systems without it.
-                run("gio", &["open".into()]).or_else(|_| run("xdg-open", &[]))
-            } else {
-                let cmd = words.remove(0);
-                run(&cmd, &words)
-            };
-            match out {
-                Ok(o) if o.status.success() => {}
-                Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                Err(e) => drop(tx.send(e)),
-            }
-        });
-    }
-
-    /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
-    /// they are read again afterwards, as plugins change them.
-    fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(ui, "Plugins", |ui| {
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
-            if self.plugins.is_empty() {
-                ui.weak("No plugins");
-            }
-            let mut chosen = None;
-            for (k, plugin) in self.plugins.iter().enumerate() {
-                if ui.button(&plugin.name).clicked() {
-                    chosen = Some(k);
-                }
-            }
-            ui.separator();
-            if ui
-                .button("Open the Plugins Folder")
-                .on_hover_text(
-                    "Desktop files there, as Geeqie's, show in this menu after a restart",
-                )
-                .clicked()
-                && let Some(dir) = dir
-            {
-                let _ = std::fs::create_dir_all(&dir);
-                open_url(&dir.to_string_lossy());
-            }
-            let Some(k) = chosen.filter(|_| !self.files.is_empty()) else {
-                return;
-            };
-            let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-            let plugin = self.plugins[k].clone();
-            let (dir, ctx) = (self.dir.clone(), ui.ctx().clone());
-            let (tx, saved, deleted) = (
-                self.notices_tx.clone(),
-                self.saved_tx.clone(),
-                self.deleted_tx.clone(),
-            );
-            let busy = self.busy.clone();
-            busy.fetch_add(1, Ordering::Relaxed);
-            std::thread::spawn(move || {
-                if let Err(e) = plugin.run(&files, &dir) {
-                    let _ = tx.send(format!("{}: {e}", plugin.name));
-                }
-                for f in files {
-                    let _ = saved.send((f, Ok(())));
-                }
-                let _ = deleted.send((Vec::new(), true));
-                busy.fetch_sub(1, Ordering::Relaxed);
-                ctx.request_repaint();
-            });
-        });
-    }
-
-    /// "Open With" submenu: the applications registered for the shown file's type; the chosen
-    /// one opens the selected files (or the shown one).
-    fn open_with_menu(&mut self, ui: &mut egui::Ui) {
-        let Some(name) = self.files.get(self.cur) else {
-            return;
-        };
-        let ext = Path::new(name)
-            .extension()
-            .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
-        let path = self.path(self.cur);
-        scroll_menu(ui, "Open With", |ui| {
-            // The menu keeps the width of its first frame, "…": names must not wrap to it.
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            for (ext, apps) in self.apps_rx.try_iter() {
-                self.apps.insert(ext, Some(apps));
-            }
-            // apps_for runs gio twice: in the background, so the menu never stalls.
-            let apps = self.apps.entry(ext.clone()).or_insert_with(|| {
-                let (tx, ctx) = (self.apps_tx.clone(), ui.ctx().clone());
-                std::thread::spawn(move || {
-                    let _ = tx.send((ext, apps_for(&path)));
-                    ctx.request_repaint();
-                });
-                None
-            });
-            let Some(apps) = apps else {
-                ui.label("…");
-                return;
-            };
-            if apps.is_empty() {
-                ui.label("No applications found");
-            }
-            let mut chosen = None;
-            for (name, desktop) in apps.iter() {
-                if ui.button(name).clicked() {
-                    chosen = Some(desktop.clone());
-                }
-            }
-            if let Some(desktop) = chosen {
-                let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-                let tx = self.notices_tx.clone();
-                std::thread::spawn(move || {
-                    let out = command("gio")
-                        .arg("launch")
-                        .arg(&desktop)
-                        .args(&files)
-                        .output();
-                    match out {
-                        Ok(o) if o.status.success() => {}
-                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                        Err(e) => drop(tx.send(format!("gio: {e}"))),
-                    }
-                });
-            }
-        });
-    }
-
-    /// The chosen theme, read from its file again, with the desktop's look where it sets none.
-    fn apply_theme(&self, ctx: &egui::Context) {
-        let (dark, accent) = self.desktop_look;
-        theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
-    }
-
-    /// View → Theme: the themes to choose from, then where to make and find more.
-    fn theme_menu(&mut self, ui: &mut egui::Ui) {
-        for name in theme::names() {
-            // Chosen again too, so a theme file just edited shows.
-            if ui.radio(self.config.theme == name, &name).clicked() {
-                self.config.theme = name;
-                self.config.save();
-                self.apply_theme(ui.ctx());
-            }
-        }
-        ui.separator();
-        self.theme_buttons(ui);
-    }
-
-    /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
-    fn theme_buttons(&mut self, ui: &mut egui::Ui) {
-        if ui.button("Save as Theme…").clicked() {
-            self.prompt = Some((Prompt::SaveTheme, String::new()));
-        }
-        if ui.button("Open Themes Folder").clicked()
-            && let Some(dir) = theme::dir()
-        {
-            let _ = std::fs::create_dir_all(&dir);
-            open_url(&dir.to_string_lossy());
-        }
-        if ui.button("Get More Themes…").clicked() {
-            open_url("https://github.com/thornbux/glimt/tree/main/themes");
-        }
-    }
-
-    /// Preferences or a modal dialog is open: keys go there.
-    fn dialog_open(&self) -> bool {
-        self.show_settings
-            || self.confirm_delete.is_some()
-            || self.confirm_folder
-            || self.prompt.is_some()
-            || self.login.is_some()
-            || self.print.is_some()
-    }
-
     /// The text dialog was answered with `text`.
     fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
         if let Prompt::NewCollection = prompt {
@@ -2548,81 +2975,6 @@ impl App {
             }
             (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
         }
-    }
-
-    /// Write the view's rotation into the shown file and show it as it is now.
-    /// shortcut: a JPEG in the UI thread, as it is read and written in milliseconds; a thread
-    /// like PNG and WebP if network folders make it slow.
-    fn save_orientation(&mut self, ctx: &egui::Context) {
-        let (turns, mirrored) = self.orient;
-        if self.files.is_empty() || (turns, mirrored) == (0, false) {
-            return;
-        }
-        let path = self.path(self.cur);
-        // Being saved already, with this rotation: the rotate keys wait for the save.
-        if self.saving.contains(&path) {
-            return;
-        }
-        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned, which
-        // takes seconds for a large one, so in the background.
-        if !has_ext(&path, &["jpg", "jpeg"]) {
-            let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
-            let (saved, busy, ctx) = (self.saved_tx.clone(), self.busy.clone(), ctx.clone());
-            self.saving.insert(path.clone());
-            busy.fetch_add(1, Ordering::Relaxed);
-            std::thread::spawn(move || {
-                let result = survive(|| save_rotated(&path, rotate, turns, mirrored, quality));
-                let _ = saved.send((path, result));
-                busy.fetch_sub(1, Ordering::Relaxed);
-                ctx.request_repaint();
-            });
-            return;
-        }
-        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
-            self.notice = Some(format!("Could not save the orientation: {e}"));
-            return;
-        }
-        if !self.config.exif_rotate {
-            self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
-        }
-        self.saved(&path);
-    }
-
-    /// `path` was saved turned: decode it again and make a new thumbnail.
-    fn saved(&mut self, path: &Path) {
-        if self.is_file(self.cur, path) {
-            self.orient = (0, false);
-            self.pending.retain(|p| p.0 != self.cur);
-            self.exif = None;
-        }
-        self.slots.retain(|_, s| s.path != path);
-        // Its size changed: the status bar and the list read it again.
-        self.cur_size = None;
-        if let Ok(name) = path.strip_prefix(&self.dir) {
-            self.thumbs.remove(name.as_os_str());
-            self.thumbs_pending.remove(name.as_os_str());
-            self.details.remove(name.as_os_str());
-        }
-        self.refill();
-    }
-
-    /// The thumbnail box in the file list, by the size chosen in Preferences.
-    fn thumb(&self) -> egui::Vec2 {
-        THUMBS[self.config.thumb_size.min(2) as usize]
-    }
-
-    /// A cell of the icon grid: the thumbnail with its name below.
-    fn cell(&self) -> egui::Vec2 {
-        self.thumb() + CELL_EXTRA
-    }
-
-    fn set_thumb_size(&mut self, size: u8) {
-        self.config.thumb_size = size;
-        self.config.save();
-        LARGE_THUMBS.store(size == 2, Ordering::Relaxed);
-        self.thumbs.clear();
-        self.thumbs_pending.clear();
-        self.scroll_to_cur = true;
     }
 
     /// Rename the selected files by `pattern`, numbered in list order. Nothing is overwritten:
@@ -2708,6 +3060,1145 @@ impl App {
             _ => self.list(ctx),
         }
     }
+
+    /// Write the view's rotation into the shown file and show it as it is now.
+    /// shortcut: a JPEG in the UI thread, as it is read and written in milliseconds; a thread
+    /// like PNG and WebP if network folders make it slow.
+    fn save_orientation(&mut self, ctx: &egui::Context) {
+        let (turns, mirrored) = self.orient;
+        if self.files.is_empty() || (turns, mirrored) == (0, false) {
+            return;
+        }
+        let path = self.path(self.cur);
+        // Being saved already, with this rotation: the rotate keys wait for the save.
+        if self.saving.contains(&path) {
+            return;
+        }
+        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned, which
+        // takes seconds for a large one, so in the background.
+        if !has_ext(&path, &["jpg", "jpeg"]) {
+            let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
+            let (saved, busy, ctx) = (self.saved_tx.clone(), self.busy.clone(), ctx.clone());
+            self.saving.insert(path.clone());
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let result = survive(|| save_rotated(&path, rotate, turns, mirrored, quality));
+                let _ = saved.send((path, result));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+            return;
+        }
+        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
+            self.notice = Some(format!("Could not save the orientation: {e}"));
+            return;
+        }
+        if !self.config.exif_rotate {
+            self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
+        }
+        self.saved(&path);
+    }
+
+    /// `path` was saved turned: decode it again and make a new thumbnail.
+    fn saved(&mut self, path: &Path) {
+        if self.is_file(self.cur, path) {
+            self.orient = (0, false);
+            self.pending.retain(|p| p.0 != self.cur);
+            self.exif = None;
+        }
+        self.slots.retain(|_, s| s.path != path);
+        // Its size changed: the status bar and the list read it again.
+        self.cur_size = None;
+        if let Ok(name) = path.strip_prefix(&self.dir) {
+            self.thumbs.remove(name.as_os_str());
+            self.thumbs_pending.remove(name.as_os_str());
+            self.details.remove(name.as_os_str());
+        }
+        self.refill();
+    }
+
+    /// Rename `folder_target` within its parent; never over another. The open folder, or one
+    /// inside it, is followed to the new name.
+    fn rename_folder(&mut self, ctx: &egui::Context, name: &str) {
+        let Some(old) = self.folder_target.take() else {
+            return;
+        };
+        let new = old.with_file_name(name);
+        if new == old {
+            return;
+        }
+        // rename() would replace an empty folder of that name.
+        let result = match new.exists() {
+            true => Err(std::io::ErrorKind::AlreadyExists.into()),
+            false => std::fs::rename(&old, &new),
+        };
+        if let Err(e) = result {
+            self.notice = Some(format!("{}: {e}", new.display()));
+            return;
+        }
+        self.forget_folder(&old);
+        match self.dir.strip_prefix(&old) {
+            Ok(rest) => self.visit(ctx, new.join(rest)),
+            Err(_) => self.list(ctx),
+        }
+    }
+
+    /// Move `folder_target` and all in it to the trash, in the background; the open folder, or
+    /// one inside it, is left for the folder above first.
+    fn trash_folder(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.folder_target.take() else {
+            return;
+        };
+        self.forget_folder(&dir);
+        self.subdirs.retain(|d| *d != dir);
+        if self.dir.starts_with(&dir)
+            && let Some(parent) = dir.parent()
+        {
+            self.visit(ctx, parent.to_path_buf());
+        }
+        let (tx, deleted_tx, ctx) = (
+            self.notices_tx.clone(),
+            self.deleted_tx.clone(),
+            ctx.clone(),
+        );
+        let busy = self.busy.clone();
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
+                Ok(o) if o.status.success() => None,
+                Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
+                Err(e) => Some(format!("gio trash (from glib): {e}")),
+            };
+            if let Some(e) = &error {
+                let _ = tx.send(format!("Could not move the folder to the trash: {e}"));
+            }
+            // Failed: listed again, as a failed delete of files is.
+            let _ = deleted_tx.send((vec![dir], error.is_some()));
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Forget what the folder tree read of `dir` and its parent, so it is read again.
+    fn forget_folder(&mut self, dir: &Path) {
+        self.tree.retain(|d, _| !d.starts_with(dir));
+        if let Some(parent) = dir.parent() {
+            self.tree.remove(parent);
+        }
+    }
+
+    /// Print `job` in the background.
+    fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let max = print::max_pixels(job.paper, job.per_page);
+            let failed = std::cell::Cell::new(0);
+            let pages = job.paths.iter().filter_map(|path| {
+                let img = load(path, job.rotate).and_then(|img| shrink(img, [max, max]));
+                failed.set(failed.get() + img.is_err() as usize);
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                Some((img.ok()?, job.caption.then(|| name.into_owned())))
+            });
+            // Written as it is made, so only one page is in memory, not the whole PDF.
+            let title = format!("Glimt: {} images", job.paths.len());
+            let done = match &to {
+                PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
+                    print::pdf(pages, job.paper, job.per_page, w)
+                }),
+                PrintTo::File(file) => std::fs::File::create(file)
+                    .and_then(|f| {
+                        let out = std::io::BufWriter::new(f);
+                        print::pdf(pages, job.paper, job.per_page, out)
+                    })
+                    .map_err(|e| e.to_string()),
+            };
+            let n = job.paths.len() - failed.get();
+            let done = done.map(|()| match &to {
+                PrintTo::Printer(printer) => format!("{n} pages sent to {printer}"),
+                PrintTo::File(file) => format!("{n} pages saved in {}", file.display()),
+            });
+            let _ = tx.send(match (done, failed.get()) {
+                (Ok(msg), 0) => msg,
+                (Ok(msg), f) => format!("{msg}; {f} could not be read"),
+                (Err(e), _) => format!("Printing failed: {e}"),
+            });
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Open the shown file in `player` (a command line), or in the default application when
+    /// `player` is empty. Runs in its own thread, which waits for the program to exit.
+    fn launch(&self, player: &str) {
+        if self.files.is_empty() {
+            return;
+        }
+        let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
+        let mut words: Vec<String> = player.split_whitespace().map(String::from).collect();
+        std::thread::spawn(move || {
+            let run = |cmd: &str, args: &[String]| {
+                let out = command(cmd).args(args).arg(&path).output();
+                out.map_err(|e| format!("{cmd}: {e}"))
+            };
+            let out = if words.is_empty() {
+                // gio is part of glib; xdg-open covers systems without it.
+                run("gio", &["open".into()]).or_else(|_| run("xdg-open", &[]))
+            } else {
+                let cmd = words.remove(0);
+                run(&cmd, &words)
+            };
+            match out {
+                Ok(o) if o.status.success() => {}
+                Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                Err(e) => drop(tx.send(e)),
+            }
+        });
+    }
+
+    /// The sort manager (Shift+S), as in Geeqie: a click on a folder copies or moves the selected
+    /// files, or the shown one, there.
+    fn sort_manager(&mut self, ui: &mut egui::Ui) {
+        let mut remove = None;
+        egui::Panel::right("sort manager")
+            .resizable(true)
+            .default_size(200.0)
+            .show(ui, |ui| {
+                ui.strong("Sort Manager");
+                ui.horizontal(|ui| {
+                    let c = &mut self.config;
+                    let changed = ui.radio_value(&mut c.sort_move, false, "Copy").changed()
+                        | ui.radio_value(&mut c.sort_move, true, "Move").changed();
+                    if changed {
+                        c.save();
+                    }
+                });
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .small_button(theme::icon::CLOSE)
+                                .on_hover_text("Remove")
+                                .clicked()
+                            {
+                                remove = Some(k);
+                            }
+                            let name = dir.file_name().unwrap_or(dir.as_os_str());
+                            let here = dir == self.dir;
+                            let button = ui.add_enabled(
+                                !here && !self.files.is_empty(),
+                                egui::Button::new(name.to_string_lossy()),
+                            );
+                            if button.on_hover_text(dir.display().to_string()).clicked() {
+                                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+                                self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
+                            }
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Add This Folder").clicked() {
+                            self.add_sort_folder(self.dir.clone());
+                        }
+                        if ui.button("Add…").clicked() {
+                            self.pick(ui.ctx(), true, Pick::SortFolder);
+                        }
+                    });
+                });
+            });
+        if let Some(k) = remove {
+            self.sort_folders.remove(k);
+            self.save_sort_folders();
+        }
+    }
+
+    fn add_sort_folder(&mut self, dir: PathBuf) {
+        if !self.sort_folders.contains(&dir) {
+            self.sort_folders.push(dir);
+            self.save_sort_folders();
+        }
+    }
+
+    fn save_sort_folders(&mut self) {
+        // As bytes: a name that is not UTF-8 (an old Windows share) must come back the same.
+        let mut text = Vec::new();
+        for d in &self.sort_folders {
+            let bytes = d.as_os_str().as_encoded_bytes();
+            if !bytes.contains(&b'\n') {
+                text.extend(bytes);
+                text.push(b'\n');
+            }
+        }
+        let saved = sort_folders_path()
+            .ok_or("no home folder".to_owned())
+            .and_then(|p| {
+                let _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
+                std::fs::write(&p, text).map_err(|e| e.to_string())
+            });
+        if let Err(e) = saved {
+            self.notice = Some(format!("Could not save the sort manager's folders: {e}"));
+        }
+    }
+
+    // ---- The file list, folders and thumbnails ----
+
+    /// The thumbnail box in the file list, by the size chosen in Preferences.
+    fn thumb(&self) -> egui::Vec2 {
+        THUMBS[self.config.thumb_size.min(2) as usize]
+    }
+
+    /// A cell of the icon grid: the thumbnail with its name below.
+    fn cell(&self) -> egui::Vec2 {
+        self.thumb() + CELL_EXTRA
+    }
+
+    fn set_thumb_size(&mut self, size: u8) {
+        self.config.thumb_size = size;
+        self.config.save();
+        LARGE_THUMBS.store(size == 2, Ordering::Relaxed);
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.scroll_to_cur = true;
+    }
+
+    /// Decode everything again with or without EXIF rotation.
+    fn set_thumbnails(&mut self, on: bool) {
+        self.config.thumbnails = on;
+        self.config.save();
+        if !on {
+            self.thumbs.clear();
+            self.thumbs_pending.clear();
+        }
+        self.scroll_to_cur = true;
+    }
+
+    /// List the images of all subfolders too, or only the folder's own.
+    fn set_subfolders(&mut self, ctx: &egui::Context, on: bool) {
+        self.config.show_subfolders = on;
+        self.config.save();
+        self.recursive = on;
+        self.list(ctx);
+    }
+
+    fn receive_thumbs(&mut self, ctx: &egui::Context) {
+        while let Ok((path, result)) = self.thumbs_done.try_recv() {
+            // The name as the list has it: with its folders in a slideshow with subfolders.
+            let Ok(name) = path.strip_prefix(&self.dir).map(Path::as_os_str) else {
+                continue;
+            };
+            self.thumbs_pending.remove(name);
+            if let Some(img) = result {
+                let tex = img.map(|img| {
+                    ctx.load_texture(
+                        format!("thumb {}", path.display()),
+                        img,
+                        egui::TextureOptions::LINEAR,
+                    )
+                });
+                self.thumbs.insert(name.to_owned(), tex);
+            }
+        }
+    }
+
+    /// Drop thumbnails far from view once there are many, so memory stays flat in huge folders.
+    /// Over the budget, drop the thumbnails of all but the rows `rows` of the list as shown (the
+    /// search matches, or all files) and those near them.
+    fn trim_thumbs(&mut self, rows: std::ops::Range<usize>) {
+        // Big thumbnails take four times the memory: keep a quarter as many.
+        let max = if self.config.thumb_size == 2 {
+            MAX_THUMBS / 4
+        } else {
+            MAX_THUMBS
+        };
+        if self.thumbs.len() <= max {
+            return;
+        }
+        let mut keep = thumbs_to_keep(&self.files, self.matches.as_deref(), rows, max);
+        keep.extend(self.pan_thumbs.iter().filter_map(|&i| self.files.get(i)));
+        self.thumbs.retain(|name, _| keep.contains(name));
+    }
+
+    /// A file list row with a thumbnail; true when clicked.
+    fn file_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        i: usize,
+        height: f32,
+        marked: bool,
+    ) -> egui::Response {
+        let size = egui::vec2(ui.available_width(), height);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        let visuals = ui.visuals();
+        if marked || response.hovered() {
+            let fill = if marked {
+                visuals.selection.bg_fill
+            } else {
+                visuals.widgets.hovered.weak_bg_fill
+            };
+            ui.painter().rect_filled(rect, 2.0, fill);
+        }
+        let text_color = if marked {
+            visuals.selection.stroke.color
+        } else {
+            visuals.text_color()
+        };
+        let thumbs = self.config.thumbnails;
+        let frame = egui::Rect::from_min_size(
+            rect.min + egui::vec2(2.0, 2.0),
+            if thumbs {
+                self.thumb()
+            } else {
+                egui::vec2(0.0, height)
+            },
+        );
+        if thumbs {
+            self.paint_thumb(ui, i, frame);
+        }
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let gap = if thumbs { 8.0 } else { 2.0 };
+        let mut name_rect = rect.with_min_x(frame.right() + gap);
+        if self.config.file_details {
+            // Size and date columns at the right, as in Geeqie; the name is cut off before them.
+            name_rect.max.x -= DETAILS_WIDTH;
+            let (bytes, mtime) = self.file_details(i);
+            let y = rect.center().y;
+            let size_right = name_rect.max.x + DETAILS_WIDTH - DATE_WIDTH - 8.0;
+            let p = ui.painter();
+            p.text(
+                egui::pos2(size_right, y),
+                egui::Align2::RIGHT_CENTER,
+                thousands(bytes as usize),
+                font.clone(),
+                text_color,
+            );
+            p.text(
+                egui::pos2(rect.max.x - DATE_WIDTH, y),
+                egui::Align2::LEFT_CENTER,
+                local_time(mtime),
+                font.clone(),
+                text_color,
+            );
+        }
+        // Stars and marks at the right of the name, which is cut off before them.
+        let marks = self.mark_text(i);
+        if !marks.is_empty() {
+            let gold = egui::Color32::from_rgb(255, 190, 40);
+            let at = egui::pos2(name_rect.max.x - 6.0, rect.center().y);
+            let r = ui
+                .painter()
+                .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
+            name_rect.max.x = r.left() - 8.0;
+        }
+        ui.painter().with_clip_rect(name_rect).text(
+            egui::pos2(name_rect.min.x, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            self.name(i),
+            font,
+            text_color,
+        );
+        response
+    }
+
+    /// A cell of the thumbnail grid: the thumbnail with the name below, cut off to fit.
+    fn file_cell(
+        &mut self,
+        ui: &mut egui::Ui,
+        i: usize,
+        rect: egui::Rect,
+        marked: bool,
+    ) -> egui::Response {
+        let response = ui.interact(rect, ui.id().with(("cell", i)), egui::Sense::click());
+        let visuals = ui.visuals();
+        if marked || response.hovered() {
+            let fill = if marked {
+                visuals.selection.bg_fill
+            } else {
+                visuals.widgets.hovered.weak_bg_fill
+            };
+            ui.painter().rect_filled(rect, 2.0, fill);
+        }
+        let color = if marked {
+            visuals.selection.stroke.color
+        } else {
+            visuals.text_color()
+        };
+        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
+        self.paint_thumb(ui, i, frame);
+        let font = egui::TextStyle::Small.resolve(ui.style());
+        let name = self.name(i).into_owned();
+        let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
+        let galley = ui.painter().layout_job(job);
+        let at = egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            frame.bottom() + 4.0,
+        );
+        ui.painter().galley(at, galley, color);
+        let marks = self.mark_text(i);
+        if !marks.is_empty() {
+            let p = ui.painter();
+            let gold = egui::Color32::from_rgb(255, 190, 40);
+            let galley = p.layout_no_wrap(marks, egui::TextStyle::Small.resolve(ui.style()), gold);
+            let at = egui::Rect::from_min_size(
+                frame.right_top() + egui::vec2(-galley.size().x - 4.0, 3.0),
+                galley.size(),
+            );
+            p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
+            p.galley(at.min, galley, gold);
+        }
+        response.on_hover_text_at_pointer(match self.collection {
+            Some(_) => self.path(i).display().to_string(),
+            None => self.name(i).into_owned(),
+        })
+    }
+
+    /// Thumbnail `i` fitted into `frame`, or a request for it.
+    fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
+        let name = &self.files[i];
+        match self.thumbs.get(name) {
+            Some(Some(tex)) => {
+                // Fit the box, but never enlarge.
+                let px = tex.size_vec2() / ui.ctx().pixels_per_point();
+                let scale = (self.thumb().x / px.x).min(self.thumb().y / px.y).min(1.0);
+                let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+                let at = egui::Rect::from_center_size(frame.center(), px * scale);
+                ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
+                // Videos get a small play badge in the corner.
+                if is_video(Path::new(name)) {
+                    let c = at.left_bottom() + egui::vec2(13.0, -13.0);
+                    let p = ui.painter();
+                    p.circle_filled(c, 10.0, egui::Color32::from_black_alpha(170));
+                    let triangle = vec![
+                        c + egui::vec2(-3.0, -5.5),
+                        c + egui::vec2(6.0, 0.0),
+                        c + egui::vec2(-3.0, 5.5),
+                    ];
+                    p.add(egui::Shape::convex_polygon(
+                        triangle,
+                        egui::Color32::WHITE,
+                        egui::Stroke::NONE,
+                    ));
+                }
+            }
+            Some(None) => {}
+            None => {
+                if self.thumbs_pending.insert(name.clone()) {
+                    let _ = self.thumb_jobs.send((i, self.path(i)));
+                }
+            }
+        }
+    }
+
+    /// The film strip along the bottom of `area` in full screen, shown while the pointer is
+    /// near the bottom: thumbnails of the images before and after the shown one, which is
+    /// outlined. Returns the image clicked.
+    fn filmstrip(&mut self, ui: &egui::Ui, area: egui::Rect) -> Option<usize> {
+        let cell = self.thumb() + egui::vec2(8.0, 8.0);
+        let height = cell.y + 16.0;
+        let strip =
+            egui::Rect::from_min_max(egui::pos2(area.left(), area.bottom() - height), area.max);
+        if !ui.rect_contains_pointer(strip) {
+            return None;
+        }
+        let k = ((area.width() / cell.x) as isize - 1).max(0) / 2;
+        let mut shown: Vec<usize> = (-k..=k).filter_map(|d| self.step(d, false)).collect();
+        shown.dedup();
+        // Thumbnails for these, as for the rows of the file list.
+        if let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max()) {
+            self.thumb_view[0].store(first, Ordering::Relaxed);
+            self.thumb_view[1].store(last, Ordering::Relaxed);
+            let row = match self.matches.as_deref() {
+                Some(m) => self.cur_row(m).unwrap_or(0),
+                None => self.cur,
+            };
+            let k = k as usize;
+            self.trim_thumbs(row.saturating_sub(k)..row + k + 1);
+        }
+        ui.painter()
+            .rect_filled(strip, 0.0, egui::Color32::from_black_alpha(190));
+        // The shown image in the middle, where it is when there are images on both sides.
+        let at = shown.iter().position(|&i| i == self.cur).unwrap_or(0) as f32;
+        let x0 = strip.center().x - (at + 0.5) * cell.x;
+        let mut clicked = None;
+        for (n, &i) in shown.iter().enumerate() {
+            let min = egui::pos2(x0 + n as f32 * cell.x, strip.top() + 8.0);
+            let frame = egui::Rect::from_min_size(min, cell).shrink(4.0);
+            self.paint_thumb(ui, i, frame);
+            if i == self.cur {
+                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+                ui.painter()
+                    .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
+            }
+            let id = ui.id().with(("strip", i));
+            if ui.interact(frame, id, egui::Sense::click()).clicked() {
+                clicked = Some(i);
+            }
+        }
+        clicked
+    }
+
+    /// Size and modification time of file `i`, from the cache or one stat.
+    /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
+    /// folders make scrolling stutter.
+    fn file_details(&mut self, i: usize) -> (u64, i64) {
+        if let Some(&d) = self.details.get(&self.files[i]) {
+            return d;
+        }
+        let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
+            use std::os::unix::fs::MetadataExt;
+            (m.len(), m.mtime())
+        });
+        self.details.insert(self.files[i].clone(), d);
+        d
+    }
+
+    /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
+    /// background when a folder is opened in the tree.
+    fn folder_tree(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
+        while let Ok((dir, subdirs)) = self.tree_rx.try_recv() {
+            self.tree.insert(dir, Some(subdirs));
+        }
+        egui::ScrollArea::both()
+            .id_salt("tree")
+            .auto_shrink(false)
+            .show(ui, |ui| self.tree_node(ui, Path::new("/"), open_dir));
+    }
+
+    fn tree_node(&mut self, ui: &mut egui::Ui, path: &Path, open_dir: &mut Option<PathBuf>) {
+        let id = ui.make_persistent_id(("tree", path));
+        let on_way = self.dir.starts_with(path);
+        let mut state =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, on_way);
+        let follow = on_way && self.tree_shown != self.dir;
+        if follow && path != self.dir {
+            state.set_open(true);
+        }
+        let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
+        state
+            .show_header(ui, |ui| {
+                let label = ui.selectable_label(path == self.dir, name);
+                // Shown once the folders above it are read.
+                if follow && path == self.dir {
+                    label.scroll_to_me(Some(egui::Align::Center));
+                    self.tree_shown = self.dir.clone();
+                }
+                if label.clicked() {
+                    *open_dir = Some(path.to_path_buf());
+                }
+                if path.parent().is_some() {
+                    self.folder_menu(&label, path);
+                }
+            })
+            .body(|ui| match self.tree.get(path) {
+                Some(Some(subdirs)) => {
+                    for dir in subdirs.clone() {
+                        self.tree_node(ui, &dir, open_dir);
+                    }
+                }
+                Some(None) => drop(ui.label("…")),
+                None => {
+                    self.tree.insert(path.to_path_buf(), None);
+                    let (dir, tx, ctx) =
+                        (path.to_path_buf(), self.tree_tx.clone(), ui.ctx().clone());
+                    let folders = Types {
+                        hidden: self.config.show_hidden,
+                        ..Types::NONE
+                    };
+                    std::thread::spawn(move || {
+                        let subdirs = list_folder(&dir, folders).0;
+                        let _ = tx.send((dir, subdirs));
+                        ctx.request_repaint();
+                    });
+                }
+            });
+    }
+
+    /// Right-click on a folder in the list or the tree: rename it, or move it to the trash.
+    fn folder_menu(&mut self, response: &egui::Response, dir: &Path) {
+        response.context_menu(|ui| {
+            // Its images in the list together with those shown now.
+            let shown = self.folders.contains(&dir.to_path_buf()) || dir == self.dir;
+            if !shown
+                && self.collection.is_none()
+                && ui.button("Show Together with These Images").clicked()
+            {
+                let mut all = match self.folders.is_empty() {
+                    true => vec![self.dir.clone()],
+                    false => self.folders.clone(),
+                };
+                all.push(dir.to_path_buf());
+                self.together = Some(all);
+            }
+            if ui.button("Rename Folder…").clicked() {
+                let name = dir.file_name().unwrap_or_default().to_string_lossy();
+                self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
+                self.folder_target = Some(dir.to_path_buf());
+            }
+            if ui.button("Move Folder to Trash…").clicked() {
+                self.folder_target = Some(dir.to_path_buf());
+                self.confirm_folder = true;
+            }
+        });
+    }
+
+    /// The file types the list shows, from the Types menu.
+    /// The type of a file opened directly is listed too, in its folder.
+    fn types(&self) -> Types {
+        let o = self.opened_type;
+        Types {
+            images: self.config.list_images || o.images,
+            raw: self.config.list_raw || o.raw,
+            videos: self.config.videos || o.videos,
+            hidden: self.config.show_hidden || o.hidden,
+        }
+    }
+
+    /// The file types to list, as the file classes of Geeqie's file filter; beside the sort menu.
+    fn types_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let c = &mut self.config;
+        let mut all = vec![("Images", &mut c.list_images), ("RAW", &mut c.list_raw)];
+        if cfg!(feature = "video") {
+            all.push(("Videos", &mut c.videos));
+        }
+        let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
+        let title = match on.len() {
+            n if n == all.len() => "All types".to_owned(),
+            0 => "No types".to_owned(),
+            _ => on.join(", "),
+        };
+        let mut changed = false;
+        ui.menu_button(format!("{title} ⏷"), |ui| {
+            for (label, on) in all {
+                changed |= ui.checkbox(on, label).changed();
+            }
+        });
+        if changed {
+            self.config.save();
+            self.list(ctx);
+        }
+    }
+
+    /// Geeqie's sort menu in the status bar.
+    fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let mut changed = false;
+        scroll_menu(ui, format!("{} ⏷", self.config.sort.entry().2), |ui| {
+            for (sort, _, label) in SORTS {
+                if ui
+                    .selectable_label(self.config.sort == sort, label)
+                    .clicked()
+                {
+                    self.config.sort = sort;
+                    changed = true;
+                }
+            }
+            ui.separator();
+            changed |= ui
+                .checkbox(&mut self.config.sort_ascending, "Ascending")
+                .changed();
+            changed |= ui.checkbox(&mut self.config.sort_case, "Case").changed();
+        });
+        if changed {
+            self.config.save();
+            // A chosen order replaces a shuffled one (kept after a random slideshow).
+            self.random = false;
+            self.sort_collection = self.collection.is_some();
+            self.list(ctx);
+        }
+    }
+
+    /// The folder path above the folder list, as in Geeqie; Enter opens what was typed.
+    fn path_field(&mut self, ui: &mut egui::Ui) {
+        let edit = egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
+        let response = ui.add(edit);
+        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            let text = self.path_text.trim();
+            let path = match (text.strip_prefix('~'), std::env::var_os("HOME")) {
+                (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
+                    PathBuf::from(home).join(rest.trim_start_matches('/'))
+                }
+                _ => PathBuf::from(text),
+            };
+            if text.contains("://") {
+                self.mount(ui.ctx(), text.to_owned());
+            } else if path.exists() {
+                self.visit(ui.ctx(), path);
+            } else {
+                self.notice = Some(format!("No such folder: {}", path.display()));
+            }
+        }
+        if !response.has_focus() {
+            let shown = self.collection.as_ref().unwrap_or(&self.dir);
+            self.path_text = match self.folders.is_empty() {
+                true => shown.display().to_string(),
+                // Several folders: each of them.
+                false => (self.folders.iter())
+                    .map(|f| f.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(" + "),
+            };
+        }
+    }
+
+    /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
+    fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        let size = [14.0, 20.0, 28.0][self.config.toolbar_icons.min(2)];
+        egui::Panel::top("toolbar").show(ui, |ui| {
+            ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
+            ui.horizontal(|ui| {
+                tool_button(ui, act, theme::icon::BACK, Action::Back, false);
+                tool_button(ui, act, theme::icon::FORWARD, Action::Forward, false);
+                tool_button(ui, act, theme::icon::UP, Action::Up, false);
+                tool_button(ui, act, theme::icon::HOME, Action::Home, false);
+                tool_button(ui, act, theme::icon::REFRESH, Action::Refresh, false);
+                ui.separator();
+                tool_button(ui, act, theme::icon::ZOOM_IN, Action::ZoomIn, false);
+                tool_button(ui, act, theme::icon::ZOOM_OUT, Action::ZoomOut, false);
+                tool_button(ui, act, "1:1", Action::Zoom1To1, false);
+                tool_button(
+                    ui,
+                    act,
+                    theme::icon::FIT,
+                    Action::ZoomFit,
+                    self.zoom.is_none(),
+                );
+                ui.separator();
+                tool_button(
+                    ui,
+                    act,
+                    theme::icon::THUMBNAILS,
+                    Action::Thumbnails,
+                    self.config.thumbnails,
+                );
+                let show = if self.slideshow.is_some() {
+                    theme::icon::STOP
+                } else {
+                    theme::icon::PLAY
+                };
+                tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
+                tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
+            });
+        });
+    }
+
+    // ---- EXIF, keywords, comment and marks ----
+
+    /// File and EXIF details of the shown image, read in the background (Ctrl+K).
+    fn exif_panel(&mut self, ui: &mut egui::Ui) {
+        self.want_exif();
+        egui::Panel::right("exif")
+            .resizable(true)
+            .default_size(240.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
+                        ui.weak("File");
+                        ui.label(self.name(self.cur));
+                        ui.end_row();
+                        if let Some(s) = self.slots.get(&self.cur) {
+                            ui.weak("Dimensions");
+                            ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
+                            ui.end_row();
+                        }
+                        // The old rows stay until the new ones arrive, so the panel does not flicker.
+                        for (label, value) in self.exif.iter().flat_map(|e| &e.1) {
+                            ui.weak(*label);
+                            // The place opens on a map in the browser.
+                            if *label == "GPS" {
+                                let link = ui.link(value).on_hover_text("Show on OpenStreetMap");
+                                if link.clicked()
+                                    && let Some((lat, lon)) = value.split_once(", ")
+                                {
+                                    open_url(&format!(
+                                        "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
+                                    ));
+                                }
+                            } else {
+                                ui.label(value);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    ui.separator();
+                    self.meta_fields(ui);
+                });
+            });
+    }
+
+    /// Keywords and comment of the shown image, as in Geeqie's info sidebar.
+    fn meta_fields(&mut self, ui: &mut egui::Ui) {
+        let path = self.path(self.cur);
+        let Some(edit) = self.meta.as_mut().filter(|m| m.path == path) else {
+            return;
+        };
+        ui.weak("Keywords");
+        let keywords = ui.add(
+            egui::TextEdit::singleline(&mut edit.keywords)
+                .hint_text("Separated by commas")
+                .desired_width(f32::INFINITY),
+        );
+        if std::mem::take(&mut self.focus_keywords) {
+            keywords.request_focus();
+        }
+        ui.weak("Comment");
+        let comment = ui.add(
+            egui::TextEdit::multiline(&mut edit.comment)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY),
+        );
+        let add = Meta::parse_keywords(&edit.keywords);
+        let n = self.selected.len();
+        if n > 1
+            && !add.is_empty()
+            && ui
+                .button(format!("Add the keywords to the {} selected", thousands(n)))
+                .on_hover_text("Each file keeps its own keywords and gets these too")
+                .clicked()
+        {
+            self.add_keywords(ui.ctx(), add);
+        }
+        if keywords.lost_focus() || comment.lost_focus() {
+            self.save_meta();
+        }
+    }
+
+    /// Save the keywords and comment being edited, if they changed.
+    fn save_meta(&mut self) {
+        let Some(edit) = &mut self.meta else { return };
+        let meta = Meta {
+            keywords: Meta::parse_keywords(&edit.keywords),
+            comment: edit.comment.trim().to_owned(),
+        };
+        if meta == edit.saved {
+            return;
+        }
+        match meta::write(&edit.path, &meta) {
+            Ok(()) => {
+                edit.keywords = meta.keywords_text();
+                edit.saved = meta;
+                // "exif:" searches find keywords and comments too.
+                self.exif_index = None;
+            }
+            Err(e) => self.notice = Some(format!("Could not save the keywords: {e}")),
+        }
+    }
+
+    /// Add `keywords` to every selected file, in the background.
+    fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
+        // The shown image's own edit first; it is read again afterwards, with the added ones.
+        self.save_meta();
+        self.meta = None;
+        self.exif_asked = None;
+        self.exif_index = None;
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let mut errors = 0;
+            for path in &paths {
+                errors += meta::add(path, &keywords).is_err() as usize;
+            }
+            let _ = tx.send(match errors {
+                0 => format!("Keywords added to {} files", thousands(paths.len())),
+                n => format!("Keywords could not be saved for {} files", thousands(n)),
+            });
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// The exif: search index once it is read, and the search again with it.
+    fn receive_exif_index(&mut self, ctx: &egui::Context) {
+        if let Some(index) = self
+            .exif_index_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.exif_index_rx = None;
+            self.exif_index = Some(index);
+            self.update_search(ctx);
+        }
+    }
+
+    /// Stars and marks of file `i` as text ("★★★  1 4"); empty without the marks feature.
+    #[cfg(feature = "marks")]
+    fn mark_text(&self, i: usize) -> String {
+        if !self.config.show_marks {
+            return String::new();
+        }
+        marks::text(self.marks.get(&self.path(i)))
+    }
+
+    #[cfg(not(feature = "marks"))]
+    fn mark_text(&self, _: usize) -> String {
+        String::new()
+    }
+
+    // ---- The search ----
+
+    /// Fuzzy search box above the file list.
+    fn search_field(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            if !self.search.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
+                self.search.clear();
+                self.update_search(ui.ctx());
+                self.scroll_to_cur = true;
+            }
+            // A fixed ID: the ✖ button appearing in front of it must not make it a new
+            // widget, which would lose the focus after the first letter.
+            let hint = match self.config.fuzzy_search {
+                true => "Search file names (3+ letters), re: pattern, or exif: camera, date …",
+                false => "Filter file names by pattern, or exif: camera, date …",
+            };
+            let edit = egui::TextEdit::singleline(&mut self.search)
+                .id(egui::Id::new("file search"))
+                .hint_text(hint);
+            // Geeqie's file filter has its Case checkbox to the right.
+            let geeqie = !self.config.fuzzy_search;
+            let width = ui.available_width() - if geeqie { 64.0 } else { 0.0 };
+            let mut changed = ui.add(edit.desired_width(width)).changed();
+            if geeqie
+                && ui
+                    .checkbox(&mut self.config.search_case, "Case")
+                    .on_hover_text("Tell upper and lower case apart")
+                    .changed()
+            {
+                self.config.save();
+                changed = true;
+            }
+            if changed {
+                self.update_search(ui.ctx());
+            }
+        });
+        if let Some(e) = &self.search_error {
+            ui.colored_label(ui.visuals().error_fg_color, format!("Not a pattern: {e}"));
+        }
+    }
+
+    /// Run the search again; file indices change when the list does.
+    fn update_search(&mut self, ctx: &egui::Context) {
+        let query = self.search.trim().to_owned();
+        let query = query.as_str();
+        self.cur_row.set(None);
+        self.search_error = None;
+        // Geeqie's Case checkbox, shown beside the field in its mode.
+        let case = self.config.search_case && !self.config.fuzzy_search;
+        self.matches = match (query.strip_prefix("exif:"), query.strip_prefix("re:")) {
+            (Some(words), _) => Some(self.exif_matches(ctx, words)),
+            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern, case) {
+                Ok(re) => search::regex_matches(&self.files, &re),
+                Err(e) => {
+                    self.search_error = Some(e);
+                    Vec::new()
+                }
+            }),
+            _ => {
+                self.mark_matches(query)
+                    .or_else(|| match self.config.fuzzy_search {
+                        true => (query.chars().count() >= 3)
+                            .then(|| search::matches(&self.files, query)),
+                        // As Geeqie's file filter: a regular expression, from the first letter.
+                        false => (!query.is_empty()).then(|| match search::regex(query, case) {
+                            Ok(re) => search::regex_matches(&self.files, &re),
+                            Err(e) => {
+                                self.search_error = Some(e);
+                                Vec::new()
+                            }
+                        }),
+                    })
+            }
+        };
+        // Size of the matches in the background; a new search drops the receiver, which
+        // stops the old sum.
+        self.match_size = 0;
+        self.match_rx = None;
+        let Some(m) = &self.matches else { return };
+        let names: Vec<OsString> = m.iter().map(|&i| self.files[i].clone()).collect();
+        let (tx, rx) = mpsc::channel();
+        let (dir, ctx) = (self.dir.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let sizes = names
+                .iter()
+                .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
+            send_sizes(sizes, tx, &ctx);
+        });
+        self.match_rx = Some(rx);
+    }
+
+    /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
+    /// list order. The first such search in a folder reads the EXIF of all files in the
+    /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
+    /// shortcut: files added after the index was built do not match until the folder is
+    /// reopened; add them to the index as the list grows if that is missed.
+    fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
+        let re = match words.strip_prefix("re:").map(|p| search::regex(p, false)) {
+            Some(Err(e)) => {
+                self.search_error = Some(e);
+                return Vec::new();
+            }
+            Some(Ok(re)) => Some(re),
+            None => None,
+        };
+        let Some(index) = &self.exif_index else {
+            if self.exif_index_rx.is_none() {
+                let (tx, rx) = mpsc::channel();
+                let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
+                let busy = self.busy.clone();
+                busy.fetch_add(1, Ordering::Relaxed);
+                std::thread::spawn(move || {
+                    let _ = tx.send(exif_index(&dir, &files));
+                    busy.fetch_sub(1, Ordering::Relaxed);
+                    ctx.request_repaint();
+                });
+                self.exif_index_rx = Some(rx);
+            }
+            return Vec::new();
+        };
+        // The index is lowercase, as the words are made; a regular expression ignores case.
+        let words = words.to_lowercase();
+        let words: Vec<&str> = words.split_whitespace().collect();
+        let found = |text: &String| match &re {
+            Some(re) => re.is_match(text.as_bytes()),
+            None => words.iter().all(|w| text.contains(w)),
+        };
+        (0..self.files.len())
+            .filter(|&i| index.get(&self.files[i]).is_some_and(found))
+            .collect()
+    }
+
+    /// "mark:2" shows the files with mark 2, "stars:3" those with three stars or more.
+    #[cfg(feature = "marks")]
+    fn mark_matches(&self, query: &str) -> Option<Vec<usize>> {
+        let (mark, n) = match (query.strip_prefix("mark:"), query.strip_prefix("stars:")) {
+            (Some(n), _) => (
+                true,
+                n.trim()
+                    .parse::<u8>()
+                    .ok()
+                    .filter(|n| (1..=6).contains(n))?,
+            ),
+            (_, Some(n)) => (false, n.trim().parse::<u8>().ok()?),
+            _ => return None,
+        };
+        let hit = |(bits, stars): (u8, u8)| {
+            if mark {
+                bits & (1 << (n - 1)) != 0
+            } else {
+                stars >= n
+            }
+        };
+        Some(
+            (0..self.files.len())
+                .filter(|&i| hit(self.marks.get(&self.path(i))))
+                .collect(),
+        )
+    }
+
+    #[cfg(not(feature = "marks"))]
+    fn mark_matches(&self, _: &str) -> Option<Vec<usize>> {
+        None
+    }
+
+    // ---- Windows: Find Duplicates and pan view ----
 
     /// Thumbnails in the file list, or none.
     /// The Find Duplicates window: compares the images of the list in the background, and
@@ -2882,986 +4373,6 @@ impl App {
         }
     }
 
-    /// Decode everything again with or without EXIF rotation.
-    fn set_thumbnails(&mut self, on: bool) {
-        self.config.thumbnails = on;
-        self.config.save();
-        if !on {
-            self.thumbs.clear();
-            self.thumbs_pending.clear();
-        }
-        self.scroll_to_cur = true;
-    }
-
-    /// List the images of all subfolders too, or only the folder's own.
-    fn set_subfolders(&mut self, ctx: &egui::Context, on: bool) {
-        self.config.show_subfolders = on;
-        self.config.save();
-        self.recursive = on;
-        self.list(ctx);
-    }
-
-    /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
-    /// key press) or reset to Geeqie's.
-    fn key_settings(&mut self, ui: &mut egui::Ui) {
-        if let Some(action) = self.capturing {
-            let pressed = ui.input(|i| {
-                use egui::Key as K;
-                i.events.iter().find_map(|e| match e {
-                    // A modifier on its own is not the key; wait for the one pressed with it.
-                    egui::Event::Key {
-                        key,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } if !matches!(
-                        key,
-                        K::ShiftLeft
-                            | K::ShiftRight
-                            | K::ControlLeft
-                            | K::ControlRight
-                            | K::AltLeft
-                            | K::AltRight
-                            | K::SuperLeft
-                            | K::SuperRight
-                    ) =>
-                    {
-                        Some((*key, *modifiers))
-                    }
-                    _ => None,
-                })
-            });
-            if let Some((key, mods)) = pressed {
-                self.capturing = None;
-                if key != egui::Key::Escape {
-                    let mods = egui::Modifiers {
-                        mac_cmd: false,
-                        ..mods
-                    };
-                    self.config.keys.0.retain(|k| k.0 != action);
-                    self.config.keys.0.push((action, mods, key));
-                    self.config.save();
-                    if let Ok(mut own) = OWN_KEYS.write() {
-                        own.clone_from(&self.config.keys.0);
-                    }
-                }
-            }
-        }
-        let all = shortcuts();
-        let mut actions: Vec<Action> = Vec::new();
-        for s in SHORTCUTS {
-            if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
-                actions.push(s.0);
-            }
-        }
-        egui::Grid::new("keys").striped(true).show(ui, |ui| {
-            for action in actions {
-                ui.label(action.label());
-                let keys: Vec<String> = (all.iter().filter(|s| s.0 == action))
-                    .map(|s| {
-                        ui.ctx()
-                            .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
-                    })
-                    .collect();
-                if self.capturing == Some(action) {
-                    ui.strong("Press a key (Esc cancels)");
-                } else {
-                    ui.label(keys.join(", "));
-                }
-                ui.horizontal(|ui| {
-                    if ui.small_button("Change").clicked() {
-                        self.capturing = Some(action);
-                    }
-                    let own = self.config.keys.0.iter().any(|k| k.0 == action);
-                    if own && ui.small_button("Reset").clicked() {
-                        self.config.keys.0.retain(|k| k.0 != action);
-                        self.config.save();
-                        if let Ok(mut o) = OWN_KEYS.write() {
-                            o.clone_from(&self.config.keys.0);
-                        }
-                    }
-                });
-                ui.end_row();
-            }
-        });
-    }
-
-    /// Decode everything again with or without colour management.
-    fn set_color_management(&mut self, on: bool) {
-        self.config.color_management = on;
-        self.config.save();
-        COLOR_MANAGEMENT.store(on, Ordering::Relaxed);
-        self.redecode();
-    }
-
-    /// Show everything through the screen profile in `path` (empty: none, the screen is sRGB).
-    fn set_screen_profile(&mut self, path: String) {
-        if let Err(e) = set_screen(&path) {
-            self.notice = Some(e);
-            return;
-        }
-        self.config.screen_profile = path;
-        self.config.save();
-        self.use_screen();
-    }
-
-    /// Whether the desktop's screen profile goes before the chosen one; read from colord when on.
-    fn set_desktop_profile(&mut self, on: bool, ctx: &egui::Context) {
-        self.config.desktop_profile = on;
-        self.config.save();
-        if on && self.desktop_screen.is_none() {
-            self.desktop_screen_rx = Some(read_desktop_screen(ctx));
-        }
-        self.use_screen();
-    }
-
-    /// Show through the desktop's screen profile when it counts and colord has one, else through
-    /// the chosen one.
-    fn use_screen(&mut self) {
-        let path = match &self.desktop_screen {
-            Some(p) if self.config.desktop_profile => p.clone(),
-            _ => self.config.screen_profile.clone(),
-        };
-        match set_screen(&path) {
-            Ok(false) => {}
-            Ok(true) => self.redecode(),
-            Err(e) => self.notice = Some(e),
-        }
-    }
-
-    /// The profile for images without one: srgb, adobe, p3 or an ICC file.
-    fn set_input_profile(&mut self, name: String) {
-        if let Err(e) = set_input(&name) {
-            self.notice = Some(e);
-            return;
-        }
-        self.config.input_profile = name;
-        self.config.save();
-        self.redecode();
-    }
-
-    /// Whether an image's own profile counts, or the input profile is used for all.
-    fn set_own_profile(&mut self, on: bool) {
-        set_colour(|c| c.own = on);
-        self.config.own_profile = on;
-        self.config.save();
-        self.redecode();
-    }
-
-    /// The rendering intent, from `INTENTS`.
-    fn set_rendering_intent(&mut self, name: String) {
-        set_intent(&name);
-        self.config.rendering_intent = name;
-        self.config.save();
-        self.redecode();
-    }
-
-    /// Colour management, as in Geeqie's View → Color Management and in Preferences: on or off,
-    /// the profile of images without one, whether an image's own counts, and the screen profile.
-    fn colour_settings(&mut self, ui: &mut egui::Ui) {
-        let mut cm = self.config.color_management;
-        if ui.checkbox(&mut cm, "Colour management").changed() {
-            self.set_color_management(cm);
-        }
-        ui.add_enabled_ui(cm, |ui| {
-            let mut own = self.config.own_profile;
-            if ui
-                .checkbox(&mut own, "Use the image's own profile")
-                .changed()
-            {
-                self.set_own_profile(own);
-            }
-            ui.label("Images without a profile:");
-            let current = self.config.input_profile.clone();
-            for (value, label) in INPUT_PROFILES {
-                if ui.radio(current == value, label).clicked() && current != value {
-                    self.set_input_profile(value.to_owned());
-                }
-            }
-            let own_file = !INPUT_PROFILES.iter().any(|p| p.0 == current);
-            let file = Path::new(&current).file_name().filter(|_| own_file);
-            let label = file.map_or("Profile file…".into(), |n| {
-                format!("{}…", n.to_string_lossy())
-            });
-            if ui.radio(own_file, label).clicked() {
-                self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
-            }
-            let mut desktop = self.config.desktop_profile;
-            if ui
-                .checkbox(&mut desktop, "Use the desktop's screen profile")
-                .on_hover_text("From colord, which GNOME and KDE set")
-                .changed()
-            {
-                self.set_desktop_profile(desktop, ui.ctx());
-            }
-            let from_desktop =
-                (self.desktop_screen.clone()).filter(|_| self.config.desktop_profile);
-            ui.horizontal(|ui| {
-                ui.label("Screen profile:");
-                if let Some(path) = from_desktop {
-                    let name = Path::new(&path).file_name().unwrap_or_default();
-                    let name = format!("{}, from the desktop", name.to_string_lossy());
-                    ui.label(name).on_hover_text(path);
-                    return;
-                }
-                let file = Path::new(&self.config.screen_profile).file_name();
-                let name = file.map_or("none, sRGB".into(), |n| n.to_string_lossy());
-                ui.label(name).on_hover_text(&self.config.screen_profile);
-                if ui.button("Choose…").clicked() {
-                    self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
-                }
-                if !self.config.screen_profile.is_empty() && ui.button("None").clicked() {
-                    self.set_screen_profile(String::new());
-                }
-            });
-            ui.label("Rendering intent:");
-            let current = self.config.rendering_intent.clone();
-            for (value, label, _) in INTENTS {
-                if ui.radio(current == value, label).clicked() && current != value {
-                    self.set_rendering_intent(value.to_owned());
-                }
-            }
-        });
-    }
-
-    /// Decode the images and thumbnails again, to be shown in other colours.
-    fn redecode(&mut self) {
-        self.slots.clear();
-        self.pending.clear();
-        self.errors.clear();
-        self.thumbs.clear();
-        self.thumbs_pending.clear();
-        self.last_drawn = None;
-        self.refill();
-    }
-
-    /// Decode everything again with or without EXIF rotation.
-    fn set_exif_rotate(&mut self, on: bool) {
-        self.config.exif_rotate = on;
-        self.config.save();
-        self.rotate.store(on, Ordering::Relaxed);
-        // The thumbnails too, which are turned by it as well.
-        self.redecode();
-    }
-
-    /// Random order changed in the menu or preferences: reshuffle now if a slideshow runs.
-    fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
-        self.config.random = on;
-        self.config.save();
-        if self.slideshow.is_some() {
-            self.shuffle_list(ctx, on);
-            self.title(ctx);
-        }
-    }
-
-    /// A random order ends with the slideshow: the list goes back to the chosen sort order,
-    /// keeping the shown image.
-    fn stop_slideshow(&mut self, ctx: &egui::Context) {
-        self.slideshow = None;
-        self.paused = false;
-        if self.recursive != self.config.show_subfolders {
-            self.recursive = self.config.show_subfolders;
-            self.random = false;
-            self.list(ctx);
-        } else if self.random {
-            self.shuffle_list(ctx, false);
-        }
-        self.title(ctx);
-    }
-
-    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no images.
-    fn title(&self, ctx: &egui::Context) {
-        let name = match (self.files.get(self.cur), &self.collection) {
-            (Some(_), _) => self.name(self.cur).into_owned(),
-            (None, Some(file)) => file.display().to_string(),
-            (None, None) => self.dir.display().to_string(),
-        };
-        // A named Glimt says which it is.
-        let app = match remote::given_name() {
-            Some(n) => format!("Glimt ({n})"),
-            None => "Glimt".to_owned(),
-        };
-        let title = if self.config.app_name_first {
-            format!("{app} - {name}")
-        } else {
-            format!("{name} - {app}")
-        };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
-    }
-
-    /// Switch image when the time is up. Waits for a preloaded image that is still
-    /// decoding, so the slideshow never shows a black screen.
-    fn slideshow_tick(&mut self, ctx: &egui::Context) {
-        let Some(last) = self.slideshow else { return };
-        // Waits while Rename or a delete asks about the shown image.
-        if self.files.is_empty()
-            || self.paused
-            || self.prompt.is_some()
-            || self.confirm_delete.is_some()
-        {
-            return;
-        }
-        // Several panes: the next set together, or the next image into one pane at a time.
-        let n = self.panes.len() + 1;
-        let turns = n > 1 && self.one_at_a_time();
-        let next = match n {
-            1 => self.step(1, true),
-            _ if turns => self.step_from(self.last_slide, 1, true),
-            _ => self.step(n as isize, true),
-        };
-        let Some(next) = next else {
-            return;
-        };
-        let first = self.step(-isize::MAX / 2, false);
-        let delay = std::time::Duration::from_secs(self.config.delay);
-        let left = delay.saturating_sub(last.elapsed());
-        if !left.is_zero() {
-            ctx.request_repaint_after(left);
-        } else if Some(next) == first && !self.config.slideshow_repeat {
-            self.stop_slideshow(ctx);
-        } else if self.random && Some(next) == first && self.files.len() > 2 {
-            // New round: shuffle again instead of repeating the same order.
-            self.shuffle_list(ctx, true);
-        } else if !self.pending.contains(&(next, false)) {
-            let before = self.shown_textures();
-            if turns && self.next_pane > 0 {
-                self.panes[self.next_pane - 1] = next;
-                self.refill();
-            } else {
-                self.go(ctx, next);
-            }
-            self.fade = before.map(|b| (Instant::now(), b));
-            if turns {
-                (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
-            }
-            self.slideshow = Some(Instant::now());
-        }
-    }
-
-    /// The fade's length: none in power saving, where every frame counts.
-    fn fade_ms(&self) -> u64 {
-        match self.config.cpu_use {
-            0 => 0,
-            _ => FADES[self.config.fade].2,
-        }
-    }
-
-    /// The textures each pane shows now, for a fade to start from; `None` with fading off.
-    fn shown_textures(&self) -> Option<Vec<Option<Shown>>> {
-        (self.fade_ms() > 0).then(|| {
-            (std::iter::once(self.cur).chain(self.panes.iter().copied()))
-                .map(|i| self.slots.get(&i).map(|s| (s.tex.clone(), s.orig)))
-                .collect()
-        })
-    }
-
-    /// Pane `k` fading from another image to `now`: how far (0 to 1, eased), and the image it
-    /// fades from. Ends the fade when it is done; asks for the next frame while it runs.
-    fn fading(
-        &mut self,
-        ctx: &egui::Context,
-        k: usize,
-        now: egui::TextureId,
-    ) -> Option<(f32, egui::TextureHandle, [usize; 2])> {
-        let (start, from) = self.fade.as_ref()?;
-        let t = start.elapsed().as_millis() as f32 / self.fade_ms().max(1) as f32;
-        if t >= 1.0 {
-            self.fade = None;
-            return None;
-        }
-        ctx.request_repaint();
-        let (tex, orig) = from.get(k)?.as_ref().filter(|f| f.0.id() != now)?;
-        Some((t * t * (3.0 - 2.0 * t), tex.clone(), *orig))
-    }
-
-    /// The image shown next to the current one when comparing: the other of two selected
-    /// files, else the next image.
-    fn compare_other(&self) -> Option<usize> {
-        if !self.compare {
-            return None;
-        }
-        match self.selected.iter().collect::<Vec<_>>()[..] {
-            [&a, &b] => Some(if a == self.cur { b } else { a }),
-            _ => self.step(1, false).filter(|&i| i != self.cur),
-        }
-    }
-
-    /// The layout's slideshow changes one pane at a time.
-    fn one_at_a_time(&self) -> bool {
-        let layout = &self.config.layout;
-        self.config.layout_turns.split(',').any(|l| l == layout)
-    }
-
-    /// The panes after the first show the images that follow the shown one, except while a
-    /// slideshow changes them one at a time.
-    fn fill_panes(&mut self) {
-        let [c, r] = layout_grid(&self.config.layout);
-        let n = c * r;
-        let kept = self.slideshow.is_some()
-            && self.one_at_a_time()
-            && self.panes.len() + 1 == n
-            && self.panes.iter().all(|&i| i < self.files.len());
-        if kept {
-            return;
-        }
-        self.panes = (1..n as isize).filter_map(|k| self.step(k, true)).collect();
-        self.last_slide = self.panes.last().copied().unwrap_or(self.cur);
-        self.next_pane = 0;
-    }
-
-    fn set_layout(&mut self, layout: &str) {
-        self.config.layout = layout.to_owned();
-        self.config.save();
-        // Comparing is a layout of its own.
-        self.compare = false;
-        self.refill();
-    }
-
-    /// Drop textures outside the preload window, and full-resolution versions of images other
-    /// than the shown one; request the missing ones.
-    fn refill(&mut self) {
-        if self.files.is_empty() {
-            return;
-        }
-        self.fill_panes();
-        // The shown image first, then its neighbours in the order the list shows.
-        let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed) as isize);
-        let mut window = vec![cur];
-        // The compared image second: it may be loaded at full resolution too.
-        let other = self.compare_other().filter(|&i| i != cur);
-        window.extend(other);
-        // The other panes, which may be zoomed too, and the images a slideshow shows in them next.
-        window.extend(self.panes.iter().filter(|&&i| i != cur && Some(i) != other));
-        let full = window.len();
-        self.full_ok.store(full, Ordering::Relaxed);
-        let n = self.panes.len() + 1;
-        let upcoming = (1..=n as isize).filter_map(|d| self.step_from(self.last_slide, d, true));
-        for i in self
-            .panes
-            .iter()
-            .copied()
-            .chain(upcoming.collect::<Vec<_>>())
-        {
-            if !window.contains(&i) {
-                window.push(i);
-            }
-        }
-        for d in (1..=ahead).flat_map(|d| [d, -d]) {
-            if let Some(i) = self.step(d, false).filter(|i| !window.contains(i)) {
-                window.push(i);
-            }
-        }
-        self.slots
-            .retain(|i, s| window.contains(i) && (!s.full || window[..full].contains(i)));
-        *self.keep.lock().unwrap() = window.clone();
-        for i in window {
-            self.request(i, false);
-        }
-    }
-
-    fn receive_decoded(&mut self, ctx: &egui::Context) {
-        while let Ok(d) = self.decoded_rx.try_recv() {
-            self.pending.remove(&(d.idx, d.full));
-            let wanted = self.is_file(d.idx, &d.path)
-                && d.rotated == self.config.exif_rotate
-                && d.page == if d.idx == self.cur { self.page } else { 0 }
-                && self.keep.lock().unwrap().contains(&d.idx)
-                && (!d.full || d.idx == self.cur || Some(d.idx) == self.compare_other());
-            match d.result {
-                Some(Ok((frames, orig, hist, pages))) if wanted => {
-                    // A screen-size version must not replace a full-resolution one already loaded.
-                    if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
-                        continue;
-                    }
-                    let mut anim: Vec<_> = (frames.into_iter().enumerate())
-                        .map(|(n, (img, ms))| {
-                            let name = format!("img{} {n}", d.idx);
-                            (
-                                ctx.load_texture(name, img, egui::TextureOptions::LINEAR),
-                                ms,
-                            )
-                        })
-                        .collect();
-                    let tex = anim[0].0.clone();
-                    if anim.len() == 1 {
-                        anim.clear();
-                    }
-                    self.slots.insert(
-                        d.idx,
-                        Slot {
-                            tex,
-                            path: d.path,
-                            full: d.full,
-                            orig,
-                            anim,
-                            hist,
-                            pages,
-                        },
-                    );
-                    if d.idx == self.cur
-                        && let Some(t) = self.started.take()
-                    {
-                        eprintln!("first image: {} ms", t.elapsed().as_millis());
-                    }
-                }
-                Some(Err(e)) if wanted => {
-                    self.errors.insert(d.idx, e);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    /// Preferences → CPU use: power saving, balanced or full.
-    fn cpu_settings(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label("CPU use:");
-            for (k, (name, hover)) in CPU_LEVELS.iter().enumerate() {
-                if ui
-                    .radio(self.config.cpu_use == k, *name)
-                    .on_hover_text(*hover)
-                    .clicked()
-                {
-                    self.config.cpu_use = k;
-                    set_cpu_use(k);
-                    self.config.save();
-                }
-            }
-        });
-    }
-
-    /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
-    /// values are Custom.
-    fn memory_settings(&mut self, ui: &mut egui::Ui) {
-        let c = &self.config;
-        let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
-        let level = (MEMORY_LEVELS.iter())
-            .find(|l| (l.preload, l.decode_threads, l.animation_mb, l.one_arena) == now);
-        let (mut chosen, mut custom) = (None, false);
-        ui.horizontal(|ui| {
-            ui.label("Memory use:");
-            for l in &MEMORY_LEVELS {
-                let on = level.is_some_and(|m| m.name == l.name);
-                if ui.radio(on, l.name).on_hover_text(l.hover).clicked() {
-                    chosen = Some(*l);
-                }
-            }
-            // Chosen by changing the details, which it opens.
-            custom = ui.radio(level.is_none(), "Custom").clicked();
-        });
-        if let Some(l) = chosen {
-            self.set_preload(l.preload);
-            (self.config.decode_threads, self.config.animation_mb) =
-                (l.decode_threads, l.animation_mb);
-            self.config.low_memory = l.one_arena;
-            MAX_ANIMATION.store(l.animation_mb << 20, Ordering::Relaxed);
-            self.config.save();
-        }
-        let restart = "Decoding threads and one malloc arena take effect after a restart.";
-        egui::CollapsingHeader::new("Details")
-            .open((level.is_none() || custom).then_some(true))
-            .show(ui, |ui| {
-                let mut n = self.config.preload;
-                ui.label("Preload next and previous images:");
-                let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
-                if ui.add(slider).changed() {
-                    self.set_preload(n);
-                    self.config.save();
-                }
-                let [w, h] = self.limits.lock().unwrap()[0];
-                let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
-                ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
-                let c = &mut self.config;
-                let mut changed = ui
-                    .add(
-                        egui::Slider::new(&mut c.decode_threads, 1..=8)
-                            .text("images decoded at once"),
-                    )
-                    .changed();
-                let animation = egui::Slider::new(&mut c.animation_mb, 8..=1024)
-                    .logarithmic(true)
-                    .text("MB at most for an animation's frames");
-                if ui.add(animation).changed() {
-                    MAX_ANIMATION.store(c.animation_mb << 20, Ordering::Relaxed);
-                    changed = true;
-                }
-                let low = "One malloc arena: much less memory, decoding up to ~8 % slower";
-                changed |= ui.checkbox(&mut c.low_memory, low).changed();
-                ui.weak(restart);
-                if changed {
-                    c.save();
-                }
-            });
-    }
-
-    /// Preload `n` images on each side.
-    fn set_preload(&mut self, n: usize) {
-        self.ahead.store(n, Ordering::Relaxed);
-        self.refill();
-        self.config.preload = n;
-    }
-
-    /// The file types the list shows, from the Types menu.
-    /// The type of a file opened directly is listed too, in its folder.
-    fn types(&self) -> Types {
-        let o = self.opened_type;
-        Types {
-            images: self.config.list_images || o.images,
-            raw: self.config.list_raw || o.raw,
-            videos: self.config.videos || o.videos,
-            hidden: self.config.show_hidden || o.hidden,
-        }
-    }
-
-    /// The file types to list, as the file classes of Geeqie's file filter; beside the sort menu.
-    fn types_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        let c = &mut self.config;
-        let mut all = vec![("Images", &mut c.list_images), ("RAW", &mut c.list_raw)];
-        if cfg!(feature = "video") {
-            all.push(("Videos", &mut c.videos));
-        }
-        let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
-        let title = match on.len() {
-            n if n == all.len() => "All types".to_owned(),
-            0 => "No types".to_owned(),
-            _ => on.join(", "),
-        };
-        let mut changed = false;
-        ui.menu_button(format!("{title} ⏷"), |ui| {
-            for (label, on) in all {
-                changed |= ui.checkbox(on, label).changed();
-            }
-        });
-        if changed {
-            self.config.save();
-            self.list(ctx);
-        }
-    }
-
-    /// Geeqie's sort menu in the status bar.
-    fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        let mut changed = false;
-        scroll_menu(ui, format!("{} ⏷", self.config.sort.entry().2), |ui| {
-            for (sort, _, label) in SORTS {
-                if ui
-                    .selectable_label(self.config.sort == sort, label)
-                    .clicked()
-                {
-                    self.config.sort = sort;
-                    changed = true;
-                }
-            }
-            ui.separator();
-            changed |= ui
-                .checkbox(&mut self.config.sort_ascending, "Ascending")
-                .changed();
-            changed |= ui.checkbox(&mut self.config.sort_case, "Case").changed();
-        });
-        if changed {
-            self.config.save();
-            // A chosen order replaces a shuffled one (kept after a random slideshow).
-            self.random = false;
-            self.sort_collection = self.collection.is_some();
-            self.list(ctx);
-        }
-    }
-
-    /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
-    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
-    fn inhibit(&mut self, on: bool) {
-        if on == self.inhibitor.is_some() {
-            return;
-        }
-        if let Some(mut child) = self.inhibitor.take() {
-            let _ = child.kill();
-            std::thread::spawn(move || child.wait());
-            return;
-        }
-        let commands: [&[&str]; 2] = [
-            &[
-                "gnome-session-inhibit",
-                "--inhibit",
-                "idle",
-                "--reason",
-                "Glimt full screen",
-                "cat",
-            ],
-            &[
-                "systemd-inhibit",
-                "--what=idle",
-                "--who=Glimt",
-                "--why=Full screen",
-                "cat",
-            ],
-        ];
-        self.inhibitor = commands.iter().find_map(|c| {
-            command(c[0])
-                .args(&c[1..])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .ok()
-        });
-    }
-
-    /// The folder path above the folder list, as in Geeqie; Enter opens what was typed.
-    fn path_field(&mut self, ui: &mut egui::Ui) {
-        let edit = egui::TextEdit::singleline(&mut self.path_text).desired_width(f32::INFINITY);
-        let response = ui.add(edit);
-        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let text = self.path_text.trim();
-            let path = match (text.strip_prefix('~'), std::env::var_os("HOME")) {
-                (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
-                    PathBuf::from(home).join(rest.trim_start_matches('/'))
-                }
-                _ => PathBuf::from(text),
-            };
-            if text.contains("://") {
-                self.mount(ui.ctx(), text.to_owned());
-            } else if path.exists() {
-                self.visit(ui.ctx(), path);
-            } else {
-                self.notice = Some(format!("No such folder: {}", path.display()));
-            }
-        }
-        if !response.has_focus() {
-            let shown = self.collection.as_ref().unwrap_or(&self.dir);
-            self.path_text = match self.folders.is_empty() {
-                true => shown.display().to_string(),
-                // Several folders: each of them.
-                false => (self.folders.iter())
-                    .map(|f| f.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" + "),
-            };
-        }
-    }
-
-    /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
-    fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        let size = [14.0, 20.0, 28.0][self.config.toolbar_icons.min(2)];
-        egui::Panel::top("toolbar").show(ui, |ui| {
-            ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
-            ui.horizontal(|ui| {
-                tool_button(ui, act, theme::icon::BACK, Action::Back, false);
-                tool_button(ui, act, theme::icon::FORWARD, Action::Forward, false);
-                tool_button(ui, act, theme::icon::UP, Action::Up, false);
-                tool_button(ui, act, theme::icon::HOME, Action::Home, false);
-                tool_button(ui, act, theme::icon::REFRESH, Action::Refresh, false);
-                ui.separator();
-                tool_button(ui, act, theme::icon::ZOOM_IN, Action::ZoomIn, false);
-                tool_button(ui, act, theme::icon::ZOOM_OUT, Action::ZoomOut, false);
-                tool_button(ui, act, "1:1", Action::Zoom1To1, false);
-                tool_button(
-                    ui,
-                    act,
-                    theme::icon::FIT,
-                    Action::ZoomFit,
-                    self.zoom.is_none(),
-                );
-                ui.separator();
-                tool_button(
-                    ui,
-                    act,
-                    theme::icon::THUMBNAILS,
-                    Action::Thumbnails,
-                    self.config.thumbnails,
-                );
-                let show = if self.slideshow.is_some() {
-                    theme::icon::STOP
-                } else {
-                    theme::icon::PLAY
-                };
-                tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
-                tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
-            });
-        });
-    }
-
-    /// Full screen info in the top left corner: name and place, then size and EXIF.
-    fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
-        self.want_exif();
-        let mut info = Vec::new();
-        if let Some(s) = self.slots.get(&self.cur) {
-            info.push(format!("{} × {}", s.orig[0], s.orig[1]));
-        }
-        let path = self.path(self.cur);
-        if let Some((_, rows)) = self.exif.as_ref().filter(|e| e.0 == path) {
-            let wanted = [
-                "File size",
-                "Taken",
-                "Exposure",
-                "Aperture",
-                "ISO",
-                "Focal length",
-            ];
-            for (label, value) in rows.iter().filter(|r| wanted.contains(&r.0)) {
-                info.push(if *label == "ISO" {
-                    format!("ISO {value}")
-                } else {
-                    value.clone()
-                });
-            }
-        }
-        let marks = self.mark_text(self.cur);
-        if !marks.is_empty() {
-            info.push(marks);
-        }
-        let name = self.name(self.cur);
-        let text = format!("{name}  {}\n{}", self.place(), info.join(" · "));
-        let p = ui.painter();
-        let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
-        let at = egui::Rect::from_min_size(
-            area.min + egui::vec2(12.0, 12.0),
-            galley.size() + egui::vec2(20.0, 12.0),
-        );
-        p.rect_filled(at, 6.0, egui::Color32::from_black_alpha(150));
-        p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
-    }
-
-    /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
-    fn want_exif(&mut self) {
-        let path = self.path(self.cur);
-        if self.exif_asked.as_ref() != Some(&path) {
-            let _ = self.exif_jobs.send(path.clone());
-            self.exif_asked = Some(path);
-        }
-        let done: Vec<ExifRead> = self.exif_done.try_iter().collect();
-        for (path, rows, all, meta) in done {
-            // Kept while being edited: the reader may answer for the image again.
-            if self.meta.as_ref().is_none_or(|m| m.path != path) {
-                self.save_meta();
-                self.meta = Some(MetaEdit {
-                    path: path.clone(),
-                    keywords: meta.keywords_text(),
-                    comment: meta.comment.clone(),
-                    saved: meta,
-                });
-            }
-            self.exif = Some((path, rows));
-            self.exif_all = all;
-        }
-    }
-
-    /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
-    /// `place` of image `idx` in another pane; the search matches are looked through once per
-    /// image, not every frame.
-    fn place_of(&mut self, idx: usize) -> String {
-        let total = self.matches.as_ref().map_or(self.files.len(), Vec::len);
-        if let Some((i, t, text)) = &self.status_place
-            && (*i, *t) == (idx, total)
-        {
-            return text.clone();
-        }
-        let row = match &self.matches {
-            Some(m) => m.iter().position(|&x| x == idx),
-            None => Some(idx),
-        };
-        let row = row.map_or("–".into(), |r| thousands(r + 1));
-        let text = format!("[{row}/{}]", thousands(total));
-        self.status_place = Some((idx, total, text.clone()));
-        text
-    }
-
-    fn place(&self) -> String {
-        match &self.matches {
-            Some(m) => match self.cur_row(m) {
-                Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
-                None => format!("[–/{}]", thousands(m.len())),
-            },
-            None => format!(
-                "[{}/{}]",
-                thousands(self.cur + 1),
-                thousands(self.files.len())
-            ),
-        }
-    }
-
-    /// The sort manager (Shift+S), as in Geeqie: a click on a folder copies or moves the selected
-    /// files, or the shown one, there.
-    fn sort_manager(&mut self, ui: &mut egui::Ui) {
-        let mut remove = None;
-        egui::Panel::right("sort manager")
-            .resizable(true)
-            .default_size(200.0)
-            .show(ui, |ui| {
-                ui.strong("Sort Manager");
-                ui.horizontal(|ui| {
-                    let c = &mut self.config;
-                    let changed = ui.radio_value(&mut c.sort_move, false, "Copy").changed()
-                        | ui.radio_value(&mut c.sort_move, true, "Move").changed();
-                    if changed {
-                        c.save();
-                    }
-                });
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .small_button(theme::icon::CLOSE)
-                                .on_hover_text("Remove")
-                                .clicked()
-                            {
-                                remove = Some(k);
-                            }
-                            let name = dir.file_name().unwrap_or(dir.as_os_str());
-                            let here = dir == self.dir;
-                            let button = ui.add_enabled(
-                                !here && !self.files.is_empty(),
-                                egui::Button::new(name.to_string_lossy()),
-                            );
-                            if button.on_hover_text(dir.display().to_string()).clicked() {
-                                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
-                                self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
-                            }
-                        });
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button("Add This Folder").clicked() {
-                            self.add_sort_folder(self.dir.clone());
-                        }
-                        if ui.button("Add…").clicked() {
-                            self.pick(ui.ctx(), true, Pick::SortFolder);
-                        }
-                    });
-                });
-            });
-        if let Some(k) = remove {
-            self.sort_folders.remove(k);
-            self.save_sort_folders();
-        }
-    }
-
-    fn add_sort_folder(&mut self, dir: PathBuf) {
-        if !self.sort_folders.contains(&dir) {
-            self.sort_folders.push(dir);
-            self.save_sort_folders();
-        }
-    }
-
-    fn save_sort_folders(&mut self) {
-        // As bytes: a name that is not UTF-8 (an old Windows share) must come back the same.
-        let mut text = Vec::new();
-        for d in &self.sort_folders {
-            let bytes = d.as_os_str().as_encoded_bytes();
-            if !bytes.contains(&b'\n') {
-                text.extend(bytes);
-                text.push(b'\n');
-            }
-        }
-        let saved = sort_folders_path()
-            .ok_or("no home folder".to_owned())
-            .and_then(|p| {
-                let _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
-                std::fs::write(&p, text).map_err(|e| e.to_string())
-            });
-        if let Err(e) = saved {
-            self.notice = Some(format!("Could not save the sort manager's folders: {e}"));
-        }
-    }
-
     /// The pan view (Ctrl+J): the images of the list by day. A click shows one, a double click
     /// also closes the view.
     fn pan_view(&mut self, ctx: &egui::Context) {
@@ -3990,958 +4501,477 @@ impl App {
         }
     }
 
-    /// File and EXIF details of the shown image, read in the background (Ctrl+K).
-    fn exif_panel(&mut self, ui: &mut egui::Ui) {
-        self.want_exif();
-        egui::Panel::right("exif")
-            .resizable(true)
-            .default_size(240.0)
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
-                        ui.weak("File");
-                        ui.label(self.name(self.cur));
-                        ui.end_row();
-                        if let Some(s) = self.slots.get(&self.cur) {
-                            ui.weak("Dimensions");
-                            ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
-                            ui.end_row();
-                        }
-                        // The old rows stay until the new ones arrive, so the panel does not flicker.
-                        for (label, value) in self.exif.iter().flat_map(|e| &e.1) {
-                            ui.weak(*label);
-                            // The place opens on a map in the browser.
-                            if *label == "GPS" {
-                                let link = ui.link(value).on_hover_text("Show on OpenStreetMap");
-                                if link.clicked()
-                                    && let Some((lat, lon)) = value.split_once(", ")
-                                {
-                                    open_url(&format!(
-                                        "https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=15/{lat}/{lon}"
-                                    ));
-                                }
-                            } else {
-                                ui.label(value);
-                            }
-                            ui.end_row();
-                        }
-                    });
-                    ui.separator();
-                    self.meta_fields(ui);
-                });
-            });
+    // ---- Settings and the menus that change them ----
+
+    /// The chosen theme, read from its file again, with the desktop's look where it sets none.
+    fn apply_theme(&self, ctx: &egui::Context) {
+        let (dark, accent) = self.desktop_look;
+        theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
     }
 
-    /// Keywords and comment of the shown image, as in Geeqie's info sidebar.
-    fn meta_fields(&mut self, ui: &mut egui::Ui) {
-        let path = self.path(self.cur);
-        let Some(edit) = self.meta.as_mut().filter(|m| m.path == path) else {
-            return;
-        };
-        ui.weak("Keywords");
-        let keywords = ui.add(
-            egui::TextEdit::singleline(&mut edit.keywords)
-                .hint_text("Separated by commas")
-                .desired_width(f32::INFINITY),
-        );
-        if std::mem::take(&mut self.focus_keywords) {
-            keywords.request_focus();
+    /// View → Theme: the themes to choose from, then where to make and find more.
+    fn theme_menu(&mut self, ui: &mut egui::Ui) {
+        for name in theme::names() {
+            // Chosen again too, so a theme file just edited shows.
+            if ui.radio(self.config.theme == name, &name).clicked() {
+                self.config.theme = name;
+                self.config.save();
+                self.apply_theme(ui.ctx());
+            }
         }
-        ui.weak("Comment");
-        let comment = ui.add(
-            egui::TextEdit::multiline(&mut edit.comment)
-                .desired_rows(3)
-                .desired_width(f32::INFINITY),
-        );
-        let add = Meta::parse_keywords(&edit.keywords);
-        let n = self.selected.len();
-        if n > 1
-            && !add.is_empty()
-            && ui
-                .button(format!("Add the keywords to the {} selected", thousands(n)))
-                .on_hover_text("Each file keeps its own keywords and gets these too")
-                .clicked()
+        ui.separator();
+        self.theme_buttons(ui);
+    }
+
+    /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
+    fn theme_buttons(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Save as Theme…").clicked() {
+            self.prompt = Some((Prompt::SaveTheme, String::new()));
+        }
+        if ui.button("Open Themes Folder").clicked()
+            && let Some(dir) = theme::dir()
         {
-            self.add_keywords(ui.ctx(), add);
+            let _ = std::fs::create_dir_all(&dir);
+            open_url(&dir.to_string_lossy());
         }
-        if keywords.lost_focus() || comment.lost_focus() {
-            self.save_meta();
+        if ui.button("Get More Themes…").clicked() {
+            open_url("https://github.com/thornbux/glimt/tree/main/themes");
         }
     }
 
-    /// Save the keywords and comment being edited, if they changed.
-    fn save_meta(&mut self) {
-        let Some(edit) = &mut self.meta else { return };
-        let meta = Meta {
-            keywords: Meta::parse_keywords(&edit.keywords),
-            comment: edit.comment.trim().to_owned(),
-        };
-        if meta == edit.saved {
-            return;
-        }
-        match meta::write(&edit.path, &meta) {
-            Ok(()) => {
-                edit.keywords = meta.keywords_text();
-                edit.saved = meta;
-                // "exif:" searches find keywords and comments too.
-                self.exif_index = None;
+    /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
+    /// they are read again afterwards, as plugins change them.
+    fn plugins_menu(&mut self, ui: &mut egui::Ui) {
+        scroll_menu(ui, "Plugins", |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
+            if self.plugins.is_empty() {
+                ui.weak("No plugins");
             }
-            Err(e) => self.notice = Some(format!("Could not save the keywords: {e}")),
-        }
-    }
-
-    /// Add `keywords` to every selected file, in the background.
-    fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
-        // The shown image's own edit first; it is read again afterwards, with the added ones.
-        self.save_meta();
-        self.meta = None;
-        self.exif_asked = None;
-        self.exif_index = None;
-        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            let mut errors = 0;
-            for path in &paths {
-                errors += meta::add(path, &keywords).is_err() as usize;
-            }
-            let _ = tx.send(match errors {
-                0 => format!("Keywords added to {} files", thousands(paths.len())),
-                n => format!("Keywords could not be saved for {} files", thousands(n)),
-            });
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
-    }
-
-    fn receive_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok((path, result)) = self.thumbs_done.try_recv() {
-            // The name as the list has it: with its folders in a slideshow with subfolders.
-            let Ok(name) = path.strip_prefix(&self.dir).map(Path::as_os_str) else {
-                continue;
-            };
-            self.thumbs_pending.remove(name);
-            if let Some(img) = result {
-                let tex = img.map(|img| {
-                    ctx.load_texture(
-                        format!("thumb {}", path.display()),
-                        img,
-                        egui::TextureOptions::LINEAR,
-                    )
-                });
-                self.thumbs.insert(name.to_owned(), tex);
-            }
-        }
-    }
-
-    /// A file list row with a thumbnail; true when clicked.
-    fn file_row(
-        &mut self,
-        ui: &mut egui::Ui,
-        i: usize,
-        height: f32,
-        marked: bool,
-    ) -> egui::Response {
-        let size = egui::vec2(ui.available_width(), height);
-        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-        let visuals = ui.visuals();
-        if marked || response.hovered() {
-            let fill = if marked {
-                visuals.selection.bg_fill
-            } else {
-                visuals.widgets.hovered.weak_bg_fill
-            };
-            ui.painter().rect_filled(rect, 2.0, fill);
-        }
-        let text_color = if marked {
-            visuals.selection.stroke.color
-        } else {
-            visuals.text_color()
-        };
-        let thumbs = self.config.thumbnails;
-        let frame = egui::Rect::from_min_size(
-            rect.min + egui::vec2(2.0, 2.0),
-            if thumbs {
-                self.thumb()
-            } else {
-                egui::vec2(0.0, height)
-            },
-        );
-        if thumbs {
-            self.paint_thumb(ui, i, frame);
-        }
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let gap = if thumbs { 8.0 } else { 2.0 };
-        let mut name_rect = rect.with_min_x(frame.right() + gap);
-        if self.config.file_details {
-            // Size and date columns at the right, as in Geeqie; the name is cut off before them.
-            name_rect.max.x -= DETAILS_WIDTH;
-            let (bytes, mtime) = self.file_details(i);
-            let y = rect.center().y;
-            let size_right = name_rect.max.x + DETAILS_WIDTH - DATE_WIDTH - 8.0;
-            let p = ui.painter();
-            p.text(
-                egui::pos2(size_right, y),
-                egui::Align2::RIGHT_CENTER,
-                thousands(bytes as usize),
-                font.clone(),
-                text_color,
-            );
-            p.text(
-                egui::pos2(rect.max.x - DATE_WIDTH, y),
-                egui::Align2::LEFT_CENTER,
-                local_time(mtime),
-                font.clone(),
-                text_color,
-            );
-        }
-        // Stars and marks at the right of the name, which is cut off before them.
-        let marks = self.mark_text(i);
-        if !marks.is_empty() {
-            let gold = egui::Color32::from_rgb(255, 190, 40);
-            let at = egui::pos2(name_rect.max.x - 6.0, rect.center().y);
-            let r = ui
-                .painter()
-                .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
-            name_rect.max.x = r.left() - 8.0;
-        }
-        ui.painter().with_clip_rect(name_rect).text(
-            egui::pos2(name_rect.min.x, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            self.name(i),
-            font,
-            text_color,
-        );
-        response
-    }
-
-    /// The film strip along the bottom of `area` in full screen, shown while the pointer is
-    /// near the bottom: thumbnails of the images before and after the shown one, which is
-    /// outlined. Returns the image clicked.
-    fn filmstrip(&mut self, ui: &egui::Ui, area: egui::Rect) -> Option<usize> {
-        let cell = self.thumb() + egui::vec2(8.0, 8.0);
-        let height = cell.y + 16.0;
-        let strip =
-            egui::Rect::from_min_max(egui::pos2(area.left(), area.bottom() - height), area.max);
-        if !ui.rect_contains_pointer(strip) {
-            return None;
-        }
-        let k = ((area.width() / cell.x) as isize - 1).max(0) / 2;
-        let mut shown: Vec<usize> = (-k..=k).filter_map(|d| self.step(d, false)).collect();
-        shown.dedup();
-        // Thumbnails for these, as for the rows of the file list.
-        if let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max()) {
-            self.thumb_view[0].store(first, Ordering::Relaxed);
-            self.thumb_view[1].store(last, Ordering::Relaxed);
-            let row = match self.matches.as_deref() {
-                Some(m) => self.cur_row(m).unwrap_or(0),
-                None => self.cur,
-            };
-            let k = k as usize;
-            self.trim_thumbs(row.saturating_sub(k)..row + k + 1);
-        }
-        ui.painter()
-            .rect_filled(strip, 0.0, egui::Color32::from_black_alpha(190));
-        // The shown image in the middle, where it is when there are images on both sides.
-        let at = shown.iter().position(|&i| i == self.cur).unwrap_or(0) as f32;
-        let x0 = strip.center().x - (at + 0.5) * cell.x;
-        let mut clicked = None;
-        for (n, &i) in shown.iter().enumerate() {
-            let min = egui::pos2(x0 + n as f32 * cell.x, strip.top() + 8.0);
-            let frame = egui::Rect::from_min_size(min, cell).shrink(4.0);
-            self.paint_thumb(ui, i, frame);
-            if i == self.cur {
-                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
-                ui.painter()
-                    .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
-            }
-            let id = ui.id().with(("strip", i));
-            if ui.interact(frame, id, egui::Sense::click()).clicked() {
-                clicked = Some(i);
-            }
-        }
-        clicked
-    }
-
-    /// Thumbnail `i` fitted into `frame`, or a request for it.
-    fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
-        let name = &self.files[i];
-        match self.thumbs.get(name) {
-            Some(Some(tex)) => {
-                // Fit the box, but never enlarge.
-                let px = tex.size_vec2() / ui.ctx().pixels_per_point();
-                let scale = (self.thumb().x / px.x).min(self.thumb().y / px.y).min(1.0);
-                let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
-                let at = egui::Rect::from_center_size(frame.center(), px * scale);
-                ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
-                // Videos get a small play badge in the corner.
-                if is_video(Path::new(name)) {
-                    let c = at.left_bottom() + egui::vec2(13.0, -13.0);
-                    let p = ui.painter();
-                    p.circle_filled(c, 10.0, egui::Color32::from_black_alpha(170));
-                    let triangle = vec![
-                        c + egui::vec2(-3.0, -5.5),
-                        c + egui::vec2(6.0, 0.0),
-                        c + egui::vec2(-3.0, 5.5),
-                    ];
-                    p.add(egui::Shape::convex_polygon(
-                        triangle,
-                        egui::Color32::WHITE,
-                        egui::Stroke::NONE,
-                    ));
+            let mut chosen = None;
+            for (k, plugin) in self.plugins.iter().enumerate() {
+                if ui.button(&plugin.name).clicked() {
+                    chosen = Some(k);
                 }
-            }
-            Some(None) => {}
-            None => {
-                if self.thumbs_pending.insert(name.clone()) {
-                    let _ = self.thumb_jobs.send((i, self.path(i)));
-                }
-            }
-        }
-    }
-
-    /// A cell of the thumbnail grid: the thumbnail with the name below, cut off to fit.
-    fn file_cell(
-        &mut self,
-        ui: &mut egui::Ui,
-        i: usize,
-        rect: egui::Rect,
-        marked: bool,
-    ) -> egui::Response {
-        let response = ui.interact(rect, ui.id().with(("cell", i)), egui::Sense::click());
-        let visuals = ui.visuals();
-        if marked || response.hovered() {
-            let fill = if marked {
-                visuals.selection.bg_fill
-            } else {
-                visuals.widgets.hovered.weak_bg_fill
-            };
-            ui.painter().rect_filled(rect, 2.0, fill);
-        }
-        let color = if marked {
-            visuals.selection.stroke.color
-        } else {
-            visuals.text_color()
-        };
-        let frame = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), self.thumb());
-        self.paint_thumb(ui, i, frame);
-        let font = egui::TextStyle::Small.resolve(ui.style());
-        let name = self.name(i).into_owned();
-        let mut job = egui::text::LayoutJob::simple_singleline(name, font, color);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(self.cell().x - 6.0);
-        let galley = ui.painter().layout_job(job);
-        let at = egui::pos2(
-            rect.center().x - galley.size().x / 2.0,
-            frame.bottom() + 4.0,
-        );
-        ui.painter().galley(at, galley, color);
-        let marks = self.mark_text(i);
-        if !marks.is_empty() {
-            let p = ui.painter();
-            let gold = egui::Color32::from_rgb(255, 190, 40);
-            let galley = p.layout_no_wrap(marks, egui::TextStyle::Small.resolve(ui.style()), gold);
-            let at = egui::Rect::from_min_size(
-                frame.right_top() + egui::vec2(-galley.size().x - 4.0, 3.0),
-                galley.size(),
-            );
-            p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
-            p.galley(at.min, galley, gold);
-        }
-        response.on_hover_text_at_pointer(match self.collection {
-            Some(_) => self.path(i).display().to_string(),
-            None => self.name(i).into_owned(),
-        })
-    }
-
-    /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
-    /// background when a folder is opened in the tree.
-    fn folder_tree(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
-        while let Ok((dir, subdirs)) = self.tree_rx.try_recv() {
-            self.tree.insert(dir, Some(subdirs));
-        }
-        egui::ScrollArea::both()
-            .id_salt("tree")
-            .auto_shrink(false)
-            .show(ui, |ui| self.tree_node(ui, Path::new("/"), open_dir));
-    }
-
-    /// Right-click on a folder in the list or the tree: rename it, or move it to the trash.
-    fn folder_menu(&mut self, response: &egui::Response, dir: &Path) {
-        response.context_menu(|ui| {
-            // Its images in the list together with those shown now.
-            let shown = self.folders.contains(&dir.to_path_buf()) || dir == self.dir;
-            if !shown
-                && self.collection.is_none()
-                && ui.button("Show Together with These Images").clicked()
-            {
-                let mut all = match self.folders.is_empty() {
-                    true => vec![self.dir.clone()],
-                    false => self.folders.clone(),
-                };
-                all.push(dir.to_path_buf());
-                self.together = Some(all);
-            }
-            if ui.button("Rename Folder…").clicked() {
-                let name = dir.file_name().unwrap_or_default().to_string_lossy();
-                self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
-                self.folder_target = Some(dir.to_path_buf());
-            }
-            if ui.button("Move Folder to Trash…").clicked() {
-                self.folder_target = Some(dir.to_path_buf());
-                self.confirm_folder = true;
-            }
-        });
-    }
-
-    /// Rename `folder_target` within its parent; never over another. The open folder, or one
-    /// inside it, is followed to the new name.
-    fn rename_folder(&mut self, ctx: &egui::Context, name: &str) {
-        let Some(old) = self.folder_target.take() else {
-            return;
-        };
-        let new = old.with_file_name(name);
-        if new == old {
-            return;
-        }
-        // rename() would replace an empty folder of that name.
-        let result = match new.exists() {
-            true => Err(std::io::ErrorKind::AlreadyExists.into()),
-            false => std::fs::rename(&old, &new),
-        };
-        if let Err(e) = result {
-            self.notice = Some(format!("{}: {e}", new.display()));
-            return;
-        }
-        self.forget_folder(&old);
-        match self.dir.strip_prefix(&old) {
-            Ok(rest) => self.visit(ctx, new.join(rest)),
-            Err(_) => self.list(ctx),
-        }
-    }
-
-    /// Move `folder_target` and all in it to the trash, in the background; the open folder, or
-    /// one inside it, is left for the folder above first.
-    fn trash_folder(&mut self, ctx: &egui::Context) {
-        let Some(dir) = self.folder_target.take() else {
-            return;
-        };
-        self.forget_folder(&dir);
-        self.subdirs.retain(|d| *d != dir);
-        if self.dir.starts_with(&dir)
-            && let Some(parent) = dir.parent()
-        {
-            self.visit(ctx, parent.to_path_buf());
-        }
-        let (tx, deleted_tx, ctx) = (
-            self.notices_tx.clone(),
-            self.deleted_tx.clone(),
-            ctx.clone(),
-        );
-        let busy = self.busy.clone();
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
-                Ok(o) if o.status.success() => None,
-                Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
-                Err(e) => Some(format!("gio trash (from glib): {e}")),
-            };
-            if let Some(e) = &error {
-                let _ = tx.send(format!("Could not move the folder to the trash: {e}"));
-            }
-            // Failed: listed again, as a failed delete of files is.
-            let _ = deleted_tx.send((vec![dir], error.is_some()));
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
-    }
-
-    /// Forget what the folder tree read of `dir` and its parent, so it is read again.
-    fn forget_folder(&mut self, dir: &Path) {
-        self.tree.retain(|d, _| !d.starts_with(dir));
-        if let Some(parent) = dir.parent() {
-            self.tree.remove(parent);
-        }
-    }
-
-    fn tree_node(&mut self, ui: &mut egui::Ui, path: &Path, open_dir: &mut Option<PathBuf>) {
-        let id = ui.make_persistent_id(("tree", path));
-        let on_way = self.dir.starts_with(path);
-        let mut state =
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, on_way);
-        let follow = on_way && self.tree_shown != self.dir;
-        if follow && path != self.dir {
-            state.set_open(true);
-        }
-        let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
-        state
-            .show_header(ui, |ui| {
-                let label = ui.selectable_label(path == self.dir, name);
-                // Shown once the folders above it are read.
-                if follow && path == self.dir {
-                    label.scroll_to_me(Some(egui::Align::Center));
-                    self.tree_shown = self.dir.clone();
-                }
-                if label.clicked() {
-                    *open_dir = Some(path.to_path_buf());
-                }
-                if path.parent().is_some() {
-                    self.folder_menu(&label, path);
-                }
-            })
-            .body(|ui| match self.tree.get(path) {
-                Some(Some(subdirs)) => {
-                    for dir in subdirs.clone() {
-                        self.tree_node(ui, &dir, open_dir);
-                    }
-                }
-                Some(None) => drop(ui.label("…")),
-                None => {
-                    self.tree.insert(path.to_path_buf(), None);
-                    let (dir, tx, ctx) =
-                        (path.to_path_buf(), self.tree_tx.clone(), ui.ctx().clone());
-                    let folders = Types {
-                        hidden: self.config.show_hidden,
-                        ..Types::NONE
-                    };
-                    std::thread::spawn(move || {
-                        let subdirs = list_folder(&dir, folders).0;
-                        let _ = tx.send((dir, subdirs));
-                        ctx.request_repaint();
-                    });
-                }
-            });
-    }
-
-    /// View → Layout: one image, two or four, and how a slideshow changes them.
-    fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        scroll_menu(ui, "Layout", |ui| {
-            menu_item(ui, act, Action::NextLayout);
-            ui.separator();
-            for (key, label, _) in LAYOUTS {
-                if ui.radio(self.config.layout == key, label).clicked() {
-                    self.set_layout(key);
-                }
-            }
-            if self.config.layout == "1" {
-                return;
             }
             ui.separator();
             if ui
-                .checkbox(&mut self.config.layout_names, "Show File Names")
-                .changed()
+                .button("Open the Plugins Folder")
+                .on_hover_text(
+                    "Desktop files there, as Geeqie's, show in this menu after a restart",
+                )
+                .clicked()
+                && let Some(dir) = dir
             {
-                self.config.save();
+                let _ = std::fs::create_dir_all(&dir);
+                open_url(&dir.to_string_lossy());
             }
-            ui.weak("Slideshow in this layout:");
-            let turns = self.one_at_a_time();
-            let mut chosen = turns;
-            ui.radio_value(&mut chosen, false, "All Images Change Together");
-            ui.radio_value(&mut chosen, true, "One Image at a Time");
-            if chosen != turns {
-                let layout = self.config.layout.clone();
-                let mut list: Vec<&str> = (self.config.layout_turns.split(','))
-                    .filter(|l| !l.is_empty() && *l != layout)
-                    .collect();
-                if chosen {
-                    list.push(&layout);
+            let Some(k) = chosen.filter(|_| !self.files.is_empty()) else {
+                return;
+            };
+            let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+            let plugin = self.plugins[k].clone();
+            let (dir, ctx) = (self.dir.clone(), ui.ctx().clone());
+            let (tx, saved, deleted) = (
+                self.notices_tx.clone(),
+                self.saved_tx.clone(),
+                self.deleted_tx.clone(),
+            );
+            let busy = self.busy.clone();
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                if let Err(e) = plugin.run(&files, &dir) {
+                    let _ = tx.send(format!("{}: {e}", plugin.name));
                 }
-                self.config.layout_turns = list.join(",");
-                self.config.save();
-                self.refill();
-            }
+                for f in files {
+                    let _ = saved.send((f, Ok(())));
+                }
+                let _ = deleted.send((Vec::new(), true));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
         });
     }
 
-    /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
-    /// the same zoom and offset as the shown one when zoomed, else fitted.
-    /// Returns the scale it is drawn at, for the status bar; `None` while it is decoded.
-    /// `k` is the pane's number, for a slideshow fading it; `None` for the compared image.
-    fn paint_pane(
-        &mut self,
-        ui: &egui::Ui,
-        rect: egui::Rect,
-        i: usize,
-        zoom: Option<f32>,
-        k: Option<usize>,
-    ) -> Option<f32> {
-        // Zoomed in further than the screen-size version holds: load the full resolution.
-        let sharper = self.slots.get(&i).is_some_and(|s| {
-            !s.full
-                && zoom
-                    .is_some_and(|z| s.tex.size()[0] as f32 + 1.0 < s.orig[0] as f32 * z.min(1.0))
-        });
-        if sharper {
-            self.request(i, true);
-        }
-        let now = self.slots.get(&i)?.tex.id();
-        let fade = k.and_then(|k| self.fading(ui.ctx(), k, now));
-        let slot = self.slots.get(&i)?;
-        let ppp = ui.ctx().pixels_per_point();
-        let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
-        let (scale, pan) = match zoom {
-            Some(z) => (z, self.pan_offset),
-            None => {
-                let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
-                let fit = if self.config.enlarge {
-                    fit
-                } else {
-                    fit.min(1.0)
-                };
-                (fit, egui::Vec2::ZERO)
-            }
-        };
-        let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
-        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
-        let p = ui.painter().with_clip_rect(rect);
-        let shown = match &fade {
-            Some((t, old, orig)) => {
-                let from = fitted(rect, *orig, ppp, self.config.enlarge);
-                p.image(old.id(), from, uv, alpha(1.0 - t.powi(4)));
-                *t
-            }
-            None => 1.0,
-        };
-        p.image(slot.tex.id(), at, uv, alpha(shown));
-        Some(scale)
-    }
-
-    /// The compared image in `rect`, with its name above; which it is and its scale.
-    fn paint_other(
-        &mut self,
-        ui: &egui::Ui,
-        rect: egui::Rect,
-        zoom: Option<f32>,
-    ) -> Option<(usize, Option<f32>)> {
-        ui.painter().vline(
-            rect.left() - 1.0,
-            rect.y_range(),
-            egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
-        );
-        let other = self.compare_other()?;
-        let scale = self.paint_pane(ui, rect, other, zoom, None);
-        self.paint_name(ui, rect, other);
-        Some((other, scale))
-    }
-
-    /// The name of image `i` in the top left corner of `rect`.
-    fn paint_name(&self, ui: &egui::Ui, rect: egui::Rect, i: usize) {
-        let p = ui.painter();
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let galley = p.layout_no_wrap(self.name(i).into_owned(), font, egui::Color32::WHITE);
-        let text = egui::Rect::from_min_size(rect.left_top() + egui::vec2(8.0, 8.0), galley.size());
-        p.rect_filled(text.expand(4.0), 3.0, egui::Color32::from_black_alpha(160));
-        p.galley(text.min, galley, egui::Color32::WHITE);
-    }
-
-    /// The shown image's histogram in the bottom right corner of `area`.
-    fn paint_histogram(&self, ui: &egui::Ui, area: egui::Rect) {
-        let Some(slot) = self.slots.get(&self.cur) else {
+    /// "Open With" submenu: the applications registered for the shown file's type; the chosen
+    /// one opens the selected files (or the shown one).
+    fn open_with_menu(&mut self, ui: &mut egui::Ui) {
+        let Some(name) = self.files.get(self.cur) else {
             return;
         };
-        let size = egui::vec2(256.0, 100.0);
-        let rect =
-            egui::Rect::from_min_size(area.right_bottom() - size - egui::vec2(16.0, 16.0), size);
-        let p = ui.painter();
-        p.rect_filled(rect.expand(6.0), 4.0, egui::Color32::from_black_alpha(170));
-        use egui::Color32 as C;
-        let channels: &[(usize, C)] = if self.config.histogram == 1 {
-            &[
-                (0, C::from_rgb(255, 80, 80)),
-                (1, C::from_rgb(80, 220, 80)),
-                (2, C::from_rgb(90, 140, 255)),
-            ]
-        } else {
-            &[(3, C::from_gray(230))]
-        };
-        let log = self.config.histogram_log;
-        let height = |v: u32| if log { (v as f32).ln_1p() } else { v as f32 };
-        let max = channels
-            .iter()
-            .flat_map(|c| slot.hist[c.0].iter())
-            .map(|&v| height(v))
-            .fold(1.0, f32::max);
-        for &(c, color) in channels {
-            let points = (0..256)
-                .map(|i| {
-                    let x = rect.left() + i as f32 * rect.width() / 255.0;
-                    egui::pos2(
-                        x,
-                        rect.bottom() - height(slot.hist[c][i]) / max * rect.height(),
-                    )
-                })
-                .collect();
-            p.add(egui::Shape::line(points, egui::Stroke::new(1.5, color)));
-        }
-    }
-
-    /// Fuzzy search box above the file list.
-    fn search_field(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if !self.search.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
-                self.search.clear();
-                self.update_search(ui.ctx());
-                self.scroll_to_cur = true;
+        let ext = Path::new(name)
+            .extension()
+            .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
+        let path = self.path(self.cur);
+        scroll_menu(ui, "Open With", |ui| {
+            // The menu keeps the width of its first frame, "…": names must not wrap to it.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            for (ext, apps) in self.apps_rx.try_iter() {
+                self.apps.insert(ext, Some(apps));
             }
-            // A fixed ID: the ✖ button appearing in front of it must not make it a new
-            // widget, which would lose the focus after the first letter.
-            let hint = match self.config.fuzzy_search {
-                true => "Search file names (3+ letters), re: pattern, or exif: camera, date …",
-                false => "Filter file names by pattern, or exif: camera, date …",
-            };
-            let edit = egui::TextEdit::singleline(&mut self.search)
-                .id(egui::Id::new("file search"))
-                .hint_text(hint);
-            // Geeqie's file filter has its Case checkbox to the right.
-            let geeqie = !self.config.fuzzy_search;
-            let width = ui.available_width() - if geeqie { 64.0 } else { 0.0 };
-            let mut changed = ui.add(edit.desired_width(width)).changed();
-            if geeqie
-                && ui
-                    .checkbox(&mut self.config.search_case, "Case")
-                    .on_hover_text("Tell upper and lower case apart")
-                    .changed()
-            {
-                self.config.save();
-                changed = true;
-            }
-            if changed {
-                self.update_search(ui.ctx());
-            }
-        });
-        if let Some(e) = &self.search_error {
-            ui.colored_label(ui.visuals().error_fg_color, format!("Not a pattern: {e}"));
-        }
-    }
-
-    /// The files the list shows: the search matches, or all.
-    fn shown_files(&self) -> Vec<usize> {
-        (self.matches.clone()).unwrap_or_else(|| (0..self.files.len()).collect())
-    }
-
-    /// The row of the shown file among the search matches `m`; `None` if the search hides it.
-    fn cur_row(&self, m: &[usize]) -> Option<usize> {
-        match self.cur_row.get() {
-            Some((cur, row)) if cur == self.cur => row,
-            _ => {
-                let row = m.iter().position(|&i| i == self.cur);
-                self.cur_row.set(Some((self.cur, row)));
-                row
-            }
-        }
-    }
-
-    /// The file `delta` rows from the shown one, in the order the list shows (the search matches
-    /// while searching); clamped at the ends, or going round with `wrap`. A file the search
-    /// hides counts as being before the first row.
-    fn step(&self, delta: isize, wrap: bool) -> Option<usize> {
-        self.step_from(self.cur, delta, wrap)
-    }
-
-    /// As `step`, from file `from`.
-    fn step_from(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
-        let m = self.matches.as_deref();
-        let n = m.map_or(self.files.len(), <[usize]>::len) as isize;
-        if n == 0 {
-            return None;
-        }
-        let row = match m {
-            Some(m) if from == self.cur => self.cur_row(m),
-            Some(m) => m.iter().position(|&i| i == from),
-            None => Some(from),
-        }
-        .map_or(-1, |r| r as isize);
-        let r = if wrap {
-            (row + delta).rem_euclid(n)
-        } else {
-            (row + delta).clamp(0, n - 1)
-        } as usize;
-        Some(m.map_or(r, |m| m[r]))
-    }
-
-    /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
-    /// search matches while searching).
-    fn select_range(&mut self, a: usize, b: usize) {
-        let m = self.matches.as_deref();
-        let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
-        match (row(a), row(b), m) {
-            (Some(ra), Some(rb), Some(m)) => self.selected.extend(&m[ra.min(rb)..=ra.max(rb)]),
-            (Some(ra), Some(rb), None) => self.selected.extend(ra.min(rb)..=ra.max(rb)),
-            _ => {
-                self.selected.insert(b);
-            }
-        }
-    }
-
-    /// Run the search again; file indices change when the list does.
-    fn update_search(&mut self, ctx: &egui::Context) {
-        let query = self.search.trim().to_owned();
-        let query = query.as_str();
-        self.cur_row.set(None);
-        self.search_error = None;
-        // Geeqie's Case checkbox, shown beside the field in its mode.
-        let case = self.config.search_case && !self.config.fuzzy_search;
-        self.matches = match (query.strip_prefix("exif:"), query.strip_prefix("re:")) {
-            (Some(words), _) => Some(self.exif_matches(ctx, words)),
-            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern, case) {
-                Ok(re) => search::regex_matches(&self.files, &re),
-                Err(e) => {
-                    self.search_error = Some(e);
-                    Vec::new()
-                }
-            }),
-            _ => {
-                self.mark_matches(query)
-                    .or_else(|| match self.config.fuzzy_search {
-                        true => (query.chars().count() >= 3)
-                            .then(|| search::matches(&self.files, query)),
-                        // As Geeqie's file filter: a regular expression, from the first letter.
-                        false => (!query.is_empty()).then(|| match search::regex(query, case) {
-                            Ok(re) => search::regex_matches(&self.files, &re),
-                            Err(e) => {
-                                self.search_error = Some(e);
-                                Vec::new()
-                            }
-                        }),
-                    })
-            }
-        };
-        // Size of the matches in the background; a new search drops the receiver, which
-        // stops the old sum.
-        self.match_size = 0;
-        self.match_rx = None;
-        let Some(m) = &self.matches else { return };
-        let names: Vec<OsString> = m.iter().map(|&i| self.files[i].clone()).collect();
-        let (tx, rx) = mpsc::channel();
-        let (dir, ctx) = (self.dir.clone(), ctx.clone());
-        std::thread::spawn(move || {
-            let sizes = names
-                .iter()
-                .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
-            send_sizes(sizes, tx, &ctx);
-        });
-        self.match_rx = Some(rx);
-    }
-
-    /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
-    /// list order. The first such search in a folder reads the EXIF of all files in the
-    /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
-    /// shortcut: files added after the index was built do not match until the folder is
-    /// reopened; add them to the index as the list grows if that is missed.
-    fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
-        let re = match words.strip_prefix("re:").map(|p| search::regex(p, false)) {
-            Some(Err(e)) => {
-                self.search_error = Some(e);
-                return Vec::new();
-            }
-            Some(Ok(re)) => Some(re),
-            None => None,
-        };
-        let Some(index) = &self.exif_index else {
-            if self.exif_index_rx.is_none() {
-                let (tx, rx) = mpsc::channel();
-                let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
-                let busy = self.busy.clone();
-                busy.fetch_add(1, Ordering::Relaxed);
+            // apps_for runs gio twice: in the background, so the menu never stalls.
+            let apps = self.apps.entry(ext.clone()).or_insert_with(|| {
+                let (tx, ctx) = (self.apps_tx.clone(), ui.ctx().clone());
                 std::thread::spawn(move || {
-                    let _ = tx.send(exif_index(&dir, &files));
-                    busy.fetch_sub(1, Ordering::Relaxed);
+                    let _ = tx.send((ext, apps_for(&path)));
                     ctx.request_repaint();
                 });
-                self.exif_index_rx = Some(rx);
+                None
+            });
+            let Some(apps) = apps else {
+                ui.label("…");
+                return;
+            };
+            if apps.is_empty() {
+                ui.label("No applications found");
             }
-            return Vec::new();
-        };
-        // The index is lowercase, as the words are made; a regular expression ignores case.
-        let words = words.to_lowercase();
-        let words: Vec<&str> = words.split_whitespace().collect();
-        let found = |text: &String| match &re {
-            Some(re) => re.is_match(text.as_bytes()),
-            None => words.iter().all(|w| text.contains(w)),
-        };
-        (0..self.files.len())
-            .filter(|&i| index.get(&self.files[i]).is_some_and(found))
-            .collect()
-    }
-
-    /// "mark:2" shows the files with mark 2, "stars:3" those with three stars or more.
-    #[cfg(feature = "marks")]
-    fn mark_matches(&self, query: &str) -> Option<Vec<usize>> {
-        let (mark, n) = match (query.strip_prefix("mark:"), query.strip_prefix("stars:")) {
-            (Some(n), _) => (
-                true,
-                n.trim()
-                    .parse::<u8>()
-                    .ok()
-                    .filter(|n| (1..=6).contains(n))?,
-            ),
-            (_, Some(n)) => (false, n.trim().parse::<u8>().ok()?),
-            _ => return None,
-        };
-        let hit = |(bits, stars): (u8, u8)| {
-            if mark {
-                bits & (1 << (n - 1)) != 0
-            } else {
-                stars >= n
+            let mut chosen = None;
+            for (name, desktop) in apps.iter() {
+                if ui.button(name).clicked() {
+                    chosen = Some(desktop.clone());
+                }
             }
-        };
-        Some(
-            (0..self.files.len())
-                .filter(|&i| hit(self.marks.get(&self.path(i))))
-                .collect(),
-        )
-    }
-
-    #[cfg(not(feature = "marks"))]
-    fn mark_matches(&self, _: &str) -> Option<Vec<usize>> {
-        None
-    }
-
-    /// Stars and marks of file `i` as text ("★★★  1 4"); empty without the marks feature.
-    #[cfg(feature = "marks")]
-    fn mark_text(&self, i: usize) -> String {
-        if !self.config.show_marks {
-            return String::new();
-        }
-        marks::text(self.marks.get(&self.path(i)))
-    }
-
-    #[cfg(not(feature = "marks"))]
-    fn mark_text(&self, _: usize) -> String {
-        String::new()
-    }
-
-    /// Size and modification time of file `i`, from the cache or one stat.
-    /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
-    /// folders make scrolling stutter.
-    fn file_details(&mut self, i: usize) -> (u64, i64) {
-        if let Some(&d) = self.details.get(&self.files[i]) {
-            return d;
-        }
-        let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
-            use std::os::unix::fs::MetadataExt;
-            (m.len(), m.mtime())
+            if let Some(desktop) = chosen {
+                let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+                let tx = self.notices_tx.clone();
+                std::thread::spawn(move || {
+                    let out = command("gio")
+                        .arg("launch")
+                        .arg(&desktop)
+                        .args(&files)
+                        .output();
+                    match out {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                        Err(e) => drop(tx.send(format!("gio: {e}"))),
+                    }
+                });
+            }
         });
-        self.details.insert(self.files[i].clone(), d);
-        d
     }
 
-    /// Drop thumbnails far from view once there are many, so memory stays flat in huge folders.
-    /// Over the budget, drop the thumbnails of all but the rows `rows` of the list as shown (the
-    /// search matches, or all files) and those near them.
-    fn trim_thumbs(&mut self, rows: std::ops::Range<usize>) {
-        // Big thumbnails take four times the memory: keep a quarter as many.
-        let max = if self.config.thumb_size == 2 {
-            MAX_THUMBS / 4
-        } else {
-            MAX_THUMBS
-        };
-        if self.thumbs.len() <= max {
+    /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
+    /// key press) or reset to Geeqie's.
+    fn key_settings(&mut self, ui: &mut egui::Ui) {
+        if let Some(action) = self.capturing {
+            let pressed = ui.input(|i| {
+                use egui::Key as K;
+                i.events.iter().find_map(|e| match e {
+                    // A modifier on its own is not the key; wait for the one pressed with it.
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if !matches!(
+                        key,
+                        K::ShiftLeft
+                            | K::ShiftRight
+                            | K::ControlLeft
+                            | K::ControlRight
+                            | K::AltLeft
+                            | K::AltRight
+                            | K::SuperLeft
+                            | K::SuperRight
+                    ) =>
+                    {
+                        Some((*key, *modifiers))
+                    }
+                    _ => None,
+                })
+            });
+            if let Some((key, mods)) = pressed {
+                self.capturing = None;
+                if key != egui::Key::Escape {
+                    let mods = egui::Modifiers {
+                        mac_cmd: false,
+                        ..mods
+                    };
+                    self.config.keys.0.retain(|k| k.0 != action);
+                    self.config.keys.0.push((action, mods, key));
+                    self.config.save();
+                    if let Ok(mut own) = OWN_KEYS.write() {
+                        own.clone_from(&self.config.keys.0);
+                    }
+                }
+            }
+        }
+        let all = shortcuts();
+        let mut actions: Vec<Action> = Vec::new();
+        for s in SHORTCUTS {
+            if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
+                actions.push(s.0);
+            }
+        }
+        egui::Grid::new("keys").striped(true).show(ui, |ui| {
+            for action in actions {
+                ui.label(action.label());
+                let keys: Vec<String> = (all.iter().filter(|s| s.0 == action))
+                    .map(|s| {
+                        ui.ctx()
+                            .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
+                    })
+                    .collect();
+                if self.capturing == Some(action) {
+                    ui.strong("Press a key (Esc cancels)");
+                } else {
+                    ui.label(keys.join(", "));
+                }
+                ui.horizontal(|ui| {
+                    if ui.small_button("Change").clicked() {
+                        self.capturing = Some(action);
+                    }
+                    let own = self.config.keys.0.iter().any(|k| k.0 == action);
+                    if own && ui.small_button("Reset").clicked() {
+                        self.config.keys.0.retain(|k| k.0 != action);
+                        self.config.save();
+                        if let Ok(mut o) = OWN_KEYS.write() {
+                            o.clone_from(&self.config.keys.0);
+                        }
+                    }
+                });
+                ui.end_row();
+            }
+        });
+    }
+
+    /// Preferences → CPU use: power saving, balanced or full.
+    fn cpu_settings(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("CPU use:");
+            for (k, (name, hover)) in CPU_LEVELS.iter().enumerate() {
+                if ui
+                    .radio(self.config.cpu_use == k, *name)
+                    .on_hover_text(*hover)
+                    .clicked()
+                {
+                    self.config.cpu_use = k;
+                    set_cpu_use(k);
+                    self.config.save();
+                }
+            }
+        });
+    }
+
+    /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
+    /// values are Custom.
+    fn memory_settings(&mut self, ui: &mut egui::Ui) {
+        let c = &self.config;
+        let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
+        let level = (MEMORY_LEVELS.iter())
+            .find(|l| (l.preload, l.decode_threads, l.animation_mb, l.one_arena) == now);
+        let (mut chosen, mut custom) = (None, false);
+        ui.horizontal(|ui| {
+            ui.label("Memory use:");
+            for l in &MEMORY_LEVELS {
+                let on = level.is_some_and(|m| m.name == l.name);
+                if ui.radio(on, l.name).on_hover_text(l.hover).clicked() {
+                    chosen = Some(*l);
+                }
+            }
+            // Chosen by changing the details, which it opens.
+            custom = ui.radio(level.is_none(), "Custom").clicked();
+        });
+        if let Some(l) = chosen {
+            self.set_preload(l.preload);
+            (self.config.decode_threads, self.config.animation_mb) =
+                (l.decode_threads, l.animation_mb);
+            self.config.low_memory = l.one_arena;
+            MAX_ANIMATION.store(l.animation_mb << 20, Ordering::Relaxed);
+            self.config.save();
+        }
+        let restart = "Decoding threads and one malloc arena take effect after a restart.";
+        egui::CollapsingHeader::new("Details")
+            .open((level.is_none() || custom).then_some(true))
+            .show(ui, |ui| {
+                let mut n = self.config.preload;
+                ui.label("Preload next and previous images:");
+                let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
+                if ui.add(slider).changed() {
+                    self.set_preload(n);
+                    self.config.save();
+                }
+                let [w, h] = self.limits.lock().unwrap()[0];
+                let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
+                ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
+                let c = &mut self.config;
+                let mut changed = ui
+                    .add(
+                        egui::Slider::new(&mut c.decode_threads, 1..=8)
+                            .text("images decoded at once"),
+                    )
+                    .changed();
+                let animation = egui::Slider::new(&mut c.animation_mb, 8..=1024)
+                    .logarithmic(true)
+                    .text("MB at most for an animation's frames");
+                if ui.add(animation).changed() {
+                    MAX_ANIMATION.store(c.animation_mb << 20, Ordering::Relaxed);
+                    changed = true;
+                }
+                let low = "One malloc arena: much less memory, decoding up to ~8 % slower";
+                changed |= ui.checkbox(&mut c.low_memory, low).changed();
+                ui.weak(restart);
+                if changed {
+                    c.save();
+                }
+            });
+    }
+
+    /// Preload `n` images on each side.
+    fn set_preload(&mut self, n: usize) {
+        self.ahead.store(n, Ordering::Relaxed);
+        self.refill();
+        self.config.preload = n;
+    }
+
+    /// Decode everything again with or without EXIF rotation.
+    fn set_exif_rotate(&mut self, on: bool) {
+        self.config.exif_rotate = on;
+        self.config.save();
+        self.rotate.store(on, Ordering::Relaxed);
+        // The thumbnails too, which are turned by it as well.
+        self.redecode();
+    }
+
+    /// Decode everything again with or without colour management.
+    fn set_color_management(&mut self, on: bool) {
+        self.config.color_management = on;
+        self.config.save();
+        COLOR_MANAGEMENT.store(on, Ordering::Relaxed);
+        self.redecode();
+    }
+
+    /// Colour management, as in Geeqie's View → Color Management and in Preferences: on or off,
+    /// the profile of images without one, whether an image's own counts, and the screen profile.
+    fn colour_settings(&mut self, ui: &mut egui::Ui) {
+        let mut cm = self.config.color_management;
+        if ui.checkbox(&mut cm, "Colour management").changed() {
+            self.set_color_management(cm);
+        }
+        ui.add_enabled_ui(cm, |ui| {
+            let mut own = self.config.own_profile;
+            if ui
+                .checkbox(&mut own, "Use the image's own profile")
+                .changed()
+            {
+                self.set_own_profile(own);
+            }
+            ui.label("Images without a profile:");
+            let current = self.config.input_profile.clone();
+            for (value, label) in INPUT_PROFILES {
+                if ui.radio(current == value, label).clicked() && current != value {
+                    self.set_input_profile(value.to_owned());
+                }
+            }
+            let own_file = !INPUT_PROFILES.iter().any(|p| p.0 == current);
+            let file = Path::new(&current).file_name().filter(|_| own_file);
+            let label = file.map_or("Profile file…".into(), |n| {
+                format!("{}…", n.to_string_lossy())
+            });
+            if ui.radio(own_file, label).clicked() {
+                self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
+            }
+            let mut desktop = self.config.desktop_profile;
+            if ui
+                .checkbox(&mut desktop, "Use the desktop's screen profile")
+                .on_hover_text("From colord, which GNOME and KDE set")
+                .changed()
+            {
+                self.set_desktop_profile(desktop, ui.ctx());
+            }
+            let from_desktop =
+                (self.desktop_screen.clone()).filter(|_| self.config.desktop_profile);
+            ui.horizontal(|ui| {
+                ui.label("Screen profile:");
+                if let Some(path) = from_desktop {
+                    let name = Path::new(&path).file_name().unwrap_or_default();
+                    let name = format!("{}, from the desktop", name.to_string_lossy());
+                    ui.label(name).on_hover_text(path);
+                    return;
+                }
+                let file = Path::new(&self.config.screen_profile).file_name();
+                let name = file.map_or("none, sRGB".into(), |n| n.to_string_lossy());
+                ui.label(name).on_hover_text(&self.config.screen_profile);
+                if ui.button("Choose…").clicked() {
+                    self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
+                }
+                if !self.config.screen_profile.is_empty() && ui.button("None").clicked() {
+                    self.set_screen_profile(String::new());
+                }
+            });
+            ui.label("Rendering intent:");
+            let current = self.config.rendering_intent.clone();
+            for (value, label, _) in INTENTS {
+                if ui.radio(current == value, label).clicked() && current != value {
+                    self.set_rendering_intent(value.to_owned());
+                }
+            }
+        });
+    }
+
+    /// Show everything through the screen profile in `path` (empty: none, the screen is sRGB).
+    fn set_screen_profile(&mut self, path: String) {
+        if let Err(e) = set_screen(&path) {
+            self.notice = Some(e);
             return;
         }
-        let mut keep = thumbs_to_keep(&self.files, self.matches.as_deref(), rows, max);
-        keep.extend(self.pan_thumbs.iter().filter_map(|&i| self.files.get(i)));
-        self.thumbs.retain(|name, _| keep.contains(name));
+        self.config.screen_profile = path;
+        self.config.save();
+        self.use_screen();
     }
+
+    /// Whether the desktop's screen profile goes before the chosen one; read from colord when on.
+    fn set_desktop_profile(&mut self, on: bool, ctx: &egui::Context) {
+        self.config.desktop_profile = on;
+        self.config.save();
+        if on && self.desktop_screen.is_none() {
+            self.desktop_screen_rx = Some(read_desktop_screen(ctx));
+        }
+        self.use_screen();
+    }
+
+    /// Show through the desktop's screen profile when it counts and colord has one, else through
+    /// the chosen one.
+    fn use_screen(&mut self) {
+        let path = match &self.desktop_screen {
+            Some(p) if self.config.desktop_profile => p.clone(),
+            _ => self.config.screen_profile.clone(),
+        };
+        match set_screen(&path) {
+            Ok(false) => {}
+            Ok(true) => self.redecode(),
+            Err(e) => self.notice = Some(e),
+        }
+    }
+
+    /// The profile for images without one: srgb, adobe, p3 or an ICC file.
+    fn set_input_profile(&mut self, name: String) {
+        if let Err(e) = set_input(&name) {
+            self.notice = Some(e);
+            return;
+        }
+        self.config.input_profile = name;
+        self.config.save();
+        self.redecode();
+    }
+
+    /// Whether an image's own profile counts, or the input profile is used for all.
+    fn set_own_profile(&mut self, on: bool) {
+        set_colour(|c| c.own = on);
+        self.config.own_profile = on;
+        self.config.save();
+        self.redecode();
+    }
+
+    /// The rendering intent, from `INTENTS`.
+    fn set_rendering_intent(&mut self, name: String) {
+        set_intent(&name);
+        self.config.rendering_intent = name;
+        self.config.save();
+        self.redecode();
+    }
+
+    // ---- Keys and actions ----
 
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
@@ -4967,10 +4997,6 @@ impl App {
                 })
                 .map(|s| s.0)
         })
-    }
-
-    fn zoom_by(&mut self, factor: f32) {
-        self.zoom = Some((self.zoom.unwrap_or(self.last_scale) * factor).clamp(0.02, 32.0));
     }
 
     fn run(&mut self, ctx: &egui::Context, action: Action) {
