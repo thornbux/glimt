@@ -164,6 +164,15 @@ flatpak install --user ./glimt-0.17.4-x86_64.flatpak  # any distribution with Fl
 The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); without it,
 `./glimt-…AppImage --appimage-extract-and-run` works too.
 
+To check a download (releases after 0.17.4): `SHA256SUMS` in the release has the checksum of
+every file, and each file has a build provenance, signed by GitHub, that says this
+repository's release workflow built it:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify glimt_0.17.4_amd64.deb -R thornbux/glimt
+```
+
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
 
 ## Getting started
