@@ -8,11 +8,12 @@ use crate::{exif, has_ext};
 use image::ImageDecoder;
 use std::path::{Path, PathBuf};
 
-/// Where a new version of `path` is written before it is renamed over it: its whole name and
-/// ".glimt-tmp", so that "a.png" and "a.webp", which can be saved at the same time, never share one.
+/// Where a new version of `path` is written before it is renamed over it: its whole name, this
+/// Glimt's instance ID and ".glimt-tmp", so that "a.png" and "a.webp", saved at the same time,
+/// or one file saved by two windows at once, never share one.
 pub fn tmp_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_owned();
-    name.push(".glimt-tmp");
+    name.push(format!(".{}.glimt-tmp", crate::remote::instance_id()));
     path.with_file_name(name)
 }
 
