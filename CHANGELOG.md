@@ -5,6 +5,46 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-10-14
+
+### Fixed
+
+- A turn not saved yet went into the wrong file when Rename Many gave the shown image's old
+  name to another file, and was lost when the open folder was renamed.
+- Deleting, moving or renaming a PNG or WebP while its turn was being saved brought it back
+  under its old name; these wait until the save is done now.
+- Two windows saving the same image's turn at once could leave it corrupt: each has a
+  temporary file of its own now.
+- Copy and move never replace a file another window put at the destination a moment before.
+- Collections keep the entries of files on a drive that is not plugged in, are not written
+  over when they cannot be read, keep an entry whose move was refused, are not undone by a
+  remove while being read, and Rename Many in a large collection no longer freezes the
+  window (nor drops the entries when it fails).
+- Find Duplicates leaves symbolic links out, so the real file is not trashed for its link.
+- Keywords and a comment stored in the image itself can be cleared.
+- A sidecar or the marks file that cannot be read is not written over, and keywords and
+  ratings are declared where they are written in sidecars laid out as exiftool does.
+- Turning a JPEG whose EXIF block is cut short no longer writes past it, and an animated GIF
+  named .png or .webp is not saved as its first frame.
+- Settings that a newer Glimt wrote stay when an older one saves, and a theme with a text size
+  of NaN is left out.
+- Comparing with a large selection no longer copies it every frame, and the colour
+  conversions kept for different ICC profiles no longer grow without end.
+- Sorting RAW (RAF, CR3 …) and HEIC files by EXIF date reads the first MB of each, not the
+  whole file.
+- A second Glimt started with the same --name at the same moment can no longer take the first
+  one's socket.
+- The Flatpak has the license texts, as the other packages have.
+
+### Changed
+
+- The release stops when the man page is not at the tag's version too, and every release test
+  that expects nothing to change has one beside it where something must.
+- The README has Getting started, Troubleshooting and Privacy, and SECURITY.md says how to
+  report a vulnerability.
+- Clearer code: tests beside the code they test, and run(), new(), Preferences and the image
+  area split by job. Nothing changes for the user.
+
 ## [0.17.3] - 2026-10-14
 
 ### Fixed
@@ -412,7 +452,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.3...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.4...HEAD
+[0.17.4]: https://github.com/thornbux/glimt/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/thornbux/glimt/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/thornbux/glimt/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/thornbux/glimt/compare/v0.17.0...v0.17.1

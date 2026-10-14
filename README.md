@@ -149,16 +149,16 @@ Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debi
 glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04 and later).
 
 ```sh
-sudo apt install ./glimt_0.17.3_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
-sudo dnf install ./glimt-0.17.3-1.x86_64.rpm  # Fedora, RHEL: the same
+sudo apt install ./glimt_0.17.4_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+sudo dnf install ./glimt-0.17.4-1.x86_64.rpm  # Fedora, RHEL: the same
 
-tar xzf glimt-0.17.3-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
-./glimt-0.17.3-x86_64-linux/glimt
+tar xzf glimt-0.17.4-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
+./glimt-0.17.4-x86_64-linux/glimt
 
-chmod +x glimt-0.17.3-x86_64.AppImage         # one file, nothing to install
-./glimt-0.17.3-x86_64.AppImage
+chmod +x glimt-0.17.4-x86_64.AppImage         # one file, nothing to install
+./glimt-0.17.4-x86_64.AppImage
 
-flatpak install --user ./glimt-0.17.3-x86_64.flatpak  # any distribution with Flatpak
+flatpak install --user ./glimt-0.17.4-x86_64.flatpak  # any distribution with Flatpak
 ```
 
 The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); without it,
