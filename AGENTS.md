@@ -127,7 +127,8 @@ the large folder and the EXIF timings. Screenshots of the steps are in
   vulnerable crate, while warnings such as an unmaintained crate do not stop it.
 
 By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
-`--remote-all next` to both and `--remote-all quit`.
+`--remote-all next` to both and `--remote-all quit`; the AppImage, with a second window (Ctrl+N)
+that stays when the first one closes.
 
 A fix in the window code that a unit test cannot reach gets a check in `tests.sh`: the steps
 with keys, clicks and `--remote`, and the result read from the files or from a colour in a
@@ -136,9 +137,10 @@ screenshot. Run it against the last release as well, to see that it fails there.
 ## Packages
 
 A tag `vX.Y.Z` pushed to GitHub runs `.github/workflows/release.yml`, which builds against
-glibc 2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb` and an `.rpm`. Both package
-formats are described in `Cargo.toml` (`[package.metadata.deb]`, `[package.metadata.generate-rpm]`);
-new installed files go in both lists and in the tar.gz step. To build and check them locally,
+glibc 2.28 with cargo-zigbuild and publishes a `.tar.gz`, a `.deb`, an `.rpm` and an AppImage.
+Both package formats are described in `Cargo.toml` (`[package.metadata.deb]`,
+`[package.metadata.generate-rpm]`); new installed files go in both lists and in the tar.gz and
+AppImage steps. To build and check them locally,
 after `cargo build --release --features full`:
 
 ```sh
@@ -155,6 +157,12 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
   registry.fedoraproject.org/fedora:latest bash -c 'dnf -y install /pkg/*.rpm && glimt --help'`
   (also `docker.io/library/almalinux:8` for glibc 2.28). Remove the storage afterwards with
   `podman unshare rm -rf /tmp/pod /tmp/podrun`.
+
+The AppImage holds the same binary, its desktop file, icons, man page and licenses; OpenGL,
+Wayland and X11 come from the system, as for the tar.gz. `appimagetool` and the type2 runtime
+(which needs no libfuse2) are pinned releases with their sha256 in `release.yml`; change both
+together. Inside the AppImage, `$APPIMAGE` names the file itself: New Window starts that, as
+the binary's mount goes when the first window closes.
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
 Flathub's `freedesktop-26.08` image (change the image with `runtime-version`), and adds it to the

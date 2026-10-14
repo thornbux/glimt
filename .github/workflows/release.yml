@@ -1,6 +1,7 @@
 # Build and publish a release when a tag vX.Y.Z is pushed (or by hand, for an existing tag):
-# a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb and an .rpm,
-# a Flatpak bundle, and the version's section of CHANGELOG.md as the release notes.
+# a portable binary linked against glibc 2.28 with every feature, as a tar.gz, a .deb, an .rpm
+# and an AppImage, a Flatpak bundle, and the version's section of CHANGELOG.md as the release
+# notes.
 name: Release
 
 on:
@@ -70,6 +71,30 @@ jobs:
           cp "target/$TARGET/release/glimt" assets/glimt.desktop assets/glimt.svg assets/glimt-256.png \
              docs/glimt.1 LICENSE README.md CHANGELOG.md assets/fonts/LICENSE-*.txt "$dir/"
           tar czf "$dir.tar.gz" "$dir"
+      - name: AppImage
+        # The same binary, which loads OpenGL, Wayland and X11 from the system as it starts, so
+        # nothing else goes in. appimagetool and the runtime (which needs no libfuse2) are
+        # pinned releases; appimagetool runs extracted, as the runner has no FUSE.
+        run: |
+          curl -sSfL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          curl -sSfL -o runtime https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+          sha256sum -c <<'EOF'
+          ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool
+          2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  runtime
+          EOF
+          chmod +x appimagetool
+          app=Glimt.AppDir
+          install -Dm755 "target/$TARGET/release/glimt" "$app/usr/bin/glimt"
+          install -Dm644 assets/glimt.desktop "$app/usr/share/applications/glimt.desktop"
+          install -Dm644 assets/glimt.svg "$app/usr/share/icons/hicolor/scalable/apps/glimt.svg"
+          install -Dm644 assets/glimt-256.png "$app/usr/share/icons/hicolor/256x256/apps/glimt.png"
+          install -Dm644 docs/glimt.1 "$app/usr/share/man/man1/glimt.1"
+          install -Dm644 -t "$app/usr/share/doc/glimt" LICENSE assets/fonts/LICENSE-*.txt
+          cp assets/glimt.desktop assets/glimt.svg "$app/"
+          cp assets/glimt-256.png "$app/.DirIcon"
+          ln -s usr/bin/glimt "$app/AppRun"
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run --runtime-file runtime \
+              "$app" "glimt-$VERSION-x86_64.AppImage"
       - name: .deb
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"
       - name: .rpm
@@ -80,7 +105,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          files="glimt-$VERSION-x86_64-linux.tar.gz glimt_${VERSION}_amd64.deb glimt-$VERSION-1.x86_64.rpm"
+          files="glimt-$VERSION-x86_64-linux.tar.gz glimt_${VERSION}_amd64.deb glimt-$VERSION-1.x86_64.rpm
+                 glimt-$VERSION-x86_64.AppImage"
           # Run again by hand for a tag with a release already: replace its files.
           gh release create "$TAG" --title "Glimt $VERSION" --notes-file notes.md $files ||
             gh release upload "$TAG" --clobber $files

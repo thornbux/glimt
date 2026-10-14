@@ -5222,9 +5222,15 @@ impl App {
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => {
+                // From an AppImage, the AppImage: the binary is in its mount, which goes when
+                // this window closes.
+                let exe = match std::env::var_os("APPIMAGE") {
+                    Some(appimage) => Ok(PathBuf::from(appimage)),
+                    None => std::env::current_exe(),
+                };
                 // After an update (or a rebuild) Linux reports the running binary as
                 // "/path/glimt (deleted)"; the new one is at the same path.
-                let started = std::env::current_exe().and_then(|exe| {
+                let started = exe.and_then(|exe| {
                     let exe = exe.to_string_lossy();
                     let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
                     std::process::Command::new(exe).arg(self.location()).spawn()
