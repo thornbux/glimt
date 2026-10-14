@@ -5270,28 +5270,12 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    /// The last folder is written once on exit, not on every folder change.
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        remote::stop();
-        self.save_meta();
-        // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
-        let mut state = String::new();
-        if self.config.remember_dir {
-            let last = self.collection.as_ref().unwrap_or(&self.dir);
-            state += &format!("last_dir={}\n", last.display());
-        }
-        if self.config.remember_window {
-            state += &self.window.to_text();
-        }
-        if let Some(p) = state_path().filter(|_| !state.is_empty()) {
-            write_atomic(&p, &state);
-        }
-        self.inhibit(false);
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = &ui.ctx().clone();
+// The parts of a frame, in the order `ui` draws them.
+impl App {
+    /// What the background threads and the rest of the desktop sent since the last frame: decoded
+    /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
+    /// notices and the file dialog's answer.
+    fn poll_background(&mut self, ctx: &egui::Context) {
         if let Some(look) = self.desktop_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.desktop_look = look;
             self.desktop_rx = None;
@@ -5304,7 +5288,6 @@ impl eframe::App for App {
                 self.use_screen();
             }
         }
-        let ppp = ctx.pixels_per_point();
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.limits.lock().unwrap()[1] = [max_side, max_side];
         self.receive(ctx);
@@ -5330,30 +5313,7 @@ impl eframe::App for App {
         }
         self.has_focus = focus;
         while let Ok(command) = self.remote.try_recv() {
-            let action = match command.trim() {
-                "next" => Some(Action::Next),
-                "prev" => Some(Action::Prev),
-                "first" => Some(Action::First),
-                "last" => Some(Action::Last),
-                "slideshow" => Some(Action::Slideshow),
-                "random" => Some(Action::RandomOrder),
-                "fullscreen" => Some(Action::FullScreen),
-                "quit" => {
-                    // The only way out of a kiosk.
-                    self.kiosk_quit = true;
-                    Some(Action::Quit)
-                }
-                other => {
-                    if let Some(path) = other.strip_prefix("open ") {
-                        self.visit(ctx, PathBuf::from(path));
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                    }
-                    None
-                }
-            };
-            if let Some(action) = action {
-                self.run(ctx, action);
-            }
+            self.remote_command(ctx, &command);
         }
         if let Some(img) = self.clip.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.clip = None;
@@ -5436,7 +5396,39 @@ impl eframe::App for App {
                 }
             }
         }
+    }
 
+    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random, fullscreen,
+    /// quit, or open PATH.
+    fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
+        let action = match command.trim() {
+            "next" => Some(Action::Next),
+            "prev" => Some(Action::Prev),
+            "first" => Some(Action::First),
+            "last" => Some(Action::Last),
+            "slideshow" => Some(Action::Slideshow),
+            "random" => Some(Action::RandomOrder),
+            "fullscreen" => Some(Action::FullScreen),
+            "quit" => {
+                // The only way out of a kiosk.
+                self.kiosk_quit = true;
+                Some(Action::Quit)
+            }
+            other => {
+                if let Some(path) = other.strip_prefix("open ") {
+                    self.visit(ctx, PathBuf::from(path));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                None
+            }
+        };
+        if let Some(action) = action {
+            self.run(ctx, action);
+        }
+    }
+
+    /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
+    fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).
         let typing = ctx.egui_wants_keyboard_input();
@@ -5463,12 +5455,15 @@ impl eframe::App for App {
         let vertical =
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
         self.row_step = if vertical { self.grid_cols as isize } else { 1 };
-        let mut act = (!self.dialog_open() && !typing)
+        (!self.dialog_open() && !typing)
             .then(|| Self::shortcut(ctx, self.config.delete_key, self.collection.is_some()))
-            .flatten();
-        // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
+            .flatten()
+    }
+
+    /// Keeps a kiosk in full screen and the screensaver off in full screen, and remembers the
+    /// window's size and place; whether the window is full screen.
+    fn track_window(&mut self, ctx: &egui::Context) -> bool {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        let bare = fullscreen || self.hide_tools || self.kiosk;
         if self.kiosk && !self.kiosk_quit {
             // Closing the window is refused, and full screen comes back if the desktop ends it.
             if ctx.input(|i| i.viewport().close_requested()) {
@@ -5496,171 +5491,172 @@ impl eframe::App for App {
             // Wayland reports no position.
             self.window.pos = outer.map(|r| r.min).or(self.window.pos);
         }
-        if !bare {
-            egui::Panel::top("menu").show(ui, |ui| {
-                egui::MenuBar::new().ui(ui, |ui| {
-                    let act = &mut act;
-                    scroll_menu(ui, "File", |ui| {
-                        menu_item(ui, act, Action::OpenFile);
-                        menu_item(ui, act, Action::OpenFolder);
-                        menu_item(ui, act, Action::OpenFolders);
-                        menu_item(ui, act, Action::NewFolder);
-                        menu_item(ui, act, Action::Copy);
-                        menu_item(ui, act, Action::Move);
-                        menu_item(ui, act, Action::Rename);
-                        menu_item(ui, act, Action::OpenWith);
-                        self.open_with_menu(ui);
-                        #[cfg(feature = "video")]
-                        menu_item(ui, act, Action::Play);
-                        menu_item(ui, act, Action::Print);
+        fullscreen
+    }
+
+    /// The menu bar, as Geeqie's, and the toolbar under it.
+    fn menu_bar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        egui::Panel::top("menu").show(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                scroll_menu(ui, "File", |ui| {
+                    menu_item(ui, act, Action::OpenFile);
+                    menu_item(ui, act, Action::OpenFolder);
+                    menu_item(ui, act, Action::OpenFolders);
+                    menu_item(ui, act, Action::NewFolder);
+                    menu_item(ui, act, Action::Copy);
+                    menu_item(ui, act, Action::Move);
+                    menu_item(ui, act, Action::Rename);
+                    menu_item(ui, act, Action::OpenWith);
+                    self.open_with_menu(ui);
+                    #[cfg(feature = "video")]
+                    menu_item(ui, act, Action::Play);
+                    menu_item(ui, act, Action::Print);
+                    ui.separator();
+                    menu_item(ui, act, Action::Delete);
+                    menu_item(ui, act, Action::DeletePermanently);
+                    ui.separator();
+                    self.collections_menu(ui, act);
+                    menu_item(ui, act, Action::FindDuplicates);
+                    ui.separator();
+                    menu_item(ui, act, Action::CloseWindow);
+                    menu_item(ui, act, Action::Quit);
+                });
+                scroll_menu(ui, "Go", |ui| {
+                    menu_item(ui, act, Action::First);
+                    menu_item(ui, act, Action::Prev);
+                    menu_item(ui, act, Action::Next);
+                    menu_item(ui, act, Action::Last);
+                    ui.separator();
+                    menu_item(ui, act, Action::Back);
+                    menu_item(ui, act, Action::Forward);
+                    menu_item(ui, act, Action::Home);
+                    menu_item(ui, act, Action::Up);
+                });
+                scroll_menu(ui, "Select", |ui| {
+                    menu_item(ui, act, Action::SelectAll);
+                    menu_item(ui, act, Action::SelectNone);
+                    menu_item(ui, act, Action::InvertSelection);
+                    ui.separator();
+                    menu_item(ui, act, Action::CopyPath);
+                    menu_item(ui, act, Action::CopyPathUnquoted);
+                    menu_item(ui, act, Action::CopyImage);
+                    menu_item(ui, act, Action::CopyFiles);
+                });
+                scroll_menu(ui, "Edit", |ui| {
+                    #[cfg(feature = "marks")]
+                    scroll_menu(ui, "Marks and Stars", |ui| {
+                        for action in [
+                            Action::Mark1,
+                            Action::Mark2,
+                            Action::Mark3,
+                            Action::Mark4,
+                            Action::Mark5,
+                            Action::Mark6,
+                        ] {
+                            menu_item(ui, act, action);
+                        }
                         ui.separator();
-                        menu_item(ui, act, Action::Delete);
-                        menu_item(ui, act, Action::DeletePermanently);
+                        for action in [
+                            Action::SelectMark1,
+                            Action::SelectMark2,
+                            Action::SelectMark3,
+                            Action::SelectMark4,
+                            Action::SelectMark5,
+                            Action::SelectMark6,
+                        ] {
+                            menu_item(ui, act, action);
+                        }
                         ui.separator();
-                        self.collections_menu(ui, act);
-                        menu_item(ui, act, Action::FindDuplicates);
-                        ui.separator();
-                        menu_item(ui, act, Action::CloseWindow);
-                        menu_item(ui, act, Action::Quit);
+                        for action in [
+                            Action::Rate0,
+                            Action::Rate1,
+                            Action::Rate2,
+                            Action::Rate3,
+                            Action::Rate4,
+                            Action::Rate5,
+                        ] {
+                            menu_item(ui, act, action);
+                        }
                     });
-                    scroll_menu(ui, "Go", |ui| {
-                        menu_item(ui, act, Action::First);
-                        menu_item(ui, act, Action::Prev);
-                        menu_item(ui, act, Action::Next);
-                        menu_item(ui, act, Action::Last);
+                    scroll_menu(ui, "Orientation", |ui| {
+                        for action in [
+                            Action::RotateCw,
+                            Action::RotateCcw,
+                            Action::Rotate180,
+                            Action::Mirror,
+                            Action::Flip,
+                        ] {
+                            menu_item(ui, act, action);
+                        }
                         ui.separator();
-                        menu_item(ui, act, Action::Back);
-                        menu_item(ui, act, Action::Forward);
-                        menu_item(ui, act, Action::Home);
-                        menu_item(ui, act, Action::Up);
+                        menu_item(ui, act, Action::SaveOrientation);
                     });
-                    scroll_menu(ui, "Select", |ui| {
-                        menu_item(ui, act, Action::SelectAll);
-                        menu_item(ui, act, Action::SelectNone);
-                        menu_item(ui, act, Action::InvertSelection);
-                        ui.separator();
-                        menu_item(ui, act, Action::CopyPath);
-                        menu_item(ui, act, Action::CopyPathUnquoted);
-                        menu_item(ui, act, Action::CopyImage);
-                        menu_item(ui, act, Action::CopyFiles);
+                    menu_item(ui, act, Action::Keywords);
+                    ui.separator();
+                    self.plugins_menu(ui);
+                    ui.separator();
+                    menu_item(ui, act, Action::Preferences);
+                });
+                scroll_menu(ui, "View", |ui| {
+                    self.layout_menu(ui, act);
+                    scroll_menu(ui, "Theme", |ui| self.theme_menu(ui));
+                    scroll_menu(ui, "Colour Management", |ui| self.colour_settings(ui));
+                    scroll_menu(ui, "Zoom", |ui| {
+                        menu_item(ui, act, Action::ZoomIn);
+                        menu_item(ui, act, Action::ZoomOut);
+                        menu_item(ui, act, Action::Zoom1To1);
+                        menu_item(ui, act, Action::ZoomFit);
                     });
-                    scroll_menu(ui, "Edit", |ui| {
-                        #[cfg(feature = "marks")]
-                        scroll_menu(ui, "Marks and Stars", |ui| {
-                            for action in [
-                                Action::Mark1,
-                                Action::Mark2,
-                                Action::Mark3,
-                                Action::Mark4,
-                                Action::Mark5,
-                                Action::Mark6,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                            ui.separator();
-                            for action in [
-                                Action::SelectMark1,
-                                Action::SelectMark2,
-                                Action::SelectMark3,
-                                Action::SelectMark4,
-                                Action::SelectMark5,
-                                Action::SelectMark6,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                            ui.separator();
-                            for action in [
-                                Action::Rate0,
-                                Action::Rate1,
-                                Action::Rate2,
-                                Action::Rate3,
-                                Action::Rate4,
-                                Action::Rate5,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                        });
-                        scroll_menu(ui, "Orientation", |ui| {
-                            for action in [
-                                Action::RotateCw,
-                                Action::RotateCcw,
-                                Action::Rotate180,
-                                Action::Mirror,
-                                Action::Flip,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                            ui.separator();
-                            menu_item(ui, act, Action::SaveOrientation);
-                        });
-                        menu_item(ui, act, Action::Keywords);
-                        ui.separator();
-                        self.plugins_menu(ui);
-                        ui.separator();
-                        menu_item(ui, act, Action::Preferences);
-                    });
-                    scroll_menu(ui, "View", |ui| {
-                        self.layout_menu(ui, act);
-                        scroll_menu(ui, "Theme", |ui| self.theme_menu(ui));
-                        scroll_menu(ui, "Colour Management", |ui| self.colour_settings(ui));
-                        scroll_menu(ui, "Zoom", |ui| {
-                            menu_item(ui, act, Action::ZoomIn);
-                            menu_item(ui, act, Action::ZoomOut);
-                            menu_item(ui, act, Action::Zoom1To1);
-                            menu_item(ui, act, Action::ZoomFit);
-                        });
-                        menu_item(ui, act, Action::FullScreen);
-                        menu_item(ui, act, Action::HideTools);
-                        let c = &self.config;
-                        menu_toggle(ui, act, c.toolbar, Action::Toolbar);
-                        menu_toggle(ui, act, c.path_bar, Action::PathBar);
-                        menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
-                        menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
-                        menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
-                        menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
-                        menu_toggle(ui, act, c.icons, Action::Icons);
-                        menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
-                        menu_toggle(ui, act, c.sort_manager, Action::SortManager);
-                        menu_toggle(ui, act, self.exif_window, Action::ExifWindow);
-                        menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
-                        menu_toggle(ui, act, c.osd, Action::Overlay);
-                        menu_item(ui, act, Action::Histogram);
-                        menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
-                        menu_item(ui, act, Action::Refresh);
-                        ui.separator();
-                        let label = if self.slideshow.is_some() {
-                            "Stop Slideshow"
-                        } else {
-                            "Start Slideshow"
-                        };
-                        menu_button(ui, act, egui::Button::new(label), Action::Slideshow);
-                        menu_toggle(ui, act, self.paused, Action::Pause);
-                        menu_item(ui, act, Action::Faster);
-                        menu_item(ui, act, Action::Slower);
-                        menu_toggle(ui, act, self.config.random, Action::RandomOrder);
-                    });
-                    scroll_menu(ui, "Window", |ui| {
-                        menu_item(ui, act, Action::NewWindow);
-                        menu_item(ui, act, Action::CloseWindow);
-                    });
-                    scroll_menu(ui, "Help", |ui| {
-                        menu_item(ui, act, Action::Help);
-                        menu_item(ui, act, Action::Shortcuts);
-                        menu_item(ui, act, Action::KeyboardMap);
-                        ui.separator();
-                        menu_item(ui, act, Action::About);
-                    });
+                    menu_item(ui, act, Action::FullScreen);
+                    menu_item(ui, act, Action::HideTools);
+                    let c = &self.config;
+                    menu_toggle(ui, act, c.toolbar, Action::Toolbar);
+                    menu_toggle(ui, act, c.path_bar, Action::PathBar);
+                    menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
+                    menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
+                    menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
+                    menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
+                    menu_toggle(ui, act, c.icons, Action::Icons);
+                    menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+                    menu_toggle(ui, act, c.sort_manager, Action::SortManager);
+                    menu_toggle(ui, act, self.exif_window, Action::ExifWindow);
+                    menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
+                    menu_toggle(ui, act, c.osd, Action::Overlay);
+                    menu_item(ui, act, Action::Histogram);
+                    menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
+                    menu_item(ui, act, Action::Refresh);
+                    ui.separator();
+                    let label = if self.slideshow.is_some() {
+                        "Stop Slideshow"
+                    } else {
+                        "Start Slideshow"
+                    };
+                    menu_button(ui, act, egui::Button::new(label), Action::Slideshow);
+                    menu_toggle(ui, act, self.paused, Action::Pause);
+                    menu_item(ui, act, Action::Faster);
+                    menu_item(ui, act, Action::Slower);
+                    menu_toggle(ui, act, self.config.random, Action::RandomOrder);
+                });
+                scroll_menu(ui, "Window", |ui| {
+                    menu_item(ui, act, Action::NewWindow);
+                    menu_item(ui, act, Action::CloseWindow);
+                });
+                scroll_menu(ui, "Help", |ui| {
+                    menu_item(ui, act, Action::Help);
+                    menu_item(ui, act, Action::Shortcuts);
+                    menu_item(ui, act, Action::KeyboardMap);
+                    ui.separator();
+                    menu_item(ui, act, Action::About);
                 });
             });
-            if self.config.toolbar {
-                self.toolbar(ui, &mut act);
-            }
+        });
+        if self.config.toolbar {
+            self.toolbar(ui, act);
         }
-        if let Some(action) = act {
-            self.run(ctx, action);
-        }
-        self.grid_cols = 1;
+    }
 
+    /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
+    fn preferences_window(&mut self, ctx: &egui::Context) {
         let mut open = self.show_settings;
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for.
@@ -5984,7 +5980,12 @@ impl eframe::App for App {
                     }
                 });
             });
+        self.show_settings = open;
+    }
 
+    /// Asks for a name: a new folder, a new name for a folder or file, Rename Many's pattern, a new
+    /// collection, a theme to save.
+    fn prompt_dialog(&mut self, ctx: &egui::Context) {
         if let Some((prompt, mut text)) = self.prompt.take() {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:".to_owned(),
@@ -6029,7 +6030,10 @@ impl eframe::App for App {
                 self.prompt = Some((prompt, text));
             }
         }
+    }
 
+    /// File → Print: the printer or a PDF, the paper, and images or contact sheets.
+    fn print_dialog(&mut self, ctx: &egui::Context) {
         if let Some(mut dialog) = self.print.take() {
             if let Ok((names, default)) = dialog.printers_rx.try_recv() {
                 // The printer used last, else CUPS's default; a PDF file if neither is there.
@@ -6129,8 +6133,10 @@ impl eframe::App for App {
                 self.print = Some(dialog);
             }
         }
-        self.pan_view(ctx);
+    }
 
+    /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
+    fn exif_fields_window(&mut self, ctx: &egui::Context) {
         if self.exif_window && !self.files.is_empty() {
             self.want_exif();
             let mut open = true;
@@ -6158,7 +6164,10 @@ impl eframe::App for App {
                 });
             self.exif_window = open;
         }
+    }
 
+    /// The user name, domain and password for a network folder that asks for them.
+    fn login_dialog(&mut self, ctx: &egui::Context) {
         if let Some(mut login) = self.login.take() {
             let mut connect = false;
             let modal = egui::Modal::new(egui::Id::new("login")).show(ctx, |ui| {
@@ -6193,7 +6202,10 @@ impl eframe::App for App {
                 self.login = Some(login);
             }
         }
+    }
 
+    /// Asks before files go to the trash or are deleted for good.
+    fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
         if let Some(trash) = self.confirm {
             let what = match self.targets().as_slice() {
                 [i] => format!("\"{}\"", self.name(*i)),
@@ -6222,6 +6234,10 @@ impl eframe::App for App {
                 self.confirm = None;
             }
         }
+    }
+
+    /// Asks before a folder goes to the trash.
+    fn confirm_folder_dialog(&mut self, ctx: &egui::Context) {
         if self.confirm_folder {
             let name = (self.folder_target.as_deref())
                 .and_then(Path::file_name)
@@ -6249,301 +6265,119 @@ impl eframe::App for App {
                 self.folder_target = None;
             }
         }
-        self.duplicates_window(ctx);
-        self.show_settings = open;
-        help::window(ctx, &mut self.help);
+    }
 
-        // Status bar as in Geeqie: image and selection counts on the left, current image on the right.
-        if !bare {
-            egui::Panel::bottom("status").show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let n = self.files.len();
-                    let size = size_text(self.size_rx.is_none().then_some(self.total_size));
-                    let mut left = match &self.matches {
-                        _ if self.listing.is_some() => "Reading folder…".to_owned(),
-                        // A search shows the matches: count and size of what the list shows.
-                        Some(found) => {
-                            let size =
-                                size_text(self.match_rx.is_none().then_some(self.match_size));
-                            format!(
-                                "{} of {} images ({size})",
-                                thousands(found.len()),
-                                thousands(n)
-                            )
-                        }
-                        None => format!("{} images ({size})", thousands(n)),
-                    };
-                    if !self.selected.is_empty() {
-                        let m = thousands(self.selected.len());
-                        let size = size_text(self.selected_size);
-                        left += &format!(", {m} selected ({size})");
+    /// The status bar as in Geeqie: the counts and sizes on the left, the shown image (or the pane
+    /// under the pointer) on the right.
+    fn status_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        egui::Panel::bottom("status").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let n = self.files.len();
+                let size = size_text(self.size_rx.is_none().then_some(self.total_size));
+                let mut left = match &self.matches {
+                    _ if self.listing.is_some() => "Reading folder…".to_owned(),
+                    // A search shows the matches: count and size of what the list shows.
+                    Some(found) => {
+                        let size = size_text(self.match_rx.is_none().then_some(self.match_size));
+                        format!(
+                            "{} of {} images ({size})",
+                            thousands(found.len()),
+                            thousands(n)
+                        )
                     }
-                    self.sort_menu(ctx, ui);
-                    self.types_menu(ctx, ui);
-                    ui.separator();
-                    ui.label(left);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if n == 0 {
-                            return;
-                        }
-                        // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom;
-                        // with several panes, of the one under the pointer.
-                        let (idx, scale) = (self.pane_info.get(self.status_pane).copied())
-                            .filter(|p| p.0 < n)
-                            .unwrap_or((self.cur, Some(self.last_scale)));
-                        let path = self.path(idx);
-                        if self.cur_size.as_ref().is_none_or(|c| c.0 != path) {
-                            // ponytail: one stat in the UI thread per image change; move it to
-                            // a thread if slow network folders make browsing stutter.
-                            let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-                            self.cur_size = Some((path, bytes));
-                        }
-                        let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
-                        let place = if idx == self.cur {
-                            self.place()
-                        } else {
-                            self.place_of(idx)
-                        };
-                        let bytes = format!("{} bytes", thousands(bytes as usize));
-                        match self.slots.get(&idx) {
-                            Some(slot) => {
-                                let [w, h] = slot.orig;
-                                if let Some(scale) = scale {
-                                    ui.label(format!("{} %", (scale * 100.0).round()));
-                                    ui.separator();
-                                }
-                                let page = if slot.pages > 1 && idx == self.cur {
-                                    format!(" page {}/{}", self.page + 1, slot.pages)
-                                } else {
-                                    String::new()
-                                };
-                                ui.label(format!("( {w} x {h} ) {bytes} {place}{page}"));
+                    None => format!("{} images ({size})", thousands(n)),
+                };
+                if !self.selected.is_empty() {
+                    let m = thousands(self.selected.len());
+                    let size = size_text(self.selected_size);
+                    left += &format!(", {m} selected ({size})");
+                }
+                self.sort_menu(ctx, ui);
+                self.types_menu(ctx, ui);
+                ui.separator();
+                ui.label(left);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if n == 0 {
+                        return;
+                    }
+                    // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom;
+                    // with several panes, of the one under the pointer.
+                    let (idx, scale) = (self.pane_info.get(self.status_pane).copied())
+                        .filter(|p| p.0 < n)
+                        .unwrap_or((self.cur, Some(self.last_scale)));
+                    let path = self.path(idx);
+                    if self.cur_size.as_ref().is_none_or(|c| c.0 != path) {
+                        // ponytail: one stat in the UI thread per image change; move it to
+                        // a thread if slow network folders make browsing stutter.
+                        let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
+                        self.cur_size = Some((path, bytes));
+                    }
+                    let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
+                    let place = if idx == self.cur {
+                        self.place()
+                    } else {
+                        self.place_of(idx)
+                    };
+                    let bytes = format!("{} bytes", thousands(bytes as usize));
+                    match self.slots.get(&idx) {
+                        Some(slot) => {
+                            let [w, h] = slot.orig;
+                            if let Some(scale) = scale {
+                                ui.label(format!("{} %", (scale * 100.0).round()));
+                                ui.separator();
                             }
-                            None => {
-                                ui.label(format!("{bytes} {place}"));
-                            }
+                            let page = if slot.pages > 1 && idx == self.cur {
+                                format!(" page {}/{}", self.page + 1, slot.pages)
+                            } else {
+                                String::new()
+                            };
+                            ui.label(format!("( {w} x {h} ) {bytes} {place}{page}"));
                         }
-                        if self.status_grid != [1, 1] {
-                            pane_map(ui, self.status_grid, self.status_pane);
+                        None => {
+                            ui.label(format!("{bytes} {place}"));
                         }
-                    });
+                    }
+                    if self.status_grid != [1, 1] {
+                        pane_map(ui, self.status_grid, self.status_pane);
+                    }
                 });
             });
-        }
+        });
+    }
 
-        // Left side as in Geeqie: one-level folder tree at the top, file names below.
+    /// The left side as in Geeqie: the path, the folders at the top, the search and the files
+    /// below; then what a click there asked for.
+    fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
-        if !bare {
-            // Room for a name next to the size and date columns.
-            let min = if self.config.file_details {
-                DETAILS_WIDTH + 120.0
-            } else {
-                80.0
-            };
-            egui::Panel::left("left")
-                .resizable(true)
-                .default_size(240.0)
-                .min_size(min)
-                .show(ui, |ui| {
-                    if self.config.path_bar {
-                        self.path_field(ui);
-                    }
-                    egui::Panel::top("folders")
-                        .resizable(true)
-                        .default_size(200.0)
-                        .show(ui, |ui| {
-                            if self.config.folder_tree {
-                                self.folder_tree(ui, &mut open_dir);
-                                return;
-                            }
-                            // Row 0 is ⬆ .. (when there is a parent folder), the rest are subfolders.
-                            let up = self.dir.parent().map(Path::to_path_buf);
-                            let rows = up.is_some() as usize + self.subdirs.len();
-                            let row_h = ui.spacing().interact_size.y;
-                            egui::ScrollArea::vertical()
-                                .id_salt("folders")
-                                .auto_shrink(false)
-                                .show_rows(ui, row_h, rows, |ui, range| {
-                                    for row in range {
-                                        let is_up = row == 0 && up.is_some();
-                                        let (label, target) = match (row, &up) {
-                                            (0, Some(parent)) => {
-                                                (format!("{}  ..", theme::icon::UP), parent)
-                                            }
-                                            _ => {
-                                                let d = &self.subdirs[row - up.is_some() as usize];
-                                                let name = d.file_name().unwrap_or_default();
-                                                (
-                                                    format!(
-                                                        "{}  {}",
-                                                        theme::icon::FOLDER,
-                                                        name.to_string_lossy()
-                                                    ),
-                                                    d,
-                                                )
-                                            }
-                                        };
-                                        let target = target.clone();
-                                        let response = ui.selectable_label(false, label);
-                                        if response.clicked() {
-                                            open_dir = Some(target.clone());
-                                        }
-                                        if !is_up {
-                                            self.folder_menu(&response, &target);
-                                        }
-                                    }
-                                });
-                        });
-                    if self.config.search_bar {
-                        self.search_field(ui);
-                    }
-                    // The rows shown: the search matches, or all files.
-                    let count = self.matches.as_ref().map_or(self.files.len(), Vec::len);
-                    let row_of = |i: usize, m: &Option<Vec<usize>>| match m {
-                        Some(m) => m.iter().position(|&x| x == i),
-                        None => Some(i),
-                    };
-                    // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
-                    let icons = self.config.icons;
-                    let thumbs = self.config.thumbnails || icons;
-                    let row_h = if icons {
-                        self.cell().y
-                    } else if thumbs {
-                        self.thumb().y + 4.0
-                    } else {
-                        ui.spacing().interact_size.y
-                    };
-                    let pitch = row_h + ui.spacing().item_spacing.y;
-                    // As icons, a row holds as many cells as fit the width.
-                    let gap = ui.spacing().item_spacing.x;
-                    let cols = if icons {
-                        (((ui.available_width() + gap) / (self.cell().x + gap)) as usize).max(1)
-                    } else {
-                        1
-                    };
-                    self.grid_cols = cols;
-                    let mut area = egui::ScrollArea::vertical()
-                        .id_salt("files")
-                        .auto_shrink(false);
-                    if self.scroll_to_cur
-                        && let Some(row) = row_of(self.cur, &self.matches).map(|r| r / cols)
-                    {
-                        // Scroll only when the current image is out of view, and centre it.
-                        let (top, view) = (row as f32 * pitch, ui.available_height());
-                        let off =
-                            egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
-                                .map_or(0.0, |s| s.offset.y);
-                        if top < off || top + pitch > off + view {
-                            area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
-                        }
-                    }
-                    area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
-                        let rows = rows.start * cols..(rows.end * cols).min(count);
-                        let shown: Vec<usize> = match &self.matches {
-                            Some(m) => m[rows].to_vec(),
-                            None => rows.collect(),
-                        };
-
-                        if thumbs
-                            && let (Some(&first), Some(&last)) =
-                                (shown.iter().min(), shown.iter().max())
-                        {
-                            self.thumb_view[0].store(first, Ordering::Relaxed);
-                            self.thumb_view[1].store(last, Ordering::Relaxed);
-                            self.trim_thumbs(first, last);
-                        }
-                        let mut line = egui::Rect::NOTHING;
-                        for (k, i) in shown.into_iter().enumerate() {
-                            let marked = i == self.cur || self.selected.contains(&i);
-                            let row = if icons {
-                                if k % cols == 0 {
-                                    let size = egui::vec2(ui.available_width(), self.cell().y);
-                                    line = ui.allocate_exact_size(size, egui::Sense::hover()).0;
-                                }
-                                let x = (k % cols) as f32 * (self.cell().x + gap);
-                                let cell = egui::Rect::from_min_size(
-                                    line.min + egui::vec2(x, 0.0),
-                                    self.cell(),
-                                );
-                                self.file_cell(ui, i, cell, marked)
-                            } else if thumbs || self.config.file_details {
-                                self.file_row(ui, i, row_h, marked)
-                            } else {
-                                let name = self.name(i);
-                                let marks = self.mark_text(i);
-                                if marks.is_empty() {
-                                    ui.selectable_label(marked, name)
-                                } else {
-                                    ui.selectable_label(marked, format!("{name}   {marks}"))
-                                }
-                            };
-                            if row.clicked() {
-                                let m = ui.input(|i| i.modifiers);
-                                if m.command {
-                                    // Ctrl+click: toggle selection (the shown image is included the first time).
-                                    if self.selected.is_empty() {
-                                        self.selected.insert(self.cur);
-                                    }
-                                    if !self.selected.remove(&i) {
-                                        self.selected.insert(i);
-                                    }
-                                    self.anchor = Some(i);
-                                    self.selection_changed(ctx);
-                                } else if m.shift {
-                                    // Shift+click: select the rows from where the selection started.
-                                    let anchor = *self.anchor.get_or_insert(self.cur);
-                                    self.selected.clear();
-                                    self.select_range(anchor, i);
-                                    self.selection_changed(ctx);
-                                } else {
-                                    self.selected.clear();
-                                    self.selected_size = None;
-                                    self.selected_rx = None;
-                                    self.anchor = None;
-                                    go_to = Some(i);
-                                }
-                            }
-                            // Right-click on a file outside the selection selects just it, as in
-                            // a file manager; the menu acts on the selection.
-                            if row.secondary_clicked()
-                                && !self.selected.contains(&i)
-                                && (i != self.cur || !self.selected.is_empty())
-                            {
-                                self.selected.clear();
-                                self.selected.insert(i);
-                                self.anchor = Some(i);
-                                self.selection_changed(ctx);
-                            }
-                            row.context_menu(|ui| {
-                                for action in [
-                                    Action::Copy,
-                                    Action::Move,
-                                    Action::CopyPath,
-                                    Action::CopyImage,
-                                    Action::CopyFiles,
-                                ] {
-                                    menu_item(ui, &mut list_act, action);
-                                }
-                                self.open_with_menu(ui);
-                                scroll_menu(ui, "Add to Collection", |ui| {
-                                    for (name, file) in collections::list() {
-                                        if ui.button(name).clicked() {
-                                            self.add_to_collection(&file);
-                                        }
-                                    }
-                                    menu_item(ui, &mut list_act, Action::NewCollection);
-                                });
-                                if self.collection.is_some() {
-                                    menu_item(ui, &mut list_act, Action::RemoveFromCollection);
-                                }
-                                ui.separator();
-                                menu_item(ui, &mut list_act, Action::Delete);
-                                menu_item(ui, &mut list_act, Action::DeletePermanently);
-                            });
+        // Room for a name next to the size and date columns.
+        let min = if self.config.file_details {
+            DETAILS_WIDTH + 120.0
+        } else {
+            80.0
+        };
+        egui::Panel::left("left")
+            .resizable(true)
+            .default_size(240.0)
+            .min_size(min)
+            .show(ui, |ui| {
+                if self.config.path_bar {
+                    self.path_field(ui);
+                }
+                egui::Panel::top("folders")
+                    .resizable(true)
+                    .default_size(200.0)
+                    .show(ui, |ui| {
+                        if self.config.folder_tree {
+                            self.folder_tree(ui, &mut open_dir);
+                        } else {
+                            self.folder_list(ui, &mut open_dir);
                         }
                     });
-                });
-        }
+                if self.config.search_bar {
+                    self.search_field(ui);
+                }
+                self.file_list(ctx, ui, &mut go_to, &mut list_act);
+            });
         self.scroll_to_cur = false;
         if let Some(d) = open_dir {
             self.visit(ctx, d);
@@ -6553,17 +6387,215 @@ impl eframe::App for App {
         if let Some(action) = list_act {
             self.run(ctx, action);
         }
+    }
 
-        if !bare && self.config.sort_manager {
-            self.sort_manager(ui);
-        }
-        if !bare && self.config.exif_panel && !self.files.is_empty() {
-            self.exif_panel(ui);
+    /// The folder list: ⬆ .. for the parent folder, then the subfolders.
+    fn folder_list(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
+        // Row 0 is ⬆ .. (when there is a parent folder), the rest are subfolders.
+        let up = self.dir.parent().map(Path::to_path_buf);
+        let rows = up.is_some() as usize + self.subdirs.len();
+        let row_h = ui.spacing().interact_size.y;
+        egui::ScrollArea::vertical()
+            .id_salt("folders")
+            .auto_shrink(false)
+            .show_rows(ui, row_h, rows, |ui, range| {
+                for row in range {
+                    let is_up = row == 0 && up.is_some();
+                    let (label, target) = match (row, &up) {
+                        (0, Some(parent)) => (format!("{}  ..", theme::icon::UP), parent),
+                        _ => {
+                            let d = &self.subdirs[row - up.is_some() as usize];
+                            let name = d.file_name().unwrap_or_default();
+                            (
+                                format!("{}  {}", theme::icon::FOLDER, name.to_string_lossy()),
+                                d,
+                            )
+                        }
+                    };
+                    let target = target.clone();
+                    let response = ui.selectable_label(false, label);
+                    if response.clicked() {
+                        *open_dir = Some(target.clone());
+                    }
+                    if !is_up {
+                        self.folder_menu(&response, &target);
+                    }
+                }
+            });
+    }
+
+    /// The file list (names, details, thumbnails or icons), drawn only where it is visible.
+    fn file_list(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &mut egui::Ui,
+        go_to: &mut Option<usize>,
+        list_act: &mut Option<Action>,
+    ) {
+        // The rows shown: the search matches, or all files.
+        let count = self.matches.as_ref().map_or(self.files.len(), Vec::len);
+        let row_of = |i: usize, m: &Option<Vec<usize>>| match m {
+            Some(m) => m.iter().position(|&x| x == i),
+            None => Some(i),
+        };
+        // Only visible rows are drawn, so the list is as fast with 10 files as with 300,000.
+        let icons = self.config.icons;
+        let thumbs = self.config.thumbnails || icons;
+        let row_h = if icons {
+            self.cell().y
+        } else if thumbs {
+            self.thumb().y + 4.0
         } else {
-            // Hidden while a field had the focus: it never lost it.
-            self.save_meta();
+            ui.spacing().interact_size.y
+        };
+        let pitch = row_h + ui.spacing().item_spacing.y;
+        // As icons, a row holds as many cells as fit the width.
+        let gap = ui.spacing().item_spacing.x;
+        let cols = if icons {
+            (((ui.available_width() + gap) / (self.cell().x + gap)) as usize).max(1)
+        } else {
+            1
+        };
+        self.grid_cols = cols;
+        let mut area = egui::ScrollArea::vertical()
+            .id_salt("files")
+            .auto_shrink(false);
+        if self.scroll_to_cur
+            && let Some(row) = row_of(self.cur, &self.matches).map(|r| r / cols)
+        {
+            // Scroll only when the current image is out of view, and centre it.
+            let (top, view) = (row as f32 * pitch, ui.available_height());
+            let off = egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
+                .map_or(0.0, |s| s.offset.y);
+            if top < off || top + pitch > off + view {
+                area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
+            }
         }
+        area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
+            let rows = rows.start * cols..(rows.end * cols).min(count);
+            let shown: Vec<usize> = match &self.matches {
+                Some(m) => m[rows].to_vec(),
+                None => rows.collect(),
+            };
 
+            if thumbs && let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max())
+            {
+                self.thumb_view[0].store(first, Ordering::Relaxed);
+                self.thumb_view[1].store(last, Ordering::Relaxed);
+                self.trim_thumbs(first, last);
+            }
+            let mut line = egui::Rect::NOTHING;
+            for (k, i) in shown.into_iter().enumerate() {
+                let marked = i == self.cur || self.selected.contains(&i);
+                let row = if icons {
+                    if k % cols == 0 {
+                        let size = egui::vec2(ui.available_width(), self.cell().y);
+                        line = ui.allocate_exact_size(size, egui::Sense::hover()).0;
+                    }
+                    let x = (k % cols) as f32 * (self.cell().x + gap);
+                    let cell =
+                        egui::Rect::from_min_size(line.min + egui::vec2(x, 0.0), self.cell());
+                    self.file_cell(ui, i, cell, marked)
+                } else if thumbs || self.config.file_details {
+                    self.file_row(ui, i, row_h, marked)
+                } else {
+                    let name = self.name(i);
+                    let marks = self.mark_text(i);
+                    if marks.is_empty() {
+                        ui.selectable_label(marked, name)
+                    } else {
+                        ui.selectable_label(marked, format!("{name}   {marks}"))
+                    }
+                };
+                if let Some(i) = self.row_clicked(ctx, &row, i) {
+                    *go_to = Some(i);
+                }
+                row.context_menu(|ui| self.file_menu(ui, list_act));
+            }
+        });
+    }
+
+    /// A click on row `i`: Ctrl and Shift change the selection, a plain click gives the image to
+    /// show; a right-click outside the selection selects just that row.
+    fn row_clicked(
+        &mut self,
+        ctx: &egui::Context,
+        row: &egui::Response,
+        i: usize,
+    ) -> Option<usize> {
+        let mut go_to = None;
+        if row.clicked() {
+            let m = row.ctx.input(|i| i.modifiers);
+            if m.command {
+                // Ctrl+click: toggle selection (the shown image is included the first time).
+                if self.selected.is_empty() {
+                    self.selected.insert(self.cur);
+                }
+                if !self.selected.remove(&i) {
+                    self.selected.insert(i);
+                }
+                self.anchor = Some(i);
+                self.selection_changed(ctx);
+            } else if m.shift {
+                // Shift+click: select the rows from where the selection started.
+                let anchor = *self.anchor.get_or_insert(self.cur);
+                self.selected.clear();
+                self.select_range(anchor, i);
+                self.selection_changed(ctx);
+            } else {
+                self.selected.clear();
+                self.selected_size = None;
+                self.selected_rx = None;
+                self.anchor = None;
+                go_to = Some(i);
+            }
+        }
+        // Right-click on a file outside the selection selects just it, as in
+        // a file manager; the menu acts on the selection.
+        if row.secondary_clicked()
+            && !self.selected.contains(&i)
+            && (i != self.cur || !self.selected.is_empty())
+        {
+            self.selected.clear();
+            self.selected.insert(i);
+            self.anchor = Some(i);
+            self.selection_changed(ctx);
+        }
+        go_to
+    }
+
+    /// A file's right-click menu; it acts on the selection.
+    fn file_menu(&mut self, ui: &mut egui::Ui, list_act: &mut Option<Action>) {
+        for action in [
+            Action::Copy,
+            Action::Move,
+            Action::CopyPath,
+            Action::CopyImage,
+            Action::CopyFiles,
+        ] {
+            menu_item(ui, list_act, action);
+        }
+        self.open_with_menu(ui);
+        scroll_menu(ui, "Add to Collection", |ui| {
+            for (name, file) in collections::list() {
+                if ui.button(name).clicked() {
+                    self.add_to_collection(&file);
+                }
+            }
+            menu_item(ui, list_act, Action::NewCollection);
+        });
+        if self.collection.is_some() {
+            menu_item(ui, list_act, Action::RemoveFromCollection);
+        }
+        ui.separator();
+        menu_item(ui, list_act, Action::Delete);
+        menu_item(ui, list_act, Action::DeletePermanently);
+    }
+
+    /// The image area: the shown image in one or more panes, compare, zoom and drag, the overlay,
+    /// the film strip in full screen; and what a click there asked for.
+    fn image_area(&mut self, ctx: &egui::Context, ui: &mut egui::Ui, fullscreen: bool, bare: bool) {
+        let ppp = ctx.pixels_per_point();
         // Actions from the image area, run after drawing it.
         let mut later = None;
         let mut clicked_pane = None;
@@ -6879,6 +6911,73 @@ impl eframe::App for App {
         if let Some(i) = clicked_pane {
             self.go(ctx, i);
         }
+    }
+}
+
+impl eframe::App for App {
+    /// The last folder is written once on exit, not on every folder change.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        remote::stop();
+        self.save_meta();
+        // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
+        let mut state = String::new();
+        if self.config.remember_dir {
+            let last = self.collection.as_ref().unwrap_or(&self.dir);
+            state += &format!("last_dir={}\n", last.display());
+        }
+        if self.config.remember_window {
+            state += &self.window.to_text();
+        }
+        if let Some(p) = state_path().filter(|_| !state.is_empty()) {
+            write_atomic(&p, &state);
+        }
+        self.inhibit(false);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
+        self.poll_background(ctx);
+        let mut act = self.read_keys(ctx);
+        // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
+        let fullscreen = self.track_window(ctx);
+        let bare = fullscreen || self.hide_tools || self.kiosk;
+        if !bare {
+            self.menu_bar(ui, &mut act);
+        }
+        if let Some(action) = act {
+            self.run(ctx, action);
+        }
+        // The icon grid sets it again in the file list; the next frame's ↑ and ↓ read it.
+        self.grid_cols = 1;
+        self.preferences_window(ctx);
+        self.prompt_dialog(ctx);
+        self.print_dialog(ctx);
+        self.pan_view(ctx);
+        self.exif_fields_window(ctx);
+        self.login_dialog(ctx);
+        self.confirm_delete_dialog(ctx);
+        self.confirm_folder_dialog(ctx);
+        self.duplicates_window(ctx);
+        help::window(ctx, &mut self.help);
+        if !bare {
+            self.status_bar(ctx, ui);
+        }
+        if bare {
+            // A scroll to the shown image asked for while the list is hidden is dropped.
+            self.scroll_to_cur = false;
+        } else {
+            self.side_panel(ctx, ui);
+        }
+        if !bare && self.config.sort_manager {
+            self.sort_manager(ui);
+        }
+        if !bare && self.config.exif_panel && !self.files.is_empty() {
+            self.exif_panel(ui);
+        } else {
+            // Hidden while a field had the focus: it never lost it.
+            self.save_meta();
+        }
+        self.image_area(ctx, ui, fullscreen, bare);
     }
 }
 
