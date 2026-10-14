@@ -209,8 +209,8 @@ fn likeness(a: &[u8], b: &[u8]) -> f32 {
 /// all: pictures `percent` alike differ by at most that much in mean too, so none are missed.
 /// Within that, the means of the four bands of the picture rule out most pairs before all 768
 /// values are compared: their differences add up to at most four times as much.
-/// ponytail: still a four-step check for every pair about as bright; slow when hundreds of
-/// thousands of pictures are.
+/// shortcut: a four-step check for every pair about as bright, slow when hundreds of thousands
+/// of pictures are; sort them into buckets by their bands if that gets common.
 fn similar(
     paths: Vec<PathBuf>,
     signatures: Vec<Option<Vec<u8>>>,
