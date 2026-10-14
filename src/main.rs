@@ -7605,6 +7605,13 @@ mod tests {
         std::fs::write(&apng, &bytes).unwrap();
         assert!(super::save::save_rotated(&apng, false, 1, false, 90).is_err());
         assert_eq!(std::fs::read(&apng).unwrap(), bytes);
+        // A JPEG with a .png name is turned, and saved as a PNG.
+        let misnamed = dir.join("c.png");
+        image::RgbImage::new(4, 2)
+            .save_with_format(&misnamed, image::ImageFormat::Jpeg)
+            .unwrap();
+        super::save::save_rotated(&misnamed, false, 1, false, 90).unwrap();
+        assert_eq!(image::image_dimensions(&misnamed).unwrap(), (2, 4));
         // Through a symlink: the file it points to is turned, and the link stays a link.
         let link = dir.join("link.png");
         std::os::unix::fs::symlink(&file, &link).unwrap();
