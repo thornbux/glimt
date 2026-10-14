@@ -5222,12 +5222,10 @@ impl App {
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => {
-                // From an AppImage, the AppImage: the binary is in its mount, which goes when
-                // this window closes.
-                let exe = match std::env::var_os("APPIMAGE") {
-                    Some(appimage) => Ok(PathBuf::from(appimage)),
-                    None => std::env::current_exe(),
-                };
+                let exe = std::env::current_exe().map(|exe| {
+                    let var = std::env::var_os;
+                    own_program(exe, var("APPDIR"), var("APPIMAGE"))
+                });
                 // After an update (or a rebuild) Linux reports the running binary as
                 // "/path/glimt (deleted)"; the new one is at the same path.
                 let started = exe.and_then(|exe| {
@@ -7029,6 +7027,16 @@ impl eframe::App for App {
     }
 }
 
+/// The program New Window starts: from an AppImage the AppImage, as the binary is in its mount,
+/// which goes when this window closes; else the binary. Every program started from an AppImage
+/// inherits its APPIMAGE, so it counts only when the binary is inside APPDIR.
+fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString>) -> PathBuf {
+    match (appdir, appimage) {
+        (Some(dir), Some(image)) if exe.starts_with(&dir) => PathBuf::from(image),
+        _ => exe,
+    }
+}
+
 fn main() -> eframe::Result {
     // One malloc arena for all threads. With one per thread, freed image buffers stayed in
     // each decode thread's arena: 91 instead of 29 MB of own memory in a folder of
@@ -7494,6 +7502,25 @@ mod tests {
         );
         assert_eq!(super::colour::first_quoted("(@ao [],)\n"), None);
         assert_eq!(super::colour::first_quoted("(<''>,)"), None);
+    }
+
+    /// New Window starts the AppImage only from inside it, not when Glimt was merely started
+    /// from another AppImage (a terminal), whose APPIMAGE it inherits.
+    #[test]
+    fn new_window_program() {
+        use std::path::PathBuf;
+        let os = |s: &str| Some(std::ffi::OsString::from(s));
+        let inside = PathBuf::from("/tmp/.mount_ab12/usr/bin/glimt");
+        let got = super::own_program(inside, os("/tmp/.mount_ab12"), os("/home/u/glimt.AppImage"));
+        assert_eq!(got, PathBuf::from("/home/u/glimt.AppImage"));
+        let installed = PathBuf::from("/usr/bin/glimt");
+        let got = super::own_program(
+            installed.clone(),
+            os("/tmp/.mount_cd34"),
+            os("/home/u/Term.AppImage"),
+        );
+        assert_eq!(got, installed);
+        assert_eq!(super::own_program(installed.clone(), None, None), installed);
     }
 
     /// image writes lossless WebP (VP8L); anything else is not taken for one.

@@ -162,7 +162,8 @@ The AppImage holds the same binary, its desktop file, icons, man page and licens
 Wayland and X11 come from the system, as for the tar.gz. `appimagetool` and the type2 runtime
 (which needs no libfuse2) are pinned releases with their sha256 in `release.yml`; change both
 together. Inside the AppImage, `$APPIMAGE` names the file itself: New Window starts that, as
-the binary's mount goes when the first window closes.
+the binary's mount goes when the first window closes; only when the binary is inside
+`$APPDIR`, as every program started from an AppImage inherits its `$APPIMAGE`.
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
 Flathub's `freedesktop-26.08` image (change the image with `runtime-version`), and adds it to the
