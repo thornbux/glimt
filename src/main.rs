@@ -1814,8 +1814,9 @@ impl App {
             for rel in paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok()) {
                 self.deleting.remove(rel.as_os_str());
             }
-            // The files that are still there come back into the list.
-            self.stale |= failed;
+            // The files that are still there come back into the list. A listing that started
+            // before the files went still has them: the folder is read again after it.
+            self.stale |= failed || self.listing.is_some();
         }
     }
 
@@ -2016,6 +2017,8 @@ impl App {
                 .filter_map(|p| p.strip_prefix(&self.dir).ok())
                 .map(Path::as_os_str)
                 .collect();
+            // Kept out of a listing that is running, as files being deleted are.
+            self.deleting.extend(names.iter().map(|n| n.to_os_string()));
             let gone: Vec<usize> = (0..self.files.len())
                 .filter(|&i| names.contains(self.files[i].as_os_str()))
                 .collect();
@@ -2056,8 +2059,11 @@ impl App {
                 let verb = if keep { "Copy" } else { "Move" };
                 let _ = tx.send(format!("{verb} failed ({} errors): {first}", errors.len()));
             }
-            if listed || (!keep && !errors.is_empty()) {
-                let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, true));
+            // Moved: out of `deleting`; read the folder again for files that joined it, or that
+            // failed to go.
+            if listed || !keep {
+                let relist = listed || !errors.is_empty();
+                let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, relist));
             }
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
