@@ -106,6 +106,13 @@ const CPU_LEVELS: [(&str, &str); 3] = [
     ),
 ];
 
+/// Slideshow → Fade: (name for the config and --fade, menu label, milliseconds).
+const FADES: [(&str, &str, u64); 3] = [
+    ("off", "Off", 0),
+    ("short", "Short", 400),
+    ("long", "Long", 1000),
+];
+
 /// The CPU use level (index in CPU_LEVELS), for the worker threads, and the signal that wakes
 /// the thumbnail workers it leaves idle when it changes.
 static CPU_USE: AtomicUsize = AtomicUsize::new(1);
@@ -676,6 +683,10 @@ const START_OPTIONS: &[(&str, &str)] = &[
     ),
     ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
     (
+        "--fade off|short|long",
+        "Fade between slideshow images (kept)",
+    ),
+    (
         "--name NAME",
         "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it",
     ),
@@ -715,6 +726,23 @@ const KIOSK_ACTIONS: &[Action] = &[
     Action::PrevPage,
 ];
 
+/// `orig` fitted into `rect`, centred; larger than its size only with `enlarge`.
+fn fitted(rect: egui::Rect, orig: [usize; 2], ppp: f32, enlarge: bool) -> egui::Rect {
+    let size = egui::vec2(orig[0] as f32, orig[1] as f32);
+    let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
+    let fit = if enlarge { fit } else { fit.min(1.0) };
+    egui::Rect::from_center_size(rect.center(), size * fit / ppp)
+}
+
+/// A texture shown and its image's size, which a fade goes from.
+type Shown = (egui::TextureHandle, [usize; 2]);
+
+/// Faded to `alpha` (0 to 1), as a tint. A fade draws the image before at 1 - t⁴ under the new
+/// one at t: the sum stays near full brightness, where 1 - t would darken the middle.
+fn alpha(a: f32) -> egui::Color32 {
+    egui::Color32::from_white_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
+}
+
 /// A small map of the panes in the status bar, with the one it tells about filled in.
 fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
     let cell = egui::vec2(9.0, 7.0);
@@ -744,6 +772,8 @@ struct Start {
     layout: Option<&'static str>,
     name: Option<String>,
     kiosk: bool,
+    /// --fade: an index in FADES.
+    fade: Option<usize>,
     /// More folders after the first, to show together.
     more: Vec<PathBuf>,
 }
@@ -758,6 +788,12 @@ impl Start {
                 "--random" => start.random = true,
                 "--fullscreen" => start.fullscreen = true,
                 "--kiosk" => start.kiosk = true,
+                "--fade" => {
+                    let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
+                    let k = FADES.iter().position(|f| f.0 == value);
+                    start.fade = Some(k.ok_or("--fade takes off, short or long")?);
+                    args.remove(0);
+                }
                 "--layout" => {
                     let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
                     let layout = LAYOUTS.iter().find(|l| l.0 == value).ok_or_else(|| {
@@ -1300,6 +1336,9 @@ struct App {
     wheel: f32,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
+    /// A slideshow's change of image fading in: when it began, and what each pane (the first,
+    /// then the others) showed before, kept until it has faded out.
+    fade: Option<(Instant, Vec<Option<Shown>>)>,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
     selected: std::collections::BTreeSet<usize>,
     config: Config,
@@ -2278,6 +2317,8 @@ config! {
     enlarge: bool = true,
     /// A slideshow starts again from the first image after the last; off, it stops there.
     slideshow_repeat: bool = true,
+    /// The slideshow fades from one image to the next: 0 off, 1 short, 2 long (FADES).
+    fade: usize = 1,
     /// Several images at once (View → Layout): "1", "2x1", "1x2" or "2x2" (columns × rows).
     layout: String = String::from("1"),
     /// The layouts whose slideshow changes one image at a time, round the panes, separated by
@@ -2413,6 +2454,7 @@ impl Config {
         c.preload = c.preload.min(20);
         c.decode_threads = c.decode_threads.clamp(1, 8);
         c.cpu_use = c.cpu_use.min(CPU_LEVELS.len() - 1);
+        c.fade = c.fade.min(FADES.len() - 1);
         c.animation_mb = c.animation_mb.clamp(8, 1024);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
@@ -3483,7 +3525,10 @@ impl App {
             config.layout = layout.into();
         }
         config.random |= start.random;
-        if start.layout.is_some() || start.random {
+        if let Some(fade) = start.fade {
+            config.fade = fade;
+        }
+        if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
         }
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
@@ -3721,6 +3766,7 @@ impl App {
             prompt: None,
             selected: Default::default(),
             last_drawn: None,
+            fade: None,
             last_scale: 1.0,
             wheel: 0.0,
             config,
@@ -4628,6 +4674,8 @@ impl App {
         if self.files.is_empty() {
             return;
         }
+        // Browsing by hand shows the image at once; the slideshow sets a fade after this.
+        self.fade = None;
         // A TIFF shown at another page than the first: its decoded page must not stay for when
         // it is shown again from the first page.
         if self.page > 0 {
@@ -5619,17 +5667,55 @@ impl App {
             // New round: shuffle again instead of repeating the same order.
             self.set_random(ctx, true);
         } else if !self.pending.contains(&(next, false)) {
+            let before = self.shown_textures();
             if turns && self.turn > 0 {
                 self.panes[self.turn - 1] = next;
                 self.refill();
             } else {
                 self.go(ctx, next);
             }
+            self.fade = before.map(|b| (Instant::now(), b));
             if turns {
                 (self.latest, self.turn) = (next, (self.turn + 1) % n);
             }
             self.slideshow = Some(Instant::now());
         }
+    }
+
+    /// The fade's length: none in power saving, where every frame counts.
+    fn fade_ms(&self) -> u64 {
+        match self.config.cpu_use {
+            0 => 0,
+            _ => FADES[self.config.fade].2,
+        }
+    }
+
+    /// The textures each pane shows now, for a fade to start from; `None` with fading off.
+    fn shown_textures(&self) -> Option<Vec<Option<Shown>>> {
+        (self.fade_ms() > 0).then(|| {
+            (std::iter::once(self.cur).chain(self.panes.iter().copied()))
+                .map(|i| self.slots.get(&i).map(|s| (s.tex.clone(), s.orig)))
+                .collect()
+        })
+    }
+
+    /// Pane `k` fading from another image to `now`: how far (0 to 1, eased), and the image it
+    /// fades from. Ends the fade when it is done; asks for the next frame while it runs.
+    fn fading(
+        &mut self,
+        ctx: &egui::Context,
+        k: usize,
+        now: egui::TextureId,
+    ) -> Option<(f32, egui::TextureHandle, [usize; 2])> {
+        let (start, from) = self.fade.as_ref()?;
+        let t = start.elapsed().as_millis() as f32 / self.fade_ms().max(1) as f32;
+        if t >= 1.0 {
+            self.fade = None;
+            return None;
+        }
+        ctx.request_repaint();
+        let (tex, orig) = from.get(k)?.as_ref().filter(|f| f.0.id() != now)?;
+        Some((t * t * (3.0 - 2.0 * t), tex.clone(), *orig))
     }
 
     /// The image shown next to the current one when comparing: the other of two selected
@@ -6855,12 +6941,14 @@ impl App {
     /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
     /// the same zoom and offset as the shown one when zoomed, else fitted.
     /// Returns the scale it is drawn at, for the status bar; `None` while it is decoded.
+    /// `k` is the pane's number, for a slideshow fading it; `None` for the compared image.
     fn paint_pane(
         &mut self,
         ui: &egui::Ui,
         rect: egui::Rect,
         i: usize,
         zoom: Option<f32>,
+        k: Option<usize>,
     ) -> Option<f32> {
         // Zoomed in further than the screen-size version holds: load the full resolution.
         let sharper = self.slots.get(&i).is_some_and(|s| {
@@ -6871,6 +6959,8 @@ impl App {
         if sharper {
             self.request(i, true);
         }
+        let now = self.slots.get(&i)?.tex.id();
+        let fade = k.and_then(|k| self.fading(ui.ctx(), k, now));
         let slot = self.slots.get(&i)?;
         let ppp = ui.ctx().pixels_per_point();
         let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
@@ -6888,9 +6978,16 @@ impl App {
         };
         let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
-        ui.painter()
-            .with_clip_rect(rect)
-            .image(slot.tex.id(), at, uv, egui::Color32::WHITE);
+        let p = ui.painter().with_clip_rect(rect);
+        let shown = match &fade {
+            Some((t, old, orig)) => {
+                let from = fitted(rect, *orig, ppp, self.config.enlarge);
+                p.image(old.id(), from, uv, alpha(1.0 - t.powi(4)));
+                *t
+            }
+            None => 1.0,
+        };
+        p.image(slot.tex.id(), at, uv, alpha(shown));
         Some(scale)
     }
 
@@ -6907,7 +7004,7 @@ impl App {
             egui::Stroke::new(2.0, egui::Color32::from_gray(60)),
         );
         let other = self.compare_other()?;
-        let scale = self.paint_pane(ui, rect, other, zoom);
+        let scale = self.paint_pane(ui, rect, other, zoom, None);
         self.paint_name(ui, rect, other);
         Some((other, scale))
     }
@@ -8150,6 +8247,15 @@ impl eframe::App for App {
                             "Repeat: start again after the last image",
                         )
                         .changed();
+                    ui.horizontal(|ui| {
+                        ui.label("Fade to the next image:");
+                        for (k, (_, label, _)) in FADES.iter().enumerate() {
+                            changed |= ui
+                                .radio_value(&mut self.config.fade, k, *label)
+                                .on_hover_text("Not with CPU use Power saving")
+                                .changed();
+                        }
+                    });
                     ui.separator();
                     let mut rotate = self.config.exif_rotate;
                     if ui
@@ -9096,6 +9202,8 @@ impl eframe::App for App {
                 } else if too_small {
                     self.request(self.cur, true);
                 }
+                let now = self.slots.get(&self.cur).map(|s| s.tex.id());
+                let fade = now.and_then(|id| self.fading(ctx, 0, id));
                 if let Some(slot) = self.slots.get(&self.cur) {
                     let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
                     let rect = egui::Rect::from_center_size(area.center() + self.pan, size);
@@ -9114,9 +9222,22 @@ impl eframe::App for App {
                     // Within its pane or half, which zoom makes it overflow.
                     let clip = ui.clip_rect();
                     ui.set_clip_rect(area.intersect(clip));
+                    // A slideshow fading: the image before goes as this one comes.
+                    let shown = match &fade {
+                        Some((t, old, orig)) => {
+                            let at = fitted(area, *orig, ppp, self.config.enlarge);
+                            let uv1 =
+                                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+                            ui.painter()
+                                .image(old.id(), at, uv1, alpha(1.0 - t.powi(4)));
+                            *t
+                        }
+                        None => 1.0,
+                    };
                     egui::Image::new(tex)
                         .uv(uv)
                         .rotate(angle, egui::Vec2::splat(0.5))
+                        .tint(alpha(shown))
                         .paint_at(ui, rect);
                     ui.set_clip_rect(clip);
                     self.last_drawn = Some((slot.tex.clone(), slot.orig));
@@ -9205,7 +9326,7 @@ impl eframe::App for App {
                     shown.extend(self.paint_other(ui, right, self.zoom));
                 }
                 for (k, (rect, i)) in panes[1..].iter().zip(self.panes.clone()).enumerate() {
-                    shown.push((i, self.paint_pane(ui, *rect, i, self.zoom)));
+                    shown.push((i, self.paint_pane(ui, *rect, i, self.zoom, Some(k + 1))));
                     // A click makes it the shown image, in the first pane.
                     if ui
                         .interact(*rect, ui.id().with(("pane", k)), egui::Sense::click())
@@ -9459,6 +9580,11 @@ mod tests {
         assert!(Start::parse(args(&["--name", "a/b"])).is_err());
         assert!(Start::parse(args(&["--name"])).is_err());
         assert!(Start::parse(args(&["--kiosk", "d"])).unwrap().0.kiosk);
+        assert_eq!(
+            Start::parse(args(&["--fade", "long"])).unwrap().0.fade,
+            Some(2)
+        );
+        assert!(Start::parse(args(&["--fade", "slow"])).is_err());
         let (_, rest) = Start::parse(args(&["--version"])).unwrap();
         assert_eq!(rest, args(&["--version"]));
     }

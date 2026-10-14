@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The slideshow fades from one image to the next, in every pane of a layout: Short (0.4 s,
+  the default), Long (1 s) or Off in Preferences, or --fade off|short|long. Browsing by hand
+  still shows the next image at once, and CPU use Power saving turns fading off.
+
 ## [0.16.0] - 2026-10-14
 
 ### Added
