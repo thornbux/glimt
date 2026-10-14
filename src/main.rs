@@ -7569,6 +7569,15 @@ mod tests {
         assert!(super::colour::set_input(&junk).is_err());
         // A profile that cannot be read: left as it is.
         assert_eq!(super::colour::to_srgb(grey(), Some(b"junk")), grey());
+        // Profiles that differ only in their date (bytes 24 to 36) are kept a few dozen at most.
+        for day in 0..100u8 {
+            let mut dated = adobe.clone();
+            dated[30] = day;
+            super::colour::to_srgb(grey(), Some(&dated));
+        }
+        let c = super::colour::COLOUR.read().unwrap();
+        assert!(c.transforms.lock().unwrap().len() <= 64);
+        drop(c);
         super::colour::set_screen("").unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }

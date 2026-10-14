@@ -102,6 +102,11 @@ pub fn convert(
         return img;
     }
     let mut transforms = c.transforms.lock().unwrap_or_else(|e| e.into_inner());
+    // One for each profile the images have, and profiles that differ only in the date written
+    // into them (exports of one editor) count as others: a few dozen kept, then made again.
+    if transforms.len() >= 64 && !transforms.contains_key(&(from, screen)) {
+        transforms.clear();
+    }
     let t = transforms.entry((from, screen)).or_insert_with(|| {
         let source = match icc {
             // One that cannot be read: sRGB on the way to the screen, left as it is for sRGB.
