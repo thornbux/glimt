@@ -441,4 +441,22 @@ mod tests {
         assert_eq!(read(&c), meta);
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// Sidecars broken in thousands of ways: read and written to without a panic.
+    #[test]
+    fn survives_broken_sidecars() {
+        let meta = Meta {
+            keywords: vec!["beach".into(), "Tom & Ann".into()],
+            comment: "Summer".into(),
+        };
+        let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                     rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+        let seed = set(empty, &meta, false).unwrap();
+        for bytes in crate::broken(seed.as_bytes()) {
+            let xmp = String::from_utf8_lossy(&bytes);
+            parse(&xmp);
+            set(&xmp, &meta, true);
+            set(&xmp, &Meta::default(), false);
+        }
+    }
 }

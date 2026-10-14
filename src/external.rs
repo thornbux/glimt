@@ -301,4 +301,18 @@ mod tests {
         let hostile = probe.replace("t:stream_index=1", "t:stream_index=1];movie=x[a");
         assert!(!super::heif_filter(&hostile).unwrap().contains("movie"));
     }
+
+    /// ffprobe output broken in thousands of ways: no panic, and only numbers in the filter.
+    #[test]
+    fn survives_broken_probes() {
+        let probe = "stream_group|index=0|type=Tile Grid|c:tile_grid:width=1000|\
+            c:tile_grid:height=500|c:rotation=-90|t:stream_index=0|t:tile_horizontal_offset=0|\
+            t:tile_vertical_offset=0|t:stream_index=1|t:tile_horizontal_offset=512|\
+            t:tile_vertical_offset=0\n";
+        for bytes in crate::broken(probe.as_bytes()) {
+            if let Some(filter) = super::heif_filter(&String::from_utf8_lossy(&bytes)) {
+                assert!(!filter.contains(';'), "{filter}");
+            }
+        }
+    }
 }

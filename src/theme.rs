@@ -359,4 +359,13 @@ mod tests {
             (nord.accent, nord.panel, nord.text)
         );
     }
+
+    /// Theme files broken in thousands of ways: read without a panic.
+    #[test]
+    fn survives_broken_themes() {
+        let seed = "dark = true\naccent=#88c0d0\nradius=9\ntext=#fff\ntext_size=15\n";
+        for bytes in crate::broken(seed.as_bytes()) {
+            super::Theme::parse(&String::from_utf8_lossy(&bytes));
+        }
+    }
 }

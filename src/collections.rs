@@ -167,4 +167,13 @@ mod tests {
             [p("/a"), p("/c"), p("/d")]
         );
     }
+
+    /// Collection files broken in thousands of ways: read without a panic.
+    #[test]
+    fn survives_broken_files() {
+        let paths = [PathBuf::from("/a b/c.jpg"), PathBuf::from("/x/\"q\".png")];
+        for text in crate::broken(&super::to_text(&paths)) {
+            super::parse(&text);
+        }
+    }
 }
