@@ -35,14 +35,13 @@ pub fn save_rotated(
     if !png && !has_ext(path, &["webp"]) {
         return Err("only JPEG, PNG and WebP can store the rotation".into());
     }
-    // Only the first frame would be written back.
+    // Only the first frame would be written back. A file that is no PNG or WebP inside (a JPEG
+    // with a .png name) is not animated; it is read below by its content.
     let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
     let animated = if png {
-        let dec = image::codecs::png::PngDecoder::new(file).map_err(|e| e.to_string())?;
-        dec.is_apng().map_err(|e| e.to_string())?
+        image::codecs::png::PngDecoder::new(file).is_ok_and(|d| d.is_apng().unwrap_or(false))
     } else {
-        let dec = image::codecs::webp::WebPDecoder::new(file).map_err(|e| e.to_string())?;
-        dec.has_animation()
+        image::codecs::webp::WebPDecoder::new(file).is_ok_and(|d| d.has_animation())
     };
     if animated {
         return Err("animated PNG and WebP files are not turned".into());
