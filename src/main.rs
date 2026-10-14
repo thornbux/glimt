@@ -769,8 +769,12 @@ struct App {
     thumb_jobs: mpsc::Sender<(usize, PathBuf)>,
     /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
     thumbs_done: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
-    /// First and last visible row of the file list, for skipping stale thumbnail jobs.
-    thumb_view: Arc<[AtomicUsize; 2]>,
+    /// First and last file shown by the file list (or film strip), then by pan view (none: MAX,
+    /// 0), for skipping stale thumbnail jobs.
+    thumb_view: Arc<[AtomicUsize; 4]>,
+    /// The files whose cells pan view draws this frame: their thumbnails are made and kept,
+    /// also while the file list shows others.
+    pan_thumbs: Vec<usize>,
     /// Workers write new thumbnails to the shared cache (Preferences).
     save_thumbs: Arc<AtomicBool>,
     /// EXIF panel: the file asked for last, and the rows read for a file.
@@ -1062,7 +1066,7 @@ impl App {
         let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
         let (thumbs_tx, thumbs_done) = mpsc::channel();
         let thumb_rx = Arc::new(Mutex::new(thumb_rx));
-        let thumb_view = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+        let thumb_view = Arc::new([0, 0, usize::MAX, 0].map(AtomicUsize::new));
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
         // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
         // changes without a restart.
@@ -1085,17 +1089,19 @@ impl App {
                     let Ok((idx, path)) = rx.lock().unwrap().recv() else {
                         return;
                     };
-                    let [first, last] = [0, 1].map(|i| view[i].load(Ordering::Relaxed));
-                    let result =
-                        (idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN).then(|| {
-                            let (rotate, save) =
-                                (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
-                            let large = LARGE_THUMBS.load(Ordering::Relaxed);
-                            survive(|| thumbs::thumbnail(&path, rotate, save, large))
-                                .ok()
-                                // sRGB in the shared cache; to the screen only to be shown.
-                                .map(|img| color_image(srgb_to_display(img.into())))
-                        });
+                    let near = |first: usize, last: usize| {
+                        let [first, last] = [first, last].map(|i| view[i].load(Ordering::Relaxed));
+                        idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN
+                    };
+                    let result = (near(0, 1) || near(2, 3)).then(|| {
+                        let (rotate, save) =
+                            (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
+                        let large = LARGE_THUMBS.load(Ordering::Relaxed);
+                        survive(|| thumbs::thumbnail(&path, rotate, save, large))
+                            .ok()
+                            // sRGB in the shared cache; to the screen only to be shown.
+                            .map(|img| color_image(srgb_to_display(img.into())))
+                    });
                     let _ = tx.send((path, result));
                     // SAFETY: as for the image workers above.
                     unsafe { malloc_trim(0) };
@@ -1247,6 +1253,7 @@ impl App {
             thumb_jobs,
             thumbs_done,
             thumb_view,
+            pan_thumbs: Vec::new(),
             save_thumbs,
             exif_jobs,
             exif_done,
@@ -3784,6 +3791,13 @@ impl App {
     /// The pan view (Ctrl+J): the images of the list by day. A click shows one, a double click
     /// also closes the view.
     fn pan_view(&mut self, ctx: &egui::Context) {
+        // The thumbnail workers make the cells drawn last frame (a frame late is soon enough);
+        // this frame's are noted as they are drawn.
+        let first = self.pan_thumbs.iter().min().copied().unwrap_or(usize::MAX);
+        let last = self.pan_thumbs.iter().max().copied().unwrap_or(0);
+        self.thumb_view[2].store(first, Ordering::Relaxed);
+        self.thumb_view[3].store(last, Ordering::Relaxed);
+        self.pan_thumbs.clear();
         let Some(mut pan) = self.pan_window.take() else {
             return;
         };
@@ -3880,6 +3894,7 @@ impl App {
                                         }
                                         let at = top + egui::vec2(j as f32 * cell.x, y);
                                         let rect = egui::Rect::from_min_size(at, cell);
+                                        self.pan_thumbs.push(i);
                                         let r = self.file_cell(ui, i, rect, i == self.cur);
                                         if r.clicked() {
                                             show = Some(i);
@@ -4848,7 +4863,8 @@ impl App {
         if self.thumbs.len() <= max {
             return;
         }
-        let keep = thumbs_to_keep(&self.files, self.matches.as_deref(), rows, max);
+        let mut keep = thumbs_to_keep(&self.files, self.matches.as_deref(), rows, max);
+        keep.extend(self.pan_thumbs.iter().filter_map(|&i| self.files.get(i)));
         self.thumbs.retain(|name, _| keep.contains(name));
     }
 
