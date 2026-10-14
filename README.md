@@ -11,7 +11,8 @@ quick look, which is what an image viewer is for.
 > **Early days.** Glimt is young and has not reached version 1.0. It is used every day, but
 > rough edges and the odd bug are to be expected. Bug reports, ideas and fixes are very
 > welcome: open an issue or send a pull request (see
-> [CONTRIBUTING.md](CONTRIBUTING.md)).
+> [CONTRIBUTING.md](CONTRIBUTING.md)). What changed in each release is in
+> [CHANGELOG.md](CHANGELOG.md); report security issues as [SECURITY.md](SECURITY.md) says.
 
 ## Why Glimt
 
