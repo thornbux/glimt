@@ -215,7 +215,8 @@ const MANUAL: &[(&str, &str)] = &[
         "Panels",
         "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, View → Show Hidden Files lists files and folders whose names start with a dot, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \
-         hides the name, place and EXIF over the image.",
+         hides the name, place and EXIF over the image, and moving the pointer to the bottom \
+         shows a film strip of the images around the shown one; a click on one shows it.",
     ),
     (
         "Colour",

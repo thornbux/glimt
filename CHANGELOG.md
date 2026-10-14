@@ -10,6 +10,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The slideshow fades from one image to the next, in every pane of a layout: Short (0.4 s,
   the default), Long (1 s) or Off in Preferences, or --fade off|short|long. Browsing by hand
   still shows the next image at once, and CPU use Power saving turns fading off.
+- A film strip in full screen: with the pointer at the bottom of the screen, thumbnails of
+  the images before and after the shown one, which is outlined; a click shows that image.
+  Not in kiosk mode.
+- Printing several images on a page, as Geeqie's contact sheet: Images per page 1, 2, 4, 6,
+  9, 12 or 20 in the Print dialog, in a grid with each file name below (cut to fit). The
+  images are scaled to their cell, so the PDF stays small.
+
+### Changed
+
+- The exif: search index and pan view read the files on two threads at most when Glimt uses
+  one malloc arena (the default): more threads waited for each other in the allocator, and
+  2,000 files took 551 ms on four threads against 128 ms on two. Find Duplicates, which
+  spends its time decoding, still uses every core.
 
 ## [0.16.0] - 2026-10-14
 
