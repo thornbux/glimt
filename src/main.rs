@@ -7309,6 +7309,15 @@ mod tests {
             super::decode::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
         let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
         assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
+        // A GIF whose canvas claims 65535×65535 is refused before a frame is made: each frame
+        // would be a canvas of 17 GB.
+        let huge = dir.join("huge.gif");
+        let mut gif = b"GIF89a\xff\xff\xff\xff\0\0\0".to_vec();
+        gif.extend(b",\0\0\0\0\x01\0\x01\0\0\x02\x02\x44\x01\0;");
+        std::fs::write(&huge, gif).unwrap();
+        assert!(super::decode::animation(&huge, [100, 100]).is_none());
+        assert!(super::decode::decode(&huge, [100, 100], true, 0).is_err());
+        std::fs::remove_file(huge).unwrap();
         // The tree: a folder reached again through a link is read once.
         std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();

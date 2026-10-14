@@ -129,13 +129,20 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     use image::AnimationDecoder;
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    // Every frame is a whole canvas, made without image's limit: one larger than it goes to
+    // `load`, which refuses it, instead of asking for gigabytes here.
+    let too_large = |(w, h): (u32, u32)| u64::from(w) * u64::from(h) * 4 > MAX_DECODE;
     let frames = match ext.as_str() {
-        "gif" => image::codecs::gif::GifDecoder::new(file)
-            .ok()?
-            .into_frames(),
+        "gif" => {
+            let dec = image::codecs::gif::GifDecoder::new(file).ok()?;
+            if too_large(dec.dimensions()) {
+                return None;
+            }
+            dec.into_frames()
+        }
         "webp" => {
             let dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
-            if !dec.has_animation() {
+            if !dec.has_animation() || too_large(dec.dimensions()) {
                 return None;
             }
             dec.into_frames()
@@ -197,6 +204,8 @@ pub fn load_icc(
         .map_err(|e| e.to_string())?
         .into_decoder()
         .map_err(|e| e.to_string())?;
+    // from_decoder allocates what the header claims, without the reader's limit.
+    check_size(&dec)?;
     let orientation = dec
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
@@ -245,6 +254,15 @@ pub fn scaled(
     dec.read_info().ok()?;
     let info = dec.info()?;
     if !matches!(info.pixel_format, PixelFormat::RGB24 | PixelFormat::L8) {
+        return None;
+    }
+    // A progressive JPEG keeps a coefficient (2 bytes) of every pixel and channel at full size
+    // while it decodes, and jpeg-decoder does not limit that: a file of a few KB that claims
+    // 65535×65535 would ask for 25 GB. image's decoder, which has the limit, takes it instead.
+    let coefficients = u64::from(info.width) * u64::from(info.height) * 2;
+    if info.coding_process == jpeg_decoder::CodingProcess::DctProgressive
+        && coefficients * info.pixel_format.pixel_bytes() as u64 > MAX_DECODE
+    {
         return None;
     }
     let orientation = (orientation.or_else(|| dec.exif_data().and_then(exif::orientation)))
