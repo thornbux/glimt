@@ -201,6 +201,8 @@ pub fn turned(o: u8, turns: u8, mirrored: bool) -> u8 {
 /// there is one, or a small EXIF block if the file has none. The pixels are not touched, and the
 /// file is replaced in one step (a new file renamed over it), keeping its permissions.
 pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), String> {
+    // Through a symlink, the file it points to: the new file is renamed over that, not the link.
+    let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let mut data = std::fs::read(path).map_err(|e| e.to_string())?;
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err("only JPEG files can store the orientation".into());
@@ -768,6 +770,12 @@ mod tests {
         assert_eq!(o(&file), image::metadata::Orientation::Rotate270);
         let rows = super::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        // Through a symlink: the file it points to is turned, and the link stays a link.
+        let link = dir.join("link.jpg");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        super::write_orientation(&link, 1, false).unwrap();
+        assert!(link.is_symlink());
+        assert_eq!(o(&file), image::metadata::Orientation::NoTransforms);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
