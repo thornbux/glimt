@@ -373,13 +373,20 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
-pub fn write_atomic(path: &Path, text: &str) {
+pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("{}.tmp", crate::remote::me()));
-    let result = std::fs::create_dir_all(path.parent().unwrap())
-        .and_then(|_| std::fs::write(&tmp, text))
+    let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
+        .and_then(|_| std::fs::write(&tmp, bytes))
         .and_then(|_| std::fs::rename(&tmp, path));
-    if let Err(e) = result {
+    if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
+pub fn write_atomic(path: &Path, text: &str) {
+    if let Err(e) = replace_file(path, text) {
         eprintln!("could not save {}: {e}", path.display());
     }
 }

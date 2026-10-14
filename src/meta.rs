@@ -117,9 +117,8 @@ fn update(
             .to_owned(),
     };
     let text = change(&old).ok_or("unreadable XMP sidecar")?;
-    let tmp = side.with_extension("xmp.tmp");
-    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &side).map_err(|e| e.to_string())
+    // A temporary file with this Glimt's name: two windows may write the same sidecar.
+    crate::config::replace_file(&side, text).map_err(|e| e.to_string())
 }
 
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.

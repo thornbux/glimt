@@ -105,12 +105,7 @@ fn save(paths: Vec<PathBuf>, change: Change) {
                 for (paths, change) in rx.try_iter() {
                     apply(&mut map, &paths, change);
                 }
-                // This Glimt's name in it: other Glimt windows write the same file.
-                let tmp = file.with_extension(format!("{}.tmp", crate::remote::me()));
-                let _ = std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")));
-                if std::fs::write(&tmp, to_text(&map)).is_ok() {
-                    let _ = std::fs::rename(tmp, file);
-                }
+                let _ = crate::config::replace_file(&file, to_text(&map));
             }
         });
         tx

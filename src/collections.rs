@@ -50,11 +50,7 @@ pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
 
 /// Write `paths` to `file`, through a temporary file so a crash never leaves half of it.
 pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
-    // This Glimt's name in it: Flatpak windows can share a process ID.
-    let tmp = file.with_extension(format!("{}.tmp", crate::remote::me()));
-    std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))?;
-    std::fs::write(&tmp, to_text(paths))?;
-    std::fs::rename(&tmp, file)
+    crate::config::replace_file(file, to_text(paths))
 }
 
 /// What a window writes for a collection it shows as `ours` and read as `read`, while the file
