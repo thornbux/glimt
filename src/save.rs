@@ -29,6 +29,8 @@ pub fn save_rotated(
     webp_quality: u8,
 ) -> Result<(), String> {
     use image::ImageEncoder;
+    // Through a symlink, the file it points to: the new file is renamed over that, not the link.
+    let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
         return Err("only JPEG, PNG and WebP can store the rotation".into());

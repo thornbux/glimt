@@ -7495,6 +7495,12 @@ mod tests {
         );
         let rows = super::exif::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        // Through a symlink: the file it points to is turned, and the link stays a link.
+        let link = dir.join("link.png");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        super::save::save_rotated(&link, false, 1, false, 90).unwrap();
+        assert!(link.is_symlink());
+        assert_eq!(image::image_dimensions(&file).unwrap(), (2, 4));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
