@@ -151,36 +151,48 @@ fn thumb_threads(decoders: usize) -> usize {
     }
 }
 
-/// Memory use in Preferences: (name, preload, decoding threads, animation limit in MB, one malloc
-/// arena, hover text). The config holds the values; the level shown is the one they match, or
-/// Custom.
-const MEMORY_LEVELS: [(&str, usize, usize, usize, bool, &str); 3] = [
-    (
-        "Low",
-        1,
-        1,
-        32,
-        true,
-        "Least memory: one image decoded at a time, one preloaded on each side. Slow storage \
-         (SMB, NFS, USB) makes browsing wait for each file.",
-    ),
-    (
-        "Medium",
-        DEFAULT_AHEAD,
-        4,
-        128,
-        true,
-        "The default: four images decoded at once, two preloaded on each side.",
-    ),
-    (
-        "High",
-        5,
-        8,
-        256,
-        false,
-        "Fastest browsing: eight images decoded at once, five preloaded on each side; hides \
-         the wait of slow storage (SMB, NFS) best.",
-    ),
+/// A memory use level in Preferences. The config holds the values; the level shown is the one
+/// they match, or Custom.
+#[derive(Clone, Copy)]
+struct MemoryLevel {
+    name: &'static str,
+    /// Images preloaded on each side.
+    preload: usize,
+    decode_threads: usize,
+    /// The most an animation's frames may take, in MB.
+    animation_mb: usize,
+    /// One malloc arena for all threads.
+    one_arena: bool,
+    hover: &'static str,
+}
+
+const MEMORY_LEVELS: [MemoryLevel; 3] = [
+    MemoryLevel {
+        name: "Low",
+        preload: 1,
+        decode_threads: 1,
+        animation_mb: 32,
+        one_arena: true,
+        hover: "Least memory: one image decoded at a time, one preloaded on each side. Slow \
+                storage (SMB, NFS, USB) makes browsing wait for each file.",
+    },
+    MemoryLevel {
+        name: "Medium",
+        preload: DEFAULT_AHEAD,
+        decode_threads: 4,
+        animation_mb: 128,
+        one_arena: true,
+        hover: "The default: four images decoded at once, two preloaded on each side.",
+    },
+    MemoryLevel {
+        name: "High",
+        preload: 5,
+        decode_threads: 8,
+        animation_mb: 256,
+        one_arena: false,
+        hover: "Fastest browsing: eight images decoded at once, five preloaded on each side; \
+                hides the wait of slow storage (SMB, NFS) best.",
+    },
 ];
 
 /// The pan view's window (Ctrl+J).
@@ -3395,24 +3407,26 @@ impl App {
     fn memory_settings(&mut self, ui: &mut egui::Ui) {
         let c = &self.config;
         let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
-        let level = MEMORY_LEVELS.iter().find(|l| (l.1, l.2, l.3, l.4) == now);
+        let level = (MEMORY_LEVELS.iter())
+            .find(|l| (l.preload, l.decode_threads, l.animation_mb, l.one_arena) == now);
         let (mut chosen, mut custom) = (None, false);
         ui.horizontal(|ui| {
             ui.label("Memory use:");
             for l in &MEMORY_LEVELS {
-                let on = level.is_some_and(|m| m.0 == l.0);
-                if ui.radio(on, l.0).on_hover_text(l.5).clicked() {
+                let on = level.is_some_and(|m| m.name == l.name);
+                if ui.radio(on, l.name).on_hover_text(l.hover).clicked() {
                     chosen = Some(*l);
                 }
             }
             // Chosen by changing the details, which it opens.
             custom = ui.radio(level.is_none(), "Custom").clicked();
         });
-        if let Some((_, preload, threads, animation, low, _)) = chosen {
-            self.set_preload(preload);
-            (self.config.decode_threads, self.config.animation_mb) = (threads, animation);
-            self.config.low_memory = low;
-            MAX_ANIMATION.store(animation << 20, Ordering::Relaxed);
+        if let Some(l) = chosen {
+            self.set_preload(l.preload);
+            (self.config.decode_threads, self.config.animation_mb) =
+                (l.decode_threads, l.animation_mb);
+            self.config.low_memory = l.one_arena;
+            MAX_ANIMATION.store(l.animation_mb << 20, Ordering::Relaxed);
             self.config.save();
         }
         let restart = "Decoding threads and one malloc arena take effect after a restart.";
@@ -7935,11 +7949,16 @@ mod tests {
         let d = Config::default();
         let medium = super::MEMORY_LEVELS
             .iter()
-            .find(|l| l.0 == "Medium")
+            .find(|l| l.name == "Medium")
             .unwrap();
         assert_eq!(
             (d.preload, d.decode_threads, d.animation_mb, d.low_memory),
-            (medium.1, medium.2, medium.3, medium.4)
+            (
+                medium.preload,
+                medium.decode_threads,
+                medium.animation_mb,
+                medium.one_arena
+            )
         );
         assert_eq!(Config::parse("delay=0").delay, 1);
         assert_eq!(Config::parse("delay=7").delay, 7);
