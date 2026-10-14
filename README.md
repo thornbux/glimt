@@ -332,7 +332,7 @@ Sway, X11 with a window manager) are very welcome.
 | Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |
 | Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
 | Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
-| Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
+| Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
 
 Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
 leaves half of one. Several Glimt windows share them; settings, collections, marks and
