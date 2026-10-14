@@ -392,6 +392,29 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+echo "-- a video that is a playlist: ffmpeg opens no file it names"
+for v in new old; do
+    as_version $v
+    d=/tmp/playlist-$v
+    mkdir -p $d/s
+    ffmpeg -v error -f lavfi -i color=c=blue:s=320x240:d=2 -pix_fmt yuv420p $d/real.mp4
+    convert -size 300x200 xc:red $d/s/secret.png
+    # By its content a concat list, which ffmpeg would follow to s/secret.png.
+    printf 'ffconcat version 1.0\nfile s/secret.png\n' >$d/fake.mp4
+    config
+    start $d/real.mp4
+    sleep 3
+    shot playlist-real-$v
+    key BackSpace; sleep 3   # fake.mp4, before real.mp4
+    shot playlist-fake-$v
+    quit
+    # Beside the play button in the middle.
+    got="$(colour playlist-real-$v 500 250) $(colour playlist-fake-$v 500 250)"
+    if [ $v = new ]; then expect "a real video shown, the playlist not followed" "$got" "blue other"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- printing 80 images of 3000x2000 to a PDF"
 src=/tmp/print
 mkdir -p $src
