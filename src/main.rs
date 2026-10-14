@@ -600,12 +600,76 @@ impl Slot {
 }
 
 struct App {
+    // ---- Settings ----
+    config: Config,
+
+    // ---- The list: the folder (or collection, or several folders) and its files ----
     dir: PathBuf,
     subdirs: Vec<PathBuf>,
     /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
     /// memory in large folders, where the path would otherwise be repeated for every file.
     files: Vec<OsString>,
+    /// Goes up whenever the file list changes, so what was worked out from its indices can tell
+    /// that it is old, also when the list kept its length (another order).
+    files_gen: usize,
     cur: usize,
+    /// The type of the file opened directly (not the folder), listed even when the Types menu
+    /// leaves it out.
+    opened_type: Types,
+    /// The list holds the images of the subfolders too (slideshow with subfolders).
+    recursive: bool,
+    /// The open collection's file. The list is then its images, with `dir` "/" and the paths
+    /// without their leading "/" as names, so `path()` works unchanged.
+    collection: Option<PathBuf>,
+    /// The collection's paths as last read or written here; what is on disk beyond them was
+    /// added elsewhere and is kept when this window saves.
+    collection_read: HashSet<PathBuf>,
+    /// The collection's next listing is sorted (Sort menu), and saved in that order.
+    sort_collection: bool,
+    /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
+    /// are relative to /, as in a collection, and the folders are read again on refresh.
+    folders: Vec<PathBuf>,
+    /// Folders to show together, chosen in a folder's menu; opened after the frame.
+    together: Option<Vec<PathBuf>>,
+    /// Folder listing in the background: (subfolders, images).
+    listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    /// The folder changed while a listing was running; list again when it is done.
+    relist: bool,
+    /// Generation of the folder watcher; opening another folder ends the old thread.
+    watching: Arc<AtomicUsize>,
+    /// The watcher saw the folder change.
+    changed_tx: mpsc::Sender<()>,
+    changed_rx: mpsc::Receiver<()>,
+    /// Names being deleted in the background; kept out of refreshed listings until done.
+    deleting: HashSet<OsString>,
+    /// File list size and date columns: (bytes, mtime) by file name.
+    details: HashMap<OsString, (u64, i64)>,
+    /// The file list is shuffled for a random slideshow.
+    random: bool,
+    /// The next listing is shuffled as a whole instead of merged into the current order.
+    whole_shuffle: bool,
+    /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
+    back: Vec<PathBuf>,
+    forward: Vec<PathBuf>,
+    /// Scroll the file list to the current image on the next frame.
+    scroll_to_cur: bool,
+    /// Subfolders by folder for the folder tree; `None` while being read.
+    tree: HashMap<PathBuf, Option<Vec<PathBuf>>>,
+    tree_tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
+    tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
+    /// The folder the tree was last opened up to; it opens again when the folder changes.
+    tree_shown: PathBuf,
+
+    // ---- The selection ----
+    /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
+    selected: std::collections::BTreeSet<usize>,
+    /// Where a Shift selection started (file index).
+    anchor: Option<usize>,
+    /// Size of the selected files; computed in the background when the selection changes.
+    selected_size: Option<u64>,
+    selected_rx: Option<mpsc::Receiver<u64>>,
+
+    // ---- Decoding: the shown image and its neighbours ----
     /// The images to keep decoded, the shown one first: its neighbours in list order.
     /// Shared with the workers, which skip jobs outside it.
     keep: Arc<Mutex<Vec<usize>>>,
@@ -616,167 +680,91 @@ struct App {
     ahead: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
     rotate: Arc<AtomicBool>,
-    show_settings: bool,
-    help: Option<help::Page>,
-    /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
-    confirm_delete: Option<bool>,
-    /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
-    folder_target: Option<PathBuf>,
-    confirm_folder: bool,
-    /// The type of the file opened directly (not the folder), listed even when the Types menu
-    /// leaves it out.
-    opened_type: Types,
-    /// Open text dialog and the text typed so far.
-    prompt: Option<(Prompt, String)>,
-    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
-    last_scale: f32,
-    /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
-    wheel: f32,
+    /// Max decode size in physical pixels: [image area in the window, max texture side].
+    limits: Arc<Mutex<[[u32; 2]; 2]>>,
+    /// (image index, full resolution, file, page of a multi-page TIFF)
+    decode_jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
+    decoded_rx: mpsc::Receiver<Decoded>,
+    slots: HashMap<usize, Slot>,
+    pending: HashSet<(usize, bool)>,
+    errors: HashMap<usize, String>,
+    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
+    page: usize,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// A slideshow's change of image fading in: when it began, and what each pane (the first,
     /// then the others) showed before, kept until it has faded out.
     fade: Option<(Instant, Vec<Option<Shown>>)>,
-    /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
-    selected: std::collections::BTreeSet<usize>,
-    config: Config,
-    /// Max decode size in physical pixels: [image area in the window, max texture side].
-    limits: Arc<Mutex<[[u32; 2]; 2]>>,
-    /// (image index, full resolution, file, page of a multi-page TIFF)
-    decode_jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
-    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
-    page: usize,
-    decoded_rx: mpsc::Receiver<Decoded>,
-    slots: HashMap<usize, Slot>,
-    pending: HashSet<(usize, bool)>,
-    errors: HashMap<usize, String>,
+    /// When the shown image was opened: the clock of an animation.
+    opened: Instant,
+    /// Set at startup; taken when the first image is shown.
+    started: Option<Instant>,
+
+    // ---- The view: zoom, panes, the window ----
     /// Physical screen pixels per original pixel; `None` = fit to window.
     zoom: Option<f32>,
     pan_offset: egui::Vec2,
-    /// Set at startup; taken when the first image is shown.
-    started: Option<Instant>,
-    /// Answer from an open file dialog (zenity).
-    dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
-    /// Generation of the folder watcher; opening another folder ends the old thread.
-    watching: Arc<AtomicUsize>,
-    /// The watcher saw the folder change.
-    changed_tx: mpsc::Sender<()>,
-    changed_rx: mpsc::Receiver<()>,
-    /// The folder changed while a listing was running; list again when it is done.
-    relist: bool,
+    /// How far the shown image can be panned each way (points); zero where it fits.
+    max_pan: egui::Vec2,
+    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
+    last_scale: f32,
+    /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
+    wheel: f32,
+    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
+    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
+    orient: (u8, bool),
+    /// Two images side by side (E): the shown one and `compare_other`.
+    compare: bool,
+    /// The images of a layout's panes after the first, which shows `cur`.
+    panes: Vec<usize>,
+    /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
+    grid_cols: usize,
+    /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
+    row_step: isize,
     /// View → Hide File List: only the image, as in full screen but in a window.
     hide_tools: bool,
-    /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
-    back: Vec<PathBuf>,
-    forward: Vec<PathBuf>,
-    /// Error messages from background tasks (deleting), and the one shown now.
-    notices_tx: mpsc::Sender<String>,
-    /// A network location (smb:// …) being mounted: its local path, or why it failed.
-    mounting_rx: Option<mpsc::Receiver<(Mounted, Login)>>,
-    /// The login dialog for a network share that needs one.
-    login: Option<Login>,
-    print: Option<PrintDialog>,
-    /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
-    sort_folders: Vec<PathBuf>,
-    pan_window: Option<Pan>,
-    /// Goes up whenever the file list changes, so what was worked out from its indices can tell
-    /// that it is old, also when the list kept its length (another order).
-    files_gen: usize,
-    /// `files_gen` and `cur` when Rename or a delete was asked: the answer acts on those files
-    /// only if the list and the shown image are still the same.
-    asked_for: (usize, usize),
-    /// "Open With" applications by file extension, found once per extension.
-    /// `None` while `apps_for` runs in the background.
-    apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
-    apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
+    /// one under the pointer, else the first) and the panes as [columns, rows].
+    pane_info: Vec<(usize, Option<f32>)>,
+    status_pane: usize,
+    status_grid: [usize; 2],
+    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
+    status_place: Option<(usize, usize, String)>,
+    /// Size in bytes of the shown file, for the status bar.
+    cur_size: Option<(PathBuf, u64)>,
+    /// The folder path in the toolbar, as typed.
+    path_text: String,
+    /// Window geometry seen in the last frame, saved at exit.
+    window: WindowState,
+    /// The screen saver inhibitor running while in full screen.
+    inhibitor: Option<std::process::Child>,
+    /// --kiosk: full screen, only the image, only actions that show and browse.
+    kiosk: bool,
+    /// `--remote quit` came: a kiosk may close.
+    kiosk_quit: bool,
+    /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
+    /// talks to.
+    has_focus: bool,
     /// The desktop's dark style and accent colour, once read from the portal.
     desktop_look: (Option<bool>, Option<egui::Color32>),
     desktop_rx: Option<mpsc::Receiver<(Option<bool>, Option<egui::Color32>)>>,
     /// The desktop's screen profile file, once read from colord.
     desktop_screen: Option<String>,
     desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
-    /// Edit → Plugins, read at start.
-    plugins: Vec<plugins::Plugin>,
-    apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
-    /// Commands from `glimt --remote`.
-    remote_rx: mpsc::Receiver<String>,
-    /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
-    /// talks to.
-    has_focus: bool,
-    /// Our own clipboard for file lists, kept so it can serve them (X11).
-    clipboard: Option<arboard::Clipboard>,
-    /// An image decoded for the clipboard; egui takes it only during a frame.
-    clip_rx: Option<mpsc::Receiver<egui::ColorImage>>,
-    /// Subfolders by folder for the folder tree; `None` while being read.
-    tree: HashMap<PathBuf, Option<Vec<PathBuf>>>,
-    tree_tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
-    tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
-    /// The folder the tree was last opened up to; it opens again when the folder changes.
-    tree_shown: PathBuf,
-    #[cfg(feature = "marks")]
-    marks: marks::Marks,
-    /// The list holds the images of the subfolders too (slideshow with subfolders).
-    recursive: bool,
-    /// The open collection's file. The list is then its images, with `dir` "/" and the paths
-    /// without their leading "/" as names, so `path()` works unchanged.
-    collection: Option<PathBuf>,
-    /// The collection's paths as last read or written here; what is on disk beyond them was
-    /// added elsewhere and is kept when this window saves.
-    collection_read: HashSet<PathBuf>,
-    /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
-    /// are relative to /, as in a collection, and the folders are read again on refresh.
-    folders: Vec<PathBuf>,
-    /// Folders to show together, chosen in a folder's menu; opened after the frame.
-    together: Option<Vec<PathBuf>>,
-    /// The collection's next listing is sorted (Sort menu), and saved in that order.
-    sort_collection: bool,
-    /// The Find Duplicates window, while open.
-    dups: Option<Dups>,
-    /// The next listing is shuffled as a whole instead of merged into the current order.
-    whole_shuffle: bool,
-    /// The action whose key is being chosen in Preferences: the next key press goes to it.
-    capturing: Option<Action>,
-    /// --slideshow: start it once the folder is read.
-    start_slideshow: bool,
-    /// --kiosk: full screen, only the image, only actions that show and browse.
-    kiosk: bool,
-    /// `--remote quit` came: a kiosk may close.
-    kiosk_quit: bool,
-    /// Two images side by side (E): the shown one and `compare_other`.
-    compare: bool,
-    /// The images of a layout's panes after the first, which shows `cur`.
-    panes: Vec<usize>,
-    /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
-    /// shown last.
-    next_pane: usize,
-    last_slide: usize,
-    /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
-    grid_cols: usize,
-    /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
-    row_step: isize,
-    notices_rx: mpsc::Receiver<String>,
-    notice: Option<String>,
-    /// Total size of the images in the folder, summed in the background after listing.
-    /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
-    total_size: u64,
-    /// Partial sums from the background; `None` once all have arrived.
-    size_rx: Option<mpsc::Receiver<u64>>,
-    /// Bytes freed by deletions in the background.
-    freed_tx: mpsc::Sender<u64>,
-    freed_rx: mpsc::Receiver<u64>,
-    /// Size of the selected files; computed in the background when the selection changes.
-    selected_size: Option<u64>,
-    selected_rx: Option<mpsc::Receiver<u64>>,
-    /// Folder listing in the background: (subfolders, images).
-    listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
-    /// Scroll the file list to the current image on the next frame.
-    scroll_to_cur: bool,
+
+    // ---- The slideshow ----
     /// Slideshow: when the previous image was shown; `None` = off.
     slideshow: Option<Instant>,
     /// Slideshow paused (P): stays on the image until resumed.
     paused: bool,
-    /// The file list is shuffled for a random slideshow.
-    random: bool,
+    /// --slideshow: start it once the folder is read.
+    start_slideshow: bool,
+    /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
+    /// shown last.
+    next_pane: usize,
+    last_slide: usize,
+
+    // ---- Thumbnails ----
     /// File list thumbnails by file name; `None` = could not be made.
     thumbs: HashMap<OsString, Option<egui::TextureHandle>>,
     thumbs_pending: HashSet<OsString>,
@@ -792,49 +780,31 @@ struct App {
     pan_thumbs: Vec<usize>,
     /// Workers write new thumbnails to the shared cache (Preferences).
     save_thumbs: Arc<AtomicBool>,
-    /// EXIF panel: the file asked for last, and the rows read for a file.
+
+    // ---- EXIF, keywords, comment and marks ----
+    /// To the EXIF reader thread, and its answers.
     exif_jobs: mpsc::Sender<PathBuf>,
     exif_done: mpsc::Receiver<ExifRead>,
+    /// The file the EXIF panel asked for last, and the panel's rows as read for a file.
+    exif_asked: Option<PathBuf>,
+    exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
     exif_all: Vec<(&'static str, String, String)>,
+    /// View → EXIF Window is open.
     exif_window: bool,
-    exif_asked: Option<PathBuf>,
     /// Keywords and comment in the EXIF panel; saved when a field loses the focus, or another
     /// image is shown.
     meta: Option<MetaEdit>,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
     focus_keywords: bool,
-    exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
-    /// Size in bytes of the shown file, for the status bar.
-    cur_size: Option<(PathBuf, u64)>,
-    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
-    /// one under the pointer, else the first) and the panes as [columns, rows].
-    pane_info: Vec<(usize, Option<f32>)>,
-    status_pane: usize,
-    status_grid: [usize; 2],
-    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
-    status_place: Option<(usize, usize, String)>,
-    /// The folder path in the toolbar, as typed.
-    path_text: String,
-    /// Window geometry seen in the last frame, saved at exit.
-    window: WindowState,
-    /// The screen saver inhibitor running while in full screen.
-    inhibitor: Option<std::process::Child>,
-    /// File list size and date columns: (bytes, mtime) by file name.
-    details: HashMap<OsString, (u64, i64)>,
-    /// Names being deleted in the background; kept out of refreshed listings until done.
-    deleting: HashSet<OsString>,
-    /// Deletes and moves done, and whether to read the folder again: one failed, so the files
-    /// may still be there, or files were moved or copied into the list.
-    deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
-    deleted_rx: mpsc::Receiver<(Vec<PathBuf>, bool)>,
-    /// PNG and WebP files saved turned in the background.
-    saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
-    saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
-    /// Those still being saved.
-    saving: HashSet<PathBuf>,
-    /// Background deletes, copies and moves still running, for the busy pointer.
-    busy: Arc<AtomicUsize>,
+    /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
+    /// first one, dropped with the folder.
+    exif_index: Option<HashMap<OsString, String>>,
+    exif_index_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
+    #[cfg(feature = "marks")]
+    marks: marks::Marks,
+
+    // ---- The search ----
     /// File name search above the file list, and the matching files best first while it has
     /// at least three letters.
     search: String,
@@ -847,19 +817,77 @@ struct App {
     /// Why a re: search pattern is not one, shown under the search field.
     search_error: Option<String>,
     match_rx: Option<mpsc::Receiver<u64>>,
-    /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
-    /// first one, dropped with the folder.
-    exif_index: Option<HashMap<OsString, String>>,
-    exif_index_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
-    /// Where a Shift selection started (file index).
-    anchor: Option<usize>,
-    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
-    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
-    orient: (u8, bool),
-    /// When the shown image was opened: the clock of an animation.
-    opened: Instant,
-    /// How far the shown image can be panned each way (points); zero where it fits.
-    max_pan: egui::Vec2,
+
+    // ---- Sizes in the status bar ----
+    /// Total size of the images in the folder, summed in the background after listing.
+    /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
+    total_size: u64,
+    /// Partial sums from the background; `None` once all have arrived.
+    size_rx: Option<mpsc::Receiver<u64>>,
+    /// Bytes freed by deletions in the background.
+    freed_tx: mpsc::Sender<u64>,
+    freed_rx: mpsc::Receiver<u64>,
+
+    // ---- File operations in the background ----
+    /// Background deletes, copies and moves still running, for the busy pointer.
+    busy: Arc<AtomicUsize>,
+    /// Deletes and moves done, and whether to read the folder again: one failed, so the files
+    /// may still be there, or files were moved or copied into the list.
+    deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
+    deleted_rx: mpsc::Receiver<(Vec<PathBuf>, bool)>,
+    /// Those still being saved.
+    saving: HashSet<PathBuf>,
+    /// PNG and WebP files saved turned in the background.
+    saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
+    saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
+    /// `files_gen` and `cur` when Rename or a delete was asked: the answer acts on those files
+    /// only if the list and the shown image are still the same.
+    asked_for: (usize, usize),
+    /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
+    sort_folders: Vec<PathBuf>,
+    /// A network location (smb:// …) being mounted: its local path, or why it failed.
+    mounting_rx: Option<mpsc::Receiver<(Mounted, Login)>>,
+    /// The login dialog for a network share that needs one.
+    login: Option<Login>,
+    /// Our own clipboard for file lists, kept so it can serve them (X11).
+    clipboard: Option<arboard::Clipboard>,
+    /// An image decoded for the clipboard; egui takes it only during a frame.
+    clip_rx: Option<mpsc::Receiver<egui::ColorImage>>,
+    /// "Open With" applications by file extension, found once per extension.
+    /// `None` while `apps_for` runs in the background.
+    apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
+    apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
+    /// Edit → Plugins, read at start.
+    plugins: Vec<plugins::Plugin>,
+
+    // ---- Dialogs, windows and messages ----
+    /// Edit → Preferences is open.
+    show_settings: bool,
+    /// The help page open (F1), if any.
+    help: Option<help::Page>,
+    /// The action whose key is being chosen in Preferences: the next key press goes to it.
+    capturing: Option<Action>,
+    /// Open text dialog and the text typed so far.
+    prompt: Option<(Prompt, String)>,
+    /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
+    confirm_delete: Option<bool>,
+    /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
+    folder_target: Option<PathBuf>,
+    confirm_folder: bool,
+    print: Option<PrintDialog>,
+    /// Answer from an open file dialog (zenity).
+    dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
+    pan_window: Option<Pan>,
+    /// The Find Duplicates window, while open.
+    dups: Option<Dups>,
+    /// The message shown over the image, until the next image.
+    notice: Option<String>,
+    /// Messages from background tasks (deleting, copying), to become the notice.
+    notices_tx: mpsc::Sender<String>,
+    notices_rx: mpsc::Receiver<String>,
+    /// Commands from `glimt --remote`.
+    remote_rx: mpsc::Receiver<String>,
 }
 
 /// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
