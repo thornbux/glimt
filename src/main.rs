@@ -682,8 +682,8 @@ struct App {
     rotate: Arc<AtomicBool>,
     /// Max decode size in physical pixels: [image area in the window, max texture side].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
-    /// (image index, full resolution, file, page of a multi-page TIFF)
-    decode_jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
+    /// To the decode workers.
+    decode_jobs: mpsc::Sender<DecodeJob>,
     decoded_rx: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
@@ -1003,6 +1003,168 @@ fn thousands(n: usize) -> String {
     out
 }
 
+/// A decode for the workers: image index, full resolution, file, page of a multi-page TIFF.
+type DecodeJob = (usize, bool, PathBuf, usize);
+
+/// The decode workers: `workers` threads that take jobs and send back what they decoded,
+/// skipping images the list has moved past (`keep`).
+fn spawn_decoders(
+    ctx: &egui::Context,
+    workers: usize,
+    keep: &Arc<Mutex<Vec<usize>>>,
+    full_ok: &Arc<AtomicUsize>,
+    rotate: &Arc<AtomicBool>,
+    limits: &Arc<Mutex<[[u32; 2]; 2]>>,
+) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
+    let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
+    let (done_tx, done) = mpsc::channel();
+    let job_rx = Arc::new(Mutex::new(job_rx));
+    for _ in 0..workers {
+        let (keep, full_ok, rotate, limits, job_rx, done_tx, ctx) = (
+            keep.clone(),
+            full_ok.clone(),
+            rotate.clone(),
+            limits.clone(),
+            job_rx.clone(),
+            done_tx.clone(),
+            ctx.clone(),
+        );
+        std::thread::spawn(move || {
+            loop {
+                let Ok((idx, full, path, page)) = job_rx.lock().unwrap().recv() else {
+                    return;
+                };
+                // Cancellation: skip images the user has already moved past.
+                let wanted = {
+                    let w = keep.lock().unwrap();
+                    let n = full_ok.load(Ordering::Relaxed);
+                    w.contains(&idx) && (!full || w.iter().take(n).any(|&i| i == idx))
+                };
+                if !wanted {
+                    let _ = done_tx.send(Decoded {
+                        rotated: false,
+                        idx,
+                        full,
+                        path,
+                        page,
+                        result: None,
+                    });
+                    continue;
+                }
+                let max = limits.lock().unwrap()[full as usize];
+                let rotated = rotate.load(Ordering::Relaxed);
+                // The histogram here too, so the UI thread never walks the pixels.
+                let result = Some(survive(|| decode(&path, max, rotated, page)).map(
+                    |(frames, orig, pages)| {
+                        let hist = histogram(&frames[0].0);
+                        (frames, orig, hist, pages)
+                    },
+                ));
+                let _ = done_tx.send(Decoded {
+                    rotated,
+                    idx,
+                    full,
+                    path,
+                    page,
+                    result,
+                });
+                // glibc does not return freed memory from the threads' malloc arenas on its own;
+                // decoding leaves several image-sized buffers per thread.
+                // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
+                unsafe { malloc_trim(0) };
+                ctx.request_repaint();
+            }
+        });
+    }
+    (jobs, done)
+}
+
+/// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
+/// take jobs: so scrolling the list never delays the shown image.
+#[allow(clippy::type_complexity)]
+fn spawn_thumbnailers(
+    ctx: &egui::Context,
+    workers: usize,
+    rotate: &Arc<AtomicBool>,
+    view: &Arc<[AtomicUsize; 4]>,
+    save: &Arc<AtomicBool>,
+) -> (
+    mpsc::Sender<(usize, PathBuf)>,
+    mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+) {
+    let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
+    let (thumbs_tx, thumbs_done) = mpsc::channel();
+    let thumb_rx = Arc::new(Mutex::new(thumb_rx));
+    // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
+    // changes without a restart.
+    for k in 0..cores() {
+        let (rx, tx, view, rotate, save, ctx) = (
+            thumb_rx.clone(),
+            thumbs_tx.clone(),
+            view.clone(),
+            rotate.clone(),
+            save.clone(),
+            ctx.clone(),
+        );
+        std::thread::spawn(move || {
+            loop {
+                let mut idle = CPU_CHANGED.0.lock().unwrap();
+                while k >= thumb_threads(workers) {
+                    idle = CPU_CHANGED.1.wait(idle).unwrap();
+                }
+                drop(idle);
+                let Ok((idx, path)) = rx.lock().unwrap().recv() else {
+                    return;
+                };
+                let near = |first: usize, last: usize| {
+                    let [first, last] = [first, last].map(|i| view[i].load(Ordering::Relaxed));
+                    idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN
+                };
+                let result = (near(0, 1) || near(2, 3)).then(|| {
+                    let (rotate, save) =
+                        (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
+                    let large = LARGE_THUMBS.load(Ordering::Relaxed);
+                    survive(|| thumbs::thumbnail(&path, rotate, save, large))
+                        .ok()
+                        // sRGB in the shared cache; to the screen only to be shown.
+                        .map(|img| color_image(srgb_to_display(img.into())))
+                });
+                let _ = tx.send((path, result));
+                // SAFETY: as for the image workers above.
+                unsafe { malloc_trim(0) };
+                ctx.request_repaint();
+            }
+        });
+    }
+    (thumb_jobs, thumbs_done)
+}
+
+/// The EXIF reader: one thread that skips to the newest request, so fast browsing never
+/// queues up; it sends the panel's rows, every field, and the keywords and comment.
+fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Receiver<ExifRead>) {
+    let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
+    let (exif_tx, exif_done) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        while let Ok(mut path) = exif_rx.recv() {
+            path = exif_rx.try_iter().last().unwrap_or(path);
+            let size = std::fs::metadata(&path).map_or(0, |m| m.len());
+            let mut rows = vec![
+                ("File size", human_size(size)),
+                ("Colour profile", colour_source(&path)),
+            ];
+            rows.extend(exif::read(&path));
+            let all = exif::all(&path);
+            let meta = meta::read(&path);
+            if exif_tx.send((path, rows, all, meta)).is_err() {
+                return;
+            }
+            ctx.request_repaint();
+        }
+    });
+    (exif_jobs, exif_done)
+}
+
 impl App {
     // ---- Starting up ----
 
@@ -1046,119 +1208,16 @@ impl App {
         let ahead = Arc::new(AtomicUsize::new(config.preload));
         let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
-        let (jobs, job_rx) = mpsc::channel::<(usize, bool, PathBuf, usize)>();
-        let (done_tx, done) = mpsc::channel();
-        let job_rx = Arc::new(Mutex::new(job_rx));
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
         set_cpu_use(config.cpu_use);
         let workers = cores().min(config.decode_threads);
-        for _ in 0..workers {
-            let (keep, full_ok, rotate, limits, job_rx, done_tx, ctx) = (
-                keep.clone(),
-                full_ok.clone(),
-                rotate.clone(),
-                limits.clone(),
-                job_rx.clone(),
-                done_tx.clone(),
-                cc.egui_ctx.clone(),
-            );
-            std::thread::spawn(move || {
-                loop {
-                    let Ok((idx, full, path, page)) = job_rx.lock().unwrap().recv() else {
-                        return;
-                    };
-                    // Cancellation: skip images the user has already moved past.
-                    let wanted = {
-                        let w = keep.lock().unwrap();
-                        let n = full_ok.load(Ordering::Relaxed);
-                        w.contains(&idx) && (!full || w.iter().take(n).any(|&i| i == idx))
-                    };
-                    if !wanted {
-                        let _ = done_tx.send(Decoded {
-                            rotated: false,
-                            idx,
-                            full,
-                            path,
-                            page,
-                            result: None,
-                        });
-                        continue;
-                    }
-                    let max = limits.lock().unwrap()[full as usize];
-                    let rotated = rotate.load(Ordering::Relaxed);
-                    // The histogram here too, so the UI thread never walks the pixels.
-                    let result = Some(survive(|| decode(&path, max, rotated, page)).map(
-                        |(frames, orig, pages)| {
-                            let hist = histogram(&frames[0].0);
-                            (frames, orig, hist, pages)
-                        },
-                    ));
-                    let _ = done_tx.send(Decoded {
-                        rotated,
-                        idx,
-                        full,
-                        path,
-                        page,
-                        result,
-                    });
-                    // glibc does not return freed memory from the threads' malloc arenas on its own;
-                    // decoding leaves several image-sized buffers per thread.
-                    // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
-                    unsafe { malloc_trim(0) };
-                    ctx.request_repaint();
-                }
-            });
-        }
+        let (jobs, done) = spawn_decoders(&cc.egui_ctx, workers, &keep, &full_ok, &rotate, &limits);
         // Thumbnails have their own workers, so scrolling the list never delays the shown image.
-        let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
-        let (thumbs_tx, thumbs_done) = mpsc::channel();
-        let thumb_rx = Arc::new(Mutex::new(thumb_rx));
         let thumb_view = Arc::new([0, 0, usize::MAX, 0].map(AtomicUsize::new));
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
-        // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
-        // changes without a restart.
-        for k in 0..cores() {
-            let (rx, tx, view, rotate, save, ctx) = (
-                thumb_rx.clone(),
-                thumbs_tx.clone(),
-                thumb_view.clone(),
-                rotate.clone(),
-                save_thumbs.clone(),
-                cc.egui_ctx.clone(),
-            );
-            std::thread::spawn(move || {
-                loop {
-                    let mut idle = CPU_CHANGED.0.lock().unwrap();
-                    while k >= thumb_threads(workers) {
-                        idle = CPU_CHANGED.1.wait(idle).unwrap();
-                    }
-                    drop(idle);
-                    let Ok((idx, path)) = rx.lock().unwrap().recv() else {
-                        return;
-                    };
-                    let near = |first: usize, last: usize| {
-                        let [first, last] = [first, last].map(|i| view[i].load(Ordering::Relaxed));
-                        idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN
-                    };
-                    let result = (near(0, 1) || near(2, 3)).then(|| {
-                        let (rotate, save) =
-                            (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
-                        let large = LARGE_THUMBS.load(Ordering::Relaxed);
-                        survive(|| thumbs::thumbnail(&path, rotate, save, large))
-                            .ok()
-                            // sRGB in the shared cache; to the screen only to be shown.
-                            .map(|img| color_image(srgb_to_display(img.into())))
-                    });
-                    let _ = tx.send((path, result));
-                    // SAFETY: as for the image workers above.
-                    unsafe { malloc_trim(0) };
-                    ctx.request_repaint();
-                }
-            });
-        }
-        // One EXIF reader that skips to the newest request, so fast browsing never queues up.
-        let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
-        let (exif_tx, exif_done) = mpsc::channel();
+        let (thumb_jobs, thumbs_done) =
+            spawn_thumbnailers(&cc.egui_ctx, workers, &rotate, &thumb_view, &save_thumbs);
+        let (exif_jobs, exif_done) = spawn_exif_reader(&cc.egui_ctx);
         theme::fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
         // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
@@ -1167,24 +1226,6 @@ impl App {
         std::thread::spawn(move || {
             let _ = desktop_tx.send(theme::desktop());
             ctx.request_repaint();
-        });
-        let ctx = cc.egui_ctx.clone();
-        std::thread::spawn(move || {
-            while let Ok(mut path) = exif_rx.recv() {
-                path = exif_rx.try_iter().last().unwrap_or(path);
-                let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-                let mut rows = vec![
-                    ("File size", human_size(size)),
-                    ("Colour profile", colour_source(&path)),
-                ];
-                rows.extend(exif::read(&path));
-                let all = exif::all(&path);
-                let meta = meta::read(&path);
-                if exif_tx.send((path, rows, all, meta)).is_err() {
-                    return;
-                }
-                ctx.request_repaint();
-            }
         });
         let (notices_tx, notices) = mpsc::channel();
         let (tree_tx, tree_rx) = mpsc::channel();
