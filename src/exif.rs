@@ -3,6 +3,27 @@
 
 use std::path::Path;
 
+/// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
+const ORIENTATION: u16 = 0x0112;
+const EXIF_IFD: u16 = 0x8769;
+const GPS_IFD: u16 = 0x8825;
+const INTEROP_IFD: u16 = 0xa005;
+
+/// TIFF value types.
+const BYTE: u16 = 1;
+const ASCII: u16 = 2;
+const SHORT: u16 = 3;
+const LONG: u16 = 4;
+const RATIONAL: u16 = 5;
+const UNDEFINED: u16 = 7;
+const SLONG: u16 = 9;
+const SRATIONAL: u16 = 10;
+
+/// The entry for `tag` in `ifd`.
+fn find(ifd: &[(u16, Entry)], tag: u16) -> Option<Entry> {
+    ifd.iter().find(|e| e.0 == tag).map(|e| e.1)
+}
+
 /// (label, value) rows for the panel, in display order; empty if the file has no EXIF.
 pub fn read(path: &Path) -> Vec<(&'static str, String)> {
     raw(path).map_or_else(Vec::new, |raw| parse(&raw))
@@ -21,7 +42,7 @@ pub fn all(path: &Path) -> Vec<(&'static str, String, String)> {
     for (group, ifd) in [("Image", &ifd0), ("Exif", &exif), ("GPS", &gps)] {
         for &(tag, e) in ifd.iter() {
             // The links to the other directories are not fields of their own.
-            if group != "GPS" && matches!(tag, 0x8769 | 0x8825 | 0xa005) {
+            if group != "GPS" && matches!(tag, EXIF_IFD | GPS_IFD | INTEROP_IFD) {
                 continue;
             }
             let name = tag_name(group == "GPS", tag).map_or(format!("0x{tag:04x}"), str::to_owned);
@@ -140,12 +161,11 @@ pub fn adobe_rgb(raw: &[u8]) -> bool {
     let Some((t, _, exif, _)) = ifds(raw) else {
         return false;
     };
-    let get = |ifd: &[(u16, Entry)], tag: u16| ifd.iter().find(|e| e.0 == tag).map(|e| e.1);
-    match get(&exif, 0xa001).and_then(|e| t.int(e)) {
+    match find(&exif, 0xa001).and_then(|e| t.int(e)) {
         Some(2) => true,
         Some(0xffff) => {
-            let interop = get(&exif, 0xa005).and_then(|e| t.int(e));
-            let index = interop.and_then(|at| get(&t.ifd(at as usize), 0x0001));
+            let interop = find(&exif, INTEROP_IFD).and_then(|e| t.int(e));
+            let index = interop.and_then(|at| find(&t.ifd(at as usize), 0x0001));
             index.and_then(|e| t.text(e)).is_some_and(|i| i == "R03")
         }
         _ => false,
@@ -155,7 +175,7 @@ pub fn adobe_rgb(raw: &[u8]) -> bool {
 /// The Orientation tag of a TIFF block (a TIFF-based RAW file's header).
 pub fn orientation(raw: &[u8]) -> Option<image::metadata::Orientation> {
     let (t, ifd0, _, _) = ifds(raw)?;
-    let e = ifd0.iter().find(|(tag, _)| *tag == 0x0112)?.1;
+    let e = find(&ifd0, ORIENTATION)?;
     image::metadata::Orientation::from_exif(t.int(e)? as u8)
 }
 
@@ -216,10 +236,10 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             let block = data.get(start..start + len).ok_or("cut off")?;
             let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
             let little = t.little;
-            let found = ifd0.iter().find(|(tag, _)| *tag == 0x0112).map(|e| e.1);
+            let found = find(&ifd0, ORIENTATION);
             match found {
                 // One value, so it sits in the entry itself, inside the block.
-                Some(e) if e.kind == 3 && e.count == 1 => {
+                Some(e) if e.kind == SHORT && e.count == 1 => {
                     let new = turned(t.int(e).unwrap_or(1) as u8, turns, mirrored) as u16;
                     // Offsets count from the TIFF header, which ends the block as `t.data` does.
                     let at = start + len - t.data.len() + e.at;
@@ -268,10 +288,10 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
 /// turned upright. A block without the field is left as it is.
 pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
-    let Some(e) = ifd0.iter().find(|(tag, _)| *tag == 0x0112).map(|e| e.1) else {
+    let Some(e) = find(&ifd0, ORIENTATION) else {
         return Ok(());
     };
-    if e.kind != 3 {
+    if e.kind != SHORT {
         return Err("unusual orientation field".into());
     }
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
@@ -370,8 +390,8 @@ fn add_orientation(
         .ok_or("cut off")?
         .to_vec();
     let mut entry = Vec::new();
-    entry.extend(p16(0x0112));
-    entry.extend(p16(3));
+    entry.extend(p16(ORIENTATION));
+    entry.extend(p16(SHORT));
     entry.extend(p32(1));
     entry.extend(p16(value));
     entry.extend([0, 0]);
@@ -450,8 +470,8 @@ fn ifds(raw: &[u8]) -> Option<(Tiff<'_>, Ifd, Ifd, Ifd)> {
         Some(t.ifd(t.int(e)? as usize))
     };
     let (exif, gps) = (
-        sub(0x8769).unwrap_or_default(),
-        sub(0x8825).unwrap_or_default(),
+        sub(EXIF_IFD).unwrap_or_default(),
+        sub(GPS_IFD).unwrap_or_default(),
     );
     Some((t, ifd0, exif, gps))
 }
@@ -496,9 +516,9 @@ impl Tiff<'_> {
                 let e = offset + 2 + i * 12;
                 let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
                 let size = match kind {
-                    3 => 2,
-                    4 | 9 => 4,
-                    5 | 10 => 8,
+                    SHORT => 2,
+                    LONG | SLONG => 4,
+                    RATIONAL | SRATIONAL => 8,
                     _ => 1,
                 };
                 // Values of up to four bytes are stored in the entry itself.
@@ -528,8 +548,8 @@ impl Tiff<'_> {
             items.join(" ") + more
         };
         match e.kind {
-            2 => self.text(e).unwrap_or_default(),
-            1 | 7 => {
+            ASCII => self.text(e).unwrap_or_default(),
+            BYTE | UNDEFINED => {
                 let bytes = self
                     .data
                     .get(e.at..e.at + (e.count as usize).min(256))
@@ -544,19 +564,19 @@ impl Tiff<'_> {
                     format!("({} bytes)", e.count)
                 }
             }
-            3 => list(
+            SHORT => list(
                 (0..n)
                     .filter_map(|i| self.u16(e.at + 2 * i))
                     .map(|v| v.to_string())
                     .collect(),
             ),
-            4 | 9 => list(
+            LONG | SLONG => list(
                 (0..n)
                     .filter_map(|i| self.u32(e.at + 4 * i))
                     .map(|v| v.to_string())
                     .collect(),
             ),
-            5 | 10 => list(
+            RATIONAL | SRATIONAL => list(
                 (0..n)
                     .filter_map(|i| self.ratio(e, i))
                     .map(|v| format!("{}", (v * 10000.0).round() / 10000.0))
@@ -568,8 +588,8 @@ impl Tiff<'_> {
 
     fn int(&self, e: Entry) -> Option<u32> {
         match e.kind {
-            3 => self.u16(e.at).map(u32::from),
-            4 | 9 => self.u32(e.at),
+            SHORT => self.u16(e.at).map(u32::from),
+            LONG | SLONG => self.u32(e.at),
             _ => None,
         }
     }
@@ -578,7 +598,7 @@ impl Tiff<'_> {
     fn ratio(&self, e: Entry, i: usize) -> Option<f64> {
         let at = e.at + i * 8;
         let (n, d) = (self.u32(at)?, self.u32(at + 4)?);
-        let (n, d) = if e.kind == 10 {
+        let (n, d) = if e.kind == SRATIONAL {
             (n as i32 as f64, d as i32 as f64)
         } else {
             (n as f64, d as f64)
@@ -591,11 +611,10 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     let Some((t, ifd0, exif, gps)) = ifds(raw) else {
         return Vec::new();
     };
-    let get = |ifd: &[(u16, Entry)], tag: u16| ifd.iter().find(|(t2, _)| *t2 == tag).map(|e| e.1);
 
     let mut rows = Vec::new();
-    let make = get(&ifd0, 0x010f).and_then(|e| t.text(e));
-    let model = get(&ifd0, 0x0110).and_then(|e| t.text(e));
+    let make = find(&ifd0, 0x010f).and_then(|e| t.text(e));
+    let model = find(&ifd0, 0x0110).and_then(|e| t.text(e));
     let camera = match (make, model) {
         // Most models already start with the make ("Canon EOS R6").
         (Some(make), Some(model)) if model.starts_with(&make) => Some(model),
@@ -604,13 +623,13 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     };
     rows.extend(camera.map(|c| ("Camera", c)));
     rows.extend(
-        get(&exif, 0xa434)
+        find(&exif, 0xa434)
             .and_then(|e| t.text(e))
             .map(|l| ("Lens", l)),
     );
-    let taken = get(&exif, 0x9003).or_else(|| get(&ifd0, 0x0132));
+    let taken = find(&exif, 0x9003).or_else(|| find(&ifd0, 0x0132));
     rows.extend(taken.and_then(|e| t.text(e)).map(|d| ("Taken", d)));
-    if let Some(s) = get(&exif, 0x829a).and_then(|e| t.ratio(e, 0)) {
+    if let Some(s) = find(&exif, 0x829a).and_then(|e| t.ratio(e, 0)) {
         let text = if s > 0.0 && s < 1.0 {
             format!("1/{} s", (1.0 / s).round())
         } else {
@@ -619,36 +638,38 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
         rows.push(("Exposure", text));
     }
     rows.extend(
-        get(&exif, 0x829d)
+        find(&exif, 0x829d)
             .and_then(|e| t.ratio(e, 0))
             .map(|f| ("Aperture", format!("f/{f:.1}"))),
     );
     rows.extend(
-        get(&exif, 0x8827)
+        find(&exif, 0x8827)
             .and_then(|e| t.int(e))
             .map(|iso| ("ISO", iso.to_string())),
     );
-    if let Some(mm) = get(&exif, 0x920a).and_then(|e| t.ratio(e, 0)) {
+    if let Some(mm) = find(&exif, 0x920a).and_then(|e| t.ratio(e, 0)) {
         // One decimal, none for whole numbers: "2.8 mm", "24 mm".
         let mm = (mm * 10.0).round() / 10.0;
-        let full_frame = get(&exif, 0xa405).and_then(|e| t.int(e)).filter(|&f| f > 0);
+        let full_frame = find(&exif, 0xa405)
+            .and_then(|e| t.int(e))
+            .filter(|&f| f > 0);
         let text = match full_frame {
             Some(f) => format!("{mm} mm (35 mm: {f} mm)"),
             None => format!("{mm} mm"),
         };
         rows.push(("Focal length", text));
     }
-    if let Some(ev) = get(&exif, 0x9204).and_then(|e| t.ratio(e, 0)) {
+    if let Some(ev) = find(&exif, 0x9204).and_then(|e| t.ratio(e, 0)) {
         rows.push(("Exposure bias", format!("{ev:+.1} EV")));
     }
-    if let Some(flash) = get(&exif, 0x9209).and_then(|e| t.int(e)) {
+    if let Some(flash) = find(&exif, 0x9209).and_then(|e| t.int(e)) {
         rows.push(("Flash", if flash & 1 == 1 { "Fired" } else { "No" }.into()));
     }
     // Degrees, minutes, seconds; negative for south and west.
     let coord = |value: u16, reference: u16, negative: &str| -> Option<f64> {
-        let e = get(&gps, value)?;
+        let e = find(&gps, value)?;
         let deg = t.ratio(e, 0)? + t.ratio(e, 1)? / 60.0 + t.ratio(e, 2)? / 3600.0;
-        let sign = get(&gps, reference)
+        let sign = find(&gps, reference)
             .and_then(|r| t.text(r))
             .is_some_and(|r| r == negative);
         Some(if sign { -deg } else { deg })
