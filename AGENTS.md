@@ -163,6 +163,11 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
   (also `docker.io/library/almalinux:8` for glibc 2.28). Remove the storage afterwards with
   `podman unshare rm -rf /tmp/pod /tmp/podrun`.
 
+Each release also gets `SHA256SUMS` of its files and a build provenance for each (signed by
+GitHub through `actions/attest-build-provenance`), which `gh attestation verify FILE -R
+thornbux/glimt` checks; a new file to publish goes in both, and the Flatpak's line is added by
+its own job.
+
 The AppImage holds the same binary, its desktop file, icons, man page and licenses; OpenGL,
 Wayland and X11 come from the system, as for the tar.gz. `appimagetool` and the type2 runtime
 (which needs no libfuse2) are pinned releases with their sha256 in `release.yml`; change both
