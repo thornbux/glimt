@@ -22,6 +22,7 @@ pub fn ffmpeg_frame(path: &Path, at: &str) -> Result<image::DynamicImage, String
 pub fn heif(path: &Path) -> Result<image::DynamicImage, String> {
     let probe = command("ffprobe")
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
+        .args(FILES_ONLY)
         .arg(path)
         .output()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
@@ -79,6 +80,19 @@ pub fn heif_filter(probe: &str) -> Option<String> {
     ))
 }
 
+/// ffmpeg's input options for files that come from anywhere: only local files (no network),
+/// and only the formats of photos and videos Glimt lists. ffmpeg tells the format by the
+/// content, so a "video.mp4" that is a playlist (HLS, concat) would else open the files or URLs
+/// it names, for a preview made without the file even being opened.
+#[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
+const FILES_ONLY: [&str; 4] = [
+    "-protocol_whitelist",
+    "file",
+    "-format_whitelist",
+    // HEIC, AVIF, MP4, MOV, 3GP; MKV, WebM; AVI; MPEG; TS, MTS, M2TS; WMV; FLV.
+    "mov,matroska,avi,mpeg,mpegts,asf,flv",
+];
+
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn ffmpeg_ppm(
@@ -89,6 +103,7 @@ pub fn ffmpeg_ppm(
     let out = command("ffmpeg")
         .args(["-v", "error"])
         .args(before)
+        .args(FILES_ONLY)
         .arg("-i")
         .arg(path)
         .args(after)
