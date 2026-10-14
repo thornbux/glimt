@@ -89,6 +89,9 @@ pub fn add(path: &Path, keywords: &[String]) -> Result<(), String> {
 
 /// Held while a sidecar is read and written again: keywords are added in the background while
 /// the stars or the comment of the same file may be saved, each through the same temporary file.
+/// shortcut: within this Glimt only; two windows changing one sidecar at the same moment can
+/// lose one change (not the file, which is replaced whole). A file lock (File::lock, Rust 1.89)
+/// if that is ever seen.
 fn held() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
