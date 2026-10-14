@@ -708,6 +708,9 @@ struct App {
     /// The open collection's file. The list is then its images, with `dir` "/" and the paths
     /// without their leading "/" as names, so `path()` works unchanged.
     collection: Option<PathBuf>,
+    /// The collection's paths as last read or written here; what is on disk beyond them was
+    /// added elsewhere and is kept when this window saves.
+    collection_read: HashSet<PathBuf>,
     /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
     /// are relative to /, as in a collection, and the folders are read again on refresh.
     folders: Vec<PathBuf>,
@@ -1163,6 +1166,7 @@ impl App {
             capturing: None,
             recursive: false,
             collection: None,
+            collection_read: HashSet::new(),
             folders: Vec::new(),
             together: None,
             sort_collection: false,
@@ -1366,6 +1370,7 @@ impl App {
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = root.to_path_buf();
+        self.collection_read = paths.into_iter().collect();
         self.collection = Some(file);
         self.folders.clear();
         let first = files.first().cloned();
@@ -1416,9 +1421,12 @@ impl App {
     /// Write the open collection with the list as it is now.
     fn save_collection(&mut self) {
         let Some(file) = &self.collection else { return };
-        let paths: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
-        if let Err(e) = collections::save(file, &paths) {
-            self.notice = Some(format!("Could not save the collection: {e}"));
+        let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+        let on_disk = collections::load(file).unwrap_or_default();
+        let paths = collections::merged(ours, &self.collection_read, on_disk);
+        match collections::save(file, &paths) {
+            Ok(()) => self.collection_read = paths.into_iter().collect(),
+            Err(e) => self.notice = Some(format!("Could not save the collection: {e}")),
         }
     }
 
@@ -1982,10 +1990,11 @@ impl App {
             let moving: HashSet<&PathBuf> = paths.iter().collect();
             for i in 0..self.files.len() {
                 let path = self.path(i);
+                let to = dest.join(path.file_name().unwrap_or_default());
+                // A file there already stays, and this one is not moved: its entry stays too.
                 if moving.contains(&path)
-                    && let Ok(rel) = dest
-                        .join(path.file_name().unwrap_or_default())
-                        .strip_prefix(&self.dir)
+                    && !to.exists()
+                    && let Ok(rel) = to.strip_prefix(&self.dir)
                 {
                     self.files[i] = rel.as_os_str().to_owned();
                 }
