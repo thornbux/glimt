@@ -88,7 +88,8 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 /// Only the changes go to the file: one writer thread, so they land in order, merges them into
 /// the file as it is now, so the marks another Glimt window wrote meanwhile are kept. Renamed
 /// into place so a crash never leaves half a file.
-/// ponytail: the whole file each time; fine for thousands of marked files.
+/// shortcut: the whole file each time, fine for thousands of marked files; write changes only
+/// if hundreds of thousands are marked.
 #[cfg(not(test))]
 fn save(paths: Vec<PathBuf>, change: Change) {
     use std::sync::{OnceLock, mpsc};

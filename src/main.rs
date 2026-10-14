@@ -1824,7 +1824,8 @@ impl App {
 
     fn receive_sizes(&mut self, ctx: &egui::Context) {
         while let Ok(freed) = self.freed_rx.try_recv() {
-            // ponytail: deleting while the sum is still being computed can make it slightly off.
+            // shortcut: a delete while the sum is still being computed can make it slightly off;
+            // fine for a status bar figure.
             self.total_size = self.total_size.saturating_sub(freed);
         }
         if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
@@ -1995,8 +1996,9 @@ impl App {
     fn transfer(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>, dest: PathBuf, keep: bool) {
         if !keep && self.collection.is_some() {
             // The collection follows the files to their new place.
-            // ponytail: before the move is done; a file that fails to move drops out of the
-            // collection at the next refresh.
+            // shortcut: rewritten before the move is done, so a file that fails to move for
+            // another reason than a name taken there drops out at the next refresh; report each
+            // result back if moves in collections fail often.
             let moving: HashSet<&PathBuf> = paths.iter().collect();
             for i in 0..self.files.len() {
                 let path = self.path(i);
@@ -2500,7 +2502,8 @@ impl App {
     }
 
     /// Write the view's rotation into the shown file and show it as it is now.
-    /// ponytail: a JPEG in the UI thread, as it is read and written in milliseconds.
+    /// shortcut: a JPEG in the UI thread, as it is read and written in milliseconds; a thread
+    /// like PNG and WebP if network folders make it slow.
     fn save_orientation(&mut self, ctx: &egui::Context) {
         let (turns, mirrored) = self.orient;
         if self.files.is_empty() || (turns, mirrored) == (0, false) {
@@ -4769,7 +4772,8 @@ impl App {
     /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in
     /// list order. The first such search in a folder reads the EXIF of all files in the
     /// background (the busy pointer shows meanwhile) and finds nothing until that is done.
-    /// ponytail: files added after the index was built do not match until the folder is reopened.
+    /// shortcut: files added after the index was built do not match until the folder is
+    /// reopened; add them to the index as the list grows if that is missed.
     fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
         let re = match words.strip_prefix("re:").map(|p| search::regex(p, false)) {
             Some(Err(e)) => {
@@ -4854,7 +4858,7 @@ impl App {
     }
 
     /// Size and modification time of file `i`, from the cache or one stat.
-    /// ponytail: stat in the UI thread, once per visible file; move to a thread if network
+    /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
     /// folders make scrolling stutter.
     fn file_details(&mut self, i: usize) -> (u64, i64) {
         if let Some(&d) = self.details.get(&self.files[i]) {
@@ -6393,7 +6397,7 @@ impl App {
                         .unwrap_or((self.cur, Some(self.last_scale)));
                     let path = self.path(idx);
                     if self.cur_size.as_ref().is_none_or(|c| c.0 != path) {
-                        // ponytail: one stat in the UI thread per image change; move it to
+                        // shortcut: one stat in the UI thread per image change; move it to
                         // a thread if slow network folders make browsing stutter.
                         let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
                         self.cur_size = Some((path, bytes));
@@ -7005,7 +7009,8 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         remote::stop();
         self.save_meta();
-        // ponytail: the path is stored as UTF-8 (lossless for ordinary paths); switch to OsString bytes if needed.
+        // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
+        // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
         if self.config.remember_dir {
             let last = self.collection.as_ref().unwrap_or(&self.dir);
