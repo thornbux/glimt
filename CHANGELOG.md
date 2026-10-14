@@ -5,6 +5,30 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-14
+
+### Fixed
+
+- With Save orientation on, a turn could be saved into another file: one in the new folder
+  when another folder opened, or a neighbour when the list changed by a delete, a refresh or
+  random order in a slideshow; deleting the last image of the list could close Glimt. The
+  turn is now saved before the folder or the list changes.
+- Rename, Rename Many and a delete confirmation act on the files they asked about: a
+  slideshow step, `--remote next` or an auto refresh while the dialog was open made them
+  rename or trash other files. Now the slideshow waits, and the answer is refused with a
+  notice if the list or the shown image changed.
+- Saving a turn through a symbolic link turns the file it points to; before, the link was
+  replaced by a turned copy and the file stayed as it was.
+- Turning a JPEG whose orientation field holds several values (a broken or crafted file) is
+  refused; before, two bytes of the picture could be overwritten.
+- A JPEG with an empty APP1 segment no longer stops the EXIF panel for the rest of the
+  session.
+
+### Changed
+
+- The code is split into modules (colour, config, decode, files, save, external programs,
+  actions) and the window's frame into a method per part; nothing changes for the user.
+
 ## [0.17.0] - 2026-10-14
 
 ### Added
@@ -333,7 +357,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/thornbux/glimt/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/thornbux/glimt/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/thornbux/glimt/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/thornbux/glimt/compare/v0.14.0...v0.15.0
