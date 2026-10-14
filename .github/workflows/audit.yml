@@ -1,0 +1,30 @@
+# Known vulnerabilities in the crates Glimt uses (RustSec), every Monday and when Cargo.lock
+# changes: the release workflow checks too, but a crate found vulnerable between releases
+# should not wait for the next one. Warnings (an unmaintained crate) do not fail it.
+name: Audit
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  push:
+    branches: [main]
+    paths: [Cargo.lock]
+  pull_request:
+    paths: [Cargo.lock]
+  workflow_dispatch:
+
+# Reads the code only; actions from others are pinned to a commit, as in release.yml.
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-audit
+      - run: cargo audit

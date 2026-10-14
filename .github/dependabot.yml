@@ -1,0 +1,13 @@
+# Dependabot proposes updates as pull requests: the crates once a week, and the actions the
+# workflows pin to a commit, whose pins it moves to the new commit with its tag in a comment.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
