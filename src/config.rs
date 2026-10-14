@@ -324,16 +324,50 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        config_path()
+        let config = config_path()
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .map_or_else(Config::default, |text| Config::parse(&text))
+            .map_or_else(Config::default, |text| Config::parse(&text));
+        *SAVED.lock().unwrap_or_else(|e| e.into_inner()) = config.to_text();
+        config
     }
 
+    /// Only the settings this window changed go over the file; the others keep what other
+    /// windows wrote meanwhile.
     pub fn save(&self) {
         if let Some(p) = config_path() {
-            write_atomic(&p, &self.to_text());
+            let ours = self.to_text();
+            let mut saved = SAVED.lock().unwrap_or_else(|e| e.into_inner());
+            let on_disk = std::fs::read_to_string(&p).unwrap_or_default();
+            write_atomic(&p, &merged(&ours, &saved, &on_disk));
+            *saved = ours;
         }
     }
+}
+
+/// The settings as this window last read or wrote them.
+static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// `ours` (key=value lines), but where a value is as this window `saved` it, the one
+/// `on_disk`: another window may have changed that setting since.
+fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
+    let pairs = |text: &str| -> std::collections::HashMap<String, String> {
+        (text.lines().filter_map(|l| l.split_once('=')))
+            .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+            .collect()
+    };
+    let (saved, on_disk) = (pairs(saved), pairs(on_disk));
+    let mut text = String::new();
+    for line in ours.lines() {
+        let theirs = line
+            .split_once('=')
+            .filter(|(k, v)| saved.get(*k).is_some_and(|s| s == v))
+            .and_then(|(k, _)| Some((k, on_disk.get(k)?)));
+        match theirs {
+            Some((k, v)) => text += &format!("{k}={v}\n"),
+            None => text += &format!("{line}\n"),
+        }
+    }
+    text
 }
 
 /// Write to a temporary file and rename it, so the file is never half-written after a crash.
@@ -347,5 +381,18 @@ pub fn write_atomic(path: &Path, text: &str) {
     if let Err(e) = result {
         let _ = std::fs::remove_file(&tmp);
         eprintln!("could not save {}: {e}", path.display());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// This window changed the sort order, another turned thumbnails off: both stay.
+    #[test]
+    fn keeps_what_other_windows_changed() {
+        let saved = "thumbnails=true\nsort=name\n";
+        let ours = "thumbnails=true\nsort=date\n";
+        let on_disk = "thumbnails = false\nsort=name\n";
+        let text = super::merged(ours, saved, on_disk);
+        assert_eq!(text, "thumbnails=false\nsort=date\n");
     }
 }
