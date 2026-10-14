@@ -1695,6 +1695,12 @@ impl App {
         } else {
             files
         };
+        // A collection's entries that are not there (a drive not plugged in) are not listed; not
+        // counted as read here either, saving keeps them as they are in the file.
+        if self.collection.is_some() {
+            let listed: HashSet<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
+            self.collection_read.retain(|p| listed.contains(p));
+        }
         let shown = self.files.get(self.cur).cloned();
         self.replace_files(ctx, files, shown);
         if std::mem::take(&mut self.sort_collection) {
@@ -1759,6 +1765,10 @@ impl App {
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();
         self.save_collection();
+        // A collection being read meanwhile would bring the removed back: read it again.
+        if self.collection.is_some() && self.listing_rx.is_some() {
+            self.list(ctx);
+        }
         // The next remaining file after the shown one (or the last).
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
@@ -1795,7 +1805,12 @@ impl App {
     fn save_collection(&mut self) {
         let Some(file) = &self.collection else { return };
         let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
-        let on_disk = collections::load(file).unwrap_or_default();
+        // One that cannot be read is not written over: what it holds would be lost.
+        let on_disk = match collections::load(file) {
+            Ok(paths) => paths,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
+        };
         let paths = collections::merged(ours, &self.collection_read, on_disk);
         match collections::save(file, &paths) {
             Ok(()) => self.collection_read = paths.into_iter().collect(),
@@ -2895,13 +2910,19 @@ impl App {
             // shortcut: rewritten before the move is done, so a file that fails to move for
             // another reason than a name taken there drops out at the next refresh; report each
             // result back if moves in collections fail often.
-            let moving: HashSet<&PathBuf> = paths.iter().collect();
+            // The files that will get there, in the order the move takes them: not one whose
+            // name is taken there already, nor a second of the same name; those keep their entry.
+            let mut taken = HashSet::new();
+            let moving: HashSet<&PathBuf> = (paths.iter())
+                .filter(|p| {
+                    let to = dest.join(p.file_name().unwrap_or_default());
+                    !to.exists() && taken.insert(to)
+                })
+                .collect();
             for i in 0..self.files.len() {
                 let path = self.path(i);
                 let to = dest.join(path.file_name().unwrap_or_default());
-                // A file there already stays, and this one is not moved: its entry stays too.
                 if moving.contains(&path)
-                    && !to.exists()
                     && let Ok(rel) = to.strip_prefix(&self.dir)
                 {
                     self.files[i] = rel.as_os_str().to_owned();
@@ -3050,7 +3071,8 @@ impl App {
     /// if a new name is taken by a file outside the selection, nothing is renamed. When new
     /// names swap with old ones, the files go through temporary names.
     fn rename_many(&mut self, ctx: &egui::Context, pattern: &str) {
-        let from: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let targets = self.targets();
+        let from: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         if !self.none_saving(&from) {
             return;
         }
@@ -3118,14 +3140,16 @@ impl App {
         self.selected.clear();
         self.selection_changed(ctx);
         if self.collection.is_some() {
-            // The collection keeps the files, under their new names.
-            for (f, t) in from.iter().zip(&to) {
-                let i = (0..self.files.len()).find(|&i| self.is_file(i, f));
-                if let (Some(i), Ok(rel)) = (i, t.strip_prefix(&self.dir)) {
-                    self.files[i] = rel.as_os_str().to_owned();
+            // The collection keeps the files, under their new names; the first entries of `to`
+            // are the targets' (the sidecars follow). Nothing renamed: the names stay.
+            if !failed {
+                for (&i, t) in targets.iter().zip(&to) {
+                    if let Ok(rel) = t.strip_prefix(&self.dir) {
+                        self.files[i] = rel.as_os_str().to_owned();
+                    }
                 }
+                self.save_collection();
             }
-            self.save_collection();
             return self.list(ctx);
         }
         match shown {
