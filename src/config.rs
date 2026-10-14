@@ -374,7 +374,7 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("{}.tmp", crate::remote::me()));
+    let tmp = path.with_extension(format!("{}.tmp", crate::remote::instance_id()));
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
         .and_then(|_| std::fs::write(&tmp, bytes))
         .and_then(|_| std::fs::rename(&tmp, path));

@@ -1147,7 +1147,7 @@ impl App {
         let (apps_tx, apps_rx) = mpsc::channel();
         let (remote_tx, remote_rx) = mpsc::channel();
         // A name is only of use with remote control, so it listens anyway.
-        if config.remote_control || remote::name().is_some() {
+        if config.remote_control || remote::given_name().is_some() {
             remote::listen(remote_tx, cc.egui_ctx.clone());
         }
         let (freed_tx, freed_rx) = mpsc::channel();
@@ -3137,7 +3137,7 @@ impl App {
             (None, None) => self.dir.display().to_string(),
         };
         // A named Glimt says which it is.
-        let app = match remote::name() {
+        let app = match remote::given_name() {
             Some(n) => format!("Glimt ({n})"),
             None => "Glimt".to_owned(),
         };
@@ -5409,7 +5409,7 @@ impl App {
         }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.has_focus && self.config.remote_control {
-            remote::focused();
+            remote::mark_focused();
         }
         self.has_focus = focus;
         while let Ok(command) = self.remote_rx.try_recv() {

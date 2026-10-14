@@ -37,7 +37,7 @@ fn dir() -> Option<PathBuf> {
 /// This Glimt's name: its process ID, and in a Flatpak, where every instance can have the same
 /// process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the instance).
 /// Found once, as every new thumbnail asks.
-pub fn me() -> &'static str {
+pub fn instance_id() -> &'static str {
     static ME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ME.get_or_init(|| {
         let info = std::env::var_os("FLATPAK_ID")
@@ -59,7 +59,7 @@ pub fn set_name(name: String) {
 }
 
 /// The `--name` given, if any.
-pub fn name() -> Option<&'static str> {
+pub fn given_name() -> Option<&'static str> {
     NAME.get().map(String::as_str)
 }
 
@@ -70,8 +70,8 @@ pub fn valid_name(name: &str) -> bool {
 }
 
 /// The socket's name: the --name, or the process ID.
-fn id() -> &'static str {
-    name().unwrap_or_else(me)
+fn socket_id() -> &'static str {
+    given_name().unwrap_or_else(instance_id)
 }
 
 fn socket(id: &str) -> Option<PathBuf> {
@@ -124,19 +124,19 @@ pub fn send_all(command: &str) -> usize {
 
 /// Listen for commands in the background and pass each line to `tx`.
 pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
-    let Some(path) = socket(id()) else {
+    let Some(path) = socket(socket_id()) else {
         return;
     };
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
     let Some(listener) = claim(&path) else {
         eprintln!(
             "A Glimt named {} is running already: --remote goes to that one",
-            id()
+            socket_id()
         );
         return;
     };
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
-    focused();
+    mark_focused();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             for line in std::io::BufReader::new(stream)
@@ -166,9 +166,9 @@ fn claim(path: &std::path::Path) -> Option<UnixListener> {
 }
 
 /// This Glimt got the focus: `--remote` goes to it from now on.
-pub fn focused() {
+pub fn mark_focused() {
     if let Some(d) = dir() {
-        let _ = std::fs::write(d.join("focused"), id());
+        let _ = std::fs::write(d.join("focused"), socket_id());
     }
 }
 
@@ -177,7 +177,7 @@ pub fn stop() {
     if !LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    if let Some(path) = socket(id()) {
+    if let Some(path) = socket(socket_id()) {
         let _ = std::fs::remove_file(path);
     }
 }
