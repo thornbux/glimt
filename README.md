@@ -166,6 +166,28 @@ The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); with
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
 
+## Getting started
+
+Start Glimt on a folder or an image (`glimt ~/Pictures`, `glimt photo.jpg`), or from the
+application menu, which opens your home folder (or the last one, with "Start in the last used
+folder" in Preferences). The keys are Geeqie's; these are the ones used most:
+
+| Key | Does |
+|---|---|
+| → ↓ Space, ← ↑ Backspace | Next and previous image; Home and End for the first and last |
+| F (or F11), Esc | Full screen, and back |
+| + and −, Z, X | Zoom in and out, 1:1, fit to the window |
+| ] and [ | Turn right and left |
+| S | Slideshow (start and stop) |
+| T, Ctrl+K | Thumbnails in the file list, the EXIF panel |
+| Ctrl+J, D | Pan view by date, Find Duplicates |
+| Ctrl+R, Ctrl+C, Ctrl+M | Rename (several selected: Rename Many), copy, move |
+| Delete, Shift+Delete | To the trash, delete for good (both ask first) |
+| Ctrl+O, F1 | Preferences, the help (with every key and a keyboard map) |
+
+Type in the field above the file list to search the names; `exif:` searches the EXIF,
+keywords and comments.
+
 ## Building
 
 ### Requirements
@@ -320,6 +342,32 @@ Sway, X11 with a window manager) are very welcome.
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
+
+## Troubleshooting
+
+Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictures`) to see it.
+
+- **No window opens.** The window needs OpenGL (EGL) and xkbcommon, which the `.deb` and
+  `.rpm` install; with the `.tar.gz` or the AppImage on a minimal system, install `libegl1`
+  and `libxkbcommon-x11-0` (Debian, Ubuntu) or `libglvnd-egl` and `libxkbcommon-x11`
+  (Fedora, RHEL). To try X11 instead of Wayland: `env -u WAYLAND_DISPLAY glimt`.
+- **The AppImage does not start** and speaks of FUSE: install `fuse3` (or `fuse`), or run it
+  with `--appimage-extract-and-run`.
+- **HEIC, AVIF or videos show nothing.** They are decoded by `ffmpeg`, which must be
+  installed; HEIC needs ffmpeg and ffprobe 8.0 or newer.
+- **Open, Copy or Move show no dialog.** Install `zenity` (or `kdialog` on KDE).
+- **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
+  `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
+- **Settings in a strange state.** Quit Glimt and remove `~/.config/glimt/config`; the defaults
+  come back.
+
+## Privacy
+
+Glimt sends nothing anywhere: no telemetry, no update checks, no network library in it. It
+reads the folders you open and writes only the files listed below. The network is used only
+when you ask: a share you open (through GVfs), and the browser for a photo's place on
+OpenStreetMap or for Get More Themes. The desktop is asked for its dark style, accent colour
+and screen profile over D-Bus.
 
 ## Files
 
