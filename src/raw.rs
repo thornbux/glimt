@@ -39,10 +39,14 @@ pub fn exif(path: &Path) -> Option<Vec<u8>> {
     if matches!(head.get(..2), Some(b"II" | b"MM")) {
         return Some(head);
     }
-    let data = std::fs::read(path).ok()?;
-    let jpeg = preview(&data)?;
-    let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;
-    dec.exif_metadata().ok().flatten()
+    // The preview's headers come before its picture, so the first MB has them in most files;
+    // the whole file (50 MB and more) only when not: sorting thousands by date reads the heads.
+    let from = |data: &[u8]| {
+        let jpeg = preview(data)?;
+        let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;
+        dec.exif_metadata().ok().flatten()
+    };
+    from(&head).or_else(|| from(&std::fs::read(path).ok()?))
 }
 
 /// The largest JPEG in `data` that the decoder handles: baseline or progressive. Lossless JPEG
