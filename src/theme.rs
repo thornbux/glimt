@@ -135,7 +135,12 @@ impl Theme {
                 "border" => t.border = color(),
                 "text" => t.text = color(),
                 "radius" => t.radius = value.parse::<u8>().ok().map(|r| r.min(20)),
-                "text_size" => t.text_size = value.parse::<f32>().ok().map(|s| s.clamp(10.0, 24.0)),
+                // "NaN" and "inf" parse as numbers; clamp keeps NaN as it is.
+                "text_size" => {
+                    t.text_size = (value.parse::<f32>().ok())
+                        .filter(|s| s.is_finite())
+                        .map(|s| s.clamp(10.0, 24.0))
+                }
                 _ => {}
             }
         }
@@ -338,6 +343,7 @@ mod tests {
         );
         assert_eq!(t.radius, Some(20));
         assert_eq!(t.text, None);
+        assert_eq!(super::Theme::parse("text_size=NaN").text_size, None);
         // Every built-in theme reads, and sets what it says.
         for (name, text) in super::BUILT_IN {
             let t = super::Theme::parse(text);
