@@ -269,6 +269,17 @@ fn unescape(text: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A JPEG with an empty APP1 segment followed by the XMP name: no keywords, and no panic.
+    #[test]
+    fn reads_an_empty_xmp_segment() {
+        let file = std::env::temp_dir().join(format!("glimt-xmp-{}.jpg", std::process::id()));
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1, 0, 2];
+        jpeg.extend(b"http://ns.adobe.com/xap/1.0/\0");
+        std::fs::write(&file, jpeg).unwrap();
+        assert!(read(&file).keywords.is_empty());
+        std::fs::remove_file(file).unwrap();
+    }
+
     #[test]
     fn keywords_and_comment_round_trip() {
         let meta = Meta {

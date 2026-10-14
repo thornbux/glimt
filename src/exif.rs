@@ -208,7 +208,7 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
     let (segments, _) = jpeg_segments(&data).ok_or("cut off")?;
     let exif = segments
         .iter()
-        .find(|s| s.0 == 0xe1 && data[s.1..].starts_with(b"Exif\0\0"));
+        .find(|s| s.0 == 0xe1 && segment(&data, s).starts_with(b"Exif\0\0"));
     match exif {
         Some(&(_, start, len)) => {
             let block = data.get(start..start + len).ok_or("cut off")?;
@@ -304,6 +304,12 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
     Some((segments, false))
 }
 
+/// The bytes of a segment from `jpeg_segments`, as far as `data` has them: a prefix is looked
+/// for in the segment only, not in what follows a short one.
+fn segment<'a>(data: &'a [u8], &(_, start, len): &(u8, usize, usize)) -> &'a [u8] {
+    data.get(start..).map_or(&[], |d| &d[..len.min(d.len())])
+}
+
 /// The APP1 segment of a JPEG that starts with `prefix` (EXIF or XMP), from its first 256 KB,
 /// where it is: the decoder would read the whole file, and sorting by EXIF date reads every file
 /// of the folder. `Some(None)` if it has none; `None` if it is no JPEG or that part is not enough
@@ -319,7 +325,7 @@ pub fn jpeg_app1(path: &Path, prefix: &[u8]) -> Option<Option<Vec<u8>>> {
     let (segments, done) = jpeg_segments(&head)?;
     let found = segments
         .iter()
-        .find(|s| s.0 == 0xe1 && head[s.1..].starts_with(prefix));
+        .find(|s| s.0 == 0xe1 && segment(&head, s).starts_with(prefix));
     match found {
         Some(&(_, start, len)) => Some(Some(head.get(start..start + len)?.to_vec())),
         None => done.then_some(None),
