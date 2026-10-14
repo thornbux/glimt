@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 /// Where new collections go.
 pub fn dir() -> Option<PathBuf> {
-    crate::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("collections"))
+    crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("collections"))
 }
 
 pub fn is_collection(path: &Path) -> bool {

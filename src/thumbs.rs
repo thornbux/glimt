@@ -119,7 +119,7 @@ fn cache_dir() -> Option<std::path::PathBuf> {
         Some(_) => "HOST_XDG_CACHE_HOME",
         None => "XDG_CACHE_HOME",
     };
-    crate::xdg_dir(var, ".cache", "thumbnails")
+    crate::config::xdg_dir(var, ".cache", "thumbnails")
 }
 
 /// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is

@@ -77,7 +77,7 @@ const BUILT_IN: [(&str, &str); 6] = [
 
 /// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.
 pub fn dir() -> Option<std::path::PathBuf> {
-    crate::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
+    crate::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
 }
 
 /// The built-in themes, then the user's, by name.

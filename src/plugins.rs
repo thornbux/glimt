@@ -17,7 +17,7 @@ pub struct Plugin {
 /// The plugins, sorted by name; a desktop file in the user's folder hides one of the same name
 /// in the system's.
 pub fn find() -> Vec<Plugin> {
-    let home = crate::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+    let home = crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
     let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
     let mut seen = std::collections::HashSet::new();
     let mut plugins: Vec<Plugin> = (home.into_iter())

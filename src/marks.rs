@@ -12,7 +12,7 @@ pub struct Marks {
 }
 
 fn file() -> Option<PathBuf> {
-    crate::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("marks"))
+    crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("marks"))
 }
 
 impl Marks {
