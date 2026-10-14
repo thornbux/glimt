@@ -2922,19 +2922,7 @@ impl App {
             let mut errors = Vec::new();
             for path in &paths {
                 let target = dest.join(path.file_name().unwrap_or_default());
-                let result = if target.exists() {
-                    Err(std::io::ErrorKind::AlreadyExists.into())
-                } else if keep {
-                    std::fs::copy(path, &target).map(drop)
-                } else {
-                    std::fs::rename(path, &target).or_else(|e| {
-                        if e.kind() != std::io::ErrorKind::CrossesDevices {
-                            return Err(e);
-                        }
-                        std::fs::copy(path, &target).and_then(|_| std::fs::remove_file(path))
-                    })
-                };
-                match result {
+                match put_file(path, &target, keep) {
                     Ok(()) => meta::follow(path, &target, keep),
                     Err(e) => errors.push(format!("{}: {e}", target.display())),
                 }
@@ -7327,6 +7315,36 @@ fn thumbs_to_keep<'a>(
         .collect()
 }
 
+/// Copy (`keep`) or move `from` to `to`, never over a file there, also one another window put
+/// there a moment ago: a copy creates its file new, a move links and then unlinks. Where links
+/// cannot be made (FAT, some network shares), a move is a rename after looking first.
+fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
+    use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
+    let copy = || -> std::io::Result<()> {
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(to)?;
+        let copied = std::fs::File::open(from)
+            .and_then(|mut f| std::io::copy(&mut f, &mut out))
+            .and_then(|_| std::fs::set_permissions(to, std::fs::metadata(from)?.permissions()));
+        if copied.is_err() {
+            let _ = std::fs::remove_file(to);
+        }
+        copied
+    };
+    if keep {
+        return copy();
+    }
+    match std::fs::hard_link(from, to) {
+        Ok(()) => std::fs::remove_file(from),
+        Err(e) if e.kind() == AlreadyExists => Err(e),
+        Err(e) if e.kind() == CrossesDevices => copy().and_then(|_| std::fs::remove_file(from)),
+        Err(_) if to.exists() => Err(AlreadyExists.into()),
+        Err(_) => std::fs::rename(from, to),
+    }
+}
+
 /// The program New Window starts: from an AppImage the AppImage, as the binary is in its mount,
 /// which goes when this window closes; else the binary. Every program started from an AppImage
 /// inherits its APPIMAGE, so it counts only when the binary is inside APPDIR.
@@ -7528,6 +7546,31 @@ mod tests {
             super::thumbs_to_keep(&files, None, 500..510, 600).len(),
             410
         );
+    }
+
+    /// Copying and moving never replace a file at the destination, and move or copy otherwise.
+    #[test]
+    fn puts_files_without_overwriting() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-put-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        std::fs::write(dir.join("to/b.jpg"), "there").unwrap();
+        assert!(super::put_file(&b, &dir.join("to/b.jpg"), true).is_err());
+        assert!(super::put_file(&b, &dir.join("to/b.jpg"), false).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("to/b.jpg")).unwrap(),
+            "there"
+        );
+        assert!(b.exists());
+        super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
+        assert!(a.exists());
+        std::fs::remove_file(dir.join("to/a.jpg")).unwrap();
+        super::put_file(&a, &dir.join("to/a.jpg"), false).unwrap();
+        assert!(!a.exists());
+        assert_eq!(std::fs::read_to_string(dir.join("to/a.jpg")).unwrap(), "a");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// New Window starts the AppImage only from inside it, not when Glimt was merely started
