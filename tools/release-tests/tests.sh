@@ -53,8 +53,9 @@ fail() { echo "FAIL $1"; FAILED=$((FAILED + 1)); }
 expect() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: got '$2', want '$3'"; fi; }
 note() { echo "     $*"; }
 
-# The environment of one version: a fresh HOME and XDG folders, and a stand-in for zenity.
-use() {
+# The environment of one version, new or old: a fresh HOME and XDG folders, and a stand-in for
+# zenity. Sets V, BIN and H.
+as_version() {
     export V=$1 BIN=/opt/glimt-$1 H=/tmp/home-$1
     export HOME=$H XDG_CACHE_HOME=$H/.cache XDG_CONFIG_HOME=$H/.config XDG_RUNTIME_DIR=$H/run \
         XDG_STATE_HOME=$H/.local/state XDG_DATA_HOME=$H/.local/share
@@ -65,7 +66,8 @@ use() {
 config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
 # The file or folder the stand-in file dialog answers with.
 answer() { printf '#!/bin/sh\necho "%s"\n' "$1" >/tmp/stub/zenity; chmod +x /tmp/stub/zenity; }
-# Start Glimt on ARGS and wait for its window; a second try if X refused the first.
+# Start Glimt on ARGS and wait for its window; a second try if X refused the first. Sets GPID
+# (its process) and WIN (its window), which key, quit and the screenshots use.
 start() {
     for try in 1 2; do
         $BIN "$@" 2>/tmp/glimt.err &
@@ -96,8 +98,7 @@ quit() {
 shot() { import -window root /t/out/$1.png; }
 # The colour at X,Y of a screenshot: red, green, blue, yellow, magenta, cyan or other.
 colour() {
-    convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)] %[fx:int(255*p{$2,$3}.g)] \
-%[fx:int(255*p{$2,$3}.b)]" info: | {
+    pixel $1 $2 $3 | {
         read r g b
         hi() { [ $1 -ge 110 ]; }
         lo() { [ $1 -le 90 ]; }
@@ -132,7 +133,7 @@ hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 cd /tmp
 
 echo "-- saving turned: PNG, lossless WebP and lossy WebP with EXIF orientation 6"
-use new
+as_version new
 for rotate in true false; do
     d=/tmp/turned-$rotate
     mkdir -p $d && cd $d
@@ -179,7 +180,7 @@ expect "no temporary files left" "$(ls $d | tr '\n' ' ')" "a.png a.webp "
 
 echo "-- a turn saved when another folder opens: to the turned image, not the new folder's"
 for v in new old; do
-    use $v
+    as_version $v
     d=/tmp/turn-open-$v
     mkdir -p $d/one $d/two
     convert -size 200x200 xc:red -size 200x200 xc:blue +append -depth 8 $d/one/a.png
@@ -195,7 +196,7 @@ for v in new old; do
         expect "one/b.png turned, the rest as they were" "$got" "400x200 200x400 400x200 400x200 "
     else note "old: one/a one/b two/c two/d: $got"; fi
 done
-use new
+as_version new
 
 echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
@@ -219,7 +220,7 @@ expect "the list follows" "$(rows subfolders 5)" "red blue red yellow green"
 
 echo "-- a delete that fails in a subfolder: the file comes back"
 for v in new old; do
-    use $v
+    as_version $v
     d=/tmp/failed-delete-$v
     mkdir -p $d/sub && cd $d
     convert -size 300x200 xc:blue a.jpg
@@ -237,7 +238,7 @@ for v in new old; do
     if [ $v = new ]; then expect "the file is in the list again" "$(rows failed-delete-new 3)" "blue red green"
     else note "old: $(rows failed-delete-old 3)"; fi
 done
-use new
+as_version new
 
 echo "-- thumbnails with Auto Rotate off"
 rm -rf $XDG_CACHE_HOME/thumbnails
@@ -249,7 +250,7 @@ expect "none saved to the shared cache" "$(find $XDG_CACHE_HOME/thumbnails -type
 
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
-    use $v
+    as_version $v
     d=/tmp/rename-next-$v
     mkdir -p $d
     for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
@@ -266,7 +267,7 @@ for v in new old; do
     if [ $v = new ]; then expect "every name kept" "$got" "a.png b.png c.png "
     else note "old: $got"; fi
 done
-use new
+as_version new
 
 echo "-- Rename Many failing halfway: names that swap, and one too long"
 d=/tmp/rename-many
@@ -285,7 +286,7 @@ expect "every name kept" "$(ls -A $d | sed "s/$long/LONG/" | tr '\n' ' ')" "1.jp
 
 echo "-- Find Duplicates: trash the checked files"
 for v in new old; do
-    use $v
+    as_version $v
     d=/tmp/duplicates-$v
     rm -rf $H/.local/share/Trash
     mkdir -p $d/other && cd $d
@@ -295,16 +296,17 @@ for v in new old; do
     config confirm_trash=false
     # Checked, then another folder opened while the window is open: nothing may be deleted.
     start $d
+    # D opens Find Duplicates; then Find, and "Check all but the first of each group".
     key d; click 525 82 2; click 147 129
     $BIN --remote open $d/other/x.jpg; sleep 2
-    click 459 129 3
+    click 459 129 3   # "Move 2 checked to trash…"
     shot duplicates-$v
     quit
     trash=$(ls $H/.local/share/Trash/files 2>/dev/null | tr '\n' ' ')
     if [ $v = new ]; then expect "the list changed: nothing in the trash" "$trash" ""
     else note "old, in the trash: $trash"; fi
 done
-use new
+as_version new
 rm -rf $H/.local/share/Trash
 start /tmp/duplicates-new
 key d; click 525 82 2; click 147 129; click 459 129 3
@@ -314,7 +316,7 @@ expect "the list as it was: the checked in the trash" \
 
 echo "-- pan view: another sort order keeps each date's image"
 for v in new old; do
-    use $v
+    as_version $v
     d=/tmp/pan-$v
     mkdir -p $d
     n=1
@@ -337,7 +339,7 @@ done
 echo "-- pan view far from the file list's rows: its cells get thumbnails"
 convert -size 300x200 xc:gray /tmp/gray.jpg
 for v in new old; do
-    use $v
+    as_version $v
     d=/tmp/pan-far-$v
     mkdir -p $d
     # By name n00 is first in the list; by date n59 is first in pan view, 59 files away.
@@ -363,7 +365,7 @@ mkdir -p $src
 convert -size 3000x2000 xc: +noise Random -quality 92 /tmp/noise.jpg
 for i in $(seq -w 1 80); do ln /tmp/noise.jpg $src/p$i.jpg; done
 for v in new old; do
-    use $v
+    as_version $v
     pdf=/tmp/print-$v.pdf
     # No thumbnails: their decoding would count as memory used by printing.
     config thumbnails=false
@@ -389,7 +391,7 @@ for v in new old; do
 done
 
 echo "-- screen profile: Adobe RGB, so sRGB red is shown less red"
-use new
+as_version new
 adobe=/usr/share/color/icc/colord/AdobeRGB1998.icc
 d=/tmp/screen
 mkdir -p $d
@@ -473,7 +475,7 @@ for s in range(10):
     for i in range(s, 500000, 10):
         os.link(src, f'$big/{i}.jpg')"
     for run in 1 2; do for v in new old; do
-        use $v
+        as_version $v
         config thumbnails=false
         start $big
         wait_first
@@ -481,7 +483,7 @@ for s in range(10):
         note "$v run $run: $(first_image), RssAnon $(rss)"
         quit
     done; done
-    use new
+    as_version new
     config thumbnails=false screen_profile=$adobe
     start $big
     wait_first
@@ -498,7 +500,7 @@ for s in range(10):
         '-DateTimeOriginal<${FileName;s/\.jpg//;$_=sprintf("2020:01:01 %02d:%02d:%02d",$_/3600,$_/60%60,$_%60)}' $e
     cat $e/* >/dev/null   # read once, so the first run is not timing the disk
     for run in 1 2; do for v in new old; do
-        use $v
+        as_version $v
         config sort=exif_original thumbnails=false
         start $e
         wait_first
