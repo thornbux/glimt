@@ -3018,7 +3018,8 @@ impl App {
         }
         // Next to the file: in a collection the files are in different folders.
         let tmp = |f: &Path, k: usize| {
-            f.with_file_name(format!(".glimt-rename-{}-{k}", std::process::id()))
+            // This Glimt's name: Flatpak windows can share a process ID.
+            f.with_file_name(format!(".glimt-rename-{}-{k}", remote::instance_id()))
         };
         let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
         if swap {
