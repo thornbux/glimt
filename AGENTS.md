@@ -150,7 +150,8 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
 ```
 
 - Dependencies are written by hand (glibc 2.28): `dpkg-shlibdeps` rounds glibc up to 2.34, and
-  cargo-generate-rpm's own list has `[WEAK]` symbol versions that dnf cannot resolve.
+  cargo-generate-rpm's own list has `[WEAK]` symbol versions that dnf cannot resolve. OpenGL
+  (EGL) and xkbcommon are named too: the window loads them as it opens, so no tool finds them.
 - A local build links against the build machine's glibc; only the release binary runs on 2.28.
 - Test an `.rpm` without rpm tools in a container, with the storage on `/tmp`:
   `podman --root /tmp/pod --runroot /tmp/podrun --storage-driver vfs run --rm -v /tmp/pkg:/pkg:Z
