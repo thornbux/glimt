@@ -6958,53 +6958,11 @@ impl App {
                         .min(area.height() * ppp / h as f32)
                         .min(max_fit)
                 });
-                if response.hovered() && !self.dialog_open() {
-                    // egui turns Ctrl+wheel into zoom_delta, so it zooms in both modes.
-                    let (mut factor, scroll, notches) = ctx.input(|i| {
-                        let notches: f32 = i
-                            .events
-                            .iter()
-                            .filter_map(|e| match e {
-                                egui::Event::MouseWheel {
-                                    unit,
-                                    delta,
-                                    modifiers,
-                                    ..
-                                } if !modifiers.command => Some(match unit {
-                                    egui::MouseWheelUnit::Point => delta.y / 50.0,
-                                    _ => delta.y,
-                                }),
-                                _ => None,
-                            })
-                            .sum();
-                        (i.zoom_delta(), i.smooth_scroll_delta.y, notches)
-                    });
-                    if self.config.wheel_zoom {
-                        factor *= 1.0 + scroll / 400.0;
-                    } else {
-                        // One notch is one image; touchpad deltas add up to a notch.
-                        self.wheel += notches;
-                        if self.wheel.abs() >= 1.0 {
-                            let up = self.wheel > 0.0;
-                            later = Some(if up { Action::Prev } else { Action::Next });
-                            self.wheel = 0.0;
-                        }
-                    }
-                    if factor != 1.0 {
-                        let old = self.zoom.unwrap_or(fit);
-                        let new = (old * factor).clamp(0.02, 32.0);
-                        self.zoom = Some(new);
-                        // Keep the point under the pointer in place, as in other viewers.
-                        if let Some(p) = response.hover_pos() {
-                            // From the centre of the pane under the pointer: they share the offset.
-                            let under = (right.iter().chain(&panes))
-                                .find(|r| r.contains(p))
-                                .map_or(area, |r| if *r == full { area } else { *r });
-                            let from_centre = p - under.center();
-                            self.pan_offset =
-                                from_centre - (from_centre - self.pan_offset) * (new / old);
-                        }
-                    }
+                if response.hovered()
+                    && !self.dialog_open()
+                    && let Some(step) = self.wheel_input(ctx, &response, fit, area, &panes, right)
+                {
+                    later = Some(step);
                 }
                 if response.double_clicked() && !self.kiosk {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
@@ -7110,42 +7068,10 @@ impl App {
                 // A video: a play button over the preview frame (click or Enter), readable on
                 // any frame, also in the slideshow and full screen.
                 #[cfg(feature = "video")]
-                if self
-                    .files
-                    .get(self.cur)
-                    .is_some_and(|f| is_video(Path::new(f)))
+                if (self.files.get(self.cur)).is_some_and(|f| is_video(Path::new(f)))
+                    && play_button(ui, area)
                 {
-                    let shade = egui::Color32::from_black_alpha(150);
-                    let button =
-                        egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
-                    let play = ui.interact(button, ui.id().with("play"), egui::Sense::click());
-                    let p = ui.painter();
-                    p.circle_filled(button.center(), 48.0, shade);
-                    let c = button.center();
-                    let triangle = vec![
-                        c + egui::vec2(-14.0, -22.0),
-                        c + egui::vec2(24.0, 0.0),
-                        c + egui::vec2(-14.0, 22.0),
-                    ];
-                    p.add(egui::Shape::convex_polygon(
-                        triangle,
-                        egui::Color32::WHITE,
-                        egui::Stroke::NONE,
-                    ));
-                    let label = p.layout_no_wrap(
-                        "Video: Enter or click to play".into(),
-                        egui::FontId::proportional(16.0),
-                        egui::Color32::WHITE,
-                    );
-                    let at = egui::Rect::from_center_size(
-                        button.center_bottom() + egui::vec2(0.0, 28.0),
-                        label.size() + egui::vec2(20.0, 10.0),
-                    );
-                    p.rect_filled(at, 6.0, shade);
-                    p.galley(at.min + egui::vec2(10.0, 5.0), label, egui::Color32::WHITE);
-                    if play.clicked() {
-                        later = Some(Action::Play);
-                    }
+                    later = Some(Action::Play);
                 }
                 // Several panes: the name in each or in none (after the panes are drawn), not the
                 // shown image's details in one.
@@ -7219,6 +7145,102 @@ impl App {
             self.go(ctx, i);
         }
     }
+
+    /// The wheel over the image: zoom about the point under the pointer (Ctrl+wheel, or every
+    /// wheel with wheel_zoom), else a notch is the next or previous image, which it returns.
+    /// `fit` is the zoom that fits, `area` the first pane (or compared half), `right` the
+    /// other half when comparing.
+    fn wheel_input(
+        &mut self,
+        ctx: &egui::Context,
+        response: &egui::Response,
+        fit: f32,
+        area: egui::Rect,
+        panes: &[egui::Rect],
+        right: Option<egui::Rect>,
+    ) -> Option<Action> {
+        let mut step = None;
+        // egui turns Ctrl+wheel into zoom_delta, so it zooms in both modes.
+        let (mut factor, scroll, notches) = ctx.input(|i| {
+            let notches: f32 = i
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::MouseWheel {
+                        unit,
+                        delta,
+                        modifiers,
+                        ..
+                    } if !modifiers.command => Some(match unit {
+                        egui::MouseWheelUnit::Point => delta.y / 50.0,
+                        _ => delta.y,
+                    }),
+                    _ => None,
+                })
+                .sum();
+            (i.zoom_delta(), i.smooth_scroll_delta.y, notches)
+        });
+        if self.config.wheel_zoom {
+            factor *= 1.0 + scroll / 400.0;
+        } else {
+            // One notch is one image; touchpad deltas add up to a notch.
+            self.wheel += notches;
+            if self.wheel.abs() >= 1.0 {
+                let up = self.wheel > 0.0;
+                step = Some(if up { Action::Prev } else { Action::Next });
+                self.wheel = 0.0;
+            }
+        }
+        if factor != 1.0 {
+            let old = self.zoom.unwrap_or(fit);
+            let new = (old * factor).clamp(0.02, 32.0);
+            self.zoom = Some(new);
+            // Keep the point under the pointer in place, as in other viewers.
+            if let Some(p) = response.hover_pos() {
+                // From the centre of the pane under the pointer: they share the offset.
+                let under = (right.iter().chain(panes))
+                    .find(|r| r.contains(p))
+                    .map_or(area, |r| if *r == panes[0] { area } else { *r });
+                let from_centre = p - under.center();
+                self.pan_offset = from_centre - (from_centre - self.pan_offset) * (new / old);
+            }
+        }
+        step
+    }
+}
+
+/// A play button over a video's preview frame in `area`, readable on any frame; whether it
+/// was clicked.
+#[cfg(feature = "video")]
+fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
+    let shade = egui::Color32::from_black_alpha(150);
+    let button = egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
+    let play = ui.interact(button, ui.id().with("play"), egui::Sense::click());
+    let p = ui.painter();
+    p.circle_filled(button.center(), 48.0, shade);
+    let c = button.center();
+    let triangle = vec![
+        c + egui::vec2(-14.0, -22.0),
+        c + egui::vec2(24.0, 0.0),
+        c + egui::vec2(-14.0, 22.0),
+    ];
+    p.add(egui::Shape::convex_polygon(
+        triangle,
+        egui::Color32::WHITE,
+        egui::Stroke::NONE,
+    ));
+    let label = p.layout_no_wrap(
+        "Video: Enter or click to play".into(),
+        egui::FontId::proportional(16.0),
+        egui::Color32::WHITE,
+    );
+    let at = egui::Rect::from_center_size(
+        button.center_bottom() + egui::vec2(0.0, 28.0),
+        label.size() + egui::vec2(20.0, 10.0),
+    );
+    p.rect_filled(at, 6.0, shade);
+    p.galley(at.min + egui::vec2(10.0, 5.0), label, egui::Color32::WHITE);
+    play.clicked()
 }
 
 impl eframe::App for App {
