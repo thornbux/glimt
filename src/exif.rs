@@ -240,7 +240,10 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             match found {
                 // One value, so it sits in the entry itself, inside the block.
                 Some(e) if e.kind == SHORT && e.count == 1 => {
-                    let new = turned(t.int(e).unwrap_or(1) as u8, turns, mirrored) as u16;
+                    // Read first, which keeps the write inside the block: an entry at its very end
+                    // has no room for its value.
+                    let old = t.u16(e.at).ok_or("cut off")?;
+                    let new = turned(old as u8, turns, mirrored) as u16;
                     // Offsets count from the TIFF header, which ends the block as `t.data` does.
                     let at = start + len - t.data.len() + e.at;
                     let bytes = if little {
@@ -380,12 +383,17 @@ fn add_orientation(
             v.to_be_bytes()
         }
     };
-    let read = Tiff { data, little };
+    // Read inside the EXIF block only: an offset past it would copy the picture as fields.
+    let block = data.get(..start + len).ok_or("cut off")?;
+    let read = Tiff {
+        data: block,
+        little,
+    };
     let ifd = tiff + read.u32(tiff + 4).ok_or("cut off")? as usize;
     let n = read.u16(ifd).ok_or("cut off")? as usize;
-    let entries = data.get(ifd + 2..ifd + 2 + 12 * n).ok_or("cut off")?;
+    let entries = block.get(ifd + 2..ifd + 2 + 12 * n).ok_or("cut off")?;
     let mut list: Vec<Vec<u8>> = entries.chunks(12).map(<[u8]>::to_vec).collect();
-    let next = data
+    let next = block
         .get(ifd + 2 + 12 * n..ifd + 6 + 12 * n)
         .ok_or("cut off")?
         .to_vec();
@@ -786,6 +794,20 @@ mod tests {
         std::fs::write(&file, &jpeg).unwrap();
         assert!(super::write_orientation(&file, 1, false).is_err());
         assert_eq!(std::fs::read(&file).unwrap(), jpeg);
+        // An entry at the very end of the block, with no room for its value; and IFD0 past the
+        // block. Both refused, the file as it was.
+        for app1 in [
+            b"Exif\0\0MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01".as_slice(),
+            b"Exif\0\0MM\0*\0\0\0\x40\0\0".as_slice(),
+        ] {
+            let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+            jpeg.extend(((app1.len() + 2) as u16).to_be_bytes());
+            jpeg.extend(app1);
+            jpeg.extend(&base[2..]);
+            std::fs::write(&file, &jpeg).unwrap();
+            assert!(super::write_orientation(&file, 1, false).is_err());
+            assert_eq!(std::fs::read(&file).unwrap(), jpeg);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
