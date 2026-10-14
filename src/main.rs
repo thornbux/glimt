@@ -1377,6 +1377,7 @@ impl App {
     /// Show the images of several folders as one list, for a slideshow across them; one folder
     /// is opened as usual. A file stands for its folder.
     fn open_folders(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>) {
+        let first = paths.first().cloned();
         let mut folders: Vec<PathBuf> = Vec::new();
         for p in paths {
             let p = std::path::absolute(&p).unwrap_or(p);
@@ -1389,9 +1390,10 @@ impl App {
                 folders.push(dir);
             }
         }
+        // One folder (several files of it, from a file manager): opened at the first file.
         if folders.len() < 2 {
-            if let Some(dir) = folders.pop() {
-                self.open(ctx, dir);
+            if let Some(first) = first {
+                self.open(ctx, first);
             }
             return;
         }
