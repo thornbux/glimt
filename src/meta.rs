@@ -65,9 +65,14 @@ fn embedded(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// Write the keywords and comment into the sidecar; everything else in it stays.
+/// Write the keywords and comment into the sidecar; everything else in it stays. Keywords or a
+/// comment the image holds itself and that were cleared are written as empty elements: left
+/// out, the image's own would show through again.
 pub fn write(path: &Path, meta: &Meta) -> Result<(), String> {
-    update_sidecar(path, *meta == Meta::default(), |x| set(x, meta))
+    let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
+    update_sidecar(path, *meta == Meta::default() && !own, |x| {
+        set(x, meta, own)
+    })
 }
 
 /// Add `keywords` to those `path` has, read and written as one change.
@@ -79,7 +84,7 @@ pub fn add(path: &Path, keywords: &[String]) -> Result<(), String> {
             meta.keywords.push(k.clone());
         }
     }
-    update(path, meta == Meta::default(), |x| set(x, &meta))
+    update(path, meta == Meta::default(), |x| set(x, &meta, false))
 }
 
 /// Held while a sidecar is read and written again: keywords are added in the background while
@@ -175,9 +180,16 @@ fn items(xmp: &str, tag: &str) -> Vec<String> {
 
 /// `xmp` with its keywords and comment replaced, in its first rdf:Description; `None` if it has
 /// none.
-fn set(xmp: &str, meta: &Meta) -> Option<String> {
+/// `xmp` with the keywords and comment of `meta`; empty ones as empty elements with `say_empty`.
+fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     let xmp = without(&without(xmp, "dc:subject"), "dc:description");
     let mut add = String::new();
+    if meta.keywords.is_empty() && say_empty {
+        add += "\n   <dc:subject>\n    <rdf:Bag/>\n   </dc:subject>";
+    }
+    if meta.comment.is_empty() && say_empty {
+        add += "\n   <dc:description>\n    <rdf:Alt/>\n   </dc:description>";
+    }
     if !meta.keywords.is_empty() {
         add += "\n   <dc:subject>\n    <rdf:Bag>\n";
         for k in &meta.keywords {
@@ -279,6 +291,36 @@ mod tests {
         std::fs::remove_file(file).unwrap();
     }
 
+    /// Keywords inside a JPEG, cleared: they stay cleared, not read from the image again.
+    #[test]
+    fn clears_the_image_own_keywords() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-own-xmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let mut base = Vec::new();
+        let jpeg = image::ImageFormat::Jpeg;
+        let mut out = std::io::Cursor::new(&mut base);
+        image::RgbImage::new(4, 2).write_to(&mut out, jpeg).unwrap();
+        let own = Meta {
+            keywords: vec!["beach".into()],
+            comment: String::new(),
+        };
+        let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                     rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+        let packet = set(empty, &own, false).unwrap();
+        let mut app1 = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        app1.extend(packet.as_bytes());
+        let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
+        bytes.extend(((app1.len() + 2) as u16).to_be_bytes());
+        bytes.extend(app1);
+        bytes.extend(&base[2..]);
+        std::fs::write(&file, bytes).unwrap();
+        assert_eq!(read(&file), own);
+        write(&file, &Meta::default()).unwrap();
+        assert_eq!(read(&file), Meta::default());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn keywords_and_comment_round_trip() {
         let meta = Meta {
@@ -288,7 +330,7 @@ mod tests {
         // A darktable sidecar: an attribute-only Description with a rating, kept as it is.
         let dt = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
                   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"/></rdf:RDF></x:xmpmeta>";
-        let written = set(dt, &meta).unwrap();
+        let written = set(dt, &meta, false).unwrap();
         assert!(written.contains("xmp:Rating=\"3\" xmlns:dc="));
         assert_eq!(parse(&written), meta);
         // Written again with other values: replaced, not added.
@@ -296,12 +338,12 @@ mod tests {
             keywords: vec!["snow".into()],
             comment: String::new(),
         };
-        let again = set(&written, &other).unwrap();
+        let again = set(&written, &other, false).unwrap();
         assert_eq!(parse(&again), other);
         assert_eq!(again.matches("<dc:subject>").count(), 1);
         assert_eq!(again.matches("xmlns:dc=").count(), 1);
         // Everything removed: the sidecar is as it was, but for the name space.
-        let none = set(&again, &Meta::default()).unwrap();
+        let none = set(&again, &Meta::default(), false).unwrap();
         assert_eq!(parse(&none), Meta::default());
         assert!(none.contains("xmp:Rating=\"3\""));
         assert_eq!(unescape("a&#x41;&#66;&bogus c&amp;"), "aAB&bogus c&");
