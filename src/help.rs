@@ -136,7 +136,12 @@ const MANUAL: &[(&str, &str)] = &[
          (as dc:subject and dc:description); keywords written into the image by other \
          programs are shown too. With several files selected, a button adds the keywords to \
          all of them. exif: searches find keywords and comments. Renaming, moving, copying \
-         and deleting in Glimt take the sidecar along.",
+         and deleting in Glimt take the sidecar along. The keyword tree below them, as \
+         Geeqie's, holds keywords in levels (type Places|Norway|Oslo and Add): a box is ticked \
+         when the image has that keyword, and a click sets it on the selected images, or \
+         the shown one, or takes it off; the path goes into the sidecar too, as \
+         lr:hierarchicalSubject, which darktable, digiKam and Lightroom read. Right-click a \
+         keyword to remove it from the tree.",
     ),
     (
         "Printing",
@@ -322,8 +327,10 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Keywords and comment",
-        "In the EXIF panel (Ctrl+K), kept in the sidecar photo.jpg.xmp; found by exif: searches",
-        "Info sidebar with a keyword tree; kept in the image, a sidecar or Geeqie's own folder",
+        "In the EXIF panel (Ctrl+K) with a keyword tree, whose boxes show the shown image's \
+         keywords; kept in the sidecar photo.jpg.xmp; found by exif: searches",
+        "Info sidebar with a keyword tree that can also mark images and hide keywords; kept in \
+         the image, a sidecar or Geeqie's own folder",
     ),
     (
         "Print (Ctrl+P)",

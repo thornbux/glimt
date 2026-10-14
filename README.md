@@ -72,7 +72,7 @@ same way in both.
 | Video | Still frame; plays in your player | ✓ |
 | Colour management (ICC, screen profile from colord) | ✓ | ✓ |
 | Ratings, keywords and comments in XMP sidecars | ✓ | ✓ |
-| Keyword tree | – | ✓ |
+| Keyword tree | ✓ | ✓ |
 | Find Duplicates, also by similarity | ✓ | ✓ |
 | Pan view | Timeline | Timeline, calendar, folders |
 | Collections (`.gqv`) | ✓ | ✓ |
@@ -111,7 +111,8 @@ The images in the screenshots are generated for the purpose.
 **Finding and organising**
 - Fuzzy search on file names, and search in EXIF, keywords and comments (`exif:canon 2024:05`).
 - Sort by name, number, date, EXIF date, size or extension.
-- Marks 1–6 and 0–5 stars, keywords and a comment for each image.
+- Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
+  (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
 - Collections: lists of images from any folders, saved and opened again.
 - Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
 - The sort manager: move or copy images to favourite folders with one click.
@@ -385,6 +386,7 @@ and screen profile over D-Bus.
 | Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
 | Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
 | Sort manager folders | `$XDG_CONFIG_HOME/glimt/sort-folders` |
+| Keyword tree | `$XDG_CONFIG_HOME/glimt/keywords`, a path such as `Places|Norway|Oslo` on each line |
 | Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
 | Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
 | Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |

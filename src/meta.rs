@@ -211,14 +211,20 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
             escape(&meta.comment)
         );
     }
+    insert(xmp, &add, "dc", "http://purl.org/dc/elements/1.1/")
+}
+
+/// `xmp` with the elements `add` put in its first rdf:Description, and namespace `prefix`
+/// declared there unless it is already in force.
+fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
     let start = xmp.find("<rdf:Description")?;
     let end = start + xmp[start..].find('>')?;
     // Declared on this Description or above it: exiftool gives each namespace a Description of
-    // its own, and "dc" declared on a later one is not in force here.
-    let ns = if xmp[..end].contains("xmlns:dc=") {
-        ""
+    // its own, and a prefix declared on a later one is not in force here.
+    let ns = if xmp[..end].contains(&format!("xmlns:{prefix}=")) {
+        String::new()
     } else {
-        " xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+        format!(" xmlns:{prefix}=\"{uri}\"")
     };
     // A Description without content (<rdf:Description .../>) is opened to hold the elements.
     Some(match xmp[..end].strip_suffix('/') {
@@ -227,6 +233,38 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
         }
         Some(_) => xmp,
         None => format!("{}{ns}>{add}{}", &xmp[..end], &xmp[end + 1..]),
+    })
+}
+
+/// A keyword of the keyword tree, "Places|Norway|Oslo", on `path` or off: its name (Oslo)
+/// among the keywords, and the whole path in lr:hierarchicalSubject, where darktable, digiKam
+/// and Lightroom keep the tree's place of a keyword.
+pub fn tag(path: &Path, tag: &str, on: bool) -> Result<(), String> {
+    let _held = held();
+    let name = tag.rsplit('|').next().unwrap_or(tag).to_owned();
+    let mut meta = read(path);
+    meta.keywords.retain(|k| *k != name);
+    if on {
+        meta.keywords.push(name);
+    }
+    let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
+    update(path, !on && meta == Meta::default() && !own, |x| {
+        let x = set(x, &meta, own)?;
+        let mut paths = items(&x, "lr:hierarchicalSubject");
+        paths.retain(|p| p != tag);
+        if on {
+            paths.push(tag.to_owned());
+        }
+        let x = without(&x, "lr:hierarchicalSubject");
+        if paths.is_empty() {
+            return Some(x);
+        }
+        let mut add = "\n   <lr:hierarchicalSubject>\n    <rdf:Bag>\n".to_owned();
+        for p in &paths {
+            add += &format!("     <rdf:li>{}</rdf:li>\n", escape(p));
+        }
+        add += "    </rdf:Bag>\n   </lr:hierarchicalSubject>";
+        insert(x, &add, "lr", "http://ns.adobe.com/lightroom/1.0/")
     })
 }
 
@@ -336,6 +374,34 @@ mod tests {
         let written = set(exiftool, &meta, false).unwrap();
         let first = &written[..written.find("<dc:subject").unwrap()];
         assert_eq!(first.matches("xmlns:dc=").count(), 1, "{written}");
+    }
+
+    /// A keyword of the tree on and off: its name among the keywords, its path in
+    /// lr:hierarchicalSubject, the other keywords and paths kept.
+    #[test]
+    fn tags_with_the_tree_path() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tag-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let paths = |file: &Path| {
+            items(
+                &std::fs::read_to_string(sidecar(file)).unwrap(),
+                "lr:hierarchicalSubject",
+            )
+        };
+        tag(&file, "Places|Norway|Oslo", true).unwrap();
+        tag(&file, "Places|Norway|Bergen", true).unwrap();
+        assert_eq!(read(&file).keywords, ["Oslo", "Bergen"]);
+        assert_eq!(paths(&file), ["Places|Norway|Oslo", "Places|Norway|Bergen"]);
+        assert!(
+            std::fs::read_to_string(sidecar(&file))
+                .unwrap()
+                .contains("xmlns:lr=")
+        );
+        tag(&file, "Places|Norway|Oslo", false).unwrap();
+        assert_eq!(read(&file).keywords, ["Bergen"]);
+        assert_eq!(paths(&file), ["Places|Norway|Bergen"]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Keywords inside a JPEG, cleared: they stay cleared, not read from the image again.

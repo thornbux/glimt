@@ -12,6 +12,12 @@ pub fn config_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "config")
 }
 
+/// `$XDG_CONFIG_HOME/glimt/keywords`: the keyword tree, a path such as "Places|Norway|Oslo"
+/// on each line.
+pub fn keyword_tree_path() -> Option<PathBuf> {
+    xdg_file("XDG_CONFIG_HOME", ".config", "keywords")
+}
+
 /// `$XDG_CONFIG_HOME/glimt/sort-folders`: the sort manager's folders, one on each line.
 pub fn sort_folders_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "sort-folders")

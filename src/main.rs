@@ -10,8 +10,8 @@ use colour::{
     read_desktop_screen, set_colour, set_input, set_intent, set_screen, srgb_to_display,
 };
 use config::{
-    Config, WindowState, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
-    write_atomic, xdg_dir,
+    Config, WindowState, keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path,
+    state_path, write_atomic, xdg_dir,
 };
 use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load, shrink, survive};
 use eframe::egui;
@@ -799,6 +799,10 @@ struct App {
     meta: Option<MetaEdit>,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
     focus_keywords: bool,
+    /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
+    keyword_tree: Vec<String>,
+    /// A path being typed to add to the keyword tree.
+    new_keyword: String,
     /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
     /// first one, dropped with the folder.
     exif_index: Option<HashMap<OsString, String>>,
@@ -1244,6 +1248,9 @@ impl App {
             mounting_rx: None,
             login: None,
             print: None,
+            keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
+                .map_or_else(Vec::new, |t| keyword_paths(t.lines())),
+            new_keyword: String::new(),
             sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
@@ -4016,6 +4023,7 @@ impl App {
                     });
                     ui.separator();
                     self.meta_fields(ui);
+                    self.keyword_tree(ui);
                 });
             });
     }
@@ -4055,6 +4063,107 @@ impl App {
         if keywords.lost_focus() || comment.lost_focus() {
             self.save_meta();
         }
+    }
+
+    /// The keyword tree as in Geeqie's sidebar: a box for each keyword, ticked when the shown
+    /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
+    fn keyword_tree(&mut self, ui: &mut egui::Ui) {
+        let path = self.path(self.cur);
+        let Some(have) = (self.meta.as_ref())
+            .filter(|m| m.path == path)
+            .map(|m| m.saved.keywords.clone())
+        else {
+            return;
+        };
+        ui.separator();
+        ui.weak("Keyword tree");
+        let mut root = KeywordNode::default();
+        for p in &self.keyword_tree {
+            root.insert(p);
+        }
+        let (mut tick, mut drop) = (None, None);
+        root.show(ui, "", &have, &mut tick, &mut drop);
+        ui.horizontal(|ui| {
+            let field = egui::TextEdit::singleline(&mut self.new_keyword)
+                .hint_text("Places|Norway|Oslo")
+                .desired_width(ui.available_width() - 40.0);
+            let enter = ui.add(field).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("Add").clicked() || enter) && !self.new_keyword.trim().is_empty() {
+                let new = std::mem::take(&mut self.new_keyword);
+                self.set_keyword_tree(self.keyword_tree.iter().cloned().chain([new]).collect());
+            }
+        });
+        // The image's own keywords that the tree does not have yet, at its top.
+        let names: HashSet<&str> = (self.keyword_tree.iter())
+            .map(|p| p.rsplit('|').next().unwrap_or(p))
+            .collect();
+        let missing: Vec<String> = (have.iter())
+            .filter(|k| !names.contains(k.as_str()))
+            .cloned()
+            .collect();
+        if !missing.is_empty()
+            && ui
+                .small_button("Add this image's keywords to the tree")
+                .clicked()
+        {
+            self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(missing).collect());
+        }
+        if let Some(p) = drop {
+            self.set_keyword_tree(
+                self.keyword_tree
+                    .iter()
+                    .filter(|t| **t != p)
+                    .cloned()
+                    .collect(),
+            );
+        }
+        if let Some((tag, on)) = tick {
+            self.tag_files(ui.ctx(), tag, on);
+        }
+    }
+
+    /// The keyword tree is `paths` from now on, kept in `$XDG_CONFIG_HOME/glimt/keywords`.
+    fn set_keyword_tree(&mut self, paths: Vec<String>) {
+        self.keyword_tree = keyword_paths(paths.iter().map(String::as_str));
+        if let Some(p) = keyword_tree_path() {
+            write_atomic(&p, &(self.keyword_tree.join("\n") + "\n"));
+        }
+    }
+
+    /// Set the keyword `tag` (a tree path) on the selected images, or the shown one, or take it
+    /// off, in the background; the shown image's keywords show it at once.
+    fn tag_files(&mut self, ctx: &egui::Context, tag: String, on: bool) {
+        self.save_meta();
+        let targets = self.targets();
+        if targets.contains(&self.cur)
+            && let Some(edit) = &mut self.meta
+        {
+            let name = tag.rsplit('|').next().unwrap_or(&tag).to_owned();
+            edit.saved.keywords.retain(|k| *k != name);
+            if on {
+                edit.saved.keywords.push(name);
+            }
+            edit.keywords = edit.saved.keywords_text();
+        }
+        self.exif_index = None;
+        let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let failed = paths
+                .iter()
+                .filter(|p| meta::tag(p, &tag, on).is_err())
+                .count();
+            if failed > 0 {
+                let n = thousands(failed);
+                let _ = tx.send(format!("The keyword could not be saved for {n} files"));
+            } else if paths.len() > 1 {
+                let verb = if on { "set on" } else { "taken off" };
+                let _ = tx.send(format!("{tag} {verb} {} files", thousands(paths.len())));
+            }
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
     }
 
     /// Save the keywords and comment being edited, if they changed.
@@ -7441,6 +7550,79 @@ fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
     })
 }
 
+/// Keyword tree paths cleaned: trimmed around each level, without empty ones, sorted, each once.
+fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = paths
+        .map(|p| {
+            p.split('|')
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("|")
+        })
+        .filter(|p| !p.is_empty())
+        .collect();
+    out.sort_by_key(|p| p.to_lowercase());
+    out.dedup();
+    out
+}
+
+/// A level of the keyword tree: its children by name.
+#[derive(Default)]
+struct KeywordNode(std::collections::BTreeMap<String, KeywordNode>);
+
+impl KeywordNode {
+    fn insert(&mut self, path: &str) {
+        let mut node = self;
+        for level in path.split('|') {
+            node = node.0.entry(level.to_owned()).or_default();
+        }
+    }
+
+    /// The boxes of this level's keywords under `prefix`, ticked by `have`; a box clicked
+    /// gives (its path, on) in `tick`, and Remove in its menu gives the path in `drop`.
+    fn show(
+        &self,
+        ui: &mut egui::Ui,
+        prefix: &str,
+        have: &[String],
+        tick: &mut Option<(String, bool)>,
+        drop: &mut Option<String>,
+    ) {
+        for (name, child) in &self.0 {
+            let path = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}|{name}")
+            };
+            let mut box_of = |ui: &mut egui::Ui| {
+                let mut on = have.contains(name);
+                let response = ui.checkbox(&mut on, name);
+                if response.changed() {
+                    *tick = Some((path.clone(), on));
+                }
+                response.context_menu(|ui| {
+                    if ui.button("Remove from the tree").clicked() {
+                        *drop = Some(path.clone());
+                    }
+                });
+            };
+            if child.0.is_empty() {
+                box_of(ui);
+            } else {
+                let id = ui.make_persistent_id(("keyword", &path));
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    false,
+                )
+                .show_header(ui, box_of)
+                .body(|ui| child.show(ui, &path, have, tick, drop));
+            }
+        }
+    }
+}
+
 /// The program New Window starts: from an AppImage the AppImage, as the binary is in its mount,
 /// which goes when this window closes; else the binary. Every program started from an AppImage
 /// inherits its APPIMAGE, so it counts only when the binary is inside APPDIR.
@@ -7667,6 +7849,20 @@ mod tests {
         assert!(!a.exists());
         assert_eq!(std::fs::read_to_string(dir.join("to/a.jpg")).unwrap(), "a");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Keyword tree paths are trimmed around each level, sorted and kept once.
+    #[test]
+    fn cleans_keyword_paths() {
+        let paths = [
+            " places | Norway|Oslo ",
+            "Animals",
+            "",
+            "Places||x|",
+            "Animals",
+        ];
+        let got = super::keyword_paths(paths.into_iter());
+        assert_eq!(got, ["Animals", "places|Norway|Oslo", "Places|x"]);
     }
 
     /// New Window starts the AppImage only from inside it, not when Glimt was merely started
