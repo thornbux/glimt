@@ -11,7 +11,8 @@ quick look, which is what an image viewer is for.
 > **Early days.** Glimt is young and has not reached version 1.0. It is used every day, but
 > rough edges and the odd bug are to be expected. Bug reports, ideas and fixes are very
 > welcome: open an issue or send a pull request (see
-> [CONTRIBUTING.md](CONTRIBUTING.md)).
+> [CONTRIBUTING.md](CONTRIBUTING.md)). What changed in each release is in
+> [CHANGELOG.md](CHANGELOG.md); report security issues as [SECURITY.md](SECURITY.md) says.
 
 ## Why Glimt
 
@@ -30,8 +31,8 @@ quick look, which is what an image viewer is for.
   digiKam read, and follow the file when it is renamed, moved or copied. Turning a JPEG changes
   its orientation tag, not its pixels. Copy and move never overwrite a file.
 - **No setup.** One binary that runs on any distribution with glibc 2.28 or newer, packaged as
-  `.deb`, `.rpm`, `.tar.gz` and Flatpak. No library to import, no database to build: open a
-  folder and look.
+  `.deb`, `.rpm`, `.tar.gz`, AppImage and Flatpak. No library to import, no database to build:
+  open a folder and look.
 
 ## Glimt and Geeqie
 
@@ -77,9 +78,9 @@ same way in both.
 | Collections (`.gqv`) | ✓ | ✓ |
 | Plugins (desktop files) | ✓ | ✓ |
 | Lua scripts, external editors | – | ✓ |
-| Several windows in one process | One per process | ✓ |
+| Several windows in one process | One per process, sharing settings and collections | ✓ |
 | Printing, contact sheets | ✓ (CUPS or PDF) | ✓ |
-| Install | One binary: `.deb`, `.rpm`, `.tar.gz`, Flatpak | Distribution packages, AppImage |
+| Install | One binary: `.deb`, `.rpm`, `.tar.gz`, AppImage, Flatpak | Distribution packages, AppImage |
 | Written in | Rust (egui) | C/C++ (GTK 3) |
 
 ## Screenshots
@@ -165,6 +166,28 @@ The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); with
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
 
+## Getting started
+
+Start Glimt on a folder or an image (`glimt ~/Pictures`, `glimt photo.jpg`), or from the
+application menu, which opens your home folder (or the last one, with "Start in the last used
+folder" in Preferences). The keys are Geeqie's; these are the ones used most:
+
+| Key | Does |
+|---|---|
+| → ↓ Space, ← ↑ Backspace | Next and previous image; Home and End for the first and last |
+| F (or F11), Esc | Full screen, and back |
+| + and −, Z, X | Zoom in and out, 1:1, fit to the window |
+| ] and [ | Turn right and left |
+| S | Slideshow (start and stop) |
+| T, Ctrl+K | Thumbnails in the file list, the EXIF panel |
+| Ctrl+J, D | Pan view by date, Find Duplicates |
+| Ctrl+R, Ctrl+C, Ctrl+M | Rename (several selected: Rename Many), copy, move |
+| Delete, Shift+Delete | To the trash, delete for good (both ask first) |
+| Ctrl+O, F1 | Preferences, the help (with every key and a keyboard map) |
+
+Type in the field above the file list to search the names; `exif:` searches the EXIF,
+keywords and comments.
+
 ## Building
 
 ### Requirements
@@ -221,7 +244,7 @@ cargo test --release --all-features
 
 A normal build only runs on systems with the same or a newer glibc as the build machine.
 To run on every supported distribution down to glibc 2.28 (RHEL/Rocky/Alma 8, SLES 15,
-Ubuntu 22.04, Debian 12), link against an older glibc with
+Debian 10, Ubuntu 20.04 and later), link against an older glibc with
 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), as the release workflow does:
 
 ```sh
@@ -271,9 +294,16 @@ glimt --remote-all quit      # close every Glimt
 glimt --help                 # all commands
 ```
 
+A window started with `--name` listens under that name only, so a script can drive one of
+several: `glimt --name left ~/a &`, then `glimt --name left --remote next`. Start options
+such as `--slideshow`, `--random`, `--fullscreen`, `--kiosk`, `--layout 2x2` and `--fade`
+set up the window at start (`man glimt`).
+
 ## Desktop integration
 
-To get Glimt with its icon in the application overview and dock (for the current user):
+The packages do this themselves. For a build from source, to get Glimt with its icon in the
+application overview and dock, and in the file manager's "Open with" for every format it reads
+(for the current user):
 
 ```sh
 install -Dm644 assets/glimt.svg ~/.local/share/icons/hicolor/scalable/apps/glimt.svg
@@ -307,11 +337,37 @@ Sway, X11 with a window manager) are very welcome.
 
 | Needed for | Tool | Fallback |
 |---|---|---|
-| Showing images | OpenGL 3 (Mesa), Wayland or X11 | none |
+| Showing images | OpenGL 3 (Mesa, EGL), xkbcommon, Wayland or X11; the `.deb` and `.rpm` install them | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
+
+## Troubleshooting
+
+Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictures`) to see it.
+
+- **No window opens.** The window needs OpenGL (EGL) and xkbcommon, which the `.deb` and
+  `.rpm` install; with the `.tar.gz` or the AppImage on a minimal system, install `libegl1`
+  and `libxkbcommon-x11-0` (Debian, Ubuntu) or `libglvnd-egl` and `libxkbcommon-x11`
+  (Fedora, RHEL). To try X11 instead of Wayland: `env -u WAYLAND_DISPLAY glimt`.
+- **The AppImage does not start** and speaks of FUSE: install `fuse3` (or `fuse`), or run it
+  with `--appimage-extract-and-run`.
+- **HEIC, AVIF or videos show nothing.** They are decoded by `ffmpeg`, which must be
+  installed; HEIC needs ffmpeg and ffprobe 8.0 or newer.
+- **Open, Copy or Move show no dialog.** Install `zenity` (or `kdialog` on KDE).
+- **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
+  `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
+- **Settings in a strange state.** Quit Glimt and remove `~/.config/glimt/config`; the defaults
+  come back.
+
+## Privacy
+
+Glimt sends nothing anywhere: no telemetry, no update checks, no network library in it. It
+reads the folders you open and writes only the files listed below. The network is used only
+when you ask: a share you open (through GVfs), and the browser for a photo's place on
+OpenStreetMap or for Get More Themes. The desktop is asked for its dark style, accent colour
+and screen profile over D-Bus.
 
 ## Files
 
@@ -319,10 +375,17 @@ Sway, X11 with a window manager) are very welcome.
 |---|---|
 | Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
 | Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
+| Sort manager folders | `$XDG_CONFIG_HOME/glimt/sort-folders` |
+| Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
+| Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
 | Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |
-| Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` (`~/.cache/thumbnails/normal`), shared with other programs |
+| Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
+| Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
+| Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
 
-The first two are plain `key=value` text files written atomically.
+Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
+leaves half of one. Several Glimt windows share them; settings, collections, marks and
+sidecars keep what another window wrote meanwhile.
 
 ## SBOM
 
