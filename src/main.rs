@@ -118,8 +118,6 @@ fn cores() -> usize {
     std::thread::available_parallelism().map_or(2, |n| n.get())
 }
 
-/// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
-/// pan view.
 /// Glimt runs with one malloc arena (`low_memory`): set at startup.
 static ONE_ARENA: AtomicBool = AtomicBool::new(false);
 
@@ -134,6 +132,8 @@ fn small_alloc_threads() -> usize {
     }
 }
 
+/// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
+/// pan view.
 fn background_threads() -> usize {
     match CPU_USE.load(Ordering::Relaxed) {
         0 => cores().min(2),
@@ -152,7 +152,8 @@ fn thumb_threads(decoders: usize) -> usize {
 }
 
 /// Memory use in Preferences: (name, preload, decoding threads, animation limit in MB, one malloc
-/// arena). The config holds the values; the level shown is the one they match, or Custom.
+/// arena, hover text). The config holds the values; the level shown is the one they match, or
+/// Custom.
 const MEMORY_LEVELS: [(&str, usize, usize, usize, bool, &str); 3] = [
     (
         "Low",
@@ -629,7 +630,7 @@ struct App {
     config: Config,
     /// Max decode size in physical pixels: [image area in the window, max texture side].
     limits: Arc<Mutex<[[u32; 2]; 2]>>,
-    /// (image index, full resolution, file)
+    /// (image index, full resolution, file, page of a multi-page TIFF)
     jobs: mpsc::Sender<(usize, bool, PathBuf, usize)>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
@@ -7123,7 +7124,7 @@ mod tests {
 
     #[test]
     fn lists_folder_and_decodes_to_screen_size() {
-        let dir = std::env::temp_dir().join("glimt-test");
+        let dir = std::env::temp_dir().join(format!("glimt-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(400, 200)
@@ -7593,7 +7594,7 @@ mod tests {
 
     #[test]
     fn writes_atomically() {
-        let dir = std::env::temp_dir().join("glimt-test-atomic");
+        let dir = std::env::temp_dir().join(format!("glimt-test-atomic-{}", std::process::id()));
         let path = dir.join("config");
         super::config::write_atomic(&path, "a=1\n");
         super::config::write_atomic(&path, "a=2\n");
@@ -7603,6 +7604,7 @@ mod tests {
             1,
             "no .tmp files left"
         );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

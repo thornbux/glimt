@@ -686,7 +686,6 @@ mod tests {
         assert!(!super::adobe_rgb(b"junk"));
     }
 
-    /// A JPEG without EXIF gets one; turning again changes the field in place.
     /// The EXIF block from the head of a JPEG; past the head, as after big other segments, from
     /// the whole file; none if the image data comes first.
     #[test]
@@ -733,6 +732,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A JPEG without EXIF gets one; turning again changes the field in place.
     #[test]
     fn writes_orientation() {
         let dir = std::env::temp_dir().join(format!("glimt-orient-{}", std::process::id()));
