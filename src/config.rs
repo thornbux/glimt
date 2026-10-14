@@ -355,16 +355,29 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
             .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
             .collect()
     };
-    let (saved, on_disk) = (pairs(saved), pairs(on_disk));
+    let (saved, theirs) = (pairs(saved), pairs(on_disk));
     let mut text = String::new();
     for line in ours.lines() {
         let theirs = line
             .split_once('=')
             .filter(|(k, v)| saved.get(*k).is_some_and(|s| s == v))
-            .and_then(|(k, _)| Some((k, on_disk.get(k)?)));
+            .and_then(|(k, _)| Some((k, theirs.get(k)?)));
         match theirs {
             Some((k, v)) => text += &format!("{k}={v}\n"),
             None => text += &format!("{line}\n"),
+        }
+    }
+    // Settings this Glimt does not know, from a newer one (a Flatpak beside a .deb), stay.
+    let known: std::collections::HashSet<&str> = (ours
+        .lines()
+        .filter_map(|l| Some(l.split_once('=')?.0.trim())))
+    .collect();
+    for line in on_disk.lines() {
+        if line
+            .split_once('=')
+            .is_some_and(|(k, _)| !known.contains(k.trim()))
+        {
+            text += &format!("{line}\n");
         }
     }
     text
@@ -398,9 +411,9 @@ mod tests {
     fn keeps_what_other_windows_changed() {
         let saved = "thumbnails=true\nsort=name\n";
         let ours = "thumbnails=true\nsort=date\n";
-        let on_disk = "thumbnails = false\nsort=name\n";
+        let on_disk = "thumbnails = false\nsort=name\nfrom_a_newer_glimt=1\n";
         let text = super::merged(ours, saved, on_disk);
-        assert_eq!(text, "thumbnails=false\nsort=date\n");
+        assert_eq!(text, "thumbnails=false\nsort=date\nfrom_a_newer_glimt=1\n");
     }
 
     /// The sort manager's folders come back as they were, also a name that is not UTF-8.
