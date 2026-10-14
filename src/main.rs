@@ -1695,6 +1695,12 @@ impl App {
         } else {
             files
         };
+        // A collection's entries that are not there (a drive not plugged in) are not listed; not
+        // counted as read here either, saving keeps them as they are in the file.
+        if self.collection.is_some() {
+            let listed: HashSet<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
+            self.collection_read.retain(|p| listed.contains(p));
+        }
         let shown = self.files.get(self.cur).cloned();
         self.replace_files(ctx, files, shown);
         if std::mem::take(&mut self.sort_collection) {
@@ -1795,7 +1801,12 @@ impl App {
     fn save_collection(&mut self) {
         let Some(file) = &self.collection else { return };
         let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
-        let on_disk = collections::load(file).unwrap_or_default();
+        // One that cannot be read is not written over: what it holds would be lost.
+        let on_disk = match collections::load(file) {
+            Ok(paths) => paths,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
+        };
         let paths = collections::merged(ours, &self.collection_read, on_disk);
         match collections::save(file, &paths) {
             Ok(()) => self.collection_read = paths.into_iter().collect(),
