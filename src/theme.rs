@@ -190,73 +190,75 @@ pub fn apply(
     }
 }
 
-fn style(s: &mut egui::Style, dark: bool, accent: egui::Color32, t: &Theme) {
+fn style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &Theme) {
     let gray = |v: u8| egui::Color32::from_gray(v);
-    let pick =
-        |own: Option<egui::Color32>, d: u8, l: u8| own.unwrap_or(gray(if dark { d } else { l }));
-    let sp = &mut s.spacing;
-    sp.item_spacing = egui::vec2(8.0, 6.0);
-    sp.button_padding = egui::vec2(8.0, 4.0);
-    sp.menu_margin = egui::Margin::same(6);
-    sp.window_margin = egui::Margin::same(12);
-    if let Some(size) = t.text_size {
+    // The theme's own colour, or a gray for the dark style and one for the light style.
+    let pick = |own: Option<egui::Color32>, on_dark: u8, on_light: u8| {
+        own.unwrap_or(gray(if dark { on_dark } else { on_light }))
+    };
+    let spacing = &mut style.spacing;
+    spacing.item_spacing = egui::vec2(8.0, 6.0);
+    spacing.button_padding = egui::vec2(8.0, 4.0);
+    spacing.menu_margin = egui::Margin::same(6);
+    spacing.window_margin = egui::Margin::same(12);
+    if let Some(size) = theme.text_size {
         // The body text at that size, and every other text style in proportion to it.
         let defaults = egui::Style::default().text_styles;
         let body = defaults
             .get(&egui::TextStyle::Body)
             .map_or(size, |f| f.size);
-        for (style, font) in s.text_styles.iter_mut() {
-            font.size = defaults.get(style).map_or(font.size, |f| f.size) * size / body;
+        for (text_style, font) in style.text_styles.iter_mut() {
+            font.size = defaults.get(text_style).map_or(font.size, |f| f.size) * size / body;
         }
     }
-    let radius = t.radius.unwrap_or(7);
-    let (hover, active) = (pick(t.hover, 58, 225), pick(t.active, 70, 210));
-    let v = &mut s.visuals;
-    v.panel_fill = pick(t.panel, 30, 246);
-    v.window_fill = pick(t.window, 36, 252);
-    v.extreme_bg_color = pick(t.field, 22, 255);
-    v.faint_bg_color = pick(t.faint, 34, 240);
-    v.override_text_color = t.text;
-    let border = pick(t.border, 50, 215);
-    v.window_stroke = egui::Stroke::new(1.0, border);
-    v.window_corner_radius = egui::CornerRadius::same(radius.saturating_add(5));
-    v.menu_corner_radius = egui::CornerRadius::same(radius.saturating_add(3));
+    let radius = theme.radius.unwrap_or(7);
+    let (hover, active) = (pick(theme.hover, 58, 225), pick(theme.active, 70, 210));
+    let visuals = &mut style.visuals;
+    visuals.panel_fill = pick(theme.panel, 30, 246);
+    visuals.window_fill = pick(theme.window, 36, 252);
+    visuals.extreme_bg_color = pick(theme.field, 22, 255);
+    visuals.faint_bg_color = pick(theme.faint, 34, 240);
+    visuals.override_text_color = theme.text;
+    let border = pick(theme.border, 50, 215);
+    visuals.window_stroke = egui::Stroke::new(1.0, border);
+    visuals.window_corner_radius = egui::CornerRadius::same(radius.saturating_add(5));
+    visuals.menu_corner_radius = egui::CornerRadius::same(radius.saturating_add(3));
     let shadow = egui::Shadow {
         offset: [0, 6],
         blur: 24,
         spread: 0,
         color: egui::Color32::from_black_alpha(if dark { 110 } else { 40 }),
     };
-    v.window_shadow = shadow;
-    v.popup_shadow = shadow;
-    v.hyperlink_color = accent;
-    v.selection.bg_fill = accent;
+    visuals.window_shadow = shadow;
+    visuals.popup_shadow = shadow;
+    visuals.hyperlink_color = accent;
+    visuals.selection.bg_fill = accent;
     // Black on a light accent (yellow), white on a dark one.
     let light = 0.299 * accent.r() as f32 + 0.587 * accent.g() as f32 + 0.114 * accent.b() as f32;
-    v.selection.stroke.color = gray(if light > 160.0 { 0 } else { 255 });
-    let w = &mut v.widgets;
+    visuals.selection.stroke.color = gray(if light > 160.0 { 0 } else { 255 });
+    let widgets = &mut visuals.widgets;
     for state in [
-        &mut w.noninteractive,
-        &mut w.inactive,
-        &mut w.hovered,
-        &mut w.active,
-        &mut w.open,
+        &mut widgets.noninteractive,
+        &mut widgets.inactive,
+        &mut widgets.hovered,
+        &mut widgets.active,
+        &mut widgets.open,
     ] {
         state.corner_radius = egui::CornerRadius::same(radius);
     }
     // Flat buttons that light up under the pointer, as in GNOME and KDE. A theme that names a
     // border colour gets edges on fields and buttons too, which the contrast themes need.
-    w.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
-    w.inactive.bg_stroke = t
+    widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+    widgets.inactive.bg_stroke = theme
         .border
         .map_or(egui::Stroke::NONE, |c| egui::Stroke::new(1.0, c));
-    w.hovered.weak_bg_fill = hover;
-    w.hovered.bg_fill = hover;
-    w.hovered.bg_stroke = egui::Stroke::NONE;
-    w.active.weak_bg_fill = active;
-    w.active.bg_fill = active;
-    w.active.bg_stroke = egui::Stroke::NONE;
-    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
+    widgets.hovered.weak_bg_fill = hover;
+    widgets.hovered.bg_fill = hover;
+    widgets.hovered.bg_stroke = egui::Stroke::NONE;
+    widgets.active.weak_bg_fill = active;
+    widgets.active.bg_fill = active;
+    widgets.active.bg_stroke = egui::Stroke::NONE;
+    widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
 }
 
 /// The desktop's dark style and accent colour, from the XDG desktop portal; `None` where it says
