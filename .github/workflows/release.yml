@@ -43,6 +43,8 @@ jobs:
             { echo "::error::Cargo.toml is not at version $VERSION"; exit 1; }
           grep -q "^## \[$VERSION\]" CHANGELOG.md ||
             { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
+          grep -q "\"Glimt $VERSION\"" docs/glimt.1 ||
+            { echo "::error::docs/glimt.1 is not at version $VERSION"; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: System libraries for the window (Wayland, X11, OpenGL)
