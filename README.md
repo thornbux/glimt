@@ -76,7 +76,7 @@ same way in both.
 | Plugins (desktop files) | ✓ | ✓ |
 | Lua scripts, external editors | – | ✓ |
 | Several windows in one process | One per process | ✓ |
-| Printing | One image per page, CUPS or PDF | ✓ |
+| Printing, contact sheets | ✓ (CUPS or PDF) | ✓ |
 | Install | One binary: `.deb`, `.rpm`, `.tar.gz`, Flatpak | Distribution packages, AppImage |
 | Written in | Rust (egui) | C/C++ (GTK 3) |
 
@@ -117,7 +117,7 @@ The images in the screenshots are generated for the purpose.
 **Files**
 - Copy, move, rename (many at once with a pattern), delete to the trash.
 - Save the rotation to the file. Copy images or paths to the clipboard, open them with another
-  application, and print them to any CUPS printer or a PDF.
+  application, and print them to any CUPS printer or a PDF, one per page or as a contact sheet.
 - Plugins: run any command on the selected images from the Edit menu.
 - Remote control from scripts and desktop shortcuts: `glimt --remote next`.
 

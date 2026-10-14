@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Printing several images on a page, as Geeqie's contact sheet: Images per page 1, 2, 4, 6,
+  9, 12 or 20 in the Print dialog, in a grid with each file name below (cut to fit). The
+  images are scaled to their cell, so the PDF stays small.
+
 ## [0.16.0] - 2026-10-14
 
 ### Added
