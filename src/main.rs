@@ -778,6 +778,8 @@ struct App {
     /// The files whose cells pan view draws this frame: their thumbnails are made and kept,
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
+    /// The rows the file list showed last, in the list as shown; thumbnails near them are kept.
+    list_rows: std::ops::Range<usize>,
     /// Workers write new thumbnails to the shared cache (Preferences).
     save_thumbs: Arc<AtomicBool>,
 
@@ -1300,6 +1302,7 @@ impl App {
             thumbs_done,
             thumb_view,
             pan_thumbs: Vec::new(),
+            list_rows: 0..0,
             save_thumbs,
             exif_jobs,
             exif_done,
@@ -4493,6 +4496,9 @@ impl App {
                         }
                     });
             });
+        // Its cells' thumbnails are let go here too: the file list, which also does it, may be
+        // hidden (Hide File List). Kept are the same as there, so the two never undo each other.
+        self.trim_thumbs(self.list_rows.clone());
         if let Some(i) = show {
             self.go(ctx, i);
         }
@@ -6652,6 +6658,7 @@ impl App {
             {
                 self.thumb_view[0].store(first, Ordering::Relaxed);
                 self.thumb_view[1].store(last, Ordering::Relaxed);
+                self.list_rows = rows.clone();
                 self.trim_thumbs(rows);
             }
             let mut line = egui::Rect::NOTHING;
