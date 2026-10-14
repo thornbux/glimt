@@ -158,6 +158,11 @@ static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// The socket at `path` for this Glimt: one left by a Glimt that did not close is replaced, but
 /// not one that a running Glimt (of the same `--name`) answers on.
 fn claim(path: &std::path::Path) -> Option<UnixListener> {
+    // Bound first, which fails if the socket is there: two Glimt of one name started at once
+    // cannot both find it free and then remove each other's.
+    if let Ok(listener) = UnixListener::bind(path) {
+        return Some(listener);
+    }
     if UnixStream::connect(path).is_ok() {
         return None;
     }
