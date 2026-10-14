@@ -1,6 +1,7 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
-use crate::{Action, DIFFERENCES, MOUSE, shortcuts as all_shortcuts};
+use crate::actions::Action;
+use crate::{DIFFERENCES, MOUSE, shortcuts as all_shortcuts};
 use eframe::egui;
 use egui::Key;
 

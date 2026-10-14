@@ -1,8 +1,9 @@
 //! Preferences: the config file (the config! macro: one line per setting), the window state, and
 //! the XDG paths they live in.
 
+use crate::actions::Keys;
 use crate::files::Sort;
-use crate::{CPU_LEVELS, DEFAULT_AHEAD, DEFAULT_DELAY, FADES, Keys, MAX_DELAY, print};
+use crate::{CPU_LEVELS, DEFAULT_AHEAD, DEFAULT_DELAY, FADES, MAX_DELAY, print};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
