@@ -57,6 +57,23 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
     std::fs::rename(&tmp, file)
 }
 
+/// What a window writes for a collection it shows as `ours` and read as `read`, while the file
+/// now holds `on_disk`: its own list, then what was added there since (by another window, or
+/// Add to Collection), which would be lost otherwise.
+pub fn merged(
+    mut ours: Vec<PathBuf>,
+    read: &std::collections::HashSet<PathBuf>,
+    on_disk: Vec<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut have: std::collections::HashSet<PathBuf> = ours.iter().cloned().collect();
+    for path in on_disk {
+        if !read.contains(&path) && have.insert(path.clone()) {
+            ours.push(path);
+        }
+    }
+    ours
+}
+
 /// Add `paths` to the collection in `file` (made if new), leaving out those it has.
 pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
     // Only a collection that is not there yet starts empty: one that cannot be read would be
@@ -139,5 +156,19 @@ mod tests {
         assert!(super::append(&unreadable, &paths).is_err());
         assert!(unreadable.symlink_metadata().unwrap().is_symlink());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A window's save keeps its own removals and what others added meanwhile.
+    #[test]
+    fn merges_with_what_others_added() {
+        let p = |s: &str| PathBuf::from(s);
+        let read = [p("/a"), p("/b"), p("/c")].into_iter().collect();
+        // This window removed /b; another added /d; /c is in both.
+        let ours = vec![p("/a"), p("/c")];
+        let on_disk = vec![p("/a"), p("/b"), p("/c"), p("/d")];
+        assert_eq!(
+            super::merged(ours, &read, on_disk),
+            [p("/a"), p("/c"), p("/d")]
+        );
     }
 }
