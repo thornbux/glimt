@@ -5,6 +5,37 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-10-14
+
+### Fixed
+
+- Searching in a large folder with thumbnails on no longer slows down and gathers memory:
+  thumbnails are kept by the rows shown, not by the files between the first and last match.
+- Pan view shows thumbnails for every day, also those far from what the file list shows,
+  and no longer keeps a core busy asking for them.
+- Add to Collection and moving files in a collection are quick with hundreds of thousands
+  of files; before, Select All in a large folder froze the window.
+- A collection keeps the images another window (or Add to Collection) put in it while it was
+  open here, and a move that cannot happen (a file of that name there) keeps its entry.
+- Files deleted or moved while the folder was being read no longer come back in the list.
+- Two windows no longer undo each other's settings: each writes only what it changed.
+- Auto Rotate on or off turns the thumbnails in the list too.
+- Two windows changing the keywords of one image no longer write the same temporary file.
+- The Flatpak's window has its own app ID, so Wayland shows Glimt's icon for it.
+- "Open with" offers Glimt for HEIC, AVIF, JPEG XL, SVG and RAW files, and several selected
+  files open in one window, at the first of them.
+- The man page shows Ctrl+P, Shift+S and Ctrl+J as entries of their own.
+- The .deb has Glimt's license text, and both packages name the OpenGL and xkbcommon
+  libraries the window needs.
+
+### Changed
+
+- The release stops when the tag's version is not the one in Cargo.toml or has no section
+  here, and the release tests fail when Glimt does not open a window.
+- Clearer code for people reading it: names that say what they hold, App's fields and
+  methods in groups by feature, one way to replace a file safely, shortcut notes that say
+  when to do more. Nothing changes for the user.
+
 ## [0.17.2] - 2026-10-14
 
 ### Added
@@ -381,7 +412,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.2...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.3...HEAD
+[0.17.3]: https://github.com/thornbux/glimt/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/thornbux/glimt/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/thornbux/glimt/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/thornbux/glimt/compare/v0.16.0...v0.17.0
