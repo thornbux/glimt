@@ -66,8 +66,10 @@ pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
         loaded => loaded?,
     };
     let before = all.len();
+    // A set, as Select All in a large folder adds hundreds of thousands at once.
+    let mut have: std::collections::HashSet<PathBuf> = all.iter().cloned().collect();
     for path in paths {
-        if !all.contains(path) {
+        if have.insert(path.clone()) {
             all.push(path.clone());
         }
     }
@@ -129,6 +131,8 @@ mod tests {
         let file = dir.join("a.gqv");
         assert_eq!(super::append(&file, &paths).unwrap(), 2);
         assert_eq!(super::append(&file, &paths[..1]).unwrap(), 0);
+        let new = PathBuf::from("/n.jpg");
+        assert_eq!(super::append(&file, &[new.clone(), new]).unwrap(), 1);
         // A link to itself: reading fails, though not as missing.
         let unreadable = dir.join("b.gqv");
         std::os::unix::fs::symlink(&unreadable, &unreadable).unwrap();
