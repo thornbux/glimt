@@ -140,9 +140,10 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Printing",
         "File → Print (Ctrl+P) prints the selected images, or the shown one, one per page, as \
-         large as fits and turned to landscape for wide images, with the file name below if \
-         you like. It goes to a printer through CUPS (lp), or into a PDF file. The printer, \
-         paper and file names are remembered.",
+         large as fits and turned to landscape for wide images, or several on a page as a \
+         contact sheet (Images per page: 2 to 20, in a grid), with the file name below if you \
+         like. It goes to a printer through CUPS (lp), or into a PDF file. The printer, paper, \
+         images per page and file names are remembered.",
     ),
     (
         "Plugins",

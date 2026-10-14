@@ -867,6 +867,8 @@ enum Pick {
 struct PrintJob {
     paths: Vec<PathBuf>,
     paper: [f32; 2],
+    /// Images on each page (print::PER_PAGE).
+    per_page: usize,
     caption: bool,
     rotate: bool,
     copies: u32,
@@ -2457,6 +2459,8 @@ config! {
     print_printer: String = String::new(),
     print_paper: String = String::from("A4"),
     print_caption: bool = true,
+    /// Images on each page: 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
+    print_per_page: usize = 1,
 }
 
 impl Config {
@@ -2469,6 +2473,9 @@ impl Config {
         c.decode_threads = c.decode_threads.clamp(1, 8);
         c.cpu_use = c.cpu_use.min(CPU_LEVELS.len() - 1);
         c.fade = c.fade.min(FADES.len() - 1);
+        if !print::PER_PAGE.iter().any(|p| p.0 == c.print_per_page) {
+            c.print_per_page = 1;
+        }
         c.animation_mb = c.animation_mb.clamp(8, 1024);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
@@ -4604,7 +4611,7 @@ impl App {
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
-            let max = print::max_pixels(job.paper);
+            let max = print::max_pixels(job.paper, job.per_page);
             let failed = std::cell::Cell::new(0);
             let pages = job.paths.iter().filter_map(|path| {
                 let img = load(path, job.rotate).and_then(|img| shrink(img, [max, max]));
@@ -4616,10 +4623,13 @@ impl App {
             let title = format!("Glimt: {} images", job.paths.len());
             let done = match &to {
                 PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
-                    print::pdf(pages, job.paper, w)
+                    print::pdf(pages, job.paper, job.per_page, w)
                 }),
                 PrintTo::File(file) => std::fs::File::create(file)
-                    .and_then(|f| print::pdf(pages, job.paper, std::io::BufWriter::new(f)))
+                    .and_then(|f| {
+                        let out = std::io::BufWriter::new(f);
+                        print::pdf(pages, job.paper, job.per_page, out)
+                    })
                     .map_err(|e| e.to_string()),
             };
             let n = job.paths.len() - failed.get();
@@ -8619,7 +8629,7 @@ impl eframe::App for App {
                 let n = dialog.paths.len();
                 ui.strong(match n {
                     1 => "Print the image".to_owned(),
-                    n => format!("Print {} images, one per page", thousands(n)),
+                    n => format!("Print {} images", thousands(n)),
                 });
                 let c = &mut self.config;
                 egui::Grid::new("print fields").show(ui, |ui| {
@@ -8645,6 +8655,19 @@ impl eframe::App for App {
                         .show_ui(ui, |ui| {
                             for (name, _) in print::PAPERS {
                                 ui.selectable_value(&mut c.print_paper, name.to_owned(), name);
+                            }
+                        });
+                    ui.end_row();
+                    ui.label("Images per page:");
+                    egui::ComboBox::from_id_salt("per page")
+                        .selected_text(c.print_per_page.to_string())
+                        .show_ui(ui, |ui| {
+                            for (n, [cols, rows]) in print::PER_PAGE {
+                                let label = match n {
+                                    1 => "1".to_owned(),
+                                    n => format!("{n} ({cols} × {rows})"),
+                                };
+                                ui.selectable_value(&mut c.print_per_page, n, label);
                             }
                         });
                     ui.end_row();
@@ -8678,6 +8701,7 @@ impl eframe::App for App {
                 let job = PrintJob {
                     paths: dialog.paths,
                     paper,
+                    per_page: c.print_per_page,
                     caption: c.print_caption,
                     rotate: c.exif_rotate,
                     copies: dialog.copies,
