@@ -145,7 +145,9 @@ fn set_rating(xmp: &str, stars: u8) -> Option<String> {
         return Some(format!("{}{stars}{}", &xmp[..a], &xmp[b..]));
     }
     let at = xmp.find("<rdf:Description")? + "<rdf:Description".len();
-    let ns = if xmp.contains("xmlns:xmp=") {
+    // Declared on this Description or above it, as in meta::set.
+    let tag_end = at + xmp[at..].find('>')?;
+    let ns = if xmp[..tag_end].contains("xmlns:xmp=") {
         ""
     } else {
         " xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""
