@@ -130,6 +130,20 @@ fn cores() -> usize {
 
 /// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
 /// pan view.
+/// Glimt runs with one malloc arena (`low_memory`): set at startup.
+static ONE_ARENA: AtomicBool = AtomicBool::new(false);
+
+/// Threads for work that allocates a little for every file, such as reading EXIF for the
+/// exif: index or pan view. With one malloc arena they wait for each other in the allocator:
+/// 2,000 files took 206 ms on one thread, 128 ms on two and 551 ms on four (20 cores); with an
+/// arena each, eight threads took 68 ms.
+fn small_alloc_threads() -> usize {
+    match ONE_ARENA.load(Ordering::Relaxed) {
+        true => background_threads().min(2),
+        false => background_threads(),
+    }
+}
+
 fn background_threads() -> usize {
     match CPU_USE.load(Ordering::Relaxed) {
         0 => cores().min(2),
@@ -1810,9 +1824,9 @@ fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
     .collect()
 }
 
-/// The EXIF fields of every file as one lowercase line, read on all cores.
+/// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
 fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
-    let threads = background_threads();
+    let threads = small_alloc_threads();
     let chunk = files.len().div_ceil(threads).max(1);
     std::thread::scope(|s| {
         let parts: Vec<_> = files
@@ -9436,6 +9450,7 @@ fn main() -> eframe::Result {
     if Config::load().low_memory {
         // SAFETY: called before any other thread exists.
         unsafe { mallopt(M_ARENA_MAX, 1) };
+        ONE_ARENA.store(true, Ordering::Relaxed);
     }
     let (start, args_os) = match Start::parse(std::env::args_os().skip(1).collect()) {
         Ok(parsed) => parsed,
