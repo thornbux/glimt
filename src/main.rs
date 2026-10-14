@@ -7537,6 +7537,32 @@ mod tests {
         );
         let rows = super::exif::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        // An animated PNG (an acTL chunk after IHDR) is refused and left as it was.
+        let apng = dir.join("b.png");
+        image::RgbImage::new(4, 2).save(&apng).unwrap();
+        let mut bytes = std::fs::read(&apng).unwrap();
+        let crc = |data: &[u8]| {
+            let mut c = !0u32;
+            for &b in data {
+                c ^= u32::from(b);
+                for _ in 0..8 {
+                    c = if c & 1 == 1 {
+                        0xedb8_8320 ^ (c >> 1)
+                    } else {
+                        c >> 1
+                    };
+                }
+            }
+            !c
+        };
+        let actl = [b"acTL".as_slice(), &[0, 0, 0, 1, 0, 0, 0, 0]].concat();
+        let mut chunk = 8u32.to_be_bytes().to_vec();
+        chunk.extend(&actl);
+        chunk.extend(crc(&actl).to_be_bytes());
+        bytes.splice(33..33, chunk);
+        std::fs::write(&apng, &bytes).unwrap();
+        assert!(super::save::save_rotated(&apng, false, 1, false, 90).is_err());
+        assert_eq!(std::fs::read(&apng).unwrap(), bytes);
         // Through a symlink: the file it points to is turned, and the link stays a link.
         let link = dir.join("link.png");
         std::os::unix::fs::symlink(&file, &link).unwrap();

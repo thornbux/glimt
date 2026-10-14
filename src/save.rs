@@ -35,12 +35,17 @@ pub fn save_rotated(
     if !png && !has_ext(path, &["webp"]) {
         return Err("only JPEG, PNG and WebP can store the rotation".into());
     }
-    if !png {
-        let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
+    // Only the first frame would be written back.
+    let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
+    let animated = if png {
+        let dec = image::codecs::png::PngDecoder::new(file).map_err(|e| e.to_string())?;
+        dec.is_apng().map_err(|e| e.to_string())?
+    } else {
         let dec = image::codecs::webp::WebPDecoder::new(file).map_err(|e| e.to_string())?;
-        if dec.has_animation() {
-            return Err("animated WebP files are not turned".into());
-        }
+        dec.has_animation()
+    };
+    if animated {
+        return Err("animated PNG and WebP files are not turned".into());
     }
     // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
     // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
