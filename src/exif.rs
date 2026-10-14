@@ -397,7 +397,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         return dec.exif_metadata().ok().flatten();
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
-    if crate::is_heif(path) {
+    if crate::external::is_heif(path) {
         let data = std::fs::read(path).ok()?;
         let at = data
             .windows(8)

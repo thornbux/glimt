@@ -167,15 +167,15 @@ pub fn load_icc(
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
     #[cfg(feature = "video")]
-    if crate::is_video(path) {
+    if crate::external::is_video(path) {
         return Ok((crate::video::preview(path)?, None));
     }
     if has_ext(path, raw::EXTS) {
         return Ok((raw::load(path, rotate)?, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
-    if crate::is_heif(path) {
-        return Ok((crate::heif(path)?, None));
+    if crate::external::is_heif(path) {
+        return Ok((crate::external::heif(path)?, None));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::files::SVG_EXTS) {

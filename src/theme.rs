@@ -263,7 +263,7 @@ fn style(s: &mut egui::Style, dark: bool, accent: egui::Color32, t: &Theme) {
 /// nothing. Runs `gdbus`, so it belongs in a background thread.
 pub fn desktop() -> (Option<bool>, Option<egui::Color32>) {
     let read = |key: &str| {
-        crate::command("gdbus")
+        crate::external::command("gdbus")
             .args([
                 "call",
                 "--session",

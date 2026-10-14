@@ -102,7 +102,7 @@ impl Plugin {
             } else {
                 program
             };
-            let out = crate::command(program.to_string_lossy().as_ref())
+            let out = crate::external::command(program.to_string_lossy().as_ref())
                 .args(&args[1..])
                 .current_dir(folder)
                 .output()

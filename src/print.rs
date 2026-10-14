@@ -234,7 +234,7 @@ fn pdf_text(text: &str) -> String {
 /// The printers CUPS knows, and its default, from `lpstat`.
 pub fn printers() -> (Vec<String>, Option<String>) {
     let run = |arg: &str| {
-        crate::command("lpstat")
+        crate::external::command("lpstat")
             .arg(arg)
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
@@ -254,7 +254,7 @@ pub fn send(
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    let mut child = crate::command("lp")
+    let mut child = crate::external::command("lp")
         .args(["-d", printer, "-n", &copies.to_string(), "-t", title])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())

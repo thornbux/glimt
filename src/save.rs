@@ -3,7 +3,8 @@
 
 use crate::colour::to_srgb;
 use crate::decode::load_icc;
-use crate::{command, exif, has_ext};
+use crate::external::command;
+use crate::{exif, has_ext};
 use image::ImageDecoder;
 use std::path::{Path, PathBuf};
 
