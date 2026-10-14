@@ -3028,7 +3028,8 @@ impl App {
     /// if a new name is taken by a file outside the selection, nothing is renamed. When new
     /// names swap with old ones, the files go through temporary names.
     fn rename_many(&mut self, ctx: &egui::Context, pattern: &str) {
-        let from: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let targets = self.targets();
+        let from: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let to: Vec<PathBuf> = (from.iter().enumerate())
             .map(|(k, p)| p.with_file_name(pattern_name(pattern, p, k + 1)))
             .collect();
@@ -3093,14 +3094,16 @@ impl App {
         self.selected.clear();
         self.selection_changed(ctx);
         if self.collection.is_some() {
-            // The collection keeps the files, under their new names.
-            for (f, t) in from.iter().zip(&to) {
-                let i = (0..self.files.len()).find(|&i| self.is_file(i, f));
-                if let (Some(i), Ok(rel)) = (i, t.strip_prefix(&self.dir)) {
-                    self.files[i] = rel.as_os_str().to_owned();
+            // The collection keeps the files, under their new names; the first entries of `to`
+            // are the targets' (the sidecars follow). Nothing renamed: the names stay.
+            if !failed {
+                for (&i, t) in targets.iter().zip(&to) {
+                    if let Ok(rel) = t.strip_prefix(&self.dir) {
+                        self.files[i] = rel.as_os_str().to_owned();
+                    }
                 }
+                self.save_collection();
             }
-            self.save_collection();
             return self.list(ctx);
         }
         match shown {
