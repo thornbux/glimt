@@ -93,7 +93,9 @@ const MANUAL: &[(&str, &str)] = &[
         "S starts and stops, P pauses, R switches random order on and off, Ctrl+= and Ctrl+- \
          change the delay. Browsing during a slideshow gives the new image the full delay. \
          With \"Include the images in subfolders\" in Preferences it shows those too; the list \
-         goes back to the folder when the slideshow stops.",
+         goes back to the folder when the slideshow stops. Each image fades into the next, in \
+         every pane of a layout; Preferences sets the fade to Off, Short (the default) or Long, \
+         and CPU use Power saving turns it off. Browsing by hand shows the image at once.",
     ),
     (
         "Selecting and file operations",
