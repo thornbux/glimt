@@ -35,16 +35,25 @@ pub fn save_rotated(
     if !png && !has_ext(path, &["webp"]) {
         return Err("only JPEG, PNG and WebP can store the rotation".into());
     }
-    // Only the first frame would be written back. A file that is no PNG or WebP inside (a JPEG
-    // with a .png name) is not animated; it is read below by its content.
-    let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
-    let animated = if png {
-        image::codecs::png::PngDecoder::new(file).is_ok_and(|d| d.is_apng().unwrap_or(false))
-    } else {
-        image::codecs::webp::WebPDecoder::new(file).is_ok_and(|d| d.has_animation())
+    // Only the first frame would be written back. Asked by what the file is, as it is read below
+    // by its content: an animated GIF named a.png is still animated, a JPEG named so is not.
+    let format = image::ImageReader::open(path)
+        .and_then(|r| r.with_guessed_format())
+        .map_err(|e| e.to_string())?
+        .format();
+    let file = || std::fs::File::open(path).map(std::io::BufReader::new);
+    let animated = match format {
+        Some(image::ImageFormat::Gif) => true,
+        Some(image::ImageFormat::Png) => (file().ok())
+            .and_then(|f| image::codecs::png::PngDecoder::new(f).ok())
+            .is_some_and(|d| d.is_apng().unwrap_or(false)),
+        Some(image::ImageFormat::WebP) => (file().ok())
+            .and_then(|f| image::codecs::webp::WebPDecoder::new(f).ok())
+            .is_some_and(|d| d.has_animation()),
+        _ => false,
     };
     if animated {
-        return Err("animated PNG and WebP files are not turned".into());
+        return Err("animated images are not turned".into());
     }
     // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
     // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
@@ -287,6 +296,15 @@ mod tests {
             .unwrap();
         super::save_rotated(&misnamed, false, 1, false, 90).unwrap();
         assert_eq!(image::image_dimensions(&misnamed).unwrap(), (2, 4));
+        // An animated GIF with a .png name is refused, as by its own name.
+        let gif = dir.join("d.png");
+        let frame = || image::Frame::new(image::RgbaImage::new(4, 2));
+        image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap())
+            .encode_frames([frame(), frame()])
+            .unwrap();
+        let before = std::fs::read(&gif).unwrap();
+        assert!(super::save_rotated(&gif, false, 1, false, 90).is_err());
+        assert_eq!(std::fs::read(&gif).unwrap(), before);
         // Through a symlink: the file it points to is turned, and the link stays a link.
         let link = dir.join("link.png");
         std::os::unix::fs::symlink(&file, &link).unwrap();
