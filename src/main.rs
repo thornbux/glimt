@@ -3079,6 +3079,7 @@ impl App {
     fn redecode(&mut self) {
         self.slots.clear();
         self.pending.clear();
+        self.errors.clear();
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.last_drawn = None;
@@ -3090,11 +3091,8 @@ impl App {
         self.config.exif_rotate = on;
         self.config.save();
         self.rotate.store(on, Ordering::Relaxed);
-        self.slots.clear();
-        self.pending.clear();
-        self.errors.clear();
-        self.last_drawn = None;
-        self.refill();
+        // The thumbnails too, which are turned by it as well.
+        self.redecode();
     }
 
     /// Random order changed in the menu or preferences: reshuffle now if a slideshow runs.

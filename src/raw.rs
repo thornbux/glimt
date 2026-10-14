@@ -56,7 +56,7 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
     starts
         .into_iter()
         .filter_map(|i| {
-            let (w, h) = size(&data[i - 1..])?;
+            let (w, h) = jpeg_size(&data[i - 1..])?;
             Some((w as u64 * h as u64, &data[i - 1..]))
         })
         .max_by_key(|f| f.0)
@@ -65,7 +65,7 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
 
 /// Width and height of a baseline or progressive JPEG from its frame header, by walking the
 /// segments after the start marker.
-pub fn size(jpeg: &[u8]) -> Option<(u32, u32)> {
+pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
     let be = |i: usize| Some(u16::from_be_bytes([*jpeg.get(i)?, *jpeg.get(i + 1)?]) as usize);
     let mut i = 2;
     loop {
