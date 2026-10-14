@@ -5,12 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-15
+
 ### Added
 
 - A keyword tree in the EXIF panel (Ctrl+K), as Geeqie's: keywords in levels, typed as
   Places|Norway|Oslo, each with a box that shows whether the image has it and sets it on the
   selected images, or takes it off. The level path goes into the sidecar as
   lr:hierarchicalSubject, which darktable, digiKam and Lightroom read.
+
+### Fixed
+
+- The Help Manual's differences from Geeqie no longer say that printing puts one image on
+  each page: contact sheets of 2 to 20 came in 0.17.0.
 
 ## [0.17.5] - 2026-10-15
 
@@ -476,7 +483,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.5...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/thornbux/glimt/compare/v0.17.5...v0.18.0
 [0.17.5]: https://github.com/thornbux/glimt/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/thornbux/glimt/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/thornbux/glimt/compare/v0.17.2...v0.17.3
