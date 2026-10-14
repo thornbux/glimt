@@ -22,7 +22,7 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 ## Behaviour
 
 - Shortcuts and behaviour follow **Geeqie's defaults** (see its keyboard reference). Every
-  deliberate deviation goes in the `DIFFERENCES` table in `src/main.rs`, which the Help Manual
+  deliberate deviation goes in the `DIFFERENCES` table in `src/help.rs`, which the Help Manual
   (F1) shows. Remove a row when Glimt starts behaving like Geeqie.
 - New user-visible features are described in `src/help.rs` (manual, shortcuts, keyboard map)
   and, where relevant, in `README.md`.
