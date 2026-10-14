@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An AppImage in each release, `glimt-X.Y.Z-x86_64.AppImage`: one file that runs on systems
+  with glibc 2.28 or newer, as the tar.gz does. New Window starts the AppImage again.
+
 ## [0.17.1] - 2026-10-14
 
 ### Fixed

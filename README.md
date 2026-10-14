@@ -143,9 +143,9 @@ building from source, HEIC, AVIF, JPEG XL, SVG and video are optional features (
 ## Installing
 
 Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debian and Ubuntu, an
-`.rpm` for Fedora and RHEL, a `.tar.gz` for other distributions, and a `.flatpak`. All have every
-optional feature built in; the first three run on systems with glibc 2.28 or newer (RHEL 8,
-Debian 10, Ubuntu 20.04 and later).
+`.rpm` for Fedora and RHEL, a `.tar.gz` and an AppImage for other distributions, and a
+`.flatpak`. All have every optional feature built in; all but the Flatpak run on systems with
+glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04 and later).
 
 ```sh
 sudo apt install ./glimt_0.17.1_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
@@ -154,8 +154,14 @@ sudo dnf install ./glimt-0.17.1-1.x86_64.rpm  # Fedora, RHEL: the same
 tar xzf glimt-0.17.1-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
 ./glimt-0.17.1-x86_64-linux/glimt
 
+chmod +x glimt-0.17.1-x86_64.AppImage         # one file, nothing to install
+./glimt-0.17.1-x86_64.AppImage
+
 flatpak install --user ./glimt-0.17.1-x86_64.flatpak  # any distribution with Flatpak
 ```
+
+The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); without it,
+`./glimt-…AppImage --appimage-extract-and-run` works too. Releases after 0.17.1 have it.
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
 
