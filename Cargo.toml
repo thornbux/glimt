@@ -18,7 +18,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 jpeg-decoder = { version = "0.3", default-features = false }
 png = "0.18.1"
 # Already used by image; here for ICC profiles.
-moxcms = "0.8.1"
+moxcms = "0.9.1"
 # Already used by eframe; here for copying files to the clipboard.
 arboard = { version = "3.6.1", default-features = false }
 # Already used by image; here for the pages of multi-page TIFFs.
