@@ -394,3 +394,158 @@ pub fn transformed(
     }
     rgba.into()
 }
+
+#[cfg(test)]
+mod tests {
+    /// Through a Display P3 screen profile, sRGB red is less red in the screen's numbers. A file
+    /// that is no profile leaves the one there; an sRGB screen profile counts as none.
+    #[test]
+    fn shows_through_a_screen_profile() {
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("glimt-screen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, bytes: Vec<u8>| {
+            let file = dir.join(name);
+            std::fs::write(&file, bytes).unwrap();
+            file.to_string_lossy().into_owned()
+        };
+        let p3 = write(
+            "p3.icc",
+            moxcms::ColorProfile::new_display_p3().encode().unwrap(),
+        );
+        let srgb = write(
+            "srgb.icc",
+            moxcms::ColorProfile::new_srgb().encode().unwrap(),
+        );
+        let junk = write("junk.icc", b"junk".to_vec());
+        let red = || {
+            image::DynamicImage::from(image::RgbaImage::from_pixel(
+                2,
+                2,
+                image::Rgba([255, 0, 0, 255]),
+            ))
+        };
+        let shown = || *super::to_display(red(), None).into_rgba8().get_pixel(0, 0);
+        super::set_screen(&p3).unwrap();
+        let on_p3 = shown();
+        assert!(on_p3[0] < 250 && on_p3[1] > 20, "{on_p3:?}");
+        assert!(super::set_screen(&junk).is_err());
+        assert_eq!(shown(), on_p3);
+        super::set_screen(&srgb).unwrap();
+        assert!(super::COLOUR.read().unwrap().screen.is_none());
+        assert_eq!(super::to_display(red(), None), red());
+        // Images without a profile taken as Adobe RGB: in sRGB the same numbers mean another colour.
+        super::set_input("adobe").unwrap();
+        let grey = || {
+            image::DynamicImage::from(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([60, 160, 60, 255]),
+            ))
+        };
+        assert_ne!(super::to_srgb(grey(), None), grey());
+        // A thumbnail is sRGB already: not taken as Adobe RGB a second time.
+        assert_eq!(super::srgb_to_display(grey()), grey());
+        // The image's own profile left out: the input profile for all, here sRGB.
+        super::set_input("srgb").unwrap();
+        super::set_colour(|c| c.own = false);
+        let adobe = moxcms::ColorProfile::new_adobe_rgb().encode().unwrap();
+        assert_eq!(super::to_srgb(grey(), Some(&adobe)), grey());
+        super::set_colour(|c| c.own = true);
+        assert_ne!(super::to_srgb(grey(), Some(&adobe)), grey());
+        assert!(super::set_input(&junk).is_err());
+        // A profile that cannot be read: left as it is.
+        assert_eq!(super::to_srgb(grey(), Some(b"junk")), grey());
+        // Profiles that differ only in their date (bytes 24 to 36) are kept a few dozen at most.
+        for day in 0..100u8 {
+            let mut dated = adobe.clone();
+            dated[30] = day;
+            super::to_srgb(grey(), Some(&dated));
+        }
+        let c = super::COLOUR.read().unwrap();
+        assert!(c.transforms.lock().unwrap().len() <= 64);
+        drop(c);
+        super::set_screen("").unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A profile with a table for perceptual and another for colorimetric: the intent picks one,
+    /// and saturation, which has none, takes the perceptual one.
+    #[test]
+    fn rendering_intent_picks_its_table() {
+        use moxcms::{LutDataType, LutStore, LutType, LutWarehouse, Matrix3d};
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        // RGB to XYZ through a 2×2×2 grid, red and blue swapped in the colorimetric one.
+        let table = |swap: bool| {
+            let mut clut = Vec::new();
+            for r in [0, 1] {
+                for g in [0, 1] {
+                    for b in [0, 1] {
+                        let (x, z) = if swap { (b, r) } else { (r, b) };
+                        clut.extend([x * 30000, g * 30000, z * 30000]);
+                    }
+                }
+            }
+            LutWarehouse::Lut(LutDataType {
+                num_input_channels: 3,
+                num_output_channels: 3,
+                num_clut_grid_points: 2,
+                matrix: Matrix3d::IDENTITY,
+                num_input_table_entries: 2,
+                num_output_table_entries: 2,
+                input_table: LutStore::Store16([0, 65535].repeat(3)),
+                clut_table: LutStore::Store16(clut),
+                output_table: LutStore::Store16([0, 65535].repeat(3)),
+                lut_type: LutType::Lut16,
+            })
+        };
+        let mut profile = moxcms::ColorProfile::new_srgb();
+        profile.lut_a_to_b_perceptual = Some(table(false));
+        profile.lut_a_to_b_colorimetric = Some(table(true));
+        super::set_colour(|c| c.input = Some(profile));
+        let red = || {
+            image::DynamicImage::from(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([200, 40, 40, 255]),
+            ))
+        };
+        let shown = |intent| {
+            super::set_intent(intent);
+            *super::to_srgb(red(), None).into_rgba8().get_pixel(0, 0)
+        };
+        let perceptual = shown("perceptual");
+        assert_ne!(perceptual, red().into_rgba8()[(0, 0)]);
+        assert_ne!(shown("relative"), perceptual);
+        assert_eq!(shown("saturation"), perceptual);
+        super::set_input("srgb").unwrap();
+        super::set_intent("perceptual");
+    }
+
+    /// Images for the screen wait for colord at start until the deadline, and not at all after.
+    #[test]
+    fn waits_for_the_screen_profile_until_the_deadline() {
+        let start = std::time::Instant::now();
+        *super::SCREEN_WAIT.0.lock().unwrap() = Some(start + std::time::Duration::from_millis(40));
+        super::wait_for_screen();
+        let waited = start.elapsed().as_millis();
+        assert!((35..1000).contains(&waited), "{waited} ms");
+        let start = std::time::Instant::now();
+        super::wait_for_screen();
+        assert!(start.elapsed().as_millis() < 5);
+    }
+
+    /// What gdbus prints for colord: the first object or file, and nothing for an empty list.
+    #[test]
+    fn reads_colord() {
+        let devices = "([objectpath '/org/freedesktop/ColorManager/devices/a', '/b'],)\n";
+        let first = super::first_quoted(devices);
+        assert_eq!(first, Some("/org/freedesktop/ColorManager/devices/a"));
+        assert_eq!(
+            super::first_quoted("(<'/x/edid.icc'>,)"),
+            Some("/x/edid.icc")
+        );
+        assert_eq!(super::first_quoted("(@ao [],)\n"), None);
+        assert_eq!(super::first_quoted("(<''>,)"), None);
+    }
+}

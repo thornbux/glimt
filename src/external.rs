@@ -277,3 +277,28 @@ pub fn command(program: &str) -> std::process::Command {
     cmd.args(["--host", program]);
     cmd
 }
+
+#[cfg(test)]
+mod tests {
+    /// Two tiles side by side, cut to 1000×500 and turned a quarter: the keys as the parser
+    /// reads them from ffprobe's compact output.
+    #[test]
+    fn heif_grid_filter() {
+        let probe = "stream_group|index=0|type=Tile Grid|c:tile_grid:width=1000|\
+            c:tile_grid:height=500|c:tile_grid:horizontal_offset=0|\
+            c:tile_grid:vertical_offset=0|c:rotation=-90|\
+            t:stream_index=0|t:tile_horizontal_offset=0|t:tile_vertical_offset=0|\
+            t:stream_index=1|t:tile_horizontal_offset=512|t:tile_vertical_offset=0\n";
+        assert_eq!(
+            super::heif_filter(probe).as_deref(),
+            Some(
+                "[0:0][0:1]xstack=inputs=2:layout=0_0|512_0,crop=1000:500:0:0,\
+                 transpose=clock[out]"
+            )
+        );
+        assert_eq!(super::heif_filter("stream|index=0\n"), None);
+        // A value that is not a number is left out, and adds no filter of its own.
+        let hostile = probe.replace("t:stream_index=1", "t:stream_index=1];movie=x[a");
+        assert!(!super::heif_filter(&hostile).unwrap().contains("movie"));
+    }
+}

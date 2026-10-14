@@ -392,3 +392,92 @@ pub fn shuffle<T>(v: &mut [T]) {
         v.swap(i, (x % (i as u64 + 1)) as usize);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// The Types menu: images, RAW and videos each on their own; an opened file's type.
+    #[test]
+    fn lists_by_type() {
+        use super::{Types, is_listed};
+        use std::path::Path;
+        let raw = Types {
+            raw: true,
+            ..Types::NONE
+        };
+        let images = Types {
+            images: true,
+            ..Types::NONE
+        };
+        assert!(is_listed(Path::new("a.CR2"), raw) && !is_listed(Path::new("a.cr2"), images));
+        assert!(is_listed(Path::new("a.jpg"), images) && !is_listed(Path::new("a.jpg"), raw));
+        assert!(!is_listed(
+            Path::new("a.txt"),
+            Types {
+                videos: true,
+                images: true,
+                raw: true,
+                hidden: false
+            }
+        ));
+        let t = Types::of(Path::new("x/a.nef"));
+        assert!(t.raw && !t.images && !t.videos && !t.hidden);
+        assert!(Types::of(Path::new("x/.a.nef")).hidden);
+        assert!(!Types::of(Path::new("a.txt")).images);
+    }
+
+    #[test]
+    fn pattern_names() {
+        let old = std::path::Path::new("/p/IMG_4711.JPG");
+        assert_eq!(super::pattern_name("trip_###", old, 7), "trip_007.JPG");
+        assert_eq!(super::pattern_name("*-#", old, 12), "IMG_4711-12.JPG");
+        assert_eq!(
+            super::pattern_name("x", std::path::Path::new("/p/noext"), 1),
+            "x"
+        );
+    }
+
+    #[test]
+    fn sorts_numbers_by_value() {
+        use std::cmp::Ordering::*;
+        assert_eq!(super::natural_cmp("img2.jpg", "img10.jpg"), Less);
+        assert_eq!(super::natural_cmp("img010", "img10"), Equal);
+        assert_eq!(super::natural_cmp("a", "a1"), Less);
+        let mut v: Vec<std::ffi::OsString> =
+            ["b10", "B2", "a1", "b9"].iter().map(Into::into).collect();
+        super::sort_files(
+            std::path::Path::new("."),
+            &mut v,
+            super::Sort::Number,
+            false,
+            false,
+        );
+        assert_eq!(v, ["b10", "b9", "B2", "a1"]);
+        // Equal numbers in name order.
+        let mut v: Vec<std::ffi::OsString> = ["a1", "a01"].iter().map(Into::into).collect();
+        let dot = std::path::Path::new(".");
+        super::sort_files(dot, &mut v, super::Sort::Number, true, false);
+        assert_eq!(v, ["a01", "a1"]);
+        let mut v: Vec<std::ffi::OsString> = ["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]
+            .iter()
+            .map(Into::into)
+            .collect();
+        super::sort_files(dot, &mut v, super::Sort::Extension, true, false);
+        assert_eq!(v, ["e", "c.JPG", "d.jpg", "a.mp4", "b.png"]);
+    }
+
+    #[test]
+    fn merge_keeps_shuffled_order() {
+        let names = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let merged = super::merge_shuffled(&names(&["c", "a", "b"]), names(&["a", "b", "d"]));
+        assert_eq!(merged, names(&["a", "b", "d"]));
+    }
+
+    #[test]
+    fn shuffle_keeps_all_elements() {
+        let mut v: Vec<u32> = (0..100).collect();
+        super::shuffle(&mut v);
+        assert_ne!(v, (0..100).collect::<Vec<_>>());
+        v.sort();
+        assert_eq!(v, (0..100).collect::<Vec<_>>());
+    }
+}
