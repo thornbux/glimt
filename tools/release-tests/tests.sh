@@ -175,6 +175,26 @@ for f in a.png a.webp; do
 done
 expect "no temporary files left" "$(ls $d | tr '\n' ' ')" "a.png a.webp "
 
+echo "-- a turn saved when another folder opens: to the turned image, not the new folder's"
+for v in new old; do
+    use $v
+    d=/tmp/turn-open-$v
+    mkdir -p $d/one $d/two
+    convert -size 200x200 xc:red -size 200x200 xc:blue +append -depth 8 $d/one/a.png
+    for f in one/b two/c two/d; do cp $d/one/a.png $d/$f.png; done
+    config save_orientation=true
+    start $d/one/b.png
+    key bracketright
+    $BIN --remote-all open $d/two >/dev/null 2>&1
+    sleep 4
+    quit
+    got="$(cd $d && identify -format '%wx%h ' one/a.png one/b.png two/c.png two/d.png)"
+    if [ $v = new ]; then
+        expect "one/b.png turned, the rest as they were" "$got" "400x200 200x400 400x200 400x200 "
+    else note "old: one/a one/b two/c two/d: $got"; fi
+done
+use new
+
 echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
 mkdir -p $d/sub/deep && cd $d

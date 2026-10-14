@@ -1303,6 +1303,7 @@ impl App {
         if collections::is_collection(&path) {
             return self.open_collection(ctx, path);
         }
+        self.leave_image(ctx);
         self.collection = None;
         self.folders.clear();
         let (dir, file) = if path.is_dir() {
@@ -1345,6 +1346,7 @@ impl App {
             Ok(paths) => paths,
             Err(e) => return self.notice = Some(format!("{}: {e}", file.display())),
         };
+        self.leave_image(ctx);
         let root = Path::new("/");
         let files: Vec<OsString> = (paths.iter())
             .filter_map(|p| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
@@ -1389,6 +1391,7 @@ impl App {
             }
             return;
         }
+        self.leave_image(ctx);
         self.collection = None;
         self.subdirs.clear();
         self.deleting.clear();
@@ -1733,6 +1736,13 @@ impl App {
     /// Remove the (sorted) indices from the list in one pass and shift index-based state
     /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
     fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
+        if removed.binary_search(&self.cur).is_ok() {
+            // The shown image is gone, and its rotation with it.
+            self.orient = (0, false);
+            self.page = 0;
+        } else {
+            self.leave_image(ctx);
+        }
         let mut idx = 0;
         self.files.retain(|_| {
             idx += 1;
@@ -1829,6 +1839,7 @@ impl App {
         files: Vec<OsString>,
         shown: Option<OsString>,
     ) {
+        self.leave_image(ctx);
         let slot = self.slots.remove(&self.cur);
         self.files = files;
         self.files_gen += 1;
@@ -2115,17 +2126,9 @@ impl App {
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.fade = None;
-        // A TIFF shown at another page than the first: its decoded page must not stay for when
-        // it is shown again from the first page.
-        if self.page > 0 {
-            self.slots.remove(&self.cur);
-            self.page = 0;
-        }
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.orient != (0, false);
-        if saved {
-            self.save_orientation(ctx);
-        }
+        self.leave_image(ctx);
         let notice = if saved { self.notice.take() } else { None };
         self.cur = idx.min(self.files.len() - 1);
         self.notice = notice;
@@ -2134,7 +2137,6 @@ impl App {
             self.zoom = None;
             self.pan = egui::Vec2::ZERO;
         }
-        self.orient = (0, false);
         self.opened = Instant::now();
         self.scroll_to_cur = true;
         // Every image gets the full delay, also when the user moves back or forward by hand.
@@ -2145,11 +2147,28 @@ impl App {
         self.title(ctx);
     }
 
+    /// The shown image is left: its rotation saved (with Save Orientation on) or dropped, and a
+    /// TIFF page other than the first let go. Called while `dir` and `cur` still name the image,
+    /// so before the folder or the list changes.
+    fn leave_image(&mut self, ctx: &egui::Context) {
+        // A TIFF shown at another page than the first: its decoded page must not stay for when
+        // it is shown again from the first page.
+        if self.page > 0 {
+            self.slots.remove(&self.cur);
+            self.page = 0;
+        }
+        if self.config.save_orientation && self.orient != (0, false) {
+            self.save_orientation(ctx);
+        }
+        self.orient = (0, false);
+    }
+
     /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
     fn set_random(&mut self, ctx: &egui::Context, on: bool) {
         if self.files.is_empty() {
             return;
         }
+        self.leave_image(ctx);
         self.random = on;
         if !on {
             // Back to the chosen sort order; listing keeps the shown image.
