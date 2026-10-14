@@ -5134,39 +5134,10 @@ impl App {
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             // Decoded at full size in the background; egui hands it to the clipboard.
-            Action::CopyImage if !self.files.is_empty() => {
-                let (path, rotate) = (self.path(self.cur), self.config.exif_rotate);
-                let (busy, tx, ctx) = (self.busy.clone(), self.notices_tx.clone(), ctx.clone());
-                let (clip_tx, clip_rx) = mpsc::channel();
-                self.clip_rx = Some(clip_rx);
-                busy.fetch_add(1, Ordering::Relaxed);
-                std::thread::spawn(move || {
-                    match load(&path, rotate) {
-                        Ok(img) => drop(clip_tx.send(color_image(img))),
-                        Err(e) => drop(tx.send(format!("Could not copy the image: {e}"))),
-                    }
-                    busy.fetch_sub(1, Ordering::Relaxed);
-                    ctx.request_repaint();
-                });
-            }
+            Action::CopyImage if !self.files.is_empty() => self.copy_image(ctx),
             Action::CopyImage => {}
             // As a list of files, which a file manager pastes as a copy.
-            Action::CopyFiles if !self.files.is_empty() => {
-                let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-                let clipboard = match self.clipboard.take() {
-                    Some(c) => Ok(c),
-                    None => arboard::Clipboard::new(),
-                };
-                let result = clipboard.and_then(|mut c| {
-                    let set = c.set().file_list(&paths);
-                    // On X11 the clipboard is served from this object: keep it.
-                    self.clipboard = Some(c);
-                    set
-                });
-                if let Err(e) = result {
-                    self.notice = Some(format!("Could not copy to the clipboard: {e}"));
-                }
-            }
+            Action::CopyFiles if !self.files.is_empty() => self.copy_files(),
             Action::CopyFiles => {}
             Action::Preferences => self.show_settings = true,
             Action::Help => self.help = Some(help::Page::Manual),
@@ -5260,39 +5231,7 @@ impl App {
             | Action::Rate2
             | Action::Rate3
             | Action::Rate4
-            | Action::Rate5 => {
-                let Some((kind, n)) = action.mark() else {
-                    return;
-                };
-                if kind == 's' {
-                    let bit = 1 << (n - 1);
-                    self.selected = (self.shown_files().into_iter())
-                        .filter(|&i| self.marks.get(&self.path(i)).0 & bit != 0)
-                        .collect();
-                    self.anchor = None;
-                    self.selection_changed(ctx);
-                    return;
-                }
-                if self.files.is_empty() {
-                    return;
-                }
-                let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-                if kind == 'm' {
-                    self.marks.toggle(&paths, n);
-                } else {
-                    self.marks.rate(&paths, n);
-                    if self.config.xmp_stars {
-                        let failed = paths.iter().find_map(|p| marks::write_xmp(p, n).err());
-                        if let Some(e) = failed {
-                            self.notice = Some(format!("Could not write the XMP sidecar: {e}"));
-                        }
-                    }
-                }
-                // A "mark:" or "stars:" search shows the new state.
-                if self.search.starts_with("mark:") || self.search.starts_with("stars:") {
-                    self.update_search(ctx);
-                }
-            }
+            | Action::Rate5 => self.apply_mark(ctx, action),
             Action::Histogram => {
                 self.config.histogram = (self.config.histogram + 1) % 3;
                 self.config.save();
@@ -5323,20 +5262,7 @@ impl App {
                 c.save();
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
-            Action::Print if !self.files.is_empty() => {
-                let (tx, rx) = mpsc::channel();
-                let ctx = ctx.clone();
-                std::thread::spawn(move || {
-                    let _ = tx.send(print::printers());
-                    ctx.request_repaint();
-                });
-                self.print = Some(PrintDialog {
-                    paths: self.targets().iter().map(|&i| self.path(i)).collect(),
-                    printers: None,
-                    printers_rx: rx,
-                    copies: 1,
-                });
-            }
+            Action::Print if !self.files.is_empty() => self.open_print(ctx),
             Action::Print => {}
             Action::Rename if self.targets().len() > 1 => {
                 self.asked_for = (self.files_gen, self.cur);
@@ -5354,24 +5280,7 @@ impl App {
                 }
             }
             // A separate process: windows share nothing but the config file.
-            Action::NewWindow => {
-                let exe = std::env::current_exe().map(|exe| {
-                    let var = std::env::var_os;
-                    own_program(exe, var("APPDIR"), var("APPIMAGE"))
-                });
-                // After an update (or a rebuild) Linux reports the running binary as
-                // "/path/glimt (deleted)"; the new one is at the same path.
-                let started = exe.and_then(|exe| {
-                    let exe = exe.to_string_lossy();
-                    let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
-                    std::process::Command::new(exe).arg(self.location()).spawn()
-                });
-                match started {
-                    // Reap the child when it exits, so it does not linger as a zombie.
-                    Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
-                    Err(e) => self.notice = Some(format!("Could not open a new window: {e}")),
-                }
-            }
+            Action::NewWindow => self.new_window(),
             Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
             // Mirroring or flipping what is on screen after a turn: mirror the image first and
             // turn the other way (a flip is a mirror and half a turn).
@@ -5444,6 +5353,114 @@ impl App {
                 }
             }
         }
+    }
+
+    /// A mark, a star rating or selecting by mark, from Edit → Marks and Stars or its keys.
+    #[cfg(feature = "marks")]
+    fn apply_mark(&mut self, ctx: &egui::Context, action: Action) {
+        let Some((kind, n)) = action.mark() else {
+            return;
+        };
+        if kind == 's' {
+            let bit = 1 << (n - 1);
+            self.selected = (self.shown_files().into_iter())
+                .filter(|&i| self.marks.get(&self.path(i)).0 & bit != 0)
+                .collect();
+            self.anchor = None;
+            self.selection_changed(ctx);
+            return;
+        }
+        if self.files.is_empty() {
+            return;
+        }
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        if kind == 'm' {
+            self.marks.toggle(&paths, n);
+        } else {
+            self.marks.rate(&paths, n);
+            if self.config.xmp_stars {
+                let failed = paths.iter().find_map(|p| marks::write_xmp(p, n).err());
+                if let Some(e) = failed {
+                    self.notice = Some(format!("Could not write the XMP sidecar: {e}"));
+                }
+            }
+        }
+        // A "mark:" or "stars:" search shows the new state.
+        if self.search.starts_with("mark:") || self.search.starts_with("stars:") {
+            self.update_search(ctx);
+        }
+    }
+
+    /// File → New Window (Ctrl+N): another Glimt at this place.
+    fn new_window(&mut self) {
+        let exe = std::env::current_exe().map(|exe| {
+            let var = std::env::var_os;
+            own_program(exe, var("APPDIR"), var("APPIMAGE"))
+        });
+        // After an update (or a rebuild) Linux reports the running binary as
+        // "/path/glimt (deleted)"; the new one is at the same path.
+        let started = exe.and_then(|exe| {
+            let exe = exe.to_string_lossy();
+            let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
+            std::process::Command::new(exe).arg(self.location()).spawn()
+        });
+        match started {
+            // Reap the child when it exits, so it does not linger as a zombie.
+            Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+            Err(e) => self.notice = Some(format!("Could not open a new window: {e}")),
+        }
+    }
+
+    /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
+    fn copy_image(&mut self, ctx: &egui::Context) {
+        let (path, rotate) = (self.path(self.cur), self.config.exif_rotate);
+        let (busy, tx, ctx) = (self.busy.clone(), self.notices_tx.clone(), ctx.clone());
+        let (clip_tx, clip_rx) = mpsc::channel();
+        self.clip_rx = Some(clip_rx);
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            match load(&path, rotate) {
+                Ok(img) => drop(clip_tx.send(color_image(img))),
+                Err(e) => drop(tx.send(format!("Could not copy the image: {e}"))),
+            }
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Select → Copy Files: the selected files (or the shown one) to the clipboard, as a file
+    /// manager copies them.
+    fn copy_files(&mut self) {
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let clipboard = match self.clipboard.take() {
+            Some(c) => Ok(c),
+            None => arboard::Clipboard::new(),
+        };
+        let result = clipboard.and_then(|mut c| {
+            let set = c.set().file_list(&paths);
+            // On X11 the clipboard is served from this object: keep it.
+            self.clipboard = Some(c);
+            set
+        });
+        if let Err(e) = result {
+            self.notice = Some(format!("Could not copy to the clipboard: {e}"));
+        }
+    }
+
+    /// File → Print: the dialog for the selected images, or the shown one.
+    fn open_print(&mut self, ctx: &egui::Context) {
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(print::printers());
+            ctx.request_repaint();
+        });
+        self.print = Some(PrintDialog {
+            paths: self.targets().iter().map(|&i| self.path(i)).collect(),
+            printers: None,
+            printers_rx: rx,
+            copies: 1,
+        });
     }
 }
 
