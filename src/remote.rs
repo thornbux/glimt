@@ -128,10 +128,14 @@ pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
         return;
     };
     let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
-    let _ = std::fs::remove_file(&path);
-    let Ok(listener) = UnixListener::bind(&path) else {
+    let Some(listener) = claim(&path) else {
+        eprintln!(
+            "A Glimt named {} is running already: --remote goes to that one",
+            id()
+        );
         return;
     };
+    LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
     focused();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -148,6 +152,19 @@ pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
     });
 }
 
+/// This Glimt listens on its socket, so it removes it when it closes.
+static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The socket at `path` for this Glimt: one left by a Glimt that did not close is replaced, but
+/// not one that a running Glimt (of the same `--name`) answers on.
+fn claim(path: &std::path::Path) -> Option<UnixListener> {
+    if UnixStream::connect(path).is_ok() {
+        return None;
+    }
+    let _ = std::fs::remove_file(path);
+    UnixListener::bind(path).ok()
+}
+
 /// This Glimt got the focus: `--remote` goes to it from now on.
 pub fn focused() {
     if let Some(d) = dir() {
@@ -157,7 +174,24 @@ pub fn focused() {
 
 /// Glimt is closing: remove its socket.
 pub fn stop() {
+    if !LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     if let Some(path) = socket(id()) {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A socket that a Glimt answers on is kept; one it left behind is taken over.
+    #[test]
+    fn claims_only_a_left_socket() {
+        let path = std::env::temp_dir().join(format!("glimt-claim-{}.sock", std::process::id()));
+        let first = super::claim(&path).unwrap();
+        assert!(super::claim(&path).is_none());
+        drop(first);
+        assert!(super::claim(&path).is_some());
+        std::fs::remove_file(path).unwrap();
     }
 }
