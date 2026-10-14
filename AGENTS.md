@@ -80,6 +80,9 @@ documentation.
   UI thread instead of calling the context from a worker.
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.
+- **A parser of file contents** also gets a `survives_broken_*` test that feeds it
+  `crate::broken(sample)`: 2,000 damaged forms of a good input in every run, five million
+  every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
 - **A shortcut with a known limit** (work in the UI thread, a whole file rewritten) gets a
   comment `shortcut: <the limit>; <when to do more>`, so the next reader knows it was chosen.
 
