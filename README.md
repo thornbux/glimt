@@ -30,8 +30,8 @@ quick look, which is what an image viewer is for.
   digiKam read, and follow the file when it is renamed, moved or copied. Turning a JPEG changes
   its orientation tag, not its pixels. Copy and move never overwrite a file.
 - **No setup.** One binary that runs on any distribution with glibc 2.28 or newer, packaged as
-  `.deb`, `.rpm`, `.tar.gz` and Flatpak. No library to import, no database to build: open a
-  folder and look.
+  `.deb`, `.rpm`, `.tar.gz`, AppImage and Flatpak. No library to import, no database to build:
+  open a folder and look.
 
 ## Glimt and Geeqie
 
@@ -77,9 +77,9 @@ same way in both.
 | Collections (`.gqv`) | ✓ | ✓ |
 | Plugins (desktop files) | ✓ | ✓ |
 | Lua scripts, external editors | – | ✓ |
-| Several windows in one process | One per process | ✓ |
+| Several windows in one process | One per process, sharing settings and collections | ✓ |
 | Printing, contact sheets | ✓ (CUPS or PDF) | ✓ |
-| Install | One binary: `.deb`, `.rpm`, `.tar.gz`, Flatpak | Distribution packages, AppImage |
+| Install | One binary: `.deb`, `.rpm`, `.tar.gz`, AppImage, Flatpak | Distribution packages, AppImage |
 | Written in | Rust (egui) | C/C++ (GTK 3) |
 
 ## Screenshots
@@ -221,7 +221,7 @@ cargo test --release --all-features
 
 A normal build only runs on systems with the same or a newer glibc as the build machine.
 To run on every supported distribution down to glibc 2.28 (RHEL/Rocky/Alma 8, SLES 15,
-Ubuntu 22.04, Debian 12), link against an older glibc with
+Debian 10, Ubuntu 20.04 and later), link against an older glibc with
 [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild), as the release workflow does:
 
 ```sh
@@ -271,9 +271,16 @@ glimt --remote-all quit      # close every Glimt
 glimt --help                 # all commands
 ```
 
+A window started with `--name` listens under that name only, so a script can drive one of
+several: `glimt --name left ~/a &`, then `glimt --name left --remote next`. Start options
+such as `--slideshow`, `--random`, `--fullscreen`, `--kiosk`, `--layout 2x2` and `--fade`
+set up the window at start (`man glimt`).
+
 ## Desktop integration
 
-To get Glimt with its icon in the application overview and dock (for the current user):
+The packages do this themselves. For a build from source, to get Glimt with its icon in the
+application overview and dock, and in the file manager's "Open with" for every format it reads
+(for the current user):
 
 ```sh
 install -Dm644 assets/glimt.svg ~/.local/share/icons/hicolor/scalable/apps/glimt.svg
@@ -307,7 +314,7 @@ Sway, X11 with a window manager) are very welcome.
 
 | Needed for | Tool | Fallback |
 |---|---|---|
-| Showing images | OpenGL 3 (Mesa), Wayland or X11 | none |
+| Showing images | OpenGL 3 (Mesa, EGL), xkbcommon, Wayland or X11; the `.deb` and `.rpm` install them | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
@@ -319,10 +326,17 @@ Sway, X11 with a window manager) are very welcome.
 |---|---|
 | Preferences | `$XDG_CONFIG_HOME/glimt/config` (`~/.config/glimt/config`) |
 | Last folder (when enabled) | `$XDG_STATE_HOME/glimt/state` (`~/.local/state/glimt/state`) |
+| Sort manager folders | `$XDG_CONFIG_HOME/glimt/sort-folders` |
+| Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
+| Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
 | Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |
-| Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` (`~/.cache/thumbnails/normal`), shared with other programs |
+| Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
+| Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
+| Thumbnails (read; written only with "Save new thumbnails" on) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
 
-The first two are plain `key=value` text files written atomically.
+Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
+leaves half of one. Several Glimt windows share them; settings, collections, marks and
+sidecars keep what another window wrote meanwhile.
 
 ## SBOM
 
