@@ -332,6 +332,29 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+echo "-- pan view far from the file list's rows: its cells get thumbnails"
+convert -size 300x200 xc:gray /tmp/gray.jpg
+for v in new old; do
+    use $v
+    d=/tmp/pan-far-$v
+    mkdir -p $d
+    # By name n00 is first in the list; by date n59 is first in pan view, 59 files away.
+    for i in $(seq -w 0 59); do cp /tmp/gray.jpg $d/n$i.jpg; done
+    convert -size 300x200 xc:red $d/n59.jpg
+    convert -size 300x200 xc:lime $d/n58.jpg
+    for i in $(seq 0 59); do
+        touch -d "2024-01-01 + $((59 - i)) days 12:00" $d/n$(printf %02d $i).jpg
+    done
+    config
+    start $d
+    key ctrl+j; sleep 4
+    shot pan-far-$v
+    quit
+    got="$(colour pan-far-$v 80 173) $(colour pan-far-$v 80 297)"
+    if [ $v = new ]; then expect "n59 and n58 shown in pan view" "$got" "red green"
+    else note "old: $got"; fi
+done
+
 echo "-- printing 80 images of 3000x2000 to a PDF"
 src=/tmp/print
 mkdir -p $src
