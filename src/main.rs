@@ -2890,13 +2890,19 @@ impl App {
             // shortcut: rewritten before the move is done, so a file that fails to move for
             // another reason than a name taken there drops out at the next refresh; report each
             // result back if moves in collections fail often.
-            let moving: HashSet<&PathBuf> = paths.iter().collect();
+            // The files that will get there, in the order the move takes them: not one whose
+            // name is taken there already, nor a second of the same name; those keep their entry.
+            let mut taken = HashSet::new();
+            let moving: HashSet<&PathBuf> = (paths.iter())
+                .filter(|p| {
+                    let to = dest.join(p.file_name().unwrap_or_default());
+                    !to.exists() && taken.insert(to)
+                })
+                .collect();
             for i in 0..self.files.len() {
                 let path = self.path(i);
                 let to = dest.join(path.file_name().unwrap_or_default());
-                // A file there already stays, and this one is not moved: its entry stays too.
                 if moving.contains(&path)
-                    && !to.exists()
                     && let Ok(rel) = to.strip_prefix(&self.dir)
                 {
                     self.files[i] = rel.as_os_str().to_owned();
