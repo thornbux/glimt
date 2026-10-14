@@ -2684,9 +2684,22 @@ impl App {
         same
     }
 
+    /// No file of `paths` is being saved turned; else a notice. Deleted, moved or renamed
+    /// meanwhile, a PNG or WebP would come back when its save puts it under its name again.
+    fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
+        let saving = paths.iter().any(|p| self.saving.contains(p));
+        if saving {
+            self.notice = Some("Still saving a rotation: try again in a moment".into());
+        }
+        !saving
+    }
+
     fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
         let targets = self.targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        if !self.none_saving(&paths) {
+            return;
+        }
         self.deleting
             .extend(targets.iter().map(|&i| self.files[i].clone()));
         self.remove_indices(ctx, &targets);
@@ -2874,6 +2887,9 @@ impl App {
     /// Copy or move `paths` into `dest` in the background. Existing files are never
     /// overwritten; a move across file systems falls back to copy + delete.
     fn transfer(&mut self, ctx: &egui::Context, paths: Vec<PathBuf>, dest: PathBuf, keep: bool) {
+        if !keep && !self.none_saving(&paths) {
+            return;
+        }
         if !keep && self.collection.is_some() {
             // The collection follows the files to their new place.
             // shortcut: rewritten before the move is done, so a file that fails to move for
@@ -2990,6 +3006,12 @@ impl App {
         if matches!(prompt, Prompt::Rename | Prompt::RenameMany) && !self.still_asked() {
             return;
         }
+        if matches!(prompt, Prompt::Rename)
+            && !self.files.is_empty()
+            && !self.none_saving(&[self.path(self.cur)])
+        {
+            return;
+        }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
             Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
@@ -3029,6 +3051,9 @@ impl App {
     /// names swap with old ones, the files go through temporary names.
     fn rename_many(&mut self, ctx: &egui::Context, pattern: &str) {
         let from: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        if !self.none_saving(&from) {
+            return;
+        }
         let to: Vec<PathBuf> = (from.iter().enumerate())
             .map(|(k, p)| p.with_file_name(pattern_name(pattern, p, k + 1)))
             .collect();
