@@ -191,7 +191,13 @@ mod tests {
         let first = super::claim(&path).unwrap();
         assert!(super::claim(&path).is_none());
         drop(first);
-        assert!(super::claim(&path).is_some());
+        // A process another test starts holds a copy of the socket until it runs its program,
+        // so it can answer a moment longer.
+        let taken = (0..50).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            super::claim(&path).is_some()
+        });
+        assert!(taken);
         std::fs::remove_file(path).unwrap();
     }
 }
