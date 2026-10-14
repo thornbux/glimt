@@ -178,11 +178,11 @@ pub fn load_icc(
         return Ok((crate::heif(path)?, None));
     }
     #[cfg(feature = "svg")]
-    if has_ext(path, crate::SVG_EXTS) {
+    if has_ext(path, crate::files::SVG_EXTS) {
         return Ok((svg(path)?, None));
     }
     #[cfg(feature = "jxl")]
-    if has_ext(path, crate::JXL_EXTS) {
+    if has_ext(path, crate::files::JXL_EXTS) {
         let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;

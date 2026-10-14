@@ -387,11 +387,11 @@ fn add_orientation(
 
 fn raw(path: &Path) -> Option<Vec<u8>> {
     use image::ImageDecoder;
-    if crate::has_ext(path, crate::raw::EXTS) {
+    if crate::files::has_ext(path, crate::raw::EXTS) {
         return crate::raw::exif(path);
     }
     #[cfg(feature = "jxl")]
-    if crate::has_ext(path, crate::JXL_EXTS) {
+    if crate::files::has_ext(path, crate::files::JXL_EXTS) {
         let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.exif_metadata().ok().flatten();
@@ -404,7 +404,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
             .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
         return Some(data[at..].to_vec());
     }
-    if crate::has_ext(path, &["jpg", "jpeg"])
+    if crate::files::has_ext(path, &["jpg", "jpeg"])
         && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
     {
         return exif;
