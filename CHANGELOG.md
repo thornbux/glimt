@@ -5,10 +5,29 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-10-14
+
 ### Added
 
 - An AppImage in each release, `glimt-X.Y.Z-x86_64.AppImage`: one file that runs on systems
   with glibc 2.28 or newer, as the tar.gz does. New Window starts the AppImage again.
+
+### Fixed
+
+- A file that claims a huge size (a broken or crafted GIF, WebP or progressive JPEG) no longer
+  closes Glimt by asking for gigabytes: it is refused with "image too large". The limit, 512 MB
+  decoded, which PNG and TIFF had already, now holds for every format: a WebP with alpha larger
+  than about 11,500×11,500, or a progressive JPEG over about 180 megapixels, is refused too.
+- Turning an animated PNG is refused, as for animated WebP; before, it was saved as its first
+  frame and lost the animation.
+- A second Glimt started with the same `--name` no longer takes over the first one's remote
+  socket, which left the first one unreachable once the second closed. It says so and takes
+  no commands.
+
+### Security
+
+- The release workflow pins the actions from others to a commit, and only the jobs that
+  publish get a token that can write releases.
 
 ## [0.17.1] - 2026-10-14
 
@@ -362,7 +381,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.17.2...HEAD
+[0.17.2]: https://github.com/thornbux/glimt/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/thornbux/glimt/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/thornbux/glimt/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/thornbux/glimt/compare/v0.15.0...v0.16.0
