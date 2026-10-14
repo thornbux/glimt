@@ -503,3 +503,25 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
     let (_, mods, key) = shortcuts().into_iter().find(|s| s.0 == action)?;
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
+
+#[cfg(test)]
+mod tests {
+    /// Own keys survive the config file, and replace the defaults of their action.
+    #[test]
+    fn own_keys() {
+        use super::{Action, Keys};
+        let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
+            .parse()
+            .unwrap();
+        assert_eq!(keys.to_string(), "Next=Ctrl+Shift+N;ZoomIn=Plus");
+        assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
+        *super::OWN_KEYS.write().unwrap() = keys.0.clone();
+        let all = super::shortcuts();
+        let next: Vec<_> = all.iter().filter(|s| s.0 == Action::Next).collect();
+        assert_eq!(next.len(), 1);
+        // More modifiers first, so Shift+R (rotate) is matched before R.
+        let pos = |a| all.iter().position(|s| s.0 == a).unwrap();
+        assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
+        super::OWN_KEYS.write().unwrap().clear();
+    }
+}

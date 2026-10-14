@@ -387,3 +387,120 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
     let size = [rgba.width() as usize, rgba.height() as usize];
     egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw())
 }
+
+#[cfg(test)]
+mod tests {
+    /// A JPEG far larger than the window is decoded scaled, turned upright by its EXIF, with
+    /// its full upright size; one that needs more than half its pixels is left to image.
+    #[test]
+    fn decodes_jpeg_scaled_and_upright() {
+        let dir = std::env::temp_dir().join(format!("glimt-scaled-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("wide.jpg");
+        // Red on the left half, blue on the right.
+        let img = image::RgbImage::from_fn(400, 200, |x, _| match x < 200 {
+            true => image::Rgb([255, 0, 0]),
+            false => image::Rgb([0, 0, 255]),
+        });
+        img.save(&file).unwrap();
+        // A quarter turn clockwise (EXIF orientation 6): the left half ends up on top.
+        crate::exif::write_orientation(&file, 1, false).unwrap();
+        let (img, _, orig) = super::scaled_jpeg(&file, [60, 100], true).unwrap();
+        assert_eq!(orig, [200, 400]);
+        assert_eq!((img.width(), img.height()), (50, 100));
+        let rgb = img.to_rgb8();
+        let (top, bottom) = (rgb.get_pixel(25, 10), rgb.get_pixel(25, 90));
+        assert!(top[0] > 200 && top[2] < 60, "{top:?}");
+        assert!(bottom[2] > 200 && bottom[0] < 60, "{bottom:?}");
+        // Not turned: the stored size; and no gain at more than half: None.
+        let (_, _, orig) = super::scaled_jpeg(&file, [100, 60], false).unwrap();
+        assert_eq!(orig, [400, 200]);
+        assert!(super::scaled_jpeg(&file, [300, 300], true).is_none());
+        assert!(super::scaled_jpeg(&dir.join("none.jpg"), [10, 10], true).is_none());
+        // A RAW file's preview, scaled the same way.
+        let mut raw = b"FUJIFILMCCD-RAW ".to_vec();
+        raw.extend(std::fs::read(&file).unwrap());
+        std::fs::write(dir.join("a.raf"), raw).unwrap();
+        let (img, icc, orig) = super::scaled_jpeg(&dir.join("a.raf"), [60, 100], true).unwrap();
+        assert_eq!((orig, img.width(), img.height()), ([200, 400], 50, 100));
+        assert!(icc.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lists_folder_and_decodes_to_screen_size() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(400, 200)
+            .save(dir.join("a.png"))
+            .unwrap();
+        std::fs::write(dir.join("notes.txt"), "").unwrap();
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::create_dir_all(dir.join(".hidden")).unwrap();
+        std::fs::write(dir.join(".b.png"), "").unwrap();
+        let mut all = crate::files::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        let (dirs, images) = crate::files::list_folder(&dir, all);
+        assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
+        assert_eq!(dirs, vec![dir.join("sub")]);
+        // Hidden files and folders, when shown.
+        all.hidden = true;
+        let (dirs, images) = crate::files::list_folder(&dir, all);
+        assert_eq!(images, [".b.png", "a.png"].map(std::ffi::OsString::from));
+        assert_eq!(dirs, vec![dir.join(".hidden"), dir.join("sub")]);
+        std::fs::remove_file(dir.join(".b.png")).unwrap();
+        let (frames, orig, _) = super::decode(&dir.join("a.png"), [100, 100], true, 0).unwrap();
+        assert_eq!(
+            (frames.len(), frames[0].0.size, orig),
+            (1, [100, 50], [400, 200])
+        );
+        // An animated GIF gives every frame with its delay (5 ms counts as 100 ms).
+        let gif = std::fs::File::create(dir.join("b.gif")).unwrap();
+        let frame = |ms| {
+            let delay = image::Delay::from_numer_denom_ms(ms, 1);
+            image::Frame::from_parts(image::RgbaImage::new(40, 20), 0, 0, delay)
+        };
+        image::codecs::gif::GifEncoder::new(gif)
+            .encode_frames([frame(50), frame(5)])
+            .unwrap();
+        let (frames, orig, _) = super::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
+        let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
+        assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
+        // A GIF whose canvas claims 65535×65535 is refused before a frame is made: each frame
+        // would be a canvas of 17 GB.
+        let huge = dir.join("huge.gif");
+        let mut gif = b"GIF89a\xff\xff\xff\xff\0\0\0".to_vec();
+        gif.extend(b",\0\0\0\0\x01\0\x01\0\0\x02\x02\x44\x01\0;");
+        std::fs::write(&huge, gif).unwrap();
+        assert!(super::animation(&huge, [100, 100]).is_none());
+        assert!(super::decode(&huge, [100, 100], true, 0).is_err());
+        std::fs::remove_file(huge).unwrap();
+        // The tree: a folder reached again through a link is read once.
+        std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();
+        assert_eq!(
+            crate::files::list_tree(
+                &dir,
+                crate::files::Types {
+                    images: true,
+                    raw: true,
+                    videos: true,
+                    hidden: false
+                }
+            ),
+            ["a.png", "b.gif", "sub/c.png"]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn survives_a_panic() {
+        assert_eq!(super::survive(|| Ok::<_, String>(1)), Ok(1));
+        assert!(super::survive(|| -> Result<(), String> { panic!("broken file") }).is_err());
+    }
+}

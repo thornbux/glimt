@@ -402,4 +402,124 @@ mod tests {
         let text = super::merged(ours, saved, on_disk);
         assert_eq!(text, "thumbnails=false\nsort=date\n");
     }
+
+    /// The sort manager's folders come back as they were, also a name that is not UTF-8.
+    #[test]
+    fn reads_sort_folders_as_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let latin = std::ffi::OsStr::from_bytes(b"/caf\xe9");
+        assert_eq!(
+            super::sort_folders_from(b"/a b\n/caf\xe9\n\n"),
+            [std::path::PathBuf::from("/a b"), latin.into()]
+        );
+    }
+
+    #[test]
+    fn writes_atomically() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-atomic-{}", std::process::id()));
+        let path = dir.join("config");
+        super::write_atomic(&path, "a=1\n");
+        super::write_atomic(&path, "a=2\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "a=2\n");
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no .tmp files left"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn parses_config() {
+        use crate::Config;
+        assert_eq!(Config::parse("# comment\npreload= 5\n").preload, 5);
+        assert_eq!(Config::parse("preload=99").preload, 20);
+        let c = Config::parse("decode_threads=0\nanimation_mb=5000");
+        assert_eq!((c.decode_threads, c.animation_mb), (1, 1024));
+        // The defaults are the Medium level.
+        let d = Config::default();
+        let medium = crate::MEMORY_LEVELS
+            .iter()
+            .find(|l| l.name == "Medium")
+            .unwrap();
+        assert_eq!(
+            (d.preload, d.decode_threads, d.animation_mb, d.low_memory),
+            (
+                medium.preload,
+                medium.decode_threads,
+                medium.animation_mb,
+                medium.one_arena
+            )
+        );
+        assert_eq!(Config::parse("delay=0").delay, 1);
+        assert_eq!(Config::parse("delay=7").delay, 7);
+        // Every setting survives a save and load.
+        let mut c = Config::parse("trash=false\nsort=size\nbackground=#102030\ntoolbar_icons=2");
+        c.video_player = "mpv --fs".into();
+        assert_eq!(Config::parse(&c.to_text()), c);
+        assert!(Config::default().trash && !Config::parse("trash=false").trash);
+        assert!(
+            Config::default().confirm_trash && !Config::parse("confirm_trash=false").confirm_trash
+        );
+        assert!(Config::default().delete_key && !Config::parse("delete_key=false").delete_key);
+        assert!(Config::parse("remember_dir=true").remember_dir);
+        assert!(!Config::default().random && Config::parse("random=true").random);
+        assert!(Config::default().enlarge && !Config::parse("enlarge=false").enlarge);
+        assert!(Config::default().wheel_zoom && !Config::parse("wheel_zoom=false").wheel_zoom);
+        assert!(Config::default().thumbnails && !Config::parse("thumbnails=false").thumbnails);
+        assert!(Config::default().save_thumbnails);
+        assert!(!Config::default().exif_panel && Config::parse("exif_panel=true").exif_panel);
+        assert!(Config::default().toolbar && !Config::parse("toolbar=false").toolbar);
+        assert!(Config::default().low_memory && !Config::parse("low_memory=false").low_memory);
+        assert!(Config::default().path_bar && !Config::parse("path_bar=false").path_bar);
+        assert_eq!(Config::default().background.0, [0, 0, 0]);
+        assert!(Config::default().remember_window && Config::default().inhibit_screensaver);
+        assert!(!Config::parse("remember_window=false").remember_window);
+        assert!(!Config::parse("inhibit_screensaver=false").inhibit_screensaver);
+        assert!(!Config::default().app_name_first);
+        assert!(!Config::default().file_details && Config::parse("file_details=true").file_details);
+        let c = Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case=false");
+        assert_eq!(
+            (c.sort, c.sort_ascending, c.sort_case),
+            (crate::files::Sort::ExifDigitized, false, false)
+        );
+        assert_eq!(
+            Config::parse("sort=nonsense").sort,
+            crate::files::Sort::Name
+        );
+        assert_eq!(Config::default().toolbar_icons, 0);
+        assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);
+        assert_eq!(Config::parse("toolbar_icons=1").toolbar_icons, 1);
+        assert_eq!(Config::parse("toolbar_icons=9").toolbar_icons, 2);
+        assert!(Config::parse("app_name_first=true").app_name_first);
+        let win = super::WindowState {
+            size: Some(eframe::egui::vec2(1000.0, 700.5)),
+            pos: Some(eframe::egui::pos2(10.0, -20.0)),
+            maximized: true,
+        };
+        let text = format!("last_dir=/x\n{}", win.to_text());
+        assert_eq!(crate::WindowState::parse(&text), win);
+        assert_eq!(crate::WindowState::parse("window_size=5,5\n").size, None);
+        assert_eq!(
+            Config::parse("background=#1a2B3c").background.0,
+            [0x1a, 0x2b, 0x3c]
+        );
+        assert_eq!(Config::parse("background=#12").background.0, [0, 0, 0]);
+        assert!(!Config::parse("save_thumbnails=false").save_thumbnails);
+        assert!(Config::default().exif_rotate && !Config::parse("exif_rotate=false").exif_rotate);
+        assert!(Config::default().videos && !Config::parse("videos=false").videos);
+        assert_eq!(
+            Config::parse("video_player= mpv --fs ").video_player,
+            "mpv --fs"
+        );
+        assert!(
+            Config::default().auto_refresh && !Config::parse("auto_refresh=false").auto_refresh
+        );
+        assert_eq!(
+            super::parse_last_dir("last_dir=/tmp/a b\n"),
+            Some("/tmp/a b".into())
+        );
+        assert_eq!(super::parse_last_dir("last_dir=\n"), None);
+        assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
+    }
 }

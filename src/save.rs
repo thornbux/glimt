@@ -214,3 +214,166 @@ pub fn webp_with_exif(
     out[4..8].copy_from_slice(&size.to_le_bytes());
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    /// image writes lossless WebP (VP8L); anything else is not taken for one.
+    #[test]
+    fn tells_lossless_webp() {
+        let file = std::env::temp_dir().join(format!("glimt-{}.webp", std::process::id()));
+        image::RgbImage::new(4, 4).save(&file).unwrap();
+        assert_eq!(super::webp_lossless(&file), Some(true));
+        std::fs::write(&file, b"RIFF\x04\0\0\0WEBP").unwrap();
+        assert_eq!(super::webp_lossless(&file), None);
+        std::fs::remove_file(file).unwrap();
+    }
+
+    /// A PNG turned upright by its EXIF orientation and then a quarter turn keeps its EXIF,
+    /// with an upright orientation.
+    #[test]
+    fn saves_rotated_png_with_exif() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = std::env::temp_dir().join(format!("glimt-rotated-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        // IFD0 with Orientation 6 (turn 90° clockwise) and Make "Canon".
+        let exif = b"MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
+            \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif.to_vec()).unwrap();
+        image::RgbImage::new(4, 2).write_with_encoder(enc).unwrap();
+        super::save_rotated(&file, true, 1, false, 90).unwrap();
+        let mut dec = image::ImageReader::open(&file)
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.dimensions(), (4, 2));
+        assert_eq!(
+            dec.orientation().unwrap(),
+            image::metadata::Orientation::NoTransforms
+        );
+        let rows = crate::exif::read(&file);
+        assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        // An animated PNG (an acTL chunk after IHDR) is refused and left as it was.
+        let apng = dir.join("b.png");
+        image::RgbImage::new(4, 2).save(&apng).unwrap();
+        let mut bytes = std::fs::read(&apng).unwrap();
+        let crc = |data: &[u8]| {
+            let mut c = !0u32;
+            for &b in data {
+                c ^= u32::from(b);
+                for _ in 0..8 {
+                    c = if c & 1 == 1 {
+                        0xedb8_8320 ^ (c >> 1)
+                    } else {
+                        c >> 1
+                    };
+                }
+            }
+            !c
+        };
+        let actl = [b"acTL".as_slice(), &[0, 0, 0, 1, 0, 0, 0, 0]].concat();
+        let mut chunk = 8u32.to_be_bytes().to_vec();
+        chunk.extend(&actl);
+        chunk.extend(crc(&actl).to_be_bytes());
+        bytes.splice(33..33, chunk);
+        std::fs::write(&apng, &bytes).unwrap();
+        assert!(super::save_rotated(&apng, false, 1, false, 90).is_err());
+        assert_eq!(std::fs::read(&apng).unwrap(), bytes);
+        // A JPEG with a .png name is turned, and saved as a PNG.
+        let misnamed = dir.join("c.png");
+        image::RgbImage::new(4, 2)
+            .save_with_format(&misnamed, image::ImageFormat::Jpeg)
+            .unwrap();
+        super::save_rotated(&misnamed, false, 1, false, 90).unwrap();
+        assert_eq!(image::image_dimensions(&misnamed).unwrap(), (2, 4));
+        // Through a symlink: the file it points to is turned, and the link stays a link.
+        let link = dir.join("link.png");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        super::save_rotated(&link, false, 1, false, 90).unwrap();
+        assert!(link.is_symlink());
+        assert_eq!(image::image_dimensions(&file).unwrap(), (2, 4));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Saved as the view showed it, also with a mirroring orientation: turned by it with Auto
+    /// Rotate on, as it is without, and in both cases with an upright orientation after.
+    #[test]
+    fn saves_rotated_as_seen() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = std::env::temp_dir().join(format!("glimt-seen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let (red, blue) = (image::Rgb([255, 0, 0]), image::Rgb([0, 0, 255]));
+        // Orientation 2: mirrored left to right.
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x02\0\0\0\0\0\0";
+        for (auto_rotate, top) in [(false, red), (true, blue)] {
+            let mut enc =
+                image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+            enc.set_exif_metadata(exif.to_vec()).unwrap();
+            image::RgbImage::from_fn(2, 1, |x, _| if x == 0 { red } else { blue })
+                .write_with_encoder(enc)
+                .unwrap();
+            // A quarter turn clockwise: the left pixel of what the view shows goes on top.
+            super::save_rotated(&file, auto_rotate, 1, false, 90).unwrap();
+            let mut dec = image::ImageReader::open(&file)
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            assert_eq!(
+                dec.orientation().unwrap(),
+                image::metadata::Orientation::NoTransforms
+            );
+            let img = image::DynamicImage::from_decoder(dec).unwrap().into_rgb8();
+            assert_eq!((img.dimensions(), *img.get_pixel(0, 0)), ((1, 2), top));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A simple WebP gets the extended header and an EXIF chunk that the decoder reads back.
+    #[test]
+    fn adds_exif_to_webp() {
+        use image::{ImageDecoder, ImageEncoder};
+        let mut webp = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut webp)
+            .write_image(&[0; 5 * 3 * 3], 5, 3, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let exif = b"II*\0\x08\0\0\0\0\0\0\0\0";
+        let with = super::webp_with_exif(&webp, exif, 5, 3).unwrap();
+        let mut dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
+        assert_eq!(dec.dimensions(), (5, 3));
+        assert_eq!(dec.exif_metadata().unwrap().as_deref(), Some(&exif[..]));
+    }
+
+    /// "a.png" and "a.webp" saved turned at the same time: each keeps its own pixels and format.
+    #[test]
+    fn saves_same_names_at_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-same-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (png, webp) = (dir.join("a.png"), dir.join("a.webp"));
+        assert_ne!(super::tmp_path(&png), super::tmp_path(&webp));
+        image::RgbImage::from_pixel(1200, 800, image::Rgb([255, 0, 0]))
+            .save(&png)
+            .unwrap();
+        image::RgbImage::from_pixel(1200, 800, image::Rgb([0, 0, 255]))
+            .save(&webp)
+            .unwrap();
+        let start = std::sync::Barrier::new(2);
+        std::thread::scope(|s| {
+            for path in [&png, &webp] {
+                let start = &start;
+                s.spawn(move || {
+                    start.wait();
+                    super::save_rotated(path, false, 1, false, 90).unwrap();
+                });
+            }
+        });
+        let pixel = |p: &std::path::Path| {
+            let img = image::open(p).unwrap().into_rgb8();
+            (img.dimensions(), *img.get_pixel(0, 0))
+        };
+        assert_eq!(pixel(&png), ((800, 1200), image::Rgb([255, 0, 0])));
+        assert_eq!(pixel(&webp), ((800, 1200), image::Rgb([0, 0, 255])));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
