@@ -535,4 +535,16 @@ mod tests {
         assert_eq!(super::parse_last_dir("last_dir=\n"), None);
         assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
     }
+
+    /// Config and window state files broken in thousands of ways: read without a panic.
+    #[test]
+    fn survives_broken_files() {
+        let seed = super::Config::default().to_text();
+        for bytes in crate::broken(seed.as_bytes()) {
+            super::Config::parse(&String::from_utf8_lossy(&bytes));
+        }
+        for bytes in crate::broken(b"maximized=true\nsize=1000x700.5\npos=10,-20\n") {
+            super::WindowState::parse(&String::from_utf8_lossy(&bytes));
+        }
+    }
 }

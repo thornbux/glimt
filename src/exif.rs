@@ -32,10 +32,12 @@ pub fn read(path: &Path) -> Vec<(&'static str, String)> {
 /// Every field of IFD0, the Exif and the GPS directory: (directory, name, value), for the EXIF
 /// window. Unknown tags are shown by number.
 pub fn all(path: &Path) -> Vec<(&'static str, String, String)> {
-    let Some(raw) = raw(path) else {
-        return Vec::new();
-    };
-    let Some((t, ifd0, exif, gps)) = ifds(&raw) else {
+    raw(path).map_or_else(Vec::new, |raw| fields(&raw))
+}
+
+/// `all` of an EXIF block.
+fn fields(raw: &[u8]) -> Vec<(&'static str, String, String)> {
+    let Some((t, ifd0, exif, gps)) = ifds(raw) else {
         return Vec::new();
     };
     let mut rows = Vec::new();
@@ -871,6 +873,27 @@ mod tests {
     /// aperture and ISO.
     #[test]
     fn parses_common_fields() {
+        let d = sample();
+        let rows = super::parse(&d);
+        let rows: Vec<(&str, &str)> = rows.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        assert_eq!(
+            rows,
+            [
+                ("Camera", "Canon R6"),
+                ("Exposure", "1/250 s"),
+                ("Aperture", "f/2.8"),
+                ("ISO", "400")
+            ]
+        );
+        assert!(super::parse(b"garbage").is_empty());
+        // Offsets pointing outside the block must not panic.
+        let mut bad = d.clone();
+        bad.truncate(60);
+        super::parse(&bad);
+    }
+
+    /// An EXIF block with strings, rationals, a short and the Exif directory.
+    fn sample() -> Vec<u8> {
         let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
         let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
             d.extend(tag.to_le_bytes());
@@ -894,21 +917,35 @@ mod tests {
         for v in [1u32, 250, 28, 10] {
             d.extend(v.to_le_bytes());
         }
-        let rows = super::parse(&d);
-        let rows: Vec<(&str, &str)> = rows.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        assert_eq!(
-            rows,
-            [
-                ("Camera", "Canon R6"),
-                ("Exposure", "1/250 s"),
-                ("Aperture", "f/2.8"),
-                ("ISO", "400")
-            ]
-        );
-        assert!(super::parse(b"garbage").is_empty());
-        // Offsets pointing outside the block must not panic.
-        let mut bad = d.clone();
-        bad.truncate(60);
-        super::parse(&bad);
+        d
+    }
+
+    /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:
+    /// read without a panic, and turned upright without writing past the block.
+    #[test]
+    fn survives_broken_blocks() {
+        let mm = b"Exif\0\0MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
+                   \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
+        for seed in [sample(), mm.to_vec()] {
+            for mut block in crate::broken(&seed) {
+                super::parse(&block);
+                super::fields(&block);
+                super::orientation(&block);
+                super::adobe_rgb(&block);
+                let len = block.len();
+                let _ = super::set_upright(&mut block);
+                assert_eq!(block.len(), len);
+            }
+        }
+        let mut jpeg = Vec::new();
+        let mut out = std::io::Cursor::new(&mut jpeg);
+        image::RgbImage::new(4, 2)
+            .write_to(&mut out, image::ImageFormat::Jpeg)
+            .unwrap();
+        for data in crate::broken(&jpeg) {
+            if let Some((segments, _)) = super::jpeg_segments(&data) {
+                segments.iter().for_each(|s| drop(super::segment(&data, s)));
+            }
+        }
     }
 }

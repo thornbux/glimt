@@ -1,0 +1,29 @@
+# The parsers' tests with five million broken inputs each (GLIMT_FUZZ), every Sunday: more
+# than every test run can afford, and the samples' mutations go further each time the number
+# grows. A failure names the test; run it with the same GLIMT_FUZZ to see it again.
+name: Parsers
+
+on:
+  schedule:
+    - cron: "23 4 * * 0"
+  workflow_dispatch:
+
+# Reads the code only; actions from others are pinned to a commit, as in release.yml.
+permissions:
+  contents: read
+
+jobs:
+  broken-input:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: System libraries for the window (Wayland, X11, OpenGL)
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
+        with:
+          toolchain: stable
+      - run: cargo test --release --all-features survives_broken
+        env:
+          GLIMT_FUZZ: "5000000"

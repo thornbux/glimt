@@ -233,4 +233,16 @@ mod tests {
         );
         assert_eq!(super::set_rating("nothing", 1), None);
     }
+
+    /// Marks files broken in thousands of ways: read without a panic.
+    #[test]
+    fn survives_broken_files() {
+        let mut m = super::Marks::default();
+        let a = std::path::PathBuf::from("/a.jpg");
+        m.toggle(std::slice::from_ref(&a), 2);
+        m.rate(&[a], 3);
+        for text in crate::broken(&super::to_text(&m.map)) {
+            super::parse(&text);
+        }
+    }
 }

@@ -7405,6 +7405,42 @@ fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
     }
 }
 
+/// Broken forms of `seed`, as a damaged or crafted file has them, for the parsers' tests: bits
+/// flipped, bytes changed, cut short, a piece doubled. Always the same ones, so a failure comes
+/// again; GLIMT_FUZZ=N for N of them instead of 2,000.
+#[cfg(test)]
+fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
+    let n = std::env::var("GLIMT_FUZZ")
+        .ok()
+        .and_then(|n| n.parse().ok());
+    let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut next = move || {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        x as usize
+    };
+    (0..n.unwrap_or(2000)).map(move |_| {
+        let mut v = seed.to_vec();
+        for _ in 0..1 + next() % 4 {
+            if v.is_empty() {
+                break;
+            }
+            let at = next() % v.len();
+            match next() % 4 {
+                0 => v[at] ^= 1 << (next() % 8),
+                1 => v[at] = next() as u8,
+                2 => v.truncate(at),
+                _ => {
+                    let piece = v[at..(at + next() % 16).min(v.len())].to_vec();
+                    v.splice(at..at, piece);
+                }
+            }
+        }
+        v
+    })
+}
+
 /// The program New Window starts: from an AppImage the AppImage, as the binary is in its mount,
 /// which goes when this window closes; else the binary. Every program started from an AppImage
 /// inherits its APPIMAGE, so it counts only when the binary is inside APPDIR.
