@@ -235,10 +235,14 @@ for v in new old; do
     start $d
     key space; key shift+Delete; sleep 3
     shot failed-delete-$v
+    # A delete that can succeed, so the check above cannot pass by nothing happening.
+    key Home; key shift+Delete; sleep 2
     quit
     chmod 755 $d/sub
     # a.jpg, sub/b.jpg (not deleted), sub/c.jpg
-    if [ $v = new ]; then expect "the file is in the list again" "$(rows failed-delete-new 3)" "blue red green"
+    if [ $v = new ]; then
+        expect "the file is in the list again" "$(rows failed-delete-new 3)" "blue red green"
+        expect "a file that can go is deleted" "$(ls $d)" "sub"
     else note "old: $(rows failed-delete-old 3)"; fi
 done
 as_version new
@@ -250,6 +254,13 @@ start /tmp/subfolders
 sleep 3
 quit
 expect "none saved to the shared cache" "$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)" "0"
+# With it on they are saved: the check above cannot pass by no thumbnails being made.
+config exif_rotate=true
+start /tmp/subfolders
+sleep 3
+quit
+n=$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)
+[ $n -gt 0 ] && pass "with Auto Rotate on, $n saved" || fail "with Auto Rotate on, none saved"
 
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
@@ -271,6 +282,17 @@ for v in new old; do
     else note "old: $got"; fi
 done
 as_version new
+# The same Rename without the step renames: the check above cannot pass by no dialog opening.
+d=/tmp/rename-plain
+mkdir -p $d
+for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+config
+start $d
+key ctrl+r; sleep 1; key ctrl+a
+xdotool type x
+key Return
+quit
+expect "a.png renamed to x" "$(ls $d | tr '\n' ' ')" "b.png c.png x "
 
 echo "-- Rename Many failing halfway: names that swap, and one too long"
 d=/tmp/rename-many
@@ -286,6 +308,14 @@ key Return; sleep 2
 quit
 # 1 -> 11, a -> a2 (a name in use: temporary names first), a2 -> a23, the long one too long.
 expect "every name kept" "$(ls -A $d | sed "s/$long/LONG/" | tr '\n' ' ')" "1.jpg a.jpg a2.jpg LONG.jpg "
+# Without the long one it renames: the check above cannot pass by nothing happening.
+rm $d/$long.jpg
+start $d
+key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+xdotool type --delay 30 '*#'; sleep 0.4
+key Return; sleep 2
+quit
+expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
 
 echo "-- Find Duplicates: trash the checked files"
 for v in new old; do
