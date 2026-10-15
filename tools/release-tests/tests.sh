@@ -498,11 +498,11 @@ config
 start $c/Old.gqv
 sleep 2
 click 20 11
-click 80 492   # File → Rename Collection…
+click 80 516   # File → Rename Collection…
 key ctrl+a; xdotool type New; key Return
 renamed=$(ls $c | tr '\n' ' ')
 click 20 11
-click 93 516 2   # File → Move Collection to Trash
+click 93 540 2   # File → Move Collection to Trash
 shot collection-trashed
 quit
 expect "renamed in its folder" "$renamed" "New.gqv "
