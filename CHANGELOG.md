@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- / did nothing in full screen or with the tools hidden (Ctrl+H), but still turned the search
+  field on: it now brings the file list back with the cursor in its search.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added

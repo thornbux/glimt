@@ -535,6 +535,15 @@ for v in new old; do
     else note "old, first row: $(colour slash-old 57 337)"; fi
 done
 as_version new
+# From full screen too: / brings the list back and the cursor into its search.
+config
+start $d/apple_red.jpg
+sleep 2
+key f; sleep 2
+key slash; sleep 1; xdotool type sky; sleep 2
+shot slash-full
+quit
+expect "from full screen, the search shows sky_blue.jpg" "$(colour slash-full 57 337)" blue
 
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
