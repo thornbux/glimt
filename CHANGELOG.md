@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With two windows open, adding a folder to the sort manager in one dropped the folders the
+  other had added, and a crash while saving could leave half the list. A change now goes to the
+  list as it is on disk, written whole or not at all.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added

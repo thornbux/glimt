@@ -32,6 +32,33 @@ pub fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The sort-folders file's text for `dirs`; a name with a line break cannot be kept in it.
+pub fn sort_folders_text(dirs: &[PathBuf]) -> Vec<u8> {
+    let mut text = Vec::new();
+    for d in dirs {
+        let bytes = d.as_os_str().as_encoded_bytes();
+        if !bytes.contains(&b'\n') {
+            text.extend(bytes);
+            text.push(b'\n');
+        }
+    }
+    text
+}
+
+/// `on_disk` with `add` added and `remove` taken out: a change, applied to the file as it is
+/// now, so folders another window added meanwhile stay.
+pub fn sort_folders_changed(
+    mut on_disk: Vec<PathBuf>,
+    add: Option<&Path>,
+    remove: Option<&Path>,
+) -> Vec<PathBuf> {
+    on_disk.retain(|d| Some(d.as_path()) != remove);
+    if let Some(add) = add.filter(|a| !on_disk.iter().any(|d| d == a)) {
+        on_disk.push(add.to_path_buf());
+    }
+    on_disk
+}
+
 /// `$XDG_STATE_HOME/glimt/state`, otherwise `~/.local/state/glimt/state`.
 /// State (such as the last folder) is not configuration, and belongs here according to XDG.
 pub fn state_path() -> Option<PathBuf> {
@@ -414,6 +441,21 @@ pub fn write_atomic(path: &Path, text: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// Another window's folder stays when this one adds or takes out one.
+    #[test]
+    fn changes_sort_folders_as_they_are() {
+        let p = |s: &str| std::path::PathBuf::from(s);
+        let on_disk = vec![p("/a"), p("/from-b")];
+        let after = super::sort_folders_changed(on_disk.clone(), Some(&p("/c")), None);
+        assert_eq!(after, [p("/a"), p("/from-b"), p("/c")]);
+        assert_eq!(
+            super::sort_folders_changed(on_disk, None, Some(&p("/a"))),
+            [p("/from-b")]
+        );
+        let text = super::sort_folders_text(&[p("/x"), p("/bad\nname")]);
+        assert_eq!(super::sort_folders_from(&text), [p("/x")]);
+    }
+
     /// This window changed the sort order, another turned thumbnails off: both stay.
     #[test]
     fn keeps_what_other_windows_changed() {
