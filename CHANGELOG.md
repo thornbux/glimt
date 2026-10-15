@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Places|Norway|Oslo kept) removes it with them, instead of nothing.
 - File list with thumbnails and no columns: it can no longer be dragged narrower than a thumbnail
   with a little of its name.
+- Two Glimt of the same --name started at once after a crash: the second no longer takes the first
+  one's new remote socket away.
 
 ## [0.22.0] - 2026-10-15
 
