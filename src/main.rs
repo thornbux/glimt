@@ -7303,12 +7303,16 @@ impl App {
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
-            let dir = collections::dir().unwrap_or_default();
-            let _ = std::fs::create_dir_all(&dir);
+            let dir = collections::dir();
+            if let Some(dir) = &dir {
+                let _ = std::fs::create_dir_all(dir);
+            }
             // A collection of the same name gets the images it lacks: nothing is lost.
             let failed: Vec<&str> = (all.iter())
                 .filter(|(name, paths)| {
-                    collections::append(&dir.join(format!("{name}.gqv")), paths).is_err()
+                    (dir.as_ref()).is_none_or(|d| {
+                        collections::append(&d.join(format!("{name}.gqv")), paths).is_err()
+                    })
                 })
                 .map(|(name, _)| name.as_str())
                 .collect();
@@ -7316,6 +7320,9 @@ impl App {
             let mut msg = format!("Imported from Lightroom: {}", done.join(", "));
             if !failed.is_empty() {
                 msg += &format!("; not saved: {}", failed.join(", "));
+            }
+            if dir.is_none() && !all.is_empty() {
+                msg += " (no data folder: $HOME is not set)";
             }
             #[cfg(feature = "marks")]
             if xmp {
