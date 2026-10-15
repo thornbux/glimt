@@ -536,6 +536,37 @@ for v in new old; do
 done
 as_version new
 
+echo "-- browsing past images writes nothing: a keyword with a comma, a comment with a newline"
+d=/tmp/browse
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+convert -size 300x200 xc:blue $d/b.jpg
+convert -size 300x200 xc:lime $d/c.jpg
+cat >$d/a.jpg.xmp <<XMP
+<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:subject><rdf:Bag><rdf:li>Smith, John</rdf:li></rdf:Bag></dc:subject>
+  <dc:description><rdf:Alt><rdf:li xml:lang="x-default">Two lines
+</rdf:li></rdf:Alt></dc:description>
+ </rdf:Description></rdf:RDF></x:xmpmeta>
+XMP
+cp $d/a.jpg.xmp /tmp/browse-a.xmp
+exiftool -q -overwrite_original "-XMP-dc:Subject=Smith, John" $d/b.jpg
+for v in new old; do
+    as_version $v
+    cp /tmp/browse-a.xmp $d/a.jpg.xmp
+    rm -f $d/b.jpg.xmp
+    config exif_panel=true
+    start $d/a.jpg
+    sleep 2
+    key space; sleep 2; key space; sleep 2
+    quit
+    got="$(cmp -s $d/a.jpg.xmp /tmp/browse-a.xmp && echo same || echo changed) $(ls $d/b.jpg.xmp 2>/dev/null | wc -l)"
+    if [ $v = new ]; then expect "the sidecar kept, no new one" "$got" "same 0"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

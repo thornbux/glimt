@@ -15,6 +15,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
     added in another case than one the image has is left out.
 - Copying, moving or renaming a photo replaced a sidecar already at the new name, with the
   keywords of another file; it is now kept, and Rename Many checks the sidecars' new names too.
+- Moving on from an image could rewrite its keywords and comment without any edit: a keyword
+  with a comma ("Smith, John") was split in two, a comment lost its last line break, and a JPEG
+  with keywords inside got a new sidecar just from being shown. Fields left as they were shown
+  are now never written.
 
 ## [0.21.0] - 2026-10-15
 
