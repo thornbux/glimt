@@ -139,7 +139,8 @@ start $P/Summer/lake_mirror.jpg
 sleep 3
 key ctrl+i; sleep 2; cshot light-theme; key ctrl+i
 # The Pan view by the EXIF date, which spreads the pictures over July.
-key ctrl+j; sleep 2; click 36 81; sleep 3; cshot pan; key ctrl+j
+key ctrl+j; sleep 2; click 205 82; sleep 3; cshot pan
+click 140 82; sleep 2; cshot calendar; key ctrl+j
 click 276 11; click 313 84 2   # Help → Keyboard Map
 cshot keyboard-map
 quit

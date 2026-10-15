@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A calendar in the Pan view (Ctrl+J): the months with images, a week to a row, each day with
+  its first image and how many it has. A click on a day shows it in the timeline.
+
 ### Fixed
 
 - File names that do not fit in the list are cut in the middle with "…", so their end and

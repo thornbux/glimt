@@ -553,6 +553,24 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the Pan view's calendar: a day with images shows its first one"
+d=/tmp/calendar
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+convert -size 300x200 xc:blue $d/b.jpg
+exiftool -q -overwrite_original "-DateTimeOriginal=2025:07:01 10:00:00" $d/a.jpg
+exiftool -q -overwrite_original "-DateTimeOriginal=2025:07:16 10:00:00" $d/b.jpg
+config
+start $d/a.jpg
+sleep 2
+key ctrl+j; sleep 2
+click 205 82 2   # EXIF date
+click 140 82 2   # Calendar
+shot calendar-new
+quit
+# July 2025 starts on a Tuesday: the 16th is the third Wednesday, with the blue picture.
+expect "the calendar shows the day's first picture" "$(colour calendar-new 290 407)" blue
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d
