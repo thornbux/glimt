@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- File names that do not fit in the list are cut in the middle with "…", so their end and
+  extension show ("fjord_s…ise.jpg"); they were cut off at the end, also before stars.
+- With the size and date columns and thumbnails, the list was too narrow to show any name: it
+  is now at least wide enough for the thumbnail, a name and both columns.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added

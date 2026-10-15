@@ -536,6 +536,23 @@ for v in new old; do
 done
 as_version new
 
+echo "-- size and date columns with thumbnails: the list wide enough for the names"
+d=/tmp/columns
+mkdir -p $d
+convert -size 300x200 xc:red $d/a_rather_long_name_of_a_red_picture.jpg
+for v in new old; do
+    as_version $v
+    config file_details=true
+    start $d/a_rather_long_name_of_a_red_picture.jpg
+    sleep 2
+    shot columns-$v
+    quit
+    # Thumbnail, name and both columns: the list ends past x=465, where the red image was.
+    if [ $v = new ]; then differ "the list has room for the name" "$(colour columns-new 465 400)" red
+    else note "old, at x=465: $(colour columns-old 465 400)"; fi
+done
+as_version new
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

@@ -1044,6 +1044,31 @@ fn thousands(n: usize) -> String {
     out
 }
 
+/// `text` as it is if it `fits`, else its start and end around "…", as long as fits; found by
+/// halving, so a row lays out a few texts, not one for each letter.
+fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
+    if fits(text) {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let cut = |keep: usize| -> String {
+        let tail = keep / 2;
+        let head: String = chars[..keep - tail].iter().collect();
+        let end: String = chars[chars.len() - tail..].iter().collect();
+        format!("{head}…{end}")
+    };
+    let (mut lo, mut hi) = (0, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if fits(&cut(mid)) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    cut(lo)
+}
+
 /// `n` and `noun` in the singular or plural, with thousands separated: "1 image", "1,200 images".
 fn count(n: usize, noun: &str) -> String {
     format!("{} {noun}{}", thousands(n), if n == 1 { "" } else { "s" })
@@ -3697,10 +3722,20 @@ impl App {
                 .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
             name_rect.max.x = r.left() - 8.0;
         }
-        ui.painter().with_clip_rect(name_rect).text(
+        // Cut in the middle, so the end of the name and its extension stay.
+        let width = name_rect.width() - 4.0;
+        let p = ui.painter();
+        let fits = |s: &str| {
+            p.layout_no_wrap(s.to_owned(), font.clone(), text_color)
+                .size()
+                .x
+                <= width
+        };
+        let name = middle_cut(&self.name(i), fits);
+        p.with_clip_rect(name_rect).text(
             egui::pos2(name_rect.min.x, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            self.name(i),
+            name,
             font,
             text_color,
         );
@@ -7173,9 +7208,14 @@ impl App {
     /// below; then what a click there asked for.
     fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
-        // Room for a name next to the size and date columns.
+        // Room for a name next to the size and date columns, and the thumbnail before it.
+        let thumb = if self.config.thumbnails {
+            self.thumb().x + 10.0
+        } else {
+            0.0
+        };
         let min = if self.config.file_details {
-            DETAILS_WIDTH + 120.0
+            DETAILS_WIDTH + 140.0 + thumb
         } else {
             80.0
         };
@@ -8314,6 +8354,18 @@ mod tests {
         assert_eq!(super::thousands(300000), "300,000");
         assert_eq!(super::thousands(1234567), "1,234,567");
         assert_eq!(super::count(1, "image"), "1 image");
+        // One letter is one unit wide here.
+        let fits = |n: usize| move |s: &str| s.chars().count() <= n;
+        assert_eq!(
+            super::middle_cut("fjord_sunrise.jpg", fits(20)),
+            "fjord_sunrise.jpg"
+        );
+        assert_eq!(
+            super::middle_cut("fjord_sunrise.jpg", fits(11)),
+            "fjord…e.jpg"
+        );
+        assert_eq!(super::middle_cut("fjørd_sunrise.jpg", fits(5)), "fj…pg");
+        assert_eq!(super::middle_cut("abc", fits(0)), "…");
         assert_eq!(super::count(0, "image"), "0 images");
         assert_eq!(super::count(1200, "file"), "1,200 files");
     }
