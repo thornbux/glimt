@@ -3,7 +3,7 @@
 
 use crate::actions::Keys;
 use crate::files::Sort;
-use crate::{CPU_LEVELS, DEFAULT_AHEAD, DEFAULT_DELAY, FADES, MAX_DELAY, print};
+use crate::{CPU_LEVELS, DEFAULT_AHEAD, DEFAULT_DELAY, FADES, MAX_DELAY, OSD_TEMPLATE, print};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -266,6 +266,8 @@ config! {
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
     /// image overlay.
     osd: bool = true,
+    /// What the full screen info shows (OSD_TEMPLATE).
+    osd_template: String = OSD_TEMPLATE.to_owned(),
     /// Histogram in the corner of the image (K): 0 off, 1 RGB, 2 brightness.
     histogram: u8 = 0,
     /// Logarithmic histogram (J), which shows the small counts better.

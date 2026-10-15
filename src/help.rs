@@ -222,7 +222,9 @@ const MANUAL: &[(&str, &str)] = &[
         "Panels",
         "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, View → Show Hidden Files lists files and folders whose names start with a dot, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
          shows the image full screen, Esc leaves full screen. In full screen, I shows or \
-         hides the name, place and EXIF over the image, and moving the pointer to the bottom \
+         hides the name, place and EXIF over the image; Preferences → Image info template says \
+         what it shows, in Geeqie's form: %name%, %keywords%, %Camera% and the other EXIF panel \
+         labels, | between parts that are left out when empty, \\n for a new line. Moving the pointer to the bottom \
          shows a film strip of the images around the shown one; a click on one shows it.",
     ),
     (
@@ -424,8 +426,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Image info in full screen (I)",
-        "On or off",
-        "I cycles through several overlay layouts",
+        "On or off; its template has no :limit, :extra or markup",
+        "I cycles through several overlay layouts; :limit, :extra and markup in the template",
     ),
     (
         "Thumbnail cache",

@@ -59,6 +59,11 @@ const DEFAULT_AHEAD: usize = 2;
 /// Default seconds between images in a slideshow.
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
+/// The full screen info as Geeqie writes its overlay template: fields in percent signs, `|`
+/// between parts of a line (a part whose fields are all empty is left out) and `\n` for a new
+/// line. The default shows what Glimt always showed.
+const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|\
+                            %Aperture%|ISO %ISO%|%Focal length%|%marks%";
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
 const THUMBS: [egui::Vec2; 3] = [
     egui::vec2(96.0, 72.0),
@@ -2462,37 +2467,33 @@ impl App {
         }
     }
 
-    /// Full screen info in the top left corner: name and place, then size and EXIF.
+    /// Full screen info in the top left corner, from the template in Preferences.
     fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
         self.want_exif();
-        let mut info = Vec::new();
-        if let Some(s) = self.slots.get(&self.cur) {
-            info.push(format!("{} × {}", s.orig[0], s.orig[1]));
-        }
         let path = self.path(self.cur);
-        if let Some((_, rows)) = self.exif.as_ref().filter(|e| e.0 == path) {
-            let wanted = [
-                "File size",
-                "Taken",
-                "Exposure",
-                "Aperture",
-                "ISO",
-                "Focal length",
-            ];
-            for (label, value) in rows.iter().filter(|r| wanted.contains(&r.0)) {
-                info.push(if *label == "ISO" {
-                    format!("ISO {value}")
-                } else {
-                    value.clone()
-                });
-            }
+        let meta = self
+            .meta
+            .as_ref()
+            .filter(|m| m.path == path)
+            .map(|m| &m.saved);
+        let text = fill_template(&self.config.osd_template, |field| match field {
+            "name" => self.name(self.cur).to_string(),
+            "path" => path.display().to_string(),
+            "position" => self.place(),
+            "dimensions" => (self.slots.get(&self.cur))
+                .map(|s| format!("{} × {}", s.orig[0], s.orig[1]))
+                .unwrap_or_default(),
+            "marks" => self.mark_text(self.cur),
+            "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
+            "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
+            label => (self.exif.as_ref().filter(|e| e.0 == path))
+                .and_then(|(_, rows)| rows.iter().find(|r| r.0 == label))
+                .map(|r| r.1.clone())
+                .unwrap_or_default(),
+        });
+        if text.is_empty() {
+            return;
         }
-        let marks = self.mark_text(self.cur);
-        if !marks.is_empty() {
-            info.push(marks);
-        }
-        let name = self.name(self.cur);
-        let text = format!("{name}  {}\n{}", self.place(), info.join(" · "));
         let p = ui.painter();
         let galley = p.layout_no_wrap(text, egui::FontId::proportional(15.0), egui::Color32::WHITE);
         let at = egui::Rect::from_min_size(
@@ -6374,6 +6375,26 @@ impl App {
         changed |= ui.checkbox(&mut c.exif_panel, exif).changed();
         let osd = "Show image info in full screen (I)";
         changed |= ui.checkbox(&mut c.osd, osd).changed();
+        ui.label("Image info template:");
+        // Kept on one line in the config file, with \n for each new line.
+        let mut text = c.osd_template.replace("\\n", "\n");
+        let field = egui::TextEdit::multiline(&mut text)
+            .desired_rows(3)
+            .desired_width(f32::INFINITY)
+            .hint_text("%name%  %position%");
+        if ui.add_enabled(c.osd, field).changed() {
+            c.osd_template = text.replace('\n', "\\n");
+            changed = true;
+        }
+        ui.weak(
+            "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, \
+             and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, \
+             left out when its fields are empty.",
+        );
+        if ui.button("Default").clicked() {
+            c.osd_template = OSD_TEMPLATE.to_owned();
+            changed = true;
+        }
         changed
     }
 
@@ -7751,6 +7772,32 @@ fn main() -> eframe::Result {
     )
 }
 
+/// `template` (see OSD_TEMPLATE) with each `%field%` replaced by `value(field)`.
+fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
+    let lines = template.split("\\n").filter_map(|line| {
+        let parts: Vec<String> = (line.split('|'))
+            .filter_map(|part| {
+                let (mut out, mut rest, mut fields, mut filled) = (String::new(), part, 0, 0);
+                while let Some(a) = rest.find('%')
+                    && let Some(b) = rest[a + 1..].find('%')
+                {
+                    let v = value(&rest[a + 1..a + 1 + b]);
+                    fields += 1;
+                    filled += !v.is_empty() as usize;
+                    out += &rest[..a];
+                    out += &v;
+                    rest = &rest[a + b + 2..];
+                }
+                out += rest;
+                (fields == 0 || filled > 0).then_some(out)
+            })
+            .filter(|p| !p.trim().is_empty())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    });
+    lines.collect::<Vec<_>>().join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     /// CPU use: thumbnails and background threads for each level.
@@ -7854,6 +7901,23 @@ mod tests {
         assert!(!a.exists());
         assert_eq!(std::fs::read_to_string(dir.join("to/a.jpg")).unwrap(), "a");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The overlay template: empty fields take their part along, an empty line goes.
+    #[test]
+    fn fills_templates() {
+        let value = |f: &str| match f {
+            "name" => "a.jpg".to_owned(),
+            "ISO" => "200".to_owned(),
+            _ => String::new(),
+        };
+        let fill = |t| super::fill_template(t, value);
+        assert_eq!(fill(super::OSD_TEMPLATE), "a.jpg  \nISO 200");
+        assert_eq!(
+            fill("%Taken%|x %name%|%comment%\\n%keywords%\\n50%"),
+            "x a.jpg\n50%"
+        );
+        assert_eq!(fill(""), "");
     }
 
     /// Keyword tree paths are trimmed around each level, sorted and kept once.

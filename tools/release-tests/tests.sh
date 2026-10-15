@@ -437,6 +437,27 @@ quit
 expect "a box sets the keyword and its tree path" "$on" 2
 expect "a box clears them again" "$off" 0
 
+echo "-- the image info template: one whose fields are all empty shows no box"
+d=/tmp/osd
+mkdir -p $d
+convert -size 1600x1000 xc:red $d/a.jpg
+for t in empty:%comment% name:%name%; do
+    config "osd_template=${t#*:}"
+    start $d
+    sleep 2
+    key f
+    sleep 1
+    shot osd-${t%%:*}
+    quit
+done
+# Red as it is without the box, darker under it.
+for v in empty name; do
+    r=$(red osd-$v 25 22)
+    if [ $v = empty ] && [ $r -gt 230 ]; then pass "an empty template: no box"
+    elif [ $v = name ] && [ $r -lt 160 ]; then pass "a template with the name: the box"
+    else fail "the $v template: red $r"; fi
+done
+
 echo "-- printing 80 images of 3000x2000 to a PDF"
 src=/tmp/print
 mkdir -p $src

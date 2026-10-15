@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The image info in full screen (I) follows a template in Preferences, as Geeqie's overlay:
+  fields such as %name%, %keywords% and %Camera% (each EXIF panel label), `|` between parts
+  that are left out when their fields are empty, and `\n` for a new line.
+
 ## [0.18.0] - 2026-10-15
 
 ### Added

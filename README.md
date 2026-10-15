@@ -105,7 +105,7 @@ The images in the screenshots are generated for the purpose.
 - Layouts with two or four images at once, and Compare (E) side by side at the same zoom.
 - Slideshow with random order, repeat, all subfolders, several folders at once
   (`glimt --slideshow ~/Holiday ~/Family`), and every pane of a layout.
-- Histogram, information over the image, an EXIF panel and a window with every EXIF field.
+- Histogram, information over the image from a template of your own, an EXIF panel and a window with every EXIF field.
 - Colour-managed: photos with Adobe RGB or Display P3 profiles are shown correctly.
 
 **Finding and organising**
