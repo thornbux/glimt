@@ -395,9 +395,14 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
+    let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let tmp = path.with_extension(format!("{}.tmp", crate::remote::instance_id()));
+    // On disk before the rename: after a crash the old file or the new one, never an empty one.
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
-        .and_then(|_| std::fs::write(&tmp, bytes))
+        .and_then(|_| std::fs::File::create(&tmp))
+        .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -414,6 +419,25 @@ pub fn write_atomic(path: &Path, text: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// A file reached through a link is written where the link points; the link stays.
+    #[test]
+    fn writes_through_links() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (real, link) = (dir.join("real"), dir.join("config"));
+        std::fs::write(&real, "old").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        super::replace_file(&link, "new").unwrap();
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// This window changed the sort order, another turned thumbnails off: both stay.
     #[test]
     fn keeps_what_other_windows_changed() {
