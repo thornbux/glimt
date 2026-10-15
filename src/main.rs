@@ -3807,7 +3807,8 @@ impl App {
             Some(Some(tex)) => {
                 // Fit the box, but never enlarge.
                 let px = tex.size_vec2() / ui.ctx().pixels_per_point();
-                let scale = (self.thumb().x / px.x).min(self.thumb().y / px.y).min(1.0);
+                // Fit the frame given: a narrow calendar day has less room than a list row.
+                let scale = (frame.width() / px.x).min(frame.height() / px.y).min(1.0);
                 let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                 let at = egui::Rect::from_center_size(frame.center(), px * scale);
                 ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
