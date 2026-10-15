@@ -321,9 +321,9 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Closes one of several windows",
     ),
     (
-        "Keypad /, *, +, -",
-        "Not supported",
-        "Zoom 1:1, fit, in, out",
+        "Keypad / and *",
+        "/ puts the cursor in the search field, as the other /; * does nothing (+ and - zoom, as in Geeqie)",
+        "Zoom 1:1 and fit",
     ),
     (
         "Marks and stars (marks feature)",
