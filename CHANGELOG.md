@@ -94,6 +94,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The man page ran two entries of its FILES section into the one before, printed the
   ENVIRONMENT line twice and left out the keyword tree's file. About now credits every crate
   built in, with its licence.
+- File names that do not fit in the list are cut in the middle with "…", so their end and
+  extension show ("fjord_s…ise.jpg"); they were cut off at the end, also before stars.
+- With the size and date columns and thumbnails, the list was too narrow to show any name: it
+  is now at least wide enough for the thumbnail, a name and both columns.
 
 ## [0.21.0] - 2026-10-15
 
