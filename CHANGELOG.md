@@ -62,6 +62,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   - with stars in XMP, photos deleted since got a sidecar of their own.
 - / did nothing in full screen or with the tools hidden (Ctrl+H), but still turned the search
   field on: it now brings the file list back with the cursor in its search.
+- Showing several folders together (`glimt /a /b`) emptied the folder tree until a refresh.
+- Find Duplicates read each listed file's size on every frame, slow on a network share.
+- One edited keyword or comment threw away the index of the `exif:` search: in a large folder the
+  next search read every file again. Only the files changed are read again now.
 
 ## [0.21.0] - 2026-10-15
 
