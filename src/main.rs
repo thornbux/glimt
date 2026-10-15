@@ -4083,12 +4083,17 @@ impl App {
         }
         let (mut tick, mut drop) = (None, None);
         root.show(ui, "", &have, &mut tick, &mut drop);
-        ui.horizontal(|ui| {
+        // The button first, from the right, so the field takes exactly what is left: a field
+        // too wide makes the panel grow a little on every frame.
+        let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+        let layout = egui::Layout::right_to_left(egui::Align::Center);
+        ui.allocate_ui_with_layout(row, layout, |ui| {
+            let add = ui.button("Add").clicked();
             let field = egui::TextEdit::singleline(&mut self.new_keyword)
                 .hint_text("Places|Norway|Oslo")
-                .desired_width(ui.available_width() - 40.0);
+                .desired_width(ui.available_width());
             let enter = ui.add(field).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (ui.button("Add").clicked() || enter) && !self.new_keyword.trim().is_empty() {
+            if (add || enter) && !self.new_keyword.trim().is_empty() {
                 let new = std::mem::take(&mut self.new_keyword);
                 self.set_keyword_tree(self.keyword_tree.iter().cloned().chain([new]).collect());
             }
