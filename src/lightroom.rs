@@ -152,10 +152,9 @@ impl Catalog {
             .collect()
     }
 
-    /// The images with stars, at `paths` (from `Catalog::paths`).
+    /// The images with stars, at `paths` (from `Catalog::paths`). One value for each file: a
+    /// virtual copy is an image of its own on the same file, and the most stars of them count.
     #[cfg_attr(not(feature = "marks"), allow(dead_code))]
-    /// One value for each file: a virtual copy is an image of its own on the same file, and the
-    /// most stars of them count.
     pub fn stars(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(PathBuf, u8)> {
         let mut best: HashMap<PathBuf, u8> = HashMap::new();
         for (id, i) in self.images.iter().filter(|(_, i)| i.2 > 0) {
