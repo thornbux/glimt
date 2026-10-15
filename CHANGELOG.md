@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Scrolling fast through a search, or through the Pan view, made a thumbnail for every image
+  passed instead of skipping those out of view; only the ones shown, and some around them, are
+  made now.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
