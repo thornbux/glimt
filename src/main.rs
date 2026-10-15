@@ -1195,13 +1195,15 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
         while let Ok(mut path) = exif_rx.recv() {
             path = exif_rx.try_iter().last().unwrap_or(path);
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-            let mut rows = vec![
-                ("File size", human_size(size)),
-                ("Colour profile", colour_source(&path)),
-            ];
-            rows.extend(exif::read(&path));
-            let all = exif::all(&path);
-            let (meta, paths) = (meta::read(&path), meta::tree_paths(&path));
+            let mut rows = vec![("File size", human_size(size))];
+            let (mut all, mut meta, mut paths) = Default::default();
+            // Not opened unless it is a file: a pipe would block this thread for good.
+            if decode::is_file(&path) {
+                rows.push(("Colour profile", colour_source(&path)));
+                rows.extend(exif::read(&path));
+                all = exif::all(&path);
+                (meta, paths) = (meta::read(&path), meta::tree_paths(&path));
+            }
             if exif_tx.send((path, rows, all, meta, paths)).is_err() {
                 return;
             }
@@ -1687,8 +1689,9 @@ impl App {
                 .into_iter()
                 .flatten()
                 .flatten()
-                .filter(|e| is_listed(&e.path(), types));
-            let sizes = images.filter_map(|e| Some(e.metadata().ok()?.len()));
+                .filter(|e| files::kind(e).0 && is_listed(&e.path(), types));
+            // Through a link, the size of the file it points to, as the list shows that.
+            let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
             send_sizes(sizes, size_tx, &ctx2);
         });
         self.listing_rx = Some(rx);

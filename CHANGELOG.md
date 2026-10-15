@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A setting, the keyword tree, a collection or a sidecar reached through a symbolic link (a
   dotfiles repository) had the link replaced by a plain file at the first save; it is now written
   where the link points.
+- Only files are images in the list. A folder named like an image (`2019.jpg`) was listed as a
+  broken image, so Delete could send the whole folder to the trash; a pipe or a link to a device
+  named `a.jpg` could block Glimt or fill its memory as soon as the folder opened. Such entries
+  are now a folder or left out, and nothing that is not a file is ever read as an image.
 
 ## [0.21.0] - 2026-10-15
 
