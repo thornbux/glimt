@@ -100,26 +100,54 @@ pub fn ffmpeg_ppm(
     before: &[&str],
     after: &[&str],
 ) -> Result<image::DynamicImage, String> {
-    let out = command("ffmpeg")
-        .args(["-v", "error"])
+    use std::io::Read;
+    use std::process::Stdio;
+    // 30 s of work at most, and a frame no larger than Glimt decodes: a crafted file could
+    // otherwise keep ffmpeg busy for good, or hand over gigabytes.
+    let mut child = command("ffmpeg")
+        .args(["-v", "error", "-timelimit", "30"])
         .args(before)
         .args(FILES_ONLY)
         .arg("-i")
         .arg(path)
         .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
-    if !out.status.success() || out.stdout.is_empty() {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+    // Its errors read beside the frame, so neither pipe can fill and stop both.
+    let errors = child.stderr.take().map(|mut e| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = e.read_to_string(&mut text);
+            text
+        })
+    });
+    let limit = crate::decode::MAX_DECODE + 64;
+    let mut frame = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        let _ = out.take(limit + 1).read_to_end(&mut frame);
+    }
+    if frame.len() as u64 > limit {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(format!(
+            "image too large ({})",
+            crate::human_size(frame.len() as u64)
+        ));
+    }
+    let ok = child.wait().is_ok_and(|s| s.success());
+    let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
+    if !ok || frame.is_empty() {
+        let err = err.trim();
         return Err(if err.is_empty() {
             "no frame".into()
         } else {
-            err
+            err.to_owned()
         });
     }
-    image::load_from_memory_with_format(&out.stdout, image::ImageFormat::Pnm)
-        .map_err(|e| e.to_string())
+    image::load_from_memory_with_format(&frame, image::ImageFormat::Pnm).map_err(|e| e.to_string())
 }
 
 #[cfg(feature = "video")]
