@@ -109,13 +109,16 @@ pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
 
 /// Geeqie's format: comment lines start with #, a path is in double quotes.
 fn parse(text: &[u8]) -> Vec<PathBuf> {
+    // A file listed twice (in a .gqv edited by hand) is one image: shown, deleted and found
+    // among duplicates once.
+    let mut seen = std::collections::HashSet::new();
     text.split(|&b| b == b'\n')
         .filter_map(|line| {
             let rest = line.strip_prefix(b"\"")?;
             let end = rest.iter().rposition(|&b| b == b'"')?;
             Some(PathBuf::from(OsStr::from_bytes(&rest[..end])))
         })
-        .filter(|p| p.is_absolute())
+        .filter(|p| p.is_absolute() && seen.insert(p.clone()))
         .collect()
 }
 
@@ -172,9 +175,10 @@ mod tests {
         let text = super::to_text(&paths);
         assert!(text.starts_with(b"#GQview collection\n"));
         assert_eq!(super::parse(&text), paths);
-        // As Geeqie writes it, with its geometry line; relative paths are left out.
+        // As Geeqie writes it, with its geometry line; relative paths and a second line of the
+        // same file are left out.
         let geeqie =
-            b"#GQview collection\n#geometry: 0 0 400 300\n\"/p/1.jpg\"\n\"rel.jpg\"\n#end\n";
+            b"#GQview collection\n#geometry: 0 0 400 300\n\"/p/1.jpg\"\n\"rel.jpg\"\n\"/p/1.jpg\"\n#end\n";
         assert_eq!(super::parse(geeqie), [PathBuf::from("/p/1.jpg")]);
         // Added to: a new one is made, one that cannot be read is left as it is.
         let dir = std::env::temp_dir().join(format!("glimt-test-gqv-{}", std::process::id()));

@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   write.
 - Building from source needs Rust 1.95 (egui's), not 1.89 as README said; Cargo.toml says so too,
   so an older Rust gets a clear message.
+- A collection that lists a file twice shows it once, so Find Duplicates can move its checked
+  files to the trash instead of saying they are no longer all in the list.
 
 ## [0.22.1] - 2026-10-15
 
