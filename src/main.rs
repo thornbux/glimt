@@ -882,7 +882,7 @@ struct App {
     /// The rows among the matches of the shown file and of the one a slideshow of several panes
     /// steps from, as (file, row): found once per image and search, not in every frame, as the
     /// matches can be 300,000 long.
-    rows: std::cell::Cell<[Option<(usize, Option<usize>)>; 2]>,
+    rows: std::cell::Cell<[Option<FileRow>; 2]>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     /// Why a re: search pattern is not one, shown under the search field.
@@ -1113,6 +1113,9 @@ fn count(n: usize, noun: &str) -> String {
 }
 
 /// A decode for the workers: image index, full resolution, file, page of a multi-page TIFF.
+/// A file of the list and its row among the search matches (`None`: not among them).
+type FileRow = (usize, Option<usize>);
+
 /// (index, full resolution, path, page, the job's number in `pending`).
 type DecodeJob = (usize, bool, PathBuf, usize, u64);
 
@@ -1875,7 +1878,7 @@ impl App {
     ) {
         // The shown file's decodes still being made: kept, so it is not decoded twice. Not
         // those of a later page, as the file is shown again from its first.
-        let jobs: Vec<(bool, (u64, PathBuf))> = ([false, true].into_iter())
+        let jobs: Vec<_> = ([false, true].into_iter())
             .filter(|_| self.page == 0)
             .filter_map(|full| Some((full, self.pending.remove(&(self.cur, full))?)))
             .collect();
@@ -1895,8 +1898,10 @@ impl App {
         if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
             self.slots.insert(cur, slot);
         }
-        for (full, job) in jobs.into_iter().filter(|j| self.is_file(cur, &j.1.1)) {
-            self.pending.insert((cur, full), job);
+        for (full, job) in jobs {
+            if self.is_file(cur, &job.1) {
+                self.pending.insert((cur, full), job);
+            }
         }
         self.update_search(ctx);
         // go() clears the notice for a new image; a new list is not one, and a notice is often
@@ -2290,7 +2295,8 @@ impl App {
         if !have && !self.errors.contains_key(&idx) && !self.pending.contains_key(&(idx, full)) {
             self.jobs_sent += 1;
             let path = self.path(idx);
-            self.pending.insert((idx, full), (self.jobs_sent, path.clone()));
+            self.pending
+                .insert((idx, full), (self.jobs_sent, path.clone()));
             // The neighbours are preloaded at their first page.
             let page = if idx == self.cur { self.page } else { 0 };
             let _ = (self.decode_jobs).send((idx, full, path, page, self.jobs_sent));
