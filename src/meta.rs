@@ -33,6 +33,66 @@ impl Meta {
     }
 }
 
+/// IPTC's fields for accessibility (Photo Metadata 2021), in XMP: a short text for someone who
+/// cannot see the picture, and a longer description of it. Web pages, publishing tools and
+/// screen readers use them; kept apart from the keywords and comment, which Geeqie edits.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct Access {
+    pub alt: String,
+    pub extended: String,
+}
+
+const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
+const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
+
+fn parse_access(xmp: &str) -> Access {
+    let first = |tag| items(xmp, tag).into_iter().next().unwrap_or_default();
+    Access {
+        alt: first(ALT),
+        extended: first(EXTENDED),
+    }
+}
+
+/// The alt text and extended description of `path`: from its sidecar if that has them, else
+/// from the image.
+pub fn access(path: &Path) -> Access {
+    let has = |x: &String| x.contains(&format!("<{ALT}")) || x.contains(&format!("<{EXTENDED}"));
+    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
+    side.or_else(|| embedded(path))
+        .map_or_else(Access::default, |x| parse_access(&x))
+}
+
+/// Write the alt text and extended description of `path` to its sidecar; everything else in it
+/// stays. Ones the image holds itself and that were cleared are written empty, as the comment.
+pub fn write_access(path: &Path, access: &Access) -> Result<(), String> {
+    let _held = held();
+    let own = embedded(path).is_some_and(|x| parse_access(&x) != Access::default());
+    update(path, *access == Access::default() && !own, |x| {
+        set_access(x, access, own)
+    })
+}
+
+fn set_access(xmp: &str, access: &Access, say_empty: bool) -> Option<String> {
+    let xmp = without(&without(xmp, ALT), EXTENDED);
+    let mut add = String::new();
+    for (tag, text) in [(ALT, &access.alt), (EXTENDED, &access.extended)] {
+        if !text.is_empty() {
+            add += &format!(
+                "\n   <{tag}>\n    <rdf:Alt>\n     <rdf:li xml:lang=\"x-default\">{}</rdf:li>\n    </rdf:Alt>\n   </{tag}>",
+                escape(text)
+            );
+        } else if say_empty {
+            add += &format!("\n   <{tag}>\n    <rdf:Alt/>\n   </{tag}>");
+        }
+    }
+    insert(
+        xmp,
+        &add,
+        "Iptc4xmpCore",
+        "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+    )
+}
+
 /// Whether two keywords are the same one: letter case does not count ("Oslo" and "oslo").
 pub fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
@@ -655,6 +715,48 @@ mod tests {
         );
     }
 
+    /// The IPTC alt text and extended description: written, read back, replaced and cleared,
+    /// and the keywords, comment and other fields kept.
+    #[test]
+    fn alt_text_round_trip() {
+        let meta = Meta {
+            keywords: vec!["beach".into()],
+            comment: "Summer".into(),
+        };
+        let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
+                     rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+        let with_meta = set(empty, &meta, false).unwrap();
+        let access = Access {
+            alt: "A dog <on> a beach".into(),
+            extended: "Long & detailed".into(),
+        };
+        let written = set_access(&with_meta, &access, false).unwrap();
+        assert_eq!(parse_access(&written), access);
+        assert_eq!(parse(&written), meta);
+        assert_eq!(written.matches("xmlns:Iptc4xmpCore=").count(), 1);
+        let other = Access {
+            alt: "A cat".into(),
+            extended: String::new(),
+        };
+        let again = set_access(&written, &other, false).unwrap();
+        assert_eq!(parse_access(&again), other);
+        assert_eq!(again.matches("AltTextAccessibility>").count(), 2);
+        let none = set_access(&again, &Access::default(), false).unwrap();
+        assert_eq!(parse_access(&none), Access::default());
+        assert_eq!(parse(&none), meta);
+        // The image's own cleared: written empty, so it is not read from the image again.
+        assert!(
+            set_access(&none, &Access::default(), true)
+                .unwrap()
+                .contains("<rdf:Alt/>")
+        );
+        // Keywords written after the alt text leave it.
+        assert_eq!(
+            parse_access(&set(&written, &Meta::default(), false).unwrap()),
+            access
+        );
+    }
+
     /// Keywords added from several threads at once: none is lost.
     #[test]
     fn changes_at_once_are_all_kept() {
@@ -792,12 +894,18 @@ mod tests {
         };
         let empty = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description \
                      rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
-        let seed = set(empty, &meta, false).unwrap();
+        let access = Access {
+            alt: "A dog".into(),
+            extended: "On a beach".into(),
+        };
+        let seed = set_access(&set(empty, &meta, false).unwrap(), &access, false).unwrap();
         for bytes in crate::broken(seed.as_bytes()) {
             let xmp = String::from_utf8_lossy(&bytes);
             parse(&xmp);
             set(&xmp, &meta, true);
             set(&xmp, &Meta::default(), false);
+            parse_access(&xmp);
+            set_access(&xmp, &Access::default(), true);
         }
     }
 }

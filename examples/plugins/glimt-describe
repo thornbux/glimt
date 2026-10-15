@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A Glimt plugin: a short description of each image, made by a vision model running on this
-computer (Ollama), written as the image's comment in its XMP sidecar (<image>.xmp), where Glimt
-shows it, a screen reader can read it, and exif: searches find it.
+computer (Ollama), written as the image's comment and as its IPTC alt text in its XMP sidecar
+(<image>.xmp): Glimt shows both, a screen reader reads the alt text first, and exif: searches
+find the comment.
 
 Safety, as the README's "Scripts and AI" says:
 - Only a model on this computer is asked: the images never leave it. GLIMT_AI_URL must be a
@@ -10,7 +11,7 @@ Safety, as the README's "Scripts and AI" says:
 - What the model answers is only ever text in the comment: never run, never a file name. It is
   cut to one paragraph and stripped of control characters, as a picture can carry words meant
   to steer the model ("ignore the above and ...").
-- A comment that is there already is kept: nothing the user wrote is replaced.
+- A comment or alt text that is there already is kept: nothing the user wrote is replaced.
 - exiftool writes the sidecar, so the text is escaped as XML needs.
 
 Needs: python3, exiftool, and Ollama with a vision model (ollama pull llava).
@@ -64,16 +65,21 @@ def describe(path):
     return text[:MAX_TEXT]
 
 
-def comment(sidecar):
-    """The comment the sidecar has, or ''."""
+# Where the description goes: the comment Glimt shows, and IPTC's alt text, which screen
+# readers and web pages read.
+FIELDS = ["XMP-dc:Description", "XMP-iptcCore:AltTextAccessibility"]
+
+
+def empty_fields(sidecar):
+    """The fields of FIELDS the sidecar has no text in."""
     if not os.path.exists(sidecar):
-        return ""
-    out = subprocess.run(
-        ["exiftool", "-s3", "-XMP-dc:Description", sidecar],
-        capture_output=True,
-        text=True,
-    )
-    return out.stdout.strip()
+        return FIELDS
+    empty = []
+    for field in FIELDS:
+        out = subprocess.run(["exiftool", "-s3", f"-{field}", sidecar], capture_output=True, text=True)
+        if not out.stdout.strip():
+            empty.append(field)
+    return empty
 
 
 def main(paths):
@@ -86,8 +92,9 @@ def main(paths):
             print(f"{path}: not a file, or larger than {MAX_BYTES >> 20} MB: left out", file=sys.stderr)
             continue
         sidecar = path + ".xmp"
-        if comment(sidecar):
-            print(f"{path}: has a comment already: kept", file=sys.stderr)
+        fields = empty_fields(sidecar)
+        if not fields:
+            print(f"{path}: has a comment and an alt text already: kept", file=sys.stderr)
             continue
         try:
             text = describe(path)
@@ -100,7 +107,7 @@ def main(paths):
         # One argument each, and the path absolute (it starts with /), so exiftool reads neither
         # the name nor the text as an option.
         written = subprocess.run(
-            ["exiftool", "-q", "-overwrite_original", f"-XMP-dc:Description={text}", sidecar],
+            ["exiftool", "-q", "-overwrite_original", *[f"-{f}={text}" for f in fields], sidecar],
             capture_output=True,
             text=True,
         )

@@ -12,6 +12,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   be shown.
 - BMP, ICO (the largest of its sizes), QOI and PNM (PBM, PGM, PPM, PAM) images, listed and
   shown as the other everyday formats.
+- Alt text and Extended description in the EXIF panel: IPTC's fields for accessibility in XMP
+  (Iptc4xmpCore:AltTextAccessibility and ExtDescrAccessibility), read from the sidecar or the
+  image and saved to the sidecar when edited. A screen reader reads the alt text first, and the
+  example AI plugin writes its description there too.
 
 ## [0.23.0] - 2026-10-15
 

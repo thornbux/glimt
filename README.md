@@ -347,10 +347,11 @@ right to delete, move or run commands, and check what it suggests before you act
 **An example: descriptions from a model on your own computer.**
 [`examples/plugins`](examples/plugins) holds a plugin that asks a vision model running in
 [Ollama](https://ollama.com) for one or two sentences about each selected image and writes them
-as its comment, in the XMP sidecar: shown in the EXIF panel, found by `exif:` searches, and
-read by a screen reader. It sends images only to an address on this computer, keeps a comment
-that is there already, cuts the answer to one paragraph of plain text and lets exiftool write
-it, so nothing in the answer is run or read as XML.
+as its comment and as its IPTC alt text, in the XMP sidecar: shown in the EXIF panel, the
+comment found by `exif:` searches, and the alt text read first by a screen reader and by web
+pages and other programs. It sends images only to an address on this computer, keeps a comment
+or alt text that is there already, cuts the answer to one paragraph of plain text and lets
+exiftool write it, so nothing in the answer is run or read as XML.
 
 ```sh
 ollama pull llava                                 # a vision model, once (about 4 GB)
