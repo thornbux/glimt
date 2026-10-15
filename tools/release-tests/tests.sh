@@ -18,7 +18,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \
@@ -617,6 +617,53 @@ PY
         expect "an MRC map, its top at the top" \
             "$([ $(red mrc-new 760 120) -gt 190 ] && [ $(red mrc-new 760 700) -lt 60 ] && echo yes)" yes
     else note "old: $(red mrc-old 760 120)"; fi
+done
+as_version new
+
+echo "-- the DICOM decoder: an X-ray in the window it names, MONOCHROME1 the right way"
+for v in new old; do
+    as_version $v
+    d=/tmp/dicom-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # 12 bits brighter downwards, a window over the middle half, and white for zero as some
+    # X-ray machines write: shown light at the top, dark at the bottom.
+    python3 - "$d" <<'PY'
+import sys, numpy, pydicom
+from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.uid import ExplicitVRLittleEndian, generate_uid, SecondaryCaptureImageStorage
+meta = FileMetaDataset()
+meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+meta.MediaStorageSOPInstanceUID = generate_uid()
+meta.TransferSyntaxUID = ExplicitVRLittleEndian
+ds = Dataset()
+ds.file_meta = meta
+ds.SOPClassUID, ds.SOPInstanceUID = meta.MediaStorageSOPClassUID, meta.MediaStorageSOPInstanceUID
+ds.PatientName = "Test^Nobody"
+ds.Modality = "DX"
+ds.Rows, ds.Columns = 400, 600
+ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, "MONOCHROME1"
+ds.BitsAllocated, ds.BitsStored, ds.HighBit, ds.PixelRepresentation = 16, 12, 11, 0
+ds.WindowCenter, ds.WindowWidth = 2048, 2048
+ds.PixelData = numpy.fromfunction(lambda r, c: r * 4095 / 399, (400, 600)).astype(numpy.uint16).tobytes()
+ds.is_little_endian, ds.is_implicit_VR = True, False
+ds.save_as(f"{sys.argv[1]}/a.dcm", write_like_original=False)
+PY
+    # The same compressed as JPEG 2000, as dental and hospital equipment often stores it.
+    gdcmconv --j2k $d/a.dcm $d/b.dcm
+    config
+    start $d/a.dcm
+    sleep 3
+    shot dicom-$v
+    key space; sleep 3
+    shot dicom-j2k-$v
+    quit
+    if [ $v = new ]; then
+        expect "DICOM: windowed, MONOCHROME1 light at the top" \
+            "$([ $(red dicom-new 760 120) -gt 190 ] && [ $(red dicom-new 760 700) -lt 60 ] && echo yes)" yes
+        expect "DICOM compressed as JPEG 2000" \
+            "$([ $(red dicom-j2k-new 760 120) -gt 190 ] && [ $(red dicom-j2k-new 760 700) -lt 60 ] && echo yes)" yes
+    else note "old: $(red dicom-old 760 120)"; fi
 done
 as_version new
 

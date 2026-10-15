@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A DICOM decoder in examples/decoders, through pydicom and GDCM: X-ray, CT, MR, ultrasound,
+  panoramic and intraoral X-rays, also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the
+  file names and with MONOCHROME1 the right way; no patient field is read out or kept.
 - A FITS decoder in examples/decoders, through astropy: the first image of a telescope file, also
   compressed (.fits.fz, .fits.gz), with the zscale stretch astronomers use. Decoders are read in
   the order of their file names, so when two take the same ending the first does; science.desktop

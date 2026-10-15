@@ -460,6 +460,7 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 |---|---|---|---|
 | `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
 | `fits.desktop` | FITS (`.fits`, `.fit`, `.fts`, also compressed `.fits.fz` and `.fits.gz`): the first image, with astronomers' zscale stretch | astronomy, solar physics | python3-astropy |
+| `dicom.desktop` | DICOM (`.dcm`, `.dicom`, `.dic`), also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the file names; the middle frame of a series | medicine, dentistry (X-ray, CT, MR, ultrasound, panoramic, intraoral) | python3-pydicom, python3-gdcm |
 | `science.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
 | `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
 | `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
@@ -475,8 +476,9 @@ cp examples/decoders/* ~/.local/share/glimt/decoders/     # the desktop files an
 These are for a quick look, not for measuring: the values are stretched to grey, from the
 lowest to the highest (ImageMagick's `-auto-level`) or between the 1st and 99th percentile (the
 Python ones), and the scripts read only the slice or level they show. DICOM and NIfTI files can
-hold patient data: Glimt only shows the picture, reads no fields from them and sends nothing
-anywhere.
+hold patient data: Glimt and its decoders only show the picture, print or keep no name, ID or
+other field, and send nothing anywhere. DICOM files without an ending (as many PACS exports
+are) are not listed: give them `.dcm`, or open the folder in a PACS viewer.
 
 **Which formats go into Glimt itself, and which into plugins.** A format is built into Glimt
 when the image library Glimt already uses reads it, with no new dependency: BMP, ICO, QOI and
