@@ -1044,6 +1044,11 @@ fn thousands(n: usize) -> String {
     out
 }
 
+/// `n` and `noun` in the singular or plural, with thousands separated: "1 image", "1,200 images".
+fn count(n: usize, noun: &str) -> String {
+    format!("{} {noun}{}", thousands(n), if n == 1 { "" } else { "s" })
+}
+
 /// A decode for the workers: image index, full resolution, file, page of a multi-page TIFF.
 type DecodeJob = (usize, bool, PathBuf, usize);
 
@@ -2831,7 +2836,10 @@ impl App {
                 }
             }
             if let Some(first) = errors.first() {
-                let _ = tx.send(format!("Delete failed ({} errors): {first}", errors.len()));
+                let _ = tx.send(format!(
+                    "Delete failed ({}): {first}",
+                    count(errors.len(), "error")
+                ));
             }
             // Their sidecars go the same way; a new file of the same name must not get their
             // keywords.
@@ -3051,7 +3059,10 @@ impl App {
             }
             if let Some(first) = errors.first() {
                 let verb = if keep { "Copy" } else { "Move" };
-                let _ = tx.send(format!("{verb} failed ({} errors): {first}", errors.len()));
+                let _ = tx.send(format!(
+                    "{verb} failed ({}): {first}",
+                    count(errors.len(), "error")
+                ));
             }
             // Moved: out of `deleting`; read the folder again for files that joined it, or that
             // failed to go.
@@ -3398,7 +3409,7 @@ impl App {
                 Some((img.ok()?, job.caption.then(|| name.into_owned())))
             });
             // Written as it is made, so only one page is in memory, not the whole PDF.
-            let title = format!("Glimt: {} images", job.paths.len());
+            let title = format!("Glimt: {}", count(job.paths.len(), "image"));
             let done = match &to {
                 PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
                     print::pdf(pages, job.paper, job.per_page, w)
@@ -3412,8 +3423,8 @@ impl App {
             };
             let n = job.paths.len() - failed.get();
             let done = done.map(|()| match &to {
-                PrintTo::Printer(printer) => format!("{n} pages sent to {printer}"),
-                PrintTo::File(file) => format!("{n} pages saved in {}", file.display()),
+                PrintTo::Printer(printer) => format!("{} sent to {printer}", count(n, "page")),
+                PrintTo::File(file) => format!("{} saved in {}", count(n, "page"), file.display()),
             });
             let _ = tx.send(match (done, failed.get()) {
                 (Ok(msg), 0) => msg,
@@ -4250,11 +4261,13 @@ impl App {
                 .filter(|p| meta::tag(p, &tag, on).is_err())
                 .count();
             if failed > 0 {
-                let n = thousands(failed);
-                let _ = tx.send(format!("The keyword could not be saved for {n} files"));
+                let _ = tx.send(format!(
+                    "The keyword could not be saved for {}",
+                    count(failed, "file")
+                ));
             } else if paths.len() > 1 {
                 let verb = if on { "set on" } else { "taken off" };
-                let _ = tx.send(format!("{tag} {verb} {} files", thousands(paths.len())));
+                let _ = tx.send(format!("{tag} {verb} {}", count(paths.len(), "file")));
             }
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
@@ -4298,8 +4311,8 @@ impl App {
                 errors += meta::add(path, &keywords).is_err() as usize;
             }
             let _ = tx.send(match errors {
-                0 => format!("Keywords added to {} files", thousands(paths.len())),
-                n => format!("Keywords could not be saved for {} files", thousands(n)),
+                0 => format!("Keywords added to {}", count(paths.len(), "file")),
+                n => format!("Keywords could not be saved for {}", count(n, "file")),
             });
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
@@ -4520,8 +4533,8 @@ impl App {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!(
-                        "Among the {} images in the list, compare by",
-                        self.files.len()
+                        "Among the {} in the list, compare by",
+                        count(self.files.len(), "image")
                     ));
                     let label = duplicates::ALL
                         .iter()
@@ -4567,10 +4580,10 @@ impl App {
                 }
                 let files: usize = dups.groups.iter().map(Vec::len).sum();
                 ui.label(format!(
-                    "{} groups, {} files, among {} images",
-                    thousands(dups.groups.len()),
-                    thousands(files),
-                    thousands(dups.searched)
+                    "{}, {}, among {}",
+                    count(dups.groups.len(), "group"),
+                    count(files, "file"),
+                    count(dups.searched, "image")
                 ));
                 ui.horizontal(|ui| {
                     if ui.button("Check all but the first of each group").clicked() {
@@ -4602,9 +4615,9 @@ impl App {
                             let group = &dups.groups[g];
                             if f == usize::MAX {
                                 ui.strong(format!(
-                                    "Group {} ({} files)",
+                                    "Group {} ({})",
                                     g + 1,
-                                    thousands(group.len())
+                                    count(group.len(), "file")
                                 ));
                                 continue;
                             }
@@ -6592,12 +6605,12 @@ impl App {
                 Prompt::RenameCollection => "New name of the collection:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
-                    "Name of a new collection with {} images:",
-                    self.targets().len()
+                    "Name of a new collection with {}:",
+                    count(self.targets().len(), "image")
                 ),
                 Prompt::RenameMany => format!(
-                    "New names for {} files (* = old name, # = number, ### = 001):",
-                    self.targets().len()
+                    "New names for {} (* = old name, # = number, ### = 001):",
+                    count(self.targets().len(), "file")
                 ),
             };
             // The first new name, so the pattern can be checked before renaming.
@@ -6647,7 +6660,7 @@ impl App {
                 let n = dialog.paths.len();
                 ui.strong(match n {
                     1 => "Print the image".to_owned(),
-                    n => format!("Print {} images", thousands(n)),
+                    n => format!("Print {}", count(n, "image")),
                 });
                 let c = &mut self.config;
                 egui::Grid::new("print fields").show(ui, |ui| {
@@ -6789,10 +6802,10 @@ impl App {
                 }
                 Some(plan) => {
                     ui.label(format!(
-                        "{} collections, {} keywords and the stars of {} images.",
-                        thousands(plan.collections.len()),
-                        thousands(plan.keywords.len()),
-                        thousands(plan.stars.len()),
+                        "{}, {} and the stars of {}.",
+                        count(plan.collections.len(), "collection"),
+                        count(plan.keywords.len(), "keyword"),
+                        count(plan.stars.len(), "image"),
                     ));
                     if !plan.existing.is_empty() {
                         let mut names = plan.existing[..plan.existing.len().min(5)].join(", ");
@@ -6805,8 +6818,11 @@ impl App {
                     }
                     if plan.differ > 0 {
                         ui.label(format!(
-                            "{} images have other stars in Glimt:",
-                            thousands(plan.differ)
+                            "{} other stars in Glimt:",
+                            match plan.differ {
+                                1 => "1 image has".to_owned(),
+                                n => format!("{} have", count(n, "image")),
+                            }
                         ));
                         ui.radio_value(&mut plan.take_lightroom, false, "Keep Glimt's stars");
                         ui.radio_value(&mut plan.take_lightroom, true, "Take Lightroom's stars");
@@ -6874,7 +6890,7 @@ impl App {
             take_lightroom,
             ..
         } = plan;
-        let mut done = vec![format!("{} keywords", thousands(keywords.len()))];
+        let mut done = vec![count(keywords.len(), "keyword")];
         self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(keywords).collect());
         #[cfg(feature = "marks")]
         let stars: Vec<(PathBuf, u8)> = (stars.into_iter())
@@ -6890,7 +6906,7 @@ impl App {
                     self.marks.rate(&paths, n);
                 }
             }
-            done.push(format!("the stars of {} images", thousands(stars.len())));
+            done.push(format!("the stars of {}", count(stars.len(), "image")));
         }
         #[cfg(not(feature = "marks"))]
         let _ = (&stars, take_lightroom);
@@ -6907,10 +6923,7 @@ impl App {
                 })
                 .map(|(name, _)| name.as_str())
                 .collect();
-            done.insert(
-                0,
-                format!("{} collections", thousands(all.len() - failed.len())),
-            );
+            done.insert(0, count(all.len() - failed.len(), "collection"));
             let mut msg = format!("Imported from Lightroom: {}", done.join(", "));
             if !failed.is_empty() {
                 msg += &format!("; not saved: {}", failed.join(", "));
@@ -7007,7 +7020,7 @@ impl App {
         if let Some(trash) = self.confirm_delete {
             let what = match self.targets().as_slice() {
                 [i] => format!("\"{}\"", self.name(*i)),
-                many => format!("{} files", many.len()),
+                many => count(many.len(), "file"),
             };
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
@@ -7080,12 +7093,12 @@ impl App {
                     Some(found) => {
                         let size = size_text(self.match_rx.is_none().then_some(self.match_size));
                         format!(
-                            "{} of {} images ({size})",
+                            "{} of {} ({size})",
                             thousands(found.len()),
-                            thousands(n)
+                            count(n, "image")
                         )
                     }
-                    None => format!("{} images ({size})", thousands(n)),
+                    None => format!("{} ({size})", count(n, "image")),
                 };
                 if !self.selected.is_empty() {
                     let m = thousands(self.selected.len());
@@ -8289,6 +8302,9 @@ mod tests {
         assert_eq!(super::thousands(1000), "1,000");
         assert_eq!(super::thousands(300000), "300,000");
         assert_eq!(super::thousands(1234567), "1,234,567");
+        assert_eq!(super::count(1, "image"), "1 image");
+        assert_eq!(super::count(0, "image"), "0 images");
+        assert_eq!(super::count(1200, "file"), "1,200 files");
     }
 
     #[test]

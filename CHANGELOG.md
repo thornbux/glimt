@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Counts of one are singular: "1 image", "1 collection", "1 page sent", "1 image has other
+  stars", where Glimt said "1 images" in the status bar, dialogs and messages.
+
 ## [0.20.0] - 2026-10-15
 
 ### Added
