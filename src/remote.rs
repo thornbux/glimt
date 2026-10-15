@@ -163,6 +163,10 @@ fn claim(path: &std::path::Path) -> Option<UnixListener> {
     if let Ok(listener) = UnixListener::bind(path) {
         return Some(listener);
     }
+    // One at a time from here: another Glimt of this name could take the left socket over
+    // between our check and our remove, and lose its new one to us.
+    let lock = std::fs::File::create(path.with_extension("lock")).ok()?;
+    lock.lock().ok()?;
     if UnixStream::connect(path).is_ok() {
         return None;
     }
@@ -203,6 +207,7 @@ mod tests {
             super::claim(&path).is_some()
         });
         assert!(taken);
+        std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 }
