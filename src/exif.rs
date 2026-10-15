@@ -300,7 +300,9 @@ pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
     let head = block.len() - t.data.len();
     // The EXIF thumbnail (IFD1) would show the old way up: left out, as IFD0 is made the last.
-    let next = t.u32(4).and_then(|o| Some(o as usize + 2 + 12 * t.u16(o as usize)? as usize));
+    let next = t
+        .u32(4)
+        .and_then(|o| Some(o as usize + 2 + 12 * t.u16(o as usize)? as usize));
     let little = t.little;
     if let Some(n) = next.and_then(|n| block.get_mut(head + n..head + n + 4)) {
         n.fill(0);

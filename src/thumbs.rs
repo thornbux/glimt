@@ -61,7 +61,8 @@ fn thumbnail_in(
     // one not turned upright by EXIF (Auto Rotate off) is not shared.
     if save
         && rotate
-        && let (Some(cache), Some(file), Some(failed), Some(mtime)) = (&cache, &file, &failed, mtime)
+        && let (Some(cache), Some(file), Some(failed), Some(mtime)) =
+            (&cache, &file, &failed, mtime)
         && !path.starts_with(cache)
     {
         match &made {
