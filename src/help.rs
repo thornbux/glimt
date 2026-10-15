@@ -131,7 +131,12 @@ const MANUAL: &[(&str, &str)] = &[
          filter; Case beside the field then tells upper and lower case apart. The first EXIF \
          search in a folder reads all files once, which takes a while in large folders. With the marks feature, 1–6 toggle a mark, Ctrl+1–6 select the files with \
          it and Alt+0–5 give stars; mark:2 or stars:3 in the search field shows those files; a \
-         setting also writes the stars to XMP sidecars for darktable and digiKam. The sort menu \
+         setting also writes the stars to XMP sidecars for darktable and digiKam. These can be \
+         combined: terms one after the other must all match (sunset exif:canon stars:3), a - \
+         before exif:, re:, mark: or stars: means it must not (sunset -exif:iphone), and | \
+         between terms means either (exif:canon | exif:nikon). The words after a prefix belong \
+         to it, so a search of the names comes first. Combined, the list is in its own order. \
+         The sort menu \
          at the bottom left sorts by name, number, date, EXIF date, size or extension; the Types \
          menu beside it chooses what the list shows: images, RAW files and videos.",
     ),

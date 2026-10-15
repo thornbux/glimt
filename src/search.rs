@@ -34,6 +34,40 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
 
 /// A `re:` search, ignoring case unless `case`; for a pattern that is not one, why, to show
 /// while typing.
+/// One term of a search: whether it is negated (`-exif:iphone`), and its text with its prefix.
+pub type Term = (bool, String);
+
+/// A search as groups of terms: any group may match (`|` between them), and within one every
+/// term must, but a negated one must not. A term starts at a prefix (`exif:`, `re:`, `mark:`,
+/// `stars:`, each with a `-` before it to negate it); the words after it belong to it, so
+/// `exif:canon 2024:05` stays one term, as it was before terms could be combined. Words before
+/// the first prefix are a search of the names.
+pub fn terms(query: &str) -> Vec<Vec<Term>> {
+    const PREFIXES: [&str; 4] = ["exif:", "re:", "mark:", "stars:"];
+    let prefixed = |t: &str| PREFIXES.iter().any(|p| t.starts_with(p));
+    let mut groups: Vec<Vec<Term>> = vec![Vec::new()];
+    for token in query.split_whitespace() {
+        if token == "|" {
+            groups.push(Vec::new());
+            continue;
+        }
+        let (negated, text) = match token.strip_prefix('-') {
+            Some(rest) if prefixed(rest) => (true, rest),
+            _ => (false, token),
+        };
+        let group = groups.last_mut().expect("one group at least");
+        match group.last_mut() {
+            Some(last) if !negated && !prefixed(text) => {
+                last.1.push(' ');
+                last.1.push_str(text);
+            }
+            _ => group.push((negated, text.to_owned())),
+        }
+    }
+    groups.retain(|g| !g.is_empty());
+    groups
+}
+
 pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, String> {
     regex::bytes::RegexBuilder::new(pattern)
         .case_insensitive(!case)
@@ -144,6 +178,38 @@ mod tests {
 
     /// re: finds names by a regular expression, ignoring case, in list order; a broken one
     /// says why in one line.
+    /// A search split into its terms: prefixes start them, words after one belong to it, `-`
+    /// negates a prefixed one, `|` separates the groups of which any may match.
+    #[test]
+    fn splits_a_search_into_terms() {
+        let t = |q: &str| super::terms(q);
+        let term = |n: bool, s: &str| (n, s.to_owned());
+        assert_eq!(
+            t("exif:canon 2024:05"),
+            [[term(false, "exif:canon 2024:05")]]
+        );
+        assert_eq!(
+            t("sunset re:^IMG -exif:iphone stars:3"),
+            [[
+                term(false, "sunset"),
+                term(false, "re:^IMG"),
+                term(true, "exif:iphone"),
+                term(false, "stars:3")
+            ]]
+        );
+        assert_eq!(
+            t("exif:canon | exif:nikon  2024"),
+            [
+                [term(false, "exif:canon")],
+                [term(false, "exif:nikon 2024")]
+            ]
+        );
+        // A name with a dash is a name, not a negated term; nothing between bars is nothing.
+        assert_eq!(t("-draft"), [[term(false, "-draft")]]);
+        assert_eq!(t("| | mark:2 |"), [[term(false, "mark:2")]]);
+        assert!(t("  ").is_empty());
+    }
+
     #[test]
     fn finds_by_regex() {
         let names: Vec<std::ffi::OsString> =

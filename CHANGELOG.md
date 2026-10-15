@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Search terms combined: terms one after the other must all match (sunset exif:canon stars:3), a -
+  before exif:, re:, mark: or stars: means it must not (sunset -exif:iphone), and | between terms
+  means either (exif:canon | exif:nikon). A search of one term works as before.
+
 ### Fixed
 
 - A long message where the image should be (a file that cannot be opened, a decoder's error) is
