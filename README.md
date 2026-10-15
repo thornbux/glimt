@@ -176,7 +176,7 @@ keywords and comments.
 ### Requirements
 
 - Linux with glibc. It is tested on x86_64, and aarch64 should work but is untested.
-- Rust 1.88 or newer (edition 2024, let chains), installed through [rustup](https://rustup.rs):
+- Rust 1.89 or newer (edition 2024, let chains, file locks), installed through [rustup](https://rustup.rs):
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
@@ -382,6 +382,7 @@ and screen profile over D-Bus.
 | Keyword tree | `$XDG_CONFIG_HOME/glimt/keywords`, a path such as `Places|Norway|Oslo` on each line |
 | Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
 | Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
+| A Rename Many while it runs, to put right after a crash | `$XDG_STATE_HOME/glimt/renames/` |
 | Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as `.gqv` files |
 | Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
 | Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |

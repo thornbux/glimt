@@ -5,6 +5,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A Rename Many cut short by a crash or a power cut is found at the next start: Glimt offers to
+  put the old names back or to finish. Before, files could be left under hidden temporary names
+  and seem to be gone.
+
+### Changed
+
+- Building from source needs Rust 1.89 or newer (file locks).
+
 ### Fixed
 
 - Saving a turned PNG or lossless WebP on a disk that filled up could replace the photo with a
@@ -72,6 +82,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Scrolling fast through a search, or through the Pan view, made a thumbnail for every image
   passed instead of skipping those out of view; only the ones shown, and some around them, are
   made now.
+- Rename Many held the window while it checked and renamed every file, minutes for thousands on
+  a network share; it now runs in the background. It also never replaces a file another program
+  made under a new name meanwhile, and checks the sidecars' new names too.
 
 ## [0.21.0] - 2026-10-15
 
