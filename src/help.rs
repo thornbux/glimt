@@ -134,8 +134,11 @@ const MANUAL: &[(&str, &str)] = &[
          setting also writes the stars to XMP sidecars for darktable and digiKam. These can be \
          combined: terms one after the other must all match (sunset exif:canon stars:3), a - \
          before exif:, re:, mark: or stars: means it must not (sunset -exif:iphone), and | \
-         between terms means either (exif:canon | exif:nikon). The words after a prefix belong \
-         to it, so a search of the names comes first. Combined, the list is in its own order. \
+         between terms means either (exif:canon | exif:nikon); | binds loosest. Parentheses group, \
+         as words of their own with spaces around them: sunset ( exif:canon | exif:nikon ), \
+         and -( … ) leaves a group out; a regular expression keeps its own (re:^(IMG|DSC)). \
+         The words after a prefix belong to it, so a search of the names comes first. \
+         Combined, the list is in its own order. \
          The sort menu \
          at the bottom left sorts by name, number, date, EXIF date, size or extension; the Types \
          menu beside it chooses what the list shows: images, RAW files and videos.",
