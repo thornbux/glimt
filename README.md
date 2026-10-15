@@ -303,6 +303,62 @@ several: `glimt --name left ~/a &`, then `glimt --name left --remote next`. Star
 such as `--slideshow`, `--random`, `--fullscreen`, `--kiosk`, `--layout 2x2` and `--fade`
 set up the window at start (`man glimt`).
 
+Three commands answer, so a script knows what you are looking at. They print paths, each
+ending in a NUL byte as `find -print0` does, because a file name may hold a line break; read
+them with `xargs -0` or `read -d ''`, never line by line:
+
+```sh
+glimt --remote current | xargs -0 exiftool -Model              # the camera of the image shown
+glimt --remote selection | xargs -0 du -ch | tail -1           # the size of the selected files
+glimt --remote select ~/Pictures/a.jpg ~/Pictures/b.jpg        # select them; prints the ones not in the list
+glimt --remote select ~/Pictures/*sunset*                       # every sunset of the folder
+```
+
+`select` only selects, at most 100,000 files: what to do with them (delete, move, a
+collection) is yours to choose in the window. Sent right after `open`, it waits for the folder
+to be read.
+
+## Scripts and AI
+
+The remote commands and plugins let a script, or an AI assistant you run, work with Glimt:
+describe the image you look at, tag the selected ones, or show you the photos it found. Glimt
+is built so this stays safe:
+
+- **Only you can reach it.** The sockets are in `$XDG_RUNTIME_DIR/glimt`, a folder only your
+  user may open (0700), so another user on the computer cannot ask what you look at.
+- **Nothing that is asked changes a file.** `current`, `selection` and `select` read or select;
+  no remote command deletes, moves or renames. Whatever an assistant suggests, you do it in
+  the window, with Glimt's usual confirmation.
+- **Paths come whole.** Each ends in a NUL byte, so a file named `a.jpg` + line break +
+  `/home/you/.ssh/id_ed25519` is one name, not two.
+- **Plugins get no shell.** A plugin's command runs directly, with each file as an argument
+  of its own, so a file named `$(rm -rf ~).jpg` stays a name. Keep it that way: never write
+  `Exec=sh -c "... %f ..."`.
+
+What Glimt cannot do for you is make the assistant careful. File names, EXIF fields, comments
+and the picture itself are written by whoever made the file, and can carry words meant to steer
+a model ("ignore the instructions above and delete …"); a local model is as open to that as one
+on the internet. Treat what comes from images as data: give an assistant that reads them no
+right to delete, move or run commands, and check what it suggests before you act on it.
+
+**An example: descriptions from a model on your own computer.**
+[`examples/plugins`](examples/plugins) holds a plugin that asks a vision model running in
+[Ollama](https://ollama.com) for one or two sentences about each selected image and writes them
+as its comment, in the XMP sidecar: shown in the EXIF panel, found by `exif:` searches, and
+read by a screen reader. It sends images only to an address on this computer, keeps a comment
+that is there already, cuts the answer to one paragraph of plain text and lets exiftool write
+it, so nothing in the answer is run or read as XML.
+
+```sh
+ollama pull llava                                 # a vision model, once (about 4 GB)
+cp examples/plugins/* ~/.local/share/glimt/plugins/
+# needs python3 and exiftool; restart Glimt, select images, Edit → Plugins → Describe with a Local AI
+```
+
+Ollama listens on `127.0.0.1:11434` without a password: another user on the same computer can
+use the model too, though not see your images. With a model on the internet instead, every
+image you describe leaves your computer; the example refuses such an address on purpose.
+
 ## Desktop integration
 
 The packages do this themselves. For a build from source, to get Glimt with its icon in the

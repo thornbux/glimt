@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""A Glimt plugin: a short description of each image, made by a vision model running on this
+computer (Ollama), written as the image's comment in its XMP sidecar (<image>.xmp), where Glimt
+shows it, a screen reader can read it, and exif: searches find it.
+
+Safety, as the README's "Scripts and AI" says:
+- Only a model on this computer is asked: the images never leave it. GLIMT_AI_URL must be a
+  loopback address (127.0.0.1, ::1 or localhost).
+- The files come as arguments, never through a shell.
+- What the model answers is only ever text in the comment: never run, never a file name. It is
+  cut to one paragraph and stripped of control characters, as a picture can carry words meant
+  to steer the model ("ignore the above and ...").
+- A comment that is there already is kept: nothing the user wrote is replaced.
+- exiftool writes the sidecar, so the text is escaped as XML needs.
+
+Needs: python3, exiftool, and Ollama with a vision model (ollama pull llava).
+Settings: GLIMT_AI_MODEL (default llava), GLIMT_AI_URL (default http://127.0.0.1:11434).
+"""
+
+import base64
+import ipaddress
+import json
+import os
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+
+MODEL = os.environ.get("GLIMT_AI_MODEL", "llava")
+URL = os.environ.get("GLIMT_AI_URL", "http://127.0.0.1:11434")
+PROMPT = (
+    "Describe this photo in one or two plain sentences for someone who cannot see it: "
+    "what is in it, where, and the light. Describe only what is visible."
+)
+MAX_BYTES = 40 << 20  # a larger file is left out: the model gets a whole copy of it
+MAX_TEXT = 500
+
+
+def local(url):
+    """True if `url` is on this computer."""
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def describe(path):
+    """The model's description of the image at `path`, as one clean paragraph."""
+    with open(path, "rb") as f:
+        image = base64.b64encode(f.read()).decode()
+    body = json.dumps({"model": MODEL, "prompt": PROMPT, "images": [image], "stream": False})
+    request = urllib.request.Request(
+        URL.rstrip("/") + "/api/generate",
+        data=body.encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=300) as answer:
+        text = json.load(answer).get("response", "")
+    # One paragraph of printable text: no control characters, no line breaks.
+    text = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    return text[:MAX_TEXT]
+
+
+def comment(sidecar):
+    """The comment the sidecar has, or ''."""
+    if not os.path.exists(sidecar):
+        return ""
+    out = subprocess.run(
+        ["exiftool", "-s3", "-XMP-dc:Description", sidecar],
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip()
+
+
+def main(paths):
+    if not local(URL):
+        sys.exit(f"glimt-describe: {URL} is not on this computer; images are only sent to a local model")
+    failed = 0
+    for path in paths:
+        path = os.path.abspath(path)
+        if not os.path.isfile(path) or os.path.getsize(path) > MAX_BYTES:
+            print(f"{path}: not a file, or larger than {MAX_BYTES >> 20} MB: left out", file=sys.stderr)
+            continue
+        sidecar = path + ".xmp"
+        if comment(sidecar):
+            print(f"{path}: has a comment already: kept", file=sys.stderr)
+            continue
+        try:
+            text = describe(path)
+        except OSError as e:
+            failed += 1
+            print(f"{path}: the model did not answer: {e}", file=sys.stderr)
+            continue
+        if not text:
+            continue
+        # One argument each, and the path absolute (it starts with /), so exiftool reads neither
+        # the name nor the text as an option.
+        written = subprocess.run(
+            ["exiftool", "-q", "-overwrite_original", f"-XMP-dc:Description={text}", sidecar],
+            capture_output=True,
+            text=True,
+        )
+        if written.returncode != 0:
+            failed += 1
+            print(f"{path}: {written.stderr.strip()}", file=sys.stderr)
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

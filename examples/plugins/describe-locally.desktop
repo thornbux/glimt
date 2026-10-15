@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Describe with a Local AI
+Comment=Writes a short description of each image as its comment, made by a model on this computer
+# The files are passed as arguments, never through a shell: a file name such as $(rm -rf ~).jpg
+# stays a name. Do not write Exec=sh -c "... %f ...".
+Exec=glimt-describe %F

@@ -131,6 +131,29 @@ Show a file, folder or collection. If no Glimt is running, one is started.
 .TP
 .B quit
 Close Glimt.
+.TP
+.B current
+Print the path of the image shown.
+.TP
+.B selection
+Print the paths of the selected files, or of the image shown when none is selected.
+.TP
+.BI select " PATH ..."
+Select these files of the list (at most 100,000) and show the first; print those that are not
+in it. Sent right after
+.BR open ,
+it waits until the folder is read. It only selects: deleting or moving is left to the user.
+.PP
+.BR current ,
+.B selection
+and
+.B select
+print each path followed by a NUL byte, as
+.B find \-print0
+does, since a file name may hold a line break: read them with
+.B xargs \-0
+.RB "or " "read \-d ''" ,
+not line by line. No remote command deletes, moves or renames a file.
 .SH KEYS
 The keys are Geeqie's; Help \(-> Keyboard Shortcuts lists them all, and Preferences can change
 them. The most used:
@@ -242,6 +265,9 @@ Go to the next image in the Glimt used last, for example from a desktop shortcut
 .TP
 .B glimt \-\-remote\-all quit
 Close every Glimt.
+.TP
+.B glimt \-\-remote current | xargs \-0 exiftool \-Model
+The camera of the image shown, also when its name holds a space or a line break.
 .SH SEE ALSO
 .BR geeqie (1),
 .BR gio (1),
