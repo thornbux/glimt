@@ -536,6 +536,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- an exif: search after a keyword was set finds it, without indexing all again"
+d=/tmp/exifsearch
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+convert -size 300x200 xc:blue $d/b.jpg
+printf 'Zebra\n' >$XDG_CONFIG_HOME/glimt/keywords
+config exif_panel=true
+start $d/b.jpg
+sleep 2
+search() { click 120 284; key ctrl+a; xdotool type "$1"; sleep 3; }
+search exif:zebra
+shot exif-search-0
+before=$(colour exif-search-0 57 337)
+key ctrl+a; key BackSpace; key Escape; sleep 1
+click 1056 310 2   # the Zebra box, for b.jpg
+search exif:zebra
+shot exif-search-1
+quit
+expect "nothing before, b.jpg after" "$before $(colour exif-search-1 57 337)" "other blue"
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Showing several folders together (`glimt /a /b`) emptied the folder tree until a refresh.
+- Find Duplicates read each listed file's size on every frame, slow on a network share.
+- One edited keyword or comment threw away the index of the `exif:` search: in a large folder the
+  next search read every file again. Only the files changed are read again now.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added

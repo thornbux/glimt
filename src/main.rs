@@ -842,6 +842,9 @@ struct App {
     /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
     /// first one, dropped with the folder.
     exif_index: Option<HashMap<OsString, String>>,
+    /// Files whose keywords or comment changed since they were indexed: read again, alone,
+    /// at the next "exif:" search.
+    exif_stale: HashSet<OsString>,
     exif_index_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
     #[cfg(feature = "marks")]
     marks: marks::Marks,
@@ -1430,6 +1433,7 @@ impl App {
             search_error: None,
             match_rx: None,
             exif_index: None,
+            exif_stale: HashSet::new(),
             exif_index_rx: None,
             anchor: None,
             orient: (0, false),
@@ -1489,6 +1493,7 @@ impl App {
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
+        self.exif_stale.clear();
         self.exif_index_rx = None;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
@@ -1515,6 +1520,7 @@ impl App {
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
+        self.exif_stale.clear();
         self.exif_index_rx = None;
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
@@ -1559,6 +1565,7 @@ impl App {
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
+        self.exif_stale.clear();
         self.exif_index_rx = None;
         // No one folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
@@ -4255,7 +4262,9 @@ impl App {
             meta::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
         }
-        self.exif_index = None;
+        // "exif:" searches find keywords too: only these files are read again.
+        self.exif_stale
+            .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
@@ -4292,8 +4301,10 @@ impl App {
             Ok(()) => {
                 edit.keywords = meta.keywords_text();
                 edit.saved = meta;
-                // "exif:" searches find keywords and comments too.
-                self.exif_index = None;
+                // "exif:" searches find keywords and comments too: read again when next used.
+                if let Some(name) = self.files.get(self.cur) {
+                    self.exif_stale.insert(name.clone());
+                }
             }
             Err(e) => self.notice = Some(format!("Could not save the keywords: {e}")),
         }
@@ -4305,7 +4316,9 @@ impl App {
         self.save_meta();
         self.meta = None;
         self.exif_asked = None;
-        self.exif_index = None;
+        let targets = self.targets();
+        self.exif_stale
+            .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
@@ -4331,7 +4344,11 @@ impl App {
             .and_then(|rx| rx.try_recv().ok())
         {
             self.exif_index_rx = None;
-            self.exif_index = Some(index);
+            // The files read again go into the index there is; else this is the whole index.
+            match &mut self.exif_index {
+                Some(old) => old.extend(index),
+                None => self.exif_index = Some(index),
+            }
             self.update_search(ctx);
         }
     }
@@ -4455,8 +4472,23 @@ impl App {
             Some(Ok(re)) => Some(re),
             None => None,
         };
+        // Files edited since: read again alone, while the search goes on with the index there is.
+        if self.exif_index.is_some() && !self.exif_stale.is_empty() && self.exif_index_rx.is_none()
+        {
+            let (tx, rx) = mpsc::channel();
+            let names: Vec<OsString> = self.exif_stale.drain().collect();
+            let (dir, ctx, busy) = (self.dir.clone(), ctx.clone(), self.busy.clone());
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let _ = tx.send(exif_index(&dir, &names));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+            self.exif_index_rx = Some(rx);
+        }
         let Some(index) = &self.exif_index else {
             if self.exif_index_rx.is_none() {
+                self.exif_stale.clear();
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
                 let busy = self.busy.clone();
