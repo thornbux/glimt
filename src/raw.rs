@@ -54,8 +54,11 @@ pub fn exif(path: &Path) -> Option<Vec<u8>> {
 pub fn preview(data: &[u8]) -> Option<&[u8]> {
     // Find the start markers first, then look at them: one tight loop is ~7× faster through
     // a 20 MB file (15 ms) than reading the headers along the way.
+    // A RAW file has a few; a file made of start markers would have millions, each walked to
+    // its end: the time would grow with the square of the size.
     let starts: Vec<usize> = (1..data.len().saturating_sub(1))
         .filter(|&i| data[i] == 0xd8 && data[i - 1] == 0xff && data[i + 1] == 0xff)
+        .take(1000)
         .collect();
     starts
         .into_iter()
@@ -72,7 +75,8 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
 pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
     let be = |i: usize| Some(u16::from_be_bytes([*jpeg.get(i)?, *jpeg.get(i + 1)?]) as usize);
     let mut i = 2;
-    loop {
+    // The frame header comes after a few segments; a crafted file could chain them to its end.
+    for _ in 0..32 {
         if *jpeg.get(i)? != 0xff {
             return None;
         }
@@ -83,6 +87,7 @@ pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
             _ => i += 2 + be(i + 2)?,
         }
     }
+    None
 }
 
 #[cfg(test)]
@@ -109,5 +114,25 @@ mod tests {
         let img = image::load_from_memory(found).unwrap();
         assert_eq!((img.width(), img.height()), (64, 32));
         assert!(super::preview(b"no jpeg here").is_none());
+    }
+
+    /// RAW files broken in thousands of ways, and one made of start markers: a preview found or
+    /// not, without a panic, and soon.
+    #[test]
+    fn survives_broken_raw() {
+        let mut out = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut out);
+        image::RgbImage::new(16, 8)
+            .write_to(&mut cursor, image::ImageFormat::Jpeg)
+            .unwrap();
+        let mut seed = b"FUJIFILMCCD-RAW ".to_vec();
+        seed.extend(&out);
+        for data in crate::broken(&seed) {
+            super::preview(&data);
+        }
+        let markers = [0xff, 0xd8, 0xff, 0xe0, 0, 4].repeat(1 << 20);
+        let started = std::time::Instant::now();
+        super::preview(&markers);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 }
