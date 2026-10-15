@@ -7562,7 +7562,7 @@ impl App {
         let min = if self.config.file_details {
             DETAILS_WIDTH + 140.0 + thumb
         } else {
-            80.0
+            80.0 + thumb
         };
         egui::Panel::left("left")
             .resizable(true)

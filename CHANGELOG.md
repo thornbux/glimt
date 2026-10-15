@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- File list with thumbnails and no columns: it can no longer be dragged narrower than a thumbnail
+  with a little of its name.
+
 ## [0.22.0] - 2026-10-15
 
 ### Added
