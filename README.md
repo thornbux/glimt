@@ -103,6 +103,8 @@ The images in the screenshots are generated for the purpose.
 | File size and date columns, and the EXIF panel (Ctrl+K) | Fuzzy search: "sun" finds sunflower and sunrise, and also de**s**ert_d**un**es |
 | ![Pan view in the Light theme](docs/screenshots/pan.png) | ![Keyboard map](docs/screenshots/keyboard-map.png) |
 | Pan view (Ctrl+J), here in the Light theme | Help → Keyboard Map |
+| ![The keyword tree in the EXIF panel](docs/screenshots/keyword-tree.png) | ![Importing a Lightroom catalog](docs/screenshots/lightroom-import.png) |
+| The EXIF panel with keywords, a comment and the keyword tree | Import Lightroom Catalog: what it will do, and whose stars to keep |
 
 ## Features
 
