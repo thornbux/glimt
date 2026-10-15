@@ -562,6 +562,8 @@ type ExifRead = (
     Vec<(&'static str, String)>,
     Vec<(&'static str, String, String)>,
     meta::Meta,
+    // Its keyword tree paths.
+    Vec<String>,
 );
 
 /// Keywords and comment of the shown image as being edited in the EXIF panel, and as last read
@@ -571,6 +573,8 @@ struct MetaEdit {
     keywords: String,
     comment: String,
     saved: meta::Meta,
+    /// Its keyword tree paths, which tick the tree's boxes with `saved`'s keywords.
+    paths: Vec<String>,
 }
 
 struct Slot {
@@ -1164,8 +1168,8 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
             ];
             rows.extend(exif::read(&path));
             let all = exif::all(&path);
-            let meta = meta::read(&path);
-            if exif_tx.send((path, rows, all, meta)).is_err() {
+            let (meta, paths) = (meta::read(&path), meta::tree_paths(&path));
+            if exif_tx.send((path, rows, all, meta, paths)).is_err() {
                 return;
             }
             ctx.request_repaint();
@@ -2211,7 +2215,7 @@ impl App {
             self.exif_asked = Some(path);
         }
         let done: Vec<ExifRead> = self.exif_done.try_iter().collect();
-        for (path, rows, all, meta) in done {
+        for (path, rows, all, meta, paths) in done {
             // Kept while being edited: the reader may answer for the image again.
             if self.meta.as_ref().is_none_or(|m| m.path != path) {
                 self.save_meta();
@@ -2220,6 +2224,7 @@ impl App {
                     keywords: meta.keywords_text(),
                     comment: meta.comment.clone(),
                     saved: meta,
+                    paths,
                 });
             }
             self.exif = Some((path, rows));
@@ -4070,9 +4075,9 @@ impl App {
     /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
     fn keyword_tree(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.cur);
-        let Some(have) = (self.meta.as_ref())
+        let Some((have, paths)) = (self.meta.as_ref())
             .filter(|m| m.path == path)
-            .map(|m| m.saved.keywords.clone())
+            .map(|m| (m.saved.keywords.clone(), m.paths.clone()))
         else {
             return;
         };
@@ -4083,7 +4088,7 @@ impl App {
             root.insert(p);
         }
         let (mut tick, mut drop) = (None, None);
-        root.show(ui, "", &have, &mut tick, &mut drop);
+        root.show(ui, "", (&have, &paths), &mut tick, &mut drop);
         // The button first, from the right, so the field takes exactly what is left: a field
         // too wide makes the panel grow a little on every frame.
         let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
@@ -4100,11 +4105,11 @@ impl App {
             }
         });
         // The image's own keywords that the tree does not have yet, at its top.
-        let names: HashSet<&str> = (self.keyword_tree.iter())
-            .map(|p| p.rsplit('|').next().unwrap_or(p))
+        let names: HashSet<String> = (self.keyword_tree.iter())
+            .map(|p| p.rsplit('|').next().unwrap_or(p).to_lowercase())
             .collect();
         let missing: Vec<String> = (have.iter())
-            .filter(|k| !names.contains(k.as_str()))
+            .filter(|k| !names.contains(&k.to_lowercase()))
             .cloned()
             .collect();
         if !missing.is_empty()
@@ -4144,11 +4149,7 @@ impl App {
         if targets.contains(&self.cur)
             && let Some(edit) = &mut self.meta
         {
-            let name = tag.rsplit('|').next().unwrap_or(&tag).to_owned();
-            edit.saved.keywords.retain(|k| *k != name);
-            if on {
-                edit.saved.keywords.push(name);
-            }
+            meta::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
         }
         self.exif_index = None;
@@ -7588,8 +7589,9 @@ fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
         })
         .filter(|p| !p.is_empty())
         .collect();
+    // In another letter case it is the same path: the first spelling stays.
     out.sort_by_key(|p| p.to_lowercase());
-    out.dedup();
+    out.dedup_by(|a, b| meta::same(a, b));
     out
 }
 
@@ -7605,13 +7607,14 @@ impl KeywordNode {
         }
     }
 
-    /// The boxes of this level's keywords under `prefix`, ticked by `have`; a box clicked
+    /// The boxes of this level's keywords under `prefix`, ticked by `have` (the image's keywords
+    /// and keyword tree paths); a box clicked
     /// gives (its path, on) in `tick`, and Remove in its menu gives the path in `drop`.
     fn show(
         &self,
         ui: &mut egui::Ui,
         prefix: &str,
-        have: &[String],
+        have: (&[String], &[String]),
         tick: &mut Option<(String, bool)>,
         drop: &mut Option<String>,
     ) {
@@ -7622,7 +7625,7 @@ impl KeywordNode {
                 format!("{prefix}|{name}")
             };
             let mut box_of = |ui: &mut egui::Ui| {
-                let mut on = have.contains(name);
+                let mut on = meta::has_tag(have.0, have.1, &path);
                 let response = ui.checkbox(&mut on, name);
                 if response.changed() {
                     *tick = Some((path.clone(), on));

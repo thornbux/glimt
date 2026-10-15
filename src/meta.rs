@@ -18,19 +18,69 @@ impl Meta {
 
     /// Keywords from text separated by commas, without empty or repeated ones.
     pub fn parse_keywords(text: &str) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for k in text.split(',').map(str::trim).filter(|k| !k.is_empty()) {
-            if !out.iter().any(|o| o == k) {
-                out.push(k.to_owned());
-            }
-        }
-        out
+        unique(
+            (text.split(',').map(str::trim))
+                .filter(|k| !k.is_empty())
+                .map(str::to_owned),
+        )
     }
 
     /// Keywords and comment as one line, for searching.
     pub fn text(&self) -> String {
         format!("{} {}", self.keywords.join(" "), self.comment)
     }
+}
+
+/// Whether two keywords are the same one: letter case does not count ("Oslo" and "oslo").
+pub fn same(a: &str, b: &str) -> bool {
+    a.to_lowercase() == b.to_lowercase()
+}
+
+/// The keywords without repeats, each as first written.
+fn unique(keywords: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for k in keywords {
+        if !out.iter().any(|o| same(o, &k)) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// The keyword of a keyword tree path: its last level.
+fn leaf(tag: &str) -> &str {
+    tag.rsplit('|').next().unwrap_or(tag)
+}
+
+/// Whether an image with `keywords` and keyword tree `paths` has `tag`: the keyword, and the path
+/// too unless no path ends in that keyword (a program that writes keywords only set it).
+pub fn has_tag(keywords: &[String], paths: &[String], tag: &str) -> bool {
+    let name = leaf(tag);
+    keywords.iter().any(|k| same(k, name))
+        && (paths.iter().any(|p| same(p, tag)) || !paths.iter().any(|p| same(leaf(p), name)))
+}
+
+/// Set keyword tree path `tag` on or off in `keywords` and `paths`. Its keyword is added once,
+/// and taken off only when no other path ends in it ("Events|Oslo" off keeps Oslo for
+/// "Places|Norway|Oslo").
+pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, on: bool) {
+    let name = leaf(tag);
+    paths.retain(|p| !same(p, tag));
+    if on {
+        paths.push(tag.to_owned());
+        if !keywords.iter().any(|k| same(k, name)) {
+            keywords.push(name.to_owned());
+        }
+    } else if !paths.iter().any(|p| same(leaf(p), name)) {
+        keywords.retain(|k| !same(k, name));
+    }
+}
+
+/// The keyword tree paths (lr:hierarchicalSubject) in the sidecar of `path`.
+pub fn tree_paths(path: &Path) -> Vec<String> {
+    (std::fs::read_to_string(sidecar(path)))
+        .map(|x| unique(items(&x, "lr:hierarchicalSubject")))
+        .unwrap_or_default()
 }
 
 /// `<file>.xmp`, next to the file.
@@ -152,7 +202,7 @@ pub fn follow(from: &Path, to: &Path, copy: bool) {
 
 fn parse(xmp: &str) -> Meta {
     Meta {
-        keywords: items(xmp, "dc:subject"),
+        keywords: unique(items(xmp, "dc:subject")),
         comment: items(xmp, "dc:description")
             .into_iter()
             .next()
@@ -211,7 +261,43 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
             escape(&meta.comment)
         );
     }
-    insert(xmp, &add, "dc", "http://purl.org/dc/elements/1.1/")
+    let xmp = insert(xmp, &add, "dc", "http://purl.org/dc/elements/1.1/")?;
+    let paths = tree_paths_for(&meta.keywords, items(&xmp, "lr:hierarchicalSubject"));
+    with_paths(xmp, &paths)
+}
+
+/// The keyword tree paths for `keywords`, as Lightroom writes them: those of `paths` that end in
+/// one of them, and each keyword without one as a path of its own (Immich, which shows tags,
+/// reads only these). A keyword's own path goes when a longer one ends in it.
+fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
+    let kept: Vec<String> = (unique(paths).into_iter())
+        .filter(|p| keywords.iter().any(|k| same(k, leaf(p))))
+        .collect();
+    let longer = |name: &str| kept.iter().any(|q| q.contains('|') && same(leaf(q), name));
+    let mut out: Vec<String> = (kept.iter())
+        .filter(|p| p.contains('|') || !longer(p))
+        .cloned()
+        .collect();
+    for k in keywords {
+        if !out.iter().any(|p| same(leaf(p), k)) {
+            out.push(k.clone());
+        }
+    }
+    out
+}
+
+/// `xmp` with lr:hierarchicalSubject holding `paths`, or without it if there are none.
+fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
+    let xmp = without(&xmp, "lr:hierarchicalSubject");
+    if paths.is_empty() {
+        return Some(xmp);
+    }
+    let mut add = "\n   <lr:hierarchicalSubject>\n    <rdf:Bag>\n".to_owned();
+    for p in paths {
+        add += &format!("     <rdf:li>{}</rdf:li>\n", escape(p));
+    }
+    add += "    </rdf:Bag>\n   </lr:hierarchicalSubject>";
+    insert(xmp, &add, "lr", "http://ns.adobe.com/lightroom/1.0/")
 }
 
 /// `xmp` with the elements `add` put in its first rdf:Description, and namespace `prefix`
@@ -241,30 +327,12 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
 /// and Lightroom keep the tree's place of a keyword.
 pub fn tag(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let _held = held();
-    let name = tag.rsplit('|').next().unwrap_or(tag).to_owned();
     let mut meta = read(path);
-    meta.keywords.retain(|k| *k != name);
-    if on {
-        meta.keywords.push(name);
-    }
+    let mut paths = tree_paths(path);
+    set_tag(&mut meta.keywords, &mut paths, tag, on);
     let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
     update(path, !on && meta == Meta::default() && !own, |x| {
-        let x = set(x, &meta, own)?;
-        let mut paths = items(&x, "lr:hierarchicalSubject");
-        paths.retain(|p| p != tag);
-        if on {
-            paths.push(tag.to_owned());
-        }
-        let x = without(&x, "lr:hierarchicalSubject");
-        if paths.is_empty() {
-            return Some(x);
-        }
-        let mut add = "\n   <lr:hierarchicalSubject>\n    <rdf:Bag>\n".to_owned();
-        for p in &paths {
-            add += &format!("     <rdf:li>{}</rdf:li>\n", escape(p));
-        }
-        add += "    </rdf:Bag>\n   </lr:hierarchicalSubject>";
-        insert(x, &add, "lr", "http://ns.adobe.com/lightroom/1.0/")
+        set(&with_paths(x.to_owned(), &paths)?, &meta, own)
     })
 }
 
@@ -402,6 +470,53 @@ mod tests {
         assert_eq!(read(&file).keywords, ["Bergen"]);
         assert_eq!(paths(&file), ["Places|Norway|Bergen"]);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// One keyword for two paths that end in it, and in another letter case: set once, kept
+    /// while one of the paths is on, and only that path's box ticked.
+    #[test]
+    fn keeps_a_keyword_another_path_ends_in() {
+        let (mut keywords, mut paths) = (vec!["oslo".to_owned()], Vec::new());
+        // Set by a program that writes keywords only: both boxes ticked.
+        assert!(has_tag(&keywords, &paths, "Events|Oslo"));
+        set_tag(&mut keywords, &mut paths, "Places|Norway|Oslo", true);
+        set_tag(&mut keywords, &mut paths, "Events|Oslo", true);
+        assert_eq!(keywords, ["oslo"]);
+        set_tag(&mut keywords, &mut paths, "events|oslo", false);
+        assert_eq!(
+            (&keywords[..], &paths[..]),
+            (
+                &["oslo".to_owned()][..],
+                &["Places|Norway|Oslo".to_owned()][..]
+            )
+        );
+        assert!(has_tag(&keywords, &paths, "Places|Norway|Oslo"));
+        assert!(!has_tag(&keywords, &paths, "Events|Oslo"));
+        set_tag(&mut keywords, &mut paths, "Places|Norway|Oslo", false);
+        assert!(keywords.is_empty() && paths.is_empty());
+        assert_eq!(
+            Meta::parse_keywords("Oslo, beach, oslo,, Beach"),
+            ["Oslo", "beach"]
+        );
+    }
+
+    /// Keywords typed in the field get paths of their own, which Immich reads; a keyword taken
+    /// away takes its paths along, and a longer path replaces a keyword's own.
+    #[test]
+    fn writes_a_path_for_every_keyword() {
+        let paths = |k: &[&str], p: &[&str]| {
+            let k: Vec<String> = k.iter().map(|s| s.to_string()).collect();
+            tree_paths_for(&k, p.iter().map(|s| s.to_string()).collect())
+        };
+        assert_eq!(paths(&["beach", "Oslo"], &[]), ["beach", "Oslo"]);
+        assert_eq!(paths(&["beach"], &["Places|Oslo", "beach"]), ["beach"]);
+        assert_eq!(paths(&["oslo"], &["Oslo", "Places|Oslo"]), ["Places|Oslo"]);
+        let meta = Meta {
+            keywords: vec!["beach".into()],
+            comment: String::new(),
+        };
+        let xmp = set(r#"<rdf:Description rdf:about="">"#, &meta, false).unwrap();
+        assert_eq!(items(&xmp, "lr:hierarchicalSubject"), ["beach"]);
     }
 
     /// Keywords inside a JPEG, cleared: they stay cleared, not read from the image again.
