@@ -34,6 +34,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Printing to a PDF emptied the file chosen before the images were read: choosing one of the
   images being printed lost that image's page, and a write error halfway left a broken PDF in
   place of the old file. The PDF is now written beside it and takes its place when it is whole.
+- With two windows open, adding a folder to the sort manager in one dropped the folders the
+  other had added, and a crash while saving could leave half the list. A change now goes to the
+  list as it is on disk, written whole or not at all.
 
 ## [0.21.0] - 2026-10-15
 

@@ -3539,36 +3539,37 @@ impl App {
                 });
             });
         if let Some(k) = remove {
-            self.sort_folders.remove(k);
-            self.save_sort_folders();
+            let dir = self.sort_folders[k].clone();
+            self.change_sort_folders(None, Some(&dir));
         }
     }
 
     fn add_sort_folder(&mut self, dir: PathBuf) {
         if !self.sort_folders.contains(&dir) {
-            self.sort_folders.push(dir);
-            self.save_sort_folders();
+            self.change_sort_folders(Some(&dir), None);
         }
     }
 
-    fn save_sort_folders(&mut self) {
-        // As bytes: a name that is not UTF-8 (an old Windows share) must come back the same.
-        let mut text = Vec::new();
-        for d in &self.sort_folders {
-            let bytes = d.as_os_str().as_encoded_bytes();
-            if !bytes.contains(&b'\n') {
-                text.extend(bytes);
-                text.push(b'\n');
+    /// Add a folder to the sort manager or take one out: the change goes to the file as it is
+    /// now, so another window's folders stay, and is written whole or not at all.
+    fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
+        let Some(path) = sort_folders_path() else {
+            return self.notice =
+                Some("Could not save the sort manager's folders: no home folder".into());
+        };
+        // One that is there but cannot be read is not written over: its folders would be lost.
+        let on_disk = match std::fs::read(&path) {
+            Ok(text) => sort_folders_from(&text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                return self.notice =
+                    Some(format!("Could not read the sort manager's folders: {e}"));
             }
-        }
-        let saved = sort_folders_path()
-            .ok_or("no home folder".to_owned())
-            .and_then(|p| {
-                let _ = std::fs::create_dir_all(p.parent().unwrap_or(&p));
-                std::fs::write(&p, text).map_err(|e| e.to_string())
-            });
-        if let Err(e) = saved {
-            self.notice = Some(format!("Could not save the sort manager's folders: {e}"));
+        };
+        let dirs = config::sort_folders_changed(on_disk, add, remove);
+        match config::replace_file(&path, config::sort_folders_text(&dirs)) {
+            Ok(()) => self.sort_folders = dirs,
+            Err(e) => self.notice = Some(format!("Could not save the sort manager's folders: {e}")),
         }
     }
 
