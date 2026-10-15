@@ -4277,6 +4277,11 @@ impl App {
     /// Save the keywords and comment being edited, if they changed.
     fn save_meta(&mut self) {
         let Some(edit) = &mut self.meta else { return };
+        // Fields as they were shown are no change, also when splitting them again at commas
+        // would read them differently ("Smith, John" as one keyword, a comment's last newline).
+        if edit.keywords == edit.saved.keywords_text() && edit.comment == edit.saved.comment {
+            return;
+        }
         let meta = Meta {
             keywords: Meta::parse_keywords(&edit.keywords),
             comment: edit.comment.trim().to_owned(),
