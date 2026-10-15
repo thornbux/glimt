@@ -132,7 +132,12 @@ pub fn months(days: &[Day]) -> Vec<Month> {
         else {
             continue;
         };
-        let (y, m) = (y as i32, m.clamp(1, 12));
+        // A camera with its clock never set writes 0000:00:00; such a day is in no month.
+        if !(1..=12).contains(&m) || y >= 10_000 || !(1..=days_in_month(y as i32, m)).contains(&day)
+        {
+            continue;
+        }
+        let y = y as i32;
         match out.last_mut() {
             Some(last) if (last.year, last.month) == (y, m) => last.images.push((day, d)),
             _ => out.push(Month {
@@ -203,6 +208,11 @@ mod tests {
             day("2025-07-01"),
             day("2025-07-15"),
             day("No date"),
+            // A clock never set, a day that does not exist, a month 13, a year of overflow.
+            day("0000-00-00"),
+            day("2023-02-29"),
+            day("2025-13-01"),
+            day("2147483647-01-01"),
         ];
         let m = months(&days);
         assert_eq!(m.len(), 2);
