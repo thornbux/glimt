@@ -108,6 +108,9 @@ The images in the screenshots are generated for the purpose.
 - **Camera RAW:** CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more, shown at once through
   the JPEG preview the camera stores in them.
 - **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL and SVG.
+- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, OpenEXR, Radiance HDR
+  and more, with a program you have (ffmpeg, ImageMagick …); see
+  [Plugins and new formats](#plugins-and-new-formats).
 - **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
 - **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
   they do not look dull, or to your screen's own profile for a calibrated or wide-gamut screen,
@@ -416,6 +419,62 @@ glimt ~/glimt-test &
    in NUL bytes), describe each picture, and select the ones with a person in them with
    `glimt --remote select`."* You look at what it selected, and decide in Glimt what happens
    to them.
+
+## Plugins and new formats
+
+Glimt has two kinds of plugins. Both are small desktop files in a folder of your own, which
+name a program; Glimt runs it directly, never through a shell, with each file as an argument of
+its own, so a file named `$(rm -rf ~).jpg` stays a name.
+
+- **Plugins** (`~/.local/share/glimt/plugins`) run a program on the selected files from
+  Edit → Plugins: rotate them with mogrify, send them to a website, describe them with an AI
+  model ([`examples/plugins`](examples/plugins)).
+- **Decoder plugins** (`~/.local/share/glimt/decoders`) teach Glimt a format it does not read
+  itself. The program gets a file and writes the image to its standard output, as PNM, PNG,
+  TIFF or any other format Glimt reads; Glimt then lists, shows and makes thumbnails of such
+  files as of any other.
+
+A decoder plugin:
+
+```ini
+[Glimt Decoder]
+Name=JPEG 2000
+Extensions=jp2;j2k;j2c;jpf;jpx
+Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
+```
+
+- `Extensions`: the file endings it takes, separated by `;`. A format Glimt reads itself is
+  never given to a plugin.
+- `Exec`: the command. `%f` is the file's absolute path, as one argument; it may stand inside a
+  word, as ImageMagick's `%f[0]` for a file's first frame. A program next to the desktop file
+  is found there, so a decoder can bring its own script.
+- The program has 30 seconds and may write at most 512 MB; it is stopped after that, with
+  everything it started.
+- New decoders are seen after a restart. In a Flatpak they run on the host, as other programs.
+
+[`examples/decoders`](examples/decoders) has two, tested in Glimt's release tests:
+
+| Decoder | Formats | Needs |
+|---|---|---|
+| `jpeg2000.desktop` | JPEG 2000: archives, libraries, scanned documents | ffmpeg |
+| `science.desktop` | FITS (astronomy), DICOM (medical imaging), OpenEXR and Radiance HDR | ImageMagick (`convert`, or `magick` for version 7) |
+
+```sh
+mkdir -p ~/.local/share/glimt/decoders
+cp examples/decoders/*.desktop ~/.local/share/glimt/decoders/
+```
+
+The science decoder stretches the values from the lowest to the highest (`-auto-level`): good
+for a quick look, not for measuring. DICOM files hold patient data: Glimt only shows the picture,
+reads no fields from them and sends nothing anywhere.
+
+**Which formats go into Glimt itself, and which into plugins.** A format is built into Glimt
+when the image library Glimt already uses reads it, with no new dependency: BMP, ICO, QOI and
+PNM came in that way, with a few lines each. A format that needs a large library, a library in
+C, or a program of its own becomes a decoder plugin, so Glimt stays small and fast for everyone,
+and those who need FITS or DICOM add one file. A decoder that works well for a format is welcome
+in `examples/decoders`: send a pull request with the desktop file, a line on what it needs, and
+a test in `tools/release-tests/tests.sh` that makes such a file and checks that it is shown.
 
 ## Desktop integration
 

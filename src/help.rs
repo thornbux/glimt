@@ -169,6 +169,16 @@ const MANUAL: &[(&str, &str)] = &[
          computer.",
     ),
     (
+        "New formats",
+        "A decoder plugin teaches Glimt a format it does not read itself, such as JPEG 2000, \
+         FITS, DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/decoders with \
+         Extensions=jp2;j2k and an Exec command that writes the image (PNM, PNG …) to its \
+         standard output, %f being the file. Such files are then listed and shown as any \
+         other, with thumbnails. The command runs without a shell, for 30 seconds at most. \
+         examples/decoders in Glimt's source has one for JPEG 2000 (ffmpeg) and one for FITS, \
+         DICOM, OpenEXR and HDR (ImageMagick). New decoders are seen after a restart.",
+    ),
+    (
         "Sort manager",
         "Shift+S shows the sort manager on the right, as in Geeqie: a list of folders, added \
          with Add This Folder or Add…. A click on a folder copies the selected files, or the \
