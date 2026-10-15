@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: FITS images from telescopes (.fits, .fit, .fts, also compressed as .fits.fz
+or .fits.gz), written as a grey PGM to standard output.
+
+The first extension (HDU) that holds an image is shown, of a cube its first plane, with the
+zscale stretch astronomers use (as DS9 and astropy do): faint stars and nebulae show, and a
+few bright stars do not leave the rest black. FITS counts rows from the bottom, so the picture is
+turned to the screen's way. Only the plane shown is read, where the file allows it.
+
+Needs python3 with astropy and numpy (Debian and Ubuntu: python3-astropy).
+"""
+
+import sys
+
+import numpy
+from astropy.io import fits
+from astropy.visualization import ZScaleInterval
+
+
+def pgm(pixels):
+    height, width = pixels.shape
+    sys.stdout.buffer.write(b"P5 %d %d 255\n" % (width, height) + pixels.tobytes())
+
+
+def main(path):
+    # Not mapped: scaled data (BZERO, BSCALE) cannot be; .section still reads one plane only.
+    with fits.open(path, memmap=False, lazy_load_hdus=True) as hdus:
+        for hdu in hdus:
+            if hdu.is_image and hdu.header.get("NAXIS", 0) >= 2:
+                data = hdu.section[(0,) * (hdu.header["NAXIS"] - 2) + (slice(None), slice(None))]
+                break
+        else:
+            sys.exit(f"{path}: no image in it")
+    data = numpy.asarray(data, dtype=numpy.float32)
+    finite = numpy.isfinite(data)
+    if not finite.any():
+        sys.exit(f"{path}: no values in the image")
+    low, high = ZScaleInterval().get_limits(data[finite])
+    if high <= low:
+        high = low + 1
+    data = numpy.where(finite, data, low)
+    pixels = (numpy.clip((data - low) / (high - low), 0, 1) * 255).astype(numpy.uint8)
+    pgm(numpy.flipud(pixels))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

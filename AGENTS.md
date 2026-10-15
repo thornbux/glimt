@@ -41,6 +41,7 @@ documentation.
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys |
 | `src/config.rs` | `Config` (the `config!` macro), the window state, XDG paths, `write_atomic` |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram |
+| `src/decoders.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
 | `src/files.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`) |
 | `src/save.rs` | Saving a turned image with its EXIF, also lossy WebP |
@@ -76,6 +77,10 @@ documentation.
   and written with `Display`. Add a checkbox in Preferences, and clamp ranges in
   `Config::parse`. Settings stay in `Config` even when their feature is not built in, so saving
   never drops them.
+- **A format:** built in when the `image` crate reads it with no new dependency (its feature in
+  `Cargo.toml`, the extension in `files::EXTS`, a test in `decode.rs`). Otherwise a decoder
+  plugin in `examples/decoders` (`src/decoders.rs`), with a check in `tests.sh`, not code or a
+  dependency in Glimt.
 - **An optional format or plugin:** a Cargo feature in `[features]` (also add it to `full`),
   a module or extension list behind `#[cfg(feature = "...")]`, and its settings shown in
   Preferences only when built in. Never break the default build.

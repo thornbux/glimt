@@ -9,6 +9,34 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Decoders for graphics in examples/decoders, through ImageMagick: Photoshop (.psd, .psb) as
+  saved, TGA and OpenEXR (graphics.desktop), and GIMP's .xcf with its layers put together
+  (xcf.desktop); transparency kept.
+- NeXus files (.nxs) from neutron and synchrotron sources in the HDF5 decoder, as they are HDF5.
+- A DICOM decoder in examples/decoders, through pydicom and GDCM: X-ray, CT, MR, ultrasound,
+  panoramic and intraoral X-rays, also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the
+  file names and with MONOCHROME1 the right way; no patient field is read out or kept.
+- A FITS decoder in examples/decoders, through astropy: the first image of a telescope file, also
+  compressed (.fits.fz, .fits.gz), with the zscale stretch astronomers use. Decoders are read in
+  the order of their file names, so when two take the same ending the first does; science.desktop
+  is left for FITS and DICOM through ImageMagick alone.
+- An MRC decoder in examples/decoders, for cryo-electron microscopy: a micrograph, or the middle
+  section of a map or tomogram (.mrc, .mrcs, .map, .rec, .st, .ali), through mrcfile.
+- A Bio-Formats decoder in examples/decoders: microscope files as Fiji reads them (Zeiss .czi,
+  Leica .lif, Nikon .nd2, Olympus .oib/.oir, ICS and more), their first plane scaled to 8 bits,
+  through Bio-Formats' bfconvert.
+- Zeiss .lsm microscopy and .gel gel scans, which are TIFF files under other names: listed and
+  shown, their first page.
+- Decoder plugins for medicine and research in examples/decoders: NIfTI brain scans (the middle
+  axial slice), whole pathology slides through OpenSlide (.svs, .ndpi, .mrxs …) and HDF5 and
+  NetCDF-4 data (the first dataset of two or more dimensions). A decoder's endings may have two
+  parts, as .nii.gz.
+- Radiance HDR (.hdr), read by the image library Glimt has already, tone-mapped to the screen: the
+  average brightness made middle grey and the highlights rolled off instead of cut.
+- Decoder plugins: a desktop file in ~/.local/share/glimt/decoders names a program that turns a
+  format Glimt does not read itself into an image, so it is listed and shown with thumbnails.
+  examples/decoders has JPEG 2000 (ffmpeg) and FITS, DICOM and OpenEXR (ImageMagick); the README
+  says how to write one, and which formats go into Glimt itself.
 - Grey TIFFs of floats or signed numbers, as science writes them (height models, microscopy):
   shown stretched from their lowest value to their highest, on every page. Before, they could not
   be shown.
@@ -18,6 +46,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (Iptc4xmpCore:AltTextAccessibility and ExtDescrAccessibility), read from the sidecar or the
   image and saved to the sidecar when edited. A screen reader reads the alt text first, and the
   example AI plugin writes its description there too.
+
+### Changed
+
+- The README, man page and manual say that remote commands reach only Glimt on the same computer,
+  through a private socket, never over the network, and how to reach another computer (ssh).
 
 ## [0.23.0] - 2026-10-15
 

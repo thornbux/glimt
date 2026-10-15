@@ -1,0 +1,9 @@
+[Glimt Decoder]
+Name=FITS and DICOM (ImageMagick)
+Comment=FITS and DICOM through ImageMagick, for a computer without astropy or pydicom: fits.desktop and dicom.desktop come first by name, and take these when both are there
+Extensions=fits;fit;fts;dcm
+# %f[0]: the first frame of a DICOM series or FITS cube. -auto-level stretches the values from the
+# lowest to the highest, as the data is seldom 0-255; -depth 8 keeps the image small. The path
+# Glimt gives is absolute, so ImageMagick never reads a "format:" prefix in a file name.
+# ImageMagick 7 names the program magick instead of convert.
+Exec=convert %f[0] -auto-level -depth 8 ppm:-

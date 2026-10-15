@@ -36,6 +36,7 @@ mod collections;
 mod colour;
 mod config;
 mod decode;
+mod decoders;
 mod duplicates;
 mod exif;
 mod external;

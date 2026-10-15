@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: DICOM images from medical and dental imaging (.dcm, .dicom, .dic): X-ray,
+CT, MR, ultrasound, panoramic and intraoral X-rays, written as a PGM or PPM to standard output.
+
+Compressed DICOM (JPEG, JPEG 2000, JPEG-LS, RLE), common in dental and hospital equipment, is
+read through GDCM. The window the file names for viewing (Window Center and Width, or its VOI
+LUT) is used, as a PACS viewer shows it; MONOCHROME1 (white for zero) is turned the right way;
+of a multi-frame file, the middle frame.
+
+Only the picture is read and shown: no name, ID or other patient field is printed or kept, and
+nothing is sent anywhere.
+
+Needs python3 with pydicom, numpy and GDCM (Debian and Ubuntu: python3-pydicom python3-gdcm).
+"""
+
+import sys
+
+import numpy
+import pydicom
+from pydicom.pixel_data_handlers.util import apply_voi_lut, convert_color_space
+
+
+def grey(values):
+    """A 2D array of any numbers as bytes 0-255, from its lowest value to its highest."""
+    values = numpy.asarray(values, dtype=numpy.float32)
+    low, high = float(values.min()), float(values.max())
+    if high <= low:
+        high = low + 1
+    return ((values - low) / (high - low) * 255).astype(numpy.uint8)
+
+
+def main(path):
+    ds = pydicom.dcmread(path)
+    if "PixelData" not in ds:
+        sys.exit(f"{path}: a DICOM file without a picture (a report or a series index)")
+    pixels = ds.pixel_array
+    frames = int(getattr(ds, "NumberOfFrames", 1) or 1)
+    if frames > 1:
+        pixels = pixels[frames // 2]
+    photometric = str(getattr(ds, "PhotometricInterpretation", ""))
+    out = sys.stdout.buffer
+    if pixels.ndim == 3:
+        if photometric.startswith("YBR"):
+            pixels = convert_color_space(pixels, photometric, "RGB")
+        rgb = grey(pixels) if pixels.dtype != numpy.uint8 else pixels
+        height, width = rgb.shape[:2]
+        out.write(b"P6 %d %d 255\n" % (width, height) + numpy.ascontiguousarray(rgb).tobytes())
+        return
+    picture = grey(apply_voi_lut(pixels, ds))
+    if photometric == "MONOCHROME1":
+        picture = 255 - picture
+    height, width = picture.shape
+    out.write(b"P5 %d %d 255\n" % (width, height) + picture.tobytes())
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

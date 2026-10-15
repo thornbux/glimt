@@ -1,0 +1,5 @@
+[Glimt Decoder]
+Name=Whole-slide images (pathology)
+Comment=A whole pathology slide at up to 4096 pixels, through OpenSlide
+Extensions=svs;ndpi;mrxs;scn;vms;vmu;bif;svslide
+Exec=glimt-openslide %f

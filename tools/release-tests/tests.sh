@@ -18,7 +18,14 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 sqlite3 >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+    # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
+    # it had when added.
+    curl -sfL -o /tmp/bftools.zip \
+        https://downloads.openmicroscopy.org/bio-formats/8.5.0/artifacts/bftools.zip
+    echo "07a3bb1d3de84da3a709655a1008cb2d9b19becc5bad4ae4112633aec9380478  /tmp/bftools.zip" \
+        | sha256sum -c --quiet && (cd /opt && unzip -q /tmp/bftools.zip) \
+        || echo "FAIL installing bftools"
     # tools/screenshots/run.sh (SHOTS=1) needs only this version.
     for v in new $([ -z "$SHOTS" ] && echo old); do
         echo "-- building $v"
@@ -495,6 +502,190 @@ for v in new old; do
     got="$(colour playlist-real-$v 500 250) $(colour playlist-fake-$v 500 250)"
     if [ $v = new ]; then expect "a real video shown, the playlist not followed" "$got" "blue other"
     else note "old: $got"; fi
+done
+as_version new
+
+echo "-- decoder plugins: the examples show a .jp2 through ffmpeg and a .fits through astropy"
+for v in new old; do
+    as_version $v
+    d=/tmp/decoders-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    ffmpeg -v error -f lavfi -i color=red:s=600x400 -frames:v 1 -c:v jpeg2000 $d/a.jp2
+    # Grey, as telescopes write it: dark at the top, light at the bottom.
+    convert -size 600x400 gradient:black-white $d/b.fits
+    # Compressed, as large telescope archives keep them: brighter upwards, rows counted from the
+    # bottom as FITS does.
+    python3 -c "import sys, numpy; from astropy.io import fits
+fits.CompImageHDU(numpy.fromfunction(lambda y, x: y, (400, 600), dtype=numpy.float32)).writeto(sys.argv[1])" $d/c.fits.fz
+    config
+    start $d/a.jp2
+    sleep 2
+    shot decoder-jp2-$v
+    key space; sleep 2
+    shot decoder-fits-$v
+    key space; sleep 2
+    shot decoder-fz-$v
+    quit
+    if [ $v = new ]; then
+        expect "a .jp2 through its decoder" "$(colour decoder-jp2-new 640 400)" red
+        top=$(red decoder-fits-new 640 120) bottom=$(red decoder-fits-new 640 700)
+        expect "a .fits through its decoder, stretched" "$([ $top -lt 60 ] && [ $bottom -gt 190 ] && echo yes)" yes
+        top=$(red decoder-fz-new 760 120) bottom=$(red decoder-fz-new 760 700)
+        expect "a compressed .fits.fz, its top at the top" "$([ $top -gt 190 ] && [ $bottom -lt 60 ] && echo yes)" yes
+    else note "old: $(colour decoder-jp2-old 640 400), fits $(red decoder-fits-old 640 700)"; fi
+done
+as_version new
+
+echo "-- science decoders: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
+for v in new old; do
+    as_version $v
+    d=/tmp/science-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # Brighter to the front (y) in the volume, brighter downwards in the dataset: the front of a
+    # brain slice is shown at the top, a dataset's first row at the top.
+    python3 - "$d" <<'PY'
+import sys, numpy, nibabel, h5py
+d = sys.argv[1]
+volume = numpy.fromfunction(lambda x, y, z: y, (40, 50, 30), dtype=numpy.float32)
+nibabel.save(nibabel.Nifti1Image(volume, numpy.eye(4)), f"{d}/a.nii.gz")
+with h5py.File(f"{d}/b.h5", "w") as f:
+    f.create_dataset("data/temperature", data=numpy.fromfunction(lambda r, c: r, (100, 200)))
+PY
+    convert -size 1024x768 xc:red -define tiff:tile-geometry=256x256 -compress jpeg ptif:$d/c.svs
+    config
+    start $d/a.nii.gz
+    sleep 3
+    shot science-nifti-$v
+    key space; sleep 3
+    shot science-hdf5-$v
+    key space; sleep 3
+    shot science-slide-$v
+    quit
+    if [ $v = new ]; then
+        expect "NIfTI: the front at the top" \
+            "$([ $(red science-nifti-new 760 120) -gt 200 ] && [ $(red science-nifti-new 760 700) -lt 60 ] && echo yes)" yes
+        expect "HDF5: the first row at the top" \
+            "$([ $(red science-hdf5-new 760 200) -lt 60 ] && [ $(red science-hdf5-new 760 620) -gt 200 ] && echo yes)" yes
+        expect "a pathology slide through OpenSlide" "$(colour science-slide-new 760 412)" red
+    else note "old: $(red science-nifti-old 760 120) $(red science-hdf5-old 760 620) $(colour science-slide-old 760 412)"; fi
+done
+as_version new
+
+echo "-- the Bio-Formats decoder: a microscope file (ICS) shown through bftools"
+for v in new old; do
+    as_version $v
+    d=/tmp/bioformats-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # Dark at the top, light at the bottom, 16 bits as a microscope camera writes.
+    convert -size 600x400 gradient:black-white -depth 16 /tmp/gradient.tif
+    /opt/bftools/bfconvert -no-upgrade -overwrite /tmp/gradient.tif $d/a.ics >/dev/null 2>&1
+    config
+    export GLIMT_BFTOOLS=/opt/bftools
+    start $d/a.ics
+    sleep 5
+    shot bioformats-$v
+    quit
+    unset GLIMT_BFTOOLS
+    if [ $v = new ]; then
+        expect "an ICS file through Bio-Formats" \
+            "$([ $(red bioformats-new 760 120) -lt 60 ] && [ $(red bioformats-new 760 700) -gt 190 ] && echo yes)" yes
+    else note "old: $(red bioformats-old 760 700)"; fi
+done
+as_version new
+
+echo "-- the MRC decoder: a cryo-EM map's middle section, its top at the top"
+for v in new old; do
+    as_version $v
+    d=/tmp/mrc-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # Brighter upwards (y), as MRC counts rows from the bottom.
+    python3 - "$d" <<'PY'
+import sys, numpy, mrcfile
+volume = numpy.fromfunction(lambda z, y, x: y, (20, 400, 600), dtype=numpy.float32)
+mrcfile.new(f"{sys.argv[1]}/a.mrc", data=volume).close()
+PY
+    config
+    start $d/a.mrc
+    sleep 3
+    shot mrc-$v
+    quit
+    if [ $v = new ]; then
+        expect "an MRC map, its top at the top" \
+            "$([ $(red mrc-new 760 120) -gt 190 ] && [ $(red mrc-new 760 700) -lt 60 ] && echo yes)" yes
+    else note "old: $(red mrc-old 760 120)"; fi
+done
+as_version new
+
+echo "-- the DICOM decoder: an X-ray in the window it names, MONOCHROME1 the right way"
+for v in new old; do
+    as_version $v
+    d=/tmp/dicom-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # 12 bits brighter downwards, a window over the middle half, and white for zero as some
+    # X-ray machines write: shown light at the top, dark at the bottom.
+    python3 - "$d" <<'PY'
+import sys, numpy, pydicom
+from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.uid import ExplicitVRLittleEndian, generate_uid, SecondaryCaptureImageStorage
+meta = FileMetaDataset()
+meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+meta.MediaStorageSOPInstanceUID = generate_uid()
+meta.TransferSyntaxUID = ExplicitVRLittleEndian
+ds = Dataset()
+ds.file_meta = meta
+ds.SOPClassUID, ds.SOPInstanceUID = meta.MediaStorageSOPClassUID, meta.MediaStorageSOPInstanceUID
+ds.PatientName = "Test^Nobody"
+ds.Modality = "DX"
+ds.Rows, ds.Columns = 400, 600
+ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, "MONOCHROME1"
+ds.BitsAllocated, ds.BitsStored, ds.HighBit, ds.PixelRepresentation = 16, 12, 11, 0
+ds.WindowCenter, ds.WindowWidth = 2048, 2048
+ds.PixelData = numpy.fromfunction(lambda r, c: r * 4095 / 399, (400, 600)).astype(numpy.uint16).tobytes()
+ds.is_little_endian, ds.is_implicit_VR = True, False
+ds.save_as(f"{sys.argv[1]}/a.dcm", write_like_original=False)
+PY
+    # The same compressed as JPEG 2000, as dental and hospital equipment often stores it.
+    gdcmconv --j2k $d/a.dcm $d/b.dcm
+    config
+    start $d/a.dcm
+    sleep 3
+    shot dicom-$v
+    key space; sleep 3
+    shot dicom-j2k-$v
+    quit
+    if [ $v = new ]; then
+        expect "DICOM: windowed, MONOCHROME1 light at the top" \
+            "$([ $(red dicom-new 760 120) -gt 190 ] && [ $(red dicom-new 760 700) -lt 60 ] && echo yes)" yes
+        expect "DICOM compressed as JPEG 2000" \
+            "$([ $(red dicom-j2k-new 760 120) -gt 190 ] && [ $(red dicom-j2k-new 760 700) -lt 60 ] && echo yes)" yes
+    else note "old: $(red dicom-old 760 120)"; fi
+done
+as_version new
+
+echo "-- the graphics decoder: a Photoshop file and a TGA through ImageMagick"
+for v in new old; do
+    as_version $v
+    d=/tmp/graphics-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    convert -size 600x400 xc:lime $d/a.psd
+    convert -size 600x400 xc:blue $d/b.tga
+    config
+    start $d/a.psd
+    sleep 3
+    shot graphics-psd-$v
+    key space; sleep 3
+    shot graphics-tga-$v
+    quit
+    if [ $v = new ]; then
+        expect "a Photoshop file shown" "$(colour graphics-psd-new 760 412)" green
+        expect "a TGA shown" "$(colour graphics-tga-new 760 412)" blue
+    else note "old: $(colour graphics-psd-old 760 412) $(colour graphics-tga-old 760 412)"; fi
 done
 as_version new
 

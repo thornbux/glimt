@@ -9,8 +9,12 @@ use std::path::{Path, PathBuf};
 
 pub const EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "bmp", "ico", "qoi", "pbm", "pgm", "ppm",
-    "pnm", "pam",
+    "pnm", "pam", "hdr", "lsm", "gel",
 ];
+
+/// TIFF under other names: Zeiss LSM microscopy and GE Typhoon gels (square-root coded, shown as
+/// stored). Only their first page: an LSM file's others are thumbnails.
+pub const TIFF_LIKE: &[&str] = &["tif", "tiff", "lsm", "gel"];
 
 /// HEIC/HEIF photos (iPhone), decoded by ffmpeg with the heic feature.
 pub const HEIC_EXTS: &[&str] = if cfg!(feature = "heic") {
@@ -153,9 +157,20 @@ pub fn is_listed_type(path: &Path, types: Types) -> bool {
         && (has_ext(path, EXTS)
             || is_heif(path)
             || has_ext(path, JXL_EXTS)
-            || has_ext(path, SVG_EXTS)))
+            || has_ext(path, SVG_EXTS)
+            || crate::decoders::for_path(path).is_some()))
         || (types.raw && has_ext(path, raw::EXTS))
         || (types.videos && is_video(path))
+}
+
+/// Whether Glimt reads the format of `path` itself, as built: a decoder plugin is not asked.
+pub fn own_ext(path: &Path) -> bool {
+    has_ext(path, EXTS)
+        || is_heif(path)
+        || has_ext(path, JXL_EXTS)
+        || has_ext(path, SVG_EXTS)
+        || has_ext(path, raw::EXTS)
+        || is_video(path)
 }
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its images).

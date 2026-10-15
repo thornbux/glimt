@@ -65,7 +65,9 @@ const MANUAL: &[(&str, &str)] = &[
          open PATH …) controls a running Glimt from a script, and glimt --remote current, \
          selection and select PATH … tell a script (or an AI assistant) what is shown and \
          selected, or select files for you; they print each path followed by a NUL byte, and \
-         none of them changes a file. Several can be told apart by name: \
+         none of them changes a file. They reach only the Glimt windows of the same user on \
+         this computer, through a private socket, never over the network; for another \
+         computer, run the command there (ssh). Several can be told apart by name: \
          start them with glimt --name left and glimt --name right, and glimt --name left \
          --remote slideshow reaches only the left one. glimt --kiosk is for a picture screen: \
          full screen with only the image, browsing and the slideshow but nothing that changes \
@@ -171,6 +173,20 @@ const MANUAL: &[(&str, &str)] = &[
          directly, never through a shell; examples/plugins in Glimt's source has one that \
          writes a description of each image as its comment, made by a model on this \
          computer.",
+    ),
+    (
+        "New formats",
+        "A decoder plugin teaches Glimt a format it does not read itself, such as JPEG 2000, \
+         FITS, DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/decoders with \
+         Extensions=jp2;j2k and an Exec command that writes the image (PNM, PNG …) to its \
+         standard output, %f being the file. Such files are then listed and shown as any \
+         other, with thumbnails. The command runs without a shell, for 30 seconds at most. \
+         examples/decoders in Glimt's source has decoders for JPEG 2000 (ffmpeg), FITS from \
+         telescopes (astropy), DICOM from medical and dental imaging, also compressed \
+         (pydicom), FITS and DICOM through ImageMagick, NIfTI brain scans, whole pathology slides (OpenSlide), \
+         microscope files (Bio-Formats), cryo-EM maps (MRC) and HDF5, \
+         NetCDF-4 and NeXus data, \
+         Photoshop, TGA and OpenEXR, and GIMP's own files (ImageMagick). New decoders are seen after a restart.",
     ),
     (
         "Sort manager",

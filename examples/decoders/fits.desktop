@@ -1,0 +1,5 @@
+[Glimt Decoder]
+Name=FITS (astronomy)
+Comment=FITS images from telescopes, also compressed, with the zscale stretch astronomers use
+Extensions=fits;fit;fts;fits.fz;fits.gz;fit.fz
+Exec=glimt-fits %f

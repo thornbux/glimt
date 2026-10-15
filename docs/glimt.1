@@ -38,7 +38,8 @@ is mounted with
 first.
 .PP
 It reads JPEG, PNG, WebP, GIF (also animated), TIFF (also with several pages), BMP, ICO,
-QOI and PNM (PBM, PGM, PPM, PAM), and camera RAW files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF,
+QOI, PNM (PBM, PGM, PPM, PAM), Radiance HDR (tone-mapped) and TIFF under other names (Zeiss
+LSM, gel scans), and camera RAW files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF,
 JPEG XL and SVG.
 .SH OPTIONS
 .TP
@@ -100,12 +101,12 @@ control is off in Preferences.
 .BI \-\-remote " COMMAND"
 Send
 .I COMMAND
-to the Glimt window used last.
+to the Glimt window used last, on this computer.
 .TP
 .BI \-\-remote\-all " COMMAND"
 Send
 .I COMMAND
-to every running Glimt.
+to every running Glimt of this user on this computer.
 .TP
 .BR \-h ", " \-\-help
 List the options and remote commands.
@@ -113,6 +114,12 @@ List the options and remote commands.
 .BR \-V ", " \-\-version
 Print the version.
 .SH REMOTE COMMANDS
+Remote commands reach only the Glimt windows of the same user on the same computer: they go
+through a Unix socket in
+.IR $XDG_RUNTIME_DIR/glimt ,
+which only that user can open. Glimt opens no network port. To control Glimt on another
+computer, run the command there, for example
+.BR "ssh you@laptop glimt \-\-remote next" .
 .TP
 .BR next ", " prev ", " first ", " last
 Show the next, previous, first or last image.
@@ -241,6 +248,11 @@ next to it, read by darktable and digiKam too.
 .I $XDG_DATA_HOME/glimt/plugins
 Plugins: desktop files whose command runs on the selected files (default
 .IR ~/.local/share/glimt/plugins ).
+.TP
+.I $XDG_DATA_HOME/glimt/decoders
+Decoder plugins: desktop files whose command turns a file of a format Glimt does not read itself
+into an image on its standard output (default
+.IR ~/.local/share/glimt/decoders ).
 .TP
 .I $XDG_DATA_HOME/glimt/collections
 Collections, as Geeqie .gqv files (default

@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: a whole-slide image from pathology (Aperio .svs, Hamamatsu .ndpi, MIRAX .mrxs,
+Leica .scn, Ventana .bif …), shown whole at most 4096 pixels on its longer side, written as a
+PPM to standard output.
+
+OpenSlide reads the slide's own smaller levels, so a gigapixel slide takes seconds and little
+memory. Slides saved as plain .tif are read by Glimt itself, as any TIFF.
+
+Needs python3 with openslide-python (Debian and Ubuntu: python3-openslide).
+"""
+
+import sys
+
+import openslide
+
+SIDE = 4096
+
+
+def main(path):
+    with openslide.OpenSlide(path) as slide:
+        picture = slide.get_thumbnail((SIDE, SIDE)).convert("RGB")
+    picture.save(sys.stdout.buffer, "PPM")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

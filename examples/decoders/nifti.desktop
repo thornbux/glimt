@@ -1,0 +1,5 @@
+[Glimt Decoder]
+Name=NIfTI (brain MRI)
+Comment=The middle axial slice of a NIfTI volume, as brain MRI and fMRI research keep them
+Extensions=nii;nii.gz
+Exec=glimt-nifti %f

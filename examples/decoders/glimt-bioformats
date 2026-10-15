@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: microscope files through Bio-Formats, the library Fiji and ImageJ use: Zeiss
+.czi, Leica .lif, Nikon .nd2, Olympus .oib/.oir, ICS and over 150 more. The first plane (series,
+time point and z-section 0) is written as a PNG to standard output, its brightness scaled to 8
+bits by Bio-Formats, as microscopes store 12 or 16.
+
+Bio-Formats' bfconvert writes to files only: it writes into a new private temporary folder,
+which is removed afterwards. Each channel becomes a file of its own; the first is shown.
+
+Needs Java and Bio-Formats' command line tools (bftools, from openmicroscopy.org): bfconvert on
+the PATH, or GLIMT_BFTOOLS set to the folder that holds it.
+"""
+
+import glob
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+def bfconvert():
+    folder = os.environ.get("GLIMT_BFTOOLS")
+    if folder:
+        return os.path.join(folder, "bfconvert")
+    found = shutil.which("bfconvert")
+    if not found:
+        sys.exit("bfconvert (Bio-Formats' bftools) is not installed, or not on the PATH")
+    return found
+
+
+def main(path):
+    with tempfile.TemporaryDirectory(prefix="glimt-bioformats-") as out:
+        made = subprocess.run(
+            [bfconvert(), "-no-upgrade", "-nolookup", "-series", "0", "-timepoint", "0",
+             "-z", "0", "-autoscale", path, os.path.join(out, "plane_C%c.png")],
+            capture_output=True,
+            text=True,
+            # Bio-Formats asks nothing, but a JVM may wait for input that never comes.
+            stdin=subprocess.DEVNULL,
+        )
+        planes = sorted(glob.glob(os.path.join(out, "plane_C*.png")))
+        if made.returncode != 0 or not planes:
+            sys.exit((made.stderr.strip().splitlines() or ["no image"])[-1])
+        with open(planes[0], "rb") as picture:
+            sys.stdout.buffer.write(picture.read())
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

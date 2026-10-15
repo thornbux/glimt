@@ -104,10 +104,15 @@ The images in the screenshots are generated for the purpose.
 - **Everyday:** JPEG, PNG, WebP, GIF, TIFF, BMP, ICO (the largest of its sizes), QOI and PNM
   (PBM, PGM, PPM, PAM), with animated GIF and WebP playing in a loop,
   every page of a multi-page TIFF, and grey TIFFs of floats or signed numbers as science writes
-  them (height models, microscopy), stretched from their lowest value to their highest.
+  them (height models, microscopy), stretched from their lowest value to their highest. TIFFs
+  under other names are read too: Zeiss `.lsm` from microscopes and `.gel` from gel scanners.
 - **Camera RAW:** CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more, shown at once through
   the JPEG preview the camera stores in them.
-- **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL and SVG.
+- **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL, SVG, and Radiance HDR, tone-mapped
+  to the screen.
+- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, NIfTI, microscope and
+  pathology files, Photoshop, GIMP, OpenEXR and more, with a program you have (ffmpeg, ImageMagick …); see
+  [Plugins and new formats](#plugins-and-new-formats).
 - **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
 - **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
   they do not look dull, or to your screen's own profile for a calibrated or wide-gamut screen,
@@ -292,7 +297,13 @@ Lightroom CC (the cloud version) has no catalog file to import.
 
 A running Glimt takes commands from the command line, for example
 from a script or a keyboard shortcut of the desktop. `--remote` goes to the Glimt window used
-last, `--remote-all` to every one:
+last, `--remote-all` to every one.
+
+**Only on the same computer, never over the network.** The commands go through a Unix socket
+in `$XDG_RUNTIME_DIR/glimt`, which only your user can reach; Glimt opens no network port and
+listens on none. To control Glimt on another computer, run the command there, for example
+over ssh as the same user who has Glimt open: `ssh you@laptop glimt --remote next` (the login
+must have the desktop's `XDG_RUNTIME_DIR`, as a systemd login has).
 
 ```sh
 glimt --remote next          # also prev, first, last, slideshow, random, fullscreen, quit
@@ -417,6 +428,75 @@ glimt ~/glimt-test &
    in NUL bytes), describe each picture, and select the ones with a person in them with
    `glimt --remote select`."* You look at what it selected, and decide in Glimt what happens
    to them.
+
+## Plugins and new formats
+
+Glimt has two kinds of plugins. Both are small desktop files in a folder of your own, which
+name a program; Glimt runs it directly, never through a shell, with each file as an argument of
+its own, so a file named `$(rm -rf ~).jpg` stays a name.
+
+- **Plugins** (`~/.local/share/glimt/plugins`) run a program on the selected files from
+  Edit → Plugins: rotate them with mogrify, send them to a website, describe them with an AI
+  model ([`examples/plugins`](examples/plugins)).
+- **Decoder plugins** (`~/.local/share/glimt/decoders`) teach Glimt a format it does not read
+  itself. The program gets a file and writes the image to its standard output, as PNM, PNG,
+  TIFF or any other format Glimt reads; Glimt then lists, shows and makes thumbnails of such
+  files as of any other.
+
+A decoder plugin:
+
+```ini
+[Glimt Decoder]
+Name=JPEG 2000
+Extensions=jp2;j2k;j2c;jpf;jpx
+Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
+```
+
+- `Extensions`: the file endings it takes, separated by `;`; an ending may have two parts, as
+  `nii.gz`. When two decoders take the same ending, the one whose file comes first by name does.
+  A format Glimt reads itself is never given to a plugin.
+- `Exec`: the command. `%f` is the file's absolute path, as one argument; it may stand inside a
+  word, as ImageMagick's `%f[0]` for a file's first frame. A program next to the desktop file
+  is found there, so a decoder can bring its own script.
+- The program has 30 seconds and may write at most 512 MB; it is stopped after that, with
+  everything it started.
+- New decoders are seen after a restart. In a Flatpak they run on the host, as other programs.
+
+[`examples/decoders`](examples/decoders) has these, each tested in Glimt's release tests:
+
+| Decoder | Formats | Field | Needs |
+|---|---|---|---|
+| `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
+| `fits.desktop` | FITS (`.fits`, `.fit`, `.fts`, also compressed `.fits.fz` and `.fits.gz`): the first image, with astronomers' zscale stretch | astronomy, solar physics | python3-astropy |
+| `dicom.desktop` | DICOM (`.dcm`, `.dicom`, `.dic`), also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the file names; the middle frame of a series | medicine, dentistry (X-ray, CT, MR, ultrasound, panoramic, intraoral) | python3-pydicom, python3-gdcm |
+| `graphics.desktop` | Photoshop (`.psd`, `.psb`) as saved, TGA, OpenEXR (`.exr`) renderings | design, architecture, games, 3D | ImageMagick |
+| `xcf.desktop` | GIMP's own files (`.xcf`), their layers put together | design | ImageMagick |
+| `science.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
+| `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
+| `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
+| `bioformats.desktop` | Microscope files through Bio-Formats, as Fiji reads them: Zeiss `.czi`, Leica `.lif`, Nikon `.nd2`, Olympus `.oib`/`.oir`, ICS and more; the first plane | microscopy, cell biology | Java and Bio-Formats' bftools (`bfconvert`, or `GLIMT_BFTOOLS` set to its folder) |
+| `mrc.desktop` | MRC (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`, `.ali`): a micrograph, or the middle section of a map or tomogram | cryo-electron microscopy, structural biology | python3-mrcfile |
+| `hdf5.desktop` | HDF5, NetCDF-4 and NeXus (`.h5`, `.hdf5`, `.he5`, `.nc`, `.nxs`): the first dataset of two or more dimensions | climate, physics, neutron and synchrotron sources, satellites, microscopy | python3-h5py |
+
+```sh
+mkdir -p ~/.local/share/glimt/decoders
+cp examples/decoders/* ~/.local/share/glimt/decoders/     # the desktop files and their scripts
+```
+
+These are for a quick look, not for measuring: the values are stretched to grey, from the
+lowest to the highest (ImageMagick's `-auto-level`) or between the 1st and 99th percentile (the
+Python ones), and the scripts read only the slice or level they show. DICOM and NIfTI files can
+hold patient data: Glimt and its decoders only show the picture, print or keep no name, ID or
+other field, and send nothing anywhere. DICOM files without an ending (as many PACS exports
+are) are not listed: give them `.dcm`, or open the folder in a PACS viewer.
+
+**Which formats go into Glimt itself, and which into plugins.** A format is built into Glimt
+when the image library Glimt already uses reads it, with no new dependency: BMP, ICO, QOI and
+PNM came in that way, with a few lines each. A format that needs a large library, a library in
+C, or a program of its own becomes a decoder plugin, so Glimt stays small and fast for everyone,
+and those who need FITS or DICOM add one file. A decoder that works well for a format is welcome
+in `examples/decoders`: send a pull request with the desktop file, a line on what it needs, and
+a test in `tools/release-tests/tests.sh` that makes such a file and checks that it is shown.
 
 ## Desktop integration
 

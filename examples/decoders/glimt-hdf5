@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: the first picture in an HDF5 file (.h5, .hdf5, .he5), a NetCDF-4 file (.nc,
+.nc4) or a NeXus file (.nxs, from neutron and synchrotron sources), as climate, physics,
+satellite and microscope data keep them, written as a grey PGM
+to standard output.
+
+The first numeric dataset of two or more dimensions is shown, in the order the file lists them;
+of one with more than two, the first plane (index 0 of every dimension but the last two). The
+values are stretched between their 1st and 99th percentile; missing values (NaN) are black.
+Only that plane is read from the file. NetCDF-3 files (the classic format) are not HDF5 and
+are not read.
+
+Needs python3 with h5py and numpy (Debian and Ubuntu: python3-h5py).
+"""
+
+import sys
+
+import h5py
+import numpy
+
+# Larger planes are read every n-th row and column, so a huge dataset needs little memory.
+MAX_SIDE = 4096
+
+
+def grey(values):
+    """A 2D array of any numbers as bytes 0-255, stretched between the 1st and 99th percentile."""
+    values = numpy.asarray(values, dtype=numpy.float32)
+    finite = values[numpy.isfinite(values)]
+    if finite.size == 0:
+        return numpy.zeros(values.shape, numpy.uint8)
+    low, high = numpy.percentile(finite, [1, 99])
+    if high <= low:
+        high = low + 1
+    values = numpy.nan_to_num(values, nan=low, posinf=high, neginf=low)
+    return (numpy.clip((values - low) / (high - low), 0, 1) * 255).astype(numpy.uint8)
+
+
+def pgm(pixels):
+    height, width = pixels.shape
+    sys.stdout.buffer.write(b"P5 %d %d 255\n" % (width, height) + pixels.tobytes())
+
+
+def first_picture(group):
+    """The first dataset of numbers with two or more dimensions, depth first."""
+    for name in group:
+        item = group[name]
+        if isinstance(item, h5py.Dataset):
+            if item.ndim >= 2 and item.dtype.kind in "iuf" and min(item.shape[-2:]) > 1:
+                return item
+        elif isinstance(item, h5py.Group):
+            found = first_picture(item)
+            if found is not None:
+                return found
+    return None
+
+
+def main(path):
+    with h5py.File(path, "r") as f:
+        data = first_picture(f)
+        if data is None:
+            sys.exit(f"{path}: no dataset of two or more dimensions")
+        rows, cols = data.shape[-2:]
+        step = max(1, -(-max(rows, cols) // MAX_SIDE))
+        index = (0,) * (data.ndim - 2) + (slice(None, None, step), slice(None, None, step))
+        pgm(grey(data[index]))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])
