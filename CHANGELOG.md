@@ -31,6 +31,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   copies were written, before they were on the disk: pulled out right after, both could be lost.
   A copy is now on disk before the original goes, and keeps its modification time, so sorting by
   date still works after copying or moving to another disk.
+- Printing to a PDF emptied the file chosen before the images were read: choosing one of the
+  images being printed lost that image's page, and a write error halfway left a broken PDF in
+  place of the old file. The PDF is now written beside it and takes its place when it is whole.
 
 ## [0.21.0] - 2026-10-15
 

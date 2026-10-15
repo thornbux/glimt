@@ -553,6 +553,26 @@ quit
 expect "Glimt still runs" "$alive" yes
 if [ "${mb:-9999}" -lt 400 ]; then pass "memory stays small: $mb MB"; else fail "memory: ${mb:-?} MB"; fi
 
+echo "-- printing to a PDF named as one of the images printed: that image is read first"
+d=/tmp/printself
+for v in new old; do
+    as_version $v
+    rm -rf $d && mkdir -p $d
+    convert -size 300x200 xc:red $d/a.jpg
+    convert -size 300x200 xc:blue $d/b.jpg
+    config
+    start $d/a.jpg
+    sleep 2
+    answer $d/a.jpg; key ctrl+a; key ctrl+p; sleep 1; key Return
+    for i in $(seq 30); do pdfinfo $d/a.jpg >/dev/null 2>&1 && break; sleep 1; done
+    sleep 1
+    quit
+    pages=$(pdfinfo $d/a.jpg 2>/dev/null | awk '/^Pages:/ {print $2}')
+    if [ $v = new ]; then expect "both images in the PDF" "$pages" 2
+    else note "old, pages: ${pages:-none}"; fi
+done
+as_version new
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d
