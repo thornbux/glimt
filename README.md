@@ -68,6 +68,8 @@ The images in the screenshots are generated for the purpose.
 | Pan view (Ctrl+J), here in the Light theme | Help → Keyboard Map |
 | ![The keyword tree in the EXIF panel](docs/screenshots/keyword-tree.png) | ![Importing a Lightroom catalog](docs/screenshots/lightroom-import.png) |
 | The EXIF panel with keywords, a comment and the keyword tree | Import Lightroom Catalog: what it will do, and whose stars to keep |
+| ![Pan view's calendar](docs/screenshots/calendar.png) | |
+| Pan view's calendar: each day with its first image and how many | |
 
 ## Features
 
