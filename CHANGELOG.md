@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Rename Collection: a name that is taken only in Glimt's own collection folder is free for a
   collection elsewhere.
+- Import Lightroom Catalog without $HOME: the collections are not saved, and the message says why,
+  instead of landing in the folder Glimt was started from.
 
 ## [0.22.0] - 2026-10-15
 
