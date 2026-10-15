@@ -14,8 +14,6 @@ pub static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
 const MAX_FRAMES: usize = 1000;
 
 pub struct Decoded {
-    pub idx: usize,
-    pub full: bool,
     /// The file the job was for; rejects results from a folder that has since been replaced.
     pub path: PathBuf,
     /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
