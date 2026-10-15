@@ -48,8 +48,11 @@ jxl = ["dep:jxl-oxide"]
 svg = ["dep:resvg"]
 # Geeqie's marks 1-6 and 0-5 stars, kept in ~/.local/state/glimt/marks.
 marks = []
+# Screen readers such as Orca, through AccessKit: the menus, buttons and lists, and the shown
+# image as text (its name, place, stars, keywords and comment).
+accessibility = ["eframe/accesskit"]
 # Every optional feature: cargo build --release --features full (same as --all-features).
-full = ["video", "heic", "avif", "jxl", "svg", "marks"]
+full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility"]
 
 # The .deb package (cargo deb), built by the release workflow.
 [package.metadata.deb]

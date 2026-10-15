@@ -263,6 +263,16 @@ const MANUAL: &[(&str, &str)] = &[
          writes and the thumbnails it shares with other programs stay sRGB.",
     ),
     (
+        "Screen readers",
+        "With the accessibility feature (in the packages), a screen reader such as Orca reads \
+         the menus, buttons, lists and dialogs. The image itself is read as its name, its place \
+         in the list, its stars, keywords and comment, again each time you browse: the image \
+         area keeps the keyboard focus while nothing else has it, and the arrow keys and every \
+         shortcut still work there. Tab moves to the panels. A comment can hold a description of \
+         the picture: write one yourself in the EXIF panel, or let a plugin write it (see \
+         Plugins).",
+    ),
+    (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, the \
          theme, what is shown, window and memory use, and how deleting works. Under Keyboard \

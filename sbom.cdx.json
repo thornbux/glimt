@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:afc778d4-9826-5cad-8b32-03bf6dff34f5",
+ "serialNumber": "urn:uuid:aaa1ce48-28c8-5879-9f16-6824c6f18631",
  "version": 1,
  "metadata": {
   "tools": {
@@ -99,6 +99,106 @@
     {
      "alg": "SHA-256",
      "content": "d3b7f7f85a7e5f68090000ed7622545829afd484d210358702ae4cb97dd0c320"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/AccessKit/accesskit"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/accesskit_atspi_common@0.18.1",
+   "name": "accesskit_atspi_common",
+   "version": "0.18.1",
+   "description": "AccessKit UI accessibility infrastructure: core AT-SPI translation layer",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/accesskit_atspi_common@0.18.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1e8c61bee90b42a772d39d06a740207dc71a4e780004ace1db8d99fb1baaa954"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/AccessKit/accesskit"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/accesskit_consumer@0.36.0",
+   "name": "accesskit_consumer",
+   "version": "0.36.0",
+   "description": "AccessKit consumer library (internal)",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/accesskit_consumer@0.36.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "25e0d7e25d06f4dc21d1774d67146e9e80d6789216cbd4d1e88185b0095dba60"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/AccessKit/accesskit"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/accesskit_unix@0.21.1",
+   "name": "accesskit_unix",
+   "version": "0.21.1",
+   "description": "AccessKit UI accessibility infrastructure: Linux adapter",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/accesskit_unix@0.21.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "b016ca8db0ea0ea2ceff29a9d6240391492d960716aa471967c00e8cc8cb197c"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/AccessKit/accesskit"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/accesskit_winit@0.32.2",
+   "name": "accesskit_winit",
+   "version": "0.32.2",
+   "description": "AccessKit UI accessibility infrastructure: winit adapter",
+   "licenses": [
+    {
+     "expression": "Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/accesskit_winit@0.32.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1fe9a94394896352cc4660ca2288bd4ef883d83238853c038b44070c8f134313"
     }
    ],
    "externalReferences": [
@@ -335,6 +435,356 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/async-broadcast@0.7.2",
+   "name": "async-broadcast",
+   "version": "0.7.2",
+   "description": "Async broadcast channels",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/async-broadcast@0.7.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "435a87a52755b8f27fcf321ac4f04b2802e337c8c4872923137471ec39c37532"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-broadcast"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-channel@2.5.0",
+   "name": "async-channel",
+   "version": "2.5.0",
+   "description": "Async multi-producer multi-consumer channel",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-channel@2.5.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-channel"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-executor@1.14.0",
+   "name": "async-executor",
+   "version": "1.14.0",
+   "description": "Async executor",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-executor@1.14.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c96bf972d85afc50bf5ab8fe2d54d1586b4e0b46c97c50a0c9e71e2f7bcd812a"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-executor"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-io@2.6.0",
+   "name": "async-io",
+   "version": "2.6.0",
+   "description": "Async I/O and timers",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-io@2.6.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "456b8a8feb6f42d237746d4b3e9a178494627745c3c56c6ea55d92ba50d026fc"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-io"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-lock@3.4.2",
+   "name": "async-lock",
+   "version": "3.4.2",
+   "description": "Async synchronization primitives",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-lock@3.4.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-lock"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-process@2.5.0",
+   "name": "async-process",
+   "version": "2.5.0",
+   "description": "Async interface for working with processes",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-process@2.5.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "fc50921ec0055cdd8a16de48773bfeec5c972598674347252c0399676be7da75"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-process"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-recursion@1.2.0",
+   "name": "async-recursion",
+   "version": "1.2.0",
+   "description": "Recursion for async functions",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/async-recursion@1.2.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "4f8abc12baad266b1c8cec146854c195b5864b4221d4b2ca7296a7ae82d9e451"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dcchut/async-recursion"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-signal@0.2.14",
+   "name": "async-signal",
+   "version": "0.2.14",
+   "description": "Async signal handling",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-signal@0.2.14",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "52b5aaafa020cf5053a01f2a60e8ff5dccf550f0f77ec54a4e47285ac2bab485"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-signal"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-task@4.7.1",
+   "name": "async-task",
+   "version": "4.7.1",
+   "description": "Task abstraction for building executors",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/async-task@4.7.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/async-task"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/async-trait@0.1.92",
+   "name": "async-trait",
+   "version": "0.1.92",
+   "description": "Type erasure for async trait methods",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/async-trait@0.1.92",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/async-trait"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/atomic-waker@1.1.2",
+   "name": "atomic-waker",
+   "version": "1.1.2",
+   "description": "A synchronization primitive for task wakeup",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/atomic-waker@1.1.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/atomic-waker"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/atspi-common@0.13.0",
+   "name": "atspi-common",
+   "version": "0.13.0",
+   "description": "Primitive types used for sending and receiving Linux accessibility events.",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/atspi-common@0.13.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "20c5617155740c98003016429ad13fe43ce7a77b007479350a9f8bf95a29f63d"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/odilia-app/atspi"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/atspi-proxies@0.13.0",
+   "name": "atspi-proxies",
+   "version": "0.13.0",
+   "description": "AT-SPI2 proxies to query or manipulate UI objects",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/atspi-proxies@0.13.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2230e48787ed3eb4088996eab66a32ca20c0b67bbd4fd6cdfe79f04f1f04c9fc"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/odilia-app/atspi"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/atspi@0.29.0",
+   "name": "atspi",
+   "version": "0.29.0",
+   "description": "Pure-Rust, zbus-based AT-SPI2 protocol implementation.",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/atspi@0.29.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c77886257be21c9cd89a4ae7e64860c6f0eefca799bb79127913052bd0eefb3d"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/odilia-app/atspi"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/autocfg@1.5.1",
    "name": "autocfg",
    "version": "1.5.1",
@@ -455,6 +905,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/bitflags/bitflags"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/blocking@1.7.0",
+   "name": "blocking",
+   "version": "1.7.0",
+   "description": "A thread pool for isolating blocking I/O in async programs",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/blocking@1.7.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "a70e4329df6cb94385eed412ec92375c3cdd8a6e502493d1229b6414e4036dfa"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/blocking"
     }
    ]
   },
@@ -810,6 +1285,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/concurrent-queue@2.5.0",
+   "name": "concurrent-queue",
+   "version": "2.5.0",
+   "description": "Concurrent multi-producer multi-consumer queue",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/concurrent-queue@2.5.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/concurrent-queue"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/crc32fast@1.5.2",
    "name": "crc32fast",
    "version": "1.5.2",
@@ -830,6 +1330,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/srijs/rust-crc32fast"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/crossbeam-utils@0.8.23",
+   "name": "crossbeam-utils",
+   "version": "0.8.23",
+   "description": "Utilities for concurrent programming",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/crossbeam-utils@0.8.23",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/crossbeam-rs/crossbeam"
     }
    ]
   },
@@ -1185,6 +1710,81 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/endi@1.1.1",
+   "name": "endi",
+   "version": "1.1.1",
+   "description": "A simple endian-handling library",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/endi@1.1.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/zeenix/endi"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/enumflags2@0.7.12",
+   "name": "enumflags2",
+   "version": "0.7.12",
+   "description": "Enum-based bit flags",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/enumflags2@0.7.12",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/meithecatte/enumflags2"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/enumflags2_derive@0.7.12",
+   "name": "enumflags2_derive",
+   "version": "0.7.12",
+   "description": "Do not use directly, use the reexport in the `enumflags2` crate. This allows for better compatibility across versions.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/enumflags2_derive@0.7.12",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/meithecatte/enumflags2"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/epaint@0.36.2",
    "name": "epaint",
    "version": "0.36.2",
@@ -1310,6 +1910,56 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/event-listener-strategy@0.5.4",
+   "name": "event-listener-strategy",
+   "version": "0.5.4",
+   "description": "Block or poll on event_listener easily",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/event-listener-strategy@0.5.4",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/event-listener-strategy"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/event-listener@5.4.2",
+   "name": "event-listener",
+   "version": "5.4.2",
+   "description": "Notify async tasks or threads",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/event-listener@5.4.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/event-listener"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/fast_image_resize@6.1.0",
    "name": "fast_image_resize",
    "version": "6.1.0",
@@ -1330,6 +1980,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/cykooz/fast_image_resize"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/fastrand@2.5.0",
+   "name": "fastrand",
+   "version": "2.5.0",
+   "description": "A simple and fast random number generator",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/fastrand@2.5.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/fastrand"
     }
    ]
   },
@@ -1580,6 +2255,156 @@
     {
      "type": "vcs",
      "url": "https://github.com/RazrFalcon/fontdb"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/futures-core@0.3.34",
+   "name": "futures-core",
+   "version": "0.3.34",
+   "description": "The core traits and types in for the `futures` library.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/futures-core@0.3.34",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/futures-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/futures-io@0.3.34",
+   "name": "futures-io",
+   "version": "0.3.34",
+   "description": "The `AsyncRead`, `AsyncWrite`, `AsyncSeek`, and `AsyncBufRead` traits for the futures-rs library.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/futures-io@0.3.34",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/futures-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/futures-lite@2.6.1",
+   "name": "futures-lite",
+   "version": "2.6.1",
+   "description": "Futures, streams, and async I/O combinators",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/futures-lite@2.6.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f78e10609fe0e0b3f4157ffab1876319b5b0db102a2c60dc4626306dc46b44ad"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/futures-lite"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/futures-macro@0.3.34",
+   "name": "futures-macro",
+   "version": "0.3.34",
+   "description": "The futures-rs procedural macro implementations.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/futures-macro@0.3.34",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/futures-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/futures-task@0.3.34",
+   "name": "futures-task",
+   "version": "0.3.34",
+   "description": "Tools for working with tasks.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/futures-task@0.3.34",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/futures-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/futures-util@0.3.34",
+   "name": "futures-util",
+   "version": "0.3.34",
+   "description": "Common utilities and extension traits for the futures-rs library.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/futures-util@0.3.34",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/futures-rs"
     }
    ]
   },
@@ -1910,6 +2735,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/hashbrown@0.16.1",
+   "name": "hashbrown",
+   "version": "0.16.1",
+   "description": "A Rust port of Google's SwissTable hash map",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/hashbrown@0.16.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/hashbrown"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/hashbrown@0.17.1",
    "name": "hashbrown",
    "version": "0.17.1",
@@ -1930,6 +2780,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/rust-lang/hashbrown"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/hex@0.4.3",
+   "name": "hex",
+   "version": "0.4.3",
+   "description": "Encoding and decoding data into/from hexadecimal representation.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/hex@0.4.3",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/KokaKiwi/rust-hex"
     }
    ]
   },
@@ -2960,6 +3835,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/ordered-stream@0.2.0",
+   "name": "ordered-stream",
+   "version": "0.2.0",
+   "description": "Streams that are ordered relative to external events",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/ordered-stream@0.2.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/danieldg/ordered-stream"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/owned_ttf_parser@0.25.1",
    "name": "owned_ttf_parser",
    "version": "0.25.1",
@@ -2980,6 +3880,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/alexheretic/owned-ttf-parser"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/parking@2.2.1",
+   "name": "parking",
+   "version": "2.2.1",
+   "description": "Thread parking and unparking",
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "purl": "pkg:cargo/parking@2.2.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/parking"
     }
    ]
   },
@@ -3085,6 +4010,106 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/phf@0.13.1",
+   "name": "phf",
+   "version": "0.13.1",
+   "description": "Runtime support for perfect hash function data structures",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/phf@0.13.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-phf/rust-phf"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/phf_generator@0.13.1",
+   "name": "phf_generator",
+   "version": "0.13.1",
+   "description": "PHF generation logic",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/phf_generator@0.13.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "135ace3a761e564ec88c03a77317a7c6b80bb7f7135ef2544dbe054243b89737"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-phf/rust-phf"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/phf_macros@0.13.1",
+   "name": "phf_macros",
+   "version": "0.13.1",
+   "description": "Macros to generate types in the phf crate",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/phf_macros@0.13.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "812f032b54b1e759ccd5f8b6677695d5268c588701effba24601f6932f8269ef"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-phf/rust-phf"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/phf_shared@0.13.1",
+   "name": "phf_shared",
+   "version": "0.13.1",
+   "description": "Support code shared by PHF libraries",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/phf_shared@0.13.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-phf/rust-phf"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/pico-args@0.5.0",
    "name": "pico-args",
    "version": "0.5.0",
@@ -3130,6 +4155,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/taiki-e/pin-project-lite"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/piper@0.2.5",
+   "name": "piper",
+   "version": "0.2.5",
+   "description": "An asynchronous single-consumer single-producer pipe for bytes.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/piper@0.2.5",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c835479a4443ded371d6c535cbfd8d31ad92c5d23ae9770a61bc155e4992a3c1"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smol-rs/piper"
     }
    ]
   },
@@ -3230,6 +4280,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/linebender/kurbo"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/proc-macro-crate@3.5.0",
+   "name": "proc-macro-crate",
+   "version": "3.5.0",
+   "description": "Replacement for crate (macro_rules keyword) in proc-macros",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/proc-macro-crate@3.5.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/bkchr/proc-macro-crate"
     }
    ]
   },
@@ -3885,6 +4960,56 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/serde_derive@1.0.229",
+   "name": "serde_derive",
+   "version": "1.0.229",
+   "description": "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/serde_derive@1.0.229",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/serde-rs/serde"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/serde_repr@0.1.21",
+   "name": "serde_repr",
+   "version": "0.1.21",
+   "description": "Derive Serialize and Deserialize that delegates to the underlying repr of a C-like enum.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/serde_repr@0.1.21",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "8d3b1629de253c70a0508c3899572da79ca359fdab27c7920ff00406df418906"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/serde-repr"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/shlex@2.0.1",
    "name": "shlex",
    "version": "2.0.1",
@@ -3905,6 +5030,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/comex/rust-shlex"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/signal-hook-registry@1.4.8",
+   "name": "signal-hook-registry",
+   "version": "1.4.8",
+   "description": "Backend crate for signal-hook",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/signal-hook-registry@1.4.8",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/vorner/signal-hook"
     }
    ]
   },
@@ -4555,6 +5705,106 @@
     {
      "type": "vcs",
      "url": "https://github.com/Lokathor/tinyvec"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "name": "toml_datetime",
+   "version": "1.1.2+spec-1.1.0",
+   "description": "A TOML-compatible datetime type",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2b86d767906c6c42421dcba507eb9d203e779497710a47782a224bb871653053"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/toml_edit@0.25.17+spec-1.1.0",
+   "name": "toml_edit",
+   "version": "0.25.17+spec-1.1.0",
+   "description": "Yet another format-preserving TOML parser.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/toml_edit@0.25.17+spec-1.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "e3641d5bbb5349a79e1020a242d251efbc546ad8048d133958323ce9c40a9c9c"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+   "name": "toml_parser",
+   "version": "1.1.5+spec-1.1.0",
+   "description": "Yet another format-preserving TOML parser.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/tracing-attributes@0.1.31",
+   "name": "tracing-attributes",
+   "version": "0.1.31",
+   "description": "Procedural macro attributes for automatically instrumenting functions.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/tracing-attributes@0.1.31",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tokio-rs/tracing"
     }
    ]
   },
@@ -5460,6 +6710,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/winnow@1.0.4",
+   "name": "winnow",
+   "version": "1.0.4",
+   "description": "A byte-oriented, zero-copy, parser combinators library",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/winnow@1.0.4",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/winnow-rs/winnow"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/x11-dl@2.21.0",
    "name": "x11-dl",
    "version": "2.21.0",
@@ -5660,6 +6935,181 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/zbus-lockstep-macros@0.5.2",
+   "name": "zbus-lockstep-macros",
+   "version": "0.5.2",
+   "description": "Macros to keep types in lockstep with DBus XML definitions",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus-lockstep-macros@0.5.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "10da05367f3a7b7553c8cdf8fa91aee6b64afebe32b51c95177957efc47ca3a0"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/luukvanderduim/zbus-lockstep"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zbus-lockstep@0.5.2",
+   "name": "zbus-lockstep",
+   "version": "0.5.2",
+   "description": "Keep types in lockstep with DBus XML definitions",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus-lockstep@0.5.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6998de05217a084b7578728a9443d04ea4cd80f2a0839b8d78770b76ccd45863"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/luukvanderduim/zbus-lockstep"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zbus@5.19.0",
+   "name": "zbus",
+   "version": "5.19.0",
+   "description": "API for D-Bus communication",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus@5.19.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "5db4be7c075cb421e4b7ee645541604239bd243ba7c357511f4ff3a74b555907"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zbus_macros@5.19.0",
+   "name": "zbus_macros",
+   "version": "5.19.0",
+   "description": "proc-macros for zbus",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus_macros@5.19.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2990635d09ade6df1868f72f8cac69a876a90981e8bd3c40b1be413f8dc88f40"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zbus_names@4.3.4",
+   "name": "zbus_names",
+   "version": "4.3.4",
+   "description": "A collection of D-Bus bus names types",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus_names@4.3.4",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "d8bf88b4a3ff53e883001e0e0115b297a9d53c31b9c1edd2bfdd853e3428624e"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zbus_xml@5.2.1",
+   "name": "zbus_xml",
+   "version": "5.2.1",
+   "description": "API to handle D-Bus introspection XML",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zbus_xml@5.2.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "d1586c021a01ca0a9216dcd874e546382e156a5cbab5fab6cb5f10087e22682a"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zcheapstr@1.1.0",
+   "name": "zcheapstr",
+   "version": "1.1.0",
+   "description": "An immutable, cheaply cloneable string type with borrowed, static and shared variants",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zcheapstr@1.1.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "d1afec51604565183aeb5c54c20aeab286120d4e4460f7f76e3e8bb8c0d99473"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zcheapstr/"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/zerocopy-derive@0.8.62",
    "name": "zerocopy-derive",
    "version": "0.8.62",
@@ -5782,6 +7232,81 @@
      "url": "https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg"
     }
    ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zvariant@5.15.0",
+   "name": "zvariant",
+   "version": "5.15.0",
+   "description": "D-Bus & GVariant encoding & decoding",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zvariant@5.15.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c1d34c27cc6cdd1f458427519dd6b8612f7b7e3f7b9a0b2355d041dda9869147"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zvariant_derive@5.15.0",
+   "name": "zvariant_derive",
+   "version": "5.15.0",
+   "description": "D-Bus & GVariant encoding & decoding",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zvariant_derive@5.15.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "864155e69b4352db0c7f374917bf45d1e0c8d17659c8b3dbf9795f3673f8c497"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/zvariant_utils@4.2.0",
+   "name": "zvariant_utils",
+   "version": "4.2.0",
+   "description": "Various utilities used internally by the zvariant crate.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/zvariant_utils@4.2.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "bad0294361a320b694a328460dc73add56c306150f5cb6bfafc44446120008a3"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/z-galaxy/zbus/"
+    }
+   ]
   }
  ],
  "dependencies": [
@@ -5800,6 +7325,48 @@
    "ref": "pkg:cargo/accesskit@0.24.1",
    "dependsOn": [
     "pkg:cargo/uuid@1.28.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/accesskit_atspi_common@0.18.1",
+   "dependsOn": [
+    "pkg:cargo/accesskit@0.24.1",
+    "pkg:cargo/accesskit_consumer@0.36.0",
+    "pkg:cargo/atspi-common@0.13.0",
+    "pkg:cargo/phf@0.13.1",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/accesskit_consumer@0.36.0",
+   "dependsOn": [
+    "pkg:cargo/accesskit@0.24.1",
+    "pkg:cargo/hashbrown@0.16.1"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/accesskit_unix@0.21.1",
+   "dependsOn": [
+    "pkg:cargo/accesskit@0.24.1",
+    "pkg:cargo/accesskit_atspi_common@0.18.1",
+    "pkg:cargo/async-channel@2.5.0",
+    "pkg:cargo/async-executor@1.14.0",
+    "pkg:cargo/async-task@4.7.1",
+    "pkg:cargo/atspi@0.29.0",
+    "pkg:cargo/futures-lite@2.6.1",
+    "pkg:cargo/futures-util@0.3.34",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/zbus@5.19.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/accesskit_winit@0.32.2",
+   "dependsOn": [
+    "pkg:cargo/accesskit@0.24.1",
+    "pkg:cargo/accesskit_unix@0.21.1",
+    "pkg:cargo/raw-window-handle@0.6.2",
+    "pkg:cargo/winit@0.30.13"
    ]
   },
   {
@@ -5855,6 +7422,134 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/async-broadcast@0.7.2",
+   "dependsOn": [
+    "pkg:cargo/event-listener-strategy@0.5.4",
+    "pkg:cargo/event-listener@5.4.2",
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-channel@2.5.0",
+   "dependsOn": [
+    "pkg:cargo/concurrent-queue@2.5.0",
+    "pkg:cargo/event-listener-strategy@0.5.4",
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-executor@1.14.0",
+   "dependsOn": [
+    "pkg:cargo/async-task@4.7.1",
+    "pkg:cargo/concurrent-queue@2.5.0",
+    "pkg:cargo/fastrand@2.5.0",
+    "pkg:cargo/futures-lite@2.6.1",
+    "pkg:cargo/pin-project-lite@0.2.17",
+    "pkg:cargo/slab@0.4.12"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-io@2.6.0",
+   "dependsOn": [
+    "pkg:cargo/autocfg@1.5.1",
+    "pkg:cargo/cfg-if@1.0.5",
+    "pkg:cargo/concurrent-queue@2.5.0",
+    "pkg:cargo/futures-io@0.3.34",
+    "pkg:cargo/futures-lite@2.6.1",
+    "pkg:cargo/parking@2.2.1",
+    "pkg:cargo/polling@3.11.0",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/slab@0.4.12"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-lock@3.4.2",
+   "dependsOn": [
+    "pkg:cargo/event-listener-strategy@0.5.4",
+    "pkg:cargo/event-listener@5.4.2",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-process@2.5.0",
+   "dependsOn": [
+    "pkg:cargo/async-channel@2.5.0",
+    "pkg:cargo/async-io@2.6.0",
+    "pkg:cargo/async-lock@3.4.2",
+    "pkg:cargo/async-signal@0.2.14",
+    "pkg:cargo/async-task@4.7.1",
+    "pkg:cargo/cfg-if@1.0.5",
+    "pkg:cargo/event-listener@5.4.2",
+    "pkg:cargo/futures-lite@2.6.1",
+    "pkg:cargo/rustix@1.1.5"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-recursion@1.2.0",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-signal@0.2.14",
+   "dependsOn": [
+    "pkg:cargo/async-io@2.6.0",
+    "pkg:cargo/cfg-if@1.0.5",
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/futures-io@0.3.34",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/signal-hook-registry@1.4.8"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/async-task@4.7.1",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/async-trait@0.1.92",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/atomic-waker@1.1.2",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/atspi-common@0.13.0",
+   "dependsOn": [
+    "pkg:cargo/enumflags2@0.7.12",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/static_assertions@1.1.0",
+    "pkg:cargo/zbus-lockstep-macros@0.5.2",
+    "pkg:cargo/zbus-lockstep@0.5.2",
+    "pkg:cargo/zbus@5.19.0",
+    "pkg:cargo/zbus_names@4.3.4",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/atspi-proxies@0.13.0",
+   "dependsOn": [
+    "pkg:cargo/atspi-common@0.13.0",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/zbus@5.19.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/atspi@0.29.0",
+   "dependsOn": [
+    "pkg:cargo/atspi-common@0.13.0",
+    "pkg:cargo/atspi-proxies@0.13.0"
+   ]
+  },
+  {
    "ref": "pkg:cargo/autocfg@1.5.1",
    "dependsOn": []
   },
@@ -5875,6 +7570,16 @@
   {
    "ref": "pkg:cargo/bitflags@2.13.2",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/blocking@1.7.0",
+   "dependsOn": [
+    "pkg:cargo/async-channel@2.5.0",
+    "pkg:cargo/async-task@4.7.1",
+    "pkg:cargo/futures-io@0.3.34",
+    "pkg:cargo/futures-lite@2.6.1",
+    "pkg:cargo/piper@0.2.5"
+   ]
   },
   {
    "ref": "pkg:cargo/brotli-decompressor@5.0.3",
@@ -5973,10 +7678,20 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/concurrent-queue@2.5.0",
+   "dependsOn": [
+    "pkg:cargo/crossbeam-utils@0.8.23"
+   ]
+  },
+  {
    "ref": "pkg:cargo/crc32fast@1.5.2",
    "dependsOn": [
     "pkg:cargo/cfg-if@1.0.5"
    ]
+  },
+  {
+   "ref": "pkg:cargo/crossbeam-utils@0.8.23",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/cursor-icon@1.2.0",
@@ -6055,6 +7770,7 @@
   {
    "ref": "pkg:cargo/egui-winit@0.36.2",
    "dependsOn": [
+    "pkg:cargo/accesskit_winit@0.32.2",
     "pkg:cargo/arboard@3.6.1",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/egui@0.36.2",
@@ -6104,6 +7820,25 @@
    ]
   },
   {
+   "ref": "pkg:cargo/endi@1.1.1",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/enumflags2@0.7.12",
+   "dependsOn": [
+    "pkg:cargo/enumflags2_derive@0.7.12",
+    "pkg:cargo/serde@1.0.229"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/enumflags2_derive@0.7.12",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@2.0.119"
+   ]
+  },
+  {
    "ref": "pkg:cargo/epaint@0.36.2",
    "dependsOn": [
     "pkg:cargo/ahash@0.8.12",
@@ -6146,6 +7881,20 @@
    ]
   },
   {
+   "ref": "pkg:cargo/event-listener-strategy@0.5.4",
+   "dependsOn": [
+    "pkg:cargo/event-listener@5.4.2",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/event-listener@5.4.2",
+   "dependsOn": [
+    "pkg:cargo/parking@2.2.1",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
    "ref": "pkg:cargo/fast_image_resize@6.1.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
@@ -6155,6 +7904,10 @@
     "pkg:cargo/num-traits@0.2.19",
     "pkg:cargo/thiserror@2.0.21"
    ]
+  },
+  {
+   "ref": "pkg:cargo/fastrand@2.5.0",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/fax@0.2.7",
@@ -6210,6 +7963,46 @@
     "pkg:cargo/memmap2@0.9.11",
     "pkg:cargo/slotmap@1.1.1",
     "pkg:cargo/tinyvec@1.13.3"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/futures-core@0.3.34",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/futures-io@0.3.34",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/futures-lite@2.6.1",
+   "dependsOn": [
+    "pkg:cargo/fastrand@2.5.0",
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/futures-io@0.3.34",
+    "pkg:cargo/parking@2.2.1",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/futures-macro@0.3.34",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/futures-task@0.3.34",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/futures-util@0.3.34",
+   "dependsOn": [
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/futures-macro@0.3.34",
+    "pkg:cargo/futures-task@0.3.34",
+    "pkg:cargo/pin-project-lite@0.2.17",
+    "pkg:cargo/slab@0.4.12"
    ]
   },
   {
@@ -6334,10 +8127,20 @@
    ]
   },
   {
+   "ref": "pkg:cargo/hashbrown@0.16.1",
+   "dependsOn": [
+    "pkg:cargo/foldhash@0.2.0"
+   ]
+  },
+  {
    "ref": "pkg:cargo/hashbrown@0.17.1",
    "dependsOn": [
     "pkg:cargo/foldhash@0.2.0"
    ]
+  },
+  {
+   "ref": "pkg:cargo/hex@0.4.3",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/image-webp@0.2.4",
@@ -6659,10 +8462,21 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/ordered-stream@0.2.0",
+   "dependsOn": [
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
    "ref": "pkg:cargo/owned_ttf_parser@0.25.1",
    "dependsOn": [
     "pkg:cargo/ttf-parser@0.25.1"
    ]
+  },
+  {
+   "ref": "pkg:cargo/parking@2.2.1",
+   "dependsOn": []
   },
   {
    "ref": "pkg:cargo/parking_lot@0.12.5",
@@ -6694,12 +8508,51 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/phf@0.13.1",
+   "dependsOn": [
+    "pkg:cargo/phf_macros@0.13.1",
+    "pkg:cargo/phf_shared@0.13.1",
+    "pkg:cargo/serde@1.0.229"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/phf_generator@0.13.1",
+   "dependsOn": [
+    "pkg:cargo/fastrand@2.5.0",
+    "pkg:cargo/phf_shared@0.13.1"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/phf_macros@0.13.1",
+   "dependsOn": [
+    "pkg:cargo/phf_generator@0.13.1",
+    "pkg:cargo/phf_shared@0.13.1",
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@2.0.119"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/phf_shared@0.13.1",
+   "dependsOn": [
+    "pkg:cargo/siphasher@1.0.4"
+   ]
+  },
+  {
    "ref": "pkg:cargo/pico-args@0.5.0",
    "dependsOn": []
   },
   {
    "ref": "pkg:cargo/pin-project-lite@0.2.17",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/piper@0.2.5",
+   "dependsOn": [
+    "pkg:cargo/atomic-waker@1.1.2",
+    "pkg:cargo/fastrand@2.5.0",
+    "pkg:cargo/futures-io@0.3.34"
+   ]
   },
   {
    "ref": "pkg:cargo/pkg-config@0.3.34",
@@ -6726,6 +8579,12 @@
    "ref": "pkg:cargo/polycool@0.4.0",
    "dependsOn": [
     "pkg:cargo/arrayvec@0.7.8"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/proc-macro-crate@3.5.0",
+   "dependsOn": [
+    "pkg:cargo/toml_edit@0.25.17+spec-1.1.0"
    ]
   },
   {
@@ -6877,7 +8736,8 @@
   {
    "ref": "pkg:cargo/serde@1.0.229",
    "dependsOn": [
-    "pkg:cargo/serde_core@1.0.229"
+    "pkg:cargo/serde_core@1.0.229",
+    "pkg:cargo/serde_derive@1.0.229"
    ]
   },
   {
@@ -6885,8 +8745,31 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/serde_derive@1.0.229",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/serde_repr@0.1.21",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7"
+   ]
+  },
+  {
    "ref": "pkg:cargo/shlex@2.0.1",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/signal-hook-registry@1.4.8",
+   "dependsOn": [
+    "pkg:cargo/errno@0.3.14",
+    "pkg:cargo/libc@0.2.190"
+   ]
   },
   {
    "ref": "pkg:cargo/simd-adler32@0.3.10",
@@ -7099,6 +8982,35 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+   "dependsOn": [
+    "pkg:cargo/serde_core@1.0.229"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/toml_edit@0.25.17+spec-1.1.0",
+   "dependsOn": [
+    "pkg:cargo/indexmap@2.14.2",
+    "pkg:cargo/toml_datetime@1.1.2+spec-1.1.0",
+    "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+    "pkg:cargo/winnow@1.0.4"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/toml_parser@1.1.5+spec-1.1.0",
+   "dependsOn": [
+    "pkg:cargo/winnow@1.0.4"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/tracing-attributes@0.1.31",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@2.0.119"
+   ]
+  },
+  {
    "ref": "pkg:cargo/tracing-core@0.1.36",
    "dependsOn": [
     "pkg:cargo/once_cell@1.21.4"
@@ -7109,6 +9021,7 @@
    "dependsOn": [
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/pin-project-lite@0.2.17",
+    "pkg:cargo/tracing-attributes@0.1.31",
     "pkg:cargo/tracing-core@0.1.36"
    ]
   },
@@ -7177,7 +9090,9 @@
   },
   {
    "ref": "pkg:cargo/uuid@1.28.0",
-   "dependsOn": []
+   "dependsOn": [
+    "pkg:cargo/serde_core@1.0.229"
+   ]
   },
   {
    "ref": "pkg:cargo/vello_common@0.1.0",
@@ -7434,6 +9349,12 @@
    ]
   },
   {
+   "ref": "pkg:cargo/winnow@1.0.4",
+   "dependsOn": [
+    "pkg:cargo/memchr@2.8.3"
+   ]
+  },
+  {
    "ref": "pkg:cargo/x11-dl@2.21.0",
    "dependsOn": [
     "pkg:cargo/libc@0.2.190",
@@ -7484,6 +9405,89 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/zbus-lockstep-macros@0.5.2",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@2.0.119",
+    "pkg:cargo/zbus-lockstep@0.5.2",
+    "pkg:cargo/zbus_xml@5.2.1",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zbus-lockstep@0.5.2",
+   "dependsOn": [
+    "pkg:cargo/zbus_xml@5.2.1",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zbus@5.19.0",
+   "dependsOn": [
+    "pkg:cargo/async-broadcast@0.7.2",
+    "pkg:cargo/async-executor@1.14.0",
+    "pkg:cargo/async-io@2.6.0",
+    "pkg:cargo/async-lock@3.4.2",
+    "pkg:cargo/async-process@2.5.0",
+    "pkg:cargo/async-recursion@1.2.0",
+    "pkg:cargo/async-task@4.7.1",
+    "pkg:cargo/async-trait@0.1.92",
+    "pkg:cargo/blocking@1.7.0",
+    "pkg:cargo/enumflags2@0.7.12",
+    "pkg:cargo/event-listener@5.4.2",
+    "pkg:cargo/futures-core@0.3.34",
+    "pkg:cargo/futures-lite@2.6.1",
+    "pkg:cargo/hex@0.4.3",
+    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/ordered-stream@0.2.0",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/serde_repr@0.1.21",
+    "pkg:cargo/tracing@0.1.44",
+    "pkg:cargo/uuid@1.28.0",
+    "pkg:cargo/winnow@1.0.4",
+    "pkg:cargo/zbus_macros@5.19.0",
+    "pkg:cargo/zbus_names@4.3.4",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zbus_macros@5.19.0",
+   "dependsOn": [
+    "pkg:cargo/proc-macro-crate@3.5.0",
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7",
+    "pkg:cargo/zbus_names@4.3.4",
+    "pkg:cargo/zvariant@5.15.0",
+    "pkg:cargo/zvariant_utils@4.2.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zbus_names@4.3.4",
+   "dependsOn": [
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/winnow@1.0.4",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zbus_xml@5.2.1",
+   "dependsOn": [
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/winnow@1.0.4",
+    "pkg:cargo/zbus_names@4.3.4",
+    "pkg:cargo/zvariant@5.15.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zcheapstr@1.1.0",
+   "dependsOn": [
+    "pkg:cargo/serde@1.0.229"
+   ]
+  },
+  {
    "ref": "pkg:cargo/zerocopy-derive@0.8.62",
    "dependsOn": [
     "pkg:cargo/proc-macro2@1.0.107",
@@ -7509,6 +9513,38 @@
    "ref": "pkg:cargo/zune-jpeg@0.5.15",
    "dependsOn": [
     "pkg:cargo/zune-core@0.5.3"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zvariant@5.15.0",
+   "dependsOn": [
+    "pkg:cargo/endi@1.1.1",
+    "pkg:cargo/enumflags2@0.7.12",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/winnow@1.0.4",
+    "pkg:cargo/zcheapstr@1.1.0",
+    "pkg:cargo/zvariant_derive@5.15.0",
+    "pkg:cargo/zvariant_utils@4.2.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zvariant_derive@5.15.0",
+   "dependsOn": [
+    "pkg:cargo/proc-macro-crate@3.5.0",
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.7",
+    "pkg:cargo/zvariant_utils@4.2.0"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/zvariant_utils@4.2.0",
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/syn@3.0.7",
+    "pkg:cargo/winnow@1.0.4"
    ]
   }
  ]

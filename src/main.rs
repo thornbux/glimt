@@ -29,6 +29,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
+#[cfg(feature = "accessibility")]
+mod accessibility;
 mod actions;
 mod collections;
 mod colour;
@@ -685,6 +687,9 @@ struct App {
     together: Option<Vec<PathBuf>>,
     /// Folder listing in the background: (subfolders, images).
     listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
+    /// takes the keys from the shortcuts.
+    image_id: Option<egui::Id>,
     /// A `--remote select` that came while the folder was being read: done once it is.
     waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
@@ -1471,6 +1476,7 @@ impl App {
             back: Vec::new(),
             forward: Vec::new(),
             listing_rx: None,
+            image_id: None,
             waiting_select: None,
             total_size: 0,
             size_rx: None,
@@ -6375,7 +6381,9 @@ impl App {
     fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).
-        let typing = ctx.egui_wants_keyboard_input();
+        let typing = ctx
+            .memory(|m| m.focused())
+            .is_some_and(|f| Some(f) != self.image_id);
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
         if !self.dialog_open() && !typing && self.zoom.is_some() {
@@ -7959,6 +7967,8 @@ impl App {
                 let several = panes.len() > 1 || right.is_some();
                 let input = if several { ui.max_rect() } else { area };
                 let response = ui.allocate_rect(input, egui::Sense::click_and_drag());
+                #[cfg(feature = "accessibility")]
+                self.speak_image(ui, &response);
                 let max_fit = if self.config.enlarge {
                     f32::INFINITY
                 } else {
