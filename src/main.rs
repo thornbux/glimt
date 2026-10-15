@@ -39,6 +39,7 @@ mod exif;
 mod external;
 mod files;
 mod help;
+mod journal;
 mod lightroom;
 #[cfg(feature = "marks")]
 mod marks;
@@ -919,6 +920,10 @@ struct App {
     /// are now.
     lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
     lightroom: Option<LightroomImport>,
+    /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
+    /// right; read in the background.
+    cut_short_rx: Option<mpsc::Receiver<Vec<(PathBuf, journal::Moves)>>>,
+    cut_short: Vec<(PathBuf, journal::Moves)>,
     /// Answer from an open file dialog (zenity).
     dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     pan_window: Option<Pan>,
@@ -1292,6 +1297,15 @@ impl App {
             print: None,
             lightroom_rx: None,
             lightroom: None,
+            cut_short_rx: Some({
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ =
+                        tx.send(journal::dir().map_or_else(Vec::new, |d| journal::interrupted(&d)));
+                });
+                rx
+            }),
+            cut_short: Vec::new(),
             keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
                 .map_or_else(Vec::new, |t| keyword_paths(t.lines())),
             new_keyword: String::new(),
@@ -2759,6 +2773,7 @@ impl App {
             || self.login.is_some()
             || self.print.is_some()
             || self.lightroom.is_some()
+            || !self.cut_short.is_empty()
     }
 
     /// To the trash at once, permanently after confirmation.
@@ -3216,6 +3231,8 @@ impl App {
         } else {
             moves.extend(from.iter().cloned().zip(to.iter().cloned()));
         }
+        // On disk while the renames run: a crash halfway is put right at the next start.
+        let plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
         let mut failed = false;
         for (k, (a, b)) in moves.iter().enumerate() {
             if let Err(e) = std::fs::rename(a, b) {
@@ -3235,6 +3252,8 @@ impl App {
                 break;
             }
         }
+        // Done or undone: nothing to put right.
+        drop(plan);
         // Show the shown image under its new name.
         let shown = from.iter().position(|f| *f == self.path(self.cur));
         self.selected.clear();
@@ -5893,6 +5912,9 @@ impl App {
                 Err(e) => self.notice = Some(e),
             }
         }
+        if let Some(Ok(found)) = self.cut_short_rx.as_ref().map(|rx| rx.try_recv()) {
+            (self.cut_short, self.cut_short_rx) = (found, None);
+        }
         while let Ok(msg) = self.notices_rx.try_recv() {
             self.notice = Some(msg);
             ctx.request_repaint();
@@ -6774,6 +6796,67 @@ impl App {
     /// File → Import Lightroom Catalog: where the catalog's root folders are now; then what the
     /// import will do, with the collections that are there already and the stars that differ;
     /// then Import.
+    /// Renames cut short by a crash or a power cut: put the old names back, or finish them, in
+    /// the background; Later asks again at the next start.
+    fn cut_short_dialog(&mut self, ctx: &egui::Context) {
+        if self.cut_short.is_empty() {
+            return;
+        }
+        let files: usize = self.cut_short.iter().map(|c| c.1.len()).sum();
+        let folder = (self.cut_short.iter())
+            .find_map(|c| c.1.first())
+            .and_then(|m| m.0.parent())
+            .map_or(String::new(), |p| p.display().to_string());
+        let mut choice = None;
+        egui::Modal::new(egui::Id::new("cut short")).show(ctx, |ui| {
+            ui.strong("Rename Many was cut short");
+            ui.label(format!(
+                "A crash or a power cut stopped it in {folder}. Some files may have their new \
+                 names, some their old ones, and some hidden temporary names ({} to put right).",
+                count(files, "step")
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("Put the old names back").clicked() {
+                    choice = Some(true);
+                }
+                if ui.button("Finish the renaming").clicked() {
+                    choice = Some(false);
+                }
+                if ui.button("Later").clicked() {
+                    choice = None;
+                    self.cut_short.clear();
+                }
+            });
+        });
+        let Some(undo) = choice else { return };
+        let plans = std::mem::take(&mut self.cut_short);
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let (mut renamed, mut left) = (0, 0);
+            for (plan, moves) in &plans {
+                let (r, l) = journal::settle(plan, moves, undo);
+                (renamed, left) = (renamed + r, left + l);
+            }
+            let what = if undo {
+                "given their old names back"
+            } else {
+                "renamed"
+            };
+            let mut msg = format!("{} {what}", count(renamed, "file"));
+            if left > 0 {
+                msg += &format!(
+                    "; {} could not be, asked again at the next start",
+                    count(left, "file")
+                );
+            }
+            let _ = tx.send(msg);
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+        self.relist = true;
+    }
+
     fn lightroom_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut lr) = self.lightroom.take() else {
             return;
@@ -7802,6 +7885,7 @@ impl eframe::App for App {
         self.prompt_dialog(ctx);
         self.print_dialog(ctx);
         self.lightroom_dialog(ctx);
+        self.cut_short_dialog(ctx);
         self.pan_view(ctx);
         self.exif_fields_window(ctx);
         self.login_dialog(ctx);

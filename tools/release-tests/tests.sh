@@ -536,6 +536,25 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Rename Many cut short by a crash: the old names put back at the next start"
+d=/tmp/cutshort
+mkdir -p $d $XDG_STATE_HOME/glimt/renames
+convert -size 300x200 xc:red jpg:$d/.glimt-rename-x-0
+convert -size 300x200 xc:blue jpg:$d/.glimt-rename-x-1
+# The plan of a swap of a.jpg and b.jpg, stopped with both under their temporary names.
+printf '%s\0' $d/a.jpg $d/.glimt-rename-x-0 $d/b.jpg $d/.glimt-rename-x-1 \
+    $d/.glimt-rename-x-0 $d/b.jpg $d/.glimt-rename-x-1 $d/a.jpg >$XDG_STATE_HOME/glimt/renames/crashed
+config
+start $d
+sleep 3
+click 444 425 3   # Put the old names back
+shot cut-short
+quit
+# a.jpg was the red one: more than half red, as JPEG rounds.
+r=$(convert $d/a.jpg -format "%[fx:p{150,100}.r>0.5]" info: 2>/dev/null)
+got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/renames | wc -l)"
+expect "a.jpg (red) and b.jpg back, the plan gone" "$got" "a.jpg b.jpg 1 0"
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

@@ -105,7 +105,8 @@ const MANUAL: &[(&str, &str)] = &[
          Copy, Move, Rename and Delete act on the selected files, otherwise on the shown \
          image; right-click a file for a menu with them. Rename with several files selected \
          asks for a pattern: * is the old name and # a number (### gives 001); existing files \
-         are never overwritten. File → Open With (also in the \
+         are never overwritten. If a crash or a power cut stops it halfway, the next start \
+         offers to put the old names back or to finish. File → Open With (also in the \
          right-click menu) opens them in another application, such as GIMP. Ctrl+Shift+C \
          copies the image itself to the clipboard, to paste into other programs; Select → \
          Copy Files to Clipboard copies the files, to paste in a file manager. Right-click a \
