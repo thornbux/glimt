@@ -37,6 +37,7 @@ documentation.
 | File | Contents |
 |---|---|
 | `src/main.rs` | The app: `App`, its decode and thumbnail workers, the file list, menus, panels and dialogs, `run` for every action |
+| `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys |
 | `src/config.rs` | `Config` (the `config!` macro), the window state, XDG paths, `write_atomic` |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram |
