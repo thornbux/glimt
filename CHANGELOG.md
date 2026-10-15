@@ -5,11 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-15
+
 ### Added
 
 - The image info in full screen (I) follows a template in Preferences, as Geeqie's overlay:
   fields such as %name%, %keywords% and %Camera% (each EXIF panel label), `|` between parts
   that are left out when their fields are empty, and `\n` for a new line.
+
+### Security
+
+- Every action in the workflows that build and sign the releases is pinned to a commit;
+  checkout and the artifact actions were pinned to a tag, which can be moved.
 
 ## [0.18.0] - 2026-10-15
 
@@ -489,7 +496,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/thornbux/glimt/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/thornbux/glimt/compare/v0.17.5...v0.18.0
 [0.17.5]: https://github.com/thornbux/glimt/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/thornbux/glimt/compare/v0.17.3...v0.17.4
