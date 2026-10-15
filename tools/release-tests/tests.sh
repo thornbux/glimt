@@ -507,14 +507,15 @@ config exif_panel=true
 start $d
 sleep 2
 # Frames drawn as the pointer moves: a panel that grows with each moves the boxes away.
+# The tree's boxes are below Keywords, Comment, Alt text and Extended description.
 for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
 sleep 1
 shot keywords-before
 # The Animals box: on, then off again.
-click 1056 310 2
+click 1056 420 2
 shot keywords-on
 on=$(cat $d/a.jpg.xmp 2>/dev/null | grep -c '<rdf:li>Animals</rdf:li>')
-click 1056 310 2
+click 1056 420 2
 off=$(cat $d/a.jpg.xmp 2>/dev/null | grep -c '<rdf:li>Animals</rdf:li>')
 quit
 expect "a box sets the keyword and its tree path" "$on" 2
@@ -533,10 +534,10 @@ for v in new old; do
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
     sleep 1
     # Right-click Places, which holds only Norway|Oslo, and Remove from the tree in its menu.
-    xdotool mousemove 1080 334 click 3 2>/dev/null
+    xdotool mousemove 1080 444 click 3 2>/dev/null
     sleep 1
     shot keywords-remove-menu-$v
-    click 1130 350 2
+    click 1130 460 2
     shot keywords-remove-$v
     quit
     left=$(tr '\n' ' ' <$XDG_CONFIG_HOME/glimt/keywords | sed 's/ $//')
@@ -726,7 +727,7 @@ search exif:zebra
 shot exif-search-0
 before=$(colour exif-search-0 57 337)
 key ctrl+a; key BackSpace; key Escape; sleep 1
-click 1056 310 2   # the Zebra box, for b.jpg
+click 1056 420 2   # the Zebra box, for b.jpg
 search exif:zebra
 shot exif-search-1
 quit
