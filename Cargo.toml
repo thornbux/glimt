@@ -18,6 +18,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # JPEG decoded at 1/2, 1/4 or 1/8 of its size while decoding, when the window needs no more:
 # a 12 MP photo for the window in 6 MB instead of 44 MB, and faster (image uses zune-jpeg).
 jpeg-decoder = { version = "0.3", default-features = false }
+# Already used by image; here for the text chunks of shared thumbnails (Thumb::URI, Thumb::MTime).
 png = "0.18.1"
 # Already used by image; here for ICC profiles.
 moxcms = "0.8.1"
@@ -25,6 +26,7 @@ moxcms = "0.8.1"
 arboard = { version = "3.6.1", default-features = false }
 # Already used by image; here for the pages of multi-page TIFFs.
 tiff = { version = "0.11.3", default-features = false }
+# Already used by eframe; here for the window frame on GNOME/Wayland, which shows the title.
 winit = { version = "0.30.13", default-features = false, features = ["wayland-csd-adwaita"] }
 # Searches with re: and exif:re:.
 regex = "1.13.1"
