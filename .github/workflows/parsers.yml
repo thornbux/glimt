@@ -16,7 +16,7 @@ jobs:
   broken-input:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: System libraries for the window (Wayland, X11, OpenGL)
