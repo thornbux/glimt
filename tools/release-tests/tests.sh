@@ -694,6 +694,32 @@ for v in new old; do
 done
 as_version new
 
+echo "-- thumbnails without columns: the list is never dragged narrower than a thumbnail"
+d=/tmp/narrow
+mkdir -p $d
+# As wide as the window: red from one edge of the view to the other.
+convert -size 6000x800 xc:red $d/wide.jpg
+for v in new old; do
+    as_version $v
+    config file_details=false
+    start $d/wide.jpg
+    sleep 2
+    # The list's edge, at 240 by default, dragged to the window's left side.
+    # Frames drawn as the pointer comes, so egui sees it over the edge before the press.
+    for x in 250 245 241 239; do xdotool mousemove $x 450; sleep 0.2; done
+    xdotool mousedown 1 2>/dev/null
+    for x in $(seq 235 -5 20); do xdotool mousemove $x 450; sleep 0.05; done
+    sleep 0.3
+    xdotool mouseup 1 2>/dev/null
+    sleep 1
+    shot narrow-$v
+    quit
+    # A thumbnail is about 100 wide: at x=150 the list is still there, not the red view.
+    if [ $v = new ]; then differ "the list keeps a thumbnail's width" "$(colour narrow-new 150 400)" red
+    else note "old, at x=150: $(colour narrow-old 150 400)"; fi
+done
+as_version new
+
 echo "-- the Pan view's calendar: a day with images shows its first one"
 d=/tmp/calendar
 mkdir -p $d

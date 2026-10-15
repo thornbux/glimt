@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   instead of landing in the folder Glimt was started from.
 - Keyword tree: Remove from the tree on a level with levels below it (Places, with only
   Places|Norway|Oslo kept) removes it with them, instead of nothing.
+- File list with thumbnails and no columns: it can no longer be dragged narrower than a thumbnail
+  with a little of its name.
 
 ## [0.22.0] - 2026-10-15
 
