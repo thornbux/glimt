@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Decoded frames kept of one animation (bytes); longer ones loop the first part.
 pub static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
+/// Frames of an animation kept at most, whatever their size.
+const MAX_FRAMES: usize = 1000;
 
 pub struct Decoded {
     pub idx: usize,
@@ -139,9 +141,10 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     use image::AnimationDecoder;
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
-    // Every frame is a whole canvas, made without image's limit: one larger than it goes to
-    // `load`, which refuses it, instead of asking for gigabytes here.
-    let too_large = |(w, h): (u32, u32)| u64::from(w) * u64::from(h) * 4 > MAX_DECODE;
+    // Every frame is a whole canvas, made without image's limit, and the decoder keeps the last
+    // one while it makes the next: two of them must fit. One too large goes to `load`, which
+    // refuses it, instead of asking for gigabytes here.
+    let too_large = |(w, h): (u32, u32)| u64::from(w) * u64::from(h) * 8 > MAX_DECODE;
     let frames = match ext.as_str() {
         "gif" => {
             let dec = image::codecs::gif::GifDecoder::new(file).ok()?;
@@ -170,7 +173,9 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
         let img = color_image(to_display(shrink(img.into(), max).ok()?, None));
         bytes += img.pixels.len() * 4;
         out.push((img, ms));
-        if bytes > MAX_ANIMATION.load(Ordering::Relaxed) {
+        // Tiny frames pass the memory budget in their thousands, and each becomes a texture
+        // when shown: 1,000 at most.
+        if bytes > MAX_ANIMATION.load(Ordering::Relaxed) || out.len() >= MAX_FRAMES {
             break;
         }
     }
@@ -400,6 +405,20 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.
+    #[test]
+    fn keeps_a_thousand_frames() {
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-frames-{}.gif", std::process::id()));
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&file).unwrap());
+        let frames = (0..1200).map(|_| image::Frame::new(image::RgbaImage::new(1, 1)));
+        enc.encode_frames(frames).unwrap();
+        drop(enc);
+        let (frames, _) = super::animation(&file, [100, 100]).unwrap();
+        assert_eq!(frames.len(), super::MAX_FRAMES);
+        std::fs::remove_file(file).unwrap();
+    }
+
     /// A JPEG far larger than the window is decoded scaled, turned upright by its EXIF, with
     /// its full upright size; one that needs more than half its pixels is left to image.
     #[test]
