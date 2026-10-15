@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Changing the thumbnail size, Auto Rotate or colour management while thumbnails or the
+  neighbouring images were being made kept some of them in the old size, turn or colours until
+  Glimt started again; they are now made again in the new look.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added

@@ -720,6 +720,10 @@ struct App {
     decoded_rx: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
     pending: HashSet<(usize, bool)>,
+    /// Decodes and thumbnails still being made when a setting changed how they look: their
+    /// results are dropped once, as they come back in the old look.
+    stale_decodes: HashSet<(usize, bool)>,
+    stale_thumbs: HashSet<OsString>,
     errors: HashMap<usize, String>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
@@ -1365,6 +1369,8 @@ impl App {
             decoded_rx: done,
             slots: HashMap::new(),
             pending: HashSet::new(),
+            stale_decodes: HashSet::new(),
+            stale_thumbs: HashSet::new(),
             errors: HashMap::new(),
             zoom: None,
             pan_offset: egui::Vec2::ZERO,
@@ -2220,6 +2226,10 @@ impl App {
 
     fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoded_rx.try_recv() {
+            // Made before a setting changed its look (colours): asked for again, in the new one.
+            if self.stale_decodes.remove(&(d.idx, d.full)) {
+                continue;
+            }
             self.pending.remove(&(d.idx, d.full));
             let wanted = self.is_file(d.idx, &d.path)
                 && d.rotated == self.config.exif_rotate
@@ -2274,10 +2284,10 @@ impl App {
     /// Decode the images and thumbnails again, to be shown in other colours.
     fn redecode(&mut self) {
         self.slots.clear();
-        self.pending.clear();
+        self.stale_decodes.extend(self.pending.drain());
         self.errors.clear();
         self.thumbs.clear();
-        self.thumbs_pending.clear();
+        self.stale_thumbs.extend(self.thumbs_pending.drain());
         self.last_drawn = None;
         self.refill();
     }
@@ -3565,7 +3575,7 @@ impl App {
         self.config.save();
         LARGE_THUMBS.store(size == 2, Ordering::Relaxed);
         self.thumbs.clear();
-        self.thumbs_pending.clear();
+        self.stale_thumbs.extend(self.thumbs_pending.drain());
         self.scroll_to_cur = true;
     }
 
@@ -3595,6 +3605,10 @@ impl App {
                 continue;
             };
             self.thumbs_pending.remove(name);
+            // Made before a setting changed its look: asked for again, in the new one.
+            if self.stale_thumbs.remove(name) {
+                continue;
+            }
             if let Some(img) = result {
                 let tex = img.map(|img| {
                     ctx.load_texture(
