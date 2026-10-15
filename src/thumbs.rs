@@ -15,6 +15,9 @@ pub fn thumbnail(
     save: bool,
     large: bool,
 ) -> Result<image::RgbaImage, String> {
+    if !crate::decode::is_file(path) {
+        return Err("not a regular file".into());
+    }
     let (size, folder) = SIZES[large as usize];
     let mtime = std::fs::metadata(path)
         .and_then(|m| m.modified())

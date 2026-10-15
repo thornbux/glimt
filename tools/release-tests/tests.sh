@@ -536,6 +536,23 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a folder named like an image, a pipe and a link to /dev/zero: listed as they are"
+# Only the new version: the old one reads /dev/zero until memory runs out.
+d=/tmp/kinds
+mkdir -p $d/2019.jpg
+convert -size 300x200 xc:red $d/a.jpg
+ln -s /dev/zero $d/zero.jpg
+mkfifo $d/pipe.jpg
+config
+start $d
+sleep 4
+shot kinds
+alive=$(kill -0 $GPID 2>/dev/null && echo yes || echo no)
+mb=$(awk '/RssAnon/ {print int($2 / 1024)}' /proc/$GPID/status 2>/dev/null)
+quit
+expect "Glimt still runs" "$alive" yes
+if [ "${mb:-9999}" -lt 400 ]; then pass "memory stays small: $mb MB"; else fail "memory: ${mb:-?} MB"; fi
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

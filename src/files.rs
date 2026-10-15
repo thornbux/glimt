@@ -187,18 +187,30 @@ pub fn list_tree(dir: &Path, types: Types) -> Vec<OsString> {
     out
 }
 
+/// Whether a folder entry is a file and whether a folder, from the entry's own type (no `stat`),
+/// a link as what it points to. Only files are images: a folder named 2019.jpg is a folder, and
+/// a pipe or a link to /dev/zero named a.jpg would block or fill memory when read.
+pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
+    match entry.file_type() {
+        Ok(t) if t.is_symlink() => {
+            std::fs::metadata(entry.path()).map_or((false, false), |m| (m.is_file(), m.is_dir()))
+        }
+        Ok(t) => (t.is_file(), t.is_dir()),
+        Err(_) => (false, false),
+    }
+}
+
 /// One pass over the folder: (subfolders, image file names), both sorted by name.
 /// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
 pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let path = entry.path();
-        if is_listed(&path, types) {
+        let (file, folder) = kind(&entry);
+        if file && is_listed(&path, types) {
             images.push(entry.file_name());
-        } else if (types.hidden || !entry.file_name().as_encoded_bytes().starts_with(b"."))
-            && entry
-                .file_type()
-                .is_ok_and(|t| t.is_dir() || (t.is_symlink() && path.is_dir()))
+        } else if folder
+            && (types.hidden || !entry.file_name().as_encoded_bytes().starts_with(b"."))
         {
             dirs.push(path);
         }
@@ -395,6 +407,33 @@ pub fn shuffle<T>(v: &mut [T]) {
 
 #[cfg(test)]
 mod tests {
+    /// Images are files, or links to files: a folder named like an image is a folder, and a
+    /// pipe or a link to a device is left out.
+    #[test]
+    fn lists_only_files_as_images() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("glimt-test-kinds-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("2019.jpg")).unwrap();
+        std::fs::write(dir.join("a.jpg"), "").unwrap();
+        symlink(dir.join("a.jpg"), dir.join("b.jpg")).unwrap();
+        symlink("/dev/zero", dir.join("zero.jpg")).unwrap();
+        symlink(dir.join("gone"), dir.join("broken.jpg")).unwrap();
+        let fifo = std::process::Command::new("mkfifo")
+            .arg(dir.join("pipe.jpg"))
+            .status();
+        assert!(fifo.is_ok_and(|s| s.success()));
+        let types = super::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let (dirs, images) = super::list_folder(&dir, types);
+        assert_eq!(images, ["a.jpg", "b.jpg"]);
+        assert_eq!(dirs, [dir.join("2019.jpg")]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The Types menu: images, RAW and videos each on their own; an opened file's type.
     #[test]
     fn lists_by_type() {

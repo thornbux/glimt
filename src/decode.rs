@@ -48,12 +48,22 @@ pub type Frames = Vec<(egui::ColorImage, u32)>;
 
 /// Image `path` scaled to fit `max`, its original size and its number of pages; `page` picks a
 /// page of a multi-page TIFF.
+/// Whether `path` is a file (also through a link): a pipe would block a reader for good, and
+/// a device such as /dev/zero would fill memory.
+pub fn is_file(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
+}
+
 pub fn decode(
     path: &Path,
     max: [u32; 2],
     rotate: bool,
     page: usize,
 ) -> Result<(Frames, [usize; 2], usize), String> {
+    // Also for a file from a collection or the command line, which the listing did not see.
+    if !is_file(path) {
+        return Err("not a regular file".into());
+    }
     if let Some((frames, orig)) = animation(path, max) {
         return Ok((frames, orig, 1));
     }
