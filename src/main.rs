@@ -1730,7 +1730,8 @@ impl App {
             return;
         };
         self.listing_rx = None;
-        if self.collection.is_none() {
+        // Several folders shown together are listed as "/" with no subfolders: not the tree's.
+        if self.collection.is_none() && self.folders.is_empty() {
             self.tree.insert(self.dir.clone(), Some(dirs.clone()));
         }
         self.subdirs = dirs;
