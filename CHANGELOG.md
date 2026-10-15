@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- File → Rename Collection… and Move Collection to Trash, for the open collection. Its images
+  stay where they are, and a collection is never renamed over another.
+
 ## [0.19.0] - 2026-10-15
 
 ### Added

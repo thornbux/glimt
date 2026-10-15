@@ -437,6 +437,27 @@ quit
 expect "a box sets the keyword and its tree path" "$on" 2
 expect "a box clears them again" "$off" 0
 
+echo "-- a collection renamed, then moved to the trash: its images stay"
+d=/tmp/coll
+mkdir -p $d $XDG_DATA_HOME/glimt/collections
+convert -size 300x200 xc:red $d/a.jpg
+c=$XDG_DATA_HOME/glimt/collections
+printf '#GQview collection\n"%s"\n' $d/a.jpg >$c/Old.gqv
+rm -rf $H/.local/share/Trash
+config
+start $c/Old.gqv
+sleep 2
+click 20 11
+click 80 492   # File → Rename Collection…
+key ctrl+a; xdotool type New; key Return
+renamed=$(ls $c | tr '\n' ' ')
+click 20 11
+click 93 516 2   # File → Move Collection to Trash
+shot collection-trashed
+quit
+expect "renamed in its folder" "$renamed" "New.gqv "
+expect "the collection in the trash" "$(ls $c; ls $H/.local/share/Trash/files)" "New.gqv"
+expect "its image stays" "$(ls $d)" "a.jpg"
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d
