@@ -198,6 +198,11 @@ file each, of
 .I key=value
 lines.
 .TP
+.I $XDG_CONFIG_HOME/glimt/keywords
+The keyword tree: a path such as
+.I Places|Norway|Oslo
+on each line.
+.TP
 .I $XDG_STATE_HOME/glimt/state
 The last folder and the window size and position (default
 .IR ~/.local/state/glimt/state ).
@@ -209,9 +214,11 @@ Marks and stars, in builds with the marks feature.
 Keywords, comment and (if chosen) stars of
 .IR file ,
 next to it, read by darktable and digiKam too.
+.TP
 .I $XDG_DATA_HOME/glimt/plugins
 Plugins: desktop files whose command runs on the selected files (default
 .IR ~/.local/share/glimt/plugins ).
+.TP
 .I $XDG_DATA_HOME/glimt/collections
 Collections, as Geeqie .gqv files (default
 .IR ~/.local/share/glimt/collections ).
@@ -223,7 +230,6 @@ Thumbnails, shared with other programs as the freedesktop specification says.
 The sockets for remote control.
 .SH ENVIRONMENT
 .TP
-.BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_CACHE_HOME ", " XDG_DATA_HOME ", " XDG_RUNTIME_DIR
 .BR XDG_CONFIG_HOME ", " XDG_STATE_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME ", " XDG_RUNTIME_DIR
 Where the files above are kept.
 .SH EXAMPLES

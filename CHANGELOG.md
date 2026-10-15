@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The man page ran two entries of its FILES section into the one before, printed the
+  ENVIRONMENT line twice and left out the keyword tree's file. About now credits every crate
+  built in, with its licence.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
