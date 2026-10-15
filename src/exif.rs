@@ -287,9 +287,12 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
 }
 
 /// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
-/// turned upright. A block without the field is left as it is.
+/// turned upright. A block without the field is left as it is, and so is one without a TIFF
+/// header: no program finds an orientation in it to turn the pixels again.
 pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
-    let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
+    let Some((t, ifd0, _, _)) = ifds(block) else {
+        return Ok(());
+    };
     let Some(e) = find(&ifd0, ORIENTATION) else {
         return Ok(());
     };
@@ -915,6 +918,14 @@ mod tests {
             d.extend(v.to_le_bytes());
         }
         d
+    }
+
+    /// A PNG's or WebP's EXIF that cannot be read stays as it is when the image is saved turned.
+    #[test]
+    fn keeps_unreadable_exif() {
+        let mut block = b"Exif\0\0not a TIFF header".to_vec();
+        assert_eq!(super::set_upright(&mut block), Ok(()));
+        assert_eq!(block, b"Exif\0\0not a TIFF header");
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:
