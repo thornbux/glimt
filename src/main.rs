@@ -3535,7 +3535,7 @@ impl App {
             return;
         }
         let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
-        let mut words: Vec<String> = player.split_whitespace().map(String::from).collect();
+        let mut words = plugins::words(player);
         std::thread::spawn(move || {
             let run = |cmd: &str, args: &[String]| {
                 let out = command(cmd).args(args).arg(&path).output();
@@ -6919,7 +6919,8 @@ impl App {
             ui.label("Player (Enter):");
             let player = egui::TextEdit::singleline(&mut self.config.video_player)
                 .hint_text("default application");
-            changed |= ui.add(player).changed();
+            let hint = "A command line, such as mpv --fs; a path with spaces goes in \"quotes\"";
+            changed |= ui.add(player).on_hover_text(hint).changed();
         });
         changed
     }

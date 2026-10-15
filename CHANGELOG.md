@@ -9,6 +9,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Auto refresh keeps the selection: when another program writes into the folder, Delete and Move
   still act on the selected files, not only the shown one.
+- Video player command: a path or argument with spaces works in "quotes", as in a desktop file's
+  Exec line.
 
 ## [0.22.1] - 2026-10-15
 
