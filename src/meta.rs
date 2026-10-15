@@ -80,9 +80,16 @@ pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, o
 
 /// The keyword tree paths (lr:hierarchicalSubject) in the sidecar of `path`.
 pub fn tree_paths(path: &Path) -> Vec<String> {
-    (std::fs::read_to_string(sidecar(path)))
-        .map(|x| unique(items(&x, "lr:hierarchicalSubject")))
-        .unwrap_or_default()
+    // From where `read` takes the keywords: the sidecar, or else the XMP inside the image.
+    source(path).map_or_else(Vec::new, |x| unique(items(&x, "lr:hierarchicalSubject")))
+}
+
+/// The XMP the keywords and comment of `path` come from: its sidecar if that has them, else the
+/// image's own.
+fn source(path: &Path) -> Option<String> {
+    let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
+    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
+    side.or_else(|| embedded(path))
 }
 
 /// `<file>.xmp`, next to the file.
@@ -94,10 +101,7 @@ pub fn sidecar(path: &Path) -> PathBuf {
 
 /// The keywords and comment of `path`: from its sidecar if that has them, else from the image.
 pub fn read(path: &Path) -> Meta {
-    let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
-    side.or_else(|| embedded(path))
-        .map_or_else(Meta::default, |x| parse(&x))
+    source(path).map_or_else(Meta::default, |x| parse(&x))
 }
 
 /// The XMP packet inside the image. A JPEG's is read from its first 256 KB, as its EXIF is.
@@ -117,14 +121,34 @@ fn embedded(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// Write the keywords and comment into the sidecar; everything else in it stays. Keywords or a
-/// comment the image holds itself and that were cleared are written as empty elements: left
-/// out, the image's own would show through again.
-pub fn write(path: &Path, meta: &Meta) -> Result<(), String> {
+/// Write the fields that were edited (`None`: as it is on disk), read and written as one change,
+/// so keywords set in the background meanwhile stay; everything else in the sidecar stays too.
+/// Keywords or a comment the image holds itself and that were cleared are written as empty
+/// elements: left out, the image's own would be read again. The keywords and comment as written.
+pub fn write_changed(
+    path: &Path,
+    keywords: Option<Vec<String>>,
+    comment: Option<String>,
+) -> Result<Meta, String> {
+    let _held = held();
+    let mut meta = read(path);
+    let keywords_only = comment.is_none();
+    if let Some(k) = keywords {
+        meta.keywords = k;
+    }
+    if let Some(c) = comment {
+        meta.comment = c;
+    }
     let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
-    update_sidecar(path, *meta == Meta::default() && !own, |x| {
-        set(x, meta, own)
-    })
+    update(
+        path,
+        meta == Meta::default() && !own,
+        |x| match keywords_only {
+            true => set_keywords(x, &meta, own),
+            false => set(x, &meta, own),
+        },
+    )?;
+    Ok(meta)
 }
 
 /// Add `keywords` to those `path` has, read and written as one change.
@@ -153,6 +177,7 @@ fn held() -> std::sync::MutexGuard<'static, ()> {
 
 /// Change the sidecar of `path` with `change`, or a new, empty one unless `only_if_there`: then
 /// a file without a sidecar keeps having none. Written to a temporary file first, so a crash never leaves half a sidecar.
+#[cfg_attr(not(feature = "marks"), allow(dead_code))]
 pub fn update_sidecar(
     path: &Path,
     only_if_there: bool,
@@ -460,7 +485,14 @@ mod tests {
             keywords: vec!["x".into()],
             comment: String::new(),
         };
-        assert!(write(&file, &meta).is_err());
+        assert!(
+            write_changed(
+                &file,
+                Some(meta.keywords.clone()),
+                Some(meta.comment.clone())
+            )
+            .is_err()
+        );
         assert_eq!(
             std::fs::read(sidecar(&file)).unwrap(),
             b"\xff\xfe not UTF-8"
@@ -586,7 +618,7 @@ mod tests {
         bytes.extend(&base[2..]);
         std::fs::write(&file, bytes).unwrap();
         assert_eq!(read(&file), own);
-        write(&file, &Meta::default()).unwrap();
+        write_changed(&file, Some(Vec::new()), Some(String::new())).unwrap();
         assert_eq!(read(&file), Meta::default());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -677,6 +709,45 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Saving an edited comment keeps keywords set in the background since it was read, and the
+    /// tree paths inside an image count as the keywords there do.
+    #[test]
+    fn edits_keep_what_others_set() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-edit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        write_changed(&file, Some(vec!["a".into()]), None).unwrap();
+        tag(&file, "b", true).unwrap();
+        let meta = write_changed(&file, None, Some("c".into())).unwrap();
+        assert_eq!(
+            (meta.keywords, meta.comment),
+            (vec!["a".into(), "b".into()], "c".into())
+        );
+        // A JPEG exported with its paths inside: they count until a sidecar has its own.
+        let jpeg = dir.join("b.jpg");
+        let mut base = Vec::new();
+        let mut out = std::io::Cursor::new(&mut base);
+        image::RgbImage::new(4, 2)
+            .write_to(&mut out, image::ImageFormat::Jpeg)
+            .unwrap();
+        let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\">\
+             <dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li></rdf:Bag></dc:subject>\
+             <lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>";
+        let mut app1 = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        app1.extend(packet.as_bytes());
+        let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
+        bytes.extend(((app1.len() + 2) as u16).to_be_bytes());
+        bytes.extend(app1);
+        bytes.extend(&base[2..]);
+        std::fs::write(&jpeg, bytes).unwrap();
+        assert_eq!(tree_paths(&jpeg), ["Places|Oslo"]);
+        tag(&jpeg, "Events|Party", true).unwrap();
+        assert_eq!(tree_paths(&jpeg), ["Places|Oslo", "Events|Party"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn sidecar_follows_the_file() {
         let dir = std::env::temp_dir().join(format!("glimt-test-meta-{}", std::process::id()));
@@ -688,7 +759,7 @@ mod tests {
             keywords: vec!["x".into()],
             comment: "y".into(),
         };
-        write(&a, &meta).unwrap();
+        write_changed(&a, Some(meta.keywords.clone()), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
         follow(&a, &b, false);
@@ -701,7 +772,12 @@ mod tests {
             keywords: vec!["other".into()],
             comment: String::new(),
         };
-        write(&a, &other).unwrap();
+        write_changed(
+            &a,
+            Some(other.keywords.clone()),
+            Some(other.comment.clone()),
+        )
+        .unwrap();
         follow(&b, &a, true);
         assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();

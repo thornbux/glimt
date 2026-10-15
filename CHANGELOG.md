@@ -19,6 +19,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   with a comma ("Smith, John") was split in two, a comment lost its last line break, and a JPEG
   with keywords inside got a new sidecar just from being shown. Fields left as they were shown
   are now never written.
+- Editing a comment while keywords were being set on many files in the background could take
+  a keyword off a file again; a tick quickly followed by an untick could leave files ticked; and
+  the keyword tree paths inside an exported JPEG were lost when a box was ticked. Saving now
+  writes only the fields that were edited, ticks are written in the order they were made, and
+  the paths come from where the keywords do.
 
 ## [0.21.0] - 2026-10-15
 
