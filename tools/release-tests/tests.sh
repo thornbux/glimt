@@ -446,6 +446,31 @@ quit
 expect "a box sets the keyword and its tree path" "$on" 2
 expect "a box clears them again" "$off" 0
 
+echo "-- the keyword tree: removing an inner level takes the levels below it"
+d=/tmp/keywords-remove
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+for v in new old; do
+    as_version $v
+    printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
+    config exif_panel=true
+    start $d
+    sleep 2
+    for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
+    sleep 1
+    # Right-click Places, which holds only Norway|Oslo, and Remove from the tree in its menu.
+    xdotool mousemove 1080 334 click 3 2>/dev/null
+    sleep 1
+    shot keywords-remove-menu-$v
+    click 1130 350 2
+    shot keywords-remove-$v
+    quit
+    left=$(tr '\n' ' ' <$XDG_CONFIG_HOME/glimt/keywords | sed 's/ $//')
+    if [ $v = new ]; then expect "removing Places takes Norway and Oslo with it" "$left" Animals
+    else note "old, left in the tree: $left"; fi
+done
+as_version new
+
 echo "-- a Lightroom catalog: its collection, keyword tree and stars imported"
 d=/tmp/lr
 mkdir -p $d/photos/2024
