@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Grey TIFFs of floats or signed numbers, as science writes them (height models, microscopy):
+  shown stretched from their lowest value to their highest, on every page. Before, they could not
+  be shown.
 - BMP, ICO (the largest of its sizes), QOI and PNM (PBM, PGM, PPM, PAM) images, listed and
   shown as the other everyday formats.
 

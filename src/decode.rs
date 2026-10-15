@@ -109,7 +109,9 @@ pub fn tiff_pages(path: &Path) -> usize {
 }
 
 /// Page `page` of a TIFF. The image crate reads only the first, so the tiff crate (which it
-/// uses) decodes the others; 8- and 16-bit grey and colour, which covers scanned documents.
+/// uses) decodes the others; 8- and 16-bit grey and colour, which covers scanned documents, and
+/// grey of other kinds as science writes it (32-bit floats of a height model or a microscope,
+/// signed or 32-bit integers), stretched from its lowest value to its highest.
 pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
@@ -128,9 +130,51 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
         (C::Gray(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageLuma16),
         (C::RGB(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgb16),
         (C::RGBA(16), R::U16(v)) => image::ImageBuffer::from_raw(w, h, v).map(D::ImageRgba16),
+        (C::Gray(_), v) => {
+            stretched(v).and_then(|v| image::GrayImage::from_raw(w, h, v).map(D::ImageLuma8))
+        }
         _ => None,
     };
     img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1))
+}
+
+/// Grey values of any kind as 0 to 255, from the lowest finite value to the highest; `None` for
+/// the kinds the arms above take.
+// shortcut: lowest to highest, so one stray value can leave the rest dark; stretch between
+// percentiles if such files turn up.
+fn stretched(values: tiff::decoder::DecodingResult) -> Option<Vec<u8>> {
+    use tiff::decoder::DecodingResult as R;
+    fn stretch<T: Copy>(v: &[T], f: impl Fn(T) -> f64) -> Vec<u8> {
+        let finite = || v.iter().map(|&x| f(x)).filter(|x| x.is_finite());
+        let low = finite().fold(f64::INFINITY, f64::min);
+        let high = finite().fold(f64::NEG_INFINITY, f64::max);
+        let scale = if high > low {
+            255.0 / (high - low)
+        } else {
+            0.0
+        };
+        v.iter()
+            .map(|&x| f(x))
+            .map(|x| {
+                if x.is_finite() {
+                    ((x - low) * scale).round() as u8
+                } else {
+                    0
+                }
+            })
+            .collect()
+    }
+    Some(match values {
+        R::F32(v) => stretch(&v, f64::from),
+        R::F64(v) => stretch(&v, |x| x),
+        R::I8(v) => stretch(&v, f64::from),
+        R::I16(v) => stretch(&v, f64::from),
+        R::I32(v) => stretch(&v, f64::from),
+        R::U32(v) => stretch(&v, f64::from),
+        R::I64(v) => stretch(&v, |x| x as f64),
+        R::U64(v) => stretch(&v, |x| x as f64),
+        _ => return None,
+    })
 }
 
 /// The whole image in sRGB.
@@ -217,11 +261,18 @@ pub fn load_icc(
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
         return Ok((img, icc));
     }
-    let mut dec = image::ImageReader::open(path)
+    let dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .into_decoder()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string());
+    // Grey TIFFs the image crate does not take (floats, signed): through the tiff crate.
+    let mut dec = match dec {
+        Err(e) if has_ext(path, &["tif", "tiff"]) => {
+            return tiff_page(path, 0).map(|img| (img, None)).map_err(|_| e);
+        }
+        dec => dec?,
+    };
     // from_decoder allocates what the header claims, without the reader's limit.
     check_size(&dec)?;
     let orientation = dec
@@ -496,6 +547,32 @@ mod tests {
         let (img, icc, orig) = super::scaled_jpeg(&dir.join("a.raf"), [60, 100], true).unwrap();
         assert_eq!((orig, img.width(), img.height()), ([200, 400], 50, 100));
         assert!(icc.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Grey TIFFs of floats, as science writes them, shown stretched from the lowest value to
+    /// the highest; a float RGB one as the image crate reads it.
+    #[test]
+    fn shows_float_tiff() {
+        use tiff::encoder::{TiffEncoder, colortype};
+        let dir = std::env::temp_dir().join(format!("glimt-test-float-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut gray: Vec<f32> = (0..60 * 30).map(|i| i as f32 * 3.7 - 500.0).collect();
+        gray[1] = f32::NAN;
+        let file = std::fs::File::create(dir.join("gray.tif")).unwrap();
+        (TiffEncoder::new(file).unwrap())
+            .write_image::<colortype::Gray32Float>(60, 30, &gray)
+            .unwrap();
+        let (frames, orig, _) = super::decode(&dir.join("gray.tif"), [100, 100], true, 0).unwrap();
+        let px = &frames[0].0.pixels;
+        assert_eq!(orig, [60, 30]);
+        assert_eq!((px[0].r(), px[1].r(), px[px.len() - 1].r()), (0, 0, 255));
+        let rgb: Vec<f32> = (0..60 * 30 * 3).map(|i| (i % 3) as f32 * 0.5).collect();
+        let file = std::fs::File::create(dir.join("rgb.tif")).unwrap();
+        (TiffEncoder::new(file).unwrap())
+            .write_image::<colortype::RGB32Float>(60, 30, &rgb)
+            .unwrap();
+        assert!(super::decode(&dir.join("rgb.tif"), [100, 100], true, 0).is_ok());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
