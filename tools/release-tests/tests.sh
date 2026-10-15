@@ -18,7 +18,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxrandr2 libxi6 libx11-xcb1 sqlite3 >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     for v in new old; do
         echo "-- building $v"
         (cd /t/$v && CARGO_TARGET_DIR=/work-target/release-tests-$v \
@@ -437,6 +437,53 @@ quit
 expect "a box sets the keyword and its tree path" "$on" 2
 expect "a box clears them again" "$off" 0
 
+echo "-- a Lightroom catalog: its collection, keyword tree and stars imported"
+d=/tmp/lr
+mkdir -p $d/photos/2024
+convert -size 300x200 xc:red $d/photos/2024/a.jpg
+convert -size 300x200 xc:blue $d/photos/2024/b.jpg
+# The tables and columns Glimt reads, as Lightroom Classic has them.
+sqlite3 $d/Catalog.lrcat <<SQL
+CREATE TABLE AgLibraryRootFolder (id_local INTEGER PRIMARY KEY, absolutePath);
+CREATE TABLE AgLibraryFolder (id_local INTEGER PRIMARY KEY, rootFolder, pathFromRoot);
+CREATE TABLE AgLibraryFile (id_local INTEGER PRIMARY KEY, folder, baseName, extension);
+CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile, rating);
+CREATE TABLE AgLibraryCollection (id_local INTEGER PRIMARY KEY, creationId, name, parent);
+CREATE TABLE AgLibraryCollectionImage (id_local INTEGER PRIMARY KEY, collection, image);
+CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, name, parent);
+INSERT INTO AgLibraryRootFolder VALUES (1, '$d/photos/');
+INSERT INTO AgLibraryFolder VALUES (2, 1, '2024/');
+INSERT INTO AgLibraryFile VALUES (3, 2, 'a', 'jpg'), (4, 2, 'b', 'jpg');
+INSERT INTO Adobe_images VALUES (5, 3, 4.0), (6, 4, 3);
+INSERT INTO AgLibraryCollection VALUES (7, 'com.adobe.ag.library.group', 'Travel', NULL),
+    (8, 'com.adobe.ag.library.collection', 'Norway', 7);
+INSERT INTO AgLibraryCollectionImage VALUES (9, 8, 5), (10, 8, 6);
+INSERT INTO AgLibraryKeyword VALUES (11, NULL, NULL), (12, 'Places', 11), (13, 'Oslo', 12);
+SQL
+# There already: the collection with one of the images, and other stars on that image.
+mkdir -p $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
+printf '#GQview collection\n"%s"\n' $d/photos/2024/a.jpg \
+    >"$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
+printf '0\t2\t%s\n' $d/photos/2024/a.jpg >$XDG_STATE_HOME/glimt/marks
+config xmp_stars=true
+start $d/photos/2024
+sleep 2
+answer $d/Catalog.lrcat
+click 20 11
+click 100 420 3   # File → Import Lightroom Catalog…
+shot lightroom-dialog
+click 382 447 2   # Next
+shot lightroom-plan
+click 454 462 2   # Import, keeping Glimt's stars
+shot lightroom-done
+quit
+coll="$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
+expect "the collection that was there gets the image it lacked, the other once" \
+    "$(grep -c "^\"$d/photos/2024/[ab].jpg\"$" "$coll" 2>/dev/null)" 2
+expect "the keyword under its parent" "$(grep -cx 'Places|Oslo' $XDG_CONFIG_HOME/glimt/keywords)" 1
+stars=$(sort $XDG_STATE_HOME/glimt/marks | cut -f2 | tr '\n' ' ')
+expect "Glimt's stars kept, the new ones taken" "$stars" "2 3 "
+expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.jpg.xmp)" 1
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

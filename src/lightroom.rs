@@ -1,0 +1,238 @@
+//! Lightroom Classic catalogs (`.lrcat`, an SQLite database), read once through the `sqlite3`
+//! program: the collections, the keyword tree and the stars, for Glimt's own files. Only
+//! columns that have been the same for many Lightroom versions are read.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+/// One query, so the catalog is read in one go: a row for each root folder (r), image (i),
+/// collection (c), image in a collection (m) and keyword (k), with five columns each.
+const QUERY: &str = "\
+SELECT 'r', id_local, absolutePath, '', '' FROM AgLibraryRootFolder
+UNION ALL SELECT 'i', i.id_local, f.rootFolder,
+    f.pathFromRoot || fi.baseName || CASE WHEN fi.extension = '' THEN '' ELSE '.' || fi.extension END,
+    CAST(coalesce(i.rating, 0) AS INTEGER)
+    FROM Adobe_images i JOIN AgLibraryFile fi ON fi.id_local = i.rootFile
+    JOIN AgLibraryFolder f ON f.id_local = fi.folder
+UNION ALL SELECT 'c', id_local, coalesce(parent, 0), coalesce(name, ''), coalesce(creationId, '')
+    FROM AgLibraryCollection
+UNION ALL SELECT 'm', collection, image, '', '' FROM AgLibraryCollectionImage
+UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM AgLibraryKeyword;";
+
+/// Between the columns and after the rows: neither is in a file name or keyword.
+const COLUMN: u8 = 0x1f;
+const ROW: u8 = 0x1e;
+
+#[derive(Default)]
+pub struct Catalog {
+    /// The root folders as the catalog names them, with a slash at the end.
+    pub roots: Vec<(i64, String)>,
+    /// Image: (root folder, path below it, stars).
+    images: HashMap<i64, (i64, String, u8)>,
+    /// Collection: (parent, name, kind).
+    collections: HashMap<i64, (i64, String, String)>,
+    /// (collection, image)
+    members: Vec<(i64, i64)>,
+    /// Keyword: (parent, name).
+    keywords: HashMap<i64, (i64, String)>,
+}
+
+/// Read `file`; an error says why in words for the user.
+pub fn read(file: &Path) -> Result<Catalog, String> {
+    if file.with_extension("lrcat-lock").exists() {
+        return Err("Lightroom has the catalog open: close Lightroom first".into());
+    }
+    let out = crate::external::command("sqlite3")
+        .args([
+            "-readonly",
+            "-batch",
+            "-noheader",
+            "-separator",
+            "\x1f",
+            "-newline",
+            "\x1e",
+        ])
+        .arg(file)
+        .arg(QUERY)
+        .output()
+        .map_err(|e| format!("Reading a Lightroom catalog needs the sqlite3 program: {e}"))?;
+    if !out.status.success() {
+        let why = String::from_utf8_lossy(&out.stderr);
+        return Err(format!(
+            "Not a Lightroom Classic catalog Glimt can read: {}",
+            why.trim()
+        ));
+    }
+    Ok(parse(&out.stdout))
+}
+
+fn parse(text: &[u8]) -> Catalog {
+    let mut c = Catalog::default();
+    for row in text.split(|&b| b == ROW) {
+        let cols: Vec<String> = (row.split(|&b| b == COLUMN))
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        let [kind, id, a, b, d] = &cols[..] else {
+            continue;
+        };
+        let (Ok(id), n) = (id.parse::<i64>(), a.parse::<i64>()) else {
+            continue;
+        };
+        match (kind.as_str(), n) {
+            ("r", _) => c.roots.push((id, a.clone())),
+            ("i", Ok(n)) => drop(
+                c.images
+                    .insert(id, (n, b.clone(), d.parse().unwrap_or(0).min(5))),
+            ),
+            ("c", Ok(n)) => drop(c.collections.insert(id, (n, b.clone(), d.clone()))),
+            ("m", Ok(n)) => c.members.push((id, n)),
+            ("k", Ok(n)) => drop(c.keywords.insert(id, (n, b.clone()))),
+            _ => {}
+        }
+    }
+    c
+}
+
+impl Catalog {
+    /// The path of each image, its root folder replaced by `now`, the folder where the user
+    /// says it is now (in the order of `roots`).
+    fn paths(&self, now: &[PathBuf]) -> HashMap<i64, PathBuf> {
+        // A root folder the user gave no place is left out.
+        let roots: HashMap<i64, &PathBuf> = (self.roots.iter().map(|r| r.0))
+            .zip(now)
+            .filter(|r| !r.1.as_os_str().is_empty())
+            .collect();
+        (self.images.iter())
+            .filter_map(|(&id, (root, below, _))| Some((id, roots.get(root)?.join(below))))
+            .collect()
+    }
+
+    /// The plain collections (not smart ones, sets or publish services), named with the sets
+    /// they are in ("Travel - Norway"), and their images where they are now.
+    pub fn collections(&self, now: &[PathBuf]) -> Vec<(String, Vec<PathBuf>)> {
+        let paths = self.paths(now);
+        let mut images: HashMap<i64, Vec<PathBuf>> = HashMap::new();
+        for (coll, image) in &self.members {
+            if let Some(p) = paths.get(image) {
+                images.entry(*coll).or_default().push(p.clone());
+            }
+        }
+        let mut all: Vec<(String, Vec<PathBuf>)> = (self.collections.iter())
+            .filter(|(_, c)| c.2 == "com.adobe.ag.library.collection")
+            .map(|(id, _)| {
+                let names = chain(*id, |i| {
+                    self.collections.get(&i).map(|c| (c.0, c.1.as_str()))
+                });
+                let name = names.join(" - ").replace('/', "-");
+                let name = name.trim_start_matches('.').to_owned();
+                (name, images.remove(id).unwrap_or_default())
+            })
+            .filter(|(name, images)| !name.trim().is_empty() && !images.is_empty())
+            .collect();
+        all.sort();
+        all
+    }
+
+    /// The keywords as keyword tree paths ("Places|Norway|Oslo").
+    pub fn keyword_paths(&self) -> Vec<String> {
+        (self.keywords.keys())
+            .map(|&id| chain(id, |i| self.keywords.get(&i).map(|k| (k.0, k.1.as_str()))))
+            .filter(|names| !names.is_empty())
+            .map(|names| names.join("|"))
+            .collect()
+    }
+
+    /// The images with stars, where they are now.
+    #[cfg_attr(not(feature = "marks"), allow(dead_code))]
+    pub fn stars(&self, now: &[PathBuf]) -> Vec<(PathBuf, u8)> {
+        let paths = self.paths(now);
+        (self.images.iter())
+            .filter(|(_, i)| i.2 > 0)
+            .filter_map(|(id, i)| Some((paths.get(id)?.clone(), i.2)))
+            .collect()
+    }
+}
+
+/// The names from the top down to `id`, through `parent_and_name`; the nameless root that
+/// Lightroom keeps keywords under is left out. A loop in a damaged catalog ends after 32 steps.
+fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)>) -> Vec<String> {
+    let mut names = Vec::new();
+    for _ in 0..32 {
+        let Some((parent, name)) = parent_and_name(id) else {
+            break;
+        };
+        if !name.is_empty() {
+            names.push(name.replace('|', "/"));
+        }
+        id = parent;
+    }
+    names.reverse();
+    names
+}
+
+/// Where each root folder is now: the same place if it is there, else empty for the user to
+/// fill in.
+pub fn roots_now(catalog: &Catalog) -> Vec<String> {
+    (catalog.roots.iter())
+        .map(|(_, r)| {
+            if Path::new(r).is_dir() {
+                r.clone()
+            } else {
+                String::new()
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    /// A catalog as sqlite3 writes it: a root folder on a Mac, two images, a collection in a
+    /// set, a smart collection, and keywords under Lightroom's nameless root.
+    fn sample() -> Vec<u8> {
+        let rows = [
+            "r\x1f1\x1f/Volumes/Photos/\x1f\x1f",
+            "i\x1f10\x1f1\x1f2024/Oslo/a.jpg\x1f4",
+            "i\x1f11\x1f1\x1f2024/b.CR3\x1f0",
+            "c\x1f20\x1f0\x1fTravel\x1fcom.adobe.ag.library.group",
+            "c\x1f21\x1f20\x1fNorway\x1fcom.adobe.ag.library.collection",
+            "c\x1f22\x1f0\x1fFive stars\x1fcom.adobe.ag.library.smart_collection",
+            "m\x1f21\x1f10\x1f\x1f",
+            "m\x1f21\x1f11\x1f\x1f",
+            "m\x1f22\x1f10\x1f\x1f",
+            "k\x1f30\x1f0\x1f\x1f",
+            "k\x1f31\x1f30\x1fPlaces\x1f",
+            "k\x1f32\x1f31\x1fOslo\x1f",
+        ];
+        rows.join("\x1e").into_bytes()
+    }
+
+    #[test]
+    fn reads_collections_keywords_and_stars() {
+        let c = super::parse(&sample());
+        assert_eq!(c.roots, [(1, "/Volumes/Photos/".to_owned())]);
+        let now = [PathBuf::from("/media/disk")];
+        let a = PathBuf::from("/media/disk/2024/Oslo/a.jpg");
+        let b = PathBuf::from("/media/disk/2024/b.CR3");
+        let mut colls = c.collections(&now);
+        colls[0].1.sort();
+        assert_eq!(colls, [("Travel - Norway".to_owned(), vec![a.clone(), b])]);
+        let mut keywords = c.keyword_paths();
+        keywords.sort();
+        assert_eq!(keywords, ["Places", "Places|Oslo"]);
+        assert_eq!(c.stars(&now), [(a, 4)]);
+    }
+
+    /// sqlite3 output broken in thousands of ways: read without a panic or an endless loop.
+    #[test]
+    fn survives_broken_output() {
+        let now = [PathBuf::from("/x")];
+        for text in crate::broken(&sample()) {
+            let c = super::parse(&text);
+            c.collections(&now);
+            c.keyword_paths();
+            c.stars(&now);
+        }
+    }
+}

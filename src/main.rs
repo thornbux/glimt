@@ -39,6 +39,7 @@ mod exif;
 mod external;
 mod files;
 mod help;
+mod lightroom;
 #[cfg(feature = "marks")]
 mod marks;
 mod meta;
@@ -424,6 +425,25 @@ fn layout_grid(layout: &str) -> [usize; 2] {
         .map_or([1, 1], |l| l.2)
 }
 
+/// A Lightroom catalog read, the folders where its root folders are now, and once Next is
+/// clicked what importing it will do.
+struct LightroomImport {
+    catalog: lightroom::Catalog,
+    now: Vec<String>,
+    plan: Option<LightroomPlan>,
+}
+
+struct LightroomPlan {
+    collections: Vec<(String, Vec<PathBuf>)>,
+    /// The names of those that are there already.
+    existing: Vec<String>,
+    keywords: Vec<String>,
+    stars: Vec<(PathBuf, u8)>,
+    /// How many images have other stars in Glimt, and whether Lightroom's replace them.
+    differ: usize,
+    take_lightroom: bool,
+}
+
 /// What a zenity file dialog was opened for.
 enum Pick {
     Open,
@@ -441,6 +461,8 @@ enum Pick {
     ScreenProfile,
     /// An ICC profile for images without one.
     InputProfile,
+    /// A Lightroom Classic catalog to import.
+    Lightroom,
 }
 
 /// Images to print, and how.
@@ -887,6 +909,10 @@ struct App {
     folder_target: Option<PathBuf>,
     confirm_folder: bool,
     print: Option<PrintDialog>,
+    /// A Lightroom catalog being read, then imported with the folders where its root folders
+    /// are now.
+    lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
+    lightroom: Option<LightroomImport>,
     /// Answer from an open file dialog (zenity).
     dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     pan_window: Option<Pan>,
@@ -1253,6 +1279,8 @@ impl App {
             mounting_rx: None,
             login: None,
             print: None,
+            lightroom_rx: None,
+            lightroom: None,
             keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
                 .map_or_else(Vec::new, |t| keyword_paths(t.lines())),
             new_keyword: String::new(),
@@ -1845,6 +1873,7 @@ impl App {
     fn collections_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         menu_item(ui, act, Action::NewCollection);
         menu_item(ui, act, Action::OpenCollection);
+        menu_item(ui, act, Action::ImportLightroom);
         let mut open = None;
         scroll_menu(ui, "Collections", |ui| {
             let all = collections::list();
@@ -2678,6 +2707,7 @@ impl App {
             || self.prompt.is_some()
             || self.login.is_some()
             || self.print.is_some()
+            || self.lightroom.is_some()
     }
 
     /// To the trash at once, permanently after confirmation.
@@ -2853,6 +2883,7 @@ impl App {
             Pick::SortFolder => "Add to the Sort Manager",
             Pick::ScreenProfile => "Screen Profile",
             Pick::InputProfile => "Profile of Images Without One",
+            Pick::Lightroom => "Import Lightroom Catalog",
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -5228,6 +5259,7 @@ impl App {
             }
             Action::NewCollection => self.notice = Some("No images for a collection here".into()),
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
+            Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
             Action::RemoveFromCollection if self.collection.is_some() && !self.files.is_empty() => {
                 let targets = self.targets();
                 self.remove_indices(ctx, &targets);
@@ -5760,6 +5792,20 @@ impl App {
         if self.relist && self.listing_rx.is_none() {
             self.list(ctx);
         }
+        if let Some(Ok(read)) = self.lightroom_rx.as_ref().map(|rx| rx.try_recv()) {
+            self.lightroom_rx = None;
+            match read {
+                Ok(catalog) => {
+                    let now = lightroom::roots_now(&catalog);
+                    self.lightroom = Some(LightroomImport {
+                        catalog,
+                        now,
+                        plan: None,
+                    });
+                }
+                Err(e) => self.notice = Some(e),
+            }
+        }
         while let Ok(msg) = self.notices_rx.try_recv() {
             self.notice = Some(msg);
             ctx.request_repaint();
@@ -5793,6 +5839,7 @@ impl App {
                 (Pick::InputProfile, Some(file)) => {
                     self.set_input_profile(file.to_string_lossy().into_owned())
                 }
+                (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
             }
         }
     }
@@ -6619,6 +6666,205 @@ impl App {
                 self.print = Some(dialog);
             }
         }
+    }
+
+    /// Read a Lightroom catalog in the background; the import dialog opens when it is read.
+    fn read_lightroom(&mut self, ctx: &egui::Context, file: PathBuf) {
+        let (tx, rx) = mpsc::channel();
+        let (busy, ctx) = (self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let _ = tx.send(lightroom::read(&file));
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+        self.lightroom_rx = Some(rx);
+    }
+
+    /// File → Import Lightroom Catalog: where the catalog's root folders are now; then what the
+    /// import will do, with the collections that are there already and the stars that differ;
+    /// then Import.
+    fn lightroom_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut lr) = self.lightroom.take() else {
+            return;
+        };
+        let (mut next, mut back, mut go) = (false, false, false);
+        let modal = egui::Modal::new(egui::Id::new("lightroom")).show(ctx, |ui| {
+            ui.strong("Import from Lightroom");
+            match &mut lr.plan {
+                None => {
+                    ui.label("Where the catalog's folders are now (empty: left out):");
+                    egui::Grid::new("lightroom roots").show(ui, |ui| {
+                        for ((_, was), now) in lr.catalog.roots.iter().zip(&mut lr.now) {
+                            ui.label(was);
+                            // A size of its own: in the grid the field would be as narrow as
+                            // its text.
+                            let height = ui.spacing().interact_size.y;
+                            ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
+                            // A few folders, only while the dialog is open.
+                            ui.label(if Path::new(now.trim()).is_dir() {
+                                "✓"
+                            } else {
+                                ""
+                            });
+                            ui.end_row();
+                        }
+                    });
+                    ui.weak(
+                        "Collections are added to Glimt's, keywords to the keyword tree and \
+                         stars to the marks. Smart collections are left out.",
+                    );
+                    ui.horizontal(|ui| {
+                        next = ui.button("Next").clicked();
+                        if ui.button("Cancel (Esc)").clicked() {
+                            ui.close();
+                        }
+                    });
+                }
+                Some(plan) => {
+                    ui.label(format!(
+                        "{} collections, {} keywords and the stars of {} images.",
+                        thousands(plan.collections.len()),
+                        thousands(plan.keywords.len()),
+                        thousands(plan.stars.len()),
+                    ));
+                    if !plan.existing.is_empty() {
+                        let mut names = plan.existing[..plan.existing.len().min(5)].join(", ");
+                        if plan.existing.len() > 5 {
+                            names += &format!(" and {} more", plan.existing.len() - 5);
+                        }
+                        ui.label(format!(
+                            "There already, so they get only the images they lack: {names}."
+                        ));
+                    }
+                    if plan.differ > 0 {
+                        ui.label(format!(
+                            "{} images have other stars in Glimt:",
+                            thousands(plan.differ)
+                        ));
+                        ui.radio_value(&mut plan.take_lightroom, false, "Keep Glimt's stars");
+                        ui.radio_value(&mut plan.take_lightroom, true, "Take Lightroom's stars");
+                    }
+                    ui.horizontal(|ui| {
+                        go = ui.button("Import").clicked();
+                        back = ui.button("Back").clicked();
+                        if ui.button("Cancel (Esc)").clicked() {
+                            ui.close();
+                        }
+                    });
+                }
+            }
+        });
+        if next {
+            lr.plan = Some(self.lightroom_plan(&lr.catalog, &lr.now));
+        }
+        if back {
+            lr.plan = None;
+        }
+        match lr.plan {
+            Some(plan) if go => self.import_lightroom(ctx, plan),
+            _ if !modal.should_close() => self.lightroom = Some(lr),
+            _ => {}
+        }
+    }
+
+    /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
+    /// clicked: it goes through every image of the catalog.
+    fn lightroom_plan(&self, catalog: &lightroom::Catalog, now: &[String]) -> LightroomPlan {
+        let now: Vec<PathBuf> = now.iter().map(|s| PathBuf::from(s.trim())).collect();
+        let collections = catalog.collections(&now);
+        let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
+        let existing = (collections.iter())
+            .filter(|c| there.contains(&c.0))
+            .map(|c| c.0.clone())
+            .collect();
+        #[cfg(feature = "marks")]
+        let stars = catalog.stars(&now);
+        #[cfg(not(feature = "marks"))]
+        let stars = Vec::new();
+        #[cfg(feature = "marks")]
+        let differ = (stars.iter())
+            .filter(|(p, n)| ![0, *n].contains(&self.marks.get(p).1))
+            .count();
+        #[cfg(not(feature = "marks"))]
+        let differ = 0;
+        LightroomPlan {
+            collections,
+            existing,
+            keywords: catalog.keyword_paths(),
+            stars,
+            differ,
+            take_lightroom: false,
+        }
+    }
+
+    /// The keyword tree and stars here; the collections' files, and the stars' XMP when they
+    /// go there, in the background.
+    fn import_lightroom(&mut self, ctx: &egui::Context, plan: LightroomPlan) {
+        let LightroomPlan {
+            collections: all,
+            keywords,
+            stars,
+            take_lightroom,
+            ..
+        } = plan;
+        let mut done = vec![format!("{} keywords", thousands(keywords.len()))];
+        self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(keywords).collect());
+        #[cfg(feature = "marks")]
+        let stars: Vec<(PathBuf, u8)> = (stars.into_iter())
+            .filter(|(p, _)| take_lightroom || self.marks.get(p).1 == 0)
+            .collect();
+        #[cfg(feature = "marks")]
+        {
+            for n in 1..=5 {
+                let paths: Vec<PathBuf> = (stars.iter().filter(|s| s.1 == n))
+                    .map(|s| s.0.clone())
+                    .collect();
+                if !paths.is_empty() {
+                    self.marks.rate(&paths, n);
+                }
+            }
+            done.push(format!("the stars of {} images", thousands(stars.len())));
+        }
+        #[cfg(not(feature = "marks"))]
+        let _ = (&stars, take_lightroom);
+        let xmp = cfg!(feature = "marks") && self.config.xmp_stars;
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let dir = collections::dir().unwrap_or_default();
+            let _ = std::fs::create_dir_all(&dir);
+            // A collection of the same name gets the images it lacks: nothing is lost.
+            let failed: Vec<&str> = (all.iter())
+                .filter(|(name, paths)| {
+                    collections::append(&dir.join(format!("{name}.gqv")), paths).is_err()
+                })
+                .map(|(name, _)| name.as_str())
+                .collect();
+            done.insert(
+                0,
+                format!("{} collections", thousands(all.len() - failed.len())),
+            );
+            let mut msg = format!("Imported from Lightroom: {}", done.join(", "));
+            if !failed.is_empty() {
+                msg += &format!("; not saved: {}", failed.join(", "));
+            }
+            #[cfg(feature = "marks")]
+            if xmp {
+                // As stars set by hand go there with this setting.
+                let failed = (stars.iter())
+                    .filter(|(p, n)| marks::write_xmp(p, *n).is_err())
+                    .count();
+                if failed > 0 {
+                    msg += &format!("; no XMP sidecar written for {}", thousands(failed));
+                }
+            }
+            #[cfg(not(feature = "marks"))]
+            let _ = xmp;
+            let _ = tx.send(msg);
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
     }
 
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
@@ -7465,6 +7711,7 @@ impl eframe::App for App {
         self.preferences_window(ctx);
         self.prompt_dialog(ctx);
         self.print_dialog(ctx);
+        self.lightroom_dialog(ctx);
         self.pan_view(ctx);
         self.exif_fields_window(ctx);
         self.login_dialog(ctx);
