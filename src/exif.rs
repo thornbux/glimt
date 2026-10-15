@@ -230,7 +230,13 @@ pub fn turned(o: u8, turns: u8, mirrored: bool) -> u8 {
 pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), String> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let mut data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    crate::save::replace_image(path, &oriented(data, turns, mirrored)?)
+}
+
+/// The JPEG `data` with the view's rotation as its EXIF orientation, as `write_orientation`
+/// writes it.
+fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, String> {
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err("only JPEG files can store the orientation".into());
     }
@@ -283,7 +289,7 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             data.splice(at..at, app1);
         }
     }
-    crate::save::replace_image(path, &data)
+    Ok(data)
 }
 
 /// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
@@ -973,10 +979,17 @@ mod tests {
         image::RgbImage::new(4, 2)
             .write_to(&mut out, image::ImageFormat::Jpeg)
             .unwrap();
-        for data in crate::broken(&jpeg) {
+        // Also with an EXIF segment holding the orientation, which is changed where it is.
+        let mut with_exif = jpeg[..2].to_vec();
+        with_exif.extend([0xff, 0xe1, 0, mm.len() as u8 + 2]);
+        with_exif.extend(mm);
+        with_exif.extend(&jpeg[2..]);
+        assert!(super::oriented(with_exif.clone(), 1, false).is_ok());
+        for data in crate::broken(&jpeg).chain(crate::broken(&with_exif)) {
             if let Some((segments, _)) = super::jpeg_segments(&data) {
                 segments.iter().for_each(|s| drop(super::segment(&data, s)));
             }
+            let _ = super::oriented(data, 1, false);
         }
     }
 }
