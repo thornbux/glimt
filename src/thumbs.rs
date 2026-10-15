@@ -7,9 +7,22 @@ use std::time::UNIX_EPOCH;
 
 /// The freedesktop sizes: "normal" at most 128×128 pixels, "large" 256×256.
 const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
+/// Markers of files no thumbnail could be made of, as the spec says: tried again by a new
+/// version, or when the file changes.
+const FAILED: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));
 
 /// The thumbnail of `path`: from the cache if it is newer than the file, else made from the image.
 pub fn thumbnail(
+    path: &Path,
+    rotate: bool,
+    save: bool,
+    large: bool,
+) -> Result<image::RgbaImage, String> {
+    thumbnail_in(cache_dir(), path, rotate, save, large)
+}
+
+fn thumbnail_in(
+    cache: Option<PathBuf>,
     path: &Path,
     rotate: bool,
     save: bool,
@@ -25,30 +38,42 @@ pub fn thumbnail(
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs());
     let uri = format!("file://{}", uri_path(path));
-    let cache = cache_dir();
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
-    if let (Some(file), Some(mtime)) = (&file, mtime)
-        && let Some(img) = read_cached(file, mtime)
-    {
-        return Ok(img);
+    let failed = cache.as_ref().map(|c| cache_file(c, FAILED, &uri));
+    if let (Some(file), Some(failed), Some(mtime)) = (&file, &failed, mtime) {
+        if let Some(img) = read_cached(file, mtime) {
+            return Ok(img);
+        }
+        if read_cached(failed, mtime).is_some() {
+            return Err("no thumbnail could be made before".into());
+        }
     }
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38.
-    let (img, icc) = match crate::decode::scaled_jpeg(path, [size, size], rotate) {
-        Some((img, icc, _)) => (img, icc),
-        None => crate::decode::load_icc(path, rotate)?,
-    };
-    let img = crate::colour::to_srgb(crate::decode::shrink(img, [size, size])?, icc.as_deref())
-        .into_rgba8();
+    let made = match crate::decode::scaled_jpeg(path, [size, size], rotate) {
+        Some((img, icc, _)) => Ok((img, icc)),
+        None => crate::decode::load_icc(path, rotate),
+    }
+    .and_then(|(img, icc)| {
+        let img = crate::decode::shrink(img, [size, size])?;
+        Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
+    });
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
     // one not turned upright by EXIF (Auto Rotate off) is not shared.
     if save
         && rotate
-        && let (Some(cache), Some(file), Some(mtime)) = (&cache, &file, mtime)
+        && let (Some(cache), Some(file), Some(failed), Some(mtime)) = (&cache, &file, &failed, mtime)
         && !path.starts_with(cache)
     {
-        let _ = write(file, &img, &uri, mtime);
+        match &made {
+            Ok(img) => drop(write(file, img, &uri, mtime)),
+            // Not when ffmpeg failed: it may be installed later.
+            Err(_) if !crate::external::is_heif(path) && !crate::external::is_video(path) => {
+                drop(write(failed, &image::RgbaImage::new(1, 1), &uri, mtime))
+            }
+            Err(_) => {}
+        }
     }
-    Ok(img)
+    made
 }
 
 /// `<cache>/normal/<md5 of the URI>.png`
@@ -133,7 +158,7 @@ pub fn clean() -> (usize, usize) {
         return (0, 0);
     };
     let (mut removed, mut seen) = (0, 0);
-    for (_, folder) in SIZES {
+    for folder in SIZES.map(|s| s.1).into_iter().chain([FAILED]) {
         for entry in std::fs::read_dir(cache.join(folder))
             .into_iter()
             .flatten()
@@ -281,6 +306,23 @@ mod tests {
         );
         super::write(&named, &img, &uri, 1).unwrap();
         assert_eq!(super::thumb_source(&named), Some("/a b/æ.jpg".into()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file no thumbnail can be made of gets a marker, and is not decoded again until it
+    /// changes.
+    #[test]
+    fn marks_failed_files() {
+        let dir = std::env::temp_dir().join(format!("glimt-thumbs-fail-{}", std::process::id()));
+        let cache = dir.join("cache");
+        let broken = dir.join("broken.png");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&broken, b"not a picture").unwrap();
+        let make = || super::thumbnail_in(Some(cache.clone()), &broken, true, true, false);
+        assert!(make().unwrap_err() != "no thumbnail could be made before");
+        let uri = format!("file://{}", super::uri_path(&broken));
+        assert!(super::cache_file(&cache, super::FAILED, &uri).is_file());
+        assert_eq!(make().unwrap_err(), "no thumbnail could be made before");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

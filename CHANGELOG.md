@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Thumbnails: a file none can be made of gets a marker in the shared cache (fail/glimt-VERSION),
+  as the freedesktop specification says, so it is not decoded again at each start until it
+  changes. HEIC, AVIF and videos get none, as ffmpeg may come later.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed
