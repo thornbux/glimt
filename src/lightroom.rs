@@ -39,7 +39,7 @@ pub struct Catalog {
 
 /// Read `file`; an error says why in words for the user.
 pub fn read(file: &Path) -> Result<Catalog, String> {
-    if file.with_extension("lrcat-lock").exists() {
+    if file.with_extension("lrcat.lock").exists() {
         return Err("Lightroom has the catalog open: close Lightroom first".into());
     }
     let out = crate::external::command("sqlite3")
@@ -155,12 +155,18 @@ impl Catalog {
 
     /// The images with stars, where they are now.
     #[cfg_attr(not(feature = "marks"), allow(dead_code))]
+    /// One value for each file: a virtual copy is an image of its own on the same file, and the
+    /// most stars of them count.
     pub fn stars(&self, now: &[PathBuf]) -> Vec<(PathBuf, u8)> {
         let paths = self.paths(now);
-        (self.images.iter())
-            .filter(|(_, i)| i.2 > 0)
-            .filter_map(|(id, i)| Some((paths.get(id)?.clone(), i.2)))
-            .collect()
+        let mut best: HashMap<PathBuf, u8> = HashMap::new();
+        for (id, i) in self.images.iter().filter(|(_, i)| i.2 > 0) {
+            if let Some(p) = paths.get(id) {
+                let n = best.entry(p.clone()).or_default();
+                *n = (*n).max(i.2);
+            }
+        }
+        best.into_iter().collect()
     }
 }
 
@@ -183,6 +189,21 @@ fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)
 
 /// Where each root folder is now: the same place if it is there, else empty for the user to
 /// fill in.
+/// The folder typed for a root folder: `~/` is the home folder, and a relative path or nothing
+/// is no folder (empty), as a collection keeps absolute paths only.
+pub fn root_now(typed: &str) -> PathBuf {
+    let typed = typed.trim();
+    let path = match typed.strip_prefix("~/") {
+        Some(rest) => std::env::home_dir().unwrap_or_default().join(rest),
+        None => PathBuf::from(typed),
+    };
+    if path.is_absolute() {
+        path
+    } else {
+        PathBuf::new()
+    }
+}
+
 pub fn roots_now(catalog: &Catalog) -> Vec<String> {
     (catalog.roots.iter())
         .map(|(_, r)| {
@@ -232,7 +253,16 @@ mod tests {
         let mut keywords = c.keyword_paths();
         keywords.sort();
         assert_eq!(keywords, ["Places", "Places|Oslo"]);
-        assert_eq!(c.stars(&now), [(a, 4)]);
+        assert_eq!(c.stars(&now), [(a.clone(), 4)]);
+        // A virtual copy with more stars: one value for the file, the most.
+        let mut copy = sample();
+        copy.extend(b"\x1ei\x1f12\x1f1\x1f2024/Oslo/a.jpg\x1f5");
+        assert_eq!(super::parse(&copy).stars(&now), [(a, 5)]);
+        assert_eq!(
+            super::root_now(" /media/disk "),
+            PathBuf::from("/media/disk")
+        );
+        assert_eq!(super::root_now("Pictures"), PathBuf::new());
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.

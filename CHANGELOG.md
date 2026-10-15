@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Import Lightroom Catalog:
+  - it looked for the wrong lock file, so a catalog open in Lightroom was read anyway;
+  - a virtual copy counted as a photo of its own, so one file could get two star ratings;
+  - a folder typed as `~/Pictures` or `Pictures` gave collections that opened empty: `~/` is the
+    home folder now, and a relative path is left out;
+  - with stars in XMP, photos deleted since got a sidecar of their own.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
