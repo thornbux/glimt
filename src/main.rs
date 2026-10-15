@@ -7857,9 +7857,16 @@ fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
             .write(true)
             .create_new(true)
             .open(to)?;
+        // Its time kept, as mv does (sorting by date), and on disk before a move removes the
+        // source: a stick pulled out right after must not lose both.
         let copied = std::fs::File::open(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
-            .and_then(|_| std::fs::set_permissions(to, std::fs::metadata(from)?.permissions()));
+            .and_then(|_| {
+                let meta = std::fs::metadata(from)?;
+                std::fs::set_permissions(to, meta.permissions())?;
+                out.set_modified(meta.modified()?)?;
+                out.sync_all()
+            });
         if copied.is_err() {
             let _ = std::fs::remove_file(to);
         }
@@ -8257,6 +8264,32 @@ mod tests {
             "x a.jpg\n50%"
         );
         assert_eq!(fill(""), "");
+    }
+
+    /// A copy keeps the file's time and permissions; it never replaces a file.
+    #[test]
+    fn copies_keep_the_time() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-copy-time-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.jpg"), dir.join("b.jpg"));
+        std::fs::write(&a, "a").unwrap();
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&a)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o640)).unwrap();
+        super::put_file(&a, &b, true).unwrap();
+        let meta = std::fs::metadata(&b).unwrap();
+        assert_eq!(
+            (meta.modified().unwrap(), meta.permissions().mode() & 0o777),
+            (old, 0o640)
+        );
+        assert!(super::put_file(&a, &b, true).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Keyword tree paths are trimmed around each level, sorted and kept once.

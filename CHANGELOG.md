@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Moving photos to another disk (a USB stick, an SD card) removed the originals as soon as the
+  copies were written, before they were on the disk: pulled out right after, both could be lost.
+  A copy is now on disk before the original goes, and keeps its modification time, so sorting by
+  date still works after copying or moving to another disk.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
