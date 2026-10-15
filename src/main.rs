@@ -6846,7 +6846,7 @@ impl App {
                             let height = ui.spacing().interact_size.y;
                             ui.add_sized([360.0, height], egui::TextEdit::singleline(now));
                             // A few folders, only while the dialog is open.
-                            ui.label(if Path::new(now.trim()).is_dir() {
+                            ui.label(if lightroom::root_now(now).is_dir() {
                                 "✓"
                             } else {
                                 ""
@@ -6918,7 +6918,7 @@ impl App {
     /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
     /// clicked: it goes through every image of the catalog.
     fn lightroom_plan(&self, catalog: &lightroom::Catalog, now: &[String]) -> LightroomPlan {
-        let now: Vec<PathBuf> = now.iter().map(|s| PathBuf::from(s.trim())).collect();
+        let now: Vec<PathBuf> = now.iter().map(|s| lightroom::root_now(s)).collect();
         let collections = catalog.collections(&now);
         let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
         let existing = (collections.iter())
@@ -6996,7 +6996,9 @@ impl App {
             #[cfg(feature = "marks")]
             if xmp {
                 // As stars set by hand go there with this setting.
+                // Not for photos gone since: no sidecar beside nothing.
                 let failed = (stars.iter())
+                    .filter(|(p, _)| p.is_file())
                     .filter(|(p, n)| marks::write_xmp(p, *n).is_err())
                     .count();
                 if failed > 0 {

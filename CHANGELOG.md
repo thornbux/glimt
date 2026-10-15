@@ -54,6 +54,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the keyword tree paths inside an exported JPEG were lost when a box was ticked. Saving now
   writes only the fields that were edited, ticks are written in the order they were made, and
   the paths come from where the keywords do.
+- Import Lightroom Catalog:
+  - it looked for the wrong lock file, so a catalog open in Lightroom was read anyway;
+  - a virtual copy counted as a photo of its own, so one file could get two star ratings;
+  - a folder typed as `~/Pictures` or `Pictures` gave collections that opened empty: `~/` is the
+    home folder now, and a relative path is left out;
+  - with stars in XMP, photos deleted since got a sidecar of their own.
 
 ## [0.21.0] - 2026-10-15
 
