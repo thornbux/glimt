@@ -98,8 +98,11 @@ pub fn tiff_pages(path: &Path) -> usize {
     let Ok(mut dec) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
         return 1;
     };
+    // Each page's header can point at one shared table the tiff crate reads again for every
+    // page: 100,000 pages would be minutes of work on each decode.
+    // shortcut: pages after the 1,000th are not shown; count them lazily if such TIFFs turn up.
     let mut pages = 1;
-    while dec.more_images() && dec.next_image().is_ok() {
+    while pages < 1000 && dec.more_images() && dec.next_image().is_ok() {
         pages += 1;
     }
     pages
