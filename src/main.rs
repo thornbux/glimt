@@ -1981,6 +1981,10 @@ impl App {
     /// Write the open collection with the list as it is now.
     fn save_collection(&mut self) {
         let Some(file) = &self.collection else { return };
+        // A plain list is the user's own: shown, never written.
+        if collections::is_list(file) {
+            return;
+        }
         let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
         // One that cannot be read is not written over: what it holds would be lost.
         let on_disk = match collections::load(file) {

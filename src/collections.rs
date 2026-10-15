@@ -11,10 +11,21 @@ pub fn dir() -> Option<PathBuf> {
     crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("collections"))
 }
 
+/// Plain lists of images, as a script or a music player writes them: one path on each line,
+/// relative to the list or absolute, `#` for comments. Opened as a collection, never written.
+const LISTS: &[&str] = &["txt", "m3u", "m3u8"];
+
+/// A `.gqv` collection, or a plain list: what opens as a list of images from any folders.
 pub fn is_collection(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("gqv"))
-        && path.is_file()
+    path.extension().is_some_and(|e| {
+        e.eq_ignore_ascii_case("gqv") || LISTS.iter().any(|l| e.eq_ignore_ascii_case(l))
+    }) && path.is_file()
+}
+
+/// Whether `file` is a plain list, which Glimt shows but never writes: a change in the window
+/// (an image taken out, another order) stays there.
+pub fn is_list(file: &Path) -> bool {
+    (file.extension()).is_some_and(|e| LISTS.iter().any(|l| e.eq_ignore_ascii_case(l)))
 }
 
 /// The saved collections: (name, file), by name.
@@ -62,7 +73,52 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
-    Ok(parse(&std::fs::read(file)?))
+    let text = std::fs::read(file)?;
+    Ok(match is_list(file) {
+        true => parse_list(&text, file.parent().unwrap_or(Path::new("/"))),
+        false => parse(&text),
+    })
+}
+
+/// The paths of a plain list, those relative to it joined to `base`, its folder; each once.
+/// Lines may be quoted, end in CR, or be file:// URIs, as players write them.
+fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    (text.split(|&b| b == b'\n'))
+        .map(|line| line.trim_ascii())
+        .filter(|line| !line.is_empty() && !line.starts_with(b"#"))
+        .map(|line| match line {
+            [b'"', inner @ .., b'"'] => inner,
+            line => line,
+        })
+        .map(|line| match line.strip_prefix(b"file://") {
+            Some(uri) => PathBuf::from(OsStr::from_bytes(&percent_decoded(uri))),
+            None => base.join(OsStr::from_bytes(line)),
+        })
+        .filter(|p| seen.insert(p.clone()))
+        .collect()
+}
+
+/// A URI's path with its %XX escapes undone.
+fn percent_decoded(uri: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(uri.len());
+    let mut i = 0;
+    while i < uri.len() {
+        let hex = uri
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok());
+        match (uri[i], hex.and_then(|h| u8::from_str_radix(h, 16).ok())) {
+            (b'%', Some(b)) => {
+                out.push(b);
+                i += 3;
+            }
+            (b, _) => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 /// Write `paths` to `file`, through a temporary file so a crash never leaves half of it.
@@ -144,6 +200,36 @@ fn to_text(paths: &[PathBuf]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    /// A plain list: relative to its folder or absolute, quoted or not, file:// URIs, comments,
+    /// blank lines and CR, each image once and in the order written.
+    #[test]
+    fn reads_plain_lists() {
+        let text = b"#EXTM3U\r\nb.jpg\r\n\n  \"sub/a b.jpg\"\n/abs/c.png\n\
+                     file:///abs/with%20space.jpg\n# a comment\nb.jpg\n";
+        let paths = super::parse_list(text, std::path::Path::new("/lists"));
+        assert_eq!(
+            paths,
+            [
+                "/lists/b.jpg",
+                "/lists/sub/a b.jpg",
+                "/abs/c.png",
+                "/abs/with space.jpg"
+            ]
+            .map(PathBuf::from)
+        );
+        assert!(super::is_list(std::path::Path::new("x.M3U")));
+        assert!(!super::is_list(std::path::Path::new("x.gqv")));
+    }
+
+    /// Plain lists broken in thousands of ways: read without a panic.
+    #[test]
+    fn survives_broken_lists() {
+        let seed = b"#EXTM3U\nb.jpg\n\"sub/a.jpg\"\nfile:///x%2Fy%zz.jpg\n";
+        for bytes in crate::broken(seed) {
+            super::parse_list(&bytes, std::path::Path::new("/"));
+        }
+    }
 
     /// Renamed in its own folder, never over another collection or to a name that is no file.
     #[test]

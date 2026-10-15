@@ -179,12 +179,16 @@ const MANUAL: &[(&str, &str)] = &[
          without either it runs once in the folder. A program next to the desktop file is \
          found there. New plugins show after a restart. The files are given to the program \
          directly, never through a shell; examples/plugins in Glimt's source has one that \
-         writes a description of each image as its comment, made by a model on this \
-         computer.",
+         writes a description of each image as its comment and alt text, made by a model on \
+         this computer.",
     ),
     (
-        "New formats",
-        "A decoder plugin teaches Glimt a format it does not read itself, such as JPEG 2000, \
+        "Formats",
+        "Glimt reads JPEG, PNG, WebP, GIF and WebP animations, TIFF (every page; grey TIFFs of \
+         floats from science stretched to show), BMP, ICO, QOI, PNM, Radiance HDR (tone-mapped), \
+         Zeiss LSM and .gel scans, and camera RAW files through their embedded preview; HEIC, \
+         AVIF and video through ffmpeg, JPEG XL and SVG, in the builds that have them, as the \
+         packages do. A decoder plugin teaches Glimt a format it does not read itself, such as JPEG 2000, \
          FITS, DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/decoders with \
          Extensions=jp2;j2k and an Exec command that writes the image (PNM, PNG …) to its \
          standard output, %f being the file. Such files are then listed and shown as any \
@@ -222,7 +226,11 @@ const MANUAL: &[(&str, &str)] = &[
          renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
          Collection to Trash act on the open collection; its images stay where they are. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
-         too (O, or a .gqv file on the command line). File → Import Lightroom Catalog… reads a \
+         too (O, or a .gqv file on the command line). A plain list opens the same way: a .txt \
+         or .m3u file with one image on each line, relative to the list or absolute, # for \
+         comments, as a script or a music player writes it; glimt --slideshow show.txt plays \
+         it in its order. Glimt never writes a list: what changes in the window stays there. \
+         File → Import Lightroom Catalog… reads a \
          Lightroom Classic catalog (.lrcat, with Lightroom closed) through the sqlite3 program: \
          its collections become Glimt's (named with their sets, as Travel - Norway; one of the \
          same name gets the images it lacks), its keywords go into the keyword tree and its \
@@ -433,8 +441,9 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Search field",
-        "Above the file list; fuzzy (like fzf) by default, re: for a regular expression; a \
-         setting makes it a regular expression always, as Geeqie's, with a Case checkbox beside it",
+        "Above the file list; fuzzy (like fzf) by default, re: for a regular expression, exif:, \
+         mark: and stars:, combined with -, | and ( ); a setting makes it a regular expression \
+         always, as Geeqie's, with a Case checkbox beside it",
         "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
     ),
     (
@@ -767,6 +776,11 @@ const CREDITS: &[(&str, &str, &str)] = &[
         "Apache-2.0",
     ),
     ("sctk-adwaita", "Window frame on Wayland", "MIT"),
+    (
+        "AccessKit (accessibility builds)",
+        "The AccessKit contributors: screen readers",
+        "MIT or Apache-2.0",
+    ),
     (
         "image, png, zune-jpeg",
         "The image-rs and zune contributors",

@@ -28,6 +28,13 @@ side of the shown one are decoded in advance at window size, and folders with hu
 thousands of files list as quickly as small ones.
 .PP
 Given a file, Glimt shows it with the rest of its folder; given a folder, its first image;
+given a collection
+.RI ( .gqv )
+or a plain list of images
+.RI ( .txt ", " .m3u :
+one path on each line, relative to the list or absolute,
+.B #
+for comments), those images in their order, the list never written;
 given nothing, the folder used last (if that is set in Preferences) or the current folder.
 Given several folders, Glimt shows the images of all of them as one list, for example for a
 slideshow across them; random order mixes them all.
@@ -39,8 +46,9 @@ first.
 .PP
 It reads JPEG, PNG, WebP, GIF (also animated), TIFF (also with several pages), BMP, ICO,
 QOI, PNM (PBM, PGM, PPM, PAM), Radiance HDR (tone-mapped) and TIFF under other names (Zeiss
-LSM, gel scans), and camera RAW files by their embedded preview. Builds with optional features also read videos, HEIC, AVIF,
-JPEG XL and SVG.
+LSM, gel scans; also grey TIFFs of floats, stretched), and camera RAW files by their embedded
+preview. Builds with optional features also read videos, HEIC, AVIF, JPEG XL and SVG. Other
+formats (DICOM, FITS, microscope files …) are read through decoder plugins (see FILES).
 .SH OPTIONS
 .TP
 .B \-\-slideshow
@@ -241,13 +249,16 @@ The last folder and the window size and position (default
 Marks and stars, in builds with the marks feature.
 .TP
 .IB file .xmp
-Keywords, comment and (if chosen) stars of
+Keywords, comment, alt text and extended description, and (if chosen) stars of
 .IR file ,
 next to it, read by darktable and digiKam too.
 .TP
 .I $XDG_DATA_HOME/glimt/plugins
 Plugins: desktop files whose command runs on the selected files (default
 .IR ~/.local/share/glimt/plugins ).
+.TP
+.I $XDG_STATE_HOME/glimt/renames
+A Rename Many while it runs, so that one cut short by a crash is put right at the next start.
 .TP
 .I $XDG_DATA_HOME/glimt/decoders
 Decoder plugins: desktop files whose command turns a file of a format Glimt does not read itself
