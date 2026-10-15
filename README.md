@@ -28,8 +28,13 @@ quick look, which is what an image viewer is for.
 - **Geeqie users know it already.** The keyboard shortcuts are Geeqie's, collections are Geeqie
   `.gqv` files, plugins are Geeqie's desktop files, and the help lists every difference.
 - **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
-  digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied. Turning a JPEG changes
-  its orientation tag, not its pixels. Copy and move never overwrite a file.
+  digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied.
+  Turning a JPEG changes its orientation tag, not its pixels. Copy and move never overwrite a
+  file.
+- **Lightroom users bring their work along.** File → Import Lightroom Catalog… takes the
+  collections, the keyword hierarchy and the star ratings of a Lightroom Classic catalog, even
+  one made on Windows or a Mac. The catalog is only read, never changed
+  ([more below](#coming-from-lightroom)).
 - **No setup.** One binary that runs on any distribution with glibc 2.28 or newer, packaged as
   `.deb`, `.rpm`, `.tar.gz`, AppImage and Flatpak. No library to import, no database to build:
   open a folder and look.
@@ -77,6 +82,7 @@ same way in both.
 | Pan view | Timeline | Timeline, calendar, folders |
 | Collections (`.gqv`) | ✓ | ✓ |
 | Plugins (desktop files) | ✓ | ✓ |
+| Import a Lightroom Classic catalog | ✓ | – |
 | Lua scripts | – | ✓ |
 | Several windows in one process | One per process, sharing settings and collections | ✓ |
 | Printing, contact sheets | ✓ (CUPS or PDF) | ✓ |
@@ -291,6 +297,25 @@ The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity and gio on 
 through `flatpak-spawn --host`, so those must be installed there. The thumbnail cache is the
 host's. Settings live in `~/.var/app/io.github.thornbux.Glimt`. Remote control works between
 Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.
+
+## Coming from Lightroom
+
+File → Import Lightroom Catalog… reads a Lightroom Classic catalog (the `.lrcat` file, next to
+its `Previews.lrdata` folder) and brings over:
+
+- **Collections**, also those in collection sets, which become Glimt collections named
+  "Set - Collection". One that is there already gets only the images it lacks.
+- **Keywords** with their hierarchy, into the keyword tree (Places → Norway → Oslo).
+- **Star ratings**, into Glimt's stars, and into the XMP sidecars if Preferences says so.
+  Images that already have other stars in Glimt are counted, and you choose whose to keep.
+
+Lightroom keeps the full path of every folder as it was on its own computer (`D:/Photos/` or
+`/Volumes/Photos`): the import shows each top folder of the catalog and asks where it is now.
+It needs the `sqlite3` program, and Lightroom closed. Smart collections, colour labels,
+flags, develop settings and keywords on each image are not imported; for the last, turn on
+"Automatically write changes into XMP" in Lightroom, and Glimt reads them from the sidecars
+(RAW files) or from the files themselves (JPEG, TIFF, DNG).
+Lightroom CC (the cloud version) has no catalog file to import.
 
 ## Remote control
 
