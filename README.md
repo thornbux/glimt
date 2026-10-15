@@ -101,7 +101,7 @@ The images in the screenshots are generated for the purpose.
 
 ## Supported formats
 
-- **Everyday:** JPEG, PNG, WebP, GIF, TIFF and BMP, with animated GIF and WebP playing in a loop and
+- **Everyday:** JPEG, PNG, WebP, GIF, TIFF, BMP, ICO (the largest of its sizes) and QOI, with animated GIF and WebP playing in a loop and
   every page of a multi-page TIFF.
 - **Camera RAW:** CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more, shown at once through
   the JPEG preview the camera stores in them.

@@ -499,14 +499,14 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A BMP is listed and shown as the other everyday formats.
+    /// BMP, ICO and QOI are listed and shown as the other everyday formats.
     #[test]
-    fn lists_and_decodes_bmp() {
+    fn lists_and_decodes_bmp_ico_qoi() {
         let dir = std::env::temp_dir().join(format!("glimt-test-bmp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        image::RgbImage::new(60, 30)
-            .save(dir.join("c.bmp"))
-            .unwrap();
+        for name in ["c.bmp", "d.ico", "e.qoi"] {
+            image::RgbaImage::new(60, 30).save(dir.join(name)).unwrap();
+        }
         let types = crate::files::Types {
             images: true,
             raw: false,
@@ -514,9 +514,14 @@ mod tests {
             hidden: false,
         };
         let (_, images) = crate::files::list_folder(&dir, types);
-        assert_eq!(images, [std::ffi::OsString::from("c.bmp")]);
-        let (frames, orig, _) = super::decode(&dir.join("c.bmp"), [100, 100], true, 0).unwrap();
-        assert_eq!((frames[0].0.size, orig), ([60, 30], [60, 30]));
+        assert_eq!(
+            images,
+            ["c.bmp", "d.ico", "e.qoi"].map(std::ffi::OsString::from)
+        );
+        for name in images {
+            let (frames, orig, _) = super::decode(&dir.join(name), [100, 100], true, 0).unwrap();
+            assert_eq!((frames[0].0.size, orig), ([60, 30], [60, 30]));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

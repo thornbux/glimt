@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:1b14c80f-05ad-534c-b0a8-7219c55dca35",
+ "serialNumber": "urn:uuid:4ed26a5b-48ee-5a07-af6e-8a31b2028258",
  "version": 1,
  "metadata": {
   "tools": {
@@ -4385,6 +4385,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/qoi@0.4.1",
+   "name": "qoi",
+   "version": "0.4.1",
+   "description": "VERY fast encoder/decoder for QOI (Quite Okay Image) format",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/qoi@0.4.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/aldanor/qoi-rust"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/quick-error@2.0.1",
    "name": "quick-error",
    "version": "2.0.1",
@@ -8160,6 +8185,7 @@
     "pkg:cargo/moxcms@0.8.1",
     "pkg:cargo/num-traits@0.2.19",
     "pkg:cargo/png@0.18.1",
+    "pkg:cargo/qoi@0.4.1",
     "pkg:cargo/tiff@0.11.3",
     "pkg:cargo/zune-core@0.5.3",
     "pkg:cargo/zune-jpeg@0.5.15"
@@ -8600,6 +8626,12 @@
   {
    "ref": "pkg:cargo/pxfm@0.1.30",
    "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/qoi@0.4.1",
+   "dependsOn": [
+    "pkg:cargo/bytemuck@1.25.2"
+   ]
   },
   {
    "ref": "pkg:cargo/quick-error@2.0.1",

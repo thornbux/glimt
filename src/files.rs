@@ -7,7 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-pub const EXTS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "bmp"];
+pub const EXTS: &[&str] = &[
+    "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "bmp", "ico", "qoi",
+];
 
 /// HEIC/HEIF photos (iPhone), decoded by ffmpeg with the heic feature.
 pub const HEIC_EXTS: &[&str] = if cfg!(feature = "heic") {
