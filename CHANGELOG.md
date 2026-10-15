@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- examples/plugins: a plugin that writes a description of each selected image as its comment, made
+  by a vision model on this computer (Ollama), with the README's notes on using scripts and AI
+  safely.
+- glimt --remote current, selection and select PATH…: a script, or an AI assistant you run, can
+  ask which image is shown and which files are selected, and select files for you. Paths come with
+  a NUL byte after each, so names with line breaks stay whole; select only selects, and no remote
+  command changes a file.
+
+### Security
+
+- The folder of the remote-control sockets is made private to the user (0700), even where
+  $XDG_RUNTIME_DIR is not.
+
 ### Fixed
 
 - With both Start in the last used folder and Remember the window size and position turned off,

@@ -62,7 +62,10 @@ const MANUAL: &[(&str, &str)] = &[
          order mixes them. Options before the folder start it a certain way: \
          glimt --fullscreen --layout 2x2 --random --slideshow ~/Pictures shows four random \
          images at a time on the whole screen. glimt --remote next (or prev, slideshow, random, \
-         open PATH …) controls a running Glimt from a script. Several can be told apart by name: \
+         open PATH …) controls a running Glimt from a script, and glimt --remote current, \
+         selection and select PATH … tell a script (or an AI assistant) what is shown and \
+         selected, or select files for you; they print each path followed by a NUL byte, and \
+         none of them changes a file. Several can be told apart by name: \
          start them with glimt --name left and glimt --name right, and glimt --name left \
          --remote slideshow reaches only the left one. glimt --kiosk is for a picture screen: \
          full screen with only the image, browsing and the slideshow but nothing that changes \
@@ -160,7 +163,10 @@ const MANUAL: &[(&str, &str)] = &[
          ~/.local/share/glimt/plugins (the menu opens that folder), for example Name=Rotate \
          and Exec=mogrify -rotate 90 %f: %f runs it once for each file, %F once for all, and \
          without either it runs once in the folder. A program next to the desktop file is \
-         found there. New plugins show after a restart.",
+         found there. New plugins show after a restart. The files are given to the program \
+         directly, never through a shell; examples/plugins in Glimt's source has one that \
+         writes a description of each image as its comment, made by a model on this \
+         computer.",
     ),
     (
         "Sort manager",
