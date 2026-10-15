@@ -879,9 +879,10 @@ struct App {
     /// at least three letters.
     search: String,
     matches: Option<Vec<usize>>,
-    /// The shown file's row among the matches, as (file, row): found once per image and search,
-    /// not in every frame, as the matches can be 300,000 long.
-    cur_row: std::cell::Cell<Option<(usize, Option<usize>)>>,
+    /// The rows among the matches of the shown file and of the one a slideshow of several panes
+    /// steps from, as (file, row): found once per image and search, not in every frame, as the
+    /// matches can be 300,000 long.
+    rows: std::cell::Cell<[Option<(usize, Option<usize>)>; 2]>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     /// Why a re: search pattern is not one, shown under the search field.
@@ -1510,7 +1511,7 @@ impl App {
             busy: Arc::new(AtomicUsize::new(0)),
             search: String::new(),
             matches: None,
-            cur_row: Default::default(),
+            rows: Default::default(),
             match_size: 0,
             search_error: None,
             match_rx: None,
@@ -2168,8 +2169,7 @@ impl App {
             return None;
         }
         let row = match m {
-            Some(m) if from == self.cur => self.cur_row(m),
-            Some(m) => m.iter().position(|&i| i == from),
+            Some(m) => self.row_of(m, from),
             None => Some(from),
         }
         .map_or(-1, |r| r as isize);
@@ -2183,14 +2183,19 @@ impl App {
 
     /// The row of the shown file among the search matches `m`; `None` if the search hides it.
     fn cur_row(&self, m: &[usize]) -> Option<usize> {
-        match self.cur_row.get() {
-            Some((cur, row)) if cur == self.cur => row,
-            _ => {
-                let row = m.iter().position(|&i| i == self.cur);
-                self.cur_row.set(Some((self.cur, row)));
-                row
-            }
+        self.row_of(m, self.cur)
+    }
+
+    /// The row of `file` among the search matches `m`, kept for the shown file and one other.
+    fn row_of(&self, m: &[usize], file: usize) -> Option<usize> {
+        let mut rows = self.rows.get();
+        if let Some((_, row)) = rows.iter().flatten().find(|r| r.0 == file) {
+            return *row;
         }
+        let row = m.iter().position(|&i| i == file);
+        rows[(file != self.cur) as usize] = Some((file, row));
+        self.rows.set(rows);
+        row
     }
 
     fn place(&self) -> String {
@@ -4566,7 +4571,7 @@ impl App {
     fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.trim().to_owned();
         let query = query.as_str();
-        self.cur_row.set(None);
+        self.rows.set(Default::default());
         self.search_error = None;
         // Geeqie's Case checkbox, shown beside the field in its mode.
         let case = self.config.search_case && !self.config.fuzzy_search;
