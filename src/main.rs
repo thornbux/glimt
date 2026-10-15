@@ -8214,8 +8214,11 @@ impl eframe::App for App {
         if self.config.remember_window {
             state += &self.window.to_text();
         }
-        if let Some(p) = state_path().filter(|_| !state.is_empty()) {
-            write_atomic(&p, &state);
+        // Nothing to keep: the folder and window of before go too, not left for a later start.
+        match state_path() {
+            Some(p) if state.is_empty() => drop(std::fs::remove_file(p)),
+            Some(p) => write_atomic(&p, &state),
+            None => {}
         }
         self.inhibit(false);
     }
