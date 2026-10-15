@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With both Start in the last used folder and Remember the window size and position turned off,
+  the folder and window kept from before are forgotten at exit, instead of coming back when a
+  setting is turned on again.
+
 ## [0.22.1] - 2026-10-15
 
 ### Changed
