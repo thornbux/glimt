@@ -7241,16 +7241,19 @@ impl App {
 
     /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
     /// clicked: it goes through every image of the catalog.
+    // shortcut: made in the window's thread, a short pause for a catalog of some 100,000 images;
+    // in a thread with the busy pointer when that is too long.
     fn lightroom_plan(&self, catalog: &lightroom::Catalog, now: &[String]) -> LightroomPlan {
         let now: Vec<PathBuf> = now.iter().map(|s| lightroom::root_now(s)).collect();
-        let collections = catalog.collections(&now);
+        let paths = catalog.paths(&now);
+        let collections = catalog.collections(&paths);
         let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
         let existing = (collections.iter())
             .filter(|c| there.contains(&c.0))
             .map(|c| c.0.clone())
             .collect();
         #[cfg(feature = "marks")]
-        let stars = catalog.stars(&now);
+        let stars = catalog.stars(&paths);
         #[cfg(not(feature = "marks"))]
         let stars = Vec::new();
         #[cfg(feature = "marks")]
