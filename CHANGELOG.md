@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A decode asked for before the page, the colours or the turned file changed no longer takes the
+  place of the new one: a TIFF page is not decoded twice, the slideshow waits for the next image,
+  and the old colours or the unturned image no longer show for a moment.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed
