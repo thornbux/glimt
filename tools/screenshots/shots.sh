@@ -6,14 +6,14 @@ echo "-- screenshots"
 P=/tmp/glimt-demo/Pictures
 mkdir -p $P/Summer/City $P/Summer/Coast $P/Summer/Mountains
 # A landscape: a sky from $2 to $3, two ridges in $4 and $5, a sun in $6, peaks shifted by $7,
-# and a little grain, as a photo has.
+# and a little grain, as a photo has: the same each time, so only views that changed differ.
 land() {
     o=$7
     convert -size 1800x1200 gradient:"$2"-"$3" \
         -fill "$4" -draw "polygon 0,700 $((300+o)),430 $((560+o)),640 $((870+o)),330 $((1150+o)),620 $((1450+o)),400 1800,560 1800,1200 0,1200" \
         -fill "$5" -draw "polygon 0,900 $((450+o)),760 $((900+o)),930 $((1350+o)),800 1800,880 1800,1200 0,1200" \
         -fill "$6" -draw "circle $((1300-o)),300 $((1360-o)),300" \
-        -attenuate 0.4 +noise Gaussian -quality 90 "$1"
+        -seed 1 -attenuate 0.4 +noise Gaussian -quality 90 "$1"
 }
 cd $P/Summer
 land alpine_lake.jpg '#7ec8f0' '#d8f0ff' '#3c7a2a' '#25501c' '#ffffff' 0
