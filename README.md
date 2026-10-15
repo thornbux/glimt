@@ -114,6 +114,7 @@ The images in the screenshots are generated for the purpose.
 - Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
   (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
 - Collections: lists of images from any folders, saved and opened again.
+- Lightroom Classic catalogs imported: collections, the keyword tree and stars.
 - Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
 - The sort manager: move or copy images to favourite folders with one click.
 - Pan view: every image in the folder as a timeline of thumbnails by day.
@@ -352,6 +353,7 @@ Sway, X11 with a window manager) are very welcome.
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
+| Import Lightroom Catalog | `sqlite3` | none: the import says that sqlite3 is missing |
 
 ## Troubleshooting
 

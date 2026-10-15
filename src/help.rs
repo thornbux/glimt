@@ -183,7 +183,15 @@ const MANUAL: &[(&str, &str)] = &[
          Delete takes the shown or selected images out of the collection, leaving the files; \
          renaming and moving in Glimt keep them in it. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
-         too (O, or a .gqv file on the command line).",
+         too (O, or a .gqv file on the command line). File → Import Lightroom Catalog… reads a \
+         Lightroom Classic catalog (.lrcat, with Lightroom closed) through the sqlite3 program: \
+         its collections become Glimt's (named with their sets, as Travel - Norway; one of the \
+         same name gets the images it lacks), its keywords go into the keyword tree and its \
+         stars into the marks. Lightroom keeps the folders where they were on its computer: \
+         say where each is now. Next then says what the import will do: the collections that \
+         are there already, and the images whose stars in Glimt differ, where you choose \
+         whose stars to keep. Stars go to the XMP sidecars too when they are set to. Smart \
+         collections, colour labels and flags are left out.",
     ),
     (
         "Finding duplicates",

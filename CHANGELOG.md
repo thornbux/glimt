@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- File → Import Lightroom Catalog… reads a Lightroom Classic catalog (`.lrcat`) through the
+  `sqlite3` program: its collections become Glimt's collections, its keywords go into the
+  keyword tree and its stars into the marks, with each of its folders where it is now. Before
+  it does, it says which collections are there already and how many images have other stars,
+  and asks whose stars to keep. Tested with a catalog made with Lightroom's tables, not yet
+  with one from Lightroom itself.
+
 ### Changed
 
 - Every keyword is also written as a keyword tree path (lr:hierarchicalSubject), as Lightroom
