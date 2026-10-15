@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-16
+
 ### Added
 
 - Plain lists of images open as collections: a .txt or .m3u file with one image on each line,
@@ -798,7 +800,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.24.2...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/thornbux/glimt/compare/v0.24.2...v0.25.0
 [0.24.2]: https://github.com/thornbux/glimt/compare/v0.24.1...v0.24.2
 [0.24.1]: https://github.com/thornbux/glimt/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/thornbux/glimt/compare/v0.23.1...v0.24.0
