@@ -4627,33 +4627,7 @@ impl App {
         let query = query.as_str();
         self.rows.set(Default::default());
         self.search_error = None;
-        // Geeqie's Case checkbox, shown beside the field in its mode.
-        let case = self.config.search_case && !self.config.fuzzy_search;
-        self.matches = match (query.strip_prefix("exif:"), query.strip_prefix("re:")) {
-            (Some(words), _) => Some(self.exif_matches(ctx, words)),
-            (_, Some(pattern)) if !pattern.is_empty() => Some(match search::regex(pattern, case) {
-                Ok(re) => search::regex_matches(&self.files, &re),
-                Err(e) => {
-                    self.search_error = Some(e);
-                    Vec::new()
-                }
-            }),
-            _ => {
-                self.mark_matches(query)
-                    .or_else(|| match self.config.fuzzy_search {
-                        true => (query.chars().count() >= 3)
-                            .then(|| search::matches(&self.files, query)),
-                        // As Geeqie's file filter: a regular expression, from the first letter.
-                        false => (!query.is_empty()).then(|| match search::regex(query, case) {
-                            Ok(re) => search::regex_matches(&self.files, &re),
-                            Err(e) => {
-                                self.search_error = Some(e);
-                                Vec::new()
-                            }
-                        }),
-                    })
-            }
-        };
+        self.matches = self.search_matches(ctx, query);
         // Size of the matches in the background; a new search drops the receiver, which
         // stops the old sum.
         self.match_size = 0;
@@ -4669,6 +4643,74 @@ impl App {
             send_sizes(sizes, tx, &ctx);
         });
         self.match_rx = Some(rx);
+    }
+
+    /// The files a search finds: one term as it always was (fuzzy names best first), or terms
+    /// combined (`sunset -exif:iphone | stars:4`, see `search::terms`) in list order; `None`
+    /// for no search.
+    fn search_matches(&mut self, ctx: &egui::Context, query: &str) -> Option<Vec<usize>> {
+        let groups = search::terms(query);
+        if let [group] = groups.as_slice()
+            && let [(false, term)] = group.as_slice()
+        {
+            return self.term_matches(ctx, term, 3);
+        }
+        if groups.is_empty() {
+            return None;
+        }
+        let n = self.files.len();
+        let mut found = vec![false; n];
+        let mut out = Vec::new();
+        for group in groups {
+            // The first term that must match gives the order; the rest only filter it.
+            let (mut first, mut must, mut not) = (None, vec![true; n], vec![false; n]);
+            for (negated, term) in group {
+                let hits = self.term_matches(ctx, &term, 1).unwrap_or_default();
+                if negated {
+                    hits.iter().for_each(|&i| not[i] = true);
+                } else if first.is_none() {
+                    first = Some(hits);
+                } else {
+                    let mut hit = vec![false; n];
+                    hits.iter().for_each(|&i| hit[i] = true);
+                    must.iter_mut().zip(hit).for_each(|(m, h)| *m &= h);
+                }
+            }
+            let first = first.unwrap_or_else(|| (0..n).collect());
+            for i in first {
+                if must[i] && !not[i] && !std::mem::replace(&mut found[i], true) {
+                    out.push(i);
+                }
+            }
+        }
+        Some(out)
+    }
+
+    /// The files one term of a search finds: `exif:`, `re:`, `mark:`, `stars:`, or the names
+    /// (fuzzy from `min` letters, or a regular expression with fuzzy search off).
+    fn term_matches(&mut self, ctx: &egui::Context, term: &str, min: usize) -> Option<Vec<usize>> {
+        // Geeqie's Case checkbox, shown beside the field in its mode.
+        let case = self.config.search_case && !self.config.fuzzy_search;
+        let regex = |this: &mut Self, pattern: &str| match search::regex(pattern, case) {
+            Ok(re) => search::regex_matches(&this.files, &re),
+            Err(e) => {
+                this.search_error = Some(e);
+                Vec::new()
+            }
+        };
+        match (term.strip_prefix("exif:"), term.strip_prefix("re:")) {
+            (Some(words), _) => Some(self.exif_matches(ctx, words)),
+            (_, Some(pattern)) if !pattern.is_empty() => Some(regex(self, pattern)),
+            _ => {
+                self.mark_matches(term)
+                    .or_else(|| match self.config.fuzzy_search {
+                        true => (term.chars().count() >= min)
+                            .then(|| search::matches(&self.files, term)),
+                        // As Geeqie's file filter: a regular expression, from the first letter.
+                        false => (!term.is_empty()).then(|| regex(self, term)),
+                    })
+            }
+        }
     }
 
     /// Files whose EXIF contains every word, or that a regular expression after "re:" finds, in

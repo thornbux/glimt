@@ -689,6 +689,33 @@ for v in new old; do
 done
 as_version new
 
+echo "-- search terms combined: and, not (-) and or (|)"
+for v in new old; do
+    as_version $v
+    d=/tmp/search-terms-$v
+    mkdir -p $d
+    for f in a_sunset.jpg b_sunset.png c_beach.jpg d_beach.png; do
+        convert -size 300x200 xc:red $d/$f
+    done
+    config
+    start $d
+    sleep 2
+    # The matches of a search, read back: all of them selected, then asked for.
+    found() {
+        click 120 284; key ctrl+a; xdotool type "$1"; sleep 2
+        click 150 337; key ctrl+a; sleep 1
+        $BIN --remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' '
+    }
+    and_not=$(found 'sunset -re:png$')
+    either=$(found 'beach | re:png$')
+    quit
+    if [ $v = new ]; then
+        expect "sunset and not .png" "$and_not" "a_sunset.jpg "
+        expect "beach, or .png" "$either" "b_sunset.png c_beach.jpg d_beach.png "
+    else note "old: '$and_not' '$either'"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

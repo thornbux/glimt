@@ -82,7 +82,8 @@ The images in the screenshots are generated for the purpose.
 - Colour-managed: photos with Adobe RGB or Display P3 profiles are shown correctly.
 
 **Finding and organising**
-- Fuzzy search on file names, and search in EXIF, keywords and comments (`exif:canon 2024:05`).
+- Fuzzy search on file names, and search in EXIF, keywords and comments (`exif:canon 2024:05`),
+  combined with and, not and or: `sunset exif:canon -re:png$ | stars:4`.
 - Sort by name, number, date, EXIF date, size or extension.
 - Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
   (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
