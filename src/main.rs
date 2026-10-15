@@ -445,6 +445,15 @@ struct LightroomPlan {
     take_lightroom: bool,
 }
 
+/// A Rename Many running in the background: the list as it was (`App::files_gen`), the files
+/// renamed with their new names, and which of them was shown.
+struct RenameJob {
+    files_gen: usize,
+    targets: Vec<usize>,
+    to: Vec<PathBuf>,
+    shown: Option<usize>,
+}
+
 /// What a zenity file dialog was opened for.
 enum Pick {
     Open,
@@ -924,6 +933,8 @@ struct App {
     /// right; read in the background.
     cut_short_rx: Option<mpsc::Receiver<Vec<(PathBuf, journal::Moves)>>>,
     cut_short: Vec<(PathBuf, journal::Moves)>,
+    /// A Rename Many running in the background.
+    renaming: Option<(mpsc::Receiver<Result<(), String>>, RenameJob)>,
     /// Answer from an open file dialog (zenity).
     dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     pan_window: Option<Pan>,
@@ -1306,6 +1317,7 @@ impl App {
                 rx
             }),
             cut_short: Vec::new(),
+            renaming: None,
             keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
                 .map_or_else(Vec::new, |t| keyword_paths(t.lines())),
             new_keyword: String::new(),
@@ -3200,69 +3212,43 @@ impl App {
                 Some("The pattern gives several files the same name; add # for a number".into());
             return;
         }
-        let sources: HashSet<&PathBuf> = from.iter().collect();
-        if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
-            self.notice = Some(format!(
-                "{} exists already; nothing renamed",
-                taken.display()
-            ));
-            return;
-        }
-        let swap = to.iter().any(|t| sources.contains(t));
-        // Sidecars go with their files, through the same steps.
-        let (mut from, mut to) = (from, to);
-        let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
-            .map(|(f, t)| (meta::sidecar(f), meta::sidecar(t)))
-            .filter(|(f, _)| f.exists())
-            .collect();
-        for (f, t) in sides {
-            from.push(f);
-            to.push(t);
-        }
-        // Next to the file: in a collection the files are in different folders.
-        let tmp = |f: &Path, k: usize| {
-            // This Glimt's name: Flatpak windows can share a process ID.
-            f.with_file_name(format!(".glimt-rename-{}-{k}", remote::instance_id()))
-        };
-        let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
-        if swap {
-            moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(f, k))));
-            moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(t, k), t.clone())));
-        } else {
-            moves.extend(from.iter().cloned().zip(to.iter().cloned()));
-        }
-        // On disk while the renames run: a crash halfway is put right at the next start.
-        let plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
-        let mut failed = false;
-        for (k, (a, b)) in moves.iter().enumerate() {
-            if let Err(e) = std::fs::rename(a, b) {
-                // Named by the file and its new name, not a temporary one.
-                let j = k % from.len();
-                let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
-                self.notice = Some(format!(
-                    "Could not rename {} to {}: {e}; nothing renamed",
-                    name(&from[j]),
-                    name(&to[j])
-                ));
-                // Undone, so that no file is left under a hidden temporary name.
-                for (a, b) in moves[..k].iter().rev() {
-                    let _ = std::fs::rename(b, a);
-                }
-                failed = true;
-                break;
-            }
-        }
-        // Done or undone: nothing to put right.
-        drop(plan);
-        // Show the shown image under its new name.
+        // The files are looked at and renamed in the background: thousands, or a network
+        // share, would hold the window.
         let shown = from.iter().position(|f| *f == self.path(self.cur));
+        let job = RenameJob {
+            files_gen: self.files_gen,
+            targets,
+            to: to.clone(),
+            shown,
+        };
+        let (tx, rx) = mpsc::channel();
+        let (busy, ctx) = (self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let _ = tx.send(rename_files(from, to));
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+        self.renaming = Some((rx, job));
+    }
+
+    /// Rename Many has run: the list follows, the shown image under its new name.
+    fn renamed(&mut self, ctx: &egui::Context, job: RenameJob, result: Result<(), String>) {
+        let failed = result.is_err();
+        if let Err(e) = result {
+            self.notice = Some(e);
+        }
         self.selected.clear();
         self.selection_changed(ctx);
+        // The list changed meanwhile: its numbers are other files' now, so it is read again.
+        if job.files_gen != self.files_gen {
+            return self.list(ctx);
+        }
         if self.collection.is_some() {
-            // The collection keeps the files, under their new names; the first entries of `to`
-            // are the targets' (the sidecars follow). Nothing renamed: the names stay.
+            // The collection keeps the files, under their new names. Nothing renamed: the names
+            // stay.
             if !failed {
-                for (&i, t) in targets.iter().zip(&to) {
+                for (&i, t) in job.targets.iter().zip(&job.to) {
                     if let Ok(rel) = t.strip_prefix(&self.dir) {
                         self.files[i] = rel.as_os_str().to_owned();
                     }
@@ -3271,14 +3257,14 @@ impl App {
             }
             return self.list(ctx);
         }
-        match shown {
+        match job.shown {
             Some(k) if !failed => {
                 // A turn not saved yet goes to the shown file under its new name: its old name
                 // may now be another file's.
-                if let Ok(rel) = to[k].strip_prefix(&self.dir) {
+                if let Ok(rel) = job.to[k].strip_prefix(&self.dir) {
                     self.files[self.cur] = rel.as_os_str().to_owned();
                 }
-                self.open(ctx, to[k].clone())
+                self.open(ctx, job.to[k].clone())
             }
             _ => self.list(ctx),
         }
@@ -5912,6 +5898,10 @@ impl App {
                 Err(e) => self.notice = Some(e),
             }
         }
+        if let Some(Ok(result)) = self.renaming.as_ref().map(|r| r.0.try_recv()) {
+            let (_, job) = self.renaming.take().unwrap();
+            self.renamed(ctx, job, result);
+        }
         if let Some(Ok(found)) = self.cut_short_rx.as_ref().map(|rx| rx.try_recv()) {
             (self.cut_short, self.cut_short_rx) = (found, None);
         }
@@ -7961,6 +7951,59 @@ fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
     }
 }
 
+/// Rename `from` to `to` with their sidecars, all or none: refused when a new name is another
+/// file's, through temporary names when names swap, with the plan on disk while it runs, and
+/// undone on a failure. Never replaces a file, also one another program makes meanwhile.
+fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), String> {
+    // Sidecars go with their files, through the same steps.
+    let (mut from, mut to) = (from, to);
+    let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
+        .map(|(f, t)| (meta::sidecar(f), meta::sidecar(t)))
+        .filter(|(f, _)| f.exists())
+        .collect();
+    for (f, t) in sides {
+        from.push(f);
+        to.push(t);
+    }
+    // Checked with the sidecars too: one at a new name belongs to another file.
+    let sources: HashSet<&PathBuf> = from.iter().collect();
+    if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
+        return Err(format!(
+            "{} exists already; nothing renamed",
+            taken.display()
+        ));
+    }
+    let swap = to.iter().any(|t| sources.contains(t));
+    // Next to the file: in a collection the files are in different folders.
+    let tmp = |f: &Path, k: usize| {
+        // This Glimt's name: Flatpak windows can share a process ID.
+        f.with_file_name(format!(".glimt-rename-{}-{k}", remote::instance_id()))
+    };
+    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
+    if swap {
+        moves.extend(from.iter().enumerate().map(|(k, f)| (f.clone(), tmp(f, k))));
+        moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(t, k), t.clone())));
+    } else {
+        moves.extend(from.iter().cloned().zip(to.iter().cloned()));
+    }
+    // On disk while the renames run: a crash halfway is put right at the next start.
+    let _plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
+    for (k, (a, b)) in moves.iter().enumerate() {
+        if let Err(e) = put_file(a, b, false) {
+            // Named by the file and its new name, not a temporary one.
+            let j = k % from.len();
+            let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
+            // Undone, so that no file is left under a hidden temporary name.
+            for (a, b) in moves[..k].iter().rev() {
+                let _ = std::fs::rename(b, a);
+            }
+            let (f, t) = (name(&from[j]), name(&to[j]));
+            return Err(format!("Could not rename {f} to {t}: {e}; nothing renamed"));
+        }
+    }
+    Ok(())
+}
+
 /// Broken forms of `seed`, as a damaged or crafted file has them, for the parsers' tests: bits
 /// flipped, bytes changed, cut short, a piece doubled. Always the same ones, so a failure comes
 /// again; GLIMT_FUZZ=N for N of them instead of 2,000.
@@ -8341,6 +8384,37 @@ mod tests {
             "x a.jpg\n50%"
         );
         assert_eq!(fill(""), "");
+    }
+
+    /// Rename Many swaps names with their sidecars, and refuses, renaming nothing, when a new
+    /// name's sidecar is another file's.
+    #[test]
+    fn renames_many_all_or_none() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-many-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        let read = |n: &str| std::fs::read_to_string(p(n)).unwrap();
+        for (n, t) in [("a.jpg", "a"), ("b.jpg", "b"), ("a.jpg.xmp", "a's")] {
+            std::fs::write(p(n), t).unwrap();
+        }
+        super::rename_files(vec![p("a.jpg"), p("b.jpg")], vec![p("b.jpg"), p("a.jpg")]).unwrap();
+        assert_eq!(
+            (read("a.jpg"), read("b.jpg"), read("b.jpg.xmp")),
+            ("b".into(), "a".into(), "a's".into())
+        );
+        std::fs::write(p("c.jpg.xmp"), "c's").unwrap();
+        assert!(super::rename_files(vec![p("b.jpg")], vec![p("c.jpg")]).is_err());
+        assert_eq!(
+            (read("b.jpg"), read("c.jpg.xmp")),
+            ("a".into(), "c's".into())
+        );
+        let left = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains("glimt-rename"))
+            .count();
+        assert_eq!(left, 0);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Keyword tree paths are trimmed around each level, sorted and kept once.

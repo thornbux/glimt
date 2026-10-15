@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Many held the window while it checked and renamed every file, minutes for thousands on
+  a network share; it now runs in the background. It also never replaces a file another program
+  made under a new name meanwhile, and checks the sidecars' new names too.
+
 ### Added
 
 - A Rename Many cut short by a crash or a power cut is found at the next start: Glimt offers to
