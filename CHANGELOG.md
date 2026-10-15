@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   - Ticking a keyword or adding keywords leaves the comment as it was, in every language.
   - Keywords that differ only in letter case ("Rose", "rose") are both kept; only a keyword
     added in another case than one the image has is left out.
+- Copying, moving or renaming a photo replaced a sidecar already at the new name, with the
+  keywords of another file; it is now kept, and Rename Many checks the sidecars' new names too.
 
 ## [0.21.0] - 2026-10-15
 

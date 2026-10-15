@@ -190,11 +190,11 @@ fn update(
 
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
 pub fn follow(from: &Path, to: &Path, copy: bool) {
-    let side = sidecar(from);
-    if !side.exists() {
+    let (side, to) = (sidecar(from), sidecar(to));
+    // One there already belongs to another file, or is a copy kept on purpose: never replaced.
+    if !side.exists() || to.exists() {
         return;
     }
-    let to = sidecar(to);
     let copied = || std::fs::copy(&side, &to).map(drop);
     let _ = if copy {
         copied()
@@ -696,6 +696,14 @@ mod tests {
         std::fs::copy(&b, &c).unwrap();
         follow(&b, &c, true);
         assert_eq!(read(&c), meta);
+        // A sidecar at the target is another file's: it is kept, not replaced.
+        let other = Meta {
+            keywords: vec!["other".into()],
+            comment: String::new(),
+        };
+        write(&a, &other).unwrap();
+        follow(&b, &a, true);
+        assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -3185,15 +3185,6 @@ impl App {
                 Some("The pattern gives several files the same name; add # for a number".into());
             return;
         }
-        let sources: HashSet<&PathBuf> = from.iter().collect();
-        if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
-            self.notice = Some(format!(
-                "{} exists already; nothing renamed",
-                taken.display()
-            ));
-            return;
-        }
-        let swap = to.iter().any(|t| sources.contains(t));
         // Sidecars go with their files, through the same steps.
         let (mut from, mut to) = (from, to);
         let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
@@ -3204,6 +3195,16 @@ impl App {
             from.push(f);
             to.push(t);
         }
+        // Checked with the sidecars too: one at a new name belongs to another file.
+        let sources: HashSet<&PathBuf> = from.iter().collect();
+        if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
+            self.notice = Some(format!(
+                "{} exists already; nothing renamed",
+                taken.display()
+            ));
+            return;
+        }
+        let swap = to.iter().any(|t| sources.contains(t));
         // Next to the file: in a collection the files are in different folders.
         let tmp = |f: &Path, k: usize| {
             // This Glimt's name: Flatpak windows can share a process ID.
