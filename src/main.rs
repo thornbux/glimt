@@ -3199,15 +3199,6 @@ impl App {
                 Some("The pattern gives several files the same name; add # for a number".into());
             return;
         }
-        let sources: HashSet<&PathBuf> = from.iter().collect();
-        if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
-            self.notice = Some(format!(
-                "{} exists already; nothing renamed",
-                taken.display()
-            ));
-            return;
-        }
-        let swap = to.iter().any(|t| sources.contains(t));
         // Sidecars go with their files, through the same steps.
         let (mut from, mut to) = (from, to);
         let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
@@ -3218,6 +3209,16 @@ impl App {
             from.push(f);
             to.push(t);
         }
+        // Checked with the sidecars too: one at a new name belongs to another file.
+        let sources: HashSet<&PathBuf> = from.iter().collect();
+        if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
+            self.notice = Some(format!(
+                "{} exists already; nothing renamed",
+                taken.display()
+            ));
+            return;
+        }
+        let swap = to.iter().any(|t| sources.contains(t));
         // Next to the file: in a collection the files are in different folders.
         let tmp = |f: &Path, k: usize| {
             // This Glimt's name: Flatpak windows can share a process ID.
@@ -4278,40 +4279,68 @@ impl App {
         }
         self.exif_index = None;
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            let failed = paths
-                .iter()
-                .filter(|p| meta::tag(p, &tag, on).is_err())
-                .count();
-            if failed > 0 {
-                let _ = tx.send(format!(
-                    "The keyword could not be saved for {}",
-                    count(failed, "file")
-                ));
-            } else if paths.len() > 1 {
-                let verb = if on { "set on" } else { "taken off" };
-                let _ = tx.send(format!("{tag} {verb} {}", count(paths.len(), "file")));
-            }
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
+        // One writer for every window's ticks, so a tick and its untick land in that order.
+        type Job = (
+            Vec<PathBuf>,
+            String,
+            bool,
+            mpsc::Sender<String>,
+            Arc<AtomicUsize>,
+            egui::Context,
+        );
+        static WRITER: std::sync::OnceLock<mpsc::Sender<Job>> = std::sync::OnceLock::new();
+        let writer = WRITER.get_or_init(|| {
+            let (jobs, rx) = mpsc::channel::<Job>();
+            std::thread::spawn(move || {
+                for (paths, tag, on, tx, busy, ctx) in rx {
+                    let failed = (paths.iter())
+                        .filter(|p| meta::tag(p, &tag, on).is_err())
+                        .count();
+                    if failed > 0 {
+                        let _ = tx.send(format!(
+                            "The keyword could not be saved for {}",
+                            count(failed, "file")
+                        ));
+                    } else if paths.len() > 1 {
+                        let verb = if on { "set on" } else { "taken off" };
+                        let _ = tx.send(format!("{tag} {verb} {}", count(paths.len(), "file")));
+                    }
+                    busy.fetch_sub(1, Ordering::Relaxed);
+                    ctx.request_repaint();
+                }
+            });
+            jobs
         });
+        self.busy.fetch_add(1, Ordering::Relaxed);
+        let job = (
+            paths,
+            tag,
+            on,
+            self.notices_tx.clone(),
+            self.busy.clone(),
+            ctx.clone(),
+        );
+        if writer.send(job).is_err() {
+            self.busy.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 
     /// Save the keywords and comment being edited, if they changed.
     fn save_meta(&mut self) {
         let Some(edit) = &mut self.meta else { return };
-        let meta = Meta {
-            keywords: Meta::parse_keywords(&edit.keywords),
-            comment: edit.comment.trim().to_owned(),
-        };
-        if meta == edit.saved {
+        // Fields as they were shown are no change, also when splitting them again at commas
+        // would read them differently ("Smith, John" as one keyword, a comment's last newline).
+        if edit.keywords == edit.saved.keywords_text() && edit.comment == edit.saved.comment {
             return;
         }
-        match meta::write(&edit.path, &meta) {
-            Ok(()) => {
+        // Only what was edited: keywords set on this file in the background meanwhile stay.
+        let keywords = (edit.keywords != edit.saved.keywords_text())
+            .then(|| Meta::parse_keywords(&edit.keywords));
+        let comment = (edit.comment != edit.saved.comment).then(|| edit.comment.trim().to_owned());
+        match meta::write_changed(&edit.path, keywords, comment) {
+            Ok(meta) => {
                 edit.keywords = meta.keywords_text();
+                edit.comment = meta.comment.clone();
                 edit.saved = meta;
                 // "exif:" searches find keywords and comments too.
                 self.exif_index = None;

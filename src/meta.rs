@@ -18,11 +18,13 @@ impl Meta {
 
     /// Keywords from text separated by commas, without empty or repeated ones.
     pub fn parse_keywords(text: &str) -> Vec<String> {
-        unique(
-            (text.split(',').map(str::trim))
-                .filter(|k| !k.is_empty())
-                .map(str::to_owned),
-        )
+        let mut out: Vec<String> = Vec::new();
+        for k in text.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+            if !out.iter().any(|o| o == k) {
+                out.push(k.to_owned());
+            }
+        }
+        out
     }
 
     /// Keywords and comment as one line, for searching.
@@ -78,9 +80,16 @@ pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, o
 
 /// The keyword tree paths (lr:hierarchicalSubject) in the sidecar of `path`.
 pub fn tree_paths(path: &Path) -> Vec<String> {
-    (std::fs::read_to_string(sidecar(path)))
-        .map(|x| unique(items(&x, "lr:hierarchicalSubject")))
-        .unwrap_or_default()
+    // From where `read` takes the keywords: the sidecar, or else the XMP inside the image.
+    source(path).map_or_else(Vec::new, |x| unique(items(&x, "lr:hierarchicalSubject")))
+}
+
+/// The XMP the keywords and comment of `path` come from: its sidecar if that has them, else the
+/// image's own.
+fn source(path: &Path) -> Option<String> {
+    let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
+    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
+    side.or_else(|| embedded(path))
 }
 
 /// `<file>.xmp`, next to the file.
@@ -92,10 +101,7 @@ pub fn sidecar(path: &Path) -> PathBuf {
 
 /// The keywords and comment of `path`: from its sidecar if that has them, else from the image.
 pub fn read(path: &Path) -> Meta {
-    let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
-    side.or_else(|| embedded(path))
-        .map_or_else(Meta::default, |x| parse(&x))
+    source(path).map_or_else(Meta::default, |x| parse(&x))
 }
 
 /// The XMP packet inside the image. A JPEG's is read from its first 256 KB, as its EXIF is.
@@ -115,14 +121,34 @@ fn embedded(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// Write the keywords and comment into the sidecar; everything else in it stays. Keywords or a
-/// comment the image holds itself and that were cleared are written as empty elements: left
-/// out, the image's own would show through again.
-pub fn write(path: &Path, meta: &Meta) -> Result<(), String> {
+/// Write the fields that were edited (`None`: as it is on disk), read and written as one change,
+/// so keywords set in the background meanwhile stay; everything else in the sidecar stays too.
+/// Keywords or a comment the image holds itself and that were cleared are written as empty
+/// elements: left out, the image's own would be read again. The keywords and comment as written.
+pub fn write_changed(
+    path: &Path,
+    keywords: Option<Vec<String>>,
+    comment: Option<String>,
+) -> Result<Meta, String> {
+    let _held = held();
+    let mut meta = read(path);
+    let keywords_only = comment.is_none();
+    if let Some(k) = keywords {
+        meta.keywords = k;
+    }
+    if let Some(c) = comment {
+        meta.comment = c;
+    }
     let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
-    update_sidecar(path, *meta == Meta::default() && !own, |x| {
-        set(x, meta, own)
-    })
+    update(
+        path,
+        meta == Meta::default() && !own,
+        |x| match keywords_only {
+            true => set_keywords(x, &meta, own),
+            false => set(x, &meta, own),
+        },
+    )?;
+    Ok(meta)
 }
 
 /// Add `keywords` to those `path` has, read and written as one change.
@@ -130,11 +156,13 @@ pub fn add(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _held = held();
     let mut meta = read(path);
     for k in keywords {
-        if !meta.keywords.contains(k) {
+        if !meta.keywords.iter().any(|m| same(m, k)) {
             meta.keywords.push(k.clone());
         }
     }
-    update(path, meta == Meta::default(), |x| set(x, &meta, false))
+    update(path, meta == Meta::default(), |x| {
+        set_keywords(x, &meta, false)
+    })
 }
 
 /// Held while a sidecar is read and written again: keywords are added in the background while
@@ -149,6 +177,7 @@ fn held() -> std::sync::MutexGuard<'static, ()> {
 
 /// Change the sidecar of `path` with `change`, or a new, empty one unless `only_if_there`: then
 /// a file without a sidecar keeps having none. Written to a temporary file first, so a crash never leaves half a sidecar.
+#[cfg_attr(not(feature = "marks"), allow(dead_code))]
 pub fn update_sidecar(
     path: &Path,
     only_if_there: bool,
@@ -186,11 +215,11 @@ fn update(
 
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
 pub fn follow(from: &Path, to: &Path, copy: bool) {
-    let side = sidecar(from);
-    if !side.exists() {
+    let (side, to) = (sidecar(from), sidecar(to));
+    // One there already belongs to another file, or is a copy kept on purpose: never replaced.
+    if !side.exists() || to.exists() {
         return;
     }
-    let to = sidecar(to);
     let copied = || std::fs::copy(&side, &to).map(drop);
     let _ = if copy {
         copied()
@@ -202,7 +231,7 @@ pub fn follow(from: &Path, to: &Path, copy: bool) {
 
 fn parse(xmp: &str) -> Meta {
     Meta {
-        keywords: unique(items(xmp, "dc:subject")),
+        keywords: items(xmp, "dc:subject"),
         comment: items(xmp, "dc:description")
             .into_iter()
             .next()
@@ -239,6 +268,41 @@ fn items(xmp: &str, tag: &str) -> Vec<String> {
 /// `xmp` with its keywords and comment replaced, in its first rdf:Description; `None` if it has
 /// none.
 /// `xmp` with the keywords and comment of `meta`; empty ones as empty elements with `say_empty`.
+/// `set` for a change of keywords only: a comment the sidecar has stays as it is, in all its
+/// languages; one only inside the image is copied into a new sidecar, which would hide it else.
+fn set_keywords(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
+    let Some(original) = element(xmp, "dc:description") else {
+        return set(xmp, meta, say_empty);
+    };
+    let comment = items(xmp, "dc:description")
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    let keep = Meta {
+        keywords: meta.keywords.clone(),
+        comment,
+    };
+    let new = set(xmp, &keep, say_empty)?;
+    // The description element as it was, every language of it.
+    Some(match element(&new, "dc:description") {
+        Some(made) => new.replacen(&made, &original, 1),
+        None => insert(
+            new,
+            &format!("\n   {original}"),
+            "dc",
+            "http://purl.org/dc/elements/1.1/",
+        )?,
+    })
+}
+
+/// The whole element `tag` in `xmp`, from its start tag to its end tag.
+fn element(xmp: &str, tag: &str) -> Option<String> {
+    let start = xmp.find(&format!("<{tag}"))?;
+    let close = format!("</{tag}>");
+    let end = start + xmp[start..].find(&close)? + close.len();
+    Some(xmp[start..end].to_owned())
+}
+
 fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     let xmp = without(&without(xmp, "dc:subject"), "dc:description");
     let mut add = String::new();
@@ -273,13 +337,16 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
     let kept: Vec<String> = (unique(paths).into_iter())
         .filter(|p| keywords.iter().any(|k| same(k, leaf(p))))
         .collect();
-    let longer = |name: &str| kept.iter().any(|q| q.contains('|') && same(leaf(q), name));
+    // Lightroom writes the levels above a keyword as keywords too: Places, Norway, Oslo for
+    // Places|Norway|Oslo. They are in that path, not paths of their own.
+    let in_path = |p: &str, name: &str| p.split('|').any(|level| same(level, name));
+    let longer = |name: &str| kept.iter().any(|q| q.contains('|') && in_path(q, name));
     let mut out: Vec<String> = (kept.iter())
         .filter(|p| p.contains('|') || !longer(p))
         .cloned()
         .collect();
     for k in keywords {
-        if !out.iter().any(|p| same(leaf(p), k)) {
+        if !out.iter().any(|p| in_path(p, k)) {
             out.push(k.clone());
         }
     }
@@ -332,7 +399,7 @@ pub fn tag(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     set_tag(&mut meta.keywords, &mut paths, tag, on);
     let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
     update(path, !on && meta == Meta::default() && !own, |x| {
-        set(&with_paths(x.to_owned(), &paths)?, &meta, own)
+        set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own)
     })
 }
 
@@ -418,7 +485,14 @@ mod tests {
             keywords: vec!["x".into()],
             comment: String::new(),
         };
-        assert!(write(&file, &meta).is_err());
+        assert!(
+            write_changed(
+                &file,
+                Some(meta.keywords.clone()),
+                Some(meta.comment.clone())
+            )
+            .is_err()
+        );
         assert_eq!(
             std::fs::read(sidecar(&file)).unwrap(),
             b"\xff\xfe not UTF-8"
@@ -495,8 +569,8 @@ mod tests {
         set_tag(&mut keywords, &mut paths, "Places|Norway|Oslo", false);
         assert!(keywords.is_empty() && paths.is_empty());
         assert_eq!(
-            Meta::parse_keywords("Oslo, beach, oslo,, Beach"),
-            ["Oslo", "beach"]
+            Meta::parse_keywords("Oslo, beach, oslo,, beach"),
+            ["Oslo", "beach", "oslo"]
         );
     }
 
@@ -544,7 +618,7 @@ mod tests {
         bytes.extend(&base[2..]);
         std::fs::write(&file, bytes).unwrap();
         assert_eq!(read(&file), own);
-        write(&file, &Meta::default()).unwrap();
+        write_changed(&file, Some(Vec::new()), Some(String::new())).unwrap();
         assert_eq!(read(&file), Meta::default());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -602,6 +676,79 @@ mod tests {
     }
 
     #[test]
+    fn keeps_what_other_programs_wrote() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Lightroom's levels above a keyword are in its path, also when 0.21.0 wrote one bare.
+        let lr = k(&["Places", "Norway", "Oslo"]);
+        assert_eq!(
+            tree_paths_for(&lr, k(&["Places|Norway|Oslo"])),
+            ["Places|Norway|Oslo"]
+        );
+        assert_eq!(
+            tree_paths_for(&lr, k(&["Places|Norway|Oslo", "Norway"])),
+            ["Places|Norway|Oslo"]
+        );
+        let dir = std::env::temp_dir().join(format!("glimt-test-keep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(
+            sidecar(&file),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+   <dc:subject><rdf:Bag><rdf:li>Rose</rdf:li><rdf:li>rose</rdf:li></rdf:Bag></dc:subject>
+   <dc:description><rdf:Alt><rdf:li xml:lang="x-default">Hello</rdf:li><rdf:li xml:lang="de">Hallo</rdf:li></rdf:Alt></dc:description>
+  </rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        // The person and the flower stay two; a tag and an added keyword leave both comments.
+        assert_eq!(read(&file).keywords, ["Rose", "rose"]);
+        tag(&file, "Places|Oslo", true).unwrap();
+        add(&file, &k(&["ROSE"])).unwrap();
+        let x = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert_eq!(read(&file).keywords, ["Rose", "rose", "Oslo"]);
+        assert!(x.contains(">Hello<") && x.contains(">Hallo<"), "{x}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Saving an edited comment keeps keywords set in the background since it was read, and the
+    /// tree paths inside an image count as the keywords there do.
+    #[test]
+    fn edits_keep_what_others_set() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-edit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        write_changed(&file, Some(vec!["a".into()]), None).unwrap();
+        tag(&file, "b", true).unwrap();
+        let meta = write_changed(&file, None, Some("c".into())).unwrap();
+        assert_eq!(
+            (meta.keywords, meta.comment),
+            (vec!["a".into(), "b".into()], "c".into())
+        );
+        // A JPEG exported with its paths inside: they count until a sidecar has its own.
+        let jpeg = dir.join("b.jpg");
+        let mut base = Vec::new();
+        let mut out = std::io::Cursor::new(&mut base);
+        image::RgbImage::new(4, 2)
+            .write_to(&mut out, image::ImageFormat::Jpeg)
+            .unwrap();
+        let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:lr=\"http://ns.adobe.com/lightroom/1.0/\">\
+             <dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li></rdf:Bag></dc:subject>\
+             <lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject>\
+             </rdf:Description></rdf:RDF></x:xmpmeta>";
+        let mut app1 = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        app1.extend(packet.as_bytes());
+        let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
+        bytes.extend(((app1.len() + 2) as u16).to_be_bytes());
+        bytes.extend(app1);
+        bytes.extend(&base[2..]);
+        std::fs::write(&jpeg, bytes).unwrap();
+        assert_eq!(tree_paths(&jpeg), ["Places|Oslo"]);
+        tag(&jpeg, "Events|Party", true).unwrap();
+        assert_eq!(tree_paths(&jpeg), ["Places|Oslo", "Events|Party"]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn sidecar_follows_the_file() {
         let dir = std::env::temp_dir().join(format!("glimt-test-meta-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -612,7 +759,7 @@ mod tests {
             keywords: vec!["x".into()],
             comment: "y".into(),
         };
-        write(&a, &meta).unwrap();
+        write_changed(&a, Some(meta.keywords.clone()), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
         follow(&a, &b, false);
@@ -620,6 +767,19 @@ mod tests {
         std::fs::copy(&b, &c).unwrap();
         follow(&b, &c, true);
         assert_eq!(read(&c), meta);
+        // A sidecar at the target is another file's: it is kept, not replaced.
+        let other = Meta {
+            keywords: vec!["other".into()],
+            comment: String::new(),
+        };
+        write_changed(
+            &a,
+            Some(other.keywords.clone()),
+            Some(other.comment.clone()),
+        )
+        .unwrap();
+        follow(&b, &a, true);
+        assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

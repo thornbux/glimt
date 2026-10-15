@@ -37,6 +37,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - With two windows open, adding a folder to the sort manager in one dropped the folders the
   other had added, and a crash while saving could leave half the list. A change now goes to the
   list as it is on disk, written whole or not at all.
+- Keywords written by other programs are kept as they are:
+  - Lightroom's levels above a keyword (Places, Norway for Places|Norway|Oslo) no longer
+    become keyword paths of their own when Glimt saves; one written so by 0.21.0 goes again.
+  - Ticking a keyword or adding keywords leaves the comment as it was, in every language.
+  - Keywords that differ only in letter case ("Rose", "rose") are both kept; only a keyword
+    added in another case than one the image has is left out.
+- Copying, moving or renaming a photo replaced a sidecar already at the new name, with the
+  keywords of another file; it is now kept, and Rename Many checks the sidecars' new names too.
+- Moving on from an image could rewrite its keywords and comment without any edit: a keyword
+  with a comma ("Smith, John") was split in two, a comment lost its last line break, and a JPEG
+  with keywords inside got a new sidecar just from being shown. Fields left as they were shown
+  are now never written.
+- Editing a comment while keywords were being set on many files in the background could take
+  a keyword off a file again; a tick quickly followed by an untick could leave files ticked; and
+  the keyword tree paths inside an exported JPEG were lost when a box was ticked. Saving now
+  writes only the fields that were edited, ticks are written in the order they were made, and
+  the paths come from where the keywords do.
 
 ## [0.21.0] - 2026-10-15
 
