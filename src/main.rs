@@ -685,6 +685,9 @@ struct App {
     together: Option<Vec<PathBuf>>,
     /// Folder listing in the background: (subfolders, images).
     listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
+    /// takes the keys from the shortcuts.
+    image_id: Option<egui::Id>,
     /// A `--remote select` that came while the folder was being read: done once it is.
     waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
@@ -1471,6 +1474,7 @@ impl App {
             back: Vec::new(),
             forward: Vec::new(),
             listing_rx: None,
+            image_id: None,
             waiting_select: None,
             total_size: 0,
             size_rx: None,
@@ -6371,11 +6375,59 @@ impl App {
         missing
     }
 
+    /// The shown image for a screen reader: its name, place in the list, stars, keywords and
+    /// comment (which a plugin can fill with a description). The image area keeps the focus
+    /// while nothing else has it, so browsing reads out the next image.
+    #[cfg(feature = "accessibility")]
+    fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
+        self.image_id = Some(response.id);
+        let text = if self.files.is_empty() {
+            "No images".to_owned()
+        } else {
+            // Read in the background, as for the EXIF panel: here once for each image.
+            self.want_exif();
+            let path = self.path(self.cur);
+            let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
+            let mut text = format!("{}, {place}", self.files[self.cur].to_string_lossy());
+            if let Some(e) = self.errors.get(&self.cur) {
+                text += &format!(", could not be shown: {e}");
+            }
+            #[cfg(feature = "marks")]
+            if let stars @ 1.. = self.marks.get(&path).1 {
+                text += &format!(", {}", count(stars as usize, "star"));
+            }
+            if let Some(meta) = self.meta.as_ref().filter(|m| m.path == path) {
+                if !meta.saved.keywords.is_empty() {
+                    text += &format!(", keywords: {}", meta.saved.keywords.join(", "));
+                }
+                if !meta.saved.comment.is_empty() {
+                    text += &format!(". {}", meta.saved.comment);
+                }
+            }
+            text
+        };
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &text));
+        if ui.memory(|m| m.focused().is_none()) {
+            response.request_focus();
+        }
+        if response.has_focus() {
+            // The arrow keys browse, as without a screen reader; Tab still moves to the panels.
+            let keys = egui::EventFilter {
+                horizontal_arrows: true,
+                vertical_arrows: true,
+                ..Default::default()
+            };
+            ui.memory_mut(|m| m.set_focus_lock_filter(response.id, keys));
+        }
+    }
+
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).
-        let typing = ctx.egui_wants_keyboard_input();
+        let typing = ctx
+            .memory(|m| m.focused())
+            .is_some_and(|f| Some(f) != self.image_id);
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
         if !self.dialog_open() && !typing && self.zoom.is_some() {
@@ -7959,6 +8011,8 @@ impl App {
                 let several = panes.len() > 1 || right.is_some();
                 let input = if several { ui.max_rect() } else { area };
                 let response = ui.allocate_rect(input, egui::Sense::click_and_drag());
+                #[cfg(feature = "accessibility")]
+                self.speak_image(ui, &response);
                 let max_fit = if self.config.enlarge {
                     f32::INFINITY
                 } else {

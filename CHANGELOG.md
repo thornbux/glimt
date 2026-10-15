@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Screen readers such as Orca (the accessibility feature, in the packages): the menus, buttons,
+  lists and dialogs, and the shown image read as its name, place, stars, keywords and comment each
+  time you browse. Built without it, Glimt has none of the extra crates it needs.
+
 ## [0.22.2] - 2026-10-15
 
 ### Added
