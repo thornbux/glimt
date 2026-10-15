@@ -286,6 +286,10 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, Str
                 Some(&(0xe0, start, len)) => start + len,
                 _ => 2,
             };
+            // A JFIF segment longer than the file: cut off.
+            if at > data.len() {
+                return Err("cut off".into());
+            }
             data.splice(at..at, app1);
         }
     }

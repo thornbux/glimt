@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving the orientation of a damaged JPEG, whose JFIF segment claims to be longer than the file,
+  says the file is cut off instead of closing Glimt. Found by the new fuzz test of the orientation
+  write.
+
 ## [0.22.1] - 2026-10-15
 
 ### Changed
