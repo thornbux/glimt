@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A PNG or WebP whose EXIF Glimt cannot read can be saved turned: the EXIF is kept as it is,
+  instead of the save being refused.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed
