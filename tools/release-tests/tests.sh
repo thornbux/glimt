@@ -517,6 +517,25 @@ quit
 expect "renamed in its folder" "$renamed" "New.gqv "
 expect "the collection in the trash" "$(ls $c; ls $H/.local/share/Trash/files)" "New.gqv"
 expect "its image stays" "$(ls $d)" "a.jpg"
+echo "-- / puts the cursor in the search field, without typing itself there"
+d=/tmp/slash
+mkdir -p $d
+convert -size 300x200 xc:red $d/apple_red.jpg
+convert -size 300x200 xc:blue $d/sky_blue.jpg
+for v in new old; do
+    as_version $v
+    config
+    start $d/apple_red.jpg
+    sleep 2
+    key slash; xdotool type sky; sleep 2
+    shot slash-$v
+    quit
+    # The first row of the list: the blue picture when the search found it.
+    if [ $v = new ]; then expect "the search shows only sky_blue.jpg" "$(colour slash-new 57 337)" blue
+    else note "old, first row: $(colour slash-old 57 337)"; fi
+done
+as_version new
+
 echo "-- the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d

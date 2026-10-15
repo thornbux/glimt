@@ -69,6 +69,7 @@ pub enum Action {
     RenameCollection,
     TrashCollection,
     FindDuplicates,
+    FocusSearch,
     NextPage,
     PrevPage,
     // Marks 1–6 (keys 1–6), selecting by mark (Ctrl+1–6), 0–5 stars (Alt+0–5).
@@ -234,6 +235,7 @@ impl Action {
             RenameCollection => "Rename Collection…",
             TrashCollection => "Move Collection to Trash",
             FindDuplicates => "Find Duplicates…",
+            FocusSearch => "Search File Names",
             NextPage => "Next Page",
             PrevPage => "Previous Page",
             #[cfg(feature = "marks")]
@@ -437,6 +439,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (NewCollection, NONE, Key::C),
         (OpenCollection, NONE, Key::O),
         (FindDuplicates, NONE, Key::D),
+        (FocusSearch, NONE, Key::Slash),
         (Help, NONE, Key::F1),
     ]
 };

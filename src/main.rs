@@ -5344,6 +5344,15 @@ impl App {
             }
             Action::TrashCollection => self.trash_collection(ctx),
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
+            Action::FocusSearch => {
+                // The field shows if it was hidden, and the / itself is not typed into it.
+                if !self.config.search_bar {
+                    self.config.search_bar = true;
+                    self.config.save();
+                }
+                ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
+                ctx.memory_mut(|m| m.request_focus(egui::Id::new("file search")));
+            }
             Action::Copy | Action::Move if !self.files.is_empty() => {
                 let paths = self.targets().iter().map(|&i| self.path(i)).collect();
                 let purpose = match action {
@@ -6055,6 +6064,8 @@ impl App {
                     menu_item(ui, act, Action::Forward);
                     menu_item(ui, act, Action::Home);
                     menu_item(ui, act, Action::Up);
+                    ui.separator();
+                    menu_item(ui, act, Action::FocusSearch);
                 });
                 scroll_menu(ui, "Select", |ui| {
                     menu_item(ui, act, Action::SelectAll);
