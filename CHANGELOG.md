@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- The release is built in a job that can only read; checksums, the signed build provenance and
+  publishing happen in a job of their own that builds nothing. Before, every crate's build script
+  ran where the signing token could be asked for.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
