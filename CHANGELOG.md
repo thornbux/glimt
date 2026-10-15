@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Collection: a name that is taken only in Glimt's own collection folder is free for a
+  collection elsewhere.
+
 ## [0.22.0] - 2026-10-15
 
 ### Added
