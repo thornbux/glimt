@@ -107,7 +107,7 @@ fn parse(text: &[u8]) -> Catalog {
 impl Catalog {
     /// The path of each image, its root folder replaced by `now`, the folder where the user
     /// says it is now (in the order of `roots`).
-    fn paths(&self, now: &[PathBuf]) -> HashMap<i64, PathBuf> {
+    pub fn paths(&self, now: &[PathBuf]) -> HashMap<i64, PathBuf> {
         // A root folder the user gave no place is left out.
         let roots: HashMap<i64, &PathBuf> = (self.roots.iter().map(|r| r.0))
             .zip(now)
@@ -119,9 +119,8 @@ impl Catalog {
     }
 
     /// The plain collections (not smart ones, sets or publish services), named with the sets
-    /// they are in ("Travel - Norway"), and their images where they are now.
-    pub fn collections(&self, now: &[PathBuf]) -> Vec<(String, Vec<PathBuf>)> {
-        let paths = self.paths(now);
+    /// they are in ("Travel - Norway"), and their images at `paths` (from `Catalog::paths`).
+    pub fn collections(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(String, Vec<PathBuf>)> {
         let mut images: HashMap<i64, Vec<PathBuf>> = HashMap::new();
         for (coll, image) in &self.members {
             if let Some(p) = paths.get(image) {
@@ -153,12 +152,11 @@ impl Catalog {
             .collect()
     }
 
-    /// The images with stars, where they are now.
+    /// The images with stars, at `paths` (from `Catalog::paths`).
     #[cfg_attr(not(feature = "marks"), allow(dead_code))]
     /// One value for each file: a virtual copy is an image of its own on the same file, and the
     /// most stars of them count.
-    pub fn stars(&self, now: &[PathBuf]) -> Vec<(PathBuf, u8)> {
-        let paths = self.paths(now);
+    pub fn stars(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(PathBuf, u8)> {
         let mut best: HashMap<PathBuf, u8> = HashMap::new();
         for (id, i) in self.images.iter().filter(|(_, i)| i.2 > 0) {
             if let Some(p) = paths.get(id) {
@@ -247,17 +245,18 @@ mod tests {
         let now = [PathBuf::from("/media/disk")];
         let a = PathBuf::from("/media/disk/2024/Oslo/a.jpg");
         let b = PathBuf::from("/media/disk/2024/b.CR3");
-        let mut colls = c.collections(&now);
+        let mut colls = c.collections(&c.paths(&now));
         colls[0].1.sort();
         assert_eq!(colls, [("Travel - Norway".to_owned(), vec![a.clone(), b])]);
         let mut keywords = c.keyword_paths();
         keywords.sort();
         assert_eq!(keywords, ["Places", "Places|Oslo"]);
-        assert_eq!(c.stars(&now), [(a.clone(), 4)]);
+        assert_eq!(c.stars(&c.paths(&now)), [(a.clone(), 4)]);
         // A virtual copy with more stars: one value for the file, the most.
         let mut copy = sample();
         copy.extend(b"\x1ei\x1f12\x1f1\x1f2024/Oslo/a.jpg\x1f5");
-        assert_eq!(super::parse(&copy).stars(&now), [(a, 5)]);
+        let c = super::parse(&copy);
+        assert_eq!(c.stars(&c.paths(&now)), [(a, 5)]);
         assert_eq!(
             super::root_now(" /media/disk "),
             PathBuf::from("/media/disk")
@@ -281,9 +280,10 @@ mod tests {
         let now = [PathBuf::from("/x")];
         for text in crate::broken(&sample()) {
             let c = super::parse(&text);
-            c.collections(&now);
+            let paths = c.paths(&now);
+            c.collections(&paths);
             c.keyword_paths();
-            c.stars(&now);
+            c.stars(&paths);
         }
     }
 }
