@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A keyword tree in the EXIF panel (Ctrl+K), as Geeqie's: keywords in levels, typed as
+  Places|Norway|Oslo, each with a box that shows whether the image has it and sets it on the
+  selected images, or takes it off. The level path goes into the sidecar as
+  lr:hierarchicalSubject, which darktable, digiKam and Lightroom read.
+
 ## [0.17.5] - 2026-10-15
 
 ### Security

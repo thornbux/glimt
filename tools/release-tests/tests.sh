@@ -415,6 +415,28 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
+d=/tmp/keywords
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
+config exif_panel=true
+start $d
+sleep 2
+# Frames drawn as the pointer moves: a panel that grows with each moves the boxes away.
+for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
+sleep 1
+shot keywords-before
+# The Animals box: on, then off again.
+click 1056 310 2
+shot keywords-on
+on=$(cat $d/a.jpg.xmp 2>/dev/null | grep -c '<rdf:li>Animals</rdf:li>')
+click 1056 310 2
+off=$(cat $d/a.jpg.xmp 2>/dev/null | grep -c '<rdf:li>Animals</rdf:li>')
+quit
+expect "a box sets the keyword and its tree path" "$on" 2
+expect "a box clears them again" "$off" 0
+
 echo "-- printing 80 images of 3000x2000 to a PDF"
 src=/tmp/print
 mkdir -p $src
