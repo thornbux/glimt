@@ -1568,20 +1568,26 @@ impl App {
             .and_then(Path::file_name)
             .map(OsString::from);
         self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
-        self.subdirs.clear();
-        self.deleting.clear();
-        self.random = false;
+        self.start_list();
         self.recursive = self.config.show_subfolders;
-        self.thumbs.clear();
-        self.thumbs_pending.clear();
-        self.exif_index = None;
-        self.exif_stale.clear();
-        self.exif_index_rx = None;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         self.list(ctx);
         self.watch(ctx);
         self.title(ctx);
+    }
+
+    /// What belongs to the list shown before, which a new folder, collection or set of folders
+    /// starts without.
+    fn start_list(&mut self) {
+        self.subdirs.clear();
+        self.deleting.clear();
+        self.random = false;
+        self.thumbs.clear();
+        self.thumbs_pending.clear();
+        self.exif_index = None;
+        self.exif_stale.clear();
+        self.exif_index_rx = None;
     }
 
     /// Show the collection in `file` as the list.
@@ -1595,15 +1601,8 @@ impl App {
         let files: Vec<OsString> = (paths.iter())
             .filter_map(|p| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
             .collect();
-        self.subdirs.clear();
-        self.deleting.clear();
-        self.random = false;
+        self.start_list();
         self.recursive = false;
-        self.thumbs.clear();
-        self.thumbs_pending.clear();
-        self.exif_index = None;
-        self.exif_stale.clear();
-        self.exif_index_rx = None;
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = root.to_path_buf();
@@ -1641,14 +1640,7 @@ impl App {
         }
         self.leave_image(ctx);
         self.collection = None;
-        self.subdirs.clear();
-        self.deleting.clear();
-        self.random = false;
-        self.thumbs.clear();
-        self.thumbs_pending.clear();
-        self.exif_index = None;
-        self.exif_stale.clear();
-        self.exif_index_rx = None;
+        self.start_list();
         // No one folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = PathBuf::from("/");
