@@ -738,10 +738,12 @@ struct App {
     decode_jobs: mpsc::Sender<DecodeJob>,
     decoded_rx: mpsc::Receiver<Decoded>,
     slots: HashMap<usize, Slot>,
-    pending: HashSet<(usize, bool)>,
-    /// Decodes and thumbnails still being made when a setting changed how they look: their
-    /// results are dropped once, as they come back in the old look.
-    stale_decodes: HashSet<(usize, bool)>,
+    /// Decodes asked for, with the number of the job: only its result is taken, so one asked
+    /// for before the list, the page, the look or the file changed is dropped.
+    pending: HashMap<(usize, bool), (u64, PathBuf)>,
+    jobs_sent: u64,
+    /// Thumbnails still being made when a setting changed how they look: their results are
+    /// dropped once, as they come back in the old look.
     stale_thumbs: HashSet<OsString>,
     errors: HashMap<usize, String>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
@@ -1110,7 +1112,8 @@ fn count(n: usize, noun: &str) -> String {
 }
 
 /// A decode for the workers: image index, full resolution, file, page of a multi-page TIFF.
-type DecodeJob = (usize, bool, PathBuf, usize);
+/// (index, full resolution, path, page, the job's number in `pending`).
+type DecodeJob = (usize, bool, PathBuf, usize, u64);
 
 /// The decode workers: `workers` threads that take jobs and send back what they decoded,
 /// skipping images the list has moved past (`keep`).
@@ -1137,7 +1140,7 @@ fn spawn_decoders(
         );
         std::thread::spawn(move || {
             loop {
-                let Ok((idx, full, path, page)) = job_rx.lock().unwrap().recv() else {
+                let Ok((idx, full, path, page, job)) = job_rx.lock().unwrap().recv() else {
                     return;
                 };
                 // Cancellation: skip images the user has already moved past.
@@ -1153,6 +1156,7 @@ fn spawn_decoders(
                         full,
                         path,
                         page,
+                        job,
                         result: None,
                     });
                     continue;
@@ -1172,6 +1176,7 @@ fn spawn_decoders(
                     full,
                     path,
                     page,
+                    job,
                     result,
                 });
                 // glibc does not return freed memory from the threads' malloc arenas on its own;
@@ -1444,8 +1449,8 @@ impl App {
             page: 0,
             decoded_rx: done,
             slots: HashMap::new(),
-            pending: HashSet::new(),
-            stale_decodes: HashSet::new(),
+            pending: HashMap::new(),
+            jobs_sent: 0,
             stale_thumbs: HashSet::new(),
             errors: HashMap::new(),
             zoom: None,
@@ -1867,6 +1872,12 @@ impl App {
         files: Vec<OsString>,
         shown: Option<OsString>,
     ) {
+        // The shown file's decodes still being made: kept, so it is not decoded twice. Not
+        // those of a later page, as the file is shown again from its first.
+        let jobs: Vec<(bool, (u64, PathBuf))> = ([false, true].into_iter())
+            .filter(|_| self.page == 0)
+            .filter_map(|full| Some((full, self.pending.remove(&(self.cur, full))?)))
+            .collect();
         self.leave_image(ctx);
         let slot = self.slots.remove(&self.cur);
         self.files = files;
@@ -1882,6 +1893,9 @@ impl App {
             .unwrap_or(0);
         if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
             self.slots.insert(cur, slot);
+        }
+        for (full, job) in jobs.into_iter().filter(|j| self.is_file(cur, &j.1.1)) {
+            self.pending.insert((cur, full), job);
         }
         self.update_search(ctx);
         // go() clears the notice for a new image; a new list is not one, and a notice is often
@@ -2268,10 +2282,13 @@ impl App {
 
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
-        if !have && !self.errors.contains_key(&idx) && self.pending.insert((idx, full)) {
+        if !have && !self.errors.contains_key(&idx) && !self.pending.contains_key(&(idx, full)) {
+            self.jobs_sent += 1;
+            let path = self.path(idx);
+            self.pending.insert((idx, full), (self.jobs_sent, path.clone()));
             // The neighbours are preloaded at their first page.
             let page = if idx == self.cur { self.page } else { 0 };
-            let _ = self.decode_jobs.send((idx, full, self.path(idx), page));
+            let _ = (self.decode_jobs).send((idx, full, path, page, self.jobs_sent));
         }
     }
 
@@ -2319,8 +2336,8 @@ impl App {
 
     fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoded_rx.try_recv() {
-            // Made before a setting changed its look (colours): asked for again, in the new one.
-            if self.stale_decodes.remove(&(d.idx, d.full)) {
+            // Not the job asked for last: asked for again, in another list, page or look.
+            if self.pending.get(&(d.idx, d.full)).map(|j| j.0) != Some(d.job) {
                 continue;
             }
             self.pending.remove(&(d.idx, d.full));
@@ -2377,7 +2394,7 @@ impl App {
     /// Decode the images and thumbnails again, to be shown in other colours.
     fn redecode(&mut self) {
         self.slots.clear();
-        self.stale_decodes.extend(self.pending.drain());
+        self.pending.clear();
         self.errors.clear();
         self.thumbs.clear();
         self.stale_thumbs.extend(self.thumbs_pending.drain());
@@ -2778,7 +2795,7 @@ impl App {
         } else if self.random && Some(next) == first && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
             self.shuffle_list(ctx, true);
-        } else if !self.pending.contains(&(next, false)) {
+        } else if !self.pending.contains_key(&(next, false)) {
             let before = self.shown_textures();
             if turns && self.next_pane > 0 {
                 self.panes[self.next_pane - 1] = next;
@@ -3389,7 +3406,7 @@ impl App {
     fn saved(&mut self, path: &Path) {
         if self.is_file(self.cur, path) {
             self.orient = (0, false);
-            self.pending.retain(|p| p.0 != self.cur);
+            self.pending.retain(|p, _| p.0 != self.cur);
             self.exif = None;
         }
         self.slots.retain(|_, s| s.path != path);
@@ -5799,7 +5816,7 @@ impl App {
                 if page != self.page {
                     self.page = page;
                     self.slots.remove(&self.cur);
-                    self.pending.retain(|p| p.0 != self.cur);
+                    self.pending.retain(|p, _| p.0 != self.cur);
                     self.refill();
                 }
             }
