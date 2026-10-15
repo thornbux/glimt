@@ -290,15 +290,23 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
 /// turned upright. A block without the field is left as it is.
 pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     let (t, ifd0, _, _) = ifds(block).ok_or("unreadable EXIF")?;
-    let Some(e) = find(&ifd0, ORIENTATION) else {
-        return Ok(());
-    };
-    if e.kind != SHORT {
+    let found = find(&ifd0, ORIENTATION);
+    if found.is_some_and(|e| e.kind != SHORT) {
         return Err("unusual orientation field".into());
     }
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
-    let at = block.len() - t.data.len() + e.at;
-    let one = if t.little {
+    let head = block.len() - t.data.len();
+    // The EXIF thumbnail (IFD1) would show the old way up: left out, as IFD0 is made the last.
+    let next = t.u32(4).and_then(|o| Some(o as usize + 2 + 12 * t.u16(o as usize)? as usize));
+    let little = t.little;
+    if let Some(n) = next.and_then(|n| block.get_mut(head + n..head + n + 4)) {
+        n.fill(0);
+    }
+    let Some(e) = found else {
+        return Ok(());
+    };
+    let at = head + e.at;
+    let one = if little {
         1u16.to_le_bytes()
     } else {
         1u16.to_be_bytes()
@@ -915,6 +923,19 @@ mod tests {
             d.extend(v.to_le_bytes());
         }
         d
+    }
+
+    /// Turned upright: orientation 1, and no EXIF thumbnail (IFD1) left the old way up.
+    #[test]
+    fn sets_upright_without_thumbnail() {
+        // IFD0 at 8 with the orientation 6, then IFD1 at 26.
+        let mut block = b"Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\
+                          \x1a\0\0\0\0\0"
+            .to_vec();
+        super::set_upright(&mut block).unwrap();
+        let upright = image::metadata::Orientation::NoTransforms;
+        assert_eq!(super::orientation(&block), Some(upright));
+        assert_eq!(block[28..32], [0, 0, 0, 0]);
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:

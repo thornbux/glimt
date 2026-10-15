@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A PNG or WebP saved turned leaves out its EXIF thumbnail, which other programs showed the old
+  way up.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed
