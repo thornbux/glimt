@@ -685,6 +685,8 @@ struct App {
     together: Option<Vec<PathBuf>>,
     /// Folder listing in the background: (subfolders, images).
     listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    /// A `--remote select` that came while the folder was being read: done once it is.
+    waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
     relist: bool,
     /// Generation of the folder watcher; opening another folder ends the old thread.
@@ -1469,6 +1471,7 @@ impl App {
             back: Vec::new(),
             forward: Vec::new(),
             listing_rx: None,
+            waiting_select: None,
             total_size: 0,
             size_rx: None,
             freed_tx,
@@ -6175,8 +6178,20 @@ impl App {
             remote::mark_focused();
         }
         self.has_focus = focus;
+        if self.listing_rx.is_none()
+            && let Some((command, reply)) = self.waiting_select.take()
+        {
+            let _ = reply.send(self.select_paths(ctx, &command));
+        }
         while let Ok((command, reply)) = self.remote_rx.try_recv() {
             match reply {
+                // After `open`, the folder is still being read: its files are not all listed.
+                Some(reply) if command.starts_with("select ") && self.listing_rx.is_some() => {
+                    self.waiting_select = Some((command, reply));
+                }
+                Some(reply) if command.starts_with("select ") => {
+                    let _ = reply.send(self.select_paths(ctx, &command));
+                }
                 Some(reply) => drop(reply.send(self.remote_query(&command))),
                 None => self.remote_command(ctx, &command),
             }
@@ -6331,6 +6346,37 @@ impl App {
                 path.into_iter().chain([0])
             })
             .collect()
+    }
+
+    /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
+    /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
+    /// Only the selection changes; deleting or moving it is left to the user.
+    fn select_paths(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
+        let paths = command.strip_prefix("select ").unwrap_or_default();
+        let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
+        // The list's name of `p`: relative to the folder shown.
+        fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
+            Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
+        }
+        let dir = self.dir.clone();
+        let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
+        let found: std::collections::BTreeSet<usize> = (self.files.iter().enumerate())
+            .filter(|(_, f)| names.contains(f.as_os_str()))
+            .map(|(i, _)| i)
+            .collect();
+        let listed: HashSet<&std::ffi::OsStr> =
+            found.iter().map(|&i| self.files[i].as_os_str()).collect();
+        let missing: Vec<u8> = (paths.iter())
+            .filter(|p| !name(&dir, p).is_some_and(|n| listed.contains(n)))
+            .flat_map(|p| p.bytes().chain([0]))
+            .collect();
+        if let Some(&first) = found.first() {
+            self.go(ctx, first);
+            self.selected = found;
+            self.anchor = None;
+            self.selection_changed(ctx);
+        }
+        missing
     }
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
@@ -8562,6 +8608,26 @@ fn main() -> eframe::Result {
     let to_all = args.first().is_some_and(|a| a == "--remote-all");
     if args.first().is_some_and(|a| a == "--remote") || to_all {
         let mut command = args[1..].join(" ");
+        // select: whole paths after a NUL each, as names may hold spaces; a line ends the command.
+        if args.get(1).is_some_and(|a| a == "select") {
+            let paths = &args_os[2..];
+            if paths.len() > remote::MAX_SELECT {
+                eprintln!("glimt: select takes at most {} files", remote::MAX_SELECT);
+                std::process::exit(2);
+            }
+            let mut sent = Vec::new();
+            for p in paths {
+                let p = std::path::absolute(p).unwrap_or_else(|_| p.into());
+                match p.to_str().filter(|t| !t.contains('\n')) {
+                    Some(text) => sent.push(text.to_owned()),
+                    None => {
+                        eprintln!("glimt: cannot send {p:?}: not UTF-8, or a line break in it");
+                        std::process::exit(2);
+                    }
+                }
+            }
+            command = format!("select {}", sent.join("\0"));
+        }
         // The running Glimt has another working folder: send the full path.
         if let Some(path) = command.strip_prefix("open ") {
             let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
