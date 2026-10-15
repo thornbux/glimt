@@ -98,6 +98,10 @@ fn save(paths: Vec<PathBuf>, change: Change) {
         std::thread::spawn(move || {
             for (paths, change) in rx.iter() {
                 let Some(file) = file() else { continue };
+                // Another window's read and write must not fall between ours, or its change is
+                // lost: one at a time, through a lock beside the file (renamed over, so not on it).
+                let lock = std::fs::File::create(file.with_extension("lock")).ok();
+                let _locked = lock.as_ref().map(|l| l.lock());
                 // A file that is there but cannot be read is not written over with this change
                 // alone: every other mark would be lost.
                 let mut map = match std::fs::read(&file) {

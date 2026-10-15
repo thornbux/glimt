@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Marks and stars set in two windows at nearly the same moment: neither change is lost.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed
