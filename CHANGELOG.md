@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A collection that lists a file twice shows it once, so Find Duplicates can move its checked
+  files to the trash instead of saying they are no longer all in the list.
+
 ## [0.22.1] - 2026-10-15
 
 ### Changed
