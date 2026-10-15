@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Auto refresh keeps the selection: when another program writes into the folder, Delete and Move
+  still act on the selected files, not only the shown one.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed

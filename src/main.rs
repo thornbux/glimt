@@ -1842,7 +1842,17 @@ impl App {
             self.collection_read.retain(|p| listed.contains(p));
         }
         let shown = self.files.get(self.cur).cloned();
+        // A refresh keeps the selection: Delete or Move after it still acts on what was picked.
+        let picked: HashSet<OsString> = (self.selected.iter())
+            .filter_map(|&i| self.files.get(i).cloned())
+            .collect();
         self.replace_files(ctx, files, shown);
+        if !picked.is_empty() {
+            self.selected = (self.files.iter().enumerate())
+                .filter(|(_, f)| picked.contains(*f))
+                .map(|(i, _)| i)
+                .collect();
+        }
         if std::mem::take(&mut self.sort_collection) {
             self.save_collection();
         }

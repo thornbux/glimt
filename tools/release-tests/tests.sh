@@ -256,6 +256,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a refresh keeps the selection: a delete after it takes what was selected"
+for v in new old; do
+    as_version $v
+    d=/tmp/refresh-selection-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    config confirm_delete=false
+    start $d
+    # a and b selected, then a file comes from elsewhere and auto refresh reads the folder.
+    click 150 337; xdotool keydown ctrl; click 150 419; xdotool keyup ctrl
+    cp $d/c.jpg $d/new.jpg; sleep 3
+    shot refresh-selection-$v
+    key shift+Delete; sleep 2
+    quit
+    left=$(ls $d | tr '\n' ' ')
+    if [ $v = new ]; then expect "the selected files deleted" "$left" "c.jpg new.jpg "
+    else note "old, left: $left"; fi
+done
+as_version new
+
 echo "-- thumbnails with Auto Rotate off"
 rm -rf $XDG_CACHE_HOME/thumbnails
 config exif_rotate=false
