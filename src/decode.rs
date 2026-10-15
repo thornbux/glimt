@@ -311,6 +311,45 @@ pub const MAX_DECODE: u64 = 512 << 20;
 
 /// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
 /// stays sharp when fitted to the window.
+/// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first: a linked one
+/// only if it is a file under 64 MB (not /dev/zero or a pipe), and none whose header claims
+/// more pixels than an image Glimt decodes may have.
+#[cfg(feature = "svg")]
+fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
+    use resvg::usvg::ImageHrefResolver as R;
+    let fits = |data: &[u8]| {
+        let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
+        match reader.ok().and_then(|r| r.into_dimensions().ok()) {
+            Some((w, h)) => u64::from(w) * u64::from(h) * 4 <= MAX_DECODE,
+            // Not a picture image reads, such as an SVG: usvg reads it with these limits.
+            None => true,
+        }
+    };
+    let (data, string) = (R::default_data_resolver(), R::default_string_resolver());
+    R {
+        resolve_data: Box::new(move |mime, bytes, opts| {
+            fits(bytes.as_slice())
+                .then(|| data(mime, bytes, opts))
+                .flatten()
+        }),
+        resolve_string: Box::new(move |href, opts| {
+            let file = match Path::new(href) {
+                p if p.is_absolute() => p.to_path_buf(),
+                p => opts
+                    .resources_dir
+                    .as_deref()
+                    .unwrap_or(Path::new("."))
+                    .join(p),
+            };
+            let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
+            if meta.len() > 64 << 20 || !fits(&std::fs::read(&file).ok()?) {
+                return None;
+            }
+            string(href, opts)
+        }),
+    }
+}
+
 #[cfg(feature = "svg")]
 pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
     use resvg::{tiny_skia, usvg};
@@ -325,6 +364,7 @@ pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
     let options = usvg::Options {
         resources_dir: path.parent().map(Path::to_path_buf),
         fontdb: fonts.clone(),
+        image_href_resolver: svg_images(),
         ..usvg::Options::default()
     };
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -496,6 +536,52 @@ mod tests {
             ["a.png", "b.gif", "sub/c.png"]
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An SVG that points at /dev/zero, or at a picture claiming 100,000×100,000 pixels, is
+    /// drawn without them, at once.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn svg_pictures_have_limits() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A PNG header claiming 100,000 × 100,000; its CRC is right, so readers believe it.
+        let mut ihdr = b"IHDR".to_vec();
+        ihdr.extend(100_000u32.to_be_bytes());
+        ihdr.extend(100_000u32.to_be_bytes());
+        ihdr.extend([8, 6, 0, 0, 0]);
+        let crc = crc32(&ihdr);
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0d".to_vec();
+        png.extend(&ihdr);
+        png.extend(crc.to_be_bytes());
+        std::fs::write(dir.join("huge.png"), &png).unwrap();
+        let svg = dir.join("a.svg");
+        std::fs::write(
+            &svg,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
+                 <image href="/dev/zero" width="10" height="10"/>
+                 <image href="huge.png" width="10" height="10"/></svg>"#,
+        )
+        .unwrap();
+        assert!(super::svg(&svg).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// CRC-32 as PNG chunks have it.
+    #[cfg(feature = "svg")]
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
     }
 
     #[test]

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An SVG could show any local file as a picture, and read a device such as /dev/zero until
+  memory ran out; a picture inside it was decoded at any size. Linked pictures are now only
+  files under 64 MB, and none may claim more pixels than an image Glimt opens.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
