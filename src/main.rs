@@ -4646,44 +4646,64 @@ impl App {
     }
 
     /// The files a search finds: one term as it always was (fuzzy names best first), or terms
-    /// combined (`sunset -exif:iphone | stars:4`, see `search::terms`) in list order; `None`
-    /// for no search.
+    /// combined (`sunset ( exif:canon | exif:nikon ) -re:png$`, see `search::parse`) in list
+    /// order; `None` for no search.
     fn search_matches(&mut self, ctx: &egui::Context, query: &str) -> Option<Vec<usize>> {
-        let groups = search::terms(query);
-        if let [group] = groups.as_slice()
-            && let [(false, term)] = group.as_slice()
-        {
-            return self.term_matches(ctx, term, 3);
+        match search::parse(query)? {
+            search::Query::Term(term) => self.term_matches(ctx, &term, 3),
+            tree => Some(self.query_matches(ctx, &tree)),
         }
-        if groups.is_empty() {
-            return None;
-        }
+    }
+
+    /// The files a part of a combined search finds, in order: an and keeps the order of its
+    /// first part that is no "not", an or the order of its parts one after the other.
+    fn query_matches(&mut self, ctx: &egui::Context, query: &search::Query) -> Vec<usize> {
+        use search::Query;
         let n = self.files.len();
-        let mut found = vec![false; n];
-        let mut out = Vec::new();
-        for group in groups {
-            // The first term that must match gives the order; the rest only filter it.
-            let (mut first, mut must, mut not) = (None, vec![true; n], vec![false; n]);
-            for (negated, term) in group {
-                let hits = self.term_matches(ctx, &term, 1).unwrap_or_default();
-                if negated {
-                    hits.iter().for_each(|&i| not[i] = true);
-                } else if first.is_none() {
-                    first = Some(hits);
-                } else {
-                    let mut hit = vec![false; n];
-                    hits.iter().for_each(|&i| hit[i] = true);
-                    must.iter_mut().zip(hit).for_each(|(m, h)| *m &= h);
-                }
+        let mask = |hits: &[usize]| {
+            let mut mask = vec![false; n];
+            hits.iter().for_each(|&i| mask[i] = true);
+            mask
+        };
+        match query {
+            Query::Term(term) => self.term_matches(ctx, term, 1).unwrap_or_default(),
+            Query::Not(inner) => {
+                let out = mask(&self.query_matches(ctx, inner));
+                (0..n).filter(|&i| !out[i]).collect()
             }
-            let first = first.unwrap_or_else(|| (0..n).collect());
-            for i in first {
-                if must[i] && !not[i] && !std::mem::replace(&mut found[i], true) {
-                    out.push(i);
+            Query::Or(parts) => {
+                let mut seen = vec![false; n];
+                let mut found = Vec::new();
+                for part in parts {
+                    for i in self.query_matches(ctx, part) {
+                        if !std::mem::replace(&mut seen[i], true) {
+                            found.push(i);
+                        }
+                    }
                 }
+                found
+            }
+            Query::And(parts) => {
+                let lead = parts.iter().position(|p| !matches!(p, Query::Not(_)));
+                let mut found: Vec<usize> = match lead {
+                    Some(at) => self.query_matches(ctx, &parts[at]),
+                    None => (0..n).collect(),
+                };
+                for (at, part) in parts.iter().enumerate() {
+                    if Some(at) == lead {
+                        continue;
+                    }
+                    // A "not" left out directly; the others kept where both find.
+                    let (inner, keep) = match part {
+                        Query::Not(inner) => (inner.as_ref(), false),
+                        part => (part, true),
+                    };
+                    let hit = mask(&self.query_matches(ctx, inner));
+                    found.retain(|&i| hit[i] == keep);
+                }
+                found
             }
         }
-        Some(out)
     }
 
     /// The files one term of a search finds: `exif:`, `re:`, `mark:`, `stars:`, or the names

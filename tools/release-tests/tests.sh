@@ -709,7 +709,7 @@ for v in new old; do
 done
 as_version new
 
-echo "-- search terms combined: and, not (-) and or (|)"
+echo "-- search terms combined: and, not (-), or (|) and groups ( )"
 for v in new old; do
     as_version $v
     d=/tmp/search-terms-$v
@@ -728,11 +728,13 @@ for v in new old; do
     }
     and_not=$(found 'sunset -re:png$')
     either=$(found 'beach | re:png$')
+    grouped=$(found '( sunset | beach ) -( re:png$ )')
     quit
     if [ $v = new ]; then
         expect "sunset and not .png" "$and_not" "a_sunset.jpg "
         expect "beach, or .png" "$either" "b_sunset.png c_beach.jpg d_beach.png "
-    else note "old: '$and_not' '$either'"; fi
+        expect "a group, and not a group" "$grouped" "a_sunset.jpg c_beach.jpg "
+    else note "old: '$and_not' '$either' '$grouped'"; fi
 done
 as_version new
 

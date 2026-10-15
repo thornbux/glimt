@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Groups in searches: parentheses as words of their own, sunset ( exif:canon | exif:nikon ), and
+  -( … ) to leave a group out; a regular expression keeps its own parentheses and bars
+  (re:^(IMG|DSC)).
+
 ## [0.24.1] - 2026-10-15
 
 ### Added
