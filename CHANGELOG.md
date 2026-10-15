@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Building from source needs Rust 1.95 (egui's), not 1.89 as README said; Cargo.toml says so too,
+  so an older Rust gets a clear message.
+
 ## [0.22.1] - 2026-10-15
 
 ### Changed
