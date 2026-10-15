@@ -968,7 +968,7 @@ struct App {
     notices_tx: mpsc::Sender<String>,
     notices_rx: mpsc::Receiver<String>,
     /// Commands from `glimt --remote`.
-    remote_rx: mpsc::Receiver<String>,
+    remote_rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
 }
 
 /// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
@@ -6175,8 +6175,11 @@ impl App {
             remote::mark_focused();
         }
         self.has_focus = focus;
-        while let Ok(command) = self.remote_rx.try_recv() {
-            self.remote_command(ctx, &command);
+        while let Ok((command, reply)) = self.remote_rx.try_recv() {
+            match reply {
+                Some(reply) => drop(reply.send(self.remote_query(&command))),
+                None => self.remote_command(ctx, &command),
+            }
         }
         if let Some(img) = self.clip_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.clip_rx = None;
@@ -6310,6 +6313,24 @@ impl App {
         if let Some(action) = action {
             self.run(ctx, action);
         }
+    }
+
+    /// The answer to `glimt --remote current` or `selection`: the paths, each ending in a NUL
+    /// byte. Nothing else is told, and nothing changes.
+    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
+    // selected; in a thread of its own if scripts ask for large selections often.
+    fn remote_query(&self, command: &str) -> Vec<u8> {
+        use std::os::unix::ffi::OsStringExt;
+        let files = match command.trim() {
+            "current" => vec![self.cur],
+            _ => self.targets(),
+        };
+        (files.into_iter().filter(|&i| i < self.files.len()))
+            .flat_map(|i| {
+                let path = self.path(i).into_os_string().into_vec();
+                path.into_iter().chain([0])
+            })
+            .collect()
     }
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.

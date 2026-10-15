@@ -24,7 +24,28 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "Show a file, folder or collection (starts Glimt if it is not running)",
     ),
     ("quit", "Close Glimt"),
+    (
+        "current",
+        "Print the path of the image shown, ending in a NUL byte",
+    ),
+    (
+        "selection",
+        "Print the selected files (or the one shown), each ending in a NUL byte",
+    ),
 ];
+
+/// Where the window sends a query's answer: paths, each ending in a NUL byte, as `find -print0`
+/// writes them, since a file name can hold a line break.
+pub type Reply = mpsc::Sender<Vec<u8>>;
+
+/// Commands that answer. They only read: nothing a script or an AI asks can change a file.
+fn is_query(command: &str) -> bool {
+    matches!(command.trim(), "current" | "selection")
+}
+
+/// How long a command and its answer may take: a client that sends nothing, or a window that
+/// does not answer, holds up the others no longer than this.
+const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn dir() -> Option<PathBuf> {
     let mut dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
@@ -78,8 +99,22 @@ fn socket(id: &str) -> Option<PathBuf> {
     dir().map(|d| d.join(format!("glimt-{id}.sock")))
 }
 
+/// Send `command` to the socket at `path`, and print what it answers to standard output.
 fn deliver(path: &std::path::Path, command: &str) -> bool {
-    UnixStream::connect(path).is_ok_and(|mut s| writeln!(s, "{command}").is_ok())
+    use std::io::Read;
+    let Ok(mut s) = UnixStream::connect(path) else {
+        return false;
+    };
+    if writeln!(s, "{command}").is_err() {
+        return false;
+    }
+    // Done sending: the window answers, then closes.
+    let _ = s.shutdown(std::net::Shutdown::Write);
+    let _ = s.set_read_timeout(Some(WAIT));
+    let mut answer = Vec::new();
+    let _ = s.read_to_end(&mut answer);
+    let _ = std::io::stdout().write_all(&answer);
+    true
 }
 
 /// The sockets of the running Glimts; those left by one that crashed are removed.
@@ -122,12 +157,22 @@ pub fn send_all(command: &str) -> usize {
     live().iter().filter(|p| deliver(p, command)).count()
 }
 
-/// Listen for commands in the background and pass each line to `tx`.
-pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
+/// Listen for commands in the background and pass each line to `tx`, with where to answer for
+/// a query.
+pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
     let Some(path) = socket(socket_id()) else {
         return;
     };
-    let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+    // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let dir = path.parent().unwrap_or(&path);
+        let _ = std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir);
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    }
     let Some(listener) = claim(&path) else {
         eprintln!(
             "A Glimt named {} is running already: --remote goes to that one",
@@ -139,14 +184,28 @@ pub fn listen(tx: mpsc::Sender<String>, ctx: eframe::egui::Context) {
     mark_focused();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
+            let _ = stream.set_read_timeout(Some(WAIT));
+            let mut out = stream.try_clone().ok();
             for line in std::io::BufReader::new(stream)
                 .lines()
                 .map_while(Result::ok)
             {
-                if tx.send(line).is_err() {
+                let (reply, answer) = match is_query(&line) {
+                    true => {
+                        let (reply, answer) = mpsc::channel();
+                        (Some(reply), Some(answer))
+                    }
+                    false => (None, None),
+                };
+                if tx.send((line, reply)).is_err() {
                     return;
                 }
                 ctx.request_repaint();
+                if let (Some(answer), Some(out)) = (answer, out.as_mut())
+                    && let Ok(bytes) = answer.recv_timeout(WAIT)
+                {
+                    let _ = out.write_all(&bytes);
+                }
             }
         }
     });
