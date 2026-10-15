@@ -32,15 +32,23 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "selection",
         "Print the selected files (or the one shown), each ending in a NUL byte",
     ),
+    (
+        "select PATH…",
+        "Select these files of the list and show the first; prints those not in it",
+    ),
 ];
+
+/// At most this many files for `select`: the window finds them in its own thread.
+pub const MAX_SELECT: usize = 100_000;
 
 /// Where the window sends a query's answer: paths, each ending in a NUL byte, as `find -print0`
 /// writes them, since a file name can hold a line break.
 pub type Reply = mpsc::Sender<Vec<u8>>;
 
-/// Commands that answer. They only read: nothing a script or an AI asks can change a file.
+/// Commands that answer. None of them changes a file: `select` only selects, and what is done
+/// with the selection is the user's to do in the window.
 fn is_query(command: &str) -> bool {
-    matches!(command.trim(), "current" | "selection")
+    matches!(command.trim(), "current" | "selection") || command.starts_with("select ")
 }
 
 /// How long a command and its answer may take: a client that sends nothing, or a window that

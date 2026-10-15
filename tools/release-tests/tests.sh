@@ -305,6 +305,31 @@ break.jpg")"
 done
 as_version new
 
+echo "-- --remote select: right after open, files of the list selected, the others printed"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-select-$v
+    mkdir -p $d/first
+    for c in a b "c d"; do convert -size 300x200 xc:red "$d/$c.jpg"; done
+    convert -size 300x200 xc:red $d/first/x.jpg
+    config auto_refresh=false
+    start $d/first
+    sleep 1
+    # Sent at once after open, while the folder is still being read.
+    $BIN --remote open $d
+    missing=$($BIN --remote select $d/b.jpg "$d/c d.jpg" /nowhere/e.jpg | tr '\0' '|')
+    sleep 1
+    selection=$($BIN --remote selection | tr '\0' '|')
+    current=$($BIN --remote current | tr '\0' '|')
+    quit
+    if [ $v = new ]; then
+        expect "select: the file not in the list printed" "$missing" "/nowhere/e.jpg|"
+        expect "select: the others selected" "$selection" "$d/b.jpg|$d/c d.jpg|"
+        expect "select: the first shown" "$current" "$d/b.jpg|"
+    else note "old: '$missing' '$selection'"; fi
+done
+as_version new
+
 echo "-- thumbnails with Auto Rotate off"
 rm -rf $XDG_CACHE_HOME/thumbnails
 config exif_rotate=false
