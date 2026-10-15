@@ -178,7 +178,7 @@ keywords and comments.
 ### Requirements
 
 - Linux with glibc. It is tested on x86_64, and aarch64 should work but is untested.
-- Rust 1.89 or newer (edition 2024, let chains, file locks), installed through [rustup](https://rustup.rs):
+- Rust 1.95 or newer (egui needs it), installed through [rustup](https://rustup.rs):
   ```sh
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
