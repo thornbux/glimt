@@ -3414,12 +3414,22 @@ impl App {
                 PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
                     print::pdf(pages, job.paper, job.per_page, w)
                 }),
-                PrintTo::File(file) => std::fs::File::create(file)
-                    .and_then(|f| {
-                        let out = std::io::BufWriter::new(f);
-                        print::pdf(pages, job.paper, job.per_page, out)
-                    })
-                    .map_err(|e| e.to_string()),
+                // Beside it first: the file chosen is replaced only by a whole PDF, after every
+                // image was read (one of them may be the file chosen).
+                PrintTo::File(file) => {
+                    let tmp = save::tmp_path(file);
+                    let written = std::fs::File::create(&tmp)
+                        .and_then(|f| {
+                            let mut out = std::io::BufWriter::new(f);
+                            print::pdf(pages, job.paper, job.per_page, &mut out)?;
+                            out.into_inner().map_err(|e| e.into_error())?.sync_all()
+                        })
+                        .and_then(|_| std::fs::rename(&tmp, file));
+                    if written.is_err() {
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                    written.map_err(|e| e.to_string())
+                }
             };
             let n = job.paths.len() - failed.get();
             let done = done.map(|()| match &to {

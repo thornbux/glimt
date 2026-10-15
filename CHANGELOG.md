@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Printing to a PDF emptied the file chosen before the images were read: choosing one of the
+  images being printed lost that image's page, and a write error halfway left a broken PDF in
+  place of the old file. The PDF is now written beside it and takes its place when it is whole.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
