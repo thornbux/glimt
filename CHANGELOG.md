@@ -12,6 +12,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   them. glimt --slideshow show.txt plays it in its order. Glimt never writes such a list: an image
   taken out or another order stays in the window.
 
+### Changed
+
+- README, man page and manual brought up to date with 0.22–0.25: a Formats chapter with every
+  format Glimt reads itself, combined searches, decoder plugins, screen readers, alt text in the
+  sidecar, the remote-control sockets and the Rename Many journal among the files, the programs
+  decoders and printing need, and all the checks to run before a commit.
+
 ## [0.24.2] - 2026-10-16
 
 ### Added

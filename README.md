@@ -100,7 +100,9 @@ The images in the screenshots are generated for the purpose.
 - Save the rotation to the file. Copy images or paths to the clipboard, open them with another
   application, and print them to any CUPS printer or a PDF, one per page or as a contact sheet.
 - Plugins: run any command on the selected images from the Edit menu.
+- Decoder plugins: new formats through a program you have (DICOM, FITS, microscope files …).
 - Remote control from scripts and desktop shortcuts: `glimt --remote next`.
+- Screen readers (Orca): menus, lists and each image read out, with its alt text.
 
 ## Supported formats
 
@@ -181,7 +183,8 @@ folder" in Preferences). These are the keys used most:
 | Ctrl+O, F1 | Preferences, the help (with every key and a keyboard map) |
 
 Type in the field above the file list (or press `/`) to search the names; `exif:` searches the EXIF,
-keywords and comments.
+keywords and comments. Terms one after the other must all match, `-` leaves one out, `|` means
+either and `( … )` groups: `sunset ( exif:canon | exif:nikon ) -re:png$` (see F1).
 
 ## Building
 
@@ -232,8 +235,11 @@ cargo build --release --features full   # all of them, same as --all-features
 
 ```sh
 cargo fmt
+cargo clippy --release -- -D warnings
+cargo test --release
 cargo clippy --release --all-features -- -D warnings
 cargo test --release --all-features
+python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 ```
 
 ### Portable build (older distributions)
@@ -545,6 +551,9 @@ Sway, X11 with a window manager) are very welcome.
 | Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
 | Import Lightroom Catalog | `sqlite3` | none: the import says that sqlite3 is missing |
+| HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none: the image says ffmpeg is missing |
+| Printing | `lp` (CUPS) | Save as PDF |
+| A decoder plugin's format | the program its `Exec` line names | none: the image shows the program's error |
 
 ## Troubleshooting
 
@@ -561,6 +570,11 @@ Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictur
 - **Open, Copy or Move show no dialog.** Install `zenity` (or `kdialog` on KDE).
 - **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
   `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
+- **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; in a
+  Flatpak it runs on the host, so install it there.
+- **A format of a decoder plugin shows nothing.** The image area shows the decoder's error:
+  check that its program is installed and run its `Exec` line by hand on the file. A decoder
+  has 30 seconds and 512 MB, and new decoders are seen after a restart.
 - **Settings in a strange state.** Quit Glimt and remove `~/.config/glimt/config`; the defaults
   come back.
 
@@ -570,7 +584,9 @@ Glimt sends nothing anywhere: no telemetry, no update checks, no network library
 reads the folders you open and writes only the files listed below. The network is used only
 when you ask: a share you open (through GVfs), and the browser for a photo's place on
 OpenStreetMap or for Get More Themes. The desktop is asked for its dark style, accent colour
-and screen profile over D-Bus.
+and screen profile over D-Bus. Plugins and decoder plugins are programs on your computer, which
+Glimt starts with the files you chose; Glimt sends their files nowhere. Remote commands reach
+only your own Glimt windows on this computer, through a private socket.
 
 ## Files
 
@@ -585,7 +601,9 @@ and screen profile over D-Bus.
 | A Rename Many while it runs, to put right after a crash | `$XDG_STATE_HOME/glimt/renames/` |
 | Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as `.gqv` files; plain lists (`.txt`, `.m3u`) anywhere are read, never written |
 | Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
-| Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
+| Decoder plugins | `$XDG_DATA_HOME/glimt/decoders/*.desktop` |
+| Keywords, comment, alt text and extended description, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
+| Remote-control sockets, which only your user can reach | `$XDG_RUNTIME_DIR/glimt` |
 | Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
 
 Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
