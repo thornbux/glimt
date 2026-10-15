@@ -15,6 +15,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Building from source needs Rust 1.89 or newer (file locks).
 
+### Security
+
+- The release is built in a job that can only read; checksums, the signed build provenance and
+  publishing happen in a job of their own that builds nothing. Before, every crate's build script
+  ran where the signing token could be asked for.
+
 ### Fixed
 
 - Saving a turned PNG or lossless WebP on a disk that filled up could replace the photo with a

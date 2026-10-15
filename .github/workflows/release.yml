@@ -14,8 +14,9 @@ on:
         required: true
 
 # Actions from others are pinned to a commit: a tag can be moved to other code. Only the jobs
-# that publish get a token that can write releases, and checkouts keep no token on disk, so
-# the build scripts of the crates cannot use it.
+# that publish get a token that can write releases or sign provenance, and they build nothing;
+# the jobs that build, where the crates' build scripts run, can only read, and their checkouts
+# keep no token on disk.
 permissions:
   contents: read
 
@@ -24,13 +25,8 @@ env:
   GLIBC: "2.28"
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      # For the build provenance: a signed statement that this workflow built the files.
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -111,10 +107,39 @@ jobs:
         run: cargo deb --no-build --target "$TARGET" -o "glimt_${VERSION}_amd64.deb"
       - name: .rpm
         run: cargo generate-rpm --target "$TARGET" -o "glimt-${VERSION}-1.x86_64.rpm"
+      - name: Release notes from CHANGELOG.md
+        run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          path: |
+            glimt-*-x86_64-linux.tar.gz
+            glimt_*_amd64.deb
+            glimt-*-1.x86_64.rpm
+            glimt-*-x86_64.AppImage
+            notes.md
+
+  # Checksums, provenance and publishing, apart from the build: the signing token is never
+  # where the crates' code runs.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # For the build provenance: a signed statement that this workflow built the files.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
       - name: Checksums
         run: |
-          sha256sum "glimt-$VERSION-x86_64-linux.tar.gz" "glimt_${VERSION}_amd64.deb" \
-              "glimt-$VERSION-1.x86_64.rpm" "glimt-$VERSION-x86_64.AppImage" > SHA256SUMS
+          TAG="${{ inputs.tag || github.ref_name }}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          sha256sum glimt-*-x86_64-linux.tar.gz glimt_*_amd64.deb glimt-*-1.x86_64.rpm \
+              glimt-*-x86_64.AppImage > SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -122,8 +147,6 @@ jobs:
             glimt_*_amd64.deb
             glimt-*-1.x86_64.rpm
             glimt-*-x86_64.AppImage
-      - name: Release notes from CHANGELOG.md
-        run: awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -131,8 +154,9 @@ jobs:
           files="glimt-$VERSION-x86_64-linux.tar.gz glimt_${VERSION}_amd64.deb glimt-$VERSION-1.x86_64.rpm
                  glimt-$VERSION-x86_64.AppImage SHA256SUMS"
           # Run again by hand for a tag with a release already: replace its files.
-          gh release create "$TAG" --title "Glimt $VERSION" --notes-file notes.md $files ||
-            gh release upload "$TAG" --clobber $files
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Glimt $VERSION" \
+              --notes-file notes.md $files ||
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber $files
 
   # Built beside the release in Flathub's image, and added to it afterwards, so that a broken
   # Flatpak build does not hold back the other packages.
