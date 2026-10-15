@@ -61,6 +61,7 @@ documentation.
 | `src/video.rs` | Optional video feature |
 | `tools/sbom.py` | Writes `sbom.cdx.json` |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb |
+| `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures, with `tests.sh`'s setup (`SHOTS=1`) |
 
 ## How to add things
 
@@ -200,8 +201,9 @@ flatpak run io.github.thornbux.Glimt
 
 ## Privacy
 
-Screenshots and examples must never show the maintainer's own folders or files. Use generated
-pictures in `demo/` (ignored by git), copied to `/tmp`, in a virtual X display.
+Screenshots and examples must never show the maintainer's own folders or files.
+`tools/screenshots/run.sh` makes them from generated pictures in a virtual X display; after a
+change to the look, run it and compare with `git diff`. The website copies `docs/screenshots/`.
 
 ## License
 

@@ -19,7 +19,8 @@ if [ "$(id -u)" = 0 ]; then
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
         libxrandr2 libxi6 libx11-xcb1 sqlite3 >/dev/null || { echo "FAIL installing the tools"; exit 1; }
-    for v in new old; do
+    # tools/screenshots/run.sh (SHOTS=1) needs only this version.
+    for v in new $([ -z "$SHOTS" ] && echo old); do
         echo "-- building $v"
         (cd /t/$v && CARGO_TARGET_DIR=/work-target/release-tests-$v \
             cargo build -q --release --locked --features full) || exit 1
@@ -29,8 +30,9 @@ if [ "$(id -u)" = 0 ]; then
     chmod 777 /t/out
     su tester -c "Xvfb :98 -screen 0 1600x1000x24 >/tmp/xvfb.log 2>&1 &"
     sleep 2
-    su tester -c "QUICK=$QUICK bash /t/tests.sh"
+    su tester -c "QUICK=$QUICK SHOTS=$SHOTS bash /t/tests.sh"
     status=$?
+    [ -n "$SHOTS" ] && exit $status
     echo "-- cargo audit"
     tools=/usr/local/cargo/registry/tools
     [ -x $tools/bin/cargo-audit ] || cargo install -q --locked --root $tools cargo-audit
@@ -134,6 +136,13 @@ rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 
 cd /tmp
+
+# tools/screenshots/run.sh: the pictures for the README and the website, instead of the checks.
+if [ -n "$SHOTS" ]; then
+    as_version new
+    . /t/shots.sh
+    exit $FAILED
+fi
 
 echo "-- saving turned: PNG, lossless WebP and lossy WebP with EXIF orientation 6"
 as_version new
