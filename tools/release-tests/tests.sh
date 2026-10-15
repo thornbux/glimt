@@ -276,6 +276,35 @@ for v in new old; do
 done
 as_version new
 
+echo "-- --remote current and selection: the paths, each ending in NUL, also with a line break"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-query-$v
+    mkdir -p $d
+    for c in a b; do convert -size 300x200 xc:red $d/$c.jpg; done
+    convert -size 300x200 xc:red "$d/line
+break.jpg"
+    config auto_refresh=false
+    start $d/a.jpg
+    sleep 1
+    current=$($BIN --remote current | tr '\0' '|')
+    click 150 337; xdotool keydown ctrl; click 150 419; xdotool keyup ctrl
+    selection=$($BIN --remote selection | tr '\0' '|')
+    # The name with a line break, shown: its path read whole, the file found by it.
+    key End; sleep 1
+    size=$($BIN --remote current | xargs -0 stat -c %s 2>/dev/null)
+    mode=$(stat -c %a $XDG_RUNTIME_DIR/glimt)
+    quit
+    if [ $v = new ]; then
+        expect "current: the shown image" "$current" "$d/a.jpg|"
+        expect "selection: both selected" "$selection" "$d/a.jpg|$d/b.jpg|"
+        expect "a name with a line break comes whole" "$size" "$(stat -c %s "$d/line
+break.jpg")"
+        expect "the sockets' folder only for the user" "$mode" 700
+    else note "old: current '$current', folder $mode"; fi
+done
+as_version new
+
 echo "-- thumbnails with Auto Rotate off"
 rm -rf $XDG_CACHE_HOME/thumbnails
 config exif_rotate=false
