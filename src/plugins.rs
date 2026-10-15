@@ -52,8 +52,9 @@ fn parse(text: &str, dir: &Path) -> Option<Plugin> {
     })
 }
 
-/// The words of a desktop file's Exec line: separated by spaces, "quoted" ones may hold them.
-fn words(exec: &str) -> Vec<String> {
+/// The words of a desktop file's Exec line or the video player's command: separated by spaces,
+/// "quoted" ones may hold them.
+pub fn words(exec: &str) -> Vec<String> {
     let (mut out, mut word, mut quoted, mut chars) =
         (Vec::new(), None::<String>, false, exec.chars());
     while let Some(c) = chars.next() {

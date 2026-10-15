@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Video player command: a path or argument with spaces works in "quotes", as in a desktop file's
+  Exec line.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixed
