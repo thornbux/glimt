@@ -756,6 +756,8 @@ struct App {
     row_step: isize,
     /// View → Hide File List: only the image, as in full screen but in a window.
     hide_tools: bool,
+    /// The search field takes the focus when it is next drawn (/).
+    focus_search: bool,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
     /// one under the pointer, else the first) and the panes as [columns, rows].
     pane_info: Vec<(usize, Option<f32>)>,
@@ -1384,6 +1386,7 @@ impl App {
             started: Some(Instant::now()),
             dialog: None,
             hide_tools: false,
+            focus_search: false,
             kiosk: start.kiosk,
             kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
@@ -4422,7 +4425,11 @@ impl App {
             // Geeqie's file filter has its Case checkbox to the right.
             let geeqie = !self.config.fuzzy_search;
             let width = ui.available_width() - if geeqie { 64.0 } else { 0.0 };
-            let mut changed = ui.add(edit.desired_width(width)).changed();
+            let field = ui.add(edit.desired_width(width));
+            if std::mem::take(&mut self.focus_search) {
+                field.request_focus();
+            }
+            let mut changed = field.changed();
             if geeqie
                 && ui
                     .checkbox(&mut self.config.search_case, "Case")
@@ -5398,14 +5405,22 @@ impl App {
             }
             Action::TrashCollection => self.trash_collection(ctx),
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
+            // A kiosk shows only the image.
+            Action::FocusSearch if self.kiosk => {}
             Action::FocusSearch => {
-                // The field shows if it was hidden, and the / itself is not typed into it.
+                // The field shows if it was hidden, with the file list (out of full screen),
+                // and the / itself is not typed into it.
                 if !self.config.search_bar {
                     self.config.search_bar = true;
                     self.config.save();
                 }
+                self.hide_tools = false;
+                if fullscreen {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+                }
                 ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
-                ctx.memory_mut(|m| m.request_focus(egui::Id::new("file search")));
+                // Given when the field is drawn: egui drops focus on a widget not drawn yet.
+                self.focus_search = true;
             }
             Action::Copy | Action::Move if !self.files.is_empty() => {
                 let paths = self.targets().iter().map(|&i| self.path(i)).collect();

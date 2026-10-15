@@ -60,6 +60,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   - a folder typed as `~/Pictures` or `Pictures` gave collections that opened empty: `~/` is the
     home folder now, and a relative path is left out;
   - with stars in XMP, photos deleted since got a sidecar of their own.
+- / did nothing in full screen or with the tools hidden (Ctrl+H), but still turned the search
+  field on: it now brings the file list back with the cursor in its search.
 
 ## [0.21.0] - 2026-10-15
 
