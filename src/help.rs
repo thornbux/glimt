@@ -146,7 +146,11 @@ const MANUAL: &[(&str, &str)] = &[
          when the image has that keyword, and a click sets it on the selected images, or \
          the shown one, or takes it off; the path goes into the sidecar too, as \
          lr:hierarchicalSubject, which darktable, digiKam and Lightroom read. Right-click a \
-         keyword to remove it from the tree, with the levels below it.",
+         keyword to remove it from the tree, with the levels below it. Below the comment, Alt \
+         text and Extended description are IPTC's fields for accessibility \
+         (Iptc4xmpCore:AltTextAccessibility and ExtDescrAccessibility): what the picture shows, \
+         for someone who cannot see it. Screen readers and web pages read them; they are \
+         saved to the sidecar too, when edited.",
     ),
     (
         "Printing",
@@ -265,12 +269,12 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Screen readers",
         "With the accessibility feature (in the packages), a screen reader such as Orca reads \
-         the menus, buttons, lists and dialogs. The image itself is read as its name, its place \
-         in the list, its stars, keywords and comment, again each time you browse: the image \
+         the menus, buttons, lists and dialogs. The image itself is read as its alt text, its \
+         name and place in the list, its stars, keywords, comment and extended description, \
+         again each time you browse: the image \
          area keeps the keyboard focus while nothing else has it, and the arrow keys and every \
-         shortcut still work there. Tab moves to the panels. A comment can hold a description of \
-         the picture: write one yourself in the EXIF panel, or let a plugin write it (see \
-         Plugins).",
+         shortcut still work there. Tab moves to the panels. Write the alt text yourself in the \
+         EXIF panel, or let a plugin write it (see Plugins).",
     ),
     (
         "Preferences",

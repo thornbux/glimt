@@ -609,6 +609,7 @@ type ExifRead = (
     meta::Meta,
     // Its keyword tree paths.
     Vec<String>,
+    meta::Access,
 );
 
 /// Keywords and comment of the shown image as being edited in the EXIF panel, and as last read
@@ -620,6 +621,10 @@ struct MetaEdit {
     saved: meta::Meta,
     /// Its keyword tree paths, which tick the tree's boxes with `saved`'s keywords.
     paths: Vec<String>,
+    /// The IPTC alt text and extended description as edited, and as last read or saved.
+    alt: String,
+    extended: String,
+    access: meta::Access,
 }
 
 struct Slot {
@@ -1265,7 +1270,7 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
             path = exif_rx.try_iter().last().unwrap_or(path);
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
             let mut rows = vec![("File size", human_size(size))];
-            let (mut all, mut meta, mut paths) = Default::default();
+            let (mut all, mut meta, mut paths, mut access) = Default::default();
             // Not opened unless it is a file: a pipe would block this thread for good. A decoder
             // that panics on the file leaves the panel without EXIF for it, not for good.
             if decode::is_file(&path) {
@@ -1277,14 +1282,18 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
                         exif::all(&path),
                         meta::read(&path),
                         meta::tree_paths(&path),
+                        meta::access(&path),
                     )
                 });
-                if let Ok((more, a, m, p)) = read {
+                if let Ok((more, a, m, p, x)) = read {
                     rows.extend(more);
-                    (all, meta, paths) = (a, m, p);
+                    (all, meta, paths, access) = (a, m, p, x);
                 }
             }
-            if exif_tx.send((path, rows, all, meta, paths)).is_err() {
+            if exif_tx
+                .send((path, rows, all, meta, paths, access))
+                .is_err()
+            {
                 return;
             }
             ctx.request_repaint();
@@ -2422,7 +2431,7 @@ impl App {
             self.exif_asked = Some(path);
         }
         let done: Vec<ExifRead> = self.exif_done.try_iter().collect();
-        for (path, rows, all, meta, paths) in done {
+        for (path, rows, all, meta, paths, access) in done {
             // Kept while being edited: the reader may answer for the image again.
             if self.meta.as_ref().is_none_or(|m| m.path != path) {
                 self.save_meta();
@@ -2432,6 +2441,9 @@ impl App {
                     comment: meta.comment.clone(),
                     saved: meta,
                     paths,
+                    alt: access.alt.clone(),
+                    extended: access.extended.clone(),
+                    access,
                 });
             }
             self.exif = Some((path, rows));
@@ -4297,6 +4309,20 @@ impl App {
                 .desired_rows(3)
                 .desired_width(f32::INFINITY),
         );
+        // IPTC's accessibility fields, which screen readers and web pages read.
+        ui.weak("Alt text");
+        let alt = ui.add(
+            egui::TextEdit::multiline(&mut edit.alt)
+                .hint_text("What the picture shows, for someone who cannot see it")
+                .desired_rows(2)
+                .desired_width(f32::INFINITY),
+        );
+        ui.weak("Extended description");
+        let extended = ui.add(
+            egui::TextEdit::multiline(&mut edit.extended)
+                .desired_rows(2)
+                .desired_width(f32::INFINITY),
+        );
         let add = Meta::parse_keywords(&edit.keywords);
         let n = self.selected.len();
         if n > 1
@@ -4308,7 +4334,10 @@ impl App {
         {
             self.add_keywords(ui.ctx(), add);
         }
-        if keywords.lost_focus() || comment.lost_focus() {
+        if [keywords, comment, alt, extended]
+            .iter()
+            .any(egui::Response::lost_focus)
+        {
             self.save_meta();
         }
     }
@@ -4448,6 +4477,23 @@ impl App {
 
     /// Save the keywords and comment being edited, if they changed.
     fn save_meta(&mut self) {
+        let Some(edit) = &mut self.meta else { return };
+        let access = meta::Access {
+            alt: edit.alt.trim().to_owned(),
+            extended: edit.extended.trim().to_owned(),
+        };
+        // Saved only when edited, as the keywords: browsing writes nothing.
+        if (edit.alt != edit.access.alt || edit.extended != edit.access.extended)
+            && access != edit.access
+        {
+            match meta::write_access(&edit.path, &access) {
+                Ok(()) => {
+                    (edit.alt, edit.extended) = (access.alt.clone(), access.extended.clone());
+                    edit.access = access;
+                }
+                Err(e) => self.notice = Some(format!("Could not save the alt text: {e}")),
+            }
+        }
         let Some(edit) = &mut self.meta else { return };
         // Fields as they were shown are no change, also when splitting them again at commas
         // would read them differently ("Smith, John" as one keyword, a comment's last newline).

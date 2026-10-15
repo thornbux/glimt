@@ -6,8 +6,8 @@ use crate::App;
 use eframe::egui;
 
 impl App {
-    /// The shown image for a screen reader: its name, place in the list, stars, keywords and
-    /// comment (which a plugin can fill with a description). The image area keeps the focus
+    /// The shown image for a screen reader: its IPTC alt text, name, place in the list, stars,
+    /// keywords, comment and extended description (which a plugin can fill). The image area keeps the focus
     /// while nothing else has it and no dialog is open, so browsing reads out the next image.
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_id = Some(response.id);
@@ -32,6 +32,13 @@ impl App {
                 }
                 if !meta.saved.comment.is_empty() {
                     text += &format!(". {}", meta.saved.comment);
+                }
+                if !meta.access.extended.is_empty() {
+                    text += &format!(". {}", meta.access.extended);
+                }
+                // The IPTC alt text is written for this: read first, before the file name.
+                if !meta.access.alt.is_empty() {
+                    text = format!("{}. {text}", meta.access.alt);
                 }
             }
             text
