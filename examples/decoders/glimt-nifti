@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: the middle axial slice of a NIfTI volume (.nii, .nii.gz), as brain MRI and
+fMRI research keep them, written as a grey PGM to standard output.
+
+The volume is turned to the closest standard orientation (RAS) first, so the slice is seen from
+above with the front at the top; of a 4D series, the first volume. The values are stretched
+between their 1st and 99th percentile, so a few very bright voxels do not leave the rest dark.
+Only that one slice is read from the file.
+
+Needs python3 with nibabel and numpy (Debian and Ubuntu: python3-nibabel).
+"""
+
+import sys
+
+import nibabel
+import numpy
+
+
+def grey(values):
+    """A 2D array of any numbers as bytes 0-255, stretched between the 1st and 99th percentile."""
+    values = numpy.nan_to_num(numpy.asarray(values, dtype=numpy.float32))
+    low, high = numpy.percentile(values, [1, 99])
+    if high <= low:
+        high = low + 1
+    return (numpy.clip((values - low) / (high - low), 0, 1) * 255).astype(numpy.uint8)
+
+
+def pgm(pixels):
+    height, width = pixels.shape
+    sys.stdout.buffer.write(b"P5 %d %d 255\n" % (width, height) + pixels.tobytes())
+
+
+def main(path):
+    image = nibabel.as_closest_canonical(nibabel.load(path))
+    shape = image.shape
+    if len(shape) < 3:
+        slice_ = image.dataobj[...]
+    else:
+        index = (slice(None), slice(None), shape[2] // 2) + (0,) * (len(shape) - 3)
+        slice_ = image.dataobj[index]
+    # x runs right and y forward in RAS: turned, so the front is at the top of the picture.
+    pgm(grey(numpy.rot90(numpy.asarray(slice_))))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

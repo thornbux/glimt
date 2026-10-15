@@ -18,7 +18,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 sqlite3 >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # tools/screenshots/run.sh (SHOTS=1) needs only this version.
     for v in new $([ -z "$SHOTS" ] && echo old); do
         echo "-- building $v"
@@ -519,6 +519,42 @@ for v in new old; do
         top=$(red decoder-fits-new 640 120) bottom=$(red decoder-fits-new 640 700)
         expect "a .fits through its decoder, stretched" "$([ $top -lt 60 ] && [ $bottom -gt 190 ] && echo yes)" yes
     else note "old: $(colour decoder-jp2-old 640 400), fits $(red decoder-fits-old 640 700)"; fi
+done
+as_version new
+
+echo "-- science decoders: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
+for v in new old; do
+    as_version $v
+    d=/tmp/science-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # Brighter to the front (y) in the volume, brighter downwards in the dataset: the front of a
+    # brain slice is shown at the top, a dataset's first row at the top.
+    python3 - "$d" <<'PY'
+import sys, numpy, nibabel, h5py
+d = sys.argv[1]
+volume = numpy.fromfunction(lambda x, y, z: y, (40, 50, 30), dtype=numpy.float32)
+nibabel.save(nibabel.Nifti1Image(volume, numpy.eye(4)), f"{d}/a.nii.gz")
+with h5py.File(f"{d}/b.h5", "w") as f:
+    f.create_dataset("data/temperature", data=numpy.fromfunction(lambda r, c: r, (100, 200)))
+PY
+    convert -size 1024x768 xc:red -define tiff:tile-geometry=256x256 -compress jpeg ptif:$d/c.svs
+    config
+    start $d/a.nii.gz
+    sleep 3
+    shot science-nifti-$v
+    key space; sleep 3
+    shot science-hdf5-$v
+    key space; sleep 3
+    shot science-slide-$v
+    quit
+    if [ $v = new ]; then
+        expect "NIfTI: the front at the top" \
+            "$([ $(red science-nifti-new 760 120) -gt 200 ] && [ $(red science-nifti-new 760 700) -lt 60 ] && echo yes)" yes
+        expect "HDF5: the first row at the top" \
+            "$([ $(red science-hdf5-new 760 200) -lt 60 ] && [ $(red science-hdf5-new 760 620) -gt 200 ] && echo yes)" yes
+        expect "a pathology slide through OpenSlide" "$(colour science-slide-new 760 412)" red
+    else note "old: $(red science-nifti-old 760 120) $(red science-hdf5-old 760 620) $(colour science-slide-old 760 412)"; fi
 done
 as_version new
 

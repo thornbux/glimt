@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Decoder plugins for medicine and research in examples/decoders: NIfTI brain scans (the middle
+  axial slice), whole pathology slides through OpenSlide (.svs, .ndpi, .mrxs …) and HDF5 and
+  NetCDF-4 data (the first dataset of two or more dimensions). A decoder's endings may have two
+  parts, as .nii.gz.
 - Radiance HDR (.hdr), read by the image library Glimt has already, tone-mapped to the screen: the
   average brightness made middle grey and the highlights rolled off instead of cut.
 - Decoder plugins: a desktop file in ~/.local/share/glimt/decoders names a program that turns a

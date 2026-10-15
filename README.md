@@ -452,21 +452,26 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
   everything it started.
 - New decoders are seen after a restart. In a Flatpak they run on the host, as other programs.
 
-[`examples/decoders`](examples/decoders) has two, tested in Glimt's release tests:
+[`examples/decoders`](examples/decoders) has these, each tested in Glimt's release tests:
 
-| Decoder | Formats | Needs |
-|---|---|---|
-| `jpeg2000.desktop` | JPEG 2000: archives, libraries, scanned documents | ffmpeg |
-| `science.desktop` | FITS (astronomy), DICOM (medical imaging) and OpenEXR | ImageMagick (`convert`, or `magick` for version 7) |
+| Decoder | Formats | Field | Needs |
+|---|---|---|---|
+| `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
+| `science.desktop` | FITS (`.fits`, `.fit`, `.fts`), DICOM (`.dcm`), OpenEXR (`.exr`) | astronomy, medical imaging, graphics | ImageMagick (`convert`; `magick` for version 7) |
+| `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
+| `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
+| `hdf5.desktop` | HDF5 and NetCDF-4 (`.h5`, `.hdf5`, `.he5`, `.nc`): the first dataset of two or more dimensions | climate, physics, satellites, microscopy | python3-h5py |
 
 ```sh
 mkdir -p ~/.local/share/glimt/decoders
-cp examples/decoders/*.desktop ~/.local/share/glimt/decoders/
+cp examples/decoders/* ~/.local/share/glimt/decoders/     # the desktop files and their scripts
 ```
 
-The science decoder stretches the values from the lowest to the highest (`-auto-level`): good
-for a quick look, not for measuring. DICOM files hold patient data: Glimt only shows the picture,
-reads no fields from them and sends nothing anywhere.
+These are for a quick look, not for measuring: the values are stretched to grey, from the
+lowest to the highest (ImageMagick's `-auto-level`) or between the 1st and 99th percentile (the
+Python ones), and the scripts read only the slice or level they show. DICOM and NIfTI files can
+hold patient data: Glimt only shows the picture, reads no fields from them and sends nothing
+anywhere.
 
 **Which formats go into Glimt itself, and which into plugins.** A format is built into Glimt
 when the image library Glimt already uses reads it, with no new dependency: BMP, ICO, QOI and

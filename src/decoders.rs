@@ -20,6 +20,7 @@ use std::time::Duration;
 
 pub struct Decoder {
     pub name: String,
+    /// The endings it takes, with their dot and in lower case: ".jp2", ".nii.gz".
     exts: Vec<String>,
     exec: Vec<String>,
     /// The folder of the desktop file: a program there is found without being on the PATH.
@@ -58,6 +59,7 @@ fn parse(text: &str, dir: &Path) -> Option<Decoder> {
     let exts: Vec<String> = (value("Extensions")?.split(';'))
         .map(|e| e.trim().trim_start_matches('.').to_lowercase())
         .filter(|e| !e.is_empty())
+        .map(|e| format!(".{e}"))
         .collect();
     let exec = crate::plugins::words(value("Exec")?);
     if exts.is_empty() || !exec.iter().any(|w| w.contains("%f")) {
@@ -77,14 +79,20 @@ pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     if all().is_empty() {
         return None;
     }
-    let ext = path.extension()?.to_str()?.to_lowercase();
     if crate::files::own_ext(path) {
         return None;
     }
-    all().iter().find(|d| d.exts.contains(&ext))
+    let name = path.file_name()?.to_str()?.to_lowercase();
+    all().iter().find(|d| d.takes(&name))
 }
 
 impl Decoder {
+    /// Whether a file named `name` (in lower case) is of this decoder's format: by the end of
+    /// the name, so an ending of two parts (".nii.gz") is found too.
+    fn takes(&self, name: &str) -> bool {
+        (self.exts.iter()).any(|e| name.ends_with(e.as_str()) && name != e)
+    }
+
     /// The image the command writes for `path`.
     pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
         self.run(path, Duration::from_secs(30))
@@ -187,7 +195,10 @@ mod tests {
             &dir,
         )
         .unwrap();
-        assert_eq!(cat.exts, ["xyz", "xy2"]);
+        assert_eq!(cat.exts, [".xyz", ".xy2"]);
+        let nifti = super::parse("Name=NIfTI\nExtensions=nii;nii.gz\nExec=x %f", &dir).unwrap();
+        assert!(nifti.takes("brain.nii.gz") && nifti.takes("brain.nii"));
+        assert!(!nifti.takes("notes.gz") && !nifti.takes(".nii") && !nifti.takes("a.niigz"));
         let img = cat.decode(&file).unwrap();
         assert_eq!((img.width(), img.height()), (6, 3));
         // Nothing written: an error that names the decoder.

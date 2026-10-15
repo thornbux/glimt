@@ -175,8 +175,9 @@ const MANUAL: &[(&str, &str)] = &[
          Extensions=jp2;j2k and an Exec command that writes the image (PNM, PNG …) to its \
          standard output, %f being the file. Such files are then listed and shown as any \
          other, with thumbnails. The command runs without a shell, for 30 seconds at most. \
-         examples/decoders in Glimt's source has one for JPEG 2000 (ffmpeg) and one for FITS, \
-         DICOM and OpenEXR (ImageMagick). New decoders are seen after a restart.",
+         examples/decoders in Glimt's source has decoders for JPEG 2000 (ffmpeg), FITS, DICOM \
+         and OpenEXR (ImageMagick), NIfTI brain scans, whole pathology slides (OpenSlide) and \
+         HDF5 and NetCDF-4 data. New decoders are seen after a restart.",
     ),
     (
         "Sort manager",
