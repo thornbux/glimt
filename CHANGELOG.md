@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A long message where the image should be (a file that cannot be opened, a decoder's error) is
+  broken into lines inside the image area, instead of being cut off at both sides.
+
 ## [0.24.0] - 2026-10-15
 
 ### Added

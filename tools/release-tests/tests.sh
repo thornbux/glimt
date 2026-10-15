@@ -689,6 +689,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a long error under the image: broken into lines inside the image area"
+for v in new old; do
+    as_version $v
+    d=/tmp/long-error-$v
+    mkdir -p $d
+    # A broken JPEG whose name alone is wider than the image area, with no space to break at.
+    name=$(printf 'a_very_long_name_of_a_broken_photograph_%.0s' 1 2 3 4).jpg
+    echo "not a picture" >$d/$name
+    config
+    start $d/$name
+    sleep 3
+    shot long-error-$v
+    quit
+    # The image area starts at x=240: no text in its first 10 pixels.
+    edge=$(convert /t/out/long-error-$v.png -crop 10x400+241+200 -format "%[fx:int(255*maxima.r)]" info:)
+    if [ $v = new ]; then expect "nothing at the image area's edge" "$([ $edge -lt 40 ] && echo none)" none
+    else note "old, at the edge: $edge"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
