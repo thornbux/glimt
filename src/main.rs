@@ -77,6 +77,7 @@ const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
 static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
 /// Thumbnail jobs further than this from the visible rows are skipped.
 const THUMB_MARGIN: usize = 20;
+type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
 /// Width of the size and date columns in the file list (points).
 const DATE_WIDTH: f32 = 140.0;
 const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
@@ -814,9 +815,10 @@ struct App {
     thumb_jobs: mpsc::Sender<(usize, PathBuf)>,
     /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
     thumbs_done: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
-    /// First and last file shown by the file list (or film strip), then by pan view (none: MAX,
-    /// 0), for skipping stale thumbnail jobs.
-    thumb_view: Arc<[AtomicUsize; 4]>,
+    /// The files the file list (or film strip) shows, with some rows around them, and those pan
+    /// view shows, both sorted: a thumbnail job for another file is skipped. Files, not a range:
+    /// the matches of a search, or pan view's days, are spread over the whole folder.
+    thumb_view: ThumbView,
     /// The files whose cells pan view draws this frame: their thumbnails are made and kept,
     /// also while the file list shows others.
     pan_thumbs: Vec<usize>,
@@ -1144,7 +1146,7 @@ fn spawn_thumbnailers(
     ctx: &egui::Context,
     workers: usize,
     rotate: &Arc<AtomicBool>,
-    view: &Arc<[AtomicUsize; 4]>,
+    view: &ThumbView,
     save: &Arc<AtomicBool>,
 ) -> (
     mpsc::Sender<(usize, PathBuf)>,
@@ -1174,11 +1176,8 @@ fn spawn_thumbnailers(
                 let Ok((idx, path)) = rx.lock().unwrap().recv() else {
                     return;
                 };
-                let near = |first: usize, last: usize| {
-                    let [first, last] = [first, last].map(|i| view[i].load(Ordering::Relaxed));
-                    idx + THUMB_MARGIN >= first && idx <= last + THUMB_MARGIN
-                };
-                let result = (near(0, 1) || near(2, 3)).then(|| {
+                let wanted = (view.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
+                let result = wanted.then(|| {
                     let (rotate, save) =
                         (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
                     let large = LARGE_THUMBS.load(Ordering::Relaxed);
@@ -1284,7 +1283,7 @@ impl App {
         let workers = cores().min(config.decode_threads);
         let (jobs, done) = spawn_decoders(&cc.egui_ctx, workers, &keep, &full_ok, &rotate, &limits);
         // Thumbnails have their own workers, so scrolling the list never delays the shown image.
-        let thumb_view = Arc::new([0, 0, usize::MAX, 0].map(AtomicUsize::new));
+        let thumb_view: ThumbView = Arc::default();
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
         let (thumb_jobs, thumbs_done) =
             spawn_thumbnailers(&cc.egui_ctx, workers, &rotate, &thumb_view, &save_thumbs);
@@ -3866,9 +3865,10 @@ impl App {
         let mut shown: Vec<usize> = (-k..=k).filter_map(|d| self.step(d, false)).collect();
         shown.dedup();
         // Thumbnails for these, as for the rows of the file list.
-        if let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max()) {
-            self.thumb_view[0].store(first, Ordering::Relaxed);
-            self.thumb_view[1].store(last, Ordering::Relaxed);
+        if !shown.is_empty() {
+            let mut view = shown.clone();
+            view.sort_unstable();
+            self.thumb_view.lock().unwrap()[0] = view;
             let row = match self.matches.as_deref() {
                 Some(m) => self.cur_row(m).unwrap_or(0),
                 None => self.cur,
@@ -4804,11 +4804,10 @@ impl App {
     fn pan_view(&mut self, ctx: &egui::Context) {
         // The thumbnail workers make the cells drawn last frame (a frame late is soon enough);
         // this frame's are noted as they are drawn.
-        let first = self.pan_thumbs.iter().min().copied().unwrap_or(usize::MAX);
-        let last = self.pan_thumbs.iter().max().copied().unwrap_or(0);
-        self.thumb_view[2].store(first, Ordering::Relaxed);
-        self.thumb_view[3].store(last, Ordering::Relaxed);
-        self.pan_thumbs.clear();
+        let mut view = std::mem::take(&mut self.pan_thumbs);
+        view.sort_unstable();
+        view.dedup();
+        self.thumb_view.lock().unwrap()[1] = view;
         let Some(mut pan) = self.pan_window.take() else {
             return;
         };
@@ -7425,10 +7424,16 @@ impl App {
                 None => rows.clone().collect(),
             };
 
-            if thumbs && let (Some(&first), Some(&last)) = (shown.iter().min(), shown.iter().max())
-            {
-                self.thumb_view[0].store(first, Ordering::Relaxed);
-                self.thumb_view[1].store(last, Ordering::Relaxed);
+            if thumbs && !shown.is_empty() {
+                // The rows shown and some around them, as files: kept being made while near.
+                let near =
+                    rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
+                let mut view: Vec<usize> = match &self.matches {
+                    Some(m) => m[near].to_vec(),
+                    None => near.collect(),
+                };
+                view.sort_unstable();
+                self.thumb_view.lock().unwrap()[0] = view;
                 self.list_rows = rows.clone();
                 self.trim_thumbs(rows);
             }

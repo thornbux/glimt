@@ -69,6 +69,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Changing the thumbnail size, Auto Rotate or colour management while thumbnails or the
   neighbouring images were being made kept some of them in the old size, turn or colours until
   Glimt started again; they are now made again in the new look.
+- Scrolling fast through a search, or through the Pan view, made a thumbnail for every image
+  passed instead of skipping those out of view; only the ones shown, and some around them, are
+  made now.
 
 ## [0.21.0] - 2026-10-15
 
