@@ -226,6 +226,8 @@ struct Dups {
     checked: HashSet<PathBuf>,
     /// Images searched, for the line above the results.
     searched: usize,
+    /// File sizes, read once when a row is first shown, not on every frame.
+    sizes: HashMap<PathBuf, u64>,
 }
 
 impl Dups {
@@ -235,6 +237,7 @@ impl Dups {
             progress: Arc::default(),
             running: None,
             groups: Vec::new(),
+            sizes: HashMap::new(),
             rows: Vec::new(),
             checked: HashSet::new(),
             searched: 0,
@@ -4524,6 +4527,7 @@ impl App {
         if let Some(Ok(groups)) = dups.running.as_ref().map(|rx| rx.try_recv()) {
             dups.running = None;
             dups.groups = groups;
+            dups.sizes.clear();
             dups.checked.clear();
             dups.remove(&HashSet::new());
         }
@@ -4635,7 +4639,8 @@ impl App {
                                 if ui.link(name).clicked() {
                                     show = Some(path.clone());
                                 }
-                                let size = path.metadata().map_or(0, |m| m.len());
+                                let size = *(dups.sizes.entry(path.clone()))
+                                    .or_insert_with(|| path.metadata().map_or(0, |m| m.len()));
                                 ui.weak(format!(
                                     "{}  {}",
                                     human_size(size),
