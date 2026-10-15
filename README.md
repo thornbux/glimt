@@ -3,8 +3,7 @@
 [![CI](https://github.com/thornbux/glimt/actions/workflows/ci.yml/badge.svg)](https://github.com/thornbux/glimt/actions/workflows/ci.yml)
 
 A fast, memory-frugal image viewer for Linux, written in Rust with egui and inspired by
-[Geeqie](https://www.geeqie.org/). It has most of Geeqie's features, in simpler forms (the
-help lists every difference), and focuses on showing images quickly, in folders of any size,
+[Geeqie](https://www.geeqie.org/). It focuses on showing images quickly, in folders of any size,
 from a few images to several hundred thousand. The name *Glimt* is Norwegian for "glimpse": a
 quick look, which is what an image viewer is for.
 
@@ -25,8 +24,6 @@ quick look, which is what an image viewer is for.
 - **It feels at home on Linux.** Dark by default, or following the desktop's light or dark style
   and accent colour, with themes for low vision. The thumbnail cache is the one the file
   manager uses, network shares open through GVfs, deleted files go to the trash.
-- **Geeqie users know it already.** The keyboard shortcuts are Geeqie's, collections are Geeqie
-  `.gqv` files, plugins are Geeqie's desktop files, and the help lists every difference.
 - **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
   digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied.
   Turning a JPEG changes its orientation tag, not its pixels. Copy and move never overwrite a
@@ -39,55 +36,21 @@ quick look, which is what an image viewer is for.
   `.deb`, `.rpm`, `.tar.gz`, AppImage and Flatpak. No library to import, no database to build:
   open a folder and look.
 
-## Glimt and Geeqie
+## Speed and memory
 
-Measured on the same machine and the same files, with Glimt 0.17.0 and Geeqie 2.6.1: a
-1280×800 window, the file given on the command line, the time until the image is on screen
-and the memory (RSS) 3 seconds later, the median of five runs (three for the large folders).
-Geeqie decodes in helper processes; its memory is the sum over them, which counts the shared
-libraries more than once.
+Measured with Glimt 0.17.0 in a 1280×800 window, the file given on the command line: the time
+until the image is on screen, and the memory (RSS) 3 seconds later, the median of five runs
+(three for the large folders).
 
-| | Glimt | Geeqie |
-|---|---|---|
-| First image, 12 MP JPEG photos | **0.44 s** | 0.90 s |
-| First image, 20 screenshots (PNG) | **0.39 s** | 0.89 s |
-| First image, folder of 500,000 PNG files | **0.46 s** | 26 s |
-| First image, folder of 500,000 JPEG photos | **0.46 s** | over a minute |
-| Memory, folder of 500,000 files | **159 MB** | 1,134 MB |
-| Memory, 12 MP photos | **143 MB** | 214 MB |
-| Peak memory, 12 MP photos | **184 MB** | 215 MB |
-
-What each has. ✓ is there, – is not; Glimt follows Geeqie's keys, so most of it works the
-same way in both.
-
-| | Glimt | Geeqie |
-|---|---|---|
-| Keyboard shortcuts | Geeqie's (differences listed in the help) | ✓ |
-| Thumbnails in the file list, folder tree, icon grid | ✓ | ✓ |
-| Fuzzy file name search (like fzf) | ✓ | – |
-| Regular expression filter | ✓ | ✓ |
-| Search EXIF, keywords and comments from the search field | ✓ | Search window |
-| Memory use as one setting (Low, Medium, High) | ✓ | Cache size |
-| Layouts with two or four images; Compare at the same zoom | ✓ | ✓ (also three) |
-| Slideshow: random order, subfolders, one pane at a time | ✓ | ✓ |
-| Start options (`--slideshow --layout 2x2 …`) and named windows for remote control | ✓ | Remote control |
-| Kiosk mode for a picture screen | ✓ | – |
-| Camera RAW | Embedded preview | Embedded preview or LibRaw |
-| HEIC, AVIF, JPEG XL, SVG | ✓ | ✓ |
-| Video | Still frame; plays in your player | ✓ |
-| Colour management (ICC, screen profile from colord) | ✓ | ✓ |
-| Ratings, keywords and comments in XMP sidecars | ✓ | ✓ |
-| Keyword tree | ✓ | ✓ |
-| Find Duplicates, also by similarity | ✓ | ✓ |
-| Pan view | Timeline | Timeline, calendar, folders |
-| Collections (`.gqv`) | ✓ | ✓ |
-| Plugins (desktop files) | ✓ | ✓ |
-| Import a Lightroom Classic catalog | ✓ | – |
-| Lua scripts | – | ✓ |
-| Several windows in one process | One per process, sharing settings and collections | ✓ |
-| Printing, contact sheets | ✓ (CUPS or PDF) | ✓ |
-| Install | One binary: `.deb`, `.rpm`, `.tar.gz`, AppImage, Flatpak | Distribution packages, AppImage |
-| Written in | Rust (egui) | C/C++ (GTK 3) |
+| | |
+|---|---|
+| First image, 12 MP JPEG photos | 0.44 s |
+| First image, 20 screenshots (PNG) | 0.39 s |
+| First image, folder of 500,000 PNG files | 0.46 s |
+| First image, folder of 500,000 JPEG photos | 0.46 s |
+| Memory, folder of 500,000 files | 159 MB |
+| Memory, 12 MP photos | 143 MB |
+| Peak memory, 12 MP photos | 184 MB |
 
 ## Screenshots
 
@@ -143,7 +106,7 @@ The images in the screenshots are generated for the purpose.
 - **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
   they do not look dull, or to your screen's own profile for a calibrated or wide-gamut screen,
   taken from the desktop (colord) when it has one.
-  Adobe RGB photos without a profile are found from their EXIF, as in Geeqie.
+  Adobe RGB photos without a profile are found from their EXIF.
 
 The release packages have every format built in; HEIC, AVIF and video also need `ffmpeg`. When
 building from source, HEIC, AVIF, JPEG XL, SVG and video are optional features (`heic`, `avif`,
@@ -187,7 +150,7 @@ For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
 
 Start Glimt on a folder or an image (`glimt ~/Pictures`, `glimt photo.jpg`), or from the
 application menu, which opens your home folder (or the last one, with "Start in the last used
-folder" in Preferences). The keys are Geeqie's; these are the ones used most:
+folder" in Preferences). These are the keys used most:
 
 | Key | Does |
 |---|---|
@@ -242,7 +205,7 @@ Extra file types are optional features, so the default build stays small:
 | `avif` | AVIF photos, with EXIF | `ffmpeg` and `ffprobe` with dav1d |
 | `jxl` | JPEG XL photos, decoded in Rust (jxl-oxide) | nothing |
 | `svg` | SVG images, drawn in Rust (resvg) | nothing |
-| `marks` | Geeqie's marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
+| `marks` | Marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
 
 ```sh
 cargo build --release --features video,heic,marks
@@ -319,7 +282,7 @@ Lightroom CC (the cloud version) has no catalog file to import.
 
 ## Remote control
 
-As with `geeqie --remote`, a running Glimt takes commands from the command line, for example
+A running Glimt takes commands from the command line, for example
 from a script or a keyboard shortcut of the desktop. `--remote` goes to the Glimt window used
 last, `--remote-all` to every one:
 
@@ -416,7 +379,7 @@ and screen profile over D-Bus.
 | Keyword tree | `$XDG_CONFIG_HOME/glimt/keywords`, a path such as `Places|Norway|Oslo` on each line |
 | Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
 | Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
-| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as Geeqie `.gqv` files |
+| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as `.gqv` files |
 | Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
 | Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
 | Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
