@@ -177,7 +177,8 @@ const MANUAL: &[(&str, &str)] = &[
          other, with thumbnails. The command runs without a shell, for 30 seconds at most. \
          examples/decoders in Glimt's source has decoders for JPEG 2000 (ffmpeg), FITS, DICOM \
          and OpenEXR (ImageMagick), NIfTI brain scans, whole pathology slides (OpenSlide), \
-         microscope files (Bio-Formats) and HDF5 and NetCDF-4 data. New decoders are seen after a restart.",
+         microscope files (Bio-Formats), cryo-EM maps (MRC) and HDF5 \
+         and NetCDF-4 data. New decoders are seen after a restart.",
     ),
     (
         "Sort manager",

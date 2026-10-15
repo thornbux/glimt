@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""A Glimt decoder: MRC files from cryo-electron microscopy and tomography (.mrc, .mrcs, .map,
+.rec, .st, .ali), written as a grey PGM to standard output: a single image as it is, of a stack
+of micrographs the first, of a 3D map or tomogram the middle section.
+
+The values are stretched between their 1st and 99th percentile, as electron counts and densities
+are seldom 0-255. The file is mapped, not read: only the section shown is loaded.
+
+Needs python3 with mrcfile and numpy (Debian and Ubuntu: python3-mrcfile).
+"""
+
+import sys
+
+import mrcfile
+import numpy
+
+
+def grey(values):
+    """A 2D array of any numbers as bytes 0-255, stretched between the 1st and 99th percentile."""
+    values = numpy.nan_to_num(numpy.asarray(values, dtype=numpy.float32))
+    low, high = numpy.percentile(values, [1, 99])
+    if high <= low:
+        high = low + 1
+    return (numpy.clip((values - low) / (high - low), 0, 1) * 255).astype(numpy.uint8)
+
+
+def pgm(pixels):
+    height, width = pixels.shape
+    sys.stdout.buffer.write(b"P5 %d %d 255\n" % (width, height) + pixels.tobytes())
+
+
+def main(path):
+    # permissive: files from older programs often have small header faults.
+    with mrcfile.mmap(path, mode="r", permissive=True) as mrc:
+        if mrc.data is None:
+            sys.exit(f"{path}: not an MRC file")
+        data = mrc.data
+        if data.ndim == 3:
+            # A stack of micrographs: the first; a volume: its middle section.
+            data = data[0] if mrc.is_image_stack() else data[data.shape[0] // 2]
+        # Row 0 is the bottom of the picture in MRC, as in a graph: turned to the screen's way.
+        pgm(grey(numpy.flipud(data)))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

@@ -1,0 +1,5 @@
+[Glimt Decoder]
+Name=Cryo-EM (MRC)
+Comment=MRC files from cryo-electron microscopy and tomography: a micrograph, or the middle section of a map
+Extensions=mrc;mrcs;map;rec;st;ali
+Exec=glimt-mrc %f

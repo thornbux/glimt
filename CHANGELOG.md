@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- An MRC decoder in examples/decoders, for cryo-electron microscopy: a micrograph, or the middle
+  section of a map or tomogram (.mrc, .mrcs, .map, .rec, .st, .ali), through mrcfile.
 - A Bio-Formats decoder in examples/decoders: microscope files as Fiji reads them (Zeiss .czi,
   Leica .lif, Nikon .nd2, Olympus .oib/.oir, ICS and more), their first plane scaled to 8 bits,
   through Bio-Formats' bfconvert.

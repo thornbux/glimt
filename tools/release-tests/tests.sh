@@ -18,7 +18,7 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
     # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
     # it had when added.
     curl -sfL -o /tmp/bftools.zip \
@@ -585,6 +585,30 @@ for v in new old; do
         expect "an ICS file through Bio-Formats" \
             "$([ $(red bioformats-new 760 120) -lt 60 ] && [ $(red bioformats-new 760 700) -gt 190 ] && echo yes)" yes
     else note "old: $(red bioformats-old 760 700)"; fi
+done
+as_version new
+
+echo "-- the MRC decoder: a cryo-EM map's middle section, its top at the top"
+for v in new old; do
+    as_version $v
+    d=/tmp/mrc-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # Brighter upwards (y), as MRC counts rows from the bottom.
+    python3 - "$d" <<'PY'
+import sys, numpy, mrcfile
+volume = numpy.fromfunction(lambda z, y, x: y, (20, 400, 600), dtype=numpy.float32)
+mrcfile.new(f"{sys.argv[1]}/a.mrc", data=volume).close()
+PY
+    config
+    start $d/a.mrc
+    sleep 3
+    shot mrc-$v
+    quit
+    if [ $v = new ]; then
+        expect "an MRC map, its top at the top" \
+            "$([ $(red mrc-new 760 120) -gt 190 ] && [ $(red mrc-new 760 700) -lt 60 ] && echo yes)" yes
+    else note "old: $(red mrc-old 760 120)"; fi
 done
 as_version new
 
