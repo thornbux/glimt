@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The `.deb` and `.rpm` recommend `sqlite3`, which Import Lightroom Catalog needs.
+
+### Fixed
+
+- In the Flatpak, Import Lightroom Catalog without sqlite3 on the host said the catalog could
+  not be read; it now says that sqlite3 is missing.
+
 ## [0.20.0] - 2026-10-15
 
 ### Added
