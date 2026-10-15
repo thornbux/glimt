@@ -65,7 +65,9 @@ const MANUAL: &[(&str, &str)] = &[
          open PATH …) controls a running Glimt from a script, and glimt --remote current, \
          selection and select PATH … tell a script (or an AI assistant) what is shown and \
          selected, or select files for you; they print each path followed by a NUL byte, and \
-         none of them changes a file. Several can be told apart by name: \
+         none of them changes a file. They reach only the Glimt windows of the same user on \
+         this computer, through a private socket, never over the network; for another \
+         computer, run the command there (ssh). Several can be told apart by name: \
          start them with glimt --name left and glimt --name right, and glimt --name left \
          --remote slideshow reaches only the left one. glimt --kiosk is for a picture screen: \
          full screen with only the image, browsing and the slideshow but nothing that changes \

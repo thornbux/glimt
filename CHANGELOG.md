@@ -41,6 +41,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - BMP, ICO (the largest of its sizes), QOI and PNM (PBM, PGM, PPM, PAM) images, listed and
   shown as the other everyday formats.
 
+### Changed
+
+- The README, man page and manual say that remote commands reach only Glimt on the same computer,
+  through a private socket, never over the network, and how to reach another computer (ssh).
+
 ## [0.23.0] - 2026-10-15
 
 ### Added

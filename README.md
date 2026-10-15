@@ -297,7 +297,13 @@ Lightroom CC (the cloud version) has no catalog file to import.
 
 A running Glimt takes commands from the command line, for example
 from a script or a keyboard shortcut of the desktop. `--remote` goes to the Glimt window used
-last, `--remote-all` to every one:
+last, `--remote-all` to every one.
+
+**Only on the same computer, never over the network.** The commands go through a Unix socket
+in `$XDG_RUNTIME_DIR/glimt`, which only your user can reach; Glimt opens no network port and
+listens on none. To control Glimt on another computer, run the command there, for example
+over ssh as the same user who has Glimt open: `ssh you@laptop glimt --remote next` (the login
+must have the desktop's `XDG_RUNTIME_DIR`, as a systemd login has).
 
 ```sh
 glimt --remote next          # also prev, first, last, slideshow, random, fullscreen, quit
