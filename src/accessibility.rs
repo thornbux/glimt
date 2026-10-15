@@ -8,7 +8,7 @@ use eframe::egui;
 impl App {
     /// The shown image for a screen reader: its name, place in the list, stars, keywords and
     /// comment (which a plugin can fill with a description). The image area keeps the focus
-    /// while nothing else has it, so browsing reads out the next image.
+    /// while nothing else has it and no dialog is open, so browsing reads out the next image.
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_id = Some(response.id);
         let text = if self.files.is_empty() {
@@ -37,7 +37,10 @@ impl App {
             text
         };
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &text));
-        if ui.memory(|m| m.focused().is_none()) {
+        // A dialog's text field takes the focus when nothing has it: never the image's then.
+        if self.dialog_open() {
+            response.surrender_focus();
+        } else if ui.memory(|m| m.focused().is_none()) {
             response.request_focus();
         }
         if response.has_focus() {
