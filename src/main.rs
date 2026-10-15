@@ -1152,8 +1152,6 @@ fn spawn_decoders(
                 if !wanted {
                     let _ = done_tx.send(Decoded {
                         rotated: false,
-                        idx,
-                        full,
                         path,
                         page,
                         job,
@@ -1172,8 +1170,6 @@ fn spawn_decoders(
                 ));
                 let _ = done_tx.send(Decoded {
                     rotated,
-                    idx,
-                    full,
                     path,
                     page,
                     job,
@@ -1864,7 +1860,7 @@ impl App {
     ) {
         // The shown file's decodes still being made: kept, so it is not decoded twice. Not
         // those of a later page, as the file is shown again from its first.
-        let jobs: Vec<(bool, (u64, PathBuf))> = ([false, true].into_iter())
+        let jobs: Vec<_> = ([false, true].into_iter())
             .filter(|_| self.page == 0)
             .filter_map(|full| Some((full, self.pending.remove(&(self.cur, full))?)))
             .collect();
@@ -1884,8 +1880,10 @@ impl App {
         if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
             self.slots.insert(cur, slot);
         }
-        for (full, job) in jobs.into_iter().filter(|j| self.is_file(cur, &j.1.1)) {
-            self.pending.insert((cur, full), job);
+        for (full, job) in jobs {
+            if self.is_file(cur, &job.1) {
+                self.pending.insert((cur, full), job);
+            }
         }
         self.update_search(ctx);
         // go() clears the notice for a new image; a new list is not one, and a notice is often
@@ -2326,25 +2324,29 @@ impl App {
 
     fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoded_rx.try_recv() {
-            // Not the job asked for last: asked for again, in another list, page or look.
-            if self.pending.get(&(d.idx, d.full)).map(|j| j.0) != Some(d.job) {
+            // Not a job still asked for: asked for again, in another list, page or look. Its
+            // place in the list is the job's now, as the list may have been read again since.
+            let Some(&(idx, full)) = (self.pending.iter())
+                .find(|(_, j)| j.0 == d.job)
+                .map(|(k, _)| k)
+            else {
                 continue;
-            }
-            self.pending.remove(&(d.idx, d.full));
-            let wanted = self.is_file(d.idx, &d.path)
+            };
+            self.pending.remove(&(idx, full));
+            let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
-                && d.page == if d.idx == self.cur { self.page } else { 0 }
-                && self.keep.lock().unwrap().contains(&d.idx)
-                && (!d.full || d.idx == self.cur || Some(d.idx) == self.compare_other());
+                && d.page == if idx == self.cur { self.page } else { 0 }
+                && self.keep.lock().unwrap().contains(&idx)
+                && (!full || idx == self.cur || Some(idx) == self.compare_other());
             match d.result {
                 Some(Ok((frames, orig, hist, pages))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
-                    if !d.full && self.slots.get(&d.idx).is_some_and(|s| s.full) {
+                    if !full && self.slots.get(&idx).is_some_and(|s| s.full) {
                         continue;
                     }
                     let mut anim: Vec<_> = (frames.into_iter().enumerate())
                         .map(|(n, (img, ms))| {
-                            let name = format!("img{} {n}", d.idx);
+                            let name = format!("img{} {n}", idx);
                             (
                                 ctx.load_texture(name, img, egui::TextureOptions::LINEAR),
                                 ms,
@@ -2356,25 +2358,25 @@ impl App {
                         anim.clear();
                     }
                     self.slots.insert(
-                        d.idx,
+                        idx,
                         Slot {
                             tex,
                             path: d.path,
-                            full: d.full,
+                            full,
                             orig,
                             anim,
                             hist,
                             pages,
                         },
                     );
-                    if d.idx == self.cur
+                    if idx == self.cur
                         && let Some(t) = self.started.take()
                     {
                         eprintln!("first image: {} ms", t.elapsed().as_millis());
                     }
                 }
                 Some(Err(e)) if wanted => {
-                    self.errors.insert(d.idx, e);
+                    self.errors.insert(idx, e);
                 }
                 _ => {}
             }
