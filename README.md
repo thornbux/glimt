@@ -110,7 +110,8 @@ The images in the screenshots are generated for the purpose.
   the JPEG preview the camera stores in them.
 - **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL, SVG, and Radiance HDR, tone-mapped
   to the screen.
-- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, OpenEXR and more, with a program you have (ffmpeg, ImageMagick …); see
+- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, NIfTI, microscope and
+  pathology files, Photoshop, GIMP, OpenEXR and more, with a program you have (ffmpeg, ImageMagick …); see
   [Plugins and new formats](#plugins-and-new-formats).
 - **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
 - **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
@@ -461,6 +462,8 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
 | `fits.desktop` | FITS (`.fits`, `.fit`, `.fts`, also compressed `.fits.fz` and `.fits.gz`): the first image, with astronomers' zscale stretch | astronomy, solar physics | python3-astropy |
 | `dicom.desktop` | DICOM (`.dcm`, `.dicom`, `.dic`), also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the file names; the middle frame of a series | medicine, dentistry (X-ray, CT, MR, ultrasound, panoramic, intraoral) | python3-pydicom, python3-gdcm |
+| `graphics.desktop` | Photoshop (`.psd`, `.psb`) as saved, TGA, OpenEXR (`.exr`) renderings | design, architecture, games, 3D | ImageMagick |
+| `xcf.desktop` | GIMP's own files (`.xcf`), their layers put together | design | ImageMagick |
 | `science.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
 | `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
 | `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |

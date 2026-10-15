@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Decoders for graphics in examples/decoders, through ImageMagick: Photoshop (.psd, .psb) as
+  saved, TGA and OpenEXR (graphics.desktop), and GIMP's .xcf with its layers put together
+  (xcf.desktop); transparency kept.
 - NeXus files (.nxs) from neutron and synchrotron sources in the HDF5 decoder, as they are HDF5.
 - A DICOM decoder in examples/decoders, through pydicom and GDCM: X-ray, CT, MR, ultrasound,
   panoramic and intraoral X-rays, also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the

@@ -667,6 +667,28 @@ PY
 done
 as_version new
 
+echo "-- the graphics decoder: a Photoshop file and a TGA through ImageMagick"
+for v in new old; do
+    as_version $v
+    d=/tmp/graphics-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    convert -size 600x400 xc:lime $d/a.psd
+    convert -size 600x400 xc:blue $d/b.tga
+    config
+    start $d/a.psd
+    sleep 3
+    shot graphics-psd-$v
+    key space; sleep 3
+    shot graphics-tga-$v
+    quit
+    if [ $v = new ]; then
+        expect "a Photoshop file shown" "$(colour graphics-psd-new 760 412)" green
+        expect "a TGA shown" "$(colour graphics-tga-new 760 412)" blue
+    else note "old: $(colour graphics-psd-old 760 412) $(colour graphics-tga-old 760 412)"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

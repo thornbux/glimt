@@ -179,7 +179,8 @@ const MANUAL: &[(&str, &str)] = &[
          telescopes (astropy), DICOM from medical and dental imaging, also compressed \
          (pydicom), FITS and DICOM through ImageMagick, NIfTI brain scans, whole pathology slides (OpenSlide), \
          microscope files (Bio-Formats), cryo-EM maps (MRC) and HDF5, \
-         NetCDF-4 and NeXus data. New decoders are seen after a restart.",
+         NetCDF-4 and NeXus data, \
+         Photoshop, TGA and OpenEXR, and GIMP's own files (ImageMagick). New decoders are seen after a restart.",
     ),
     (
         "Sort manager",
