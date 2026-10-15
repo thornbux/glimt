@@ -5,28 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-10-15
+
 ### Changed
 
 - Thumbnails: a file none can be made of gets a marker in the shared cache (fail/glimt-VERSION),
   as the freedesktop specification says, so it is not decoded again at each start until it
   changes. HEIC, AVIF and videos get none, as ffmpeg may come later.
-
-### Fixed
-
-- Auto refresh keeps the selection: when another program writes into the folder, Delete and Move
-  still act on the selected files, not only the shown one.
-- Video player command: a path or argument with spaces works in "quotes", as in a desktop file's
-  Exec line.
-- A decode asked for before the page, the colours or the turned file changed no longer takes the
-  place of the new one: a TIFF page is not decoded twice, the slideshow waits for the next image,
-  and the old colours or the unturned image no longer show for a moment.
-- Marks and stars set in two windows at nearly the same moment: neither change is lost.
-- A PNG or WebP whose EXIF Glimt cannot read can be saved turned: the EXIF is kept as it is,
-  instead of the save being refused.
-- A PNG or WebP saved turned leaves out its EXIF thumbnail, which other programs showed the old
-  way up.
-
-## [0.22.1] - 2026-10-15
 
 ### Fixed
 
@@ -40,6 +25,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
   with a little of its name.
 - Two Glimt of the same --name started at once after a crash: the second no longer takes the first
   one's new remote socket away.
+- Auto refresh keeps the selection: when another program writes into the folder, Delete and Move
+  still act on the selected files, not only the shown one.
+- Video player command: a path or argument with spaces works in "quotes", as in a desktop file's
+  Exec line.
+- A decode asked for before the page, the colours or the turned file changed no longer takes the
+  place of the new one: a TIFF page is not decoded twice, the slideshow waits for the next image,
+  and the old colours or the unturned image no longer show for a moment.
+- Marks and stars set in two windows at nearly the same moment: neither change is lost.
+- A PNG or WebP whose EXIF Glimt cannot read can be saved turned: the EXIF is kept as it is,
+  instead of the save being refused.
+- A PNG or WebP saved turned leaves out its EXIF thumbnail, which other programs showed the old
+  way up.
 
 ## [0.22.0] - 2026-10-15
 
