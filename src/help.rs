@@ -334,7 +334,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Print (Ctrl+P)",
-        "One image per page, to a CUPS printer or a PDF file; A4 or Letter",
+        "One or 2 to 20 images per page with the file name, to a CUPS printer or a PDF file; A4 or Letter",
         "GTK print dialog: several images per page, text, page setup",
     ),
     (
