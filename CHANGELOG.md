@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-15
+
 ### Added
 
 - Grey TIFFs of floats or signed numbers, as science writes them (height models, microscopy):
@@ -723,7 +725,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.23.1...HEAD
+[0.23.1]: https://github.com/thornbux/glimt/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/thornbux/glimt/compare/v0.22.2...v0.23.0
 [0.22.2]: https://github.com/thornbux/glimt/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/thornbux/glimt/compare/v0.22.0...v0.22.1
