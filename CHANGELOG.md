@@ -7,10 +7,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Radiance HDR (.hdr), read by the image library Glimt has already, tone-mapped to the screen: the
+  average brightness made middle grey and the highlights rolled off instead of cut.
 - Decoder plugins: a desktop file in ~/.local/share/glimt/decoders names a program that turns a
   format Glimt does not read itself into an image, so it is listed and shown with thumbnails.
-  examples/decoders has JPEG 2000 (ffmpeg) and FITS, DICOM, OpenEXR and Radiance HDR
-  (ImageMagick); the README says how to write one, and which formats go into Glimt itself.
+  examples/decoders has JPEG 2000 (ffmpeg) and FITS, DICOM and OpenEXR (ImageMagick); the README
+  says how to write one, and which formats go into Glimt itself.
 - Grey TIFFs of floats or signed numbers, as science writes them (height models, microscopy):
   shown stretched from their lowest value to their highest, on every page. Before, they could not
   be shown.

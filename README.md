@@ -107,9 +107,9 @@ The images in the screenshots are generated for the purpose.
   them (height models, microscopy), stretched from their lowest value to their highest.
 - **Camera RAW:** CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more, shown at once through
   the JPEG preview the camera stores in them.
-- **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL and SVG.
-- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, OpenEXR, Radiance HDR
-  and more, with a program you have (ffmpeg, ImageMagick …); see
+- **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL, SVG, and Radiance HDR, tone-mapped
+  to the screen.
+- **Anything else, through a decoder plugin:** JPEG 2000, FITS, DICOM, OpenEXR and more, with a program you have (ffmpeg, ImageMagick …); see
   [Plugins and new formats](#plugins-and-new-formats).
 - **Video:** a still frame in the list and the viewer; opening it plays it in your video player.
 - **Colour:** photos with an ICC profile (Adobe RGB, Display P3 …) are converted to sRGB, so
@@ -457,7 +457,7 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | Decoder | Formats | Needs |
 |---|---|---|
 | `jpeg2000.desktop` | JPEG 2000: archives, libraries, scanned documents | ffmpeg |
-| `science.desktop` | FITS (astronomy), DICOM (medical imaging), OpenEXR and Radiance HDR | ImageMagick (`convert`, or `magick` for version 7) |
+| `science.desktop` | FITS (astronomy), DICOM (medical imaging) and OpenEXR | ImageMagick (`convert`, or `magick` for version 7) |
 
 ```sh
 mkdir -p ~/.local/share/glimt/decoders

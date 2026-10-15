@@ -177,6 +177,32 @@ fn stretched(values: tiff::decoder::DecodingResult) -> Option<Vec<u8>> {
     })
 }
 
+/// Linear light of any brightness as an sRGB image: Reinhard's global operator, the average
+/// brightness made middle grey and the highlights rolled off instead of cut.
+fn tone_mapped(img: image::Rgb32FImage) -> image::DynamicImage {
+    let luminance = |p: &image::Rgb<f32>| 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+    let n = (img.pixels().len().max(1)) as f32;
+    let log_mean = (img.pixels())
+        .map(|p| (1e-4 + luminance(p).max(0.0)).ln())
+        .filter(|l| l.is_finite())
+        .sum::<f32>()
+        / n;
+    let exposure = 0.18 / log_mean.exp();
+    let encode = |v: f32| {
+        let v = v * exposure;
+        let v = (v / (1.0 + v)).clamp(0.0, 1.0);
+        let srgb = if v <= 0.003_130_8 {
+            12.92 * v
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        };
+        (srgb * 255.0).round() as u8
+    };
+    let (w, h) = img.dimensions();
+    let pixels = img.pixels().flat_map(|p| p.0.map(encode)).collect();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(w, h, pixels).unwrap_or_default())
+}
+
 /// The whole image in sRGB.
 pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     let (img, icc) = load_icc(path, rotate)?;
@@ -289,6 +315,10 @@ pub fn load_icc(
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
     if rotate {
         img.apply_orientation(orientation);
+    }
+    // Radiance HDR holds light as it was, far brighter than a screen: brought into its range.
+    if has_ext(path, &["hdr"]) {
+        img = tone_mapped(img.into_rgb32f());
     }
     Ok((img, icc))
 }
@@ -576,6 +606,31 @@ mod tests {
             .write_image::<colortype::RGB32Float>(60, 30, &rgb)
             .unwrap();
         assert!(super::decode(&dir.join("rgb.tif"), [100, 100], true, 0).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A Radiance HDR far brighter than a screen: shown with its shadows dark, its highlights
+    /// rolled off, nothing cut to white but the brightest.
+    #[test]
+    fn tone_maps_radiance_hdr() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-hdr-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = image::Rgb32FImage::from_fn(100, 10, |x, _| {
+            let v = 0.01 * 1.1f32.powi(x as i32); // 0.01 up to about 125
+            image::Rgb([v, v, v])
+        });
+        image::DynamicImage::ImageRgb32F(img)
+            .save(dir.join("a.hdr"))
+            .unwrap();
+        let (frames, orig, _) = super::decode(&dir.join("a.hdr"), [100, 100], true, 0).unwrap();
+        let px = &frames[0].0.pixels;
+        assert_eq!(orig, [100, 10]);
+        let (dark, mid, bright) = (px[0].r(), px[50].r(), px[99].r());
+        assert!(
+            dark < 40 && (60..230).contains(&mid) && bright > 230,
+            "{dark} {mid} {bright}"
+        );
+        assert!(px[90].r() < bright);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

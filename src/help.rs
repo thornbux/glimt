@@ -176,7 +176,7 @@ const MANUAL: &[(&str, &str)] = &[
          standard output, %f being the file. Such files are then listed and shown as any \
          other, with thumbnails. The command runs without a shell, for 30 seconds at most. \
          examples/decoders in Glimt's source has one for JPEG 2000 (ffmpeg) and one for FITS, \
-         DICOM, OpenEXR and HDR (ImageMagick). New decoders are seen after a restart.",
+         DICOM and OpenEXR (ImageMagick). New decoders are seen after a restart.",
     ),
     (
         "Sort manager",
