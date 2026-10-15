@@ -738,6 +738,33 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a slideshow from a plain list: its order, relative paths, and the list never written"
+for v in new old; do
+    as_version $v
+    d=/tmp/plain-list-$v
+    mkdir -p $d/pics
+    convert -size 300x200 xc:red $d/pics/a.jpg
+    convert -size 300x200 xc:lime $d/pics/b.jpg
+    convert -size 300x200 xc:blue $d/pics/c.jpg
+    printf '# shown in this order\npics/c.jpg\n"pics/a.jpg"\n%s/pics/b.jpg\n' "$d" >$d/show.txt
+    before=$(md5sum <$d/show.txt)
+    config confirm_delete=false
+    start $d/show.txt
+    sleep 1
+    first=$($BIN --remote current | tr '\0' '\n' | xargs -n1 basename 2>/dev/null)
+    key space; sleep 1
+    second=$($BIN --remote current | tr '\0' '\n' | xargs -n1 basename 2>/dev/null)
+    # Delete in a list: out of the list in the window only.
+    key Delete; sleep 1
+    quit
+    left="$(ls $d/pics | tr '\n' ' ')$([ "$(md5sum <$d/show.txt)" = "$before" ] && echo same)"
+    if [ $v = new ]; then
+        expect "the list's order" "$first $second" "c.jpg a.jpg"
+        expect "the images and the list untouched" "$left" "a.jpg b.jpg c.jpg same"
+    else note "old: '$first' '$second' '$left'"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

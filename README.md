@@ -87,7 +87,9 @@ The images in the screenshots are generated for the purpose.
 - Sort by name, number, date, EXIF date, size or extension.
 - Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
   (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
-- Collections: lists of images from any folders, saved and opened again.
+- Collections: lists of images from any folders, saved and opened again. A plain list you write
+  yourself (`.txt` or `.m3u`, one image on each line) opens the same way:
+  `glimt --slideshow show.txt` plays it in its order.
 - Lightroom Classic catalogs imported: collections, the keyword tree and stars.
 - Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
 - The sort manager: move or copy images to favourite folders with one click.
@@ -581,7 +583,7 @@ and screen profile over D-Bus.
 | Own themes | `$XDG_CONFIG_HOME/glimt/themes/*.theme` |
 | Marks and stars | `$XDG_STATE_HOME/glimt/marks` (`~/.local/state/glimt/marks`) |
 | A Rename Many while it runs, to put right after a crash | `$XDG_STATE_HOME/glimt/renames/` |
-| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as `.gqv` files |
+| Collections | `$XDG_DATA_HOME/glimt/collections` (`~/.local/share/glimt/collections`), as `.gqv` files; plain lists (`.txt`, `.m3u`) anywhere are read, never written |
 | Plugins of your own | `$XDG_DATA_HOME/glimt/plugins/*.desktop` |
 | Keywords, comment, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
 | Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |

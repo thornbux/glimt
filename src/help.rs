@@ -222,7 +222,11 @@ const MANUAL: &[(&str, &str)] = &[
          renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
          Collection to Trash act on the open collection; its images stay where they are. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
-         too (O, or a .gqv file on the command line). File → Import Lightroom Catalog… reads a \
+         too (O, or a .gqv file on the command line). A plain list opens the same way: a .txt \
+         or .m3u file with one image on each line, relative to the list or absolute, # for \
+         comments, as a script or a music player writes it; glimt --slideshow show.txt plays \
+         it in its order. Glimt never writes a list: what changes in the window stays there. \
+         File → Import Lightroom Catalog… reads a \
          Lightroom Classic catalog (.lrcat, with Lightroom closed) through the sqlite3 program: \
          its collections become Glimt's (named with their sets, as Travel - Norway; one of the \
          same name gets the images it lacks), its keywords go into the keyword tree and its \

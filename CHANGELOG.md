@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Plain lists of images open as collections: a .txt or .m3u file with one image on each line,
+  relative to the list or absolute, # for comments, also file:// lines as music players write
+  them. glimt --slideshow show.txt plays it in its order. Glimt never writes such a list: an image
+  taken out or another order stays in the window.
+
 ## [0.24.2] - 2026-10-16
 
 ### Added
