@@ -728,6 +728,24 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ),
     ("fast_image_resize", "Kirill Kuzminykh", "MIT or Apache-2.0"),
     (
+        "jpeg-decoder, tiff",
+        "The image-rs contributors",
+        "MIT or Apache-2.0; MIT",
+    ),
+    ("moxcms", "Radzivon Bartoshyk", "BSD-3-Clause or Apache-2.0"),
+    ("regex", "The Rust Project Developers", "MIT or Apache-2.0"),
+    ("arboard", "The arboard contributors", "MIT or Apache-2.0"),
+    (
+        "resvg, usvg (SVG builds)",
+        "The resvg authors",
+        "Apache-2.0 or MIT",
+    ),
+    (
+        "jxl-oxide (JPEG XL builds)",
+        "Wonwoo Choi",
+        "MIT or Apache-2.0",
+    ),
+    (
         "Inter",
         "The Inter Project Authors",
         "SIL Open Font License 1.1",

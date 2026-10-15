@@ -49,6 +49,8 @@ documentation.
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
 | `src/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
+
+| `src/lightroom.rs` | Import Lightroom Catalog: a Lightroom Classic `.lrcat` read through `sqlite3` |
 | `src/marks.rs` | Optional marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks`, and stars in XMP |
 | `src/meta.rs` | Keywords and comment in XMP sidecars; sidecars that follow their files |
 | `src/pan.rs` | Pan view: the list by day, and its rows |

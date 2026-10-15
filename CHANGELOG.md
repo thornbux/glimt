@@ -91,6 +91,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Rename Many held the window while it checked and renamed every file, minutes for thousands on
   a network share; it now runs in the background. It also never replaces a file another program
   made under a new name meanwhile, and checks the sidecars' new names too.
+- The man page ran two entries of its FILES section into the one before, printed the
+  ENVIRONMENT line twice and left out the keyword tree's file. About now credits every crate
+  built in, with its licence.
 
 ## [0.21.0] - 2026-10-15
 
