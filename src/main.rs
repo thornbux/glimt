@@ -8129,13 +8129,12 @@ impl App {
                     } else {
                         String::new()
                     };
-                    ui.painter().text(
-                        area.center(),
-                        egui::Align2::CENTER_CENTER,
-                        text,
-                        egui::FontId::proportional(16.0),
-                        egui::Color32::GRAY,
-                    );
+                    // Broken into lines that fit, as an error can be long: a decoder's message.
+                    let (font, grey) = (egui::FontId::proportional(16.0), egui::Color32::GRAY);
+                    let width = (area.width() - 32.0).max(80.0);
+                    let galley = ui.painter().layout(text, font, grey, width);
+                    let at = area.center() - galley.size() / 2.0;
+                    ui.painter().galley(at, galley, grey);
                 }
                 // A video: a play button over the preview frame (click or Enter), readable on
                 // any frame, also in the slideshow and full screen.
