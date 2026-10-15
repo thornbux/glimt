@@ -498,6 +498,30 @@ for v in new old; do
 done
 as_version new
 
+echo "-- decoder plugins: the examples show a .jp2 through ffmpeg and a .fits through ImageMagick"
+for v in new old; do
+    as_version $v
+    d=/tmp/decoders-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/*.desktop $XDG_DATA_HOME/glimt/decoders/
+    ffmpeg -v error -f lavfi -i color=red:s=600x400 -frames:v 1 -c:v jpeg2000 $d/a.jp2
+    # Grey, as telescopes write it: dark at the top, light at the bottom.
+    convert -size 600x400 gradient:black-white $d/b.fits
+    config
+    start $d/a.jp2
+    sleep 2
+    shot decoder-jp2-$v
+    key space; sleep 2
+    shot decoder-fits-$v
+    quit
+    if [ $v = new ]; then
+        expect "a .jp2 through its decoder" "$(colour decoder-jp2-new 640 400)" red
+        top=$(red decoder-fits-new 640 120) bottom=$(red decoder-fits-new 640 700)
+        expect "a .fits through its decoder, stretched" "$([ $top -lt 60 ] && [ $bottom -gt 190 ] && echo yes)" yes
+    else note "old: $(colour decoder-jp2-old 640 400), fits $(red decoder-fits-old 640 700)"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

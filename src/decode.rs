@@ -261,6 +261,9 @@ pub fn load_icc(
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
         return Ok((img, icc));
     }
+    if let Some(decoder) = crate::decoders::for_path(path) {
+        return Ok((decoder.decode(path)?, None));
+    }
     let dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?

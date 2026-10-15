@@ -1,0 +1,9 @@
+[Glimt Decoder]
+Name=Science and HDR (ImageMagick)
+Comment=FITS from telescopes, DICOM from medical imaging, Radiance HDR and OpenEXR, through ImageMagick
+Extensions=fits;fit;fts;dcm;hdr;exr
+# %f[0]: the first frame of a DICOM series or FITS cube. -auto-level stretches the values from the
+# lowest to the highest, as the data is seldom 0-255; -depth 8 keeps the image small. The path
+# Glimt gives is absolute, so ImageMagick never reads a "format:" prefix in a file name.
+# ImageMagick 7 names the program magick instead of convert.
+Exec=convert %f[0] -auto-level -depth 8 ppm:-

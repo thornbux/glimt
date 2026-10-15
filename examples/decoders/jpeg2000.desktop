@@ -1,0 +1,7 @@
+[Glimt Decoder]
+Name=JPEG 2000
+Comment=JPEG 2000 files, as archives, libraries and science keep scans, decoded by ffmpeg
+Extensions=jp2;j2k;j2c;jpf;jpx
+# -format_whitelist j2k_pipe: ffmpeg reads the file only as JPEG 2000, a format that cannot name
+# other files or addresses for ffmpeg to open.
+Exec=ffmpeg -v error -protocol_whitelist file -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -

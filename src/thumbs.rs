@@ -67,8 +67,12 @@ fn thumbnail_in(
     {
         match &made {
             Ok(img) => drop(write(file, img, &uri, mtime)),
-            // Not when ffmpeg failed: it may be installed later.
-            Err(_) if !crate::external::is_heif(path) && !crate::external::is_video(path) => {
+            // Not when ffmpeg or a decoder plugin failed: it may be installed later.
+            Err(_)
+                if !crate::external::is_heif(path)
+                    && !crate::external::is_video(path)
+                    && crate::decoders::for_path(path).is_none() =>
+            {
                 drop(write(failed, &image::RgbaImage::new(1, 1), &uri, mtime))
             }
             Err(_) => {}
