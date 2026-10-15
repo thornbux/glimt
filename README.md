@@ -77,7 +77,7 @@ same way in both.
 | Pan view | Timeline | Timeline, calendar, folders |
 | Collections (`.gqv`) | ✓ | ✓ |
 | Plugins (desktop files) | ✓ | ✓ |
-| Lua scripts, external editors | – | ✓ |
+| Lua scripts | – | ✓ |
 | Several windows in one process | One per process, sharing settings and collections | ✓ |
 | Printing, contact sheets | ✓ (CUPS or PDF) | ✓ |
 | Install | One binary: `.deb`, `.rpm`, `.tar.gz`, AppImage, Flatpak | Distribution packages, AppImage |
