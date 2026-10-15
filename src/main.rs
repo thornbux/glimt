@@ -4897,13 +4897,7 @@ impl App {
                         Some((days, _)) => {
                             let n = days.iter().filter(|d| d.0 != "No date").count();
                             let total: usize = days.iter().map(|d| d.1.len()).sum();
-                            ui.weak(format!(
-                                "{} {} on {} {}",
-                                thousands(total),
-                                if total == 1 { "image" } else { "images" },
-                                thousands(n),
-                                if n == 1 { "day" } else { "days" }
-                            ))
+                            ui.weak(format!("{} on {}", count(total, "image"), count(n, "day")))
                         }
                         None => ui.spinner(),
                     };
@@ -4946,11 +4940,7 @@ impl App {
                                 ui.painter().text(
                                     top + egui::vec2(4.0, y + heading - 6.0),
                                     egui::Align2::LEFT_BOTTOM,
-                                    format!(
-                                        "{day}   {} {}",
-                                        thousands(list.len()),
-                                        if list.len() == 1 { "image" } else { "images" }
-                                    ),
+                                    format!("{day}   {}", count(list.len(), "image")),
                                     egui::TextStyle::Body.resolve(ui.style()),
                                     ui.visuals().strong_text_color(),
                                 );
