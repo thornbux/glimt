@@ -29,12 +29,18 @@ pub fn list() -> Vec<(String, PathBuf)> {
     all
 }
 
+/// `name` trimmed, if it can be the name of a collection's file.
+fn valid(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    match name.is_empty() || name.contains('/') || name.starts_with('.') {
+        true => Err(format!("Not a valid collection name: \"{name}\"")),
+        false => Ok(name),
+    }
+}
+
 /// The file of a new collection called `name`, or why there can be none.
 pub fn new_file(name: &str) -> Result<PathBuf, String> {
-    let name = name.trim();
-    if name.is_empty() || name.contains('/') || name.starts_with('.') {
-        return Err(format!("Not a valid collection name: \"{name}\""));
-    }
+    let name = valid(name)?;
     let file = dir()
         .ok_or("no data folder ($HOME is not set)")?
         .join(format!("{name}.gqv"));
@@ -46,13 +52,10 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
 
 /// Give the collection in `file` the name `name`, in the same folder; the new file.
 pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
-    let new = new_file(name)?;
-    let new = file.with_file_name(new.file_name().unwrap_or_default());
+    let name = valid(name)?;
+    let new = file.with_file_name(format!("{name}.gqv"));
     if new.exists() {
-        return Err(format!(
-            "There is a collection called \"{}\" already",
-            name.trim()
-        ));
+        return Err(format!("There is a collection called \"{name}\" already"));
     }
     std::fs::rename(file, &new).map_err(|e| format!("Could not rename the collection: {e}"))?;
     Ok(new)
