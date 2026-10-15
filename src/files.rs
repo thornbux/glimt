@@ -8,7 +8,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 pub const EXTS: &[&str] = &[
-    "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "bmp", "ico", "qoi",
+    "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "bmp", "ico", "qoi", "pbm", "pgm", "ppm",
+    "pnm", "pam",
 ];
 
 /// HEIC/HEIF photos (iPhone), decoded by ffmpeg with the heic feature.

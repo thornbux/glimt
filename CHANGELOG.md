@@ -7,8 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- BMP, ICO (the largest of its sizes) and QOI images, listed and shown as the other everyday
-  formats.
+- BMP, ICO (the largest of its sizes), QOI and PNM (PBM, PGM, PPM, PAM) images, listed and
+  shown as the other everyday formats.
 
 ## [0.23.0] - 2026-10-15
 
