@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   it does, it says which collections are there already and how many images have other stars,
   and asks whose stars to keep. Tested with a catalog made with Lightroom's tables, not yet
   with one from Lightroom itself.
+- File → Rename Collection… and Move Collection to Trash, for the open collection. Its images
+  stay where they are, and a collection is never renamed over another.
 
 ### Changed
 

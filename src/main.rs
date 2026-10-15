@@ -503,6 +503,8 @@ enum Prompt {
     RenameMany,
     /// A new collection with the selected files.
     NewCollection,
+    /// A new name for the open collection.
+    RenameCollection,
     /// Save the look shown as a theme file of this name.
     SaveTheme,
 }
@@ -1862,6 +1864,43 @@ impl App {
         }
     }
 
+    /// The open collection's file to the trash, through gio in the background; the images stay,
+    /// and the window shows the shown image's folder.
+    fn trash_collection(&mut self, ctx: &egui::Context) {
+        let Some(file) = self.collection.clone() else {
+            return;
+        };
+        let (tx, busy, repaint) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let name = file
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let _ = tx.send(
+                match command("gio").arg("trash").arg("--").arg(&file).output() {
+                    Ok(out) if out.status.success() => {
+                        format!("Collection {name} moved to the trash")
+                    }
+                    Ok(out) => format!(
+                        "Could not trash {name}: {}",
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ),
+                    Err(e) => format!("Could not trash {name} (gio is needed): {e}"),
+                },
+            );
+            busy.fetch_sub(1, Ordering::Relaxed);
+            repaint.request_repaint();
+        });
+        let folder = (!self.files.is_empty())
+            .then(|| self.path(self.cur))
+            .and_then(|p| p.parent().map(Path::to_path_buf));
+        if let Some(folder) = folder.or_else(std::env::home_dir) {
+            self.visit(ctx, folder);
+        }
+    }
+
     /// Add the selected files, or the shown image, to the collection in `file`.
     fn add_to_collection(&mut self, file: &Path) {
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
@@ -1905,6 +1944,8 @@ impl App {
         }
         if self.collection.is_some() {
             menu_item(ui, act, Action::RemoveFromCollection);
+            menu_item(ui, act, Action::RenameCollection);
+            menu_item(ui, act, Action::TrashCollection);
         }
         if let Some(file) = open {
             self.visit(ui.ctx(), file);
@@ -3031,6 +3072,19 @@ impl App {
                 Err(e) => self.notice = Some(e),
             };
         }
+        if let Prompt::RenameCollection = prompt {
+            let Some(old) = self.collection.clone() else {
+                return;
+            };
+            match collections::rename(&old, text) {
+                Ok(new) => {
+                    self.collection = Some(new);
+                    self.title(ctx);
+                }
+                Err(e) => self.notice = Some(e),
+            }
+            return;
+        }
         if text.is_empty() || text.contains('/') || text == "." || text == ".." {
             self.notice = Some(format!("Not a valid name: \"{text}\""));
             return;
@@ -3080,7 +3134,10 @@ impl App {
             // rename() would silently replace an existing file.
             Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
-            Prompt::NewCollection | Prompt::SaveTheme | Prompt::RenameFolder => return,
+            Prompt::NewCollection
+            | Prompt::RenameCollection
+            | Prompt::SaveTheme
+            | Prompt::RenameFolder => return,
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target)
                 .inspect(|_| meta::follow(&self.path(self.cur), &target, false)),
         };
@@ -5266,6 +5323,13 @@ impl App {
                 self.remove_indices(ctx, &targets);
             }
             Action::RemoveFromCollection => {}
+            Action::RenameCollection => {
+                if let Some(name) = self.collection.as_ref().and_then(|f| f.file_stem()) {
+                    let name = name.to_string_lossy().into_owned();
+                    self.prompt = Some((Prompt::RenameCollection, name));
+                }
+            }
+            Action::TrashCollection => self.trash_collection(ctx),
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
             Action::Copy | Action::Move if !self.files.is_empty() => {
                 let paths = self.targets().iter().map(|&i| self.path(i)).collect();
@@ -6525,6 +6589,7 @@ impl App {
                 Prompt::NewFolder => "New folder name:".to_owned(),
                 Prompt::RenameFolder => "New folder name:".to_owned(),
                 Prompt::SaveTheme => "Name of the new theme:".to_owned(),
+                Prompt::RenameCollection => "New name of the collection:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
                     "Name of a new collection with {} images:",

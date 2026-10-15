@@ -44,6 +44,20 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// Give the collection in `file` the name `name`, in the same folder; the new file.
+pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
+    let new = new_file(name)?;
+    let new = file.with_file_name(new.file_name().unwrap_or_default());
+    if new.exists() {
+        return Err(format!(
+            "There is a collection called \"{}\" already",
+            name.trim()
+        ));
+    }
+    std::fs::rename(file, &new).map_err(|e| format!("Could not rename the collection: {e}"))?;
+    Ok(new)
+}
+
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(parse(&std::fs::read(file)?))
 }
@@ -124,6 +138,27 @@ fn to_text(paths: &[PathBuf]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    /// Renamed in its own folder, never over another collection or to a name that is no file.
+    #[test]
+    fn renames_in_place() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-coll-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.gqv"), dir.join("b.gqv"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        assert!(super::rename(&a, "b").is_err());
+        assert!(super::rename(&a, "x/y").is_err());
+        assert_eq!(
+            super::rename(&a, " Travel ").unwrap(),
+            dir.join("Travel.gqv")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("Travel.gqv")).unwrap(),
+            "a"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn reads_and_writes_geeqie_collections() {

@@ -181,7 +181,8 @@ const MANUAL: &[(&str, &str)] = &[
          right-click menu) adds to one, and File → Collections or O opens one: the file list \
          then shows its images, which browse, sort and play as a slideshow like a folder. \
          Delete takes the shown or selected images out of the collection, leaving the files; \
-         renaming and moving in Glimt keep them in it. Each change is saved at once, as a \
+         renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
+         Collection to Trash act on the open collection; its images stay where they are. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
          too (O, or a .gqv file on the command line). File → Import Lightroom Catalog… reads a \
          Lightroom Classic catalog (.lrcat, with Lightroom closed) through the sqlite3 program: \
