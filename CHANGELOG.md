@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- NeXus files (.nxs) from neutron and synchrotron sources in the HDF5 decoder, as they are HDF5.
 - A DICOM decoder in examples/decoders, through pydicom and GDCM: X-ray, CT, MR, ultrasound,
   panoramic and intraoral X-rays, also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the
   file names and with MONOCHROME1 the right way; no patient field is read out or kept.

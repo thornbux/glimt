@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""A Glimt decoder: the first picture in an HDF5 file (.h5, .hdf5, .he5) or a NetCDF-4 file
-(.nc, .nc4), as climate, physics, satellite and microscope data keep them, written as a grey PGM
+"""A Glimt decoder: the first picture in an HDF5 file (.h5, .hdf5, .he5), a NetCDF-4 file (.nc,
+.nc4) or a NeXus file (.nxs, from neutron and synchrotron sources), as climate, physics,
+satellite and microscope data keep them, written as a grey PGM
 to standard output.
 
 The first numeric dataset of two or more dimensions is shown, in the order the file lists them;

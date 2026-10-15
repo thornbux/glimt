@@ -178,8 +178,8 @@ const MANUAL: &[(&str, &str)] = &[
          examples/decoders in Glimt's source has decoders for JPEG 2000 (ffmpeg), FITS from \
          telescopes (astropy), DICOM from medical and dental imaging, also compressed \
          (pydicom), FITS and DICOM through ImageMagick, NIfTI brain scans, whole pathology slides (OpenSlide), \
-         microscope files (Bio-Formats), cryo-EM maps (MRC) and HDF5 \
-         and NetCDF-4 data. New decoders are seen after a restart.",
+         microscope files (Bio-Formats), cryo-EM maps (MRC) and HDF5, \
+         NetCDF-4 and NeXus data. New decoders are seen after a restart.",
     ),
     (
         "Sort manager",
