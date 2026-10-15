@@ -150,10 +150,15 @@ fn tag_name(gps: bool, tag: u16) -> Option<&'static str> {
 
 /// DateTimeOriginal (or DateTimeDigitized) as "YYYY:MM:DD HH:MM:SS", which sorts as text.
 pub fn date(path: &Path, digitized: bool) -> Option<String> {
-    let raw = raw(path)?;
-    let (t, _, exif, _) = ifds(&raw)?;
-    let tag = if digitized { 0x9004 } else { 0x9003 };
-    t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
+    // A decoder panicking on one file must not end the sort or the Pan view that asked.
+    std::panic::catch_unwind(|| {
+        let raw = raw(path)?;
+        let (t, _, exif, _) = ifds(&raw)?;
+        let tag = if digitized { 0x9004 } else { 0x9003 };
+        t.text(exif.iter().find(|(t2, _)| *t2 == tag)?.1)
+    })
+    .ok()
+    .flatten()
 }
 
 /// Whether the EXIF block says the pixels are Adobe RGB without an ICC profile, as cameras set

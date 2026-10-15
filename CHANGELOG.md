@@ -14,6 +14,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A setting, the keyword tree, a collection or a sidecar reached through a symbolic link (a
   dotfiles repository) had the link replaced by a plain file at the first save; it is now written
   where the link points.
+- A single crafted file can no longer stall or freeze Glimt:
+  - a fake RAW file made of JPEG start markers took minutes on every decode;
+  - a GIF of 100,000 tiny frames froze the window, and a huge canvas took twice the limit;
+  - a TIFF of 100,000 pages took minutes to count;
+  - ffmpeg had no time limit and its whole output was held, gigabytes for a crafted HEIC;
+  - a decoder crash ended the EXIF panel for the session, and could end a sort by EXIF date.
 - Only files are images in the list. A folder named like an image (`2019.jpg`) was listed as a
   broken image, so Delete could send the whole folder to the trash; a pipe or a link to a device
   named `a.jpg` could block Glimt or fill its memory as soon as the folder opened. Such entries

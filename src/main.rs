@@ -1197,12 +1197,23 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
             let mut rows = vec![("File size", human_size(size))];
             let (mut all, mut meta, mut paths) = Default::default();
-            // Not opened unless it is a file: a pipe would block this thread for good.
+            // Not opened unless it is a file: a pipe would block this thread for good. A decoder
+            // that panics on the file leaves the panel without EXIF for it, not for good.
             if decode::is_file(&path) {
-                rows.push(("Colour profile", colour_source(&path)));
-                rows.extend(exif::read(&path));
-                all = exif::all(&path);
-                (meta, paths) = (meta::read(&path), meta::tree_paths(&path));
+                let read = std::panic::catch_unwind(|| {
+                    let mut rows = vec![("Colour profile", colour_source(&path))];
+                    rows.extend(exif::read(&path));
+                    (
+                        rows,
+                        exif::all(&path),
+                        meta::read(&path),
+                        meta::tree_paths(&path),
+                    )
+                });
+                if let Ok((more, a, m, p)) = read {
+                    rows.extend(more);
+                    (all, meta, paths) = (a, m, p);
+                }
             }
             if exif_tx.send((path, rows, all, meta, paths)).is_err() {
                 return;
