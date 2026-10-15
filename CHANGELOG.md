@@ -10,6 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A Rename Many cut short by a crash or a power cut is found at the next start: Glimt offers to
   put the old names back or to finish. Before, files could be left under hidden temporary names
   and seem to be gone.
+- A calendar in the Pan view (Ctrl+J): the months with images, a week to a row, each day with
+  its first image and how many it has. A click on a day shows it in the timeline.
 
 ### Changed
 
