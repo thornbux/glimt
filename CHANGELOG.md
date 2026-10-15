@@ -10,6 +10,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - With both Start in the last used folder and Remember the window size and position turned off,
   the folder and window kept from before are forgotten at exit, instead of coming back when a
   setting is turned on again.
+- Saving the orientation of a damaged JPEG, whose JFIF segment claims to be longer than the file,
+  says the file is cut off instead of closing Glimt. Found by the new fuzz test of the orientation
+  write.
 
 ## [0.22.1] - 2026-10-15
 
