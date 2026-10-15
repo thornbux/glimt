@@ -4318,10 +4318,12 @@ impl App {
             self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(missing).collect());
         }
         if let Some(p) = drop {
+            // With all below it: an inner level is only there for the paths under it.
+            let under = format!("{p}|");
             self.set_keyword_tree(
                 self.keyword_tree
                     .iter()
-                    .filter(|t| **t != p)
+                    .filter(|t| **t != p && !t.starts_with(&under))
                     .cloned()
                     .collect(),
             );

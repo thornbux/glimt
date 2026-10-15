@@ -143,7 +143,7 @@ const MANUAL: &[(&str, &str)] = &[
          when the image has that keyword, and a click sets it on the selected images, or \
          the shown one, or takes it off; the path goes into the sidecar too, as \
          lr:hierarchicalSubject, which darktable, digiKam and Lightroom read. Right-click a \
-         keyword to remove it from the tree.",
+         keyword to remove it from the tree, with the levels below it.",
     ),
     (
         "Printing",

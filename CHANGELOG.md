@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keyword tree: Remove from the tree on a level with levels below it (Places, with only
+  Places|Norway|Oslo kept) removes it with them, instead of nothing.
+
 ## [0.22.0] - 2026-10-15
 
 ### Added
