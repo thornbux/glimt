@@ -27,8 +27,9 @@ pub struct Decoder {
     dir: PathBuf,
 }
 
-/// The decoders, read once; a desktop file in the user's folder hides one of the same name in
-/// the system's. New ones are seen after a restart, as plugins are.
+/// The decoders, read once, by the names of their files: when two take the same ending, the one
+/// first by name does. A desktop file in the user's folder hides one of the same name in the
+/// system's. New ones are seen after a restart, as plugins are.
 pub fn all() -> &'static [Decoder] {
     static ALL: std::sync::OnceLock<Vec<Decoder>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
@@ -42,7 +43,12 @@ pub fn all() -> &'static [Decoder] {
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
             .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
-            .filter_map(|p| parse(&std::fs::read_to_string(&p).ok()?, p.parent()?))
+            .filter_map(|p| {
+                let decoder = parse(&std::fs::read_to_string(&p).ok()?, p.parent()?)?;
+                Some((p.file_name()?.to_owned(), decoder))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into_values()
             .collect()
     })
 }

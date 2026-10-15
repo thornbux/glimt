@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A FITS decoder in examples/decoders, through astropy: the first image of a telescope file, also
+  compressed (.fits.fz, .fits.gz), with the zscale stretch astronomers use. Decoders are read in
+  the order of their file names, so when two take the same ending the first does; science.desktop
+  is left for FITS and DICOM through ImageMagick alone.
 - An MRC decoder in examples/decoders, for cryo-electron microscopy: a micrograph, or the middle
   section of a map or tomogram (.mrc, .mrcs, .map, .rec, .st, .ali), through mrcfile.
 - A Bio-Formats decoder in examples/decoders: microscope files as Fiji reads them (Zeiss .czi,

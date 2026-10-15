@@ -444,8 +444,9 @@ Extensions=jp2;j2k;j2c;jpf;jpx
 Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
 ```
 
-- `Extensions`: the file endings it takes, separated by `;`. A format Glimt reads itself is
-  never given to a plugin.
+- `Extensions`: the file endings it takes, separated by `;`; an ending may have two parts, as
+  `nii.gz`. When two decoders take the same ending, the one whose file comes first by name does.
+  A format Glimt reads itself is never given to a plugin.
 - `Exec`: the command. `%f` is the file's absolute path, as one argument; it may stand inside a
   word, as ImageMagick's `%f[0]` for a file's first frame. A program next to the desktop file
   is found there, so a decoder can bring its own script.
@@ -458,7 +459,8 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | Decoder | Formats | Field | Needs |
 |---|---|---|---|
 | `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
-| `science.desktop` | FITS (`.fits`, `.fit`, `.fts`), DICOM (`.dcm`), OpenEXR (`.exr`) | astronomy, medical imaging, graphics | ImageMagick (`convert`; `magick` for version 7) |
+| `fits.desktop` | FITS (`.fits`, `.fit`, `.fts`, also compressed `.fits.fz` and `.fits.gz`): the first image, with astronomers' zscale stretch | astronomy, solar physics | python3-astropy |
+| `science.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
 | `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
 | `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
 | `bioformats.desktop` | Microscope files through Bio-Formats, as Fiji reads them: Zeiss `.czi`, Leica `.lif`, Nikon `.nd2`, Olympus `.oib`/`.oir`, ICS and more; the first plane | microscopy, cell biology | Java and Bio-Formats' bftools (`bfconvert`, or `GLIMT_BFTOOLS` set to its folder) |
