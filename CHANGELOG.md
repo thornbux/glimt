@@ -27,6 +27,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An SVG could show any local file as a picture, and read a device such as /dev/zero until
   memory ran out; a picture inside it was decoded at any size. Linked pictures are now only
   files under 64 MB, and none may claim more pixels than an image Glimt opens.
+- Moving photos to another disk (a USB stick, an SD card) removed the originals as soon as the
+  copies were written, before they were on the disk: pulled out right after, both could be lost.
+  A copy is now on disk before the original goes, and keeps its modification time, so sorting by
+  date still works after copying or moving to another disk.
 
 ## [0.21.0] - 2026-10-15
 
