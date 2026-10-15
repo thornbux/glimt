@@ -27,8 +27,8 @@ quick look, which is what an image viewer is for.
   manager uses, network shares open through GVfs, deleted files go to the trash.
 - **Geeqie users know it already.** The keyboard shortcuts are Geeqie's, collections are Geeqie
   `.gqv` files, plugins are Geeqie's desktop files, and the help lists every difference.
-- **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable and
-  digiKam read, and follow the file when it is renamed, moved or copied. Turning a JPEG changes
+- **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
+  digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied. Turning a JPEG changes
   its orientation tag, not its pixels. Copy and move never overwrite a file.
 - **No setup.** One binary that runs on any distribution with glibc 2.28 or newer, packaged as
   `.deb`, `.rpm`, `.tar.gz`, AppImage and Flatpak. No library to import, no database to build:

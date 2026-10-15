@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Every keyword is also written as a keyword tree path (lr:hierarchicalSubject), as Lightroom
+  writes them: Immich reads only those, so keywords typed in the EXIF panel showed there as no
+  tags. A keyword taken away takes its paths along.
+- Keywords that differ only in letter case ("Oslo", "oslo") are one keyword, on an image and in
+  the keyword tree; the first spelling stays. A sidecar that has one twice shows it once.
+
+### Fixed
+
+- With two keyword tree paths ending in the same keyword (Places|Norway|Oslo and Events|Oslo),
+  turning one off took the keyword off the image although the other path was still on, and
+  both boxes were ticked when only one was set.
+
 ## [0.19.0] - 2026-10-15
 
 ### Added
