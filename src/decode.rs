@@ -499,6 +499,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A BMP is listed and shown as the other everyday formats.
+    #[test]
+    fn lists_and_decodes_bmp() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-bmp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(60, 30)
+            .save(dir.join("c.bmp"))
+            .unwrap();
+        let types = crate::files::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let (_, images) = crate::files::list_folder(&dir, types);
+        assert_eq!(images, [std::ffi::OsString::from("c.bmp")]);
+        let (frames, orig, _) = super::decode(&dir.join("c.bmp"), [100, 100], true, 0).unwrap();
+        assert_eq!((frames[0].0.size, orig), ([60, 30], [60, 30]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn lists_folder_and_decodes_to_screen_size() {
         let dir = std::env::temp_dir().join(format!("glimt-test-{}", std::process::id()));

@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- BMP images, listed and shown as the other everyday formats.
+
 ## [0.23.0] - 2026-10-15
 
 ### Added
