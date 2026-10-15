@@ -297,7 +297,7 @@ pub fn load_icc(
         .map_err(|e| e.to_string());
     // Grey TIFFs the image crate does not take (floats, signed): through the tiff crate.
     let mut dec = match dec {
-        Err(e) if has_ext(path, &["tif", "tiff"]) => {
+        Err(e) if has_ext(path, crate::files::TIFF_LIKE) => {
             return tiff_page(path, 0).map(|img| (img, None)).map_err(|_| e);
         }
         dec => dec?,
@@ -631,6 +631,38 @@ mod tests {
             "{dark} {mid} {bright}"
         );
         assert!(px[90].r() < bright);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// TIFFs under other names, as microscopes (Zeiss .lsm) and gel scanners (.gel) write them:
+    /// listed and shown, also grey floats.
+    #[test]
+    fn shows_lsm_and_gel() {
+        use tiff::encoder::{TiffEncoder, colortype};
+        let dir = std::env::temp_dir().join(format!("glimt-test-lsm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let grey: Vec<u16> = (0..60 * 30).map(|i| i as u16 * 30).collect();
+        let file = std::fs::File::create(dir.join("a.gel")).unwrap();
+        (TiffEncoder::new(file).unwrap())
+            .write_image::<colortype::Gray16>(60, 30, &grey)
+            .unwrap();
+        let floats: Vec<f32> = (0..60 * 30).map(|i| i as f32).collect();
+        let file = std::fs::File::create(dir.join("b.lsm")).unwrap();
+        (TiffEncoder::new(file).unwrap())
+            .write_image::<colortype::Gray32Float>(60, 30, &floats)
+            .unwrap();
+        let types = crate::files::Types {
+            images: true,
+            raw: false,
+            videos: false,
+            hidden: false,
+        };
+        let (_, images) = crate::files::list_folder(&dir, types);
+        assert_eq!(images, ["a.gel", "b.lsm"].map(std::ffi::OsString::from));
+        for name in images {
+            let (frames, orig, _) = super::decode(&dir.join(name), [100, 100], true, 0).unwrap();
+            assert_eq!((frames[0].0.size, orig), ([60, 30], [60, 30]));
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 

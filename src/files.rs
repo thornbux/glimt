@@ -9,8 +9,12 @@ use std::path::{Path, PathBuf};
 
 pub const EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "bmp", "ico", "qoi", "pbm", "pgm", "ppm",
-    "pnm", "pam", "hdr",
+    "pnm", "pam", "hdr", "lsm", "gel",
 ];
+
+/// TIFF under other names: Zeiss LSM microscopy and GE Typhoon gels (square-root coded, shown as
+/// stored). Only their first page: an LSM file's others are thumbnails.
+pub const TIFF_LIKE: &[&str] = &["tif", "tiff", "lsm", "gel"];
 
 /// HEIC/HEIF photos (iPhone), decoded by ffmpeg with the heic feature.
 pub const HEIC_EXTS: &[&str] = if cfg!(feature = "heic") {

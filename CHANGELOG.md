@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Zeiss .lsm microscopy and .gel gel scans, which are TIFF files under other names: listed and
+  shown, their first page.
 - Decoder plugins for medicine and research in examples/decoders: NIfTI brain scans (the middle
   axial slice), whole pathology slides through OpenSlide (.svs, .ndpi, .mrxs …) and HDF5 and
   NetCDF-4 data (the first dataset of two or more dimensions). A decoder's endings may have two
