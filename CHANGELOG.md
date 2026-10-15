@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving a turned PNG or lossless WebP on a disk that filled up could replace the photo with a
+  cut-off file: images are now encoded in memory and written to disk in full before they replace
+  the old file. Glimt's own files are also on disk before they replace the old ones, so a crash
+  never leaves an empty one.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added

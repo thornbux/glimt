@@ -17,6 +17,25 @@ pub fn tmp_path(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// Replace the image `path` with `bytes` through `tmp_path`: written and on disk (`sync_all`)
+/// before the rename, with the old file's permissions. Any failure takes the temporary file away
+/// and leaves the old file as it was, also on a full disk.
+pub fn replace_image(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let tmp = tmp_path(path);
+    let written = std::fs::File::create(&tmp)
+        .and_then(|mut f| f.write_all(bytes).and_then(|_| f.sync_all()))
+        .and_then(|_| match std::fs::metadata(path) {
+            Ok(meta) => std::fs::set_permissions(&tmp, meta.permissions()),
+            Err(_) => Ok(()),
+        })
+        .and_then(|_| std::fs::rename(&tmp, path));
+    written.map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
 /// pixels are turned and the file written again with its ICC profile and EXIF block. PNG and
 /// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
@@ -78,29 +97,29 @@ pub fn save_rotated(
         3 => img.rotate270(),
         _ => img,
     };
-    let tmp = tmp_path(path);
     if lossy {
+        // ffmpeg writes its file; read back, with the EXIF block added, it replaces the image.
+        let tmp = tmp_path(path);
         let img = to_srgb(img, icc.as_deref());
-        lossy_webp(&img, &tmp, webp_quality)?;
-        // ffmpeg writes no EXIF: it is added to its file.
-        if let Some(exif) = &exif {
-            let added = std::fs::read(&tmp)
-                .map_err(|e| e.to_string())
-                .and_then(|webp| webp_with_exif(&webp, exif, img.width(), img.height()))
-                .and_then(|webp| std::fs::write(&tmp, webp).map_err(|e| e.to_string()));
-            if let Err(e) = added {
+        let made = lossy_webp(&img, &tmp, webp_quality)
+            .and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()))
+            .and_then(|webp| match &exif {
+                Some(exif) => webp_with_exif(&webp, exif, img.width(), img.height()),
+                None => Ok(webp),
+            });
+        return match made {
+            Ok(webp) => replace_image(path, &webp),
+            Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
-                return Err(e);
+                Err(e)
             }
-        }
-        if let Ok(meta) = std::fs::metadata(path) {
-            let _ = std::fs::set_permissions(&tmp, meta.permissions());
-        }
-        return std::fs::rename(&tmp, path).map_err(|e| e.to_string());
+        };
     }
-    let out = std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| e.to_string())?);
+    // Encoded in memory first: an encoder that owns its file flushes it on drop, where a full
+    // disk would go unnoticed and a cut-off file replace the photo.
+    let mut out = Vec::new();
     let written = if png {
-        let mut enc = image::codecs::png::PngEncoder::new(out);
+        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
         if let Some(icc) = icc {
             let _ = enc.set_icc_profile(icc);
         }
@@ -109,7 +128,7 @@ pub fn save_rotated(
             _ => img.write_with_encoder(enc),
         }
     } else {
-        let mut enc = image::codecs::webp::WebPEncoder::new_lossless(out);
+        let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
         if let Some(icc) = icc {
             let _ = enc.set_icc_profile(icc);
         }
@@ -124,14 +143,8 @@ pub fn save_rotated(
             _ => img.write_with_encoder(enc),
         }
     };
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.to_string());
-    }
-    if let Ok(meta) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(&tmp, meta.permissions());
-    }
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    written.map_err(|e| e.to_string())?;
+    replace_image(path, &out)
 }
 
 /// Whether a WebP file is lossless (a VP8L image) or lossy (VP8); `None` if neither is found.
@@ -227,6 +240,32 @@ pub fn webp_with_exif(
 
 #[cfg(test)]
 mod tests {
+    /// The new bytes replace the image with its permissions; a failed replace leaves no
+    /// temporary file and the old one as it was.
+    #[test]
+    fn replaces_images_whole() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-replace-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("busy.png")).unwrap();
+        std::fs::write(dir.join("busy.png/inside"), "x").unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, "old").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+        super::replace_image(&file, b"new").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"new");
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        // A folder cannot be replaced by a file.
+        assert!(super::replace_image(&dir.join("busy.png"), b"new").is_err());
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(left.len(), 2, "{left:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// image writes lossless WebP (VP8L); anything else is not taken for one.
     #[test]
     fn tells_lossless_webp() {

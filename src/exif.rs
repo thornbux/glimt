@@ -278,15 +278,7 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
             data.splice(at..at, app1);
         }
     }
-    let tmp = crate::save::tmp_path(path);
-    std::fs::write(&tmp, &data).map_err(|e| e.to_string())?;
-    if let Ok(meta) = std::fs::metadata(path) {
-        let _ = std::fs::set_permissions(&tmp, meta.permissions());
-    }
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    crate::save::replace_image(path, &data)
 }
 
 /// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
