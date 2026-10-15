@@ -17,6 +17,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Marks and stars set in two windows at nearly the same moment: neither change is lost.
 - A PNG or WebP whose EXIF Glimt cannot read can be saved turned: the EXIF is kept as it is,
   instead of the save being refused.
+- A PNG or WebP saved turned leaves out its EXIF thumbnail, which other programs showed the old
+  way up.
 
 ## [0.22.1] - 2026-10-15
 
