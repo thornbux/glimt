@@ -144,7 +144,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 gh attestation verify glimt_0.20.0_amd64.deb -R thornbux/glimt
 ```
 
-For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs.
+For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs, and `sqlite3`
+reads Lightroom catalogs. The `.deb` and `.rpm` recommend all three.
 
 ## Getting started
 
@@ -256,7 +257,7 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
-The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity and gio on the host
+The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity, gio and sqlite3 on the host
 through `flatpak-spawn --host`, so those must be installed there. The thumbnail cache is the
 host's. Settings live in `~/.var/app/io.github.thornbux.Glimt`. Remote control works between
 Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.

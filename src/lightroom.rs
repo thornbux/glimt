@@ -55,15 +55,26 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         .arg(file)
         .arg(QUERY)
         .output()
-        .map_err(|e| format!("Reading a Lightroom catalog needs the sqlite3 program: {e}"))?;
+        .map_err(|e| format!("{NEEDS}: {e}"))?;
     if !out.status.success() {
         let why = String::from_utf8_lossy(&out.stderr);
+        if missing(out.status.code(), &why) {
+            return Err(format!("{NEEDS}, which is not installed"));
+        }
         return Err(format!(
             "Not a Lightroom Classic catalog Glimt can read: {}",
             why.trim()
         ));
     }
     Ok(parse(&out.stdout))
+}
+
+const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
+
+/// Whether sqlite3 is not there: in a Flatpak, flatpak-spawn starts but cannot run it on the
+/// host, and a shell says 127.
+fn missing(code: Option<i32>, stderr: &str) -> bool {
+    code == Some(127) || stderr.contains("Failed to execute child process")
 }
 
 fn parse(text: &[u8]) -> Catalog {
@@ -222,6 +233,16 @@ mod tests {
         keywords.sort();
         assert_eq!(keywords, ["Places", "Places|Oslo"]);
         assert_eq!(c.stars(&now), [(a, 4)]);
+    }
+
+    /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.
+    #[test]
+    fn tells_sqlite3_missing() {
+        let spawn = "Portal call failed: Failed to start command: Failed to execute child \
+                     process \u{201c}sqlite3\u{201d} (No such file or directory)";
+        assert!(super::missing(Some(255), spawn));
+        assert!(super::missing(Some(127), ""));
+        assert!(!super::missing(Some(1), "Error: file is not a database"));
     }
 
     /// sqlite3 output broken in thousands of ways: read without a panic or an endless loop.

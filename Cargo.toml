@@ -61,7 +61,7 @@ its thumbnails with the file manager."""
 # 20.04 and Debian 10.
 depends = "libc6 (>= 2.28), libegl1, libgl1, libxkbcommon0, libxkbcommon-x11-0"
 license-file = ["LICENSE", "0"]
-recommends = "ffmpeg, zenity, libglib2.0-bin"
+recommends = "ffmpeg, zenity, libglib2.0-bin, sqlite3"
 assets = [
     ["target/release/glimt", "usr/bin/", "755"],
     ["assets/glimt.desktop", "usr/share/applications/", "644"],
@@ -97,3 +97,5 @@ assets = [
 [package.metadata.generate-rpm.recommends]
 "/usr/bin/ffmpeg" = "*"
 zenity = "*"
+# For Import Lightroom Catalog; Fedora's package is sqlite.
+"/usr/bin/sqlite3" = "*"

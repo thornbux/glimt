@@ -5,10 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- / puts the cursor in the file name search (Go → Search File Names), and shows the field if it
+  was hidden.
+
+### Changed
+
+- The `.deb` and `.rpm` recommend `sqlite3`, which Import Lightroom Catalog needs.
+- New screenshots in the README, made by `tools/screenshots/run.sh` from generated pictures.
+
 ### Fixed
 
 - Counts of one are singular: "1 image", "1 collection", "1 page sent", "1 image has other
   stars", where Glimt said "1 images" in the status bar, dialogs and messages.
+- In the Flatpak, Import Lightroom Catalog without sqlite3 on the host said the catalog could
+  not be read; it now says that sqlite3 is missing.
 
 ## [0.20.0] - 2026-10-15
 
