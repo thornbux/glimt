@@ -3955,6 +3955,11 @@ impl App {
             use std::os::unix::fs::MetadataExt;
             (m.len(), m.mtime())
         });
+        // Bounded: scrolling through a folder of 500,000 would keep some 50 MB. Only the rows on
+        // screen are read again.
+        if self.details.len() >= 20_000 {
+            self.details.clear();
+        }
         self.details.insert(self.files[i].clone(), d);
         d
     }
