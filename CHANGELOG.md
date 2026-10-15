@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- / puts the cursor in the file name search (Go → Search File Names), and shows the field if it
+  was hidden.
+
 ## [0.20.0] - 2026-10-15
 
 ### Added

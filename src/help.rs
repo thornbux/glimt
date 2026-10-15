@@ -114,7 +114,8 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Finding and sorting",
-        "Type three or more letters in the search field above the file list: the list shows the \
+        "Type three or more letters in the search field above the file list (/ puts the cursor \
+         there, and shows the field if it was hidden): the list shows the \
          matching names, best first, ignoring case and gaps (like fzf). Start with exif: to \
          search the EXIF, keywords and comments instead, for example exif:canon 2024:05 for \
          photos from a Canon camera taken in May 2024; every word must match. Start with re: for \

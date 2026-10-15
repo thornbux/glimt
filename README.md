@@ -202,7 +202,7 @@ folder" in Preferences). The keys are Geeqie's; these are the ones used most:
 | Delete, Shift+Delete | To the trash, delete for good (both ask first) |
 | Ctrl+O, F1 | Preferences, the help (with every key and a keyboard map) |
 
-Type in the field above the file list to search the names; `exif:` searches the EXIF,
+Type in the field above the file list (or press `/`) to search the names; `exif:` searches the EXIF,
 keywords and comments.
 
 ## Building
