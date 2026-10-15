@@ -1,0 +1,5 @@
+[Glimt Decoder]
+Name=Microscopy (Bio-Formats)
+Comment=Microscope files through Bio-Formats, as Fiji reads them: Zeiss, Leica, Nikon, Olympus and more
+Extensions=czi;lif;nd2;oib;oif;oir;ics;ids;vsi;zvi;dv;r3d;ims;sld;lei;obf;msr
+Exec=glimt-bioformats %f

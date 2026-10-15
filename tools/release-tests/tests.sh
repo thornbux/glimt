@@ -18,7 +18,14 @@ if [ "$(id -u)" = 0 ]; then
     apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
-        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+        libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
+    # Bio-Formats for its decoder is no Debian package: its release, checked against the hash
+    # it had when added.
+    curl -sfL -o /tmp/bftools.zip \
+        https://downloads.openmicroscopy.org/bio-formats/8.5.0/artifacts/bftools.zip
+    echo "07a3bb1d3de84da3a709655a1008cb2d9b19becc5bad4ae4112633aec9380478  /tmp/bftools.zip" \
+        | sha256sum -c --quiet && (cd /opt && unzip -q /tmp/bftools.zip) \
+        || echo "FAIL installing bftools"
     # tools/screenshots/run.sh (SHOTS=1) needs only this version.
     for v in new $([ -z "$SHOTS" ] && echo old); do
         echo "-- building $v"
@@ -555,6 +562,29 @@ PY
             "$([ $(red science-hdf5-new 760 200) -lt 60 ] && [ $(red science-hdf5-new 760 620) -gt 200 ] && echo yes)" yes
         expect "a pathology slide through OpenSlide" "$(colour science-slide-new 760 412)" red
     else note "old: $(red science-nifti-old 760 120) $(red science-hdf5-old 760 620) $(colour science-slide-old 760 412)"; fi
+done
+as_version new
+
+echo "-- the Bio-Formats decoder: a microscope file (ICS) shown through bftools"
+for v in new old; do
+    as_version $v
+    d=/tmp/bioformats-$v
+    mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # Dark at the top, light at the bottom, 16 bits as a microscope camera writes.
+    convert -size 600x400 gradient:black-white -depth 16 /tmp/gradient.tif
+    /opt/bftools/bfconvert -no-upgrade -overwrite /tmp/gradient.tif $d/a.ics >/dev/null 2>&1
+    config
+    export GLIMT_BFTOOLS=/opt/bftools
+    start $d/a.ics
+    sleep 5
+    shot bioformats-$v
+    quit
+    unset GLIMT_BFTOOLS
+    if [ $v = new ]; then
+        expect "an ICS file through Bio-Formats" \
+            "$([ $(red bioformats-new 760 120) -lt 60 ] && [ $(red bioformats-new 760 700) -gt 190 ] && echo yes)" yes
+    else note "old: $(red bioformats-old 760 700)"; fi
 done
 as_version new
 

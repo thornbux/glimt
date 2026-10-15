@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A Bio-Formats decoder in examples/decoders: microscope files as Fiji reads them (Zeiss .czi,
+  Leica .lif, Nikon .nd2, Olympus .oib/.oir, ICS and more), their first plane scaled to 8 bits,
+  through Bio-Formats' bfconvert.
 - Zeiss .lsm microscopy and .gel gel scans, which are TIFF files under other names: listed and
   shown, their first page.
 - Decoder plugins for medicine and research in examples/decoders: NIfTI brain scans (the middle

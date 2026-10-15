@@ -461,6 +461,7 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | `science.desktop` | FITS (`.fits`, `.fit`, `.fts`), DICOM (`.dcm`), OpenEXR (`.exr`) | astronomy, medical imaging, graphics | ImageMagick (`convert`; `magick` for version 7) |
 | `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
 | `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
+| `bioformats.desktop` | Microscope files through Bio-Formats, as Fiji reads them: Zeiss `.czi`, Leica `.lif`, Nikon `.nd2`, Olympus `.oib`/`.oir`, ICS and more; the first plane | microscopy, cell biology | Java and Bio-Formats' bftools (`bfconvert`, or `GLIMT_BFTOOLS` set to its folder) |
 | `hdf5.desktop` | HDF5 and NetCDF-4 (`.h5`, `.hdf5`, `.he5`, `.nc`): the first dataset of two or more dimensions | climate, physics, satellites, microscopy | python3-h5py |
 
 ```sh
