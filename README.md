@@ -359,6 +359,61 @@ Ollama listens on `127.0.0.1:11434` without a password: another user on the same
 use the model too, though not see your images. With a model on the internet instead, every
 image you describe leaves your computer; the example refuses such an address on purpose.
 
+### Try it
+
+Each step works on its own and changes none of your own files; use a copy of a few pictures.
+
+```sh
+mkdir -p ~/glimt-test && cp ~/Pictures/*.jpg ~/glimt-test/ 2>/dev/null   # or any few images
+glimt ~/glimt-test &
+```
+
+1. **The remote commands.** Ctrl+click two images in the list, then:
+
+   ```sh
+   glimt --remote current | tr '\0' '\n'      # the image shown
+   glimt --remote selection | tr '\0' '\n'    # the two selected
+   glimt --remote select ~/glimt-test/*.jpg /nowhere/x.jpg | tr '\0' '\n'
+   ```
+
+   The last one selects every picture of the folder and prints `/nowhere/x.jpg`, the one
+   that is not in the list. (`tr` only makes the NUL bytes readable here; a script reads them
+   with `xargs -0`.)
+
+2. **A name with a line break stays one name.**
+
+   ```sh
+   cp ~/glimt-test/"$(ls ~/glimt-test | head -1)" ~/glimt-test/"$(printf 'two\nlines.jpg')"
+   ```
+
+   Show it with `glimt --remote select ~/glimt-test/two*`, then
+   `glimt --remote current | xargs -0 ls -l` lists that one file, not two.
+
+3. **The plugin, without a model.** `examples/test-model.py` stands in for a model and answers
+   every image with the same text, including words a hostile picture could make a model say:
+
+   ```sh
+   cp examples/plugins/* ~/.local/share/glimt/plugins/
+   python3 examples/test-model.py &
+   glimt --remote quit                                  # the plugin gets Glimt's environment:
+   GLIMT_AI_URL=http://127.0.0.1:11435 glimt ~/glimt-test &   # start it with the test address
+   ```
+
+   Select an image, then Edit → Plugins → Describe with a Local AI. The EXIF panel (Ctrl+K)
+   shows the comment: one line, `<b>` as text, and nothing deleted. Run it again: the comment
+   is kept, not replaced. Try `GLIMT_AI_URL=http://example.com` too: the plugin refuses.
+
+4. **A real model.** `ollama pull moondream` (1.7 GB, quick on a laptop) or `llava` (4 GB, better
+   descriptions), then start Glimt with `GLIMT_AI_MODEL=moondream` and use the plugin as above.
+   An image with a comment already is left out; clear the comment in the EXIF panel to describe
+   it again.
+
+5. **An AI assistant.** Give the assistant you use the remote commands, and nothing that
+   deletes or moves: for example *"Run `glimt --remote selection`, read the paths (they end
+   in NUL bytes), describe each picture, and select the ones with a person in them with
+   `glimt --remote select`."* You look at what it selected, and decide in Glimt what happens
+   to them.
+
 ## Desktop integration
 
 The packages do this themselves. For a build from source, to get Glimt with its icon in the
