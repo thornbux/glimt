@@ -18,11 +18,13 @@ impl Meta {
 
     /// Keywords from text separated by commas, without empty or repeated ones.
     pub fn parse_keywords(text: &str) -> Vec<String> {
-        unique(
-            (text.split(',').map(str::trim))
-                .filter(|k| !k.is_empty())
-                .map(str::to_owned),
-        )
+        let mut out: Vec<String> = Vec::new();
+        for k in text.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+            if !out.iter().any(|o| o == k) {
+                out.push(k.to_owned());
+            }
+        }
+        out
     }
 
     /// Keywords and comment as one line, for searching.
@@ -130,11 +132,13 @@ pub fn add(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _held = held();
     let mut meta = read(path);
     for k in keywords {
-        if !meta.keywords.contains(k) {
+        if !meta.keywords.iter().any(|m| same(m, k)) {
             meta.keywords.push(k.clone());
         }
     }
-    update(path, meta == Meta::default(), |x| set(x, &meta, false))
+    update(path, meta == Meta::default(), |x| {
+        set_keywords(x, &meta, false)
+    })
 }
 
 /// Held while a sidecar is read and written again: keywords are added in the background while
@@ -202,7 +206,7 @@ pub fn follow(from: &Path, to: &Path, copy: bool) {
 
 fn parse(xmp: &str) -> Meta {
     Meta {
-        keywords: unique(items(xmp, "dc:subject")),
+        keywords: items(xmp, "dc:subject"),
         comment: items(xmp, "dc:description")
             .into_iter()
             .next()
@@ -239,6 +243,41 @@ fn items(xmp: &str, tag: &str) -> Vec<String> {
 /// `xmp` with its keywords and comment replaced, in its first rdf:Description; `None` if it has
 /// none.
 /// `xmp` with the keywords and comment of `meta`; empty ones as empty elements with `say_empty`.
+/// `set` for a change of keywords only: a comment the sidecar has stays as it is, in all its
+/// languages; one only inside the image is copied into a new sidecar, which would hide it else.
+fn set_keywords(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
+    let Some(original) = element(xmp, "dc:description") else {
+        return set(xmp, meta, say_empty);
+    };
+    let comment = items(xmp, "dc:description")
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    let keep = Meta {
+        keywords: meta.keywords.clone(),
+        comment,
+    };
+    let new = set(xmp, &keep, say_empty)?;
+    // The description element as it was, every language of it.
+    Some(match element(&new, "dc:description") {
+        Some(made) => new.replacen(&made, &original, 1),
+        None => insert(
+            new,
+            &format!("\n   {original}"),
+            "dc",
+            "http://purl.org/dc/elements/1.1/",
+        )?,
+    })
+}
+
+/// The whole element `tag` in `xmp`, from its start tag to its end tag.
+fn element(xmp: &str, tag: &str) -> Option<String> {
+    let start = xmp.find(&format!("<{tag}"))?;
+    let close = format!("</{tag}>");
+    let end = start + xmp[start..].find(&close)? + close.len();
+    Some(xmp[start..end].to_owned())
+}
+
 fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     let xmp = without(&without(xmp, "dc:subject"), "dc:description");
     let mut add = String::new();
@@ -273,13 +312,16 @@ fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
     let kept: Vec<String> = (unique(paths).into_iter())
         .filter(|p| keywords.iter().any(|k| same(k, leaf(p))))
         .collect();
-    let longer = |name: &str| kept.iter().any(|q| q.contains('|') && same(leaf(q), name));
+    // Lightroom writes the levels above a keyword as keywords too: Places, Norway, Oslo for
+    // Places|Norway|Oslo. They are in that path, not paths of their own.
+    let in_path = |p: &str, name: &str| p.split('|').any(|level| same(level, name));
+    let longer = |name: &str| kept.iter().any(|q| q.contains('|') && in_path(q, name));
     let mut out: Vec<String> = (kept.iter())
         .filter(|p| p.contains('|') || !longer(p))
         .cloned()
         .collect();
     for k in keywords {
-        if !out.iter().any(|p| same(leaf(p), k)) {
+        if !out.iter().any(|p| in_path(p, k)) {
             out.push(k.clone());
         }
     }
@@ -332,7 +374,7 @@ pub fn tag(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     set_tag(&mut meta.keywords, &mut paths, tag, on);
     let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
     update(path, !on && meta == Meta::default() && !own, |x| {
-        set(&with_paths(x.to_owned(), &paths)?, &meta, own)
+        set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own)
     })
 }
 
@@ -495,8 +537,8 @@ mod tests {
         set_tag(&mut keywords, &mut paths, "Places|Norway|Oslo", false);
         assert!(keywords.is_empty() && paths.is_empty());
         assert_eq!(
-            Meta::parse_keywords("Oslo, beach, oslo,, Beach"),
-            ["Oslo", "beach"]
+            Meta::parse_keywords("Oslo, beach, oslo,, beach"),
+            ["Oslo", "beach", "oslo"]
         );
     }
 
@@ -598,6 +640,40 @@ mod tests {
             }
         });
         assert_eq!(read(&path).keywords.len(), 80);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn keeps_what_other_programs_wrote() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Lightroom's levels above a keyword are in its path, also when 0.21.0 wrote one bare.
+        let lr = k(&["Places", "Norway", "Oslo"]);
+        assert_eq!(
+            tree_paths_for(&lr, k(&["Places|Norway|Oslo"])),
+            ["Places|Norway|Oslo"]
+        );
+        assert_eq!(
+            tree_paths_for(&lr, k(&["Places|Norway|Oslo", "Norway"])),
+            ["Places|Norway|Oslo"]
+        );
+        let dir = std::env::temp_dir().join(format!("glimt-test-keep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        std::fs::write(
+            sidecar(&file),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
+   <dc:subject><rdf:Bag><rdf:li>Rose</rdf:li><rdf:li>rose</rdf:li></rdf:Bag></dc:subject>
+   <dc:description><rdf:Alt><rdf:li xml:lang="x-default">Hello</rdf:li><rdf:li xml:lang="de">Hallo</rdf:li></rdf:Alt></dc:description>
+  </rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        // The person and the flower stay two; a tag and an added keyword leave both comments.
+        assert_eq!(read(&file).keywords, ["Rose", "rose"]);
+        tag(&file, "Places|Oslo", true).unwrap();
+        add(&file, &k(&["ROSE"])).unwrap();
+        let x = std::fs::read_to_string(sidecar(&file)).unwrap();
+        assert_eq!(read(&file).keywords, ["Rose", "rose", "Oslo"]);
+        assert!(x.contains(">Hello<") && x.contains(">Hallo<"), "{x}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keywords written by other programs are kept as they are:
+  - Lightroom's levels above a keyword (Places, Norway for Places|Norway|Oslo) no longer
+    become keyword paths of their own when Glimt saves; one written so by 0.21.0 goes again.
+  - Ticking a keyword or adding keywords leaves the comment as it was, in every language.
+  - Keywords that differ only in letter case ("Rose", "rose") are both kept; only a keyword
+    added in another case than one the image has is left out.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
