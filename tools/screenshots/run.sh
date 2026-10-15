@@ -15,5 +15,10 @@ cp tools/release-tests/tests.sh tools/screenshots/shots.sh "$work/"
 docker run --rm --shm-size=1g -e SHOTS=1 -v "$work:/t" \
     -v glimt-target:/work-target -v glimt-cargo:/usr/local/cargo/registry \
     rust:1 bash /t/tests.sh
-cp $(ls "$work"/out/*.png | grep -v "/x-") docs/screenshots/
-echo "screenshots in docs/screenshots: $(ls "$work"/out/*.png | wc -l)"
+n=0
+for f in "$work"/out/*.png; do
+    case ${f##*/} in x-*) continue ;; esac
+    cp "$f" docs/screenshots/
+    n=$((n + 1))
+done
+echo "screenshots in docs/screenshots: $n"
