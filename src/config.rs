@@ -161,17 +161,20 @@ macro_rules! config {
         }
 
         impl Config {
+            /// Set `key` to `value`: None for a key that is no setting, false for a value that
+            /// cannot be read, which keeps the one before.
             // String's parse cannot fail, so its `if let` is irrefutable.
             #[allow(irrefutable_let_patterns)]
-            pub fn set(&mut self, key: &str, value: &str) {
+            pub fn set(&mut self, key: &str, value: &str) -> Option<bool> {
                 match key {
-                    // An invalid value keeps the default.
                     $(stringify!($name) => {
                         if let Ok(v) = value.parse() {
                             self.$name = v;
+                            return Some(true);
                         }
+                        Some(false)
                     })*
-                    _ => {}
+                    _ => None,
                 }
             }
 
@@ -376,12 +379,71 @@ impl Config {
         c
     }
 
+    /// The settings in `text`, and what is wrong in it, line by line: a line that is not
+    /// key=value, a setting that does not exist or is set twice, a value that cannot be read or
+    /// is out of range. Empty lines and lines starting with # are left alone.
+    pub fn check(text: &str) -> (Self, Vec<String>) {
+        let config = Config::parse(text);
+        let used = config.to_text();
+        let used = |key: &str| value_in(&used, key);
+        let lines: Vec<(usize, &str)> = (text.lines().enumerate())
+            .map(|(n, l)| (n + 1, l.trim()))
+            .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        let mut problems = Vec::new();
+        for (k, &(n, line)) in lines.iter().enumerate() {
+            let Some((key, value)) = line.split_once('=') else {
+                problems.push(format!("line {n}: “{line}” is not setting=value"));
+                continue;
+            };
+            let (key, value) = (key.trim(), value.trim());
+            let has_key =
+                |&(_, l): &(usize, &str)| l.split_once('=').map(|(o, _)| o.trim()) == Some(key);
+            let again = lines[..k].iter().any(has_key);
+            let later = lines[k + 1..].iter().any(has_key);
+            let mut alone = Config::default();
+            match alone.set(key, value) {
+                None => problems.push(format!("line {n}: there is no setting {key}")),
+                Some(false) => problems.push(format!(
+                    "line {n}: {key}={value} is not a value it takes; {} is used",
+                    used(key)
+                )),
+                Some(true) if again => {
+                    problems.push(format!("line {n}: {key} is set again; the last is used"));
+                }
+                // Set again later: that one is checked.
+                Some(true) if later => {}
+                Some(true) => {
+                    let wanted = value_in(&alone.to_text(), key);
+                    if wanted != used(key) {
+                        problems.push(format!(
+                            "line {n}: {key}={value} is out of range; {} is used",
+                            used(key)
+                        ));
+                    }
+                }
+            }
+        }
+        (config, problems)
+    }
+
     pub fn load() -> Self {
-        let config = config_path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map_or_else(Config::default, |text| Config::parse(&text));
+        Self::load_checked().0
+    }
+
+    /// The settings, and what is wrong in their file: its lines, or that it cannot be read.
+    pub fn load_checked() -> (Self, Vec<String>) {
+        let read = config_path().map(std::fs::read_to_string);
+        let (config, problems) = match read {
+            Some(Ok(text)) => Self::check(&text),
+            Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => (
+                Config::default(),
+                vec![format!("cannot be read ({e}); the defaults are used")],
+            ),
+            _ => (Config::default(), Vec::new()),
+        };
         *SAVED.lock().unwrap_or_else(|e| e.into_inner()) = config.to_text();
-        config
+        (config, problems)
     }
 
     /// Only the settings this window changed go over the file; the others keep what other
@@ -395,6 +457,22 @@ impl Config {
             *saved = ours;
         }
     }
+}
+
+/// The value of `key` in key=value lines, as `to_text` writes them.
+fn value_in(text: &str, key: &str) -> String {
+    let line = text
+        .lines()
+        .find_map(|l| l.strip_prefix(key)?.strip_prefix('='));
+    line.unwrap_or_default().to_owned()
+}
+
+/// A file Glimt could not save, for the window to tell: from any thread.
+static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The last file Glimt could not save, once.
+pub fn take_save_error() -> Option<String> {
+    SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
 
 /// The settings as this window last read or wrote them.
@@ -458,7 +536,9 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
 pub fn write_atomic(path: &Path, text: &str) {
     if let Err(e) = replace_file(path, text) {
-        eprintln!("could not save {}: {e}", path.display());
+        let error = format!("Could not save {}: {e}", path.display());
+        eprintln!("{error}");
+        *SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
     }
 }
 
@@ -497,6 +577,29 @@ pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    /// The file Glimt writes has nothing wrong; each kind of mistake is told with its line.
+    #[test]
+    fn checks_the_settings_file() {
+        let (_, none) = super::Config::check(&super::Config::default().to_text());
+        assert_eq!(none, Vec::<String>::new());
+        let text = "# note\nthumbnails=ja\nthumbnail=true\nui_scale=500\ndelay=4\ndelay=5\nwords\n\nfit_mode=2\n";
+        let (config, problems) = super::Config::check(text);
+        assert_eq!(
+            problems,
+            [
+                "line 2: thumbnails=ja is not a value it takes; true is used",
+                "line 3: there is no setting thumbnail",
+                "line 4: ui_scale=500 is out of range; 300 is used",
+                "line 6: delay is set again; the last is used",
+                "line 7: “words” is not setting=value",
+            ]
+        );
+        assert_eq!(
+            (config.delay, config.fit_mode, config.ui_scale),
+            (5, 2, 300)
+        );
+    }
+
     /// A backup copy: every file of the tree, at the same place below the new folder.
     #[test]
     fn copies_a_tree() {
