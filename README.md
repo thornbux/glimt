@@ -90,7 +90,7 @@ The images in the screenshots are generated for the purpose.
 - Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
   (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
 - Collections: lists of images from any folders, saved and opened again, in an order you set
-  with Ctrl+Shift+↑ and ↓ for the slideshow. A plain list you write
+  by dragging them in the file list (or Ctrl+Shift+↑ and ↓) for the slideshow. A plain list you write
   yourself (`.txt` or `.m3u`, one image on each line) opens the same way:
   `glimt --slideshow show.txt` plays it in its order.
 - Lightroom Classic catalogs imported: collections, the keyword tree and stars.

@@ -1002,6 +1002,8 @@ struct App {
     check: Option<Option<Check>>,
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken: HashSet<OsString>,
+    /// Images of a collection being dragged in the file list, and the place they would go.
+    dragging: Option<(HashSet<usize>, Option<usize>)>,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
@@ -1448,6 +1450,7 @@ impl App {
             dups: None,
             check: None,
             broken: HashSet::new(),
+            dragging: None,
             whole_shuffle: false,
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
@@ -2039,13 +2042,16 @@ impl App {
     /// selected keep their order among themselves; the shown image and the selection follow.
     // shortcut: the whole list put together again for each move, some milliseconds for 100,000
     // images; move the indices alone if collections that large are moved image by image.
-    fn move_in_collection(&mut self, ctx: &egui::Context, action: Action) {
+    fn move_in_collection(
+        &mut self,
+        ctx: &egui::Context,
+        picked: HashSet<usize>,
+        order: Vec<usize>,
+    ) {
         if self.collection.is_none() {
             self.notice = Some("Only the images of a collection can be moved".into());
             return;
         }
-        let picked: HashSet<usize> = self.targets().into_iter().collect();
-        let order = moved(self.files.len(), &picked, action);
         let shown = self.files.get(self.cur).cloned();
         let names: HashSet<OsString> = picked.iter().map(|&i| self.files[i].clone()).collect();
         let files: Vec<OsString> = order.iter().map(|&i| self.files[i].clone()).collect();
@@ -6103,7 +6109,9 @@ impl App {
             }
             Action::TrashCollection => self.trash_collection(ctx),
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
-                self.move_in_collection(ctx, action)
+                let picked: HashSet<usize> = self.targets().into_iter().collect();
+                let order = moved(self.files.len(), &picked, action);
+                self.move_in_collection(ctx, picked, order)
             }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
             Action::CheckImages => drop(self.check.get_or_insert(None)),
@@ -8323,6 +8331,23 @@ impl App {
                 self.trim_thumbs(rows);
             }
             let mut line = egui::Rect::NOTHING;
+            let pointer = ctx.input(|i| i.pointer.interact_pos());
+            if let Some((_, to)) = &mut self.dragging {
+                *to = None;
+                // Near the top or bottom edge, the list scrolls on.
+                let clip = ui.clip_rect();
+                match pointer {
+                    Some(p) if p.y < clip.top() + row_h / 2.0 => {
+                        ui.scroll_with_delta(egui::vec2(0.0, 10.0))
+                    }
+                    Some(p) if p.y > clip.bottom() - row_h / 2.0 => {
+                        ui.scroll_with_delta(egui::vec2(0.0, -10.0))
+                    }
+                    _ => {}
+                }
+                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                ctx.request_repaint();
+            }
             for (k, i) in shown.into_iter().enumerate() {
                 let marked = i == self.cur || self.selected.contains(&i);
                 let row = if icons {
@@ -8349,8 +8374,62 @@ impl App {
                     *go_to = Some(i);
                 }
                 row.context_menu(|ui| self.file_menu(ui, list_act));
+                if self.collection.is_some() {
+                    self.drag_row(ui, &row, i, icons, pointer);
+                }
+            }
+            // Dropped: the dragged images before the row the line was at.
+            if ctx.input(|i| i.pointer.any_released())
+                && let Some((picked, Some(to))) = self.dragging.take()
+            {
+                let order = dropped(self.files.len(), &picked, to);
+                self.move_in_collection(ctx, picked, order);
+            } else if !ctx.input(|i| i.pointer.any_down()) {
+                self.dragging = None;
             }
         });
+    }
+
+    /// Row `i` of a collection dragged to another place: the selection when it is in it, else
+    /// the row; a line in the accent colour shows where the images go.
+    fn drag_row(
+        &mut self,
+        ui: &egui::Ui,
+        row: &egui::Response,
+        i: usize,
+        icons: bool,
+        pointer: Option<egui::Pos2>,
+    ) {
+        let row = row.interact(egui::Sense::drag());
+        if row.drag_started() {
+            let picked = if self.selected.contains(&i) {
+                self.selected.iter().copied().collect()
+            } else {
+                HashSet::from([i])
+            };
+            self.dragging = Some((picked, None));
+        }
+        let Some((_, to)) = &mut self.dragging else {
+            return;
+        };
+        let r = row.rect.expand(ui.spacing().item_spacing.y / 2.0);
+        let Some(p) = pointer.filter(|p| r.contains(*p)) else {
+            return;
+        };
+        let accent = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+        let before = if icons {
+            p.x < r.center().x
+        } else {
+            p.y < r.center().y
+        };
+        *to = Some(i + !before as usize);
+        let p = ui.painter();
+        let _ = match (icons, before) {
+            (true, true) => p.vline(r.left(), r.y_range(), accent),
+            (true, false) => p.vline(r.right(), r.y_range(), accent),
+            (false, true) => p.hline(r.x_range(), r.top(), accent),
+            (false, false) => p.hline(r.x_range(), r.bottom(), accent),
+        };
     }
 
     /// A click on row `i`: Ctrl and Shift change the selection, a plain click gives the image to
@@ -9252,6 +9331,15 @@ fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
     order
 }
 
+/// The new order of a list of `n` after the `picked` places are dragged before place `to` (`n`:
+/// to the end), among themselves in the order they had.
+fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize> {
+    let (first, mut rest): (Vec<usize>, Vec<usize>) = (0..n).partition(|i| picked.contains(i));
+    let at = rest.iter().take_while(|&&i| i < to).count();
+    rest.splice(at..at, first);
+    rest
+}
+
 /// `template` (see OSD_TEMPLATE) with each `%field%` replaced by `value(field)`.
 fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     let lines = template.split("\\n").filter_map(|line| {
@@ -9295,6 +9383,12 @@ mod tests {
         // At the edge already: where it was.
         assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
         assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
+        // Dragged before 4, before 0, to the end, and onto a place of their own.
+        use super::dropped;
+        assert_eq!(dropped(6, &picked, 4), [0, 3, 1, 2, 5, 4]);
+        assert_eq!(dropped(6, &picked, 0), [1, 2, 5, 0, 3, 4]);
+        assert_eq!(dropped(6, &picked, 6), [0, 3, 4, 1, 2, 5]);
+        assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
     }
 
     /// CPU use: thumbnails and background threads for each level.

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- In a collection, images are dragged in the file list to another place, a line showing where they
+  go; the list scrolls at its edges.
 - View → Filter shows images and thumbnails in greyscale, inverted or with more contrast, for low
   vision; Shift+G goes to the next filter.
 - A Read Aloud plugin in examples/plugins: the alt text of the selected images, or their comment,

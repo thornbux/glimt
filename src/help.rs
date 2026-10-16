@@ -224,6 +224,7 @@ const MANUAL: &[(&str, &str)] = &[
          right-click menu) adds to one, and File → Collections or O opens one: the file list \
          then shows its images, which browse, sort and play as a slideshow like a folder. \
          Delete takes the shown or selected images out of the collection, leaving the files; \
+         drag them in the file list to another place (a line shows where they go), or \
          Ctrl+Shift+↑ and ↓ move them one place earlier or later, Ctrl+Shift+Home and End to \
          the start or end (File → Move in Collection), and the slideshow plays that order; \
          renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
@@ -411,7 +412,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Order of a collection",
-        "Ctrl+Shift+↑, ↓, Home and End move the selected images in it, saved at once",
+        "Drag and drop in the file list, or Ctrl+Shift+↑, ↓, Home and End; saved at once",
         "Drag and drop in the collection window",
     ),
     (

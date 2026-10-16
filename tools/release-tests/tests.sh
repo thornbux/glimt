@@ -839,6 +839,31 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a collection put in order by dragging: a, the first row, dropped below c"
+for v in new old; do
+    as_version $v
+    d=/tmp/drag-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    sleep 2
+    # Rows at 337, 419 and 501; the lower half of c's row is after it.
+    for y in 345 340 337; do xdotool mousemove 100 $y; sleep 0.2; done
+    xdotool mousedown 1 2>/dev/null
+    for y in $(seq 345 10 525); do xdotool mousemove 100 $y; sleep 0.05; done
+    sleep 0.5
+    shot drag-line-$v
+    xdotool mouseup 1 2>/dev/null
+    sleep 1
+    quit
+    order=$(grep -o '[abc]\.jpg' $d/show.gqv | tr '\n' ' ')
+    if [ $v = new ]; then expect "the collection's new order, saved" "$order" "b.jpg c.jpg a.jpg "
+    else note "old: $order"; fi
+done
+as_version new
+
 echo "-- Check Images: a photo cut off in copying and a file that is no picture found and marked"
 for v in new old; do
     as_version $v
