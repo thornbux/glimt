@@ -266,9 +266,22 @@ fn style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &The
     widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
 }
 
-/// The desktop's dark style and accent colour, from the XDG desktop portal; `None` where it says
-/// nothing. Runs `gdbus`, so it belongs in a background thread.
-pub fn desktop() -> (Option<bool>, Option<egui::Color32>) {
+/// What the desktop asks of the look, from the XDG desktop portal.
+#[derive(Clone, Copy, Default)]
+pub struct Desktop {
+    /// Dark or light; `None` for no preference.
+    pub dark: Option<bool>,
+    pub accent: Option<egui::Color32>,
+    /// High contrast, as GNOME's and KDE's accessibility settings set it.
+    pub high_contrast: bool,
+}
+
+/// The theme for those who ask the desktop for high contrast.
+pub const HIGH_CONTRAST: &str = "High Contrast";
+
+/// The desktop's dark style, accent colour and contrast, from the XDG desktop portal; `None`
+/// and false where it says nothing. Runs `gdbus`, so it belongs in a background thread.
+pub fn desktop() -> Desktop {
     let read = |key: &str| {
         crate::external::command("gdbus")
             .args([
@@ -289,10 +302,18 @@ pub fn desktop() -> (Option<bool>, Option<egui::Color32>) {
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
             .unwrap_or_default()
     };
-    (
-        parse_scheme(&read("color-scheme")),
-        parse_accent(&read("accent-color")),
-    )
+    Desktop {
+        dark: parse_scheme(&read("color-scheme")),
+        accent: parse_accent(&read("accent-color")),
+        high_contrast: parse_contrast(&read("contrast")),
+    }
+}
+
+/// "(<uint32 1>,)": 1 is high contrast, 0 none.
+fn parse_contrast(text: &str) -> bool {
+    text.split("uint32 ")
+        .nth(1)
+        .is_some_and(|n| n.starts_with('1'))
 }
 
 /// "(<uint32 1>,)": 1 is dark, 2 light, 0 no preference.
@@ -325,6 +346,8 @@ mod tests {
         assert_eq!(super::parse_scheme("(<uint32 1>,)\n"), Some(true));
         assert_eq!(super::parse_scheme("(<uint32 0>,)\n"), None);
         assert_eq!(super::parse_scheme(""), None);
+        assert!(super::parse_contrast("(<uint32 1>,)\n"));
+        assert!(!super::parse_contrast("(<uint32 0>,)\n") && !super::parse_contrast(""));
         let orange = super::parse_accent("(<(0.92941176891326904, 0.35686275362968445, 0.0)>,)\n");
         assert_eq!(orange, Some(eframe::egui::Color32::from_rgb(237, 91, 0)));
         // KDE and GNOME without an accent give a colour out of range.

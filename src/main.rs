@@ -822,8 +822,8 @@ struct App {
     /// talks to.
     has_focus: bool,
     /// The desktop's dark style and accent colour, once read from the portal.
-    desktop_look: (Option<bool>, Option<egui::Color32>),
-    desktop_rx: Option<mpsc::Receiver<(Option<bool>, Option<egui::Color32>)>>,
+    desktop_look: theme::Desktop,
+    desktop_rx: Option<mpsc::Receiver<theme::Desktop>>,
     /// The desktop's screen profile file, once read from colord.
     desktop_screen: Option<String>,
     desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
@@ -1431,7 +1431,7 @@ impl App {
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
-            desktop_look: (None, None),
+            desktop_look: Default::default(),
             desktop_rx: Some(desktop_rx),
             desktop_screen: None,
             desktop_screen_rx: (config.desktop_profile).then(|| read_desktop_screen(&cc.egui_ctx)),
@@ -5273,10 +5273,15 @@ impl App {
 
     // ---- Settings and the menus that change them ----
 
-    /// The chosen theme, read from its file again, with the desktop's look where it sets none.
+    /// The chosen theme, read from its file again, with the desktop's look where it sets none;
+    /// High Contrast while the desktop asks for it, unless that is turned off.
     fn apply_theme(&self, ctx: &egui::Context) {
-        let (dark, accent) = self.desktop_look;
-        theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
+        let look = self.desktop_look;
+        let name = match look.high_contrast && self.config.follow_contrast {
+            true => theme::HIGH_CONTRAST,
+            false => &self.config.theme,
+        };
+        theme::apply(ctx, &theme::load(name), look.dark, look.accent);
     }
 
     /// View → Theme: the themes to choose from, then where to make and find more.
@@ -6768,6 +6773,14 @@ impl App {
                         }
                     });
                     ui.horizontal(|ui| self.theme_buttons(ui));
+                    let follow = "High Contrast when the desktop asks for high contrast";
+                    if ui
+                        .checkbox(&mut self.config.follow_contrast, follow)
+                        .changed()
+                    {
+                        changed = true;
+                        self.apply_theme(ui.ctx());
+                    }
                     ui.separator();
                     self.memory_settings(ui);
                     self.cpu_settings(ui);

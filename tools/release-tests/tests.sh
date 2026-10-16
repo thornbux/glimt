@@ -765,6 +765,36 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the desktop asks for high contrast: Glimt takes its High Contrast theme, unless turned off"
+d=/tmp/contrast
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+# The portal's answer for contrast; for the rest nothing, as a desktop without it.
+cat >/tmp/stub/gdbus <<'STUB'
+#!/bin/sh
+case "$*" in
+*contrast*) echo "(<uint32 1>,)" ;;
+*) exit 1 ;;
+esac
+STUB
+chmod +x /tmp/stub/gdbus
+for v in new old; do
+    as_version $v
+    for follow in true false; do
+        config "follow_contrast=$follow"
+        start $d
+        sleep 3
+        shot contrast-$v-$follow
+        quit
+    done
+done
+rm /tmp/stub/gdbus
+as_version new
+# The empty part of the file list: black in High Contrast, grey in the Dark theme.
+expect "High Contrast while the desktop asks for it" "$(red contrast-new-true 120 700)" 0
+differ "the chosen theme when that is turned off" "$(red contrast-new-false 120 700)" 0
+note "old: $(red contrast-old-true 120 700)"
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

@@ -277,6 +277,8 @@ config! {
     path_bar: bool = true,
     /// Restore the window's size, position and maximized state at startup.
     remember_window: bool = true,
+    // The High Contrast theme while the desktop asks for high contrast (GNOME, KDE).
+    follow_contrast: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
     /// Window title "Glimt - image name" instead of "image name - Glimt".

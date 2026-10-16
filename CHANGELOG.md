@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Glimt takes its High Contrast theme while the desktop asks for high contrast (GNOME's and KDE's
+  accessibility settings, through the XDG desktop portal), whatever theme is chosen; a box in
+  Preferences turns that off.
+
 ## [0.25.1] - 2026-10-16
 
 ### Added

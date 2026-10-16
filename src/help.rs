@@ -257,7 +257,9 @@ const MANUAL: &[(&str, &str)] = &[
          larger text. Themes are small text files: Save as Theme… writes the look shown as one to \
          edit, Open Themes Folder shows where they go (~/.config/glimt/themes), and Get More \
          Themes… opens the collection on GitHub. Without an accent colour of its own, a theme \
-         takes the desktop's.",
+         takes the desktop's. When the desktop asks for high contrast (GNOME's and KDE's \
+         accessibility settings), Glimt shows High Contrast whatever theme is chosen; a box in \
+         Preferences turns that off.",
     ),
     (
         "Layouts",
