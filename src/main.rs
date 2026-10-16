@@ -6716,7 +6716,7 @@ impl App {
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Print if !self.files.is_empty() => self.open_print(ctx),
-            Action::SaveFrame if !self.files.is_empty() => {
+            Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
                 self.pick(ctx, false, Pick::SaveFrame(self.path(self.cur), k));
             }
@@ -7283,8 +7283,10 @@ impl App {
                     #[cfg(feature = "video")]
                     menu_item(ui, act, Action::Play);
                     menu_item(ui, act, Action::Print);
-                    menu_item(ui, act, Action::SaveFrame);
+                    // Only for a file of several frames or pages: the menu stays as it was
+                    // for every other one.
                     if self.frame_count() > 1 {
+                        menu_item(ui, act, Action::SaveFrame);
                         menu_item(ui, act, Action::ExportFrames);
                     }
                     ui.separator();
