@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""A Glimt plugin: reads the selected images aloud, one after the other, without a screen
+reader: the IPTC alt text from each image's XMP sidecar (<image>.xmp), or else its comment, or
+else its file name. Run it from Edit → Plugins.
+
+Speaks through speech-dispatcher (spd-say), which GNOME and KDE have; reads the sidecar with
+exiftool. Nothing leaves the computer.
+
+Needs: spd-say (speech-dispatcher) and exiftool. GLIMT_SPEAK_LANGUAGE sets the language (en, nb …).
+"""
+
+import os
+import subprocess
+import sys
+
+FIELDS = ["XMP-iptcCore:AltTextAccessibility", "XMP-dc:Description"]
+
+
+def text_of(path):
+    """What to say for the image at `path`."""
+    sidecar = path + ".xmp"
+    for source in (sidecar, path):
+        if not os.path.exists(source):
+            continue
+        for field in FIELDS:
+            out = subprocess.run(["exiftool", "-s3", f"-{field}", source], capture_output=True, text=True)
+            text = " ".join(out.stdout.split())
+            if text:
+                return text
+    return os.path.basename(path)
+
+
+def main(paths):
+    language = os.environ.get("GLIMT_SPEAK_LANGUAGE")
+    for path in paths:
+        # -w waits until it is said, so the next comes after; the text is one argument of its own.
+        command = ["spd-say", "-w"] + (["-l", language] if language else []) + ["--", text_of(os.path.abspath(path))]
+        if subprocess.run(command).returncode != 0:
+            sys.exit("spd-say (speech-dispatcher) could not speak")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

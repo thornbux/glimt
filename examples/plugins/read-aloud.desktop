@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Read Aloud
+Comment=Reads the alt text of the selected images aloud, or their comment, or their name
+Exec=glimt-read-aloud %F

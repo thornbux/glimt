@@ -180,7 +180,8 @@ const MANUAL: &[(&str, &str)] = &[
          found there. New plugins show after a restart. The files are given to the program \
          directly, never through a shell; examples/plugins in Glimt's source has one that \
          writes a description of each image as its comment and alt text, made by a model on \
-         this computer.",
+         this computer, and one that reads the alt text of the selected images aloud \
+         (speech-dispatcher), without a screen reader.",
     ),
     (
         "Formats",

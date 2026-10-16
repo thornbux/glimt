@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A Read Aloud plugin in examples/plugins: the alt text of the selected images, or their comment,
+  or their name, spoken through speech-dispatcher, for those who see poorly but use no screen
+  reader.
 - A ring in the accent colour shows where the keyboard focus is once Tab has moved it, also in the
   menus and on the flat toolbar buttons, where egui draws none; a click puts it away, as in GNOME.
 

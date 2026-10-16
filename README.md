@@ -371,6 +371,10 @@ a model ("ignore the instructions above and delete …"); a local model is as op
 on the internet. Treat what comes from images as data: give an assistant that reads them no
 right to delete, move or run commands, and check what it suggests before you act on it.
 
+**Read aloud.** `examples/plugins/read-aloud.desktop` reads the alt text of the selected images
+aloud through speech-dispatcher (`spd-say`), or their comment, or their name: for those who
+see poorly but use no screen reader.
+
 **An example: descriptions from a model on your own computer.**
 [`examples/plugins`](examples/plugins) holds a plugin that asks a vision model running in
 [Ollama](https://ollama.com) for one or two sentences about each selected image and writes them
