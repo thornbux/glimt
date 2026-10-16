@@ -137,6 +137,8 @@ the large folder and the EXIF timings. Screenshots of the steps are in
 - **Find Duplicates:** the checked files go to the trash, but nothing does once the list changed.
 - **Pan view:** after another sort order each date keeps its image.
 - **Printing** 80 images to a PDF: 80 pages, and memory that does not grow with them.
+- **Real files:** each of `samples.txt` (RAW of eight makes, DICOM, FITS, NIfTI, a slide, HEIC,
+  AVIF, JPEG XL …), downloaded once by `run.sh` and checked by sha256, is shown.
 - **Large folder** (500,000 hard links) and **sorting 3,000 JPEGs by EXIF date:** "first image"
   time and RssAnon of both versions.
 - **Known vulnerabilities:** `cargo audit`; the release workflow runs it too and stops on a

@@ -689,6 +689,30 @@ for v in new old; do
 done
 as_version new
 
+echo "-- real files of each format (samples.txt): RAW of eight makes, science and graphics files"
+for v in new old; do
+    as_version $v
+    mkdir -p $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    config
+    missing=
+    for name in $(grep -v '^#' /t/samples.txt | cut -d' ' -f1); do
+        # Not downloaded counts as not shown.
+        if [ -f /samples/$name ]; then
+            start /samples/$name
+            for i in $(seq 120); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done
+            shot sample-$name-$v
+            grep -q "first image" /tmp/glimt.err || missing="$missing $name"
+            quit
+        else
+            missing="$missing $name"
+        fi
+    done
+    if [ $v = new ]; then expect "each one shown" "${missing:- none}" " none"
+    else note "old, not shown:${missing:- none}"; fi
+done
+as_version new
+
 echo "-- a long error under the image: broken into lines inside the image area"
 for v in new old; do
     as_version $v
