@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-16
+
 ### Added
 
 - File → Check Images… opens every image of the list in the background, as the viewer would, and
@@ -833,7 +835,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.25.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/thornbux/glimt/compare/v0.25.1...v0.26.0
 [0.25.1]: https://github.com/thornbux/glimt/compare/v0.25.0...v0.25.1
 [0.25.0]: https://github.com/thornbux/glimt/compare/v0.24.2...v0.25.0
 [0.24.2]: https://github.com/thornbux/glimt/compare/v0.24.1...v0.24.2
