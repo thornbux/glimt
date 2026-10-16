@@ -13,6 +13,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the main window (Window → Show the Pointer on the Projector). F or a double-click makes it
   full screen on the screen it was dragged to; its arrow and slideshow keys work too. Nothing
   is decoded twice: both windows show the same textures.
+- Zoom modes as ImageGlass has them: H fits the width and W the height, as Geeqie's keys, and
+  View → Zoom → Fill the View fills the window, cut at the sides. They stay for the next images
+  until X fits whole images again, and are remembered; a zoomed image is decoded sharp enough.
+- Frames of animations: Ctrl+Page Down and Up stop a GIF, WebP or APNG at the next or previous
+  frame (the status bar says which), and A plays on; for a TIFF they go through its pages as
+  before. File → Save This Frame… saves the frame or page shown as a PNG, and Export Frames…
+  every one, at full size, into a new folder (never over a file).
+- Animated PNG (APNG) plays, as animated GIF and WebP do; it showed only its first frame.
+- Selecting with a rectangle in the grid of icons (Ctrl+I), as Geeqie and file managers do: drag
+  over the images, which are selected as the rectangle touches them, added to the selection
+  with Ctrl or Shift. A click still opens an image; the grid scrolls at its edges; in a
+  collection the rectangle starts between the images, as dragging one moves it.
 
 ## [0.28.0] - 2026-10-16
 

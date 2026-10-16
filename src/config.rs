@@ -248,6 +248,9 @@ config! {
     webp_quality: u8 = 90,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
+    /// How an image that is not zoomed fills the view: 0 whole, 1 the width, 2 the height,
+    /// 3 the whole view (cut at the sides). FITS.
+    fit_mode: u8 = 0,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
     wheel_zoom: bool = true,
     /// Thumbnails in the file list (T).
@@ -358,6 +361,7 @@ impl Config {
         c.decode_threads = c.decode_threads.clamp(1, 8);
         c.cpu_use = c.cpu_use.min(CPU_LEVELS.len() - 1);
         c.fade = c.fade.min(FADES.len() - 1);
+        c.fit_mode = c.fit_mode.min(3);
         if !print::PER_PAGE.iter().any(|p| p.0 == c.print_per_page) {
             c.print_per_page = 1;
         }

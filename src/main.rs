@@ -335,6 +335,9 @@ const KIOSK_ACTIONS: &[Action] = &[
     Action::ZoomOut,
     Action::Zoom1To1,
     Action::ZoomFit,
+    Action::FitWidth,
+    Action::FitHeight,
+    Action::FitFill,
     Action::Overlay,
     Action::Histogram,
     Action::HistogramLog,
@@ -379,6 +382,18 @@ struct View {
     pan: egui::Vec2,
     zoomed: bool,
     pointer: Option<egui::Vec2>,
+}
+
+/// The scale (screen pixels per image pixel) at which an image of `size` fits `view`, both in
+/// pixels, in fit `mode`: 0 the whole image, 1 its width, 2 its height, 3 filling the view.
+fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
+    let (x, y) = (view.x / size[0], view.y / size[1]);
+    match mode {
+        1 => x,
+        2 => y,
+        3 => x.max(y),
+        _ => x.min(y),
+    }
 }
 
 /// A small map of the panes in the status bar, with the one it tells about filled in.
@@ -2790,7 +2805,7 @@ impl App {
         let (scale, pan) = match zoom {
             Some(z) => (z, self.pan_offset),
             None => {
-                let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
+                let fit = fit_scale(rect.size() * ppp, size.into(), self.config.fit_mode);
                 let fit = if self.config.enlarge {
                     fit
                 } else {
@@ -3078,7 +3093,7 @@ impl App {
         let (turns, mirrored) = self.orient;
         let [w, h] = slot.orig.map(|n| n as f32);
         let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
-        let fit = (area.width() * ppp / uw).min(area.height() * ppp / uh);
+        let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
         let fit = if self.config.enlarge {
             fit
         } else {
@@ -6631,9 +6646,17 @@ impl App {
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
             Action::Zoom1To1 => self.zoom = Some(1.0),
-            Action::ZoomFit => {
+            // Modes that stay for the next images, as ImageGlass's; X goes back to the whole.
+            Action::ZoomFit | Action::FitWidth | Action::FitHeight | Action::FitFill => {
                 self.zoom = None;
                 self.pan_offset = egui::Vec2::ZERO;
+                self.config.fit_mode = match action {
+                    Action::FitWidth => 1,
+                    Action::FitHeight => 2,
+                    Action::FitFill => 3,
+                    _ => 0,
+                };
+                self.config.save();
             }
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
@@ -7233,7 +7256,11 @@ impl App {
                         menu_item(ui, act, Action::ZoomIn);
                         menu_item(ui, act, Action::ZoomOut);
                         menu_item(ui, act, Action::Zoom1To1);
-                        menu_item(ui, act, Action::ZoomFit);
+                        let mode = self.config.fit_mode;
+                        menu_toggle(ui, act, mode == 0, Action::ZoomFit);
+                        menu_toggle(ui, act, mode == 1, Action::FitWidth);
+                        menu_toggle(ui, act, mode == 2, Action::FitHeight);
+                        menu_toggle(ui, act, mode == 3, Action::FitFill);
                     });
                     menu_item(ui, act, Action::FullScreen);
                     menu_item(ui, act, Action::HideTools);
@@ -8793,11 +8820,10 @@ impl App {
                 // Size on screen after a quarter turn.
                 let quarter = self.orient.0 % 2 == 1;
                 let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
+                let mode = self.config.fit_mode;
                 let fit = self.slots.get(&self.cur).map_or(1.0, |s| {
                     let [w, h] = turned(s.orig);
-                    (area.width() * ppp / w as f32)
-                        .min(area.height() * ppp / h as f32)
-                        .min(max_fit)
+                    fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
                 if response.hovered()
                     && !self.dialog_open()
@@ -8830,7 +8856,8 @@ impl App {
                     let needed = (s.orig[0] as f32 * scale).min(s.orig[0] as f32);
                     !s.full && (s.tex.size()[0] as f32) + 1.0 < needed
                 });
-                if too_small && self.zoom.is_none() {
+                // Decoded to the window, which a mode that fills one side more may exceed.
+                if too_small && self.zoom.is_none() && mode == 0 {
                     self.slots.remove(&self.cur);
                     self.request(self.cur, false);
                 } else if too_small {
@@ -9615,6 +9642,14 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The fit modes: a 4:3 image in a 2:1 view, the whole, the width, the height, filled.
+    #[test]
+    fn fits_in_each_mode() {
+        let view = eframe::egui::vec2(200.0, 100.0);
+        let fits = [0, 1, 2, 3].map(|m| super::fit_scale(view, [400.0, 300.0], m));
+        assert_eq!(fits, [1.0 / 3.0, 0.5, 1.0 / 3.0, 0.5]);
+    }
+
     /// Images of a collection moved: each one place, never past another moved one, and to the
     /// start or the end in their own order.
     #[test]
