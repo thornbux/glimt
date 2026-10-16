@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-16
+
 ### Added
 
 - Window → Projector: a second window with only the image, for another screen or a projector,
@@ -904,7 +906,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/thornbux/glimt/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/thornbux/glimt/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/thornbux/glimt/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/thornbux/glimt/compare/v0.25.1...v0.26.0
