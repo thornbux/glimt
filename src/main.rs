@@ -2631,6 +2631,23 @@ impl App {
         Some((t * t * (3.0 - 2.0 * t), tex.clone(), *orig))
     }
 
+    /// What to show while the shown image is decoded, and whether it is its thumbnail: that
+    /// thumbnail when there is one, else the image shown before, so browsing does not flash
+    /// black. Not the image before for a video, whose frame takes ffmpeg a while: another photo
+    /// stood under its play button.
+    fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
+        let name = self.files.get(self.cur)?;
+        if let Some(Some(t)) = self.thumbs.get(name) {
+            return Some((t.clone(), t.size(), true));
+        }
+        if is_video(Path::new(name)) {
+            return None;
+        }
+        self.last_drawn
+            .as_ref()
+            .map(|(t, orig)| (t.clone(), *orig, false))
+    }
+
     /// The image shown next to the current one when comparing: the other of two selected
     /// files, else the next image.
     fn compare_other(&self) -> Option<usize> {
@@ -8718,16 +8735,16 @@ impl App {
                         .paint_at(ui, rect);
                     ui.set_clip_rect(clip);
                     self.last_drawn = Some((slot.tex.clone(), slot.orig));
-                } else if let Some((tex, orig)) = &self.last_drawn
-                    && !self.files.is_empty()
+                } else if let Some((tex, orig, thumb)) = self.placeholder()
                     && !self.errors.contains_key(&self.cur)
                 {
+                    // A thumbnail fills the area, as the image will; the image before keeps
+                    // its size.
                     let size = egui::vec2(orig[0] as f32, orig[1] as f32);
-                    let fit = (area.width() * ppp / size.x)
-                        .min(area.height() * ppp / size.y)
-                        .min(max_fit);
+                    let fit = (area.width() * ppp / size.x).min(area.height() * ppp / size.y);
+                    let fit = if thumb { fit } else { fit.min(max_fit) };
                     let rect = egui::Rect::from_center_size(area.center(), size * fit / ppp);
-                    egui::Image::new(tex).paint_at(ui, rect);
+                    egui::Image::new(&tex).paint_at(ui, rect);
                 } else {
                     let text = if self.files.is_empty() {
                         if self.listing_rx.is_some() {

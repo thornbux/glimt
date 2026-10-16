@@ -11,6 +11,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
   open menu closes 0.4 s after the pointer has left the bar and every open menu and submenu. A
   menu opened from the keyboard stays while the mouse is still.
 
+### Fixed
+
+- Browsing fast onto a video showed the photo before it under the video's play button until
+  ffmpeg had its frame. While an image is decoded, its own thumbnail now stands in for it when
+  there is one; a video without one shows only the play button, a photo the image before.
+- Network folders: the message of a mount that failed stayed under the images after another
+  address was mounted, or another folder opened, so it looked as if the old address was tried
+  again. "Connecting to …" now shows which address is tried, a new folder takes the message
+  away, and a long message wraps on a dark band instead of running off both sides.
+- A server name the system cannot look up made Samba fail with "Invalid argument" after the
+  login; the message now says the name is not found and suggests name.local or the IP address.
+- The fields of the login dialog for a network folder were a few letters wide.
+
 ## [0.27.0] - 2026-10-16
 
 ### Added
