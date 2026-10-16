@@ -839,6 +839,34 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Check Images: a photo cut off in copying and a file that is no picture found and marked"
+for v in new old; do
+    as_version $v
+    d=/tmp/check-images-$v
+    mkdir -p $d
+    convert -size 600x400 gradient:red-blue $d/a_whole.jpg
+    head -c $(( $(stat -c %s $d/a_whole.jpg) * 2 / 3 )) $d/a_whole.jpg >$d/b_cut.jpg
+    echo "not a picture" >$d/c_text.png
+    config
+    start $d
+    sleep 2
+    # File → Check Images…, Check, and the window closed when done to see the list.
+    click 20 10; sleep 1
+    click 66 516; sleep 1
+    click 56 127; sleep 4
+    shot check-window-$v
+    click 554 38; sleep 1
+    shot check-list-$v
+    quit
+    # The warning sign at the right end of a row of the list: orange (red 240), or the row's own
+    # dark grey or selection blue.
+    marked() { [ $(red check-list-$v 214 $1) -gt 200 ] && echo marked || echo -; }
+    got="$(marked 337) $(marked 419) $(marked 501)"
+    if [ $v = new ]; then expect "the cut and the false one marked, the whole one not" "$got" "- marked marked"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

@@ -94,6 +94,8 @@ The images in the screenshots are generated for the purpose.
   `glimt --slideshow show.txt` plays it in its order.
 - Lightroom Classic catalogs imported: collections, the keyword tree and stars.
 - Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
+- Check Images: finds broken files, photos cut off in copying and files that are no image, and
+  marks them in the list.
 - The sort manager: move or copy images to favourite folders with one click.
 - Pan view: every image in the folder as a timeline of thumbnails by day, or as a calendar.
 

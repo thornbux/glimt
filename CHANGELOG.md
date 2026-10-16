@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- File → Check Images… opens every image of the list in the background, as the viewer would, and
+  lists the ones that cannot be: broken files, JPEGs cut off in copying, and files that are no
+  image under an image's name. They are marked in the file list; a click shows one, Select Them
+  selects them all, to move or delete.
 - Images of a collection put in order with keys: Ctrl+Shift+Up and Down move the selected ones (or
   the shown one) a place earlier or later, Ctrl+Shift+Home and End to the start or end (also in
   File → Move in Collection). The order is saved at once, and the slideshow plays it.

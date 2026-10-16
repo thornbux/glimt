@@ -243,6 +243,15 @@ const MANUAL: &[(&str, &str)] = &[
          collections, colour labels and flags are left out.",
     ),
     (
+        "Checking images",
+        "File → Check Images… opens each image of the list in the background, as the viewer \
+         would, and lists those that cannot be: broken files, photos cut off in copying (a JPEG \
+         without its end, which shows grey at the bottom), and files that are no image under an \
+         image's name. They get an orange mark in the file list too, until another folder is \
+         shown. A click on one shows it, Select Them selects them all, to move or delete; Stop \
+         ends a long check. A folder of 100,000 photos takes some minutes.",
+    ),
+    (
         "Finding duplicates",
         "D (File → Find Duplicates) opens a window that compares the images in the list: by \
          checksum (identical files; only files of the same size are read), name, size, \
