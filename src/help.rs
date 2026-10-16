@@ -363,6 +363,13 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     ("Refresh", "F5", "R"),
     (
+        "Remote control",
+        "glimt --remote with next, prev, first, last, slideshow, random, fullscreen, open, quit, \
+         current, selection or select; --remote-all sends it to every window",
+        "The options themselves go to the running Geeqie (geeqie --next, --tell, \
+         --get-selection, --file= …), and there are many more",
+    ),
+    (
         "Shift+G",
         "Goes to the next view filter: greyscale, inverted, more contrast, none",
         "Greyscale on and off",
