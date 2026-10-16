@@ -385,8 +385,11 @@ impl Config {
     }
 
     /// Only the settings this window changed go over the file; the others keep what other
-    /// windows wrote meanwhile.
+    /// windows wrote meanwhile. Locked settings are never written.
     pub fn save(&self) {
+        if locked() {
+            return;
+        }
         if let Some(p) = config_path() {
             let ours = self.to_text();
             let mut saved = SAVED.lock().unwrap_or_else(|e| e.into_inner());
@@ -395,6 +398,20 @@ impl Config {
             *saved = ours;
         }
     }
+}
+
+/// The administrator's lock: while this file is there, every Glimt starts with --lock-settings.
+pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
+
+/// --lock-settings: no Preferences, and nothing written to the settings files.
+static LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn lock() {
+    LOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn locked() -> bool {
+    LOCKED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The settings as this window last read or wrote them.

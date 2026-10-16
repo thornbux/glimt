@@ -73,7 +73,9 @@ const MANUAL: &[(&str, &str)] = &[
          full screen with only the image, browsing and the slideshow but nothing that changes \
          files, and no way out but glimt --remote quit (in a kiosk session such as cage or GNOME \
          Kiosk, the desktop's keys are gone too; see man glimt). glimt --help lists the options and \
-         commands.",
+         commands. glimt --lock-settings, or a file /etc/glimt/lock-settings put there by \
+         the administrator, is for a shared computer: Preferences do not open, and what is \
+         changed in the menus lasts only until Glimt closes.",
     ),
     (
         "Browsing",
