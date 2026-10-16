@@ -84,7 +84,9 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Zoom",
-        "X fits the image to the window, Z shows it 1:1, + and - zoom. The mouse wheel zooms \
+        "X fits the image to the window, Z shows it 1:1, + and - zoom. H fits the width and W \
+         the height, and View → Zoom → Fill the View fills it (cut at the sides): these stay \
+         for the next images until X. The mouse wheel zooms \
          (or browses, see Preferences) towards the pointer. A zoomed image larger than the \
          window can be dragged or moved with the arrow keys. \
          ] and [ rotate the view, Shift+R turns it upside down, Shift+M mirrors and Shift+F \
@@ -499,6 +501,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Right-click in the list or the tree: rename, or move to the trash with all in it; never \
          deleted permanently",
         "Rename and delete (to the trash or permanently, as for files) in the folder pane's menu",
+    ),
+    (
+        "Fit the width (H) and height (W)",
+        "Modes that stay for the next images until X, with Fill the View as a third, as \
+         ImageGlass has them",
+        "One zoom of the shown image",
     ),
     (
         "Menu bar",

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Zoom modes as ImageGlass has them: H fits the width and W the height, as Geeqie's keys, and
+  View → Zoom → Fill the View fills the window, cut at the sides. They stay for the next images
+  until X fits whole images again, and are remembered; a zoomed image is decoded sharp enough.
+
 ## [0.28.0] - 2026-10-16
 
 ### Changed
