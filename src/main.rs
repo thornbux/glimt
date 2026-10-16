@@ -716,6 +716,8 @@ struct App {
     /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
     /// takes the keys from the shortcuts.
     image_id: Option<egui::Id>,
+    /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
+    focus_by_keys: bool,
     /// A `--remote select` that came while the folder was being read: done once it is.
     waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
@@ -1516,6 +1518,7 @@ impl App {
             forward: Vec::new(),
             listing_rx: None,
             image_id: None,
+            focus_by_keys: false,
             waiting_select: None,
             total_size: 0,
             size_rx: None,
@@ -4909,6 +4912,36 @@ impl App {
     }
 
     // ---- Windows: Find Duplicates and pan view ----
+
+    /// A ring in the accent colour around the widget with the keyboard focus, over everything,
+    /// once Tab has moved it there; a click makes it go. egui draws none in menus and on flat
+    /// buttons, so without it Tab moved an invisible focus. Text fields show their own.
+    fn focus_ring(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Tab) {
+                self.focus_by_keys = true;
+            }
+            if i.pointer.any_pressed() {
+                self.focus_by_keys = false;
+            }
+        });
+        let Some(id) = ctx.memory(|m| m.focused()) else {
+            return;
+        };
+        if !self.focus_by_keys || Some(id) == self.image_id || ctx.text_edit_focused() {
+            return;
+        }
+        if let Some(widget) = ctx.read_response(id) {
+            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("focus ring"));
+            let accent = ctx.global_style().visuals.selection.bg_fill;
+            ctx.layer_painter(layer).rect_stroke(
+                widget.rect.expand(1.0),
+                4.0,
+                egui::Stroke::new(2.0, accent),
+                egui::StrokeKind::Outside,
+            );
+        }
+    }
 
     /// The Check Images window: starts the check of every image in the list, shows how far it
     /// is, and lists the broken ones; a click shows one, Select Them selects them in the list.
@@ -8773,6 +8806,7 @@ impl eframe::App for App {
         self.duplicates_window(ctx);
         self.check_window(ctx);
         help::window(ctx, &mut self.help);
+        self.focus_ring(ctx);
         if !bare {
             self.status_bar(ctx, ui);
         }

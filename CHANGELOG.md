@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A ring in the accent colour shows where the keyboard focus is once Tab has moved it, also in the
+  menus and on the flat toolbar buttons, where egui draws none; a click puts it away, as in GNOME.
+
 ## [0.26.0] - 2026-10-16
 
 ### Added

@@ -331,7 +331,8 @@ const MANUAL: &[(&str, &str)] = &[
          name and place in the list, its stars, keywords, comment and extended description, \
          again each time you browse: the image \
          area keeps the keyboard focus while nothing else has it, and the arrow keys and every \
-         shortcut still work there. Tab moves to the panels. Write the alt text yourself in the \
+         shortcut still work there. Tab moves to the panels and menus, and a ring in the \
+         accent colour shows where the keyboard focus is; a click puts it away. Write the alt text yourself in the \
          EXIF panel, or let a plugin write it (see Plugins).",
     ),
     (

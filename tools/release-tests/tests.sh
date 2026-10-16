@@ -889,6 +889,36 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
+d=/tmp/focus
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+for v in new old; do
+    as_version $v
+    config
+    start $d
+    sleep 2
+    key Tab; key Tab; sleep 1
+    shot focus-tab-$v
+    click 99 36; sleep 1    # a click on a button: the ring goes
+    shot focus-click-$v
+    quit
+done
+as_version new
+# The left edge of the ring around Go, the second Tab stop: the accent (blue, 53 132 228) after
+# Tab, the menu bar's dark grey after a click.
+ring() {
+    for x in 40 41; do
+        set -- $1 $(pixel $1 $x 11)
+        [ $2 -lt 100 ] && [ $4 -gt 180 ] && { echo ring; return; }
+        set -- $1
+    done
+    echo -
+}
+expect "Tab shows where the focus is" "$(ring focus-tab-new)" ring
+expect "a click takes the ring away" "$(ring focus-click-new)" -
+note "old: $(ring focus-tab-old)"
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
