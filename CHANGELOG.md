@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Window → Projector: a second window with only the image, for another screen or a projector,
+  while you browse in the main one. It follows the shown image and the slideshow, shows the
+  same part of the image when zoomed, and a yellow ring where the pointer is over the image in
+  the main window (Window → Show the Pointer on the Projector). F or a double-click makes it
+  full screen on the screen it was dragged to; its arrow and slideshow keys work too. Nothing
+  is decoded twice: both windows show the same textures.
+
 ## [0.28.0] - 2026-10-16
 
 ### Changed

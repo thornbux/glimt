@@ -316,6 +316,8 @@ config! {
     icons: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
+    /// Window → Projector: a ring on the projector where the pointer is over the image.
+    projector_pointer: bool = true,
     /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows
     /// the desktop's light or dark style), or a file in `$XDG_CONFIG_HOME/glimt/themes`.
     theme: String = String::from("Dark"),

@@ -290,6 +290,16 @@ const MANUAL: &[(&str, &str)] = &[
          with more contrast, and Shift+G goes to the next filter; the files stay as they are.",
     ),
     (
+        "Projector",
+        "Window → Projector opens a second window with only the image, for another screen or a \
+         projector, while you browse in this one: it follows the shown image, the slideshow and, \
+         when zoomed, shows the same part of the image. Drag it to the other screen and press F \
+         or double-click it for full screen there (Wayland lets no program choose the screen); \
+         Esc leaves full screen, and the arrow keys and the slideshow keys work in it too. A \
+         yellow ring shows on it where the pointer is over the image here, to point things \
+         out; Window → Show the Pointer on the Projector turns it off.",
+    ),
+    (
         "Layouts",
         "View → Layout shows several images at once: two side by side, two above each other, or \
          four (2 × 2); L changes to the next, U to two above each other and Y back to one. The \

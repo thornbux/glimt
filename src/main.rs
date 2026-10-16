@@ -368,6 +368,19 @@ fn alpha(a: f32) -> egui::Color32 {
     egui::Color32::from_white_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
 }
 
+/// The image area of the last frame, which the projector follows: where it was (points), the
+/// screen's pixels per point, the scale (screen pixels per image pixel), the offset of a zoomed
+/// image, whether it was zoomed, and the pointer over it, from the image's centre.
+#[derive(Clone, Copy)]
+struct View {
+    area: egui::Rect,
+    ppp: f32,
+    scale: f32,
+    pan: egui::Vec2,
+    zoomed: bool,
+    pointer: Option<egui::Vec2>,
+}
+
 /// A small map of the panes in the status bar, with the one it tells about filled in.
 fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
     let cell = egui::vec2(9.0, 7.0);
@@ -903,6 +916,10 @@ struct App {
     inhibitor: Option<std::process::Child>,
     /// Since when the pointer has been away from an open menu of the menu bar.
     menu_away: Option<Instant>,
+    /// Window → Projector: a second window with only the image, following this one.
+    projector: bool,
+    /// What the image area showed in the last frame, for the projector to show the same.
+    view: Option<View>,
     /// --kiosk: full screen, only the image, only actions that show and browse.
     kiosk: bool,
     /// `--remote quit` came: a kiosk may close.
@@ -1583,6 +1600,8 @@ impl App {
             focus_search: false,
             kiosk: start.kiosk,
             menu_away: None,
+            projector: false,
+            view: None,
             kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
@@ -3005,6 +3024,108 @@ impl App {
                 (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
             }
             self.slideshow = Some(Instant::now());
+        }
+    }
+
+    /// Window → Projector: a second window, for another screen or a projector, with only the
+    /// shown image, as the main window shows it: fitted, or when zoomed the same part of it,
+    /// scaled to this window. Same process, so the textures are shared and nothing is decoded
+    /// twice. Wayland lets no program put a window on a chosen screen: it is dragged there, and
+    /// F or a double-click makes it full screen. Its keys browse the main window.
+    fn projector_window(&mut self, ctx: &egui::Context) {
+        let id = egui::ViewportId::from_hash_of("glimt projector");
+        let builder = egui::ViewportBuilder::default()
+            .with_title("Glimt Projector")
+            .with_app_id("glimt")
+            .with_inner_size([960.0, 600.0]);
+        let mut act = None;
+        let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
+            let pctx = ui.ctx().clone();
+            let full = pctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+            let (f, esc) = pctx.input(|i| {
+                let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
+                (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))
+            });
+            let key = Self::shortcut(&pctx, self.config.delete_key, self.collection.is_some())
+                .filter(|a| KIOSK_ACTIONS.contains(a));
+            act = key;
+            let [r, g, b] = self.config.background.0;
+            let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
+            egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+                let area = ui.max_rect();
+                let response = ui.allocate_rect(area, egui::Sense::click());
+                if f || response.double_clicked() || (esc && full) {
+                    pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+                }
+                self.paint_projector(ui, area);
+            });
+            pctx.input(|i| i.viewport().close_requested())
+        });
+        if closed {
+            self.projector = false;
+        }
+        if let Some(action) = act {
+            self.run(ctx, action);
+        }
+    }
+
+    /// The shown image in the projector's `area`, as `view` showed it, and the pointer's ring.
+    fn paint_projector(&self, ui: &egui::Ui, area: egui::Rect) {
+        let Some(slot) = self.slots.get(&self.cur) else {
+            return;
+        };
+        let ppp = ui.ctx().pixels_per_point();
+        let (turns, mirrored) = self.orient;
+        let [w, h] = slot.orig.map(|n| n as f32);
+        let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
+        let fit = (area.width() * ppp / uw).min(area.height() * ppp / uh);
+        let fit = if self.config.enlarge {
+            fit
+        } else {
+            fit.min(1.0)
+        };
+        // Zoomed: the same part of the image, as large as this window allows.
+        let (scale, pan) = match self.view {
+            Some(v) if v.zoomed => {
+                let k = (area.width() * ppp / (v.area.width() * v.ppp))
+                    .min(area.height() * ppp / (v.area.height() * v.ppp));
+                let scale = v.scale * k;
+                (scale, v.pan * (scale / ppp) / (v.scale / v.ppp))
+            }
+            _ => (fit, egui::Vec2::ZERO),
+        };
+        let rect =
+            egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
+        let uv = match mirrored {
+            true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
+            false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        };
+        let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
+        let tex = match self.config.animate {
+            true => slot.frame(self.opened.elapsed(), ui.ctx()),
+            false => &slot.tex,
+        };
+        egui::Image::new(tex)
+            .uv(uv)
+            .rotate(angle, egui::Vec2::splat(0.5))
+            .paint_at(ui, rect);
+        // Where the pointer is over the main window's image, to point things out.
+        if self.config.projector_pointer
+            && let Some(v) = self.view
+            && let Some(at) = v.pointer
+        {
+            let at = area.center() + pan + at * (scale / ppp) / (v.scale / v.ppp);
+            let p = ui.painter();
+            p.circle_stroke(
+                at,
+                22.0,
+                egui::Stroke::new(5.0, egui::Color32::from_black_alpha(160)),
+            );
+            p.circle_stroke(
+                at,
+                22.0,
+                egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 210, 0)),
+            );
         }
     }
 
@@ -6476,6 +6597,11 @@ impl App {
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
+            Action::Projector => self.projector = !self.projector,
+            Action::ProjectorPointer => {
+                self.config.projector_pointer = !self.config.projector_pointer;
+                self.config.save();
+            }
             Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
             Action::ViewFilter => {
                 self.set_view_filter((self.config.view_filter + 1) % FILTERS.len())
@@ -7142,6 +7268,10 @@ impl App {
                 scroll_menu(ui, "Window", |ui| {
                     menu_item(ui, act, Action::NewWindow);
                     menu_item(ui, act, Action::CloseWindow);
+                    ui.separator();
+                    menu_toggle(ui, act, self.projector, Action::Projector);
+                    let pointer = self.config.projector_pointer;
+                    menu_toggle(ui, act, pointer, Action::ProjectorPointer);
                 });
                 scroll_menu(ui, "Help", |ui| {
                     menu_item(ui, act, Action::Help);
@@ -8745,6 +8875,19 @@ impl App {
                         .paint_at(ui, rect);
                     ui.set_clip_rect(clip);
                     self.last_drawn = Some((slot.tex.clone(), slot.orig));
+                    // For the projector: this view, and the pointer from the image's centre.
+                    let centre = area.center() + self.pan_offset;
+                    let pointer = (ctx.pointer_hover_pos())
+                        .filter(|p| area.contains(*p))
+                        .map(|p| p - centre);
+                    self.view = Some(View {
+                        area,
+                        ppp,
+                        scale,
+                        pan: self.pan_offset,
+                        zoomed: self.zoom.is_some(),
+                        pointer,
+                    });
                 } else if let Some((tex, orig, thumb)) = self.placeholder()
                     && !self.errors.contains_key(&self.cur)
                 {
@@ -9028,6 +9171,9 @@ impl eframe::App for App {
             self.save_meta();
         }
         self.image_area(ctx, ui, fullscreen, bare);
+        if self.projector {
+            self.projector_window(ctx);
+        }
     }
 }
 
