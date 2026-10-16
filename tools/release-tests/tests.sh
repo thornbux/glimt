@@ -867,6 +867,28 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
+for v in new old; do
+    as_version $v
+    d=/tmp/backup-$v
+    mkdir -p $d/to $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
+    convert -size 300x200 xc:red $d/a.jpg
+    printf '#GQview collection\n"%s/a.jpg"\n' $d >$XDG_DATA_HOME/glimt/collections/Mine.gqv
+    printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+    config theme=Light
+    answer $d/to
+    start $d
+    sleep 2
+    click 20 10; sleep 1
+    click 80 540; sleep 3     # File → Back Up Glimt's Data…
+    quit
+    b=$(ls -d $d/to/glimt-backup-* 2>/dev/null | head -1)
+    got="$(cat "$b/config/config" 2>/dev/null | grep -c theme=Light) $(ls "$b/data/collections" 2>/dev/null) $(cut -f2 "$b/state/marks" 2>/dev/null)"
+    if [ $v = new ]; then expect "the settings, the collection and the stars in the backup" "$got" "1 Mine.gqv 4"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
@@ -915,7 +937,7 @@ for v in new old; do
 done
 as_version new
 
-echo "-- a Lightroom catalog: its collection, keyword tree and stars imported"
+echo "-- a Lightroom catalog: its collection, keyword tree, stars and image keywords imported"
 d=/tmp/lr
 mkdir -p $d/photos/2024
 convert -size 300x200 xc:red $d/photos/2024/a.jpg
@@ -929,6 +951,7 @@ CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile, rating);
 CREATE TABLE AgLibraryCollection (id_local INTEGER PRIMARY KEY, creationId, name, parent);
 CREATE TABLE AgLibraryCollectionImage (id_local INTEGER PRIMARY KEY, collection, image);
 CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, name, parent);
+CREATE TABLE AgLibraryKeywordImage (id_local INTEGER PRIMARY KEY, image, tag);
 INSERT INTO AgLibraryRootFolder VALUES (1, '$d/photos/');
 INSERT INTO AgLibraryFolder VALUES (2, 1, '2024/');
 INSERT INTO AgLibraryFile VALUES (3, 2, 'a', 'jpg'), (4, 2, 'b', 'jpg');
@@ -937,6 +960,7 @@ INSERT INTO AgLibraryCollection VALUES (7, 'com.adobe.ag.library.group', 'Travel
     (8, 'com.adobe.ag.library.collection', 'Norway', 7);
 INSERT INTO AgLibraryCollectionImage VALUES (9, 8, 5), (10, 8, 6);
 INSERT INTO AgLibraryKeyword VALUES (11, NULL, NULL), (12, 'Places', 11), (13, 'Oslo', 12);
+INSERT INTO AgLibraryKeywordImage VALUES (14, 6, 13);
 SQL
 # There already: the collection with one of the images, and other stars on that image.
 mkdir -p $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
@@ -952,7 +976,7 @@ click 100 420 3   # File → Import Lightroom Catalog…
 shot lightroom-dialog
 click 382 447 2   # Next
 shot lightroom-plan
-click 454 462 2   # Import, keeping Glimt's stars
+click 421 474 3   # Import, keeping Glimt's stars, with the images' keywords
 shot lightroom-done
 quit
 coll="$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
@@ -962,6 +986,8 @@ expect "the keyword under its parent" "$(grep -cx 'Places|Oslo' $XDG_CONFIG_HOME
 stars=$(sort $XDG_STATE_HOME/glimt/marks | cut -f2 | tr '\n' ' ')
 expect "Glimt's stars kept, the new ones taken" "$stars" "2 3 "
 expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.jpg.xmp)" 1
+expect "the image's keyword in its sidecar, with its place in the tree" \
+    "$(grep -c '<rdf:li>Oslo</rdf:li>\|<rdf:li>Places|Oslo</rdf:li>' $d/photos/2024/b.jpg.xmp)" 2
 
 echo "-- a collection renamed, then moved to the trash: its images stay"
 d=/tmp/coll

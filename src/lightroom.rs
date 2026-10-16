@@ -1,12 +1,14 @@
 //! Lightroom Classic catalogs (`.lrcat`, an SQLite database), read once through the `sqlite3`
-//! program: the collections, the keyword tree and the stars, for Glimt's own files. Only
+//! program: the collections, the keyword tree, the stars and each image's keywords, for Glimt's
+//! own files. Only
 //! columns that have been the same for many Lightroom versions are read.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// One query, so the catalog is read in one go: a row for each root folder (r), image (i),
-/// collection (c), image in a collection (m) and keyword (k), with five columns each.
+/// collection (c), image in a collection (m), keyword (k) and keyword of an image (w), with five
+/// columns each.
 const QUERY: &str = "\
 SELECT 'r', id_local, absolutePath, '', '' FROM AgLibraryRootFolder
 UNION ALL SELECT 'i', i.id_local, f.rootFolder,
@@ -17,7 +19,8 @@ UNION ALL SELECT 'i', i.id_local, f.rootFolder,
 UNION ALL SELECT 'c', id_local, coalesce(parent, 0), coalesce(name, ''), coalesce(creationId, '')
     FROM AgLibraryCollection
 UNION ALL SELECT 'm', collection, image, '', '' FROM AgLibraryCollectionImage
-UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM AgLibraryKeyword;";
+UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM AgLibraryKeyword
+UNION ALL SELECT 'w', image, tag, '', '' FROM AgLibraryKeywordImage;";
 
 /// Between the columns and after the rows: neither is in a file name or keyword.
 const COLUMN: u8 = 0x1f;
@@ -35,6 +38,8 @@ pub struct Catalog {
     members: Vec<(i64, i64)>,
     /// Keyword: (parent, name).
     keywords: HashMap<i64, (i64, String)>,
+    /// (image, keyword)
+    tagged: Vec<(i64, i64)>,
 }
 
 /// Read `file`; an error says why in words for the user.
@@ -98,6 +103,7 @@ fn parse(text: &[u8]) -> Catalog {
             ("c", Ok(n)) => drop(c.collections.insert(id, (n, b.clone(), d.clone()))),
             ("m", Ok(n)) => c.members.push((id, n)),
             ("k", Ok(n)) => drop(c.keywords.insert(id, (n, b.clone()))),
+            ("w", Ok(n)) => c.tagged.push((id, n)),
             _ => {}
         }
     }
@@ -146,10 +152,32 @@ impl Catalog {
     /// The keywords as keyword tree paths ("Places|Norway|Oslo").
     pub fn keyword_paths(&self) -> Vec<String> {
         (self.keywords.keys())
-            .map(|&id| chain(id, |i| self.keywords.get(&i).map(|k| (k.0, k.1.as_str()))))
-            .filter(|names| !names.is_empty())
-            .map(|names| names.join("|"))
+            .filter_map(|&id| self.keyword_path(id))
             .collect()
+    }
+
+    fn keyword_path(&self, id: i64) -> Option<String> {
+        let names = chain(id, |i| self.keywords.get(&i).map(|k| (k.0, k.1.as_str())));
+        (!names.is_empty()).then(|| names.join("|"))
+    }
+
+    /// The keywords of each image, as keyword tree paths, at `paths` (from `Catalog::paths`).
+    /// One list for each file: the keywords of its virtual copies too, each once.
+    pub fn image_keywords(&self, paths: &HashMap<i64, PathBuf>) -> Vec<(PathBuf, Vec<String>)> {
+        let mut per_file: HashMap<PathBuf, Vec<String>> = HashMap::new();
+        for (image, keyword) in &self.tagged {
+            let (Some(path), Some(tag)) = (paths.get(image), self.keyword_path(*keyword)) else {
+                continue;
+            };
+            let tags = per_file.entry(path.clone()).or_default();
+            if !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+        let mut all: Vec<(PathBuf, Vec<String>)> = per_file.into_iter().collect();
+        all.iter_mut().for_each(|(_, tags)| tags.sort());
+        all.sort();
+        all
     }
 
     /// The images with stars, at `paths` (from `Catalog::paths`). One value for each file: a
@@ -233,6 +261,10 @@ mod tests {
             "k\x1f30\x1f0\x1f\x1f",
             "k\x1f31\x1f30\x1fPlaces\x1f",
             "k\x1f32\x1f31\x1fOslo\x1f",
+            "w\x1f10\x1f32\x1f\x1f",
+            "w\x1f11\x1f31\x1f\x1f",
+            "w\x1f12\x1f32\x1f\x1f",
+            "w\x1f99\x1f32\x1f\x1f",
         ];
         rows.join("\x1e").into_bytes()
     }
@@ -251,11 +283,18 @@ mod tests {
         keywords.sort();
         assert_eq!(keywords, ["Places", "Places|Oslo"]);
         assert_eq!(c.stars(&c.paths(&now)), [(a.clone(), 4)]);
+        // Each image's keywords as tree paths; one of an image not in the catalog left out.
+        let tags = |c: &super::Catalog| c.image_keywords(&c.paths(&now));
+        let tag = |p: &PathBuf, t: &[&str]| (p.clone(), t.iter().map(|s| s.to_string()).collect());
+        let b = PathBuf::from("/media/disk/2024/b.CR3");
+        assert_eq!(tags(&c), [tag(&a, &["Places|Oslo"]), tag(&b, &["Places"])]);
         // A virtual copy with more stars: one value for the file, the most.
         let mut copy = sample();
         copy.extend(b"\x1ei\x1f12\x1f1\x1f2024/Oslo/a.jpg\x1f5");
         let c = super::parse(&copy);
-        assert_eq!(c.stars(&c.paths(&now)), [(a, 5)]);
+        assert_eq!(c.stars(&c.paths(&now)), [(a.clone(), 5)]);
+        // Its keyword too, once for the file.
+        assert_eq!(tags(&c)[0], tag(&a, &["Places|Oslo"]));
         assert_eq!(
             super::root_now(" /media/disk "),
             PathBuf::from("/media/disk")
@@ -283,6 +322,7 @@ mod tests {
             c.collections(&paths);
             c.keyword_paths();
             c.stars(&paths);
+            c.image_keywords(&paths);
         }
     }
 }

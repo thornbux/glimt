@@ -468,6 +468,8 @@ struct LightroomPlan {
     existing: Vec<String>,
     keywords: Vec<String>,
     stars: Vec<(PathBuf, u8)>,
+    /// Each image's keywords, as keyword tree paths.
+    image_keywords: Vec<(PathBuf, Vec<String>)>,
     /// How many images have other stars in Glimt, and whether Lightroom's replace them.
     differ: usize,
     take_lightroom: bool,
@@ -501,6 +503,8 @@ enum Pick {
     InputProfile,
     /// A Lightroom Classic catalog to import.
     Lightroom,
+    /// The folder to put a backup of Glimt's own files in.
+    BackUp,
 }
 
 /// Images to print, and how.
@@ -3150,6 +3154,7 @@ impl App {
             Pick::ScreenProfile => "Screen Profile",
             Pick::InputProfile => "Profile of Images Without One",
             Pick::Lightroom => "Import Lightroom Catalog",
+            Pick::BackUp => "Back Up Glimt's Data To",
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -4996,6 +5001,42 @@ impl App {
         }
     }
 
+    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
+    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
+    /// copy them back while Glimt is closed; the README says where.
+    fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+        let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
+            .chars()
+            .take(10)
+            .collect();
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            // A second backup the same day goes beside the first, never over it.
+            let to = (1..)
+                .map(|n| match n {
+                    1 => dir.join(format!("glimt-backup-{date}")),
+                    n => dir.join(format!("glimt-backup-{date}-{n}")),
+                })
+                .find(|p| !p.exists())
+                .unwrap_or_default();
+            let copied: std::io::Result<usize> = (config::own_folders().into_iter())
+                .map(|(name, from)| config::copy_tree(&from, &to.join(name)))
+                .sum();
+            let _ = tx.send(match copied {
+                Ok(n) => format!(
+                    "Glimt's data backed up to {}: {}",
+                    to.display(),
+                    count(n, "file")
+                ),
+                Err(e) => format!("The backup to {} is not whole: {e}", to.display()),
+            });
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
     /// Check every image of the list in background threads, as many as the CPU setting allows,
     /// each taking the next file until all are done or Stop is pressed.
     fn start_check(&mut self, ctx: &egui::Context) -> Check {
@@ -6023,6 +6064,7 @@ impl App {
             }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
             Action::CheckImages => drop(self.check.get_or_insert(None)),
+            Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
             Action::FocusSearch if self.kiosk => {}
             Action::FocusSearch => {
@@ -6636,6 +6678,7 @@ impl App {
                     self.set_input_profile(file.to_string_lossy().into_owned())
                 }
                 (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
+                (Pick::BackUp, Some(dir)) => self.back_up(ctx, dir),
             }
         }
     }
@@ -6816,6 +6859,7 @@ impl App {
                     self.collections_menu(ui, act);
                     menu_item(ui, act, Action::FindDuplicates);
                     menu_item(ui, act, Action::CheckImages);
+                    menu_item(ui, act, Action::BackUp);
                     ui.separator();
                     menu_item(ui, act, Action::CloseWindow);
                     menu_item(ui, act, Action::Quit);
@@ -7682,6 +7726,14 @@ impl App {
                             "There already, so they get only the images they lack: {names}."
                         ));
                     }
+                    if !plan.image_keywords.is_empty() {
+                        let what = format!(
+                            "The keywords of each image, into its XMP sidecar ({}); those it \
+                             has stay",
+                            count(plan.image_keywords.len(), "image")
+                        );
+                        ui.checkbox(&mut self.config.lightroom_keywords, what);
+                    }
                     if plan.differ > 0 {
                         ui.label(format!(
                             "{} other stars in Glimt:",
@@ -7743,6 +7795,7 @@ impl App {
             collections,
             existing,
             keywords: catalog.keyword_paths(),
+            image_keywords: catalog.image_keywords(&paths),
             stars,
             differ,
             take_lightroom: false,
@@ -7757,8 +7810,21 @@ impl App {
             keywords,
             stars,
             take_lightroom,
+            image_keywords,
             ..
         } = plan;
+        // The choice is kept for the next import.
+        self.config.save();
+        let image_keywords: Vec<(PathBuf, Vec<String>)> = match self.config.lightroom_keywords {
+            true => image_keywords,
+            false => Vec::new(),
+        };
+        // "exif:" searches here read those images' keywords again.
+        for (path, _) in &image_keywords {
+            if let Ok(name) = path.strip_prefix(&self.dir) {
+                self.exif_stale.insert(name.as_os_str().to_owned());
+            }
+        }
         let mut done = vec![count(keywords.len(), "keyword")];
         self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(keywords).collect());
         #[cfg(feature = "marks")]
@@ -7818,6 +7884,20 @@ impl App {
             }
             #[cfg(not(feature = "marks"))]
             let _ = xmp;
+            let (mut tagged, mut failed) = (0, 0);
+            // Not for photos gone since: no sidecar beside nothing.
+            for (path, tags) in image_keywords.iter().filter(|(p, _)| p.is_file()) {
+                match meta::add_tags(path, tags) {
+                    Ok(()) => tagged += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            if tagged > 0 {
+                msg += &format!(", the keywords of {}", count(tagged, "image"));
+            }
+            if failed > 0 {
+                msg += &format!("; no keywords written for {}", thousands(failed));
+            }
             let _ = tx.send(msg);
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
