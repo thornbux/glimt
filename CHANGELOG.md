@@ -13,7 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   View → Include Subfolders, which turns it off again.
 - `--lock-settings`, or a file `/etc/glimt/lock-settings` an administrator puts there, for a
   shared or public computer: Preferences do not open, the sort manager's folders stay as they
-  are, and the settings file is never written, so what is changed in the menus lasts only
+  are, View → Theme neither saves a theme nor opens the themes folder or the browser, and the
+  settings file is never written, so what is changed in the menus lasts only
   until Glimt closes.
 - `glimt --check-config [FILE]` tells what is wrong in the settings file, line by line: lines
   that are not `setting=value`, settings that do not exist or are set twice, values that
