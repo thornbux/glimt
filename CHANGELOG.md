@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The menu bar follows the pointer: with a menu open, pointing at another menu opens it, and the
+  open menu closes 0.4 s after the pointer has left the bar and every open menu and submenu. A
+  menu opened from the keyboard stays while the mouse is still.
+
 ## [0.27.0] - 2026-10-16
 
 ### Added
