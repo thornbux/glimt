@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Browsing fast onto a video showed the photo before it under the video's play button until
+  ffmpeg had its frame. While an image is decoded, its own thumbnail now stands in for it when
+  there is one; a video without one shows only the play button, a photo the image before.
+
 ## [0.27.0] - 2026-10-16
 
 ### Added
