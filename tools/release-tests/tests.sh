@@ -934,6 +934,35 @@ expect "Tab shows where the focus is" "$(ring focus-tab-new)" ring
 expect "a click takes the ring away" "$(ring focus-click-new)" -
 note "old: $(ring focus-tab-old)"
 
+echo "-- view filters: Shift+G shows a red image grey, then inverted, and the filter is kept"
+d=/tmp/filters
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+for v in new old; do
+    as_version $v
+    config
+    start $d
+    sleep 2
+    key shift+g; sleep 2
+    shot filter-grey-$v
+    key shift+g; sleep 2
+    shot filter-invert-$v
+    quit
+    [ $v = new ] && kept=$(grep -c '^view_filter=2$' $XDG_CONFIG_HOME/glimt/config)
+done
+as_version new
+# Red through Rec. 709 greyscale is 53 53 53; inverted it is cyan.
+filtered() {
+    set -- $(pixel $1 760 412)
+    if [ $1 -gt 40 ] && [ $1 -lt 70 ] && [ $1 = $2 ] && [ $2 = $3 ]; then echo grey
+    elif [ $1 -lt 30 ] && [ $2 -gt 220 ] && [ $3 -gt 220 ]; then echo cyan
+    else echo "$*"; fi
+}
+expect "greyscale" "$(filtered filter-grey-new)" grey
+expect "inverted" "$(filtered filter-invert-new)" cyan
+expect "the filter kept in the settings" "$kept" 1
+note "old: $(filtered filter-grey-old)"
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

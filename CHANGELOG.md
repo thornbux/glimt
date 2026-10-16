@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- View → Filter shows images and thumbnails in greyscale, inverted or with more contrast, for low
+  vision; Shift+G goes to the next filter.
 - A Read Aloud plugin in examples/plugins: the alt text of the selected images, or their comment,
   or their name, spoken through speech-dispatcher, for those who see poorly but use no screen
   reader.

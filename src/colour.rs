@@ -8,7 +8,7 @@ use eframe::egui;
 use image::ImageDecoder;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
@@ -27,13 +27,50 @@ pub fn to_srgb(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicIm
 /// that colours outside sRGB which the screen has are kept; without a screen profile as
 /// `to_srgb`. For what is shown, not for files or the shared thumbnail cache.
 pub fn to_display(img: image::DynamicImage, icc: Option<&[u8]>) -> image::DynamicImage {
-    convert(img, icc, true, false)
+    filter(
+        convert(img, icc, true, false),
+        VIEW_FILTER.load(Ordering::Relaxed),
+    )
 }
 
 /// An image that is sRGB already (a thumbnail, made by `to_srgb` or read from the shared cache)
 /// to the screen profile, not through the profile for images without one a second time.
 pub fn srgb_to_display(img: image::DynamicImage) -> image::DynamicImage {
-    convert(img, None, true, true)
+    filter(
+        convert(img, None, true, true),
+        VIEW_FILTER.load(Ordering::Relaxed),
+    )
+}
+
+/// View → Filter, for low vision: an index into `FILTERS`; read by the decode and thumbnail
+/// threads.
+pub static VIEW_FILTER: AtomicUsize = AtomicUsize::new(0);
+
+pub const FILTERS: [&str; 4] = ["None", "Greyscale", "Inverted", "More Contrast"];
+
+/// The pixels as the view filter `f` shows them; alpha as it was.
+fn filter(img: image::DynamicImage, f: usize) -> image::DynamicImage {
+    if f == 0 {
+        return img;
+    }
+    let mut rgba = img.into_rgba8();
+    for p in rgba.pixels_mut() {
+        let [r, g, b, _] = &mut p.0;
+        match f {
+            // Rec. 709 weights out of 256.
+            1 => {
+                let y = ((54 * *r as u32 + 183 * *g as u32 + 19 * *b as u32) >> 8) as u8;
+                [*r, *g, *b] = [y, y, y];
+            }
+            2 => [*r, *g, *b] = [255 - *r, 255 - *g, 255 - *b],
+            _ => {
+                for c in [&mut *r, &mut *g, &mut *b] {
+                    *c = ((*c as i32 - 128) * 8 / 5 + 128).clamp(0, 255) as u8;
+                }
+            }
+        }
+    }
+    rgba.into()
 }
 
 /// The colour settings of Preferences, for the decoding threads.
@@ -397,6 +434,21 @@ pub fn transformed(
 
 #[cfg(test)]
 mod tests {
+    /// Greyscale keeps white white, inverted turns red cyan, more contrast spreads from the
+    /// middle; alpha stays.
+    #[test]
+    fn view_filters() {
+        let px = |f, rgba| {
+            let img = image::RgbaImage::from_pixel(1, 1, image::Rgba(rgba));
+            super::filter(img.into(), f).into_rgba8().get_pixel(0, 0).0
+        };
+        assert_eq!(px(0, [200, 10, 10, 9]), [200, 10, 10, 9]);
+        assert_eq!(px(1, [255, 255, 255, 9]), [255, 255, 255, 9]);
+        assert_eq!(px(1, [255, 0, 0, 9]), [53, 53, 53, 9]);
+        assert_eq!(px(2, [255, 0, 0, 9]), [0, 255, 255, 9]);
+        assert_eq!(px(3, [128, 200, 20, 9]), [128, 243, 0, 9]);
+    }
+
     /// Through a Display P3 screen profile, sRGB red is less red in the screen's numbers. A file
     /// that is no profile leaves the one there; an sRGB screen profile counts as none.
     #[test]

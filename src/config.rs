@@ -296,6 +296,8 @@ config! {
     sort_case: bool = true,
     /// Toolbar icon size: 0 small, 1 medium, 2 large.
     toolbar_icons: usize = 0,
+    /// View → Filter: an index into colour::FILTERS (greyscale, inverted, more contrast).
+    view_filter: usize = 0,
     /// File name search above the file list.
     search_bar: bool = true,
     /// Name, position and a few EXIF fields over the image in full screen (I), as Geeqie's
@@ -364,6 +366,7 @@ impl Config {
         c.webp_quality = c.webp_quality.min(100);
         c.delay = c.delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
+        c.view_filter = c.view_filter.min(3);
         c
     }
 

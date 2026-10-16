@@ -285,7 +285,8 @@ const MANUAL: &[(&str, &str)] = &[
          accessibility settings), Glimt shows High Contrast whatever theme is chosen; a box in \
          Preferences turns that off. Preferences also sets the size of the menus, lists and \
          text, from 50 to 300 %, and makes them larger still when GNOME's Large Text or text \
-         scaling is on.",
+         scaling is on. View → Filter shows the images and thumbnails in greyscale, inverted or \
+         with more contrast, and Shift+G goes to the next filter; the files stay as they are.",
     ),
     (
         "Layouts",
@@ -361,6 +362,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Refresh",
     ),
     ("Refresh", "F5", "R"),
+    (
+        "Shift+G",
+        "Goes to the next view filter: greyscale, inverted, more contrast, none",
+        "Greyscale on and off",
+    ),
     (
         "Random order",
         "R, the View menu and Preferences",

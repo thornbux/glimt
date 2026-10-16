@@ -6,8 +6,9 @@
 
 use actions::{Action, CTRL, OWN_KEYS, SHORTCUTS, shortcut_text, shortcuts};
 use colour::{
-    COLOR_MANAGEMENT, INPUT_PROFILES, INTENTS, SCREEN_WAIT, SCREEN_WAIT_MS, colour_source,
-    read_desktop_screen, set_colour, set_input, set_intent, set_screen, srgb_to_display,
+    COLOR_MANAGEMENT, FILTERS, INPUT_PROFILES, INTENTS, SCREEN_WAIT, SCREEN_WAIT_MS, VIEW_FILTER,
+    colour_source, read_desktop_screen, set_colour, set_input, set_intent, set_screen,
+    srgb_to_display,
 };
 use config::{
     Config, WindowState, keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path,
@@ -1348,6 +1349,7 @@ impl App {
             config.save();
         }
         COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
+        VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
         let screen_error = (set_screen(&config.screen_profile))
             .and_then(|_| set_input(&config.input_profile))
             .err();
@@ -5898,6 +5900,14 @@ impl App {
         self.redecode();
     }
 
+    /// Decode everything again through another view filter.
+    fn set_view_filter(&mut self, f: usize) {
+        self.config.view_filter = f;
+        self.config.save();
+        VIEW_FILTER.store(f, Ordering::Relaxed);
+        self.redecode();
+    }
+
     /// Decode everything again with or without colour management.
     fn set_color_management(&mut self, on: bool) {
         self.config.color_management = on;
@@ -6367,6 +6377,9 @@ impl App {
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
             Action::ExifRotate => self.set_exif_rotate(!self.config.exif_rotate),
+            Action::ViewFilter => {
+                self.set_view_filter((self.config.view_filter + 1) % FILTERS.len())
+            }
             // Mirroring or flipping what is on screen after a turn: mirror the image first and
             // turn the other way (a flip is a mirror and half a turn).
             Action::RotateCw
@@ -6979,6 +6992,15 @@ impl App {
                     self.layout_menu(ui, act);
                     scroll_menu(ui, "Theme", |ui| self.theme_menu(ui));
                     scroll_menu(ui, "Colour Management", |ui| self.colour_settings(ui));
+                    scroll_menu(ui, "Filter", |ui| {
+                        for (f, label) in FILTERS.iter().enumerate() {
+                            if ui.radio(self.config.view_filter == f, *label).clicked() {
+                                self.set_view_filter(f);
+                            }
+                        }
+                        ui.separator();
+                        menu_item(ui, act, Action::ViewFilter);
+                    });
                     scroll_menu(ui, "Zoom", |ui| {
                         menu_item(ui, act, Action::ZoomIn);
                         menu_item(ui, act, Action::ZoomOut);
