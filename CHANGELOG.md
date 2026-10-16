@@ -5,6 +5,27 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- File → Check Images… opens every image of the list in the background, as the viewer would, and
+  lists the ones that cannot be: broken files, JPEGs cut off in copying, and files that are no
+  image under an image's name. They are marked in the file list; a click shows one, Select Them
+  selects them all, to move or delete.
+- Images of a collection put in order with keys: Ctrl+Shift+Up and Down move the selected ones (or
+  the shown one) a place earlier or later, Ctrl+Shift+Home and End to the start or end (also in
+  File → Move in Collection). The order is saved at once, and the slideshow plays it.
+- The size of the menus, lists and text, from 50 to 300 % in Preferences, and larger still when
+  GNOME's Large Text or text scaling is on (a box turns that off). egui's own Ctrl+0, which reset
+  it, is off.
+- Glimt takes its High Contrast theme while the desktop asks for high contrast (GNOME's and KDE's
+  accessibility settings, through the XDG desktop portal), whatever theme is chosen; a box in
+  Preferences turns that off.
+
+### Fixed
+
+- A window closed while the menus and lists were larger than 100 % opened smaller the next time:
+  its size is kept in the desktop's units.
+
 ## [0.25.1] - 2026-10-16
 
 ### Added

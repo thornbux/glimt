@@ -68,7 +68,12 @@ pub enum Action {
     RemoveFromCollection,
     RenameCollection,
     TrashCollection,
+    MoveEarlier,
+    MoveLater,
+    MoveFirst,
+    MoveLast,
     FindDuplicates,
+    CheckImages,
     FocusSearch,
     NextPage,
     PrevPage,
@@ -234,7 +239,12 @@ impl Action {
             RemoveFromCollection => "Remove from Collection",
             RenameCollection => "Rename Collection…",
             TrashCollection => "Move Collection to Trash",
+            MoveEarlier => "Move Earlier in Collection",
+            MoveLater => "Move Later in Collection",
+            MoveFirst => "Move to Start of Collection",
+            MoveLast => "Move to End of Collection",
             FindDuplicates => "Find Duplicates…",
+            CheckImages => "Check Images…",
             FocusSearch => "Search File Names",
             NextPage => "Next Page",
             PrevPage => "Previous Page",
@@ -322,6 +332,11 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use egui::Key;
     &[
         (ExifRotate, ALT, Key::X),
+        // Before the plain arrows, Home and End, which would also match with Shift.
+        (MoveEarlier, CTRL_SHIFT, Key::ArrowUp),
+        (MoveLater, CTRL_SHIFT, Key::ArrowDown),
+        (MoveFirst, CTRL_SHIFT, Key::Home),
+        (MoveLast, CTRL_SHIFT, Key::End),
         // Before R (random order) and F (full screen), which would also match with Shift.
         (Rotate180, SHIFT, Key::R),
         (Mirror, SHIFT, Key::M),

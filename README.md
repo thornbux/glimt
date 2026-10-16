@@ -22,7 +22,8 @@ quick look, which is what an image viewer is for.
   memory goes back to the system when you move on. A broken file cannot take gigabytes or bring
   the viewer down.
 - **It feels at home on Linux.** Dark by default, or following the desktop's light or dark style
-  and accent colour, with themes for low vision. The thumbnail cache is the one the file
+  and accent colour, with themes for low vision, taken by itself when the desktop asks for high
+  contrast; menus, lists and text as large as you set them, and larger with GNOME's Large Text. The thumbnail cache is the one the file
   manager uses, network shares open through GVfs, deleted files go to the trash.
 - **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
   digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied.
@@ -87,11 +88,14 @@ The images in the screenshots are generated for the purpose.
 - Sort by name, number, date, EXIF date, size or extension.
 - Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
   (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.
-- Collections: lists of images from any folders, saved and opened again. A plain list you write
+- Collections: lists of images from any folders, saved and opened again, in an order you set
+  with Ctrl+Shift+↑ and ↓ for the slideshow. A plain list you write
   yourself (`.txt` or `.m3u`, one image on each line) opens the same way:
   `glimt --slideshow show.txt` plays it in its order.
 - Lightroom Classic catalogs imported: collections, the keyword tree and stars.
 - Find Duplicates: identical files, the same name, size or dimensions, or similar pictures.
+- Check Images: finds broken files, photos cut off in copying and files that are no image, and
+  marks them in the list.
 - The sort manager: move or copy images to favourite folders with one click.
 - Pan view: every image in the folder as a timeline of thumbnails by day, or as a calendar.
 
@@ -583,8 +587,8 @@ Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictur
 Glimt sends nothing anywhere: no telemetry, no update checks, no network library in it. It
 reads the folders you open and writes only the files listed below. The network is used only
 when you ask: a share you open (through GVfs), and the browser for a photo's place on
-OpenStreetMap or for Get More Themes. The desktop is asked for its dark style, accent colour
-and screen profile over D-Bus. Plugins and decoder plugins are programs on your computer, which
+OpenStreetMap or for Get More Themes. The desktop is asked for its dark style, accent colour,
+contrast and screen profile over D-Bus. Plugins and decoder plugins are programs on your computer, which
 Glimt starts with the files you chose; Glimt sends their files nowhere. Remote commands reach
 only your own Glimt windows on this computer, through a private socket.
 

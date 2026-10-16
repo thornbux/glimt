@@ -498,6 +498,30 @@ pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
         .ok_or_else(|| "SVG size mismatch".into())
 }
 
+/// Whether Glimt can show `path`, for Check Images: decoded small, as for the list's thumbnails,
+/// and a JPEG also looked at for its end marker, which a file cut off in copying lacks though
+/// it may still decode, grey at the bottom. Why not, if it cannot.
+pub fn check(path: &Path) -> Result<(), String> {
+    survive(|| decode(path, [64, 64], false, 0).map(drop))?;
+    if has_ext(path, &["jpg", "jpeg"]) && !jpeg_ends(path)? {
+        return Err("cut off: the JPEG has no end".into());
+    }
+    Ok(())
+}
+
+/// Whether the last 64 KB of a JPEG hold its end marker (FF D9): some cameras write more after
+/// it, so it need not be the last two bytes.
+fn jpeg_ends(path: &Path) -> Result<bool, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(64 << 10)))
+        .map_err(|e| e.to_string())?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail).map_err(|e| e.to_string())?;
+    Ok(tail.windows(2).any(|w| w == [0xff, 0xd9]))
+}
+
 /// `work`, or an error if it panics: a decoder crashing on a broken file must not end the
 /// worker thread, which would leave every later image or thumbnail waiting forever.
 pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
@@ -662,6 +686,30 @@ mod tests {
         for name in images {
             let (frames, orig, _) = super::decode(&dir.join(name), [100, 100], true, 0).unwrap();
             assert_eq!((frames[0].0.size, orig), ([60, 30], [60, 30]));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Check Images: a whole photo passes; one cut off in copying, a picture that is no
+    /// picture and an empty file are named broken.
+    #[test]
+    fn checks_images() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-check-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut jpeg = Vec::new();
+        let img = image::RgbImage::from_fn(300, 200, |x, y| image::Rgb([x as u8, y as u8, 7]));
+        (img.write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        ))
+        .unwrap();
+        std::fs::write(dir.join("whole.jpg"), &jpeg).unwrap();
+        std::fs::write(dir.join("cut.jpg"), &jpeg[..jpeg.len() * 2 / 3]).unwrap();
+        std::fs::write(dir.join("text.png"), b"not a picture").unwrap();
+        std::fs::write(dir.join("empty.webp"), b"").unwrap();
+        assert_eq!(super::check(&dir.join("whole.jpg")), Ok(()));
+        for broken in ["cut.jpg", "text.png", "empty.webp"] {
+            assert!(super::check(&dir.join(broken)).is_err(), "{broken}");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }

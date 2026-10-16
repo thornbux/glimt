@@ -223,6 +223,8 @@ const MANUAL: &[(&str, &str)] = &[
          right-click menu) adds to one, and File → Collections or O opens one: the file list \
          then shows its images, which browse, sort and play as a slideshow like a folder. \
          Delete takes the shown or selected images out of the collection, leaving the files; \
+         Ctrl+Shift+↑ and ↓ move them one place earlier or later, Ctrl+Shift+Home and End to \
+         the start or end (File → Move in Collection), and the slideshow plays that order; \
          renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
          Collection to Trash act on the open collection; its images stay where they are. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
@@ -241,6 +243,15 @@ const MANUAL: &[(&str, &str)] = &[
          collections, colour labels and flags are left out.",
     ),
     (
+        "Checking images",
+        "File → Check Images… opens each image of the list in the background, as the viewer \
+         would, and lists those that cannot be: broken files, photos cut off in copying (a JPEG \
+         without its end, which shows grey at the bottom), and files that are no image under an \
+         image's name. They get an orange mark in the file list too, until another folder is \
+         shown. A click on one shows it, Select Them selects them all, to move or delete; Stop \
+         ends a long check. A folder of 100,000 photos takes some minutes.",
+    ),
+    (
         "Finding duplicates",
         "D (File → Find Duplicates) opens a window that compares the images in the list: by \
          checksum (identical files; only files of the same size are read), name, size, \
@@ -257,7 +268,11 @@ const MANUAL: &[(&str, &str)] = &[
          larger text. Themes are small text files: Save as Theme… writes the look shown as one to \
          edit, Open Themes Folder shows where they go (~/.config/glimt/themes), and Get More \
          Themes… opens the collection on GitHub. Without an accent colour of its own, a theme \
-         takes the desktop's.",
+         takes the desktop's. When the desktop asks for high contrast (GNOME's and KDE's \
+         accessibility settings), Glimt shows High Contrast whatever theme is chosen; a box in \
+         Preferences turns that off. Preferences also sets the size of the menus, lists and \
+         text, from 50 to 300 %, and makes them larger still when GNOME's Large Text or text \
+         scaling is on.",
     ),
     (
         "Layouts",
@@ -366,6 +381,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Small images",
         "\"Enlarge small images to fit the window\", on by default",
         "\"Allow enlargement\"",
+    ),
+    (
+        "Order of a collection",
+        "Ctrl+Shift+↑, ↓, Home and End move the selected images in it, saved at once",
+        "Drag and drop in the collection window",
     ),
     (
         "Close Window (Ctrl+W)",

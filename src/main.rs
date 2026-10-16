@@ -240,6 +240,19 @@ struct Dups {
     sizes: HashMap<PathBuf, u64>,
 }
 
+/// Check Images: every image of the list opened in the background, as the viewer would; those
+/// that cannot be are listed, and marked in the file list.
+struct Check {
+    /// Files checked, and the threads still at work.
+    done: Arc<AtomicUsize>,
+    working: Arc<AtomicUsize>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    total: usize,
+    found: mpsc::Receiver<(OsString, String)>,
+    /// The broken ones found: (name in the list, why).
+    broken: Vec<(OsString, String)>,
+}
+
 impl Dups {
     fn new() -> Self {
         Dups {
@@ -822,8 +835,8 @@ struct App {
     /// talks to.
     has_focus: bool,
     /// The desktop's dark style and accent colour, once read from the portal.
-    desktop_look: (Option<bool>, Option<egui::Color32>),
-    desktop_rx: Option<mpsc::Receiver<(Option<bool>, Option<egui::Color32>)>>,
+    desktop_look: theme::Desktop,
+    desktop_rx: Option<mpsc::Receiver<theme::Desktop>>,
     /// The desktop's screen profile file, once read from colord.
     desktop_screen: Option<String>,
     desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
@@ -978,6 +991,10 @@ struct App {
     pan_window: Option<Pan>,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
+    /// The Check Images window: `None` closed, `Some(None)` open and not started.
+    check: Option<Option<Check>>,
+    /// Files Check Images found broken, marked in the list until another list is shown.
+    broken: HashSet<OsString>,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
@@ -1361,6 +1378,9 @@ impl App {
         let (exif_jobs, exif_done) = spawn_exif_reader(&cc.egui_ctx);
         theme::fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
+        // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        cc.egui_ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
         // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
         let (desktop_tx, desktop_rx) = mpsc::channel();
         let ctx = cc.egui_ctx.clone();
@@ -1418,6 +1438,8 @@ impl App {
             together: None,
             sort_collection: false,
             dups: None,
+            check: None,
+            broken: HashSet::new(),
             whole_shuffle: false,
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
@@ -1431,7 +1453,7 @@ impl App {
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
-            desktop_look: (None, None),
+            desktop_look: Default::default(),
             desktop_rx: Some(desktop_rx),
             desktop_screen: None,
             desktop_screen_rx: (config.desktop_profile).then(|| read_desktop_screen(&cc.egui_ctx)),
@@ -1602,6 +1624,7 @@ impl App {
     /// What belongs to the list shown before, which a new folder, collection or set of folders
     /// starts without.
     fn start_list(&mut self) {
+        self.broken.clear();
         self.subdirs.clear();
         self.deleting.clear();
         self.random = false;
@@ -2002,6 +2025,32 @@ impl App {
         }
     }
 
+    /// Move the selected images (or the shown one) of the open collection one place earlier or
+    /// later, or to its start or end, and save its new order: a slideshow plays it so. Several
+    /// selected keep their order among themselves; the shown image and the selection follow.
+    // shortcut: the whole list put together again for each move, some milliseconds for 100,000
+    // images; move the indices alone if collections that large are moved image by image.
+    fn move_in_collection(&mut self, ctx: &egui::Context, action: Action) {
+        if self.collection.is_none() {
+            self.notice = Some("Only the images of a collection can be moved".into());
+            return;
+        }
+        let picked: HashSet<usize> = self.targets().into_iter().collect();
+        let order = moved(self.files.len(), &picked, action);
+        let shown = self.files.get(self.cur).cloned();
+        let names: HashSet<OsString> = picked.iter().map(|&i| self.files[i].clone()).collect();
+        let files: Vec<OsString> = order.iter().map(|&i| self.files[i].clone()).collect();
+        let selected = !self.selected.is_empty();
+        self.replace_files(ctx, files, shown);
+        if selected {
+            self.selected = (self.files.iter().enumerate())
+                .filter(|(_, f)| names.contains(*f))
+                .map(|(i, _)| i)
+                .collect();
+        }
+        self.save_collection();
+    }
+
     /// The open collection's file to the trash, through gio in the background; the images stay,
     /// and the window shows the shown image's folder.
     fn trash_collection(&mut self, ctx: &egui::Context) {
@@ -2084,6 +2133,16 @@ impl App {
             menu_item(ui, act, Action::RemoveFromCollection);
             menu_item(ui, act, Action::RenameCollection);
             menu_item(ui, act, Action::TrashCollection);
+            ui.menu_button("Move in Collection", |ui| {
+                for action in [
+                    Action::MoveEarlier,
+                    Action::MoveLater,
+                    Action::MoveFirst,
+                    Action::MoveLast,
+                ] {
+                    menu_item(ui, act, action);
+                }
+            });
         }
         if let Some(file) = open {
             self.visit(ui.ctx(), file);
@@ -3843,6 +3902,21 @@ impl App {
                 .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
             name_rect.max.x = r.left() - 8.0;
         }
+        // Found broken by Check Images: a warning sign at the right.
+        if self.broken.contains(&self.files[i]) {
+            let warn = egui::Color32::from_rgb(240, 140, 0);
+            let c = egui::pos2(name_rect.max.x - 12.0, rect.center().y);
+            ui.painter().circle_filled(c, 7.0, warn);
+            let bold = egui::FontId::proportional(font.size * 0.85);
+            (ui.painter()).text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                "!",
+                bold,
+                egui::Color32::BLACK,
+            );
+            name_rect.max.x = c.x - 14.0;
+        }
         // Cut in the middle, so the end of the name and its extension stay.
         let width = name_rect.width() - 4.0;
         let p = ui.painter();
@@ -4831,6 +4905,146 @@ impl App {
 
     // ---- Windows: Find Duplicates and pan view ----
 
+    /// The Check Images window: starts the check of every image in the list, shows how far it
+    /// is, and lists the broken ones; a click shows one, Select Them selects them in the list.
+    fn check_window(&mut self, ctx: &egui::Context) {
+        let Some(mut check) = self.check.take() else {
+            return;
+        };
+        if let Some(c) = &mut check {
+            for (name, why) in c.found.try_iter() {
+                self.broken.insert(name.clone());
+                c.broken.push((name, why));
+            }
+        }
+        let (mut open, mut start, mut show, mut select) = (true, false, None, false);
+        egui::Window::new("Check Images")
+            .open(&mut open)
+            .default_size([560.0, 400.0])
+            .show(ctx, |ui| {
+                let Some(c) = &check else {
+                    ui.label(format!(
+                        "Opens each of the {} in the list, as the viewer would, and lists those \
+                         that cannot be: broken files, files cut off in copying, and files that \
+                         are no image. They are marked in the list too.",
+                        count(self.files.len(), "image")
+                    ));
+                    start = ui.button("Check").clicked();
+                    return;
+                };
+                let (done, working) = (
+                    c.done.load(Ordering::Relaxed),
+                    c.working.load(Ordering::Relaxed),
+                );
+                ui.horizontal(|ui| {
+                    let progress = done as f32 / c.total.max(1) as f32;
+                    let line = format!("{} of {}", thousands(done), thousands(c.total));
+                    ui.add(
+                        egui::ProgressBar::new(progress)
+                            .text(line)
+                            .desired_width(260.0),
+                    );
+                    if working > 0 {
+                        if ui.button("Stop").clicked() {
+                            c.stop.store(true, Ordering::Relaxed);
+                        }
+                        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+                    }
+                });
+                ui.label(match (c.broken.len(), working) {
+                    (0, 0) => "None broken.".to_owned(),
+                    (n, _) => format!("{} broken:", thousands(n)),
+                });
+                if !c.broken.is_empty() && ui.button("Select Them").clicked() {
+                    select = true;
+                }
+                let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+                egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+                    ui,
+                    row,
+                    c.broken.len(),
+                    |ui, rows| {
+                        for (name, why) in &c.broken[rows] {
+                            let text = format!("{}: {why}", name.to_string_lossy());
+                            if ui.selectable_label(false, text).clicked() {
+                                show = Some(name.clone());
+                            }
+                        }
+                    },
+                );
+            });
+        if start {
+            check = Some(self.start_check(ctx));
+        }
+        if let Some(name) = show
+            && let Some(i) = self.files.iter().position(|f| *f == name)
+        {
+            self.go(ctx, i);
+        }
+        if select {
+            self.selected = (self.files.iter().enumerate())
+                .filter(|(_, f)| self.broken.contains(*f))
+                .map(|(i, _)| i)
+                .collect();
+            self.selection_changed(ctx);
+        }
+        if open {
+            self.check = Some(check);
+        } else if let Some(c) = check {
+            // Closed while it runs: the threads stop at their next file.
+            c.stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Check every image of the list in background threads, as many as the CPU setting allows,
+    /// each taking the next file until all are done or Stop is pressed.
+    fn start_check(&mut self, ctx: &egui::Context) -> Check {
+        self.broken.clear();
+        let files: Arc<Vec<(OsString, PathBuf)>> = Arc::new(
+            (0..self.files.len())
+                .map(|i| (self.files[i].clone(), self.path(i)))
+                .collect(),
+        );
+        let threads = background_threads().min(files.len().max(1));
+        let (tx, found) = mpsc::channel();
+        let next = Arc::new(AtomicUsize::new(0));
+        let check = Check {
+            done: Arc::default(),
+            working: Arc::new(AtomicUsize::new(threads)),
+            stop: Arc::default(),
+            total: files.len(),
+            found,
+            broken: Vec::new(),
+        };
+        self.busy.fetch_add(1, Ordering::Relaxed);
+        for _ in 0..threads {
+            let (files, tx, next, ctx) = (files.clone(), tx.clone(), next.clone(), ctx.clone());
+            let (done, working, stop) = (
+                check.done.clone(),
+                check.working.clone(),
+                check.stop.clone(),
+            );
+            let busy = self.busy.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let Some((name, path)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                        break;
+                    };
+                    if let Err(why) = decode::check(path) {
+                        let _ = tx.send((name.clone(), why));
+                    }
+                    done.fetch_add(1, Ordering::Relaxed);
+                }
+                // The last thread done: the busy pointer goes.
+                if working.fetch_sub(1, Ordering::Relaxed) == 1 {
+                    busy.fetch_sub(1, Ordering::Relaxed);
+                }
+                ctx.request_repaint();
+            });
+        }
+        check
+    }
+
     /// Thumbnails in the file list, or none.
     /// The Find Duplicates window: compares the images of the list in the background, and
     /// lists the groups found; checked files can go to the trash.
@@ -5273,10 +5487,17 @@ impl App {
 
     // ---- Settings and the menus that change them ----
 
-    /// The chosen theme, read from its file again, with the desktop's look where it sets none.
+    /// The chosen theme, read from its file again, with the desktop's look where it sets none;
+    /// High Contrast while the desktop asks for it, unless that is turned off.
     fn apply_theme(&self, ctx: &egui::Context) {
-        let (dark, accent) = self.desktop_look;
-        theme::apply(ctx, &theme::load(&self.config.theme), dark, accent);
+        let look = self.desktop_look;
+        let name = match look.high_contrast && self.config.follow_contrast {
+            true => theme::HIGH_CONTRAST,
+            false => &self.config.theme,
+        };
+        theme::apply(ctx, &theme::load(name), look.dark, look.accent);
+        let desktop = look.text_scale.filter(|_| self.config.follow_text_scale);
+        ctx.set_zoom_factor(self.config.ui_scale as f32 / 100.0 * desktop.unwrap_or(1.0));
     }
 
     /// View → Theme: the themes to choose from, then where to make and find more.
@@ -5797,7 +6018,11 @@ impl App {
                 }
             }
             Action::TrashCollection => self.trash_collection(ctx),
+            Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
+                self.move_in_collection(ctx, action)
+            }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
+            Action::CheckImages => drop(self.check.get_or_insert(None)),
             // A kiosk shows only the image.
             Action::FocusSearch if self.kiosk => {}
             Action::FocusSearch => {
@@ -6555,9 +6780,14 @@ impl App {
         });
         self.window.maximized = maximized;
         if !fullscreen && !maximized {
-            self.window.size = Some(size);
+            // In the desktop's units, as the window opens with them: egui's shrink with the
+            // size chosen in Preferences, and a window kept at 200 % opened half as large.
+            let zoom = ctx.zoom_factor();
+            self.window.size = Some(size * zoom);
             // Wayland reports no position.
-            self.window.pos = outer.map(|r| r.min).or(self.window.pos);
+            self.window.pos = outer
+                .map(|r| (r.min.to_vec2() * zoom).to_pos2())
+                .or(self.window.pos);
         }
         fullscreen
     }
@@ -6585,6 +6815,7 @@ impl App {
                     ui.separator();
                     self.collections_menu(ui, act);
                     menu_item(ui, act, Action::FindDuplicates);
+                    menu_item(ui, act, Action::CheckImages);
                     ui.separator();
                     menu_item(ui, act, Action::CloseWindow);
                     menu_item(ui, act, Action::Quit);
@@ -6768,6 +6999,33 @@ impl App {
                         }
                     });
                     ui.horizontal(|ui| self.theme_buttons(ui));
+                    let follow = "High Contrast when the desktop asks for high contrast";
+                    if ui
+                        .checkbox(&mut self.config.follow_contrast, follow)
+                        .changed()
+                    {
+                        changed = true;
+                        self.apply_theme(ui.ctx());
+                    }
+                    ui.horizontal(|ui| {
+                        let size = egui::Slider::new(&mut self.config.ui_scale, 50..=300)
+                            .suffix(" %")
+                            .text("size of the menus, lists and text");
+                        // Applied when let go: a size changing under the pointer would move it.
+                        let size = ui.add(size);
+                        changed |= size.changed();
+                        if size.drag_stopped() || (size.changed() && !size.dragged()) {
+                            self.apply_theme(ui.ctx());
+                        }
+                    });
+                    let follow = "Larger still when the desktop's text is (GNOME's Large Text)";
+                    if ui
+                        .checkbox(&mut self.config.follow_text_scale, follow)
+                        .changed()
+                    {
+                        changed = true;
+                        self.apply_theme(ui.ctx());
+                    }
                     ui.separator();
                     self.memory_settings(ui);
                     self.cpu_settings(ui);
@@ -8433,6 +8691,7 @@ impl eframe::App for App {
         self.confirm_delete_dialog(ctx);
         self.confirm_folder_dialog(ctx);
         self.duplicates_window(ctx);
+        self.check_window(ctx);
         help::window(ctx, &mut self.help);
         if !bare {
             self.status_bar(ctx, ui);
@@ -8816,6 +9075,34 @@ fn main() -> eframe::Result {
     )
 }
 
+/// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
+/// (each picked passes one that is not, never one another), or all to the start or end, among
+/// themselves in the order they had.
+fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..n).collect();
+    let (first, rest): (Vec<usize>, Vec<usize>) = order.iter().partition(|i| picked.contains(i));
+    match action {
+        Action::MoveFirst => order = [first, rest].concat(),
+        Action::MoveLast => order = [rest, first].concat(),
+        Action::MoveEarlier => {
+            for at in 1..n {
+                if picked.contains(&order[at]) && !picked.contains(&order[at - 1]) {
+                    order.swap(at - 1, at);
+                }
+            }
+        }
+        Action::MoveLater => {
+            for at in (0..n.saturating_sub(1)).rev() {
+                if picked.contains(&order[at]) && !picked.contains(&order[at + 1]) {
+                    order.swap(at, at + 1);
+                }
+            }
+        }
+        _ => {}
+    }
+    order
+}
+
 /// `template` (see OSD_TEMPLATE) with each `%field%` replaced by `value(field)`.
 fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     let lines = template.split("\\n").filter_map(|line| {
@@ -8844,6 +9131,23 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Images of a collection moved: each one place, never past another moved one, and to the
+    /// start or the end in their own order.
+    #[test]
+    fn moves_in_a_collection() {
+        use super::{Action, moved};
+        let set = |v: &[usize]| v.iter().copied().collect();
+        // 0 1 2 3 4 5 with 1, 2 and 5 picked.
+        let picked = set(&[1, 2, 5]);
+        assert_eq!(moved(6, &picked, Action::MoveEarlier), [1, 2, 0, 3, 5, 4]);
+        assert_eq!(moved(6, &picked, Action::MoveLater), [0, 3, 1, 2, 4, 5]);
+        assert_eq!(moved(6, &picked, Action::MoveFirst), [1, 2, 5, 0, 3, 4]);
+        assert_eq!(moved(6, &picked, Action::MoveLast), [0, 3, 4, 1, 2, 5]);
+        // At the edge already: where it was.
+        assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
+        assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
+    }
+
     /// CPU use: thumbnails and background threads for each level.
     #[test]
     fn cpu_levels() {

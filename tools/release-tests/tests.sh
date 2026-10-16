@@ -765,6 +765,108 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the desktop asks for high contrast: Glimt takes its High Contrast theme, unless turned off"
+d=/tmp/contrast
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+# The portal's answer for contrast; for the rest nothing, as a desktop without it.
+cat >/tmp/stub/gdbus <<'STUB'
+#!/bin/sh
+case "$*" in
+*contrast*) echo "(<uint32 1>,)" ;;
+*) exit 1 ;;
+esac
+STUB
+chmod +x /tmp/stub/gdbus
+for v in new old; do
+    as_version $v
+    for follow in true false; do
+        config "follow_contrast=$follow"
+        start $d
+        sleep 3
+        shot contrast-$v-$follow
+        quit
+    done
+done
+rm /tmp/stub/gdbus
+as_version new
+# The empty part of the file list: black in High Contrast, grey in the Dark theme.
+expect "High Contrast while the desktop asks for it" "$(red contrast-new-true 120 700)" 0
+differ "the chosen theme when that is turned off" "$(red contrast-new-false 120 700)" 0
+note "old: $(red contrast-old-true 120 700)"
+
+echo "-- the size of menus and lists: a setting, and GNOME's text scaling followed"
+d=/tmp/ui-scale
+mkdir -p $d
+convert -size 3000x2000 xc:red $d/a.jpg
+printf '#!/bin/sh\necho 1.5\n' >/tmp/stub/gsettings
+chmod +x /tmp/stub/gsettings
+for v in new old; do
+    as_version $v
+    # The file list is 240 points wide: twice as wide at 200 %, 1.5 times with GNOME's 1.5.
+    for setting in "ui_scale=200 follow_text_scale=false" "ui_scale=100 follow_text_scale=true" \
+        "ui_scale=100 follow_text_scale=false"; do
+        config $setting
+        start $d
+        sleep 3
+        shot scale-$v-${setting%% *}-${setting##*=}
+        quit
+    done
+done
+rm /tmp/stub/gsettings
+as_version new
+differ "at 200 %, the list where the image began" "$(colour scale-new-ui_scale=200-false 400 400)" red
+differ "GNOME's text scaling followed" "$(colour scale-new-ui_scale=100-true 300 400)" red
+expect "not followed when turned off" "$(colour scale-new-ui_scale=100-false 300 400)" red
+note "old at 200 %: $(colour scale-old-ui_scale=200-false 400 400)"
+
+echo "-- a collection put in order with keys: one place earlier, then to the end"
+for v in new old; do
+    as_version $v
+    d=/tmp/reorder-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    sleep 1
+    key space; key ctrl+shift+Up; sleep 1     # b before a
+    key Home; key ctrl+shift+End; sleep 1      # then b, shown first, to the end
+    quit
+    order=$(grep -o '[abc]\.jpg' $d/show.gqv | tr '\n' ' ')
+    if [ $v = new ]; then expect "the collection's new order, saved" "$order" "a.jpg c.jpg b.jpg "
+    else note "old: $order"; fi
+done
+as_version new
+
+echo "-- Check Images: a photo cut off in copying and a file that is no picture found and marked"
+for v in new old; do
+    as_version $v
+    d=/tmp/check-images-$v
+    mkdir -p $d
+    convert -size 600x400 gradient:red-blue $d/a_whole.jpg
+    head -c $(( $(stat -c %s $d/a_whole.jpg) * 2 / 3 )) $d/a_whole.jpg >$d/b_cut.jpg
+    echo "not a picture" >$d/c_text.png
+    config
+    start $d
+    sleep 2
+    # File → Check Images…, Check, and the window closed when done to see the list.
+    click 20 10; sleep 1
+    click 66 516; sleep 1
+    click 56 127; sleep 4
+    shot check-window-$v
+    click 554 38; sleep 1
+    shot check-list-$v
+    quit
+    # The warning sign at the right end of a row of the list: orange (red 240), or the row's own
+    # dark grey or selection blue.
+    marked() { [ $(red check-list-$v 214 $1) -gt 200 ] && echo marked || echo -; }
+    got="$(marked 337) $(marked 419) $(marked 501)"
+    if [ $v = new ]; then expect "the cut and the false one marked, the whole one not" "$got" "- marked marked"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
