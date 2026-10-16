@@ -52,7 +52,14 @@ formats (DICOM, FITS, microscope files …) are read through decoder plugins (se
 .SH OPTIONS
 .TP
 .B \-\-slideshow
-Start the slideshow once the folder is read.
+Start the slideshow once the folder is read. Given a collection
+.RI ( .gqv )
+or a plain list of images
+.RI ( .txt ", " .m3u :
+one path on each line, relative to the list or absolute,
+.B #
+for comments), it plays them in the list's order, for example
+.BR "glimt \-\-slideshow \-\-fullscreen show.txt" .
 .TP
 .B \-\-random
 Show the slideshow in random order. Kept for later starts, as in the View menu.

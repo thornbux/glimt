@@ -279,7 +279,10 @@ const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
 
 /// Options on the command line before the file or folder, for --help.
 const START_OPTIONS: &[(&str, &str)] = &[
-    ("--slideshow", "Start the slideshow"),
+    (
+        "--slideshow",
+        "Start the slideshow; of a list (.gqv, .txt, .m3u), in its order",
+    ),
     (
         "--random",
         "Random order in the slideshow (kept, as in the View menu)",
