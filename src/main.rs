@@ -5933,8 +5933,11 @@ impl App {
                 self.apply_theme(ui.ctx());
             }
         }
-        ui.separator();
-        self.theme_buttons(ui);
+        // Locked: no theme written, and no file manager or browser opened from here.
+        if !config::locked() {
+            ui.separator();
+            self.theme_buttons(ui);
+        }
     }
 
     /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
