@@ -105,7 +105,10 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Selecting and file operations",
-        "Ctrl+click toggles a file, Shift+click or Shift with the arrow keys, Page Up/Down, \
+        "In the grid of icons (Ctrl+I), drag a rectangle to select every image it touches, \
+         added to the selection with Ctrl or Shift held (in a collection, start it between the \
+         images, as dragging an image moves it). Ctrl+click toggles a file, Shift+click or \
+         Shift with the arrow keys, Page Up/Down, \
          Home and End selects a range, Ctrl+A selects all (the matches while searching). \
          Copy, Move, Rename and Delete act on the selected files, otherwise on the shown \
          image; right-click a file for a menu with them. Rename with several files selected \

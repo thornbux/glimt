@@ -818,6 +818,10 @@ struct App {
     // ---- The selection ----
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
     selected: std::collections::BTreeSet<usize>,
+    /// A rectangle being dragged in the icon grid to select: where it started (from the top left
+    /// of the grid's content, so it scrolls along), the selection before it (kept with Ctrl or
+    /// Shift), and whether the pointer has moved far enough to be a rectangle and not a click.
+    band: Option<(egui::Vec2, std::collections::BTreeSet<usize>, bool)>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Size of the selected files; computed in the background when the selection changes.
@@ -1558,6 +1562,7 @@ impl App {
             opened_type: Types::NONE,
             prompt: None,
             selected: Default::default(),
+            band: None,
             last_drawn: None,
             fade: None,
             last_scale: 1.0,
@@ -8446,6 +8451,7 @@ impl App {
                 ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
                 ctx.request_repaint();
             }
+            let mut cells = Vec::new();
             for (k, i) in shown.into_iter().enumerate() {
                 let marked = i == self.cur || self.selected.contains(&i);
                 let row = if icons {
@@ -8456,6 +8462,7 @@ impl App {
                     let x = (k % cols) as f32 * (self.cell().x + gap);
                     let cell =
                         egui::Rect::from_min_size(line.min + egui::vec2(x, 0.0), self.cell());
+                    cells.push((i, cell));
                     self.file_cell(ui, i, cell, marked)
                 } else if thumbs || self.config.file_details {
                     self.file_row(ui, i, row_h, marked)
@@ -8476,6 +8483,9 @@ impl App {
                     self.drag_row(ui, &row, i, icons, pointer);
                 }
             }
+            if icons {
+                self.rubber_band(ui, &cells, row_h);
+            }
             // Dropped: the dragged images before the row the line was at.
             if ctx.input(|i| i.pointer.any_released())
                 && let Some((picked, Some(to))) = self.dragging.take()
@@ -8490,6 +8500,78 @@ impl App {
 
     /// Row `i` of a collection dragged to another place: the selection when it is in it, else
     /// the row; a line in the accent colour shows where the images go.
+    /// Selecting in the icon grid by dragging a rectangle, as in a file manager: every image
+    /// it touches, added to the selection with Ctrl or Shift. It starts anywhere but in a
+    /// collection, where dragging an image moves it, from the space between them; it counts once
+    /// the pointer has moved a little, so a click stays a click. `cells` are the shown ones.
+    fn rubber_band(&mut self, ui: &egui::Ui, cells: &[(usize, egui::Rect)], row_h: f32) {
+        let ctx = ui.ctx().clone();
+        let origin = ui.max_rect().min;
+        let clip = ui.clip_rect();
+        let (pressed, down, pos, add) = ctx.input(|i| {
+            let m = i.modifiers;
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.pointer.interact_pos(),
+                m.command || m.shift,
+            )
+        });
+        if pressed
+            && self.band.is_none()
+            && self.dragging.is_none()
+            && !self.dialog_open()
+            // Not on the scroll bar, which is dragged too.
+            && let Some(p) = pos.filter(|p| clip.contains(*p))
+            && p.x < clip.right() - ui.spacing().scroll.allocated_width()
+            && (self.collection.is_none() || !cells.iter().any(|c| c.1.contains(p)))
+        {
+            let base = if add {
+                self.selected.clone()
+            } else {
+                Default::default()
+            };
+            self.band = Some((p - origin, base, false));
+        }
+        let Some((start, base, moved)) = &mut self.band else {
+            return;
+        };
+        let start = origin + *start;
+        let Some(p) = pos.filter(|_| down) else {
+            // Released: the size of what is selected, once.
+            if std::mem::take(moved) {
+                self.selection_changed(&ctx);
+            }
+            self.band = None;
+            return;
+        };
+        // Something else is being dragged (the panel's edge, a scroll bar): not a rectangle.
+        if !*moved && ctx.dragged_id().is_some() {
+            self.band = None;
+            return;
+        }
+        *moved |= p.distance(start) > 6.0;
+        if !*moved {
+            return;
+        }
+        let band = egui::Rect::from_two_pos(start, p);
+        let mut selected = base.clone();
+        selected.extend(cells.iter().filter(|c| c.1.intersects(band)).map(|c| c.0));
+        self.selected = selected;
+        let v = ui.visuals();
+        let painter = ui.painter().with_clip_rect(clip);
+        painter.rect_filled(band, 2.0, v.selection.bg_fill.gamma_multiply(0.25));
+        let stroke = egui::Stroke::new(1.0, v.selection.bg_fill);
+        painter.rect_stroke(band, 2.0, stroke, egui::StrokeKind::Inside);
+        // Near the top or bottom edge, the grid scrolls on.
+        if p.y < clip.top() + row_h / 2.0 {
+            ui.scroll_with_delta(egui::vec2(0.0, 10.0));
+        } else if p.y > clip.bottom() - row_h / 2.0 {
+            ui.scroll_with_delta(egui::vec2(0.0, -10.0));
+        }
+        ctx.request_repaint();
+    }
+
     fn drag_row(
         &mut self,
         ui: &egui::Ui,

@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Selecting with a rectangle in the grid of icons (Ctrl+I), as Geeqie and file managers do: drag
+  over the images, which are selected as the rectangle touches them, added to the selection
+  with Ctrl or Shift. A click still opens an image; the grid scrolls at its edges; in a
+  collection the rectangle starts between the images, as dragging one moves it.
+
 ## [0.28.0] - 2026-10-16
 
 ### Changed
