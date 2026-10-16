@@ -617,6 +617,24 @@ Glimt's own files are plain text, written to a temporary file and renamed, so a 
 leaves half of one. Several Glimt windows share them; settings, collections, marks and
 sidecars keep what another window wrote meanwhile.
 
+### Backup
+
+Your marks, stars, collections and keyword tree are in these files, not in the photos: back
+them up with your photos. **File → Back Up Glimt's Data…** copies Glimt's three folders
+(config, state and data, without the thumbnails, which are made again) to a new folder
+`glimt-backup-DATE` wherever you choose: on another disk, a share or a cloud folder. They are
+plain text, which any program can read. To restore, close Glimt and copy them back:
+
+```sh
+cp -r glimt-backup-2026-10-16/config/. ~/.config/glimt/
+cp -r glimt-backup-2026-10-16/state/.  ~/.local/state/glimt/
+cp -r glimt-backup-2026-10-16/data/.   ~/.local/share/glimt/
+```
+
+Keywords, comments and alt text are in the XMP sidecars beside the photos (`photo.jpg.xmp`),
+so a backup of the photo folders takes them along; so do stars, when Preferences writes them
+there too. A Lightroom catalog is Lightroom's own: Glimt only reads it, and never changes it.
+
 ## SBOM
 
 [`sbom.cdx.json`](sbom.cdx.json) is a CycloneDX 1.5 software bill of materials: every crate the

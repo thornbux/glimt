@@ -867,6 +867,28 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
+for v in new old; do
+    as_version $v
+    d=/tmp/backup-$v
+    mkdir -p $d/to $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
+    convert -size 300x200 xc:red $d/a.jpg
+    printf '#GQview collection\n"%s/a.jpg"\n' $d >$XDG_DATA_HOME/glimt/collections/Mine.gqv
+    printf '0\t4\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+    config theme=Light
+    answer $d/to
+    start $d
+    sleep 2
+    click 20 10; sleep 1
+    click 80 540; sleep 3     # File → Back Up Glimt's Data…
+    quit
+    b=$(ls -d $d/to/glimt-backup-* 2>/dev/null | head -1)
+    got="$(cat "$b/config/config" 2>/dev/null | grep -c theme=Light) $(ls "$b/data/collections" 2>/dev/null) $(cut -f2 "$b/state/marks" 2>/dev/null)"
+    if [ $v = new ]; then expect "the settings, the collection and the stars in the backup" "$got" "1 Mine.gqv 4"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

@@ -453,8 +453,60 @@ pub fn write_atomic(path: &Path, text: &str) {
     }
 }
 
+/// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,
+/// sort folders and themes (config), marks and stars (state), and collections, plugins and
+/// decoders (data). Thumbnails are not: they are made again.
+pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
+    [
+        ("config", xdg_dir("XDG_CONFIG_HOME", ".config", "glimt")),
+        ("state", xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")),
+        ("data", xdg_dir("XDG_DATA_HOME", ".local/share", "glimt")),
+    ]
+    .into_iter()
+    .filter_map(|(name, dir)| Some((name, dir?)))
+    .filter(|(_, dir)| dir.is_dir())
+    .collect()
+}
+
+/// Copy the folder `from` with everything in it to `to`, made; how many files. Links are
+/// copied as the files they point to; one that leads nowhere is left out.
+pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
+    std::fs::create_dir_all(to)?;
+    let mut files = 0;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let (source, target) = (entry.path(), to.join(entry.file_name()));
+        if source.is_dir() {
+            files += copy_tree(&source, &target)?;
+        } else if source.is_file() {
+            std::fs::copy(&source, &target)?;
+            files += 1;
+        }
+    }
+    Ok(files)
+}
+
 #[cfg(test)]
 mod tests {
+    /// A backup copy: every file of the tree, at the same place below the new folder.
+    #[test]
+    fn copies_a_tree() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-tree-{}", std::process::id()));
+        let from = dir.join("from");
+        std::fs::create_dir_all(from.join("collections/sub")).unwrap();
+        std::fs::write(from.join("config"), "theme=Dark").unwrap();
+        std::fs::write(from.join("collections/a.gqv"), "#GQview").unwrap();
+        std::fs::write(from.join("collections/sub/b.gqv"), "").unwrap();
+        assert_eq!(super::copy_tree(&from, &dir.join("to")).unwrap(), 3);
+        let text = |p: &str| std::fs::read_to_string(dir.join("to").join(p)).unwrap();
+        assert_eq!(
+            (text("config"), text("collections/a.gqv")),
+            ("theme=Dark".into(), "#GQview".into())
+        );
+        assert!(dir.join("to/collections/sub/b.gqv").is_file());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A file reached through a link is written where the link points; the link stays.
     #[test]
     fn writes_through_links() {

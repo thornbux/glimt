@@ -246,6 +246,14 @@ const MANUAL: &[(&str, &str)] = &[
          flags are left out.",
     ),
     (
+        "Backing up",
+        "Marks, stars, collections, the keyword tree and the settings are in Glimt's own files, \
+         not in the photos. File → Back Up Glimt's Data… copies them to a new folder \
+         glimt-backup-DATE wherever you choose; to restore, close Glimt and copy them back (see \
+         the README). Keywords, comments and alt text are in the XMP sidecars beside the \
+         photos, and go with a backup of the photo folders.",
+    ),
+    (
         "Checking images",
         "File → Check Images… opens each image of the list in the background, as the viewer \
          would, and lists those that cannot be: broken files, photos cut off in copying (a JPEG \

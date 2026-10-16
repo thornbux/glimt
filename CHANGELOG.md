@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- File → Back Up Glimt's Data… copies Glimt's own files (settings, marks and stars, collections,
+  keyword tree, plugins and decoders) to a new folder glimt-backup-DATE wherever you choose; the
+  README and the manual say how to restore them, and that keywords and comments are in the
+  sidecars beside the photos.
 - Import Lightroom Catalog writes each image's keywords into its XMP sidecar, with their place in
   the keyword tree, beside those it has: what Lightroom keeps only in its catalog unless it writes
   XMP. A box in the import (kept for the next one) turns it off; the keywords of virtual copies go
