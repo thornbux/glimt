@@ -126,6 +126,16 @@ to every running Glimt of this user on this computer.
 .BR \-h ", " \-\-help
 List the options and remote commands.
 .TP
+.BR \-\-check\-config " [" \fIFILE\fR ]
+Tell what is wrong in the settings file, or in
+.IR FILE ,
+line by line: a line that is not
+.IR setting = value ,
+a setting that does not exist or is set twice, and a value that cannot be read or is out of
+range, with the value used instead. Prints OK and exits with 0 when nothing is wrong, else
+exits with 1. Glimt tells the first of these in its window when it starts, and also when it
+cannot save a file.
+.TP
 .BR \-V ", " \-\-version
 Print the version.
 .SH REMOTE COMMANDS

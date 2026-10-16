@@ -315,6 +315,10 @@ const START_OPTIONS: &[(&str, &str)] = &[
         "--name NAME",
         "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it",
     ),
+    (
+        "--check-config [FILE]",
+        "Tell what is wrong in the settings file (or FILE), line by line",
+    ),
     ("-V, --version", "Print the version"),
     ("-h, --help", "Print this help"),
 ];
@@ -466,7 +470,8 @@ impl Start {
                     start.name = Some(name.to_owned());
                     args.remove(0);
                 }
-                "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all" => break,
+                "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all"
+                | "--check-config" => break,
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
                 _ => break,
             }
@@ -1457,7 +1462,7 @@ impl App {
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
         let keep = Arc::new(Mutex::new(vec![0]));
         let full_ok = Arc::new(AtomicUsize::new(1));
-        let mut config = Config::load();
+        let (mut config, problems) = Config::load_checked();
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();
@@ -1591,7 +1596,7 @@ impl App {
             apps_rx,
             row_step: 1,
             notices_rx: notices,
-            notice: screen_error,
+            notice: screen_error.or_else(|| config_notice(&problems)),
             dir: PathBuf::new(),
             subdirs: Vec::new(),
             files: Vec::new(),
@@ -6947,6 +6952,9 @@ impl App {
     /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
     /// notices and the file dialog's answer.
     fn poll_background(&mut self, ctx: &egui::Context) {
+        if let Some(error) = config::take_save_error() {
+            self.notice = Some(error);
+        }
         if let Some(look) = self.desktop_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.desktop_look = look;
             self.desktop_rx = None;
@@ -9650,6 +9658,35 @@ fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString
     }
 }
 
+/// What is wrong in the settings file, for the window: the first, and where to see all.
+fn config_notice(problems: &[String]) -> Option<String> {
+    let first = problems.first()?;
+    let more = match problems.len() - 1 {
+        0 => String::new(),
+        n => format!("; and {n} more (glimt --check-config)"),
+    };
+    Some(format!("Settings file: {first}{more}"))
+}
+
+/// glimt --check-config [FILE]: what is wrong in the settings file, or FILE; exit 1 if anything.
+fn check_config(file: Option<PathBuf>) -> ! {
+    let Some(path) = file.or_else(config::config_path) else {
+        eprintln!("glimt: no home folder, so no settings file");
+        std::process::exit(1);
+    };
+    let problems = match std::fs::read_to_string(&path) {
+        Ok(text) => Config::check(&text).1,
+        Err(e) => vec![format!("cannot be read ({e})")],
+    };
+    for p in &problems {
+        eprintln!("{}: {p}", path.display());
+    }
+    if problems.is_empty() {
+        println!("{}: OK", path.display());
+    }
+    std::process::exit(!problems.is_empty() as i32)
+}
+
 fn main() -> eframe::Result {
     // One malloc arena for all threads. With one per thread, freed image buffers stayed in
     // each decode thread's arena: 91 instead of 29 MB of own memory in a folder of
@@ -9672,6 +9709,9 @@ fn main() -> eframe::Result {
     if args.first().is_some_and(|a| a == "--version" || a == "-V") {
         println!("glimt {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
+    }
+    if args.first().is_some_and(|a| a == "--check-config") {
+        check_config(args_os.get(1).map(PathBuf::from));
     }
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
         println!(
