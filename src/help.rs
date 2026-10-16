@@ -50,30 +50,22 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
 const MANUAL: &[(&str, &str)] = &[
     (
         "Opening images",
-        "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, use \
-         File → Open, type a \
-         path in the folder field above the folder list and press Enter, or click a folder in \
-         the list. ⬆ .. goes to the parent folder. Network shares work too: type \
-         smb://server/share (or sftp://…) and Glimt mounts it with gio, asking for user, \
-         domain and password if the share needs them (a password saved in the keyring from \
-         Files is used without asking). Several folders show as one list: glimt ~/Holiday \
-         ~/Family, File → Open Several Folders…, or Show Together with These Images in a \
-         folder's right-click menu; a slideshow then goes through all of them, and random \
-         order mixes them. Options before the folder start it a certain way: \
-         glimt --fullscreen --layout 2x2 --random --slideshow ~/Pictures shows four random \
-         images at a time on the whole screen. glimt --remote next (or prev, slideshow, random, \
-         open PATH …) controls a running Glimt from a script, and glimt --remote current, \
-         selection and select PATH … tell a script (or an AI assistant) what is shown and \
-         selected, or select files for you; they print each path followed by a NUL byte, and \
-         none of them changes a file. They reach only the Glimt windows of the same user on \
-         this computer, through a private socket, never over the network; for another \
-         computer, run the command there (ssh). Several can be told apart by name: \
-         start them with glimt --name left and glimt --name right, and glimt --name left \
-         --remote slideshow reaches only the left one. glimt --kiosk is for a picture screen: \
-         full screen with only the image, browsing and the slideshow but nothing that changes \
-         files, and no way out but glimt --remote quit (in a kiosk session such as cage or GNOME \
-         Kiosk, the desktop's keys are gone too; see man glimt). glimt --help lists the options and \
-         commands.",
+        "Start Glimt with a folder or an image (glimt ~/Pictures), drop one on the window, \
+         use File → Open, type a path in the folder field above the folder list and press \
+         Enter, or click a folder in the list. ⬆ .. goes to the parent folder. Network shares \
+         work too: type smb://server/share (or sftp://…) and Glimt mounts it with gio, asking \
+         for user, domain and password if the share needs them (a password saved in the \
+         keyring from Files is used without asking). Several folders show as one list: glimt \
+         ~/Holiday ~/Family, File → Open Several Folders…, or Show Together with These Images \
+         in a folder's right-click menu; a slideshow then goes through all of them, and \
+         random order mixes them. The toolbar's arrows (Go → Back and Forward) go to the \
+         folders shown before, Up to the parent and Home to the home folder. F5 (Go → \
+         Refresh) reads the folder again; with Refresh the folder when files change \
+         (Preferences, on by default) Glimt does so itself, looking once a second. With Start \
+         in the last used folder, Glimt opens that one when it is given none. Ctrl+N (File → \
+         New Window) starts another Glimt in the same folder; Ctrl+W and Ctrl+Q close it. \
+         Starting Glimt a certain way, and controlling it from scripts, is under Command line \
+         at the end.",
     ),
     (
         "Browsing",
@@ -89,15 +81,19 @@ const MANUAL: &[(&str, &str)] = &[
         "Zoom",
         "X fits the image to the window, Z shows it 1:1, + and - zoom. H fits the width and W \
          the height, and View → Zoom → Fill the View fills it (cut at the sides): these stay \
-         for the next images until X. The mouse wheel zooms \
-         (or browses, see Preferences) towards the pointer. A zoomed image larger than the \
-         window can be dragged or moved with the arrow keys. \
-         ] and [ rotate the view, Shift+R turns it upside down, Shift+M mirrors and Shift+F \
-         flips it (Edit → Orientation); the next image is shown as it is. Edit → Orientation \
-         → Save Orientation to File stores the rotation in a JPEG as its EXIF orientation, \
-         without touching the pixels; a setting does it on every change of image. PNG and \
-         WebP are turned and saved again with their EXIF data: PNG and lossless WebP without \
-         loss, a lossy WebP as lossy again (through ffmpeg, at the quality set in Preferences).",
+         for the next images until X. The mouse wheel zooms towards the pointer; with Mouse \
+         wheel zooms off in Preferences it browses, and Ctrl+wheel zooms. Preferences also \
+         say whether Zoom to Fit enlarges images smaller than the window (on by default), \
+         whether the zoom and position are kept when changing image, and the colour behind \
+         the image. A zoomed image larger than the window can be dragged or moved with the \
+         arrow keys. ] and [ rotate the view, Shift+R turns it upside down, Shift+M mirrors \
+         and Shift+F flips it (Edit → Orientation); the next image is shown as it is. Alt+X \
+         turns Auto rotate using EXIF off and on, to see an image as it is stored. Edit → \
+         Orientation → Save Orientation to File stores the rotation in a JPEG as its EXIF \
+         orientation, without touching the pixels; a setting does it on every change of \
+         image. PNG and WebP are turned and saved again with their EXIF data: PNG and \
+         lossless WebP without loss, a lossy WebP as lossy again (through ffmpeg, at the \
+         quality set in Preferences).",
     ),
     (
         "Slideshow",
@@ -111,18 +107,22 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Selecting and file operations",
         "In the grid of icons (Ctrl+I), drag a rectangle to select every image it touches, \
-         added to the selection with Ctrl or Shift held (in a collection, start it between the \
-         images, as dragging an image moves it). Ctrl+click toggles a file, Shift+click or \
-         Shift with the arrow keys, Page Up/Down, \
-         Home and End selects a range, Ctrl+A selects all (the matches while searching). \
-         Copy, Move, Rename and Delete act on the selected files, otherwise on the shown \
-         image; right-click a file for a menu with them. Rename with several files selected \
-         asks for a pattern: * is the old name and # a number (### gives 001); existing files \
-         are never overwritten. If a crash or a power cut stops it halfway, the next start \
-         offers to put the old names back or to finish. File → Open With (also in the \
-         right-click menu) opens them in another application, such as GIMP. Ctrl+Shift+C \
-         copies the image itself to the clipboard, to paste into other programs; Select → \
-         Copy Files to Clipboard copies the files, to paste in a file manager. Right-click a \
+         added to the selection with Ctrl or Shift held (in a collection, start it between \
+         the images, as dragging an image moves it). Ctrl+click toggles a file, Shift+click \
+         or Shift with the arrow keys, Page Up/Down, Home and End selects a range, Ctrl+A \
+         selects all (the matches while searching), Ctrl+Shift+A none, and Ctrl+Shift+I \
+         inverts the selection. Copy, Move, Rename and Delete act on the selected files, \
+         otherwise on the shown image; right-click a file for a menu with them. Delete moves \
+         files to the trash and Shift+Delete deletes them for good; both ask first, as set \
+         under Delete behaviour in Preferences, which can also turn the Delete key off or use \
+         no trash at all. Rename with several files selected asks for a pattern: * is the old \
+         name and # a number (### gives 001); existing files are never overwritten. If a \
+         crash or a power cut stops it halfway, the next start offers to put the old names \
+         back or to finish. File → Open With (also in the right-click menu) opens them in \
+         another application, such as GIMP, and Open With Default App in the desktop's own. \
+         Ctrl+Shift+C copies the image itself to the clipboard, to paste into other programs; \
+         Select → Copy Files to Clipboard copies the files, to paste in a file manager, and \
+         Copy Path to Clipboard their paths, quoted for a terminal or unquoted. Right-click a \
          folder, in the list or the tree, to rename it or move it and all in it to the trash; \
          File → New Folder (Ctrl+F) makes one.",
     ),
@@ -193,21 +193,24 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Formats",
-        "Glimt reads JPEG, PNG, WebP, GIF and WebP animations, TIFF (every page; grey TIFFs of \
-         floats from science stretched to show), BMP, ICO, QOI, PNM, Radiance HDR (tone-mapped), \
-         Zeiss LSM and .gel scans, and camera RAW files through their embedded preview; HEIC, \
-         AVIF and video through ffmpeg, JPEG XL and SVG, in the builds that have them, as the \
-         packages do. A decoder plugin teaches Glimt a format it does not read itself, such as JPEG 2000, \
-         FITS, DICOM or OpenEXR: a desktop file in ~/.local/share/glimt/decoders with \
-         Extensions=jp2;j2k and an Exec command that writes the image (PNM, PNG …) to its \
-         standard output, %f being the file. Such files are then listed and shown as any \
-         other, with thumbnails. The command runs without a shell, for 30 seconds at most. \
-         examples/decoders in Glimt's source has decoders for JPEG 2000 (ffmpeg), FITS from \
-         telescopes (astropy), DICOM from medical and dental imaging, also compressed \
-         (pydicom), FITS and DICOM through ImageMagick, NIfTI brain scans, whole pathology slides (OpenSlide), \
-         microscope files (Bio-Formats), cryo-EM maps (MRC) and HDF5, \
-         NetCDF-4 and NeXus data, \
-         Photoshop, TGA and OpenEXR, and GIMP's own files (ImageMagick). New decoders are seen after a restart.",
+        "Glimt reads JPEG, PNG, WebP, GIF, WebP and PNG (APNG) animations, TIFF (every page; \
+         grey TIFFs of floats from science stretched to show), BMP, ICO, QOI, PNM, Radiance \
+         HDR (tone-mapped), Zeiss LSM and .gel scans, and camera RAW files through their \
+         embedded preview; HEIC, AVIF and video through ffmpeg, JPEG XL and SVG, in the \
+         builds that have them, as the packages do. A video shows as a still frame from it; \
+         Enter (File → Play Video) plays it in the player set in Preferences, a command line \
+         such as mpv --fs, or else in the desktop's default player. A decoder plugin teaches \
+         Glimt a format it does not read itself, such as JPEG 2000, FITS, DICOM or OpenEXR: a \
+         desktop file in ~/.local/share/glimt/decoders with Extensions=jp2;j2k and an Exec \
+         command that writes the image (PNM, PNG …) to its standard output, %f being the \
+         file. Such files are then listed and shown as any other, with thumbnails. The \
+         command runs without a shell, for 30 seconds at most. examples/decoders in Glimt's \
+         source has decoders for JPEG 2000 (ffmpeg), FITS from telescopes (astropy), DICOM \
+         from medical and dental imaging, also compressed (pydicom), FITS and DICOM through \
+         ImageMagick, NIfTI brain scans, whole pathology slides (OpenSlide), microscope files \
+         (Bio-Formats), cryo-EM maps (MRC) and HDF5, NetCDF-4 and NeXus data, Photoshop, TGA \
+         and OpenEXR, and GIMP's own files (ImageMagick). New decoders are seen after a \
+         restart.",
     ),
     (
         "Sort manager",
@@ -323,12 +326,25 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Panels",
-        "T shows thumbnails, Ctrl+I shows the file list as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → Include Subfolders lists the images of every folder below, View → Show Hidden Files lists files and folders whose names start with a dot, K shows a histogram (RGB, brightness, off) and J makes it logarithmic, A stops and starts animations, E compares side by side: the next image, or the other of two selected files, at the same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every EXIF field, Ctrl+H hides the file list, F or F11 \
-         shows the image full screen, Esc leaves full screen. In full screen, I shows or \
-         hides the name, place and EXIF over the image; Preferences → Image info template says \
-         what it shows, in Geeqie's form: %name%, %keywords%, %Camera% and the other EXIF panel \
-         labels, | between parts that are left out when empty, \\n for a new line. Moving the pointer to the bottom \
-         shows a film strip of the images around the shown one; a click on one shows it.",
+        "T shows thumbnails (Small, Medium or Big in Preferences), Ctrl+I shows the file list \
+         as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → \
+         Include Subfolders lists the images of every folder below, View → Show Hidden Files \
+         lists files and folders whose names start with a dot, K shows a histogram (RGB, \
+         brightness, off) and J makes it logarithmic, A stops and starts animations, E \
+         compares side by side: the next image, or the other of two selected files, at the \
+         same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E \
+         a window with every EXIF field, Ctrl+H hides the file list, F or F11 shows the image \
+         full screen, Esc leaves full screen. In full screen, I shows or hides the name, \
+         place and EXIF over the image; Preferences → Image info template says what it shows, \
+         in Geeqie's form: %name%, %keywords%, %Camera% and the other EXIF panel labels, | \
+         between parts that are left out when empty, \\n for a new line. Moving the pointer \
+         to the bottom shows a film strip of the images around the shown one; a click on one \
+         shows it. Thumbnails are read from ~/.cache/thumbnails, which the file manager \
+         shares; new ones are saved there only with Save new thumbnails on in Preferences. \
+         View also shows or hides the toolbar and the folder path, and Preferences the search \
+         field and each file's size and date in the list. A click opens a menu; with one \
+         open, pointing at another opens that, and it closes a moment after the pointer \
+         leaves. Full screen keeps the screen saver off, unless Preferences say otherwise.",
     ),
     (
         "Colour",
@@ -370,6 +386,27 @@ const MANUAL: &[(&str, &str)] = &[
          and runs searches, the EXIF index, Find Duplicates and pan view on two cores, kinder to \
          a laptop battery; Balanced (the default) makes two thumbnails at once and runs the rest \
          on every core; Full makes thumbnails on every core too. It takes effect at once.",
+    ),
+    (
+        "Command line",
+        "glimt [OPTIONS] [FILE_OR_FOLDER …] opens a file with the rest of its folder, a \
+         folder at its first image, or several folders as one list (glimt ~/Holiday \
+         ~/Family). The options before them start it a certain way: glimt --fullscreen \
+         --layout 2x2 --random --slideshow ~/Pictures shows four random images at a time on \
+         the whole screen, and glimt --slideshow show.txt plays a list in its order. glimt \
+         --remote COMMAND sends a command to the Glimt used last, glimt --remote-all to every \
+         one: next, prev, slideshow or open PATH from a script or a desktop shortcut. \
+         current, selection and select PATH … tell a script (or an AI assistant) what is \
+         shown and selected, or select files for you; they print each path followed by a NUL \
+         byte, and none of them changes a file. They reach only the Glimt windows of the same \
+         user on this computer, through a private socket, never over the network; for another \
+         computer, run the command there (ssh). Several can be told apart by name: start them \
+         with glimt --name left and glimt --name right, and glimt --name left --remote \
+         slideshow reaches only the left one. glimt --kiosk is for a picture screen: full \
+         screen with only the image, browsing and the slideshow but nothing that changes \
+         files, and no way out but glimt --remote quit (in a kiosk session such as cage or \
+         GNOME Kiosk, the desktop's keys are gone too). man glimt says more, with examples. \
+         The options and commands:",
     ),
 ];
 
@@ -589,6 +626,12 @@ fn manual(ui: &mut egui::Ui) {
     for (heading, text) in MANUAL {
         ui.strong(*heading);
         ui.label(*text);
+        // The same lists as glimt --help, so they are never behind.
+        if *heading == "Command line" {
+            table(ui, "options", crate::START_OPTIONS);
+            ui.add_space(4.0);
+            table(ui, "commands", crate::remote::COMMANDS);
+        }
         ui.add_space(6.0);
     }
     egui::CollapsingHeader::new("Differences from Geeqie").show(ui, |ui| {
@@ -604,6 +647,17 @@ fn manual(ui: &mut egui::Ui) {
                 ui.end_row();
             }
         });
+    });
+}
+
+/// Two columns, the first in code: options or commands and what they do.
+fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
+    egui::Grid::new(id).striped(true).show(ui, |ui| {
+        for (what, does) in rows {
+            ui.code(*what);
+            ui.label(*does);
+            ui.end_row();
+        }
     });
 }
 
