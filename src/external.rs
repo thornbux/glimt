@@ -246,8 +246,29 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             .strip_prefix("gio: ")
             .and_then(|e| e.split_once(": "))
             .map_or(err, |e| e.1);
-        Some(format!("Could not mount {uri}: {err}"))
+        Some(format!("Could not mount {uri}: {err}{}", unknown_host(uri)))
     })
+}
+
+/// A hint when the server's name in `uri` is not found by the system's name lookup: a NAS
+/// is often known only as name.local (mDNS) or by its address, and Samba then fails with
+/// "Invalid argument" after the login rather than saying so.
+fn unknown_host(uri: &str) -> String {
+    use std::net::ToSocketAddrs;
+    let host = uri.split_once("://").map_or("", |r| r.1);
+    let host = host.split(['/', ':']).next().unwrap_or_default();
+    let host = host.rsplit('@').next().unwrap_or(host);
+    if host.is_empty()
+        || (host, 445)
+            .to_socket_addrs()
+            .is_ok_and(|mut a| a.next().is_some())
+    {
+        return String::new();
+    }
+    match host.contains('.') {
+        true => format!(" (the name {host} is not found)"),
+        false => format!(" (the name {host} is not found; try {host}.local or its IP address)"),
+    }
 }
 
 /// Applications registered for the type of `path` (gio mime), as (name, desktop file), Glimt
@@ -323,6 +344,15 @@ pub fn command(program: &str) -> std::process::Command {
 
 #[cfg(test)]
 mod tests {
+    /// A server name the system finds needs no hint; one it does not gets name.local or the IP.
+    #[test]
+    fn hints_at_an_unknown_host() {
+        assert_eq!(super::unknown_host("smb://localhost/share"), "");
+        assert_eq!(super::unknown_host("smb://user@127.0.0.1/share"), "");
+        let hint = super::unknown_host("smb://no-such-glimt-host/share");
+        assert!(hint.contains("no-such-glimt-host.local"), "{hint}");
+    }
+
     /// Two tiles side by side, cut to 1000×500 and turned a quarter: the keys as the parser
     /// reads them from ffprobe's compact output.
     #[test]

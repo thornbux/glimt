@@ -1709,6 +1709,8 @@ impl App {
 
     /// Open `path` as a new step in the Back/Forward history.
     fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
+        // A message about the folder before (a share that could not be mounted) goes with it.
+        self.notice = None;
         self.back.push(self.location());
         self.forward.clear();
         self.open(ctx, path);
@@ -1733,6 +1735,8 @@ impl App {
 
     /// Mount `login.uri`, answering gio's questions from `login` if `answer`.
     fn mount_as(&mut self, ctx: &egui::Context, login: Login, answer: bool) {
+        // Says which address is tried; replaces what an attempt before left.
+        self.notice = Some(format!("Connecting to {}…", login.uri));
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -6198,6 +6202,7 @@ impl App {
                 };
                 if let Some(path) = from.pop() {
                     to.push(here);
+                    self.notice = None;
                     self.open(ctx, path);
                 }
             }
@@ -6650,6 +6655,8 @@ impl App {
             && !self.errors.contains_key(&self.cur);
         if let Some(done) = self.mounting_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.mounting_rx = None;
+            // "Connecting to …" goes: the folder, the error or the login takes its place.
+            self.notice = None;
             match done {
                 (Ok(path), _) => self.visit(ctx, path),
                 (Err(Some(e)), _) => self.notice = Some(e),
@@ -8005,15 +8012,18 @@ impl App {
             let modal = egui::Modal::new(egui::Id::new("login")).show(ctx, |ui| {
                 ui.label(format!("Log in to {}", login.uri));
                 egui::Grid::new("login fields").show(ui, |ui| {
-                    let field = |text| egui::TextEdit::singleline(text).desired_width(220.0);
+                    // Sized outright: in the grid of a modal, desired_width left them a few
+                    // letters wide.
+                    let size = egui::vec2(220.0, ui.spacing().interact_size.y);
+                    let field = |text| egui::TextEdit::singleline(text);
                     ui.label("User:");
-                    ui.add(field(&mut login.user));
+                    ui.add_sized(size, field(&mut login.user));
                     ui.end_row();
                     ui.label("Domain:");
-                    ui.add(field(&mut login.domain));
+                    ui.add_sized(size, field(&mut login.domain));
                     ui.end_row();
                     ui.label("Password:");
-                    let edit = ui.add(field(&mut login.password).password(true));
+                    let edit = ui.add_sized(size, field(&mut login.password).password(true));
                     // The password field first, as the rest has defaults.
                     if login.password.is_empty() && ui.memory(|m| m.focused().is_none()) {
                         edit.request_focus();
@@ -8740,14 +8750,17 @@ impl App {
                 if fullscreen && !self.kiosk && !self.files.is_empty() {
                     clicked_pane = self.filmstrip(ui, ui.max_rect()).or(clicked_pane);
                 }
+                // Wrapped to the image area, on a dark band so it reads over any image.
                 if let Some(notice) = &self.notice {
-                    ui.painter().text(
-                        area.center_bottom() - egui::vec2(0.0, 16.0),
-                        egui::Align2::CENTER_BOTTOM,
-                        notice,
-                        egui::FontId::proportional(16.0),
-                        egui::Color32::LIGHT_RED,
-                    );
+                    let (font, red) = (egui::FontId::proportional(16.0), egui::Color32::LIGHT_RED);
+                    let width = (area.width() - 48.0).max(80.0);
+                    let galley = ui.painter().layout(notice.clone(), font, red, width);
+                    let at = area.center_bottom()
+                        - egui::vec2(galley.size().x / 2.0, 16.0 + galley.size().y);
+                    let band = egui::Rect::from_min_size(at, galley.size()).expand(8.0);
+                    ui.painter()
+                        .rect_filled(band, 6.0, egui::Color32::from_black_alpha(200));
+                    ui.painter().galley(at, galley, red);
                 }
             });
         if let Some(action) = later {
