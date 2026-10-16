@@ -111,7 +111,7 @@ The images in the screenshots are generated for the purpose.
   every page of a multi-page TIFF, and grey TIFFs of floats or signed numbers as science writes
   them (height models, microscopy), stretched from their lowest value to their highest. TIFFs
   under other names are read too: Zeiss `.lsm` from microscopes and `.gel` from gel scanners.
-- **Camera RAW:** CR2, CR3, NEF, ARW, DNG, ORF, RAF, RW2, PEF and more, shown at once through
+- **Camera RAW:** CR2, CR3, NEF, ARW, ARQ, DNG, GPR, ORF, RAF, RW2, RAW, PEF and more, shown at once through
   the JPEG preview the camera stores in them.
 - **Modern formats:** HEIC/HEIF from phones, AVIF, JPEG XL, SVG, and Radiance HDR, tone-mapped
   to the screen.
