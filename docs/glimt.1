@@ -290,14 +290,50 @@ Where the files above are kept.
 .B glimt ~/Pictures
 Show the images in ~/Pictures.
 .TP
+.B glimt ~/Pictures/holiday/beach.jpg
+Show that image, with the rest of its folder to browse.
+.TP
+.B glimt ~/Pictures/2024 ~/Pictures/2025
+Both folders as one list, for one slideshow across them.
+.TP
+.B glimt smb://nas/photos
+A folder on a network share, mounted with gio first.
+.TP
+.B glimt \-\-layout 2x2 ~/Pictures
+Four images at once.
+.TP
+.B glimt \-\-slideshow \-\-random \-\-fullscreen ~/Pictures
+A slideshow in random order on the whole screen.
+.TP
+.B glimt \-\-slideshow \-\-fullscreen \-\-fade long ~/show.txt
+The images listed in show.txt, one path on each line, in that order, fading from one to the next.
+.TP
+.B printf '%s\en' ~/Pictures/*.jpg > ~/show.txt
+Make such a list of a folder, to put in the order you want in an editor.
+.TP
+.B glimt \-\-kiosk \-\-slideshow ~/Pictures
+A picture frame: only the image, nothing that changes files; ends with glimt \-\-remote quit.
+.TP
+.B glimt \-\-name left ~/a & glimt \-\-name right ~/b
+Two windows that scripts can tell apart: glimt \-\-name left \-\-remote next reaches the first only.
+.TP
 .B glimt \-\-remote next
 Go to the next image in the Glimt used last, for example from a desktop shortcut.
 .TP
-.B glimt \-\-remote\-all quit
-Close every Glimt.
+.B glimt \-\-remote open ~/Pictures/holiday
+Show another folder in the running Glimt, or start one.
+.TP
+.B glimt \-\-remote select ~/Pictures/*sunset*
+Select those images in the list; the ones not in it are printed.
+.TP
+.B glimt \-\-remote selection | xargs \-0 cp \-t ~/best
+Copy the selected images to ~/best, also when a name holds a space or a line break.
 .TP
 .B glimt \-\-remote current | xargs \-0 exiftool \-Model
-The camera of the image shown, also when its name holds a space or a line break.
+The camera of the image shown.
+.TP
+.B glimt \-\-remote\-all quit
+Close every Glimt.
 .SH SEE ALSO
 .BR geeqie (1),
 .BR gio (1),
