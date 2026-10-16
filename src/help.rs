@@ -328,23 +328,24 @@ const MANUAL: &[(&str, &str)] = &[
         "Panels",
         "T shows thumbnails (Small, Medium or Big in Preferences), Ctrl+I shows the file list \
          as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → \
-         Include Subfolders lists the images of every folder below, View → Show Hidden Files \
-         lists files and folders whose names start with a dot, K shows a histogram (RGB, \
-         brightness, off) and J makes it logarithmic, A stops and starts animations, E \
-         compares side by side: the next image, or the other of two selected files, at the \
-         same zoom and position, Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E \
-         a window with every EXIF field, Ctrl+H hides the file list, F or F11 shows the image \
-         full screen, Esc leaves full screen. In full screen, I shows or hides the name, \
-         place and EXIF over the image; Preferences → Image info template says what it shows, \
-         in Geeqie's form: %name%, %keywords%, %Camera% and the other EXIF panel labels, | \
-         between parts that are left out when empty, \\n for a new line. Moving the pointer \
-         to the bottom shows a film strip of the images around the shown one; a click on one \
-         shows it. Thumbnails are read from ~/.cache/thumbnails, which the file manager \
-         shares; new ones are saved there only with Save new thumbnails on in Preferences. \
-         View also shows or hides the toolbar and the folder path, and Preferences the search \
-         field and each file's size and date in the list. A click opens a menu; with one \
-         open, pointing at another opens that, and it closes a moment after the pointer \
-         leaves. Full screen keeps the screen saver off, unless Preferences say otherwise.",
+         Include Subfolders lists the images of every folder below (File → Open Folder \
+         Recursive… opens a folder with it on), View → Show Hidden Files lists files and \
+         folders whose names start with a dot, K shows a histogram (RGB, brightness, off) and \
+         J makes it logarithmic, A stops and starts animations, E compares side by side: the \
+         next image, or the other of two selected files, at the same zoom and position, \
+         Ctrl+K the EXIF panel (its GPS position opens a map), Ctrl+E a window with every \
+         EXIF field, Ctrl+H hides the file list, F or F11 shows the image full screen, Esc \
+         leaves full screen. In full screen, I shows or hides the name, place and EXIF over \
+         the image; Preferences → Image info template says what it shows, in Geeqie's form: \
+         %name%, %keywords%, %Camera% and the other EXIF panel labels, | between parts that \
+         are left out when empty, \\n for a new line. Moving the pointer to the bottom shows \
+         a film strip of the images around the shown one; a click on one shows it. Thumbnails \
+         are read from ~/.cache/thumbnails, which the file manager shares; new ones are saved \
+         there only with Save new thumbnails on in Preferences. View also shows or hides the \
+         toolbar and the folder path, and Preferences the search field and each file's size \
+         and date in the list. A click opens a menu; with one open, pointing at another opens \
+         that, and it closes a moment after the pointer leaves. Full screen keeps the screen \
+         saver off, unless Preferences say otherwise.",
     ),
     (
         "Colour",
