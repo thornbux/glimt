@@ -239,8 +239,11 @@ const MANUAL: &[(&str, &str)] = &[
          stars into the marks. Lightroom keeps the folders where they were on its computer: \
          say where each is now. Next then says what the import will do: the collections that \
          are there already, and the images whose stars in Glimt differ, where you choose \
-         whose stars to keep. Stars go to the XMP sidecars too when they are set to. Smart \
-         collections, colour labels and flags are left out.",
+         whose stars to keep. Stars go to the XMP sidecars too when they are set to. A box \
+         (kept for the next import) also writes each image's keywords into its XMP sidecar, \
+         with their place in the tree, beside the keywords it has: what Lightroom kept only in \
+         its catalog, unless it was set to write XMP. Smart collections, colour labels and \
+         flags are left out.",
     ),
     (
         "Checking images",

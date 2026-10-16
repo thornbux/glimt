@@ -294,6 +294,9 @@ its `Previews.lrdata` folder) and brings over:
 
 - **Collections**, also those in collection sets, which become Glimt collections named
   "Set - Collection". One that is there already gets only the images it lacks.
+- **Each image's keywords**, written into its XMP sidecar with their place in the tree, beside
+  the keywords it has (a box in the import, on by default). Lightroom keeps them only in its
+  catalog unless "Automatically write changes into XMP" is on.
 - **Keywords** with their hierarchy, into the keyword tree (Places → Norway → Oslo).
 - **Star ratings**, into Glimt's stars, and into the XMP sidecars if Preferences says so.
   Images that already have other stars in Glimt are counted, and you choose whose to keep.

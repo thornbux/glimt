@@ -283,6 +283,8 @@ config! {
     // followed (GNOME's Large Text and text scaling).
     ui_scale: u32 = 100,
     follow_text_scale: bool = true,
+    // Import Lightroom Catalog: each image's keywords into its XMP sidecar.
+    lightroom_keywords: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
     /// Window title "Glimt - image name" instead of "image name - Glimt".

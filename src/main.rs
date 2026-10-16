@@ -468,6 +468,8 @@ struct LightroomPlan {
     existing: Vec<String>,
     keywords: Vec<String>,
     stars: Vec<(PathBuf, u8)>,
+    /// Each image's keywords, as keyword tree paths.
+    image_keywords: Vec<(PathBuf, Vec<String>)>,
     /// How many images have other stars in Glimt, and whether Lightroom's replace them.
     differ: usize,
     take_lightroom: bool,
@@ -7682,6 +7684,14 @@ impl App {
                             "There already, so they get only the images they lack: {names}."
                         ));
                     }
+                    if !plan.image_keywords.is_empty() {
+                        let what = format!(
+                            "The keywords of each image, into its XMP sidecar ({}); those it \
+                             has stay",
+                            count(plan.image_keywords.len(), "image")
+                        );
+                        ui.checkbox(&mut self.config.lightroom_keywords, what);
+                    }
                     if plan.differ > 0 {
                         ui.label(format!(
                             "{} other stars in Glimt:",
@@ -7743,6 +7753,7 @@ impl App {
             collections,
             existing,
             keywords: catalog.keyword_paths(),
+            image_keywords: catalog.image_keywords(&paths),
             stars,
             differ,
             take_lightroom: false,
@@ -7757,8 +7768,21 @@ impl App {
             keywords,
             stars,
             take_lightroom,
+            image_keywords,
             ..
         } = plan;
+        // The choice is kept for the next import.
+        self.config.save();
+        let image_keywords: Vec<(PathBuf, Vec<String>)> = match self.config.lightroom_keywords {
+            true => image_keywords,
+            false => Vec::new(),
+        };
+        // "exif:" searches here read those images' keywords again.
+        for (path, _) in &image_keywords {
+            if let Ok(name) = path.strip_prefix(&self.dir) {
+                self.exif_stale.insert(name.as_os_str().to_owned());
+            }
+        }
         let mut done = vec![count(keywords.len(), "keyword")];
         self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(keywords).collect());
         #[cfg(feature = "marks")]
@@ -7818,6 +7842,20 @@ impl App {
             }
             #[cfg(not(feature = "marks"))]
             let _ = xmp;
+            let (mut tagged, mut failed) = (0, 0);
+            // Not for photos gone since: no sidecar beside nothing.
+            for (path, tags) in image_keywords.iter().filter(|(p, _)| p.is_file()) {
+                match meta::add_tags(path, tags) {
+                    Ok(()) => tagged += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            if tagged > 0 {
+                msg += &format!(", the keywords of {}", count(tagged, "image"));
+            }
+            if failed > 0 {
+                msg += &format!("; no keywords written for {}", thousands(failed));
+            }
             let _ = tx.send(msg);
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();

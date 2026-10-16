@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Import Lightroom Catalog writes each image's keywords into its XMP sidecar, with their place in
+  the keyword tree, beside those it has: what Lightroom keeps only in its catalog unless it writes
+  XMP. A box in the import (kept for the next one) turns it off; the keywords of virtual copies go
+  to their file once.
+
 ## [0.26.0] - 2026-10-16
 
 ### Added

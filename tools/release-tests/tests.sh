@@ -915,7 +915,7 @@ for v in new old; do
 done
 as_version new
 
-echo "-- a Lightroom catalog: its collection, keyword tree and stars imported"
+echo "-- a Lightroom catalog: its collection, keyword tree, stars and image keywords imported"
 d=/tmp/lr
 mkdir -p $d/photos/2024
 convert -size 300x200 xc:red $d/photos/2024/a.jpg
@@ -929,6 +929,7 @@ CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile, rating);
 CREATE TABLE AgLibraryCollection (id_local INTEGER PRIMARY KEY, creationId, name, parent);
 CREATE TABLE AgLibraryCollectionImage (id_local INTEGER PRIMARY KEY, collection, image);
 CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, name, parent);
+CREATE TABLE AgLibraryKeywordImage (id_local INTEGER PRIMARY KEY, image, tag);
 INSERT INTO AgLibraryRootFolder VALUES (1, '$d/photos/');
 INSERT INTO AgLibraryFolder VALUES (2, 1, '2024/');
 INSERT INTO AgLibraryFile VALUES (3, 2, 'a', 'jpg'), (4, 2, 'b', 'jpg');
@@ -937,6 +938,7 @@ INSERT INTO AgLibraryCollection VALUES (7, 'com.adobe.ag.library.group', 'Travel
     (8, 'com.adobe.ag.library.collection', 'Norway', 7);
 INSERT INTO AgLibraryCollectionImage VALUES (9, 8, 5), (10, 8, 6);
 INSERT INTO AgLibraryKeyword VALUES (11, NULL, NULL), (12, 'Places', 11), (13, 'Oslo', 12);
+INSERT INTO AgLibraryKeywordImage VALUES (14, 6, 13);
 SQL
 # There already: the collection with one of the images, and other stars on that image.
 mkdir -p $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt
@@ -952,7 +954,7 @@ click 100 420 3   # File → Import Lightroom Catalog…
 shot lightroom-dialog
 click 382 447 2   # Next
 shot lightroom-plan
-click 454 462 2   # Import, keeping Glimt's stars
+click 421 474 3   # Import, keeping Glimt's stars, with the images' keywords
 shot lightroom-done
 quit
 coll="$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
@@ -962,6 +964,8 @@ expect "the keyword under its parent" "$(grep -cx 'Places|Oslo' $XDG_CONFIG_HOME
 stars=$(sort $XDG_STATE_HOME/glimt/marks | cut -f2 | tr '\n' ' ')
 expect "Glimt's stars kept, the new ones taken" "$stars" "2 3 "
 expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.jpg.xmp)" 1
+expect "the image's keyword in its sidecar, with its place in the tree" \
+    "$(grep -c '<rdf:li>Oslo</rdf:li>\|<rdf:li>Places|Oslo</rdf:li>' $d/photos/2024/b.jpg.xmp)" 2
 
 echo "-- a collection renamed, then moved to the trash: its images stay"
 d=/tmp/coll

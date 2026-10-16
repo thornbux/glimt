@@ -463,6 +463,26 @@ pub fn tag(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     })
 }
 
+/// Keyword tree paths `tags` set on `path` in one write, as `tag` sets one: each name among its
+/// keywords and each path in lr:hierarchicalSubject, beside what it has, which stays. Nothing is
+/// written when it has them all.
+pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
+    let _held = held();
+    let mut meta = read(path);
+    let mut paths = tree_paths(path);
+    let (keywords, known) = (meta.keywords.clone(), paths.clone());
+    for t in tags {
+        set_tag(&mut meta.keywords, &mut paths, t, true);
+    }
+    if meta.keywords == keywords && paths == known {
+        return Ok(());
+    }
+    let own = embedded(path).is_some_and(|x| parse(&x) != Meta::default());
+    update(path, false, |x| {
+        set_keywords(&with_paths(x.to_owned(), &paths)?, &meta, own)
+    })
+}
+
 /// `xmp` without element `tag` and its contents.
 fn without(xmp: &str, tag: &str) -> String {
     let close = format!("</{tag}>");
@@ -755,6 +775,27 @@ mod tests {
             parse_access(&set(&written, &Meta::default(), false).unwrap()),
             access
         );
+    }
+
+    /// Keyword tree paths from another program added to an image in one write: its own
+    /// keyword stays, each name and path once, and nothing is written when all are there.
+    #[test]
+    fn adds_tags_of_another_program() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-addtags-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let photo = dir.join("a.jpg");
+        std::fs::write(&photo, b"").unwrap();
+        super::write_changed(&photo, Some(vec!["Mine".into()]), None).unwrap();
+        let tags = ["Places|Norway|Oslo".to_owned(), "People|Ann".to_owned()];
+        super::add_tags(&photo, &tags).unwrap();
+        super::add_tags(&photo, &tags).unwrap();
+        let mut keywords = super::read(&photo).keywords;
+        keywords.sort();
+        assert_eq!(keywords, ["Ann", "Mine", "Oslo"]);
+        let mut paths = super::tree_paths(&photo);
+        paths.sort();
+        assert_eq!(paths, ["Mine", "People|Ann", "Places|Norway|Oslo"]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Keywords added from several threads at once: none is lost.
