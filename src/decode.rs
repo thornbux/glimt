@@ -611,6 +611,10 @@ mod tests {
     /// the highest; a float RGB one as the image crate reads it.
     #[test]
     fn shows_float_tiff() {
+        // Pixel values: no other test may change the colour settings meanwhile.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use tiff::encoder::{TiffEncoder, colortype};
         let dir = std::env::temp_dir().join(format!("glimt-test-float-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -637,6 +641,10 @@ mod tests {
     /// rolled off, nothing cut to white but the brightest.
     #[test]
     fn tone_maps_radiance_hdr() {
+        // Pixel values: no other test may change the colour settings meanwhile.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-hdr-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let img = image::Rgb32FImage::from_fn(100, 10, |x, _| {
