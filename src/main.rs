@@ -2005,6 +2005,32 @@ impl App {
         }
     }
 
+    /// Move the selected images (or the shown one) of the open collection one place earlier or
+    /// later, or to its start or end, and save its new order: a slideshow plays it so. Several
+    /// selected keep their order among themselves; the shown image and the selection follow.
+    // shortcut: the whole list put together again for each move, some milliseconds for 100,000
+    // images; move the indices alone if collections that large are moved image by image.
+    fn move_in_collection(&mut self, ctx: &egui::Context, action: Action) {
+        if self.collection.is_none() {
+            self.notice = Some("Only the images of a collection can be moved".into());
+            return;
+        }
+        let picked: HashSet<usize> = self.targets().into_iter().collect();
+        let order = moved(self.files.len(), &picked, action);
+        let shown = self.files.get(self.cur).cloned();
+        let names: HashSet<OsString> = picked.iter().map(|&i| self.files[i].clone()).collect();
+        let files: Vec<OsString> = order.iter().map(|&i| self.files[i].clone()).collect();
+        let selected = !self.selected.is_empty();
+        self.replace_files(ctx, files, shown);
+        if selected {
+            self.selected = (self.files.iter().enumerate())
+                .filter(|(_, f)| names.contains(*f))
+                .map(|(i, _)| i)
+                .collect();
+        }
+        self.save_collection();
+    }
+
     /// The open collection's file to the trash, through gio in the background; the images stay,
     /// and the window shows the shown image's folder.
     fn trash_collection(&mut self, ctx: &egui::Context) {
@@ -2087,6 +2113,16 @@ impl App {
             menu_item(ui, act, Action::RemoveFromCollection);
             menu_item(ui, act, Action::RenameCollection);
             menu_item(ui, act, Action::TrashCollection);
+            ui.menu_button("Move in Collection", |ui| {
+                for action in [
+                    Action::MoveEarlier,
+                    Action::MoveLater,
+                    Action::MoveFirst,
+                    Action::MoveLast,
+                ] {
+                    menu_item(ui, act, action);
+                }
+            });
         }
         if let Some(file) = open {
             self.visit(ui.ctx(), file);
@@ -5807,6 +5843,9 @@ impl App {
                 }
             }
             Action::TrashCollection => self.trash_collection(ctx),
+            Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
+                self.move_in_collection(ctx, action)
+            }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
             // A kiosk shows only the image.
             Action::FocusSearch if self.kiosk => {}
@@ -8858,6 +8897,34 @@ fn main() -> eframe::Result {
     )
 }
 
+/// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
+/// (each picked passes one that is not, never one another), or all to the start or end, among
+/// themselves in the order they had.
+fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..n).collect();
+    let (first, rest): (Vec<usize>, Vec<usize>) = order.iter().partition(|i| picked.contains(i));
+    match action {
+        Action::MoveFirst => order = [first, rest].concat(),
+        Action::MoveLast => order = [rest, first].concat(),
+        Action::MoveEarlier => {
+            for at in 1..n {
+                if picked.contains(&order[at]) && !picked.contains(&order[at - 1]) {
+                    order.swap(at - 1, at);
+                }
+            }
+        }
+        Action::MoveLater => {
+            for at in (0..n.saturating_sub(1)).rev() {
+                if picked.contains(&order[at]) && !picked.contains(&order[at + 1]) {
+                    order.swap(at, at + 1);
+                }
+            }
+        }
+        _ => {}
+    }
+    order
+}
+
 /// `template` (see OSD_TEMPLATE) with each `%field%` replaced by `value(field)`.
 fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     let lines = template.split("\\n").filter_map(|line| {
@@ -8886,6 +8953,23 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Images of a collection moved: each one place, never past another moved one, and to the
+    /// start or the end in their own order.
+    #[test]
+    fn moves_in_a_collection() {
+        use super::{Action, moved};
+        let set = |v: &[usize]| v.iter().copied().collect();
+        // 0 1 2 3 4 5 with 1, 2 and 5 picked.
+        let picked = set(&[1, 2, 5]);
+        assert_eq!(moved(6, &picked, Action::MoveEarlier), [1, 2, 0, 3, 5, 4]);
+        assert_eq!(moved(6, &picked, Action::MoveLater), [0, 3, 1, 2, 4, 5]);
+        assert_eq!(moved(6, &picked, Action::MoveFirst), [1, 2, 5, 0, 3, 4]);
+        assert_eq!(moved(6, &picked, Action::MoveLast), [0, 3, 4, 1, 2, 5]);
+        // At the edge already: where it was.
+        assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
+        assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
+    }
+
     /// CPU use: thumbnails and background threads for each level.
     #[test]
     fn cpu_levels() {

@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Images of a collection put in order with keys: Ctrl+Shift+Up and Down move the selected ones (or
+  the shown one) a place earlier or later, Ctrl+Shift+Home and End to the start or end (also in
+  File → Move in Collection). The order is saved at once, and the slideshow plays it.
 - The size of the menus, lists and text, from 50 to 300 % in Preferences, and larger still when
   GNOME's Large Text or text scaling is on (a box turns that off). egui's own Ctrl+0, which reset
   it, is off.

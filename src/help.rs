@@ -223,6 +223,8 @@ const MANUAL: &[(&str, &str)] = &[
          right-click menu) adds to one, and File → Collections or O opens one: the file list \
          then shows its images, which browse, sort and play as a slideshow like a folder. \
          Delete takes the shown or selected images out of the collection, leaving the files; \
+         Ctrl+Shift+↑ and ↓ move them one place earlier or later, Ctrl+Shift+Home and End to \
+         the start or end (File → Move in Collection), and the slideshow plays that order; \
          renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
          Collection to Trash act on the open collection; its images stay where they are. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
@@ -370,6 +372,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Small images",
         "\"Enlarge small images to fit the window\", on by default",
         "\"Allow enlargement\"",
+    ),
+    (
+        "Order of a collection",
+        "Ctrl+Shift+↑, ↓, Home and End move the selected images in it, saved at once",
+        "Drag and drop in the collection window",
     ),
     (
         "Close Window (Ctrl+W)",

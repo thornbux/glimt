@@ -820,6 +820,25 @@ differ "GNOME's text scaling followed" "$(colour scale-new-ui_scale=100-true 300
 expect "not followed when turned off" "$(colour scale-new-ui_scale=100-false 300 400)" red
 note "old at 200 %: $(colour scale-old-ui_scale=200-false 400 400)"
 
+echo "-- a collection put in order with keys: one place earlier, then to the end"
+for v in new old; do
+    as_version $v
+    d=/tmp/reorder-$v
+    mkdir -p $d
+    for c in a b c; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n"%s/c.jpg"\n' $d $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    sleep 1
+    key space; key ctrl+shift+Up; sleep 1     # b before a
+    key Home; key ctrl+shift+End; sleep 1      # then b, shown first, to the end
+    quit
+    order=$(grep -o '[abc]\.jpg' $d/show.gqv | tr '\n' ' ')
+    if [ $v = new ]; then expect "the collection's new order, saved" "$order" "a.jpg c.jpg b.jpg "
+    else note "old: $order"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
