@@ -80,7 +80,10 @@ const MANUAL: &[(&str, &str)] = &[
         "Space, Page Down and → show the next image; Backspace, Page Up and ← the previous; \
          Home and End the first and last. The images on each side are decoded in advance, so \
          browsing is instant. Click a name in the file list to show it. In a TIFF with several \
-         pages, Ctrl+Page Down and Ctrl+Page Up go to the next and previous page.",
+         pages, Ctrl+Page Down and Ctrl+Page Up go to the next and previous page; in an \
+         animation (GIF, WebP, APNG) they stop it at the next or previous frame, and A plays on. \
+         File → Save This Frame… saves the frame or page shown as a PNG, and File → Export \
+         Frames… every one of them, at full size, in a new folder.",
     ),
     (
         "Zoom",

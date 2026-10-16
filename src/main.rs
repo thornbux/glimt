@@ -534,6 +534,10 @@ enum Pick {
     Lightroom,
     /// The folder to put a backup of Glimt's own files in.
     BackUp,
+    /// Where to save frame (or page) number .1 of the file .0, as PNG.
+    SaveFrame(PathBuf, usize),
+    /// The folder for every frame (or page) of the file, as PNG files.
+    ExportFrames(PathBuf),
 }
 
 /// Images to print, and how.
@@ -762,16 +766,24 @@ struct Slot {
 impl Slot {
     /// The frame to show `t` after the image was opened; asks for a repaint when the next is due.
     fn frame(&self, t: std::time::Duration, ctx: &egui::Context) -> &egui::TextureHandle {
+        let (k, left) = self.frame_at(t);
+        if let Some(left) = left {
+            ctx.request_repaint_after(std::time::Duration::from_millis(left as u64));
+        }
+        self.anim.get(k).map_or(&self.tex, |f| &f.0)
+    }
+
+    /// The frame shown `t` after the start, and the milliseconds it still has.
+    fn frame_at(&self, t: std::time::Duration) -> (usize, Option<u32>) {
         let total: u32 = self.anim.iter().map(|f| f.1).sum();
         let mut at = (t.as_millis() % total.max(1) as u128) as u32;
-        for (tex, ms) in &self.anim {
+        for (k, (_, ms)) in self.anim.iter().enumerate() {
             if at < *ms {
-                ctx.request_repaint_after(std::time::Duration::from_millis((ms - at) as u64));
-                return tex;
+                return (k, Some(ms - at));
             }
             at -= ms;
         }
-        &self.tex
+        (0, None)
     }
 }
 
@@ -879,6 +891,8 @@ struct App {
     errors: HashMap<usize, String>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
+    /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
+    frame: Option<usize>,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// A slideshow's change of image fading in: when it began, and what each pane (the first,
@@ -1601,6 +1615,7 @@ impl App {
             limits,
             decode_jobs: jobs,
             page: 0,
+            frame: None,
             decoded_rx: done,
             slots: HashMap::new(),
             pending: HashMap::new(),
@@ -2318,6 +2333,8 @@ impl App {
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.fade = None;
+        // A new image plays from its start.
+        self.frame = None;
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.orient != (0, false);
         self.leave_image(ctx);
@@ -3363,6 +3380,11 @@ impl App {
                     .file_name()
                     .unwrap_or_default(),
             ),
+            // "name-frame-3.png" beside the file.
+            Pick::SaveFrame(path, k) => {
+                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                self.dir.join(format!("{stem}-frame-{}.png", k + 1))
+            }
             // Made first: the file dialog cannot start in a folder that is not there.
             Pick::Collection => (collections::dir())
                 .inspect(|d| drop(std::fs::create_dir_all(d)))
@@ -3377,7 +3399,7 @@ impl App {
             }
             _ => self.dir.join(""),
         };
-        let save = matches!(purpose, Pick::SavePdf(_));
+        let save = matches!(purpose, Pick::SavePdf(_) | Pick::SaveFrame(..));
         let several = matches!(purpose, Pick::Folders);
         let ctx = ctx.clone();
         let title = match purpose {
@@ -3393,6 +3415,8 @@ impl App {
             Pick::InputProfile => "Profile of Images Without One",
             Pick::Lightroom => "Import Lightroom Catalog",
             Pick::BackUp => "Back Up Glimt's Data To",
+            Pick::SaveFrame(..) => "Save This Frame as PNG",
+            Pick::ExportFrames(_) => "Export Every Frame To",
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -5272,6 +5296,82 @@ impl App {
     /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
     /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
     /// copy them back while Glimt is closed; the README says where.
+    /// The frame of the shown animation playing now.
+    fn playing_frame(&self) -> usize {
+        let slot = self.slots.get(&self.cur);
+        match self.config.animate {
+            true => slot.map_or(0, |s| s.frame_at(self.opened.elapsed()).0),
+            false => 0,
+        }
+    }
+
+    /// The frame (or page) shown now: the one stepped to, else the page.
+    fn shown_frame(&self) -> usize {
+        let animated = self.slots.get(&self.cur).is_some_and(|s| s.anim.len() > 1);
+        match self.frame {
+            Some(k) => k,
+            None if animated => self.playing_frame(),
+            None => self.page,
+        }
+    }
+
+    /// Frames, or pages, of the shown file: for the status bar and the File menu's entries.
+    fn frame_count(&self) -> usize {
+        (self.slots.get(&self.cur)).map_or(1, |s| s.anim.len().max(s.pages))
+    }
+
+    /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
+    /// in `to` (never over a file), in the background, at full size.
+    fn export_frames(
+        &mut self,
+        ctx: &egui::Context,
+        path: PathBuf,
+        only: Option<usize>,
+        to: PathBuf,
+    ) {
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let stem = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let folder = match only {
+                Some(_) => to.clone(),
+                None => (1..)
+                    .map(|n| match n {
+                        1 => to.join(format!("{stem}-frames")),
+                        n => to.join(format!("{stem}-frames-{n}")),
+                    })
+                    .find(|p| !p.exists())
+                    .unwrap_or_default(),
+            };
+            let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
+                Err(format!("Could not make {}", folder.display()))
+            } else {
+                decode::survive(|| {
+                    decode::each_frame(&path, only, |k, img| {
+                        let file = match only {
+                            Some(_) => to.clone(),
+                            None => folder.join(format!("{stem}-{:03}.png", k + 1)),
+                        };
+                        img.save_with_format(&file, image::ImageFormat::Png)
+                            .map_err(|e| format!("{}: {e}", file.display()))
+                    })
+                })
+            };
+            let _ = tx.send(match (saved, only) {
+                (Ok(0), _) => "No such frame".to_owned(),
+                (Ok(_), Some(_)) => format!("Saved {}", to.display()),
+                (Ok(n), None) => format!("{} saved in {}", count(n, "frame"), folder.display()),
+                (Err(e), _) => format!("Could not save the frames: {e}"),
+            });
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
     fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
         let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
@@ -6486,6 +6586,17 @@ impl App {
                 self.tree_shown = PathBuf::new();
                 self.list(ctx);
             }
+            // An animation: stopped at the frame before or after the one shown, which A plays on.
+            Action::NextPage | Action::PrevPage
+                if self.slots.get(&self.cur).is_some_and(|s| s.anim.len() > 1) =>
+            {
+                let n = self.slots.get(&self.cur).map_or(1, |s| s.anim.len());
+                let at = self.frame.unwrap_or_else(|| self.playing_frame());
+                self.frame = Some(match action {
+                    Action::NextPage => (at + 1) % n,
+                    _ => (at + n - 1) % n,
+                });
+            }
             Action::NextPage | Action::PrevPage => {
                 let pages = self.slots.get(&self.cur).map_or(1, |s| s.pages);
                 let page = match action {
@@ -6585,7 +6696,13 @@ impl App {
                     Action::Icons => &mut c.icons,
                     Action::FolderTree => &mut c.folder_tree,
                     Action::HistogramLog => &mut c.histogram_log,
-                    Action::Animate => &mut c.animate,
+                    Action::Animate => {
+                        // Stepped to a frame: A plays on from there, without turning it off.
+                        if self.frame.take().is_some() {
+                            return;
+                        }
+                        &mut c.animate
+                    }
                     Action::SortManager => &mut c.sort_manager,
                     _ => &mut c.exif_panel,
                 };
@@ -6594,6 +6711,14 @@ impl App {
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Print if !self.files.is_empty() => self.open_print(ctx),
+            Action::SaveFrame if !self.files.is_empty() => {
+                let k = self.shown_frame();
+                self.pick(ctx, false, Pick::SaveFrame(self.path(self.cur), k));
+            }
+            Action::ExportFrames if self.frame_count() > 1 => {
+                self.pick(ctx, true, Pick::ExportFrames(self.path(self.cur)));
+            }
+            Action::SaveFrame | Action::ExportFrames => {}
             Action::Print => {}
             Action::Rename if self.targets().len() > 1 => {
                 self.asked_for = (self.files_gen, self.cur);
@@ -6976,6 +7101,10 @@ impl App {
                 }
                 (Pick::Lightroom, Some(file)) => self.read_lightroom(ctx, file),
                 (Pick::BackUp, Some(dir)) => self.back_up(ctx, dir),
+                (Pick::SaveFrame(path, k), Some(file)) => {
+                    self.export_frames(ctx, path, Some(k), file)
+                }
+                (Pick::ExportFrames(path), Some(dir)) => self.export_frames(ctx, path, None, dir),
             }
         }
     }
@@ -7149,6 +7278,10 @@ impl App {
                     #[cfg(feature = "video")]
                     menu_item(ui, act, Action::Play);
                     menu_item(ui, act, Action::Print);
+                    menu_item(ui, act, Action::SaveFrame);
+                    if self.frame_count() > 1 {
+                        menu_item(ui, act, Action::ExportFrames);
+                    }
                     ui.separator();
                     menu_item(ui, act, Action::Delete);
                     menu_item(ui, act, Action::DeletePermanently);
@@ -8417,6 +8550,8 @@ impl App {
                             }
                             let page = if slot.pages > 1 && idx == self.cur {
                                 format!(" page {}/{}", self.page + 1, slot.pages)
+                            } else if let Some(k) = self.frame.filter(|_| idx == self.cur) {
+                                format!(" frame {}/{}", k + 1, slot.anim.len())
                             } else {
                                 String::new()
                             };
@@ -8875,10 +9010,10 @@ impl App {
                         egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
                     };
                     let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-                    let tex = if self.config.animate {
-                        slot.frame(self.opened.elapsed(), ctx)
-                    } else {
-                        &slot.tex
+                    let tex = match self.frame {
+                        Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
+                        None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
+                        None => &slot.tex,
                     };
                     // Within its pane or half, which zoom makes it overflow.
                     let clip = ui.clip_rect();
