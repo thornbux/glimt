@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Sony's pixel-shift .arq, GoPro's .gpr and Panasonic's older .raw files, shown by their preview
+  as the other RAW files.
+
 ## [0.25.0] - 2026-10-16
 
 ### Added

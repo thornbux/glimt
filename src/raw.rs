@@ -9,6 +9,8 @@ use std::path::Path;
 pub const EXTS: &[&str] = &[
     "cr2", "cr3", "crw", "nef", "nrw", "arw", "sr2", "srf", "dng", "orf", "rw2", "raf", "pef",
     "srw", "erf", "kdc", "dcr", "3fr", "fff", "iiq", "mef", "mos", "mrw", "rwl", "x3f",
+    // Sony pixel shift, GoPro (DNG inside), Panasonic before RW2.
+    "arq", "gpr", "raw",
 ];
 
 /// The preview, turned upright if `rotate`.
@@ -118,6 +120,42 @@ mod tests {
 
     /// RAW files broken in thousands of ways, and one made of start markers: a preview found or
     /// not, without a panic, and soon.
+    /// Sony's pixel-shift .arq, GoPro's .gpr and Panasonic's old .raw: listed with the RAW
+    /// files and shown by their preview.
+    #[test]
+    fn lists_and_shows_more_raw() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-raw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut preview = Vec::new();
+        image::RgbImage::new(60, 40)
+            .write_to(
+                &mut std::io::Cursor::new(&mut preview),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        for name in ["a.arq", "b.gpr", "c.raw"] {
+            let mut data = b"II*\0\x08\0\0\0".to_vec();
+            data.extend(&preview);
+            std::fs::write(dir.join(name), data).unwrap();
+        }
+        let types = crate::files::Types {
+            images: false,
+            raw: true,
+            videos: false,
+            hidden: false,
+        };
+        let (_, listed) = crate::files::list_folder(&dir, types);
+        assert_eq!(
+            listed,
+            ["a.arq", "b.gpr", "c.raw"].map(std::ffi::OsString::from)
+        );
+        for name in listed {
+            let img = super::load(&dir.join(name), true).unwrap();
+            assert_eq!((img.width(), img.height()), (60, 40));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn survives_broken_raw() {
         let mut out = Vec::new();
