@@ -259,7 +259,9 @@ const MANUAL: &[(&str, &str)] = &[
          Themes… opens the collection on GitHub. Without an accent colour of its own, a theme \
          takes the desktop's. When the desktop asks for high contrast (GNOME's and KDE's \
          accessibility settings), Glimt shows High Contrast whatever theme is chosen; a box in \
-         Preferences turns that off.",
+         Preferences turns that off. Preferences also sets the size of the menus, lists and \
+         text, from 50 to 300 %, and makes them larger still when GNOME's Large Text or text \
+         scaling is on.",
     ),
     (
         "Layouts",

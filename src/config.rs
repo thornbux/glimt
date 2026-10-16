@@ -279,6 +279,10 @@ config! {
     remember_window: bool = true,
     // The High Contrast theme while the desktop asks for high contrast (GNOME, KDE).
     follow_contrast: bool = true,
+    // The size of the menus, lists and text, in percent, times the desktop's text size if
+    // followed (GNOME's Large Text and text scaling).
+    ui_scale: u32 = 100,
+    follow_text_scale: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
     /// Window title "Glimt - image name" instead of "image name - Glimt".
@@ -352,6 +356,7 @@ impl Config {
             c.print_per_page = 1;
         }
         c.animation_mb = c.animation_mb.clamp(8, 1024);
+        c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
         c.webp_quality = c.webp_quality.min(100);

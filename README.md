@@ -23,7 +23,7 @@ quick look, which is what an image viewer is for.
   the viewer down.
 - **It feels at home on Linux.** Dark by default, or following the desktop's light or dark style
   and accent colour, with themes for low vision, taken by itself when the desktop asks for high
-  contrast. The thumbnail cache is the one the file
+  contrast; menus, lists and text as large as you set them, and larger with GNOME's Large Text. The thumbnail cache is the one the file
   manager uses, network shares open through GVfs, deleted files go to the trash.
 - **It respects your files.** Ratings, keywords and comments go to XMP sidecars that darktable,
   digiKam, Lightroom and Immich read, and follow the file when it is renamed, moved or copied.

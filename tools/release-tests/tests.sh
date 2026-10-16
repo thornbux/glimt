@@ -795,6 +795,31 @@ expect "High Contrast while the desktop asks for it" "$(red contrast-new-true 12
 differ "the chosen theme when that is turned off" "$(red contrast-new-false 120 700)" 0
 note "old: $(red contrast-old-true 120 700)"
 
+echo "-- the size of menus and lists: a setting, and GNOME's text scaling followed"
+d=/tmp/ui-scale
+mkdir -p $d
+convert -size 3000x2000 xc:red $d/a.jpg
+printf '#!/bin/sh\necho 1.5\n' >/tmp/stub/gsettings
+chmod +x /tmp/stub/gsettings
+for v in new old; do
+    as_version $v
+    # The file list is 240 points wide: twice as wide at 200 %, 1.5 times with GNOME's 1.5.
+    for setting in "ui_scale=200 follow_text_scale=false" "ui_scale=100 follow_text_scale=true" \
+        "ui_scale=100 follow_text_scale=false"; do
+        config $setting
+        start $d
+        sleep 3
+        shot scale-$v-${setting%% *}-${setting##*=}
+        quit
+    done
+done
+rm /tmp/stub/gsettings
+as_version new
+differ "at 200 %, the list where the image began" "$(colour scale-new-ui_scale=200-false 400 400)" red
+differ "GNOME's text scaling followed" "$(colour scale-new-ui_scale=100-true 300 400)" red
+expect "not followed when turned off" "$(colour scale-new-ui_scale=100-false 300 400)" red
+note "old at 200 %: $(colour scale-old-ui_scale=200-false 400 400)"
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

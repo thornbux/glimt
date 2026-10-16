@@ -1361,6 +1361,9 @@ impl App {
         let (exif_jobs, exif_done) = spawn_exif_reader(&cc.egui_ctx);
         theme::fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
+        // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        cc.egui_ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
         // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
         let (desktop_tx, desktop_rx) = mpsc::channel();
         let ctx = cc.egui_ctx.clone();
@@ -5282,6 +5285,8 @@ impl App {
             false => &self.config.theme,
         };
         theme::apply(ctx, &theme::load(name), look.dark, look.accent);
+        let desktop = look.text_scale.filter(|_| self.config.follow_text_scale);
+        ctx.set_zoom_factor(self.config.ui_scale as f32 / 100.0 * desktop.unwrap_or(1.0));
     }
 
     /// View → Theme: the themes to choose from, then where to make and find more.
@@ -6560,9 +6565,14 @@ impl App {
         });
         self.window.maximized = maximized;
         if !fullscreen && !maximized {
-            self.window.size = Some(size);
+            // In the desktop's units, as the window opens with them: egui's shrink with the
+            // size chosen in Preferences, and a window kept at 200 % opened half as large.
+            let zoom = ctx.zoom_factor();
+            self.window.size = Some(size * zoom);
             // Wayland reports no position.
-            self.window.pos = outer.map(|r| r.min).or(self.window.pos);
+            self.window.pos = outer
+                .map(|r| (r.min.to_vec2() * zoom).to_pos2())
+                .or(self.window.pos);
         }
         fullscreen
     }
@@ -6776,6 +6786,25 @@ impl App {
                     let follow = "High Contrast when the desktop asks for high contrast";
                     if ui
                         .checkbox(&mut self.config.follow_contrast, follow)
+                        .changed()
+                    {
+                        changed = true;
+                        self.apply_theme(ui.ctx());
+                    }
+                    ui.horizontal(|ui| {
+                        let size = egui::Slider::new(&mut self.config.ui_scale, 50..=300)
+                            .suffix(" %")
+                            .text("size of the menus, lists and text");
+                        // Applied when let go: a size changing under the pointer would move it.
+                        let size = ui.add(size);
+                        changed |= size.changed();
+                        if size.drag_stopped() || (size.changed() && !size.dragged()) {
+                            self.apply_theme(ui.ctx());
+                        }
+                    });
+                    let follow = "Larger still when the desktop's text is (GNOME's Large Text)";
+                    if ui
+                        .checkbox(&mut self.config.follow_text_scale, follow)
                         .changed()
                     {
                         changed = true;

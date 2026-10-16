@@ -274,6 +274,8 @@ pub struct Desktop {
     pub accent: Option<egui::Color32>,
     /// High contrast, as GNOME's and KDE's accessibility settings set it.
     pub high_contrast: bool,
+    /// The size of text, as GNOME's Large Text and text scaling set it.
+    pub text_scale: Option<f32>,
 }
 
 /// The theme for those who ask the desktop for high contrast.
@@ -306,7 +308,22 @@ pub fn desktop() -> Desktop {
         dark: parse_scheme(&read("color-scheme")),
         accent: parse_accent(&read("accent-color")),
         high_contrast: parse_contrast(&read("contrast")),
+        text_scale: text_scale(),
     }
+}
+
+/// GNOME's text scaling factor (1.25 for Large Text); `None` elsewhere, or outside 0.5–3.
+fn text_scale() -> Option<f32> {
+    let out = crate::external::command("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "text-scaling-factor"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    parse_scale(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn parse_scale(text: &str) -> Option<f32> {
+    (text.trim().parse::<f32>().ok()).filter(|s| (0.5..=3.0).contains(s))
 }
 
 /// "(<uint32 1>,)": 1 is high contrast, 0 none.
@@ -348,6 +365,9 @@ mod tests {
         assert_eq!(super::parse_scheme(""), None);
         assert!(super::parse_contrast("(<uint32 1>,)\n"));
         assert!(!super::parse_contrast("(<uint32 0>,)\n") && !super::parse_contrast(""));
+        assert_eq!(super::parse_scale("1.25\n"), Some(1.25));
+        assert_eq!(super::parse_scale("9.0"), None);
+        assert_eq!(super::parse_scale(""), None);
         let orange = super::parse_accent("(<(0.92941176891326904, 0.35686275362968445, 0.0)>,)\n");
         assert_eq!(orange, Some(eframe::egui::Color32::from_rgb(237, 91, 0)));
         // KDE and GNOME without an accent give a colour out of range.
