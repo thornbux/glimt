@@ -518,6 +518,8 @@ enum Pick {
     Open,
     /// Several folders to show as one list.
     Folders,
+    /// A folder with the images of every folder below it.
+    Recursive,
     /// Open a collection: the dialog starts in the collections folder.
     Collection,
     CopyTo(Vec<PathBuf>),
@@ -3411,6 +3413,7 @@ impl App {
             Pick::Open if folder => "Open Folder",
             Pick::Open => "Open File",
             Pick::Folders => "Open Folders (Ctrl+click for several)",
+            Pick::Recursive => "Open Folder with Its Subfolders",
             Pick::Collection => "Open Collection",
             Pick::CopyTo(_) => "Copy to Folder",
             Pick::MoveTo(_) => "Move to Folder",
@@ -6422,6 +6425,7 @@ impl App {
             Action::OpenFile => self.pick(ctx, false, Pick::Open),
             Action::OpenFolder => self.pick(ctx, true, Pick::Open),
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
+            Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
             Action::NewCollection if !self.files.is_empty() => {
                 self.prompt = Some((Prompt::NewCollection, String::new()));
             }
@@ -7084,6 +7088,13 @@ impl App {
             match (purpose, picked) {
                 (_, None) => {}
                 (Pick::Open | Pick::Collection, Some(path)) => self.visit(ctx, path),
+                // As View → Include Subfolders, which turns it off again.
+                (Pick::Recursive, Some(path)) => {
+                    self.config.show_subfolders = true;
+                    self.config.save();
+                    self.recursive = true;
+                    self.visit(ctx, path);
+                }
                 // One per line, from zenity's --multiple.
                 (Pick::Folders, Some(paths)) => {
                     use std::os::unix::ffi::OsStringExt;
@@ -7273,6 +7284,7 @@ impl App {
                 scroll_menu(ui, "File", |ui| {
                     menu_item(ui, act, Action::OpenFile);
                     menu_item(ui, act, Action::OpenFolder);
+                    menu_item(ui, act, Action::OpenRecursive);
                     menu_item(ui, act, Action::OpenFolders);
                     menu_item(ui, act, Action::NewFolder);
                     menu_item(ui, act, Action::Copy);
