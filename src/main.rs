@@ -78,7 +78,8 @@ const THUMBS: [egui::Vec2; 3] = [
 ];
 /// A cell of the thumbnail grid: the thumbnail with its name below.
 const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
-/// Big thumbnails (Preferences) come from the freedesktop "large" cache; read by the workers.
+/// Thumbnails come from the freedesktop "large" cache, for big ones or a scaled screen; read by
+/// the workers.
 static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
 /// Thumbnail jobs further than this from the visible rows are skipped.
 const THUMB_MARGIN: usize = 20;
@@ -1483,7 +1484,6 @@ impl App {
         if let Ok(mut own) = OWN_KEYS.write() {
             own.clone_from(&config.keys.0);
         }
-        LARGE_THUMBS.store(config.thumb_size == 2, Ordering::Relaxed);
         let path = path
             .or_else(|| {
                 let state = std::fs::read_to_string(state_path()?).ok()?;
@@ -4028,6 +4028,17 @@ impl App {
         THUMBS[self.config.thumb_size.min(2) as usize]
     }
 
+    /// Thumbnails from the freedesktop "large" cache when the box is wider than a "normal" one
+    /// on the screen: at 150 % scaling even the smallest box is 144 pixels wide. Read again when
+    /// the scale or the size changes.
+    fn sync_thumb_source(&mut self, ppp: f32) {
+        let large = self.thumb().x * ppp > 128.0;
+        if LARGE_THUMBS.swap(large, Ordering::Relaxed) != large {
+            self.thumbs.clear();
+            self.stale_thumbs.extend(self.thumbs_pending.drain());
+        }
+    }
+
     /// A cell of the icon grid: the thumbnail with its name below.
     fn cell(&self) -> egui::Vec2 {
         self.thumb() + CELL_EXTRA
@@ -4036,7 +4047,6 @@ impl App {
     fn set_thumb_size(&mut self, size: u8) {
         self.config.thumb_size = size;
         self.config.save();
-        LARGE_THUMBS.store(size == 2, Ordering::Relaxed);
         self.thumbs.clear();
         self.stale_thumbs.extend(self.thumbs_pending.drain());
         self.scroll_to_cur = true;
@@ -4090,7 +4100,7 @@ impl App {
     /// search matches, or all files) and those near them.
     fn trim_thumbs(&mut self, rows: std::ops::Range<usize>) {
         // Big thumbnails take four times the memory: keep a quarter as many.
-        let max = if self.config.thumb_size == 2 {
+        let max = if LARGE_THUMBS.load(Ordering::Relaxed) {
             MAX_THUMBS / 4
         } else {
             MAX_THUMBS
@@ -4267,10 +4277,13 @@ impl App {
         let name = &self.files[i];
         match self.thumbs.get(name) {
             Some(Some(tex)) => {
-                // Fit the box, but never enlarge.
+                // Fit the box, but never enlarge a small image. One the cache cut down to its
+                // size (256 pixels) does fill a box larger on a scaled screen.
                 let px = tex.size_vec2() / ui.ctx().pixels_per_point();
+                let cut = tex.size().into_iter().max() >= Some(256);
                 // Fit the frame given: a narrow calendar day has less room than a list row.
-                let scale = (frame.width() / px.x).min(frame.height() / px.y).min(1.0);
+                let fit = (frame.width() / px.x).min(frame.height() / px.y);
+                let scale = if cut { fit } else { fit.min(1.0) };
                 let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                 let at = egui::Rect::from_center_size(frame.center(), px * scale);
                 ui.painter().image(tex.id(), at, uv, egui::Color32::WHITE);
@@ -9371,6 +9384,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
+        self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
         let mut act = self.read_keys(ctx);
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
