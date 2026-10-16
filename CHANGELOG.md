@@ -5,6 +5,37 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-16
+
+### Added
+
+- File → Open Folder Recursive…: opens a folder with the images of every folder below it, as
+  View → Include Subfolders, which turns it off again.
+- `--lock-settings`, or a file `/etc/glimt/lock-settings` an administrator puts there, for a
+  shared or public computer: Preferences do not open, the sort manager's folders stay as they
+  are, and the settings file is never written, so what is changed in the menus lasts only
+  until Glimt closes.
+- `glimt --check-config [FILE]` tells what is wrong in the settings file, line by line: lines
+  that are not `setting=value`, settings that do not exist or are set twice, values that
+  cannot be read or are out of range, with the value used instead. It exits with 1 when
+  anything is wrong.
+- The Help Manual has a chapter on the command line, with the options and remote commands
+  from the same lists as `glimt --help`, and covers what it left out: Back and Forward,
+  Refresh, New Window, deleting for good, Select None and Invert, Copy Path, playing videos,
+  the thumbnail cache and more.
+
+### Changed
+
+- Glimt tells in its window what is wrong in the settings file when it starts (the first
+  problem, and how many more), and when it cannot read or save a file; before, a wrong value
+  silently took the default and a failed save was told only on the terminal.
+
+### Fixed
+
+- Thumbnails on a scaled screen (150 % and more, or a larger size of menus and lists) were
+  drawn smaller than their box, from the 128-pixel cache; they come from the 256-pixel one
+  then, and fill the box. Zoom 1:1 was checked sharp at 100 to 200 %.
+
 ## [0.29.0] - 2026-10-16
 
 ### Added
@@ -906,7 +937,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/thornbux/glimt/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/thornbux/glimt/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/thornbux/glimt/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/thornbux/glimt/compare/v0.26.0...v0.27.0

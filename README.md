@@ -143,16 +143,16 @@ Each [release](https://github.com/thornbux/glimt/releases) has a `.deb` for Debi
 glibc 2.28 or newer (RHEL 8, Debian 10, Ubuntu 20.04 and later).
 
 ```sh
-sudo apt install ./glimt_0.29.0_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
-sudo dnf install ./glimt-0.29.0-1.x86_64.rpm  # Fedora, RHEL: the same
+sudo apt install ./glimt_0.30.0_amd64.deb     # Debian, Ubuntu: also menu entry, icon, man page
+sudo dnf install ./glimt-0.30.0-1.x86_64.rpm  # Fedora, RHEL: the same
 
-tar xzf glimt-0.29.0-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
-./glimt-0.29.0-x86_64-linux/glimt
+tar xzf glimt-0.30.0-x86_64-linux.tar.gz      # elsewhere: the binary and the files to install
+./glimt-0.30.0-x86_64-linux/glimt
 
-chmod +x glimt-0.29.0-x86_64.AppImage         # one file, nothing to install
-./glimt-0.29.0-x86_64.AppImage
+chmod +x glimt-0.30.0-x86_64.AppImage         # one file, nothing to install
+./glimt-0.30.0-x86_64.AppImage
 
-flatpak install --user ./glimt-0.29.0-x86_64.flatpak  # any distribution with Flatpak
+flatpak install --user ./glimt-0.30.0-x86_64.flatpak  # any distribution with Flatpak
 ```
 
 The AppImage mounts itself with FUSE (`fusermount`, as most desktops have); without it,
@@ -164,7 +164,7 @@ repository's release workflow built it:
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify glimt_0.29.0_amd64.deb -R thornbux/glimt
+gh attestation verify glimt_0.30.0_amd64.deb -R thornbux/glimt
 ```
 
 For video, HEIC and AVIF, install `ffmpeg` too; `zenity` gives the file dialogs, and `sqlite3`
@@ -334,7 +334,8 @@ glimt --help                 # all commands
 A window started with `--name` listens under that name only, so a script can drive one of
 several: `glimt --name left ~/a &`, then `glimt --name left --remote next`. Start options
 such as `--slideshow`, `--random`, `--fullscreen`, `--kiosk`, `--layout 2x2` and `--fade`
-set up the window at start (`man glimt`).
+set up the window at start, and `--lock-settings` keeps the settings as they are on a shared
+computer (`man glimt`). `glimt --check-config` tells what is wrong in the settings file.
 
 Three commands answer, so a script knows what you are looking at. They print paths, each
 ending in a NUL byte as `find -print0` does, because a file name may hold a line break; read
