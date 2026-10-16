@@ -81,6 +81,17 @@ away, run Glimt as the only program of a kiosk session, for example
 .I ~/Pictures
 or as the program of a GNOME Kiosk session.
 .TP
+.B \-\-lock\-settings
+For a shared or public computer: Preferences do not open, the sort manager's folders stay as
+they are, and nothing is written to the settings file, so what is changed in the menus (the
+theme, the sort order, the zoom mode) lasts only until Glimt closes. Marks, keywords and
+collections are kept as always. An administrator can lock every Glimt on the computer by
+creating the file
+.IR /etc/glimt/lock\-settings ;
+in a Flatpak, which does not see the computer's
+.IR /etc ,
+use the option.
+.TP
 .BI \-\-layout " LAYOUT"
 Show several images at once, as View \(-> Layout:
 .B 1
@@ -245,6 +256,10 @@ Preferences, as key=value lines (default
 .TP
 .I $XDG_CONFIG_HOME/glimt/sort-folders
 The sort manager's folders, one on each line.
+.TP
+.I /etc/glimt/lock\-settings
+While this file is there (empty will do), every Glimt starts as with
+.BR \-\-lock\-settings .
 .TP
 .I $XDG_CONFIG_HOME/glimt/themes
 Own themes, one

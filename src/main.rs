@@ -307,6 +307,10 @@ const START_OPTIONS: &[(&str, &str)] = &[
         "--kiosk",
         "Full screen, only the image, nothing changes files; ends by --remote quit",
     ),
+    (
+        "--lock-settings",
+        "No Preferences, and changes to settings last only until Glimt closes",
+    ),
     ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
     (
         "--fade off|short|long",
@@ -430,6 +434,7 @@ struct Start {
     layout: Option<&'static str>,
     name: Option<String>,
     kiosk: bool,
+    lock_settings: bool,
     /// --fade: an index in FADES.
     fade: Option<usize>,
     /// More folders after the first, to show together.
@@ -446,6 +451,7 @@ impl Start {
                 "--random" => start.random = true,
                 "--fullscreen" => start.fullscreen = true,
                 "--kiosk" => start.kiosk = true,
+                "--lock-settings" => start.lock_settings = true,
                 "--fade" => {
                     let value = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
                     let k = FADES.iter().position(|f| f.0 == value);
@@ -4009,6 +4015,9 @@ impl App {
     /// Add a folder to the sort manager or take one out: the change goes to the file as it is
     /// now, so another window's folders stay, and is written whole or not at all.
     fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
+        if config::locked() {
+            return self.notice = Some("The settings are locked (--lock-settings)".into());
+        }
         let Some(path) = sort_folders_path() else {
             return self.notice =
                 Some("Could not save the sort manager's folders: no home folder".into());
@@ -6597,6 +6606,9 @@ impl App {
             // As a list of files, which a file manager pastes as a copy.
             Action::CopyFiles if !self.files.is_empty() => self.copy_files(),
             Action::CopyFiles => {}
+            Action::Preferences if config::locked() => {
+                self.notice = Some("The settings are locked (--lock-settings)".into());
+            }
             Action::Preferences => self.show_settings = true,
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
@@ -9820,6 +9832,9 @@ fn main() -> eframe::Result {
             rgba: icon.into_raw(),
         });
     }
+    if start.lock_settings || Path::new(config::LOCK_FILE).exists() {
+        config::lock();
+    }
     if Config::load().remember_window
         && let Some(state) = state_path().and_then(|p| std::fs::read_to_string(p).ok())
     {
@@ -10008,6 +10023,12 @@ mod tests {
         assert!(Start::parse(args(&["--name", "a/b"])).is_err());
         assert!(Start::parse(args(&["--name"])).is_err());
         assert!(Start::parse(args(&["--kiosk", "d"])).unwrap().0.kiosk);
+        assert!(
+            Start::parse(args(&["--lock-settings"]))
+                .unwrap()
+                .0
+                .lock_settings
+        );
         assert_eq!(
             Start::parse(args(&["--fade", "long"])).unwrap().0.fade,
             Some(2)
