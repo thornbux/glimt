@@ -864,6 +864,21 @@ for v in new old; do
     got="$(marked 337) $(marked 419) $(marked 501)"
     if [ $v = new ]; then expect "the cut and the false one marked, the whole one not" "$got" "- marked marked"
     else note "old: $got"; fi
+    # The same marks in the grid of thumbnails (Ctrl+I), on each thumbnail's top left.
+    if [ $v = new ]; then
+        start $d; sleep 2
+        click 20 10; sleep 1; click 66 516; sleep 1; click 56 127; sleep 4; click 554 38; sleep 1
+        key ctrl+i; sleep 2
+        shot check-grid-$v
+        quit
+        # Cells of 112: a_whole and b_cut in the first row, c_text below.
+        # Orange (240 140 0), told from a red thumbnail by its green.
+        cell() {
+            set -- $(pixel check-grid-$v $1 $2)
+            [ $1 -gt 200 ] && [ $2 -gt 100 ] && [ $2 -lt 180 ] && echo marked || echo -
+        }
+        expect "the same marks in the grid" "$(cell 19 313) $(cell 131 313) $(cell 19 417)" "- marked marked"
+    fi
 done
 as_version new
 

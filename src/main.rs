@@ -3912,17 +3912,8 @@ impl App {
         }
         // Found broken by Check Images: a warning sign at the right.
         if self.broken.contains(&self.files[i]) {
-            let warn = egui::Color32::from_rgb(240, 140, 0);
             let c = egui::pos2(name_rect.max.x - 12.0, rect.center().y);
-            ui.painter().circle_filled(c, 7.0, warn);
-            let bold = egui::FontId::proportional(font.size * 0.85);
-            (ui.painter()).text(
-                c,
-                egui::Align2::CENTER_CENTER,
-                "!",
-                bold,
-                egui::Color32::BLACK,
-            );
+            broken_mark(ui.painter(), c, font.size);
             name_rect.max.x = c.x - 14.0;
         }
         // Cut in the middle, so the end of the name and its extension stay.
@@ -3980,6 +3971,15 @@ impl App {
             frame.bottom() + 4.0,
         );
         ui.painter().galley(at, galley, color);
+        // Found broken by Check Images: the warning sign on the thumbnail's top left.
+        if self.broken.contains(&self.files[i]) {
+            let size = egui::TextStyle::Body.resolve(ui.style()).size;
+            broken_mark(
+                ui.painter(),
+                frame.left_top() + egui::vec2(10.0, 10.0),
+                size,
+            );
+        }
         let marks = self.mark_text(i);
         if !marks.is_empty() {
             let p = ui.painter();
@@ -9187,6 +9187,19 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, arg, start)))),
     )
+}
+
+/// The sign of a file Check Images found broken: an orange disc with "!", at `centre`.
+fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32) {
+    p.circle_filled(centre, 7.0, egui::Color32::from_rgb(240, 140, 0));
+    let bold = egui::FontId::proportional(text_size * 0.85);
+    p.text(
+        centre,
+        egui::Align2::CENTER_CENTER,
+        "!",
+        bold,
+        egui::Color32::BLACK,
+    );
 }
 
 /// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
