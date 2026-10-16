@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Frames of animations: Ctrl+Page Down and Up stop a GIF, WebP or APNG at the next or previous
+  frame (the status bar says which), and A plays on; for a TIFF they go through its pages as
+  before. File → Save This Frame… saves the frame or page shown as a PNG, and Export Frames…
+  every one, at full size, into a new folder (never over a file).
+- Animated PNG (APNG) plays, as animated GIF and WebP do; it showed only its first frame.
+
 ## [0.28.0] - 2026-10-16
 
 ### Changed

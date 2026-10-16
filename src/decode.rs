@@ -209,7 +209,8 @@ pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     Ok(to_srgb(img, icc.as_deref()))
 }
 
-/// The frames of an animated GIF or WebP; `None` for other files, which `load` decodes.
+/// The frames of an animated GIF, WebP or PNG (APNG); `None` for other files, which `load`
+/// decodes.
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     use image::AnimationDecoder;
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -233,6 +234,13 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
             }
             dec.into_frames()
         }
+        "png" | "apng" => {
+            let dec = image::codecs::png::PngDecoder::new(file).ok()?;
+            if !dec.is_apng().ok()? || too_large(dec.dimensions()) {
+                return None;
+            }
+            dec.apng().ok()?.into_frames()
+        }
         _ => return None,
     };
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
@@ -253,6 +261,59 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
         }
     }
     (!out.is_empty()).then_some((out, orig))
+}
+
+/// Every frame of an animation, or page of a TIFF, at full size and in sRGB, one at a time to
+/// `each` (its number from 0 and the image), or only frame `only`; how many were given. For
+/// File → Save This Frame and Export Frames.
+pub fn each_frame(
+    path: &Path,
+    only: Option<usize>,
+    mut each: impl FnMut(usize, image::DynamicImage) -> Result<(), String>,
+) -> Result<usize, String> {
+    use image::AnimationDecoder;
+    let wanted = |k: usize| only.is_none_or(|o| o == k);
+    let mut done = 0;
+    if animation(path, [1, 1]).is_some() {
+        let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
+        let frames = match has_ext(path, &["gif"]) {
+            true => (image::codecs::gif::GifDecoder::new(file).map_err(|e| e.to_string())?)
+                .into_frames(),
+            false if has_ext(path, &["webp"]) => (image::codecs::webp::WebPDecoder::new(file)
+                .map_err(|e| e.to_string())?)
+            .into_frames(),
+            false => (image::codecs::png::PngDecoder::new(file).map_err(|e| e.to_string())?)
+                .apng()
+                .map_err(|e| e.to_string())?
+                .into_frames(),
+        };
+        for (k, frame) in frames.enumerate() {
+            if only.is_some_and(|o| k > o) {
+                break;
+            }
+            let frame = frame.map_err(|e| e.to_string())?;
+            if wanted(k) {
+                each(k, frame.into_buffer().into())?;
+                done += 1;
+            }
+        }
+        return Ok(done);
+    }
+    let pages = if has_ext(path, &["tif", "tiff"]) {
+        tiff_pages(path)
+    } else {
+        1
+    };
+    for k in (0..pages).filter(|&k| wanted(k)) {
+        let img = if k == 0 {
+            load(path, true)?
+        } else {
+            tiff_page(path, k)?
+        };
+        each(k, img)?;
+        done += 1;
+    }
+    Ok(done)
 }
 
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
@@ -556,6 +617,52 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+
+    /// Every frame of a GIF and every page of a TIFF, one at a time, or only the one asked for.
+    #[test]
+    fn gives_each_frame() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-frames-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let gif = std::fs::File::create(dir.join("a.gif")).unwrap();
+        let frame = |v| {
+            let delay = image::Delay::from_numer_denom_ms(100, 1);
+            image::Frame::from_parts(
+                image::RgbaImage::from_pixel(8, 4, image::Rgba([v, 0, 0, 255])),
+                0,
+                0,
+                delay,
+            )
+        };
+        image::codecs::gif::GifEncoder::new(gif)
+            .encode_frames([frame(10), frame(120), frame(250)])
+            .unwrap();
+        let mut seen = Vec::new();
+        let n = super::each_frame(&dir.join("a.gif"), None, |k, img| {
+            seen.push((k, img.to_rgb8().get_pixel(0, 0)[0] / 100));
+            Ok(())
+        });
+        assert_eq!((n, seen), (Ok(3), vec![(0, 0), (1, 1), (2, 2)]));
+        let mut only = Vec::new();
+        let n = super::each_frame(&dir.join("a.gif"), Some(1), |k, _| {
+            only.push(k);
+            Ok(())
+        });
+        assert_eq!((n, only), (Ok(1), vec![1]));
+        // A TIFF of two pages.
+        let file = std::fs::File::create(dir.join("b.tif")).unwrap();
+        let mut tiff = tiff::encoder::TiffEncoder::new(file).unwrap();
+        for v in [0u8, 200] {
+            tiff.write_image::<tiff::encoder::colortype::Gray8>(4, 4, &[v; 16])
+                .unwrap();
+        }
+        let mut pages = Vec::new();
+        let n = super::each_frame(&dir.join("b.tif"), None, |k, img| {
+            pages.push((k, img.to_luma8().get_pixel(0, 0)[0]));
+            Ok(())
+        });
+        assert_eq!((n, pages), (Ok(2), vec![(0, 0), (1, 200)]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.
     #[test]
     fn keeps_a_thousand_frames() {
