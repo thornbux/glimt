@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-16
+
 ### Added
 
 - File → Back Up Glimt's Data… copies Glimt's own files (settings, marks and stars, collections,
@@ -15,11 +17,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the keyword tree, beside those it has: what Lightroom keeps only in its catalog unless it writes
   XMP. A box in the import (kept for the next one) turns it off; the keywords of virtual copies go
   to their file once.
-
-## [0.26.0] - 2026-10-16
-
-### Added
-
 - File → Check Images… opens every image of the list in the background, as the viewer would, and
   lists the ones that cannot be: broken files, JPEGs cut off in copying, and files that are no
   image under an image's name. They are marked in the file list; a click shows one, Select Them
