@@ -558,7 +558,7 @@ fn scroll_menu<R>(
     title: impl Into<egui::WidgetText>,
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) {
-    ui.menu_button(title, |ui| {
+    let content = |ui: &mut egui::Ui| {
         // From where it opens to the bottom of the window; submenus open further down. egui
         // limits a menu to its size the frame before, which a scroll area could only keep or
         // shrink: the limit is set here instead.
@@ -566,7 +566,74 @@ fn scroll_menu<R>(
         let max = ui.ctx().content_rect().bottom() - ui.next_widget_position().y - margin;
         ui.set_max_height(max);
         egui::ScrollArea::vertical().max_height(max).show(ui, add);
+    };
+    if egui::containers::menu::is_in_menu(ui) {
+        ui.menu_button(title, content);
+        return;
+    }
+    // A menu of the menu bar. While one of them is open, pointing at another opens that one,
+    // as in GNOME and KDE.
+    let response = egui::containers::menu::MenuButton::new(title.into())
+        .ui(ui, content)
+        .0;
+    let ctx = ui.ctx().clone();
+    let id = egui::Popup::default_response_id(&response);
+    let others = ctx.data_mut(|d| {
+        let ids = d.get_temp_mut_or_default::<Vec<egui::Id>>(egui::Id::new(BAR_MENUS));
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+        ids.clone()
     });
+    let other_open = others
+        .iter()
+        .any(|&o| o != id && egui::Popup::is_id_open(&ctx, o));
+    if response.hovered() && other_open {
+        egui::Popup::open_id(&ctx, id);
+        ctx.request_repaint();
+    }
+}
+
+/// Where the popup IDs of the menu bar's menus are kept, for `scroll_menu` and `close_menus`.
+const BAR_MENUS: &str = "menu bar menus";
+
+/// Close an open menu of the menu bar once the pointer has moved away from the bar and every
+/// open menu for a moment (`away` holds since when). A menu opened from the keyboard stays
+/// while the mouse is still.
+fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Option<Instant>) {
+    let ids: Vec<egui::Id> = ctx.data(|d| d.get_temp(egui::Id::new(BAR_MENUS)).unwrap_or_default());
+    if !ids.iter().any(|&id| egui::Popup::is_id_open(ctx, id)) {
+        *away = None;
+        return;
+    }
+    let pointer = ctx.pointer_hover_pos();
+    // Over the bar, or over a menu: a layer of its own above the panels.
+    let over = pointer.is_some_and(|p| {
+        bar.contains(p)
+            || ctx
+                .layer_id_at(p)
+                .is_some_and(|l| l.order != egui::Order::Background)
+    });
+    if over {
+        *away = None;
+    } else if away.is_none()
+        && ctx.input(|i| i.pointer.delta() != egui::Vec2::ZERO || pointer.is_none())
+    {
+        *away = Some(Instant::now());
+    }
+    if let Some(since) = *away {
+        let wait = std::time::Duration::from_millis(400);
+        match wait.checked_sub(since.elapsed()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => {
+                for &id in &ids {
+                    egui::Popup::close_id(ctx, id);
+                }
+                *away = None;
+                ctx.request_repaint();
+            }
+        }
+    }
 }
 
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
@@ -834,6 +901,8 @@ struct App {
     window: WindowState,
     /// The screen saver inhibitor running while in full screen.
     inhibitor: Option<std::process::Child>,
+    /// Since when the pointer has been away from an open menu of the menu bar.
+    menu_away: Option<Instant>,
     /// --kiosk: full screen, only the image, only actions that show and browse.
     kiosk: bool,
     /// `--remote quit` came: a kiosk may close.
@@ -1513,6 +1582,7 @@ impl App {
             hide_tools: false,
             focus_search: false,
             kiosk: start.kiosk,
+            menu_away: None,
             kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
@@ -6891,7 +6961,7 @@ impl App {
 
     /// The menu bar, as Geeqie's, and the toolbar under it.
     fn menu_bar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        egui::Panel::top("menu").show(ui, |ui| {
+        let bar = egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 scroll_menu(ui, "File", |ui| {
                     menu_item(ui, act, Action::OpenFile);
@@ -7058,6 +7128,7 @@ impl App {
                 });
             });
         });
+        close_menus(ui.ctx(), bar.response.rect, &mut self.menu_away);
         if self.config.toolbar {
             self.toolbar(ui, act);
         }

@@ -501,6 +501,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Rename and delete (to the trash or permanently, as for files) in the folder pane's menu",
     ),
     (
+        "Menu bar",
+        "With a menu open, pointing at another opens it; the menu closes a moment after the \
+         pointer leaves the bar and the menus",
+        "Pointing at another opens it too; a menu stays open until a click",
+    ),
+    (
         "File types",
         "Types menu beside the sort menu: images, RAW and videos; a file opened directly is \
          listed whatever it says",
