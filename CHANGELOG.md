@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Printing a contact sheet says how many images went on how many pages (80 images on 4 pages), not
+  80 pages.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
