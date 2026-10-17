@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Check Images no longer reports phone motion photos (a video after the JPEG) as cut off: it
+  looked for the JPEG's end only in the last 64 KB, which a video of megabytes after it may lack.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
