@@ -17,6 +17,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   not to the shape of the image shown now, so one of another shape is not blurred and decoded
   again when it comes.
 
+### Changed
+
+- With many files selected, the Rename Many, New Collection and delete dialogs no longer list the
+  whole selection in every frame; Back keeps the last 200 places; Preferences saves when a slider
+  is let go, not in every frame it is dragged.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed

@@ -1210,6 +1210,8 @@ struct App {
     // ---- Dialogs, windows and messages ----
     /// Edit → Preferences is open.
     show_settings: bool,
+    /// Preferences changed while the pointer is down: saved when it is let go.
+    preferences_unsaved: bool,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
@@ -1716,6 +1718,7 @@ impl App {
             ahead,
             rotate,
             show_settings: false,
+            preferences_unsaved: false,
             help: None,
             confirm_delete: None,
             folder_target: None,
@@ -1961,6 +1964,10 @@ impl App {
         // A message about the folder before (a share that could not be mounted) goes with it.
         self.notice = None;
         self.back.push(self.location());
+        // Not without end: a slideshow of folders, or a script's --remote open, visits many.
+        if self.back.len() > 200 {
+            self.back.remove(0);
+        }
         self.forward.clear();
         self.open(ctx, path);
     }
@@ -2670,6 +2677,13 @@ impl App {
         } else {
             self.selected.iter().copied().collect()
         }
+    }
+
+    /// How many `targets` there are and the first, without listing them: for a dialog drawn in
+    /// every frame, with 500,000 selected.
+    fn first_target(&self) -> (usize, usize) {
+        let first = self.selected.first().copied().unwrap_or(self.cur);
+        (self.selected.len().max(1), first)
     }
 
     // ---- Decoding and painting the image ----
@@ -6486,7 +6500,7 @@ impl App {
 
     /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
     /// values are Custom.
-    fn memory_settings(&mut self, ui: &mut egui::Ui) {
+    fn memory_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let c = &self.config;
         let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
         let level = (MEMORY_LEVELS.iter())
@@ -6509,8 +6523,8 @@ impl App {
                 (l.decode_threads, l.animation_mb);
             self.config.low_memory = l.one_arena;
             MAX_ANIMATION.store(l.animation_mb << 20, Ordering::Relaxed);
-            self.config.save();
         }
+        let mut changed = chosen.is_some();
         let restart = "Decoding threads and one malloc arena take effect after a restart.";
         egui::CollapsingHeader::new("Details")
             .open((level.is_none() || custom).then_some(true))
@@ -6520,13 +6534,13 @@ impl App {
                 let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
                 if ui.add(slider).changed() {
                     self.set_preload(n);
-                    self.config.save();
+                    changed = true;
                 }
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
                 ui.weak(format!("Up to ≈ {mb} MB, each image at most {w}×{h}"));
                 let c = &mut self.config;
-                let mut changed = ui
+                changed |= ui
                     .add(
                         egui::Slider::new(&mut c.decode_threads, 1..=8)
                             .text("images decoded at once"),
@@ -6542,10 +6556,8 @@ impl App {
                 let low = "One malloc arena: much less memory, decoding up to ~8 % slower";
                 changed |= ui.checkbox(&mut c.low_memory, low).changed();
                 ui.weak(restart);
-                if changed {
-                    c.save();
-                }
             });
+        changed
     }
 
     /// Preload `n` images on each side.
@@ -7919,7 +7931,7 @@ impl App {
                         self.apply_theme(ui.ctx());
                     }
                     ui.separator();
-                    self.memory_settings(ui);
+                    changed |= self.memory_settings(ui);
                     self.cpu_settings(ui);
                     ui.separator();
                     changed |= self.slideshow_settings(ui, ctx);
@@ -7948,7 +7960,10 @@ impl App {
                         ui.separator();
                         changed |= self.video_settings(ui, ctx);
                     }
-                    if changed {
+                    // Saved once a slider is let go, not in every frame it is dragged.
+                    self.preferences_unsaved |= changed;
+                    if self.preferences_unsaved && !ctx.input(|i| i.pointer.any_down()) {
+                        self.preferences_unsaved = false;
                         self.config.save();
                     }
                 });
@@ -8303,15 +8318,16 @@ impl App {
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
                     "Name of a new collection with {}:",
-                    count(self.targets().len(), "image")
+                    count(self.first_target().0, "image")
                 ),
                 Prompt::RenameMany => format!(
                     "New names for {} (* = old name, # = number, ### = 001):",
-                    count(self.targets().len(), "file")
+                    count(self.first_target().0, "file")
                 ),
             };
             // The first new name, so the pattern can be checked before renaming.
-            let first = self.targets().first().map(|&i| self.path(i));
+            let i = self.first_target().1;
+            let first = (i < self.files.len()).then(|| self.path(i));
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::new("prompt")).show(ctx, |ui| {
                 ui.label(title);
@@ -8842,9 +8858,9 @@ impl App {
     /// Asks before files go to the trash or are deleted for good.
     fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
         if let Some(trash) = self.confirm_delete {
-            let what = match self.targets().as_slice() {
-                [i] => format!("\"{}\"", self.name(*i)),
-                many => count(many.len(), "file"),
+            let what = match self.first_target() {
+                (1, i) => format!("\"{}\"", self.name(i)),
+                (many, _) => count(many, "file"),
             };
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
