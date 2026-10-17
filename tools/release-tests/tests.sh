@@ -1271,6 +1271,32 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a projector larger than the main view: the image sharp there"
+d=/tmp/projector-sharp
+mkdir -p $d
+# Stripes 4 pixels wide: kept at the projector's scale, grey at the main view's.
+convert -size 3200x2000 xc: -fx 'i%8<4' $d/a.png
+convert $d/a.png -resize 50% $d/half.png
+for v in new old; do
+    as_version $v
+    config
+    start $d/a.png
+    sleep 2
+    click 225 10; click 236 95 2       # Window → Projector
+    p=$(xdotool search --name "Glimt Projector" 2>/dev/null | head -1)
+    # As full screen on a large screen; Xvfb has no window manager to make it so.
+    xdotool windowsize $p 1600 1000 2>/dev/null; sleep 4
+    [ -n "$p" ] && import -window $p /t/out/projector-sharp-$v.png
+    quit
+    # How far from the picture at the projector's scale (0.5 exactly): RMSE in tenths of a
+    # percent; decoded for the main view and stretched, it is blurred and off by more.
+    eval "off_$v=$(compare -metric RMSE /t/out/projector-sharp-$v.png $d/half.png null: 2>&1 \
+        | sed 's/.*(\(.*\))/\1/' | awk '{print int($1 * 1000)}')"
+done
+as_version new
+expect "the stripes as they are on the projector" "$([ ${off_new:-999} -le 50 ] && echo yes)" yes
+note "off by (tenths of a percent): new $off_new, old $off_old"
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
