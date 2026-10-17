@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Copy Image to Clipboard, printing and Find Duplicates by likeness survive a decoder that panics
+  on a broken file, as showing it does: the busy pointer stayed for good, a PDF was left half
+  written, or a share of the files went uncompared.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed

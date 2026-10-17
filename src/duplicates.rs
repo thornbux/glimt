@@ -90,7 +90,11 @@ pub fn find(
         }
         By::Similar(percent) => {
             let signatures = parallel(&paths, p, |path| {
-                let thumb = crate::thumbs::thumbnail(path, rotate, save, false).ok()?;
+                // A decoder panicking on a broken file would end this worker and drop its share
+                // of the files from the comparison.
+                let thumb =
+                    crate::decode::survive(|| crate::thumbs::thumbnail(path, rotate, save, false))
+                        .ok()?;
                 Some(signature(&thumb))
             });
             similar(paths, signatures, percent, p)

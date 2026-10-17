@@ -4098,7 +4098,10 @@ impl App {
             let max = print::max_pixels(job.paper, job.per_page);
             let failed = std::cell::Cell::new(0);
             let pages = job.paths.iter().filter_map(|path| {
-                let img = load(path, job.rotate).and_then(|img| shrink(img, [max, max]));
+                // As for the viewer: a broken file that makes a decoder panic is a page short,
+                // not a PDF half written and the thread gone.
+                let img =
+                    survive(|| load(path, job.rotate).and_then(|img| shrink(img, [max, max])));
                 failed.set(failed.get() + img.is_err() as usize);
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 Some((img.ok()?, job.caption.then(|| name.into_owned())))
@@ -7175,7 +7178,9 @@ impl App {
         self.clip_rx = Some(clip_rx);
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
-            match load(&path, rotate) {
+            // A decoder that panics on a broken file must not end the thread: the busy pointer
+            // would stay for good.
+            match survive(|| load(&path, rotate)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send(format!("Could not copy the image: {e}"))),
             }
