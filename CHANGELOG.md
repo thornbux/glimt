@@ -58,6 +58,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The NIfTI decoder example reads only the first volume of a series: in FSL's own orientation
   (LAS) it read the whole series before turning it, gigabytes for an fMRI run, and was then
   stopped after 30 seconds.
+- The DICOM decoder example shows colour pictures right with pydicom 3, which gives YCbCr as RGB
+  already: turned again, a JPEG-compressed ultrasound or dental photo came out green and purple.
+  With pydicom 3 it also decodes only the frame shown, not every frame of a clip.
 
 ## [0.31.0] - 2026-10-17
 

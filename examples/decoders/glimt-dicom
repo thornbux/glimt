@@ -17,7 +17,14 @@ import sys
 
 import numpy
 import pydicom
-from pydicom.pixel_data_handlers.util import apply_voi_lut, convert_color_space
+
+# pydicom 3 decodes one frame alone and gives YCbCr as RGB; pydicom 2 decodes them all and
+# leaves the colour space to us.
+PYDICOM_3 = int(pydicom.__version__.split(".")[0]) >= 3
+if PYDICOM_3:
+    from pydicom.pixels import apply_voi_lut, pixel_array
+else:
+    from pydicom.pixel_data_handlers.util import apply_voi_lut, convert_color_space
 
 
 def grey(values):
@@ -33,14 +40,18 @@ def main(path):
     ds = pydicom.dcmread(path)
     if "PixelData" not in ds:
         sys.exit(f"{path}: a DICOM file without a picture (a report or a series index)")
-    pixels = ds.pixel_array
     frames = int(getattr(ds, "NumberOfFrames", 1) or 1)
-    if frames > 1:
-        pixels = pixels[frames // 2]
+    if PYDICOM_3:
+        # The middle frame only: an ultrasound clip holds thousands.
+        pixels = pixel_array(ds, index=frames // 2 if frames > 1 else None)
+    else:
+        pixels = ds.pixel_array
+        if frames > 1:
+            pixels = pixels[frames // 2]
     photometric = str(getattr(ds, "PhotometricInterpretation", ""))
     out = sys.stdout.buffer
     if pixels.ndim == 3:
-        if photometric.startswith("YBR"):
+        if photometric.startswith("YBR") and not PYDICOM_3:
             pixels = convert_color_space(pixels, photometric, "RGB")
         rgb = grey(pixels) if pixels.dtype != numpy.uint8 else pixels
         height, width = rgb.shape[:2]
