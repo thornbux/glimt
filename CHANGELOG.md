@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A slideshow in several panes stops at the end of the list when Repeat is off, and shuffles again
+  for a new round, also when the number of images is not a multiple of the panes.
 - A projector window smaller than the view, or one whose edge is dragged, no longer has every
   image decoded again; only one that grows past the view's size does.
 - With Fit Width or Fit Height, the images read ahead are decoded as large as they will be shown,

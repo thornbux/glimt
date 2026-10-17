@@ -474,6 +474,13 @@ fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
     }
 }
 
+/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
+/// also when the shown file is not in the list (hidden by a search). Several panes step by
+/// their number, so the round may end past the last row, not on the first.
+fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
+    row.is_none_or(|r| r + delta >= len)
+}
+
 /// A small map of the panes in the status bar, with the one it tells about filled in.
 fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
     let cell = egui::vec2(9.0, 7.0);
@@ -3208,22 +3215,24 @@ impl App {
         // Several panes: the next set together, or the next image into one pane at a time.
         let n = self.panes.len() + 1;
         let turns = n > 1 && self.one_at_a_time();
-        let next = match n {
-            1 => self.step(1, true),
-            _ if turns => self.step_from(self.last_slide, 1, true),
-            _ => self.step(n as isize, true),
+        let (from, delta) = match n {
+            1 => (self.cur, 1),
+            _ if turns => (self.last_slide, 1),
+            _ => (self.cur, n),
         };
-        let Some(next) = next else {
+        let Some(next) = self.step_from(from, delta as isize, true) else {
             return;
         };
-        let first = self.step(-isize::MAX / 2, false);
+        let m = self.matches.as_deref();
+        let row = m.map_or(Some(from), |m| self.row_of(m, from));
+        let round_over = round_ends(row, delta, m.map_or(self.files.len(), <[usize]>::len));
         let delay = std::time::Duration::from_secs(self.config.delay);
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
-        } else if Some(next) == first && !self.config.slideshow_repeat {
+        } else if round_over && !self.config.slideshow_repeat {
             self.stop_slideshow(ctx);
-        } else if self.random && Some(next) == first && self.files.len() > 2 {
+        } else if self.random && round_over && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
             self.shuffle_list(ctx, true);
         } else if !self.pending.contains_key(&(next, false)) {
@@ -10479,6 +10488,16 @@ mod tests {
 
     /// Images of a collection moved: each one place, never past another moved one, and to the
     /// start or the end in their own order.
+    #[test]
+    fn slideshow_round_ends_past_the_last() {
+        // Ten images in three panes: 0, 3, 6, 9, then a new round.
+        assert!(!super::round_ends(Some(6), 3, 10));
+        assert!(super::round_ends(Some(9), 3, 10));
+        assert!(super::round_ends(Some(8), 3, 10));
+        assert!(super::round_ends(Some(0), 1, 1));
+        assert!(super::round_ends(None, 1, 5));
+    }
+
     #[test]
     fn moves_in_a_collection() {
         use super::{Action, moved};
