@@ -3,6 +3,7 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
+use crate::*;
 use std::io::Write;
 
 /// Paper sizes in points (1/72 inch), portrait.
@@ -270,6 +271,192 @@ pub fn send(
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
     }
     written.map_err(|e| e.to_string())
+}
+
+// ---- Print: the dialog and the job in the background ----
+
+impl crate::App {
+    /// File → Print: the printer or a PDF, the paper, and images or contact sheets.
+    pub(crate) fn print_dialog(&mut self, ctx: &egui::Context) {
+        if let Some(mut dialog) = self.print.take() {
+            if let Ok((names, default)) = dialog.printers_rx.try_recv() {
+                // The printer used last, else CUPS's default; a PDF file if neither is there.
+                let c = &mut self.config;
+                if !names.contains(&c.print_printer) {
+                    c.print_printer = default.filter(|d| names.contains(d)).unwrap_or_default();
+                }
+                dialog.printers = Some(names);
+            }
+            let mut go = false;
+            let modal = egui::Modal::new(egui::Id::new("print")).show(ctx, |ui| {
+                let n = dialog.paths.len();
+                ui.strong(match n {
+                    1 => "Print the image".to_owned(),
+                    n => format!("Print {}", count(n, "image")),
+                });
+                let c = &mut self.config;
+                egui::Grid::new("print fields").show(ui, |ui| {
+                    ui.label("Printer:");
+                    let shown = |p: &str| if p.is_empty() { "PDF file" } else { p }.to_owned();
+                    egui::ComboBox::from_id_salt("printer")
+                        .selected_text(shown(&c.print_printer))
+                        .show_ui(ui, |ui| {
+                            for p in dialog.printers.iter().flatten() {
+                                ui.selectable_value(&mut c.print_printer, p.clone(), p);
+                            }
+                            ui.selectable_value(&mut c.print_printer, String::new(), "PDF file");
+                        });
+                    match &dialog.printers {
+                        None => drop(ui.spinner()),
+                        Some(p) if p.is_empty() => drop(ui.weak("No printers found")),
+                        Some(_) => {}
+                    }
+                    ui.end_row();
+                    ui.label("Paper:");
+                    egui::ComboBox::from_id_salt("paper")
+                        .selected_text(c.print_paper.clone())
+                        .show_ui(ui, |ui| {
+                            for (name, _) in print::PAPERS {
+                                ui.selectable_value(&mut c.print_paper, name.to_owned(), name);
+                            }
+                        });
+                    ui.end_row();
+                    ui.label("Images per page:");
+                    egui::ComboBox::from_id_salt("per page")
+                        .selected_text(c.print_per_page.to_string())
+                        .show_ui(ui, |ui| {
+                            for (n, [cols, rows]) in print::PER_PAGE {
+                                let label = match n {
+                                    1 => "1".to_owned(),
+                                    n => format!("{n} ({cols} × {rows})"),
+                                };
+                                ui.selectable_value(&mut c.print_per_page, n, label);
+                            }
+                        });
+                    ui.end_row();
+                    if !c.print_printer.is_empty() {
+                        ui.label("Copies:");
+                        ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
+                        ui.end_row();
+                    }
+                });
+                ui.checkbox(&mut c.print_caption, "File name under each image");
+                ui.horizontal(|ui| {
+                    let label = if c.print_printer.is_empty() {
+                        "Save PDF… (Enter)"
+                    } else {
+                        "Print (Enter)"
+                    };
+                    go =
+                        ui.button(label).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button("Cancel (Esc)").clicked() {
+                        ui.close();
+                    }
+                });
+            });
+            if go {
+                self.config.save();
+                let c = &self.config;
+                let paper = (print::PAPERS.iter())
+                    .find(|p| p.0 == c.print_paper)
+                    .unwrap_or(&print::PAPERS[0])
+                    .1;
+                let job = PrintJob {
+                    paths: dialog.paths,
+                    paper,
+                    per_page: c.print_per_page,
+                    caption: c.print_caption,
+                    rotate: c.exif_rotate,
+                    copies: dialog.copies,
+                };
+                match c.print_printer.clone() {
+                    p if p.is_empty() => self.pick(ctx, false, Pick::SavePdf(job)),
+                    p => self.print(ctx, job, PrintTo::Printer(p)),
+                }
+            } else if !modal.should_close() {
+                self.print = Some(dialog);
+            }
+        }
+    }
+
+    /// File → Print: the dialog for the selected images, or the shown one.
+    pub(crate) fn open_print(&mut self, ctx: &egui::Context) {
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(print::printers());
+            ctx.request_repaint();
+        });
+        self.print = Some(PrintDialog {
+            paths: self.targets().iter().map(|&i| self.path(i)).collect(),
+            printers: None,
+            printers_rx: rx,
+            copies: 1,
+        });
+    }
+
+    /// Print `job` in the background.
+    pub(crate) fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let max = print::max_pixels(job.paper, job.per_page);
+            let failed = std::cell::Cell::new(0);
+            let pages = job.paths.iter().filter_map(|path| {
+                // As for the viewer: a broken file that makes a decoder panic is a page short,
+                // not a PDF half written and the thread gone.
+                let img =
+                    survive(|| load(path, job.rotate).and_then(|img| shrink(img, [max, max])));
+                failed.set(failed.get() + img.is_err() as usize);
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                Some((img.ok()?, job.caption.then(|| name.into_owned())))
+            });
+            // Written as it is made, so only one page is in memory, not the whole PDF.
+            let title = format!("Glimt: {}", count(job.paths.len(), "image"));
+            let done = match &to {
+                PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
+                    print::pdf(pages, job.paper, job.per_page, w)
+                }),
+                // Beside it first: the file chosen is replaced only by a whole PDF, after every
+                // image was read (one of them may be the file chosen).
+                PrintTo::File(file) => {
+                    let tmp = save::tmp_path(file);
+                    let written = std::fs::File::create(&tmp)
+                        .and_then(|f| {
+                            let mut out = std::io::BufWriter::new(f);
+                            print::pdf(pages, job.paper, job.per_page, &mut out)?;
+                            out.into_inner().map_err(|e| e.into_error())?.sync_all()
+                        })
+                        .and_then(|_| std::fs::rename(&tmp, file));
+                    if written.is_err() {
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                    written.map_err(|e| e.to_string())
+                }
+            };
+            // Images, and the pages they fill: a contact sheet holds several on each.
+            let n = job.paths.len() - failed.get();
+            let what = match job.per_page {
+                1 => count(n, "page"),
+                per => format!(
+                    "{} on {}",
+                    count(n, "image"),
+                    count(n.div_ceil(per), "page")
+                ),
+            };
+            let done = done.map(|()| match &to {
+                PrintTo::Printer(printer) => format!("{what} sent to {printer}"),
+                PrintTo::File(file) => format!("{what} saved in {}", file.display()),
+            });
+            let _ = tx.send(match (done, failed.get()) {
+                (Ok(msg), 0) => msg,
+                (Ok(msg), f) => format!("{msg}; {f} could not be read"),
+                (Err(e), _) => format!("Printing failed: {e}"),
+            });
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
 }
 
 #[cfg(test)]
