@@ -15,6 +15,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A video, HEIC or plugin file that ffmpeg or the plugin cannot read is marked as having no
+  thumbnail, as other files are, instead of being tried again on every visit; TypeScript sources
+  named .ts, a video ending too, no longer start ffmpeg twice each time their folder opens. A
+  program that is not installed still leaves no mark.
 - The errors of ffmpeg and decoder plugins are read with a limit, the last 64 KB, so a damaged
   video cannot fill memory with them; and an error naming a file in another encoding is told, not
   lost.

@@ -67,12 +67,10 @@ fn thumbnail_in(
     {
         match &made {
             Ok(img) => drop(write(file, img, &uri, mtime)),
-            // Not when ffmpeg or a decoder plugin failed: it may be installed later.
-            Err(_)
-                if !crate::external::is_heif(path)
-                    && !crate::external::is_video(path)
-                    && crate::decoders::for_path(path).is_none() =>
-            {
+            // Not when ffmpeg or a decoder plugin is not there: it may be installed later. A file
+            // it cannot read is marked, or it is tried again on every visit (2,000 TypeScript
+            // sources named .ts, which are video endings too, start ffmpeg 4,000 times).
+            Err(e) if !(needs_program(path) && program_missing(e)) => {
                 drop(write(failed, &image::RgbaImage::new(1, 1), &uri, mtime))
             }
             Err(_) => {}
@@ -256,8 +254,36 @@ fn md5(data: &[u8]) -> [u8; 16] {
     out
 }
 
+/// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
+fn needs_program(path: &Path) -> bool {
+    crate::external::is_heif(path)
+        || crate::external::is_video(path)
+        || crate::decoders::for_path(path).is_some()
+}
+
+/// Whether `error` says the program was not found (or may not run), not that the file is bad.
+fn program_missing(error: &str) -> bool {
+    [
+        "No such file or directory",
+        "command not found",
+        "Permission denied",
+    ]
+    .iter()
+    .any(|m| error.contains(m))
+}
+
 #[cfg(test)]
 mod tests {
+    /// ffmpeg not installed is no reason to give up on a file; ffmpeg failing on it is.
+    #[test]
+    fn tells_a_missing_program_from_a_bad_file() {
+        let missing = "video, HEIC and AVIF need ffmpeg: No such file or directory (os error 2)";
+        assert!(super::program_missing(missing));
+        assert!(!super::program_missing(
+            "Invalid data found when processing input"
+        ));
+    }
+
     /// Thumbnails broken in thousands of ways, as the shared cache may hold them: their source
     /// read without a panic.
     #[test]
