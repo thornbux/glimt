@@ -312,6 +312,25 @@ break.jpg")"
 done
 as_version new
 
+echo "-- --remote open with a line break in the name: refused, not read as a second command"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-newline-$v
+    mkdir -p $d
+    convert -size 64x64 xc:red $d/a.png
+    config
+    start $d
+    sleep 2
+    $BIN --remote open "$d/x
+quit" >/dev/null 2>&1; refused=$?
+    sleep 1
+    running=$(kill -0 $GPID 2>/dev/null && echo running || echo quit)
+    quit
+    if [ $v = new ]; then expect "refused, Glimt still running" "$refused $running" "2 running"
+    else note "old: $refused $running"; fi
+done
+as_version new
+
 echo "-- --remote select: right after open, files of the list selected, the others printed"
 for v in new old; do
     as_version $v
