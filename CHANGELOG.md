@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- An SVG takes at most 256 MB of linked or embedded pictures: a small one naming the same large
+  picture a thousand times can no longer take all memory.
 - A gzipped SVG (.svgz) is unpacked with a limit of 64 MB: one made of zeros, a few MB on disk,
   can no longer take all memory and end Glimt when its folder is opened. A gzipped SVG inside
   another SVG is not drawn.

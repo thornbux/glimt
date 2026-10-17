@@ -511,9 +511,17 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
         }
     };
     let (data, string) = (R::default_data_resolver(), R::default_string_resolver());
+    // At most 256 MB of pictures for one SVG: a small one may name the same large picture a
+    // thousand times, and each is read and decoded again.
+    let total = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let room = move |bytes: u64| {
+        let before = total.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+        before + bytes <= 256 << 20
+    };
+    let room_too = room.clone();
     R {
         resolve_data: Box::new(move |mime, bytes, opts| {
-            fits(bytes.as_slice())
+            (room(bytes.len() as u64) && fits(bytes.as_slice()))
                 .then(|| data(mime, bytes, opts))
                 .flatten()
         }),
@@ -527,7 +535,8 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
                     .join(p),
             };
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
-            if meta.len() > 64 << 20 || !fits(&std::fs::read(&file).ok()?) {
+            if meta.len() > 64 << 20 || !room_too(meta.len()) || !fits(&std::fs::read(&file).ok()?)
+            {
                 return None;
             }
             string(href, opts)
@@ -1029,6 +1038,24 @@ mod tests {
         )
         .unwrap();
         assert!(super::svg(&svg).is_ok());
+        // One picture of 4 MB named again and again: taken until 256 MB, then no more.
+        let noise: Vec<u8> = (0..1024 * 1024 * 4u32)
+            .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
+            .collect();
+        image::RgbaImage::from_raw(1024, 1024, noise)
+            .unwrap()
+            .save(dir.join("big.png"))
+            .unwrap();
+        let resolver = super::svg_images();
+        let opts = resvg::usvg::Options {
+            resources_dir: Some(dir.clone()),
+            ..resvg::usvg::Options::default()
+        };
+        let taken = (0..100)
+            .filter(|_| (resolver.resolve_string)("big.png", &opts).is_some())
+            .count();
+        let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
+        assert_eq!(taken as u64, (256 << 20) / size);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
