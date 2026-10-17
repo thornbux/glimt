@@ -8705,16 +8705,54 @@ impl App {
         #[cfg(not(feature = "marks"))]
         let _ = (&stars, take_lightroom);
         let xmp = cfg!(feature = "marks") && self.config.xmp_stars;
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        let sidecars = if xmp { stars.len() } else { 0 } + image_keywords.len();
-        let job = self.start_job("Importing", sidecars);
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
+        if !image_keywords.is_empty() {
+            done.push(format!(
+                "the keywords of {}",
+                count(image_keywords.len(), "image")
+            ));
+        }
+        // The stars (as stars set by hand go there with this setting) and the keywords to the
+        // sidecars, through the writer that keeps them in order with what is set meanwhile.
+        let mut sidecars: HashMap<PathBuf, (u8, Vec<String>)> = HashMap::new();
+        if xmp {
+            for (path, n) in &stars {
+                sidecars.entry(path.clone()).or_default().0 = *n;
+            }
+        }
+        for (path, tags) in image_keywords {
+            sidecars.entry(path).or_default().1 = tags;
+        }
+        let paths: Vec<PathBuf> = sidecars.keys().cloned().collect();
+        self.write_sidecars(
+            ctx,
+            "Importing",
+            paths,
+            move |path| {
+                // Not for photos gone since: no sidecar beside nothing.
+                let Some((n, tags)) = sidecars.get(path).filter(|_| path.is_file()) else {
+                    return true;
+                };
+                #[cfg(feature = "marks")]
+                let stars = *n == 0 || marks::write_xmp(path, *n).is_ok();
+                #[cfg(not(feature = "marks"))]
+                let stars = *n == 0;
+                stars && (tags.is_empty() || meta::add_tags(path, tags).is_ok())
+            },
+            |failed, job| match () {
+                _ if failed > 0 => Some(format!(
+                    "Lightroom's stars or keywords not written to the sidecars of {}",
+                    count(failed, "image")
+                )),
+                _ if job.stopped() => Some(job.stopped_text()),
+                _ => None,
+            },
+        );
+        // The collections: one of the same name gets the images it lacks, nothing is lost.
+        self.background(ctx, move || {
             let dir = collections::dir();
             if let Some(dir) = &dir {
                 let _ = std::fs::create_dir_all(dir);
             }
-            // A collection of the same name gets the images it lacks: nothing is lost.
             let failed: Vec<&str> = (all.iter())
                 .filter(|(name, paths)| {
                     (dir.as_ref()).is_none_or(|d| {
@@ -8731,54 +8769,7 @@ impl App {
             if dir.is_none() && !all.is_empty() {
                 msg += " (no data folder: $HOME is not set)";
             }
-            #[cfg(feature = "marks")]
-            if xmp {
-                // As stars set by hand go there with this setting.
-                // Not for photos gone since: no sidecar beside nothing.
-                let failed = (stars.iter())
-                    .take_while(|_| !job.stopped())
-                    .inspect(|_| job.did(1))
-                    .filter(|(p, _)| p.is_file())
-                    .filter(|(p, n)| marks::write_xmp(p, *n).is_err())
-                    .count();
-                if failed > 0 {
-                    msg += &format!("; no XMP sidecar written for {}", thousands(failed));
-                }
-            }
-            #[cfg(not(feature = "marks"))]
-            let _ = xmp;
-            let (mut tagged, mut failed) = (0, 0);
-            // Not for photos gone since: no sidecar beside nothing.
-            for (path, tags) in &image_keywords {
-                if job.stopped() {
-                    break;
-                }
-                job.did(1);
-                if !path.is_file() {
-                    continue;
-                }
-                match meta::add_tags(path, tags) {
-                    Ok(()) => tagged += 1,
-                    Err(_) => failed += 1,
-                }
-            }
-            if tagged > 0 {
-                msg += &format!(", the keywords of {}", count(tagged, "image"));
-            }
-            if failed > 0 {
-                msg += &format!("; no keywords written for {}", thousands(failed));
-            }
-            if job.stopped() {
-                msg += &format!(
-                    "; stopped after {} of {} sidecars",
-                    thousands(job.done.load(Ordering::Relaxed)),
-                    thousands(sidecars)
-                );
-            }
-            drop(job);
-            let _ = tx.send(msg);
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
+            Some(msg)
         });
     }
 

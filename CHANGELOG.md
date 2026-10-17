@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Import Lightroom Catalog writes stars and keywords to the sidecars through the same writer as
+  stars and keywords set by hand, in the order they were made: a star given during a long import
+  could be overwritten by Lightroom's.
 - When a Rename Many ends while another image is shown than when it began, the list is read again:
   the shown entry took the renamed image's new name, and with Save Orientation on its turn was
   written into the renamed file.
