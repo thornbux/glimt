@@ -19,6 +19,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   science.desktop are now photoshop, tga, exr, imagemagick-fits and imagemagick-dicom.
 - Check Images stops when another folder or collection opens: it went on, and marked files of the
   new list that had the name of a broken file in the old one, which Select Them then selected.
+- Rename Collection and Move Collection to Trash are no longer offered for a plain list (.txt,
+  .m3u), which Glimt promises never to write: renaming made show.m3u a .gqv, and trashing sent the
+  user's own list away.
 
 ## [0.30.0] - 2026-10-16
 

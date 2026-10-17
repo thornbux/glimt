@@ -239,7 +239,8 @@ const MANUAL: &[(&str, &str)] = &[
          Ctrl+Shift+↑ and ↓ move them one place earlier or later, Ctrl+Shift+Home and End to \
          the start or end (File → Move in Collection), and the slideshow plays that order; \
          renaming and moving in Glimt keep them in it. File → Rename Collection… and Move \
-         Collection to Trash act on the open collection; its images stay where they are. Each change is saved at once, as a \
+         Collection to Trash act on the open collection (not on a plain list, which is yours); \
+         its images stay where they are. Each change is saved at once, as a \
          Geeqie .gqv file in ~/.local/share/glimt/collections; Geeqie's own collections open \
          too (O, or a .gqv file on the command line). A plain list opens the same way: a .txt \
          or .m3u file with one image on each line, relative to the list or absolute, # for \
