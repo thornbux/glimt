@@ -1355,7 +1355,6 @@ fn count(n: usize, noun: &str) -> String {
     format!("{} {noun}{}", thousands(n), if n == 1 { "" } else { "s" })
 }
 
-/// A decode for the workers: image index, full resolution, file, page of a multi-page TIFF.
 /// A file of the list and its row among the search matches (`None`: not among them).
 type FileRow = (usize, Option<usize>);
 
@@ -2532,6 +2531,7 @@ impl App {
         row
     }
 
+    /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
     fn place(&self) -> String {
         match &self.matches {
             Some(m) => match self.cur_row(m) {
@@ -2546,7 +2546,6 @@ impl App {
         }
     }
 
-    /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
     /// `place` of image `idx` in another pane; the search matches are looked through once per
     /// image, not every frame.
     fn place_of(&mut self, idx: usize) -> String {
@@ -4289,7 +4288,7 @@ impl App {
         self.scroll_to_cur = true;
     }
 
-    /// Decode everything again with or without EXIF rotation.
+    /// Thumbnails in the file list, or none.
     fn set_thumbnails(&mut self, on: bool) {
         self.config.thumbnails = on;
         self.config.save();
@@ -5572,9 +5571,6 @@ impl App {
         }
     }
 
-    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
-    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
-    /// copy them back while Glimt is closed; the README says where.
     /// The frame of the shown animation playing now.
     fn playing_frame(&self) -> usize {
         let slot = self.slots.get(&self.cur);
@@ -5662,6 +5658,9 @@ impl App {
         });
     }
 
+    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
+    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
+    /// copy them back while Glimt is closed; the README says where.
     fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
@@ -5721,7 +5720,6 @@ impl App {
         check
     }
 
-    /// Thumbnails in the file list, or none.
     /// The Find Duplicates window: compares the images of the list in the background, and
     /// lists the groups found; checked files can go to the trash.
     fn duplicates_window(&mut self, ctx: &egui::Context) {
@@ -7384,7 +7382,6 @@ impl App {
                 (Pick::Recursive, Some(path)) => {
                     self.config.show_subfolders = true;
                     self.config.save();
-                    self.recursive = true;
                     self.visit(ctx, path);
                 }
                 // One per line, from zenity's --multiple.
@@ -8376,9 +8373,6 @@ impl App {
         self.lightroom_rx = Some(rx);
     }
 
-    /// File → Import Lightroom Catalog: where the catalog's root folders are now; then what the
-    /// import will do, with the collections that are there already and the stars that differ;
-    /// then Import.
     /// Renames cut short by a crash or a power cut: put the old names back, or finish them, in
     /// the background; Later asks again at the next start.
     fn cut_short_dialog(&mut self, ctx: &egui::Context) {
@@ -8440,6 +8434,9 @@ impl App {
         self.relist = true;
     }
 
+    /// File → Import Lightroom Catalog: where the catalog's root folders are now; then what the
+    /// import will do, with the collections that are there already and the stars that differ;
+    /// then Import.
     fn lightroom_dialog(&mut self, ctx: &egui::Context) {
         let Some(mut lr) = self.lightroom.take() else {
             return;
@@ -9142,8 +9139,6 @@ impl App {
         });
     }
 
-    /// Row `i` of a collection dragged to another place: the selection when it is in it, else
-    /// the row; a line in the accent colour shows where the images go.
     /// Selecting in the icon grid by dragging a rectangle, as in a file manager: every image
     /// it touches, added to the selection with Ctrl or Shift. It starts anywhere but in a
     /// collection, where dragging an image moves it, from the space between them; it counts once
@@ -9245,6 +9240,8 @@ impl App {
         ctx.request_repaint();
     }
 
+    /// Row `i` of a collection dragged to another place: the selection when it is in it, else
+    /// the row; a line in the accent colour shows where the images go.
     fn drag_row(
         &mut self,
         ui: &egui::Ui,

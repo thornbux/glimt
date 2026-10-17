@@ -811,7 +811,6 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A JPEG without EXIF gets one; turning again changes the field in place.
     /// An orientation field with several values points elsewhere, maybe out of the EXIF block
     /// into the picture: it is refused and the file left as it was.
     #[test]
@@ -852,6 +851,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A JPEG without EXIF gets one; turning again changes the field in place.
     #[test]
     fn writes_orientation() {
         let dir = std::env::temp_dir().join(format!("glimt-orient-{}", std::process::id()));

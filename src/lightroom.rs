@@ -212,8 +212,6 @@ fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)
     names
 }
 
-/// Where each root folder is now: the same place if it is there, else empty for the user to
-/// fill in.
 /// The folder typed for a root folder: `~/` is the home folder, and a relative path or nothing
 /// is no folder (empty), as a collection keeps absolute paths only.
 pub fn root_now(typed: &str) -> PathBuf {
@@ -229,6 +227,8 @@ pub fn root_now(typed: &str) -> PathBuf {
     }
 }
 
+/// Where each root folder is now: the same place if it is there, else empty for the user to
+/// fill in.
 pub fn roots_now(catalog: &Catalog) -> Vec<String> {
     (catalog.roots.iter())
         .map(|(_, r)| {

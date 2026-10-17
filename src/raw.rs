@@ -118,8 +118,6 @@ mod tests {
         assert!(super::preview(b"no jpeg here").is_none());
     }
 
-    /// RAW files broken in thousands of ways, and one made of start markers: a preview found or
-    /// not, without a panic, and soon.
     /// Sony's pixel-shift .arq, GoPro's .gpr and Panasonic's old .raw: listed with the RAW
     /// files and shown by their preview.
     #[test]
@@ -156,6 +154,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// RAW files broken in thousands of ways, and one made of start markers: a preview found or
+    /// not, without a panic, and soon.
     #[test]
     fn survives_broken_raw() {
         let mut out = Vec::new();

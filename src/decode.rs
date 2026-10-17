@@ -48,14 +48,14 @@ pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
 /// The decoded frames with their delays in ms; one frame for a still image.
 pub type Frames = Vec<(egui::ColorImage, u32)>;
 
-/// Image `path` scaled to fit `max`, its original size and its number of pages; `page` picks a
-/// page of a multi-page TIFF.
 /// Whether `path` is a file (also through a link): a pipe would block a reader for good, and
 /// a device such as /dev/zero would fill memory.
 pub fn is_file(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
+/// Image `path` scaled to fit `max`, its original size and its number of pages; `page` picks a
+/// page of a multi-page TIFF.
 pub fn decode(
     path: &Path,
     max: [u32; 2],
