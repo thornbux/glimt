@@ -35,6 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A collection played as a random slideshow keeps its own order: taking an image out, or moving or
   renaming one, while it was shuffled saved the random order over the one you set, and stopping
   the slideshow left it shuffled. Moving images in it waits until random order is off.
+- Marks and stars follow the files Glimt copies, moves and renames (also with Rename Many), and go
+  with those it deletes: they were kept by the old path, so every star was lost by a rename, and a
+  new photo with a deleted one's name got its marks.
 
 ## [0.30.0] - 2026-10-16
 

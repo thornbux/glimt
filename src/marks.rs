@@ -1,6 +1,7 @@
 //! Optional marks and ratings (`cargo build --features marks`): Geeqie's marks 1–6 and 0–5
 //! stars, kept by full path in `$XDG_STATE_HOME/glimt/marks`, one file as "bits\tstars\tpath"
-//! lines. Files that are renamed or moved outside Glimt lose them.
+//! lines. They follow files that Glimt copies, moves and renames, and go with those it deletes;
+//! files renamed or moved outside Glimt lose them.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,10 +40,38 @@ impl Marks {
         self.change(paths, Change::Stars(stars));
     }
 
+    /// Files deleted: their marks go, so a new file of the same name does not get them.
+    pub fn forget(&mut self, paths: &[PathBuf]) {
+        let marked: Vec<PathBuf> = (paths.iter())
+            .filter(|p| self.map.contains_key(*p))
+            .cloned()
+            .collect();
+        if !marked.is_empty() {
+            self.change(&marked, Change::Clear);
+        }
+    }
+
+    /// Files copied (`keep`) or moved and renamed `(from, to)`: the new ones get the marks.
+    pub fn put(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
+        let pairs: Vec<(PathBuf, PathBuf)> = (pairs.into_iter())
+            .filter(|(from, to)| self.map.contains_key(from) || self.map.contains_key(to))
+            .collect();
+        if !pairs.is_empty() {
+            put(&mut self.map, &pairs, keep);
+            save(Edit::Put(pairs, keep));
+        }
+    }
+
     fn change(&mut self, paths: &[PathBuf], change: Change) {
         apply(&mut self.map, paths, change);
-        save(paths.to_vec(), change);
+        save(Edit::Change(paths.to_vec(), change));
     }
+}
+
+/// What a window did, applied to the file as it is then.
+enum Edit {
+    Change(Vec<PathBuf>, Change),
+    Put(Vec<(PathBuf, PathBuf)>, bool),
 }
 
 /// A change, rather than the new value, so that applied to the file it keeps what another
@@ -52,6 +81,8 @@ enum Change {
     /// A mark bit set or cleared.
     Mark(u8, bool),
     Stars(u8),
+    /// No marks and no stars.
+    Clear,
 }
 
 /// Apply `change` to each path's marks and stars; a path with neither is removed.
@@ -62,11 +93,33 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
             Change::Mark(bit, true) => (bits | bit, stars),
             Change::Mark(bit, false) => (bits & !bit, stars),
             Change::Stars(stars) => (bits, stars),
+            Change::Clear => (0, 0),
         };
         match new {
             (0, 0) => drop(map.remove(path)),
             v => drop(map.insert(path.clone(), v)),
         }
+    }
+}
+
+/// The marks of each `from` to its `to`, kept on `from` too when copied.
+fn put(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep: bool) {
+    for (from, to) in pairs {
+        let marks = match keep {
+            true => map.get(from).copied(),
+            false => map.remove(from),
+        };
+        match marks {
+            Some(v) => drop(map.insert(to.clone(), v)),
+            None => drop(map.remove(to)),
+        }
+    }
+}
+
+fn edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
+    match edit {
+        Edit::Change(paths, change) => apply(map, paths, *change),
+        Edit::Put(pairs, keep) => put(map, pairs, *keep),
     }
 }
 
@@ -89,14 +142,13 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 /// shortcut: the whole file each time, fine for thousands of marked files; write changes only
 /// if hundreds of thousands are marked.
 #[cfg(not(test))]
-fn save(paths: Vec<PathBuf>, change: Change) {
+fn save(change: Edit) {
     use std::sync::{OnceLock, mpsc};
-    type Changes = (Vec<PathBuf>, Change);
-    static WRITER: OnceLock<mpsc::Sender<Changes>> = OnceLock::new();
+    static WRITER: OnceLock<mpsc::Sender<Edit>> = OnceLock::new();
     let writer = WRITER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<Changes>();
+        let (tx, rx) = mpsc::channel::<Edit>();
         std::thread::spawn(move || {
-            for (paths, change) in rx.iter() {
+            for change in rx.iter() {
                 let Some(file) = file() else { continue };
                 // Another window's read and write must not fall between ours, or its change is
                 // lost: one at a time, through a lock beside the file (renamed over, so not on it).
@@ -109,20 +161,20 @@ fn save(paths: Vec<PathBuf>, change: Change) {
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
                     Err(_) => continue,
                 };
-                apply(&mut map, &paths, change);
-                for (paths, change) in rx.try_iter() {
-                    apply(&mut map, &paths, change);
+                edit(&mut map, &change);
+                for change in rx.try_iter() {
+                    edit(&mut map, &change);
                 }
                 let _ = crate::config::replace_file(&file, to_text(&map));
             }
         });
         tx
     });
-    let _ = writer.send((paths, change));
+    let _ = writer.send(change);
 }
 
 #[cfg(test)]
-fn save(_: Vec<PathBuf>, _: Change) {}
+fn save(_: Edit) {}
 
 /// The marks file: a line for each file.
 fn parse(text: &[u8]) -> HashMap<PathBuf, (u8, u8)> {
@@ -236,6 +288,32 @@ mod tests {
                 .starts_with("<xmp:Rating>0<")
         );
         assert_eq!(super::set_rating("nothing", 1), None);
+    }
+
+    /// Marks follow a move and a rename, are kept by a copy, go with a delete, and a new file
+    /// where a deleted one was does not get them.
+    #[test]
+    fn follow_their_files() {
+        use std::path::PathBuf;
+        let p = PathBuf::from;
+        let mut m = super::Marks::default();
+        m.rate(&[p("/a.jpg"), p("/b.jpg")], 4);
+        m.toggle(&[p("/a.jpg")], 1);
+        m.put(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);
+        assert_eq!(
+            (m.get(&p("/a.jpg")), m.get(&p("/to/a.jpg"))),
+            ((0, 0), (1, 4))
+        );
+        m.put(vec![(p("/b.jpg"), p("/b copy.jpg"))], true);
+        assert_eq!(
+            (m.get(&p("/b.jpg")), m.get(&p("/b copy.jpg"))),
+            ((0, 4), (0, 4))
+        );
+        m.forget(&[p("/b.jpg")]);
+        assert_eq!(m.get(&p("/b.jpg")), (0, 0));
+        // An old entry where an unmarked file lands is cleared.
+        m.put(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
+        assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
     }
 
     /// Marks files broken in thousands of ways: read without a panic.

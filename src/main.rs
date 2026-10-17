@@ -569,6 +569,9 @@ struct LightroomPlan {
 struct RenameJob {
     files_gen: usize,
     targets: Vec<usize>,
+    /// The old names, for the marks to follow.
+    #[cfg_attr(not(feature = "marks"), allow(dead_code))]
+    from: Vec<PathBuf>,
     to: Vec<PathBuf>,
     shown: Option<usize>,
 }
@@ -1127,6 +1130,9 @@ struct App {
     /// may still be there, or files were moved or copied into the list.
     deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
     deleted_rx: mpsc::Receiver<(Vec<PathBuf>, bool)>,
+    /// Files copied or moved, (from, to), and whether copied: their marks follow.
+    put_tx: mpsc::Sender<(Vec<(PathBuf, PathBuf)>, bool)>,
+    put_rx: mpsc::Receiver<(Vec<(PathBuf, PathBuf)>, bool)>,
     /// Those still being saved.
     saving: HashSet<PathBuf>,
     /// PNG and WebP files saved turned in the background.
@@ -1592,6 +1598,7 @@ impl App {
         }
         let (freed_tx, freed_rx) = mpsc::channel();
         let (deleted_tx, deleted_rx) = mpsc::channel();
+        let (put_tx, put_rx) = mpsc::channel();
         let (saved_tx, saved_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
@@ -1749,6 +1756,8 @@ impl App {
             deleting: HashSet::new(),
             deleted_tx,
             deleted_rx,
+            put_tx,
+            put_rx,
             saved_tx,
             saved_rx,
             saving: HashSet::new(),
@@ -3466,7 +3475,23 @@ impl App {
     }
 
     fn receive_deleted(&mut self) {
+        // Moved before their sources are taken for deleted ones: the marks go along first.
+        for (pairs, keep) in self.put_rx.try_iter() {
+            #[cfg(feature = "marks")]
+            self.marks.put(pairs, keep);
+            #[cfg(not(feature = "marks"))]
+            let _ = (pairs, keep);
+        }
         for (paths, failed) in self.deleted_rx.try_iter() {
+            // Deleted: their marks go, so that a new file of the same name does not get them.
+            #[cfg(feature = "marks")]
+            self.marks.forget(
+                &paths
+                    .iter()
+                    .filter(|p| !p.exists())
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            );
             if let Some(dups) = &mut self.dups {
                 // Those that failed are still there.
                 dups.remove(
@@ -3653,7 +3678,7 @@ impl App {
             self.remove_indices(ctx, &gone);
         }
         let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
-        let deleted_tx = self.deleted_tx.clone();
+        let (deleted_tx, put_tx) = (self.deleted_tx.clone(), self.put_tx.clone());
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
@@ -3664,18 +3689,23 @@ impl App {
             if !keep && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
             }
-            let mut errors = Vec::new();
+            let (mut errors, mut put) = (Vec::new(), Vec::new());
             for path in &paths {
                 if job.stopped() {
                     break;
                 }
                 let target = dest.join(path.file_name().unwrap_or_default());
                 match put_file(path, &target, keep) {
-                    Ok(()) => meta::follow(path, &target, keep),
+                    Ok(()) => {
+                        meta::follow(path, &target, keep);
+                        put.push((path.clone(), target));
+                    }
                     Err(e) => errors.push(format!("{}: {e}", target.display())),
                 }
                 job.did(1);
             }
+            // Before the deleted ones below, whose marks would go otherwise.
+            let _ = put_tx.send((put, keep));
             if let Some(first) = errors.first() {
                 let verb = if keep { "Copy" } else { "Move" };
                 let _ = tx.send(format!(
@@ -3778,8 +3808,12 @@ impl App {
             | Prompt::RenameCollection
             | Prompt::SaveTheme
             | Prompt::RenameFolder => return,
-            Prompt::Rename => std::fs::rename(self.path(self.cur), &target)
-                .inspect(|_| meta::follow(&self.path(self.cur), &target, false)),
+            Prompt::Rename => std::fs::rename(self.path(self.cur), &target).inspect(|_| {
+                meta::follow(&self.path(self.cur), &target, false);
+                #[cfg(feature = "marks")]
+                self.marks
+                    .put(vec![(self.path(self.cur), target.clone())], false);
+            }),
         };
         match (result, prompt) {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
@@ -3820,6 +3854,7 @@ impl App {
         let job = RenameJob {
             files_gen: self.files_gen,
             targets,
+            from: from.clone(),
             to: to.clone(),
             shown,
         };
@@ -3842,6 +3877,16 @@ impl App {
         }
         self.selected.clear();
         self.selection_changed(ctx);
+        #[cfg(feature = "marks")]
+        if !failed {
+            let pairs = job
+                .from
+                .iter()
+                .cloned()
+                .zip(job.to.iter().cloned())
+                .collect();
+            self.marks.put(pairs, false);
+        }
         // The list changed meanwhile: its numbers are other files' now, so it is read again.
         if job.files_gen != self.files_gen {
             return self.list(ctx);

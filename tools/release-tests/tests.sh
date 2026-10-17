@@ -383,6 +383,28 @@ quit
 n=$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)
 [ $n -gt 0 ] && pass "with Auto Rotate on, $n saved" || fail "with Auto Rotate on, none saved"
 
+echo "-- stars follow a renamed file, and go with a deleted one"
+for v in new old; do
+    as_version $v
+    d=/tmp/stars-follow-$v
+    mkdir -p $d $XDG_STATE_HOME/glimt
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    printf '0\t4\t%s/a.png\n0\t2\t%s/b.png\n' $d $d >$XDG_STATE_HOME/glimt/marks
+    config confirm_delete=false
+    start $d
+    sleep 1
+    key ctrl+r; sleep 1
+    key ctrl+a
+    xdotool type x
+    key Return; sleep 1
+    key Home; key shift+Delete; sleep 2     # b, first after the rename
+    quit
+    got="$(sort $XDG_STATE_HOME/glimt/marks | tr '\t\n' '  ')"
+    if [ $v = new ]; then expect "the four stars on x, none left for b" "$got" "0 4 $d/x "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v
