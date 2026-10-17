@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Marks and stars follow their files through a Rename Many that swaps or shifts names, instead of
+  being lost or given to the wrong file.
 - A Rename Many cut short in the middle of one rename, with the file under both names, is put
   right at the next start instead of being asked about at every start.
 - Two windows that both found a Rename Many cut short no longer both put it right: the second one,

@@ -126,13 +126,16 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
     }
 }
 
-/// The marks of each `from` to its `to`, kept on `from` too when copied.
+/// The marks of each `from` to its `to`, kept on `from` too when copied. All are taken before
+/// any is put: in a Rename Many that swaps or shifts names, a `to` is another pair's `from`.
 fn put(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep: bool) {
-    for (from, to) in pairs {
-        let marks = match keep {
+    let taken: Vec<Option<(u8, u8)>> = (pairs.iter())
+        .map(|(from, _)| match keep {
             true => map.get(from).copied(),
             false => map.remove(from),
-        };
+        })
+        .collect();
+    for ((_, to), marks) in pairs.iter().zip(taken) {
         match marks {
             Some(v) => drop(map.insert(to.clone(), v)),
             None => drop(map.remove(to)),
@@ -343,6 +346,19 @@ mod tests {
         // An old entry where an unmarked file lands is cleared.
         m.put(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
+        // Rename Many swapping names, and shifting them: each keeps its own.
+        m.rate(&[p("/x.jpg")], 1);
+        m.rate(&[p("/y.jpg")], 2);
+        m.put(
+            vec![(p("/x.jpg"), p("/y.jpg")), (p("/y.jpg"), p("/x.jpg"))],
+            false,
+        );
+        assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/y.jpg")).1), (2, 1));
+        m.put(
+            vec![(p("/x.jpg"), p("/z.jpg")), (p("/y.jpg"), p("/x.jpg"))],
+            false,
+        );
+        assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/z.jpg")).1), (1, 2));
     }
 
     /// Marks files broken in thousands of ways: read without a panic.
