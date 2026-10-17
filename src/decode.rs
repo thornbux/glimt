@@ -594,6 +594,8 @@ pub fn check(path: &Path) -> Result<(), String> {
 /// Whether a JPEG's image data reaches its end marker (FF D9), which the data itself never
 /// holds (an FF in it is followed by 00 or a restart marker). Looked for from the image data
 /// on, not in the last bytes: phones put a video of megabytes after it in a motion photo.
+// shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
+// data's start in blocks if motion photos of hundreds of MB make it slow.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let scan = crate::exif::jpeg_scan_start(&data).unwrap_or(data.len());
