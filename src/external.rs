@@ -93,6 +93,35 @@ const FILES_ONLY: [&str; 4] = [
     "mov,matroska,avi,mpeg,mpegts,asf,flv",
 ];
 
+/// What `child` writes, `max` bytes at most (more: `None`, once `too_large` has stopped it), its
+/// errors, and whether it ended well. Its errors are read beside its output, so neither pipe
+/// can fill and stop both.
+pub fn output_of(
+    child: &mut std::process::Child,
+    max: u64,
+    too_large: impl FnOnce(&mut std::process::Child),
+) -> (Option<Vec<u8>>, String, bool) {
+    use std::io::Read;
+    let errors = child.stderr.take().map(|mut e| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = e.read_to_string(&mut text);
+            text
+        })
+    });
+    let mut out = Vec::new();
+    if let Some(stdout) = child.stdout.take() {
+        let _ = stdout.take(max + 1).read_to_end(&mut out);
+    }
+    let large = out.len() as u64 > max;
+    if large {
+        too_large(child);
+    }
+    let ok = child.wait().is_ok_and(|s| s.success());
+    let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
+    ((!large).then_some(out), err, ok)
+}
+
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn ffmpeg_ppm(
@@ -100,7 +129,6 @@ pub fn ffmpeg_ppm(
     before: &[&str],
     after: &[&str],
 ) -> Result<image::DynamicImage, String> {
-    use std::io::Read;
     use std::process::Stdio;
     // 30 s of work at most, and a frame no larger than Glimt decodes: a crafted file could
     // otherwise keep ffmpeg busy for good, or hand over gigabytes.
@@ -116,29 +144,9 @@ pub fn ffmpeg_ppm(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
-    // Its errors read beside the frame, so neither pipe can fill and stop both.
-    let errors = child.stderr.take().map(|mut e| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = e.read_to_string(&mut text);
-            text
-        })
-    });
     let limit = crate::decode::MAX_DECODE + 64;
-    let mut frame = Vec::new();
-    if let Some(out) = child.stdout.take() {
-        let _ = out.take(limit + 1).read_to_end(&mut frame);
-    }
-    if frame.len() as u64 > limit {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(format!(
-            "image too large ({})",
-            crate::human_size(frame.len() as u64)
-        ));
-    }
-    let ok = child.wait().is_ok_and(|s| s.success());
-    let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
+    let (frame, err, ok) = output_of(&mut child, limit, |c| drop(c.kill()));
+    let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
         let err = err.trim();
         return Err(if err.is_empty() {

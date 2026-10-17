@@ -14,7 +14,6 @@
 //! and writes the image (PNM, PNG, TIFF, BMP …) to its standard output. It has 30 seconds and
 //! at most `MAX_DECODE` bytes, as ffmpeg has.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -148,28 +147,13 @@ impl Decoder {
                 }
             }
         });
-        let errors = child.stderr.take().map(|mut e| {
-            std::thread::spawn(move || {
-                let mut text = String::new();
-                let _ = e.read_to_string(&mut text);
-                text
-            })
-        });
         let max = crate::decode::MAX_DECODE + 64;
-        let mut image = Vec::new();
-        if let Some(out) = child.stdout.take() {
-            let _ = out.take(max + 1).read_to_end(&mut image);
-        }
-        if image.len() as u64 > max {
+        let (image, err, ok) = crate::external::output_of(&mut child, max, |_| {
             // SAFETY: as above.
             unsafe { libc_kill(-(id as i32), 9) };
-        }
-        let ok = child.wait().is_ok_and(|s| s.success());
+        });
         let _ = done.send(());
-        let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
-        if image.len() as u64 > max {
-            return Err(format!("{}: image too large", self.name));
-        }
+        let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
             let last = err.lines().last().unwrap_or("no image").trim().to_owned();
             return Err(format!("{}: {last}", self.name));
