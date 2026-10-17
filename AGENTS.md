@@ -36,36 +36,44 @@ documentation.
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App`, its decode and thumbnail workers, the file list, menus, panels and dialogs, `run` for every action |
+| `src/main.rs` | The app: `App` and its fields by group, its decode, thumbnail and EXIF workers, opening and listing a folder, browsing, painting the image, the file list, menus, panels and dialogs, `run` for every action, and the command line. Also helpers other modules use: threads (`in_parts`, `background_threads`, `small_alloc_threads`), `Job`, text (`count`, `thousands`, `human_size`, `local_time`) and `crate::broken` for tests |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys |
-| `src/config.rs` | `Config` (the `config!` macro), the window state, XDG paths, `write_atomic` |
+| `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys; variants are stored by name, never rename one |
+| `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths; the writer thread (`write_later`, `flush`), `file_lock`, `write_atomic`, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram |
 | `src/decoders.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/files.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`) |
-| `src/save.rs` | Saving a turned image with its EXIF, also lossy WebP |
-| `src/external.rs` | External programs: `command()`, ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/file_ops.rs` | Delete, copy and move, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `put_file`, `rename_files` |
+| `src/files.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
+| `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP |
+| `src/external.rs` | External programs: `command()`, `output_of`, ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
-| `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders |
-| `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness |
-| `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, overlay and date sorting |
+| `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders, and putting them in order (`moved`, `dropped`) |
+| `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
+| `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, the EXIF window's every field, the overlay and date sorting; writes a JPEG's orientation |
 | `src/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
-| `src/lightroom.rs` | Import Lightroom Catalog: a Lightroom Classic `.lrcat` read through `sqlite3` |
+| `src/lightroom.rs` | Import Lightroom Catalog: a Lightroom Classic `.lrcat` read through `sqlite3`, `Catalog::plan`, the dialog and the import |
 | `src/marks.rs` | Optional marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks`, and stars in XMP |
-| `src/meta.rs` | Keywords and comment in XMP sidecars; sidecars that follow their files |
-| `src/pan.rs` | Pan view: the list by day, and its rows |
-| `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files |
-| `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved |
+| `src/meta.rs` | Keywords, comment, IPTC alt text and extended description in XMP sidecars, keyword tree paths; `update_sidecar` (also for stars); sidecars that follow their files |
+| `src/pan.rs` | Pan view: the list by day, its rows, the timeline and the calendar |
+| `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoders.rs reads with too |
+| `src/preferences.rs` | Edit → Preferences: the window and its sections |
+| `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
-| `src/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, and `COMMANDS` |
-| `src/search.rs` | Fuzzy file name search (parallel, byte path for ASCII) |
+| `src/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
+| `src/search.rs` | The search: fuzzy names and `exif:`, `re:`, `mark:` and `stars:` terms with `|`, `-` and `( )`, in parallel; the EXIF index (`exif_index`) |
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
+| `themes/` | The built-in themes |
+| `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
+| `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
+| `examples/decoders/` | Decoder plugins: desktop files and their scripts |
+| `examples/plugins/` | Plugins (describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
+| `flatpak/` | The Flatpak manifest |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
-| `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb |
-| `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures, with `tests.sh`'s setup (`SHOTS=1`) |
+| `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb; `samples.txt` lists real files of each format, downloaded once |
+| `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures with `shots.sh`, using `tests.sh`'s setup (`SHOTS=1`) |
 
 ## How to add things
 
