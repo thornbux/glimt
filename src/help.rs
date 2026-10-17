@@ -672,7 +672,6 @@ fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
     });
 }
 
-/// Every shortcut of an action on one row, in menu order, then the mouse.
 /// Mouse use, for the help window.
 const MOUSE: &[(&str, &str)] = &[
     ("Mouse wheel", "Zoom, or next/previous image (Preferences)"),
@@ -694,6 +693,7 @@ const MOUSE: &[(&str, &str)] = &[
     ),
 ];
 
+/// Every shortcut of an action on one row, in menu order, then the mouse.
 fn shortcuts(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();

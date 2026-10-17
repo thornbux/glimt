@@ -32,8 +32,6 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
     (q == query.len()).then_some(score)
 }
 
-/// A `re:` search, ignoring case unless `case`; for a pattern that is not one, why, to show
-/// while typing.
 /// A search as a tree: terms (`exif:canon`, `re:png$`, a fuzzy name) combined with and (one
 /// after the other), or (`|`) and not (`-` before a prefixed term, or `-(` before a group).
 #[derive(Debug, PartialEq)]
@@ -144,6 +142,8 @@ fn and(tokens: &[&str], at: &mut usize) -> Option<Query> {
     }
 }
 
+/// A `re:` search, ignoring case unless `case`; for a pattern that is not one, why, to show
+/// while typing.
 pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, String> {
     regex::bytes::RegexBuilder::new(pattern)
         .case_insensitive(!case)
@@ -252,8 +252,6 @@ mod tests {
         assert_eq!(super::matches(&names, "BÆR"), [0, 1]);
     }
 
-    /// re: finds names by a regular expression, ignoring case, in list order; a broken one
-    /// says why in one line.
     /// A search read as a tree: prefixes start terms and words after one belong to it, `-`
     /// negates a prefixed term or a group, `|` binds loosest, `(` `)` group as words of their
     /// own, and a regular expression keeps its parentheses and bars.
@@ -304,6 +302,8 @@ mod tests {
         }
     }
 
+    /// re: finds names by a regular expression, ignoring case, in list order; a broken one
+    /// says why in one line.
     #[test]
     fn finds_by_regex() {
         let names: Vec<std::ffi::OsString> =
