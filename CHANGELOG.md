@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-10-17
+
 ### Added
 
 - glimt --back-up FOLDER copies Glimt's data to a new folder glimt-backup-DATE in FOLDER, as File
@@ -976,7 +978,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/thornbux/glimt/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/thornbux/glimt/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/thornbux/glimt/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/thornbux/glimt/compare/v0.27.0...v0.28.0
