@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A backup into one of the folders it copies (glimt --back-up ~/.local/share/glimt) is refused: it
+  copied itself into itself until the paths were too long.
 - The keyword tree keeps what other Glimt windows added or removed: each window wrote its own copy
   over the file, so one's new keyword went with the other's next change.
 - New Window keeps --lock-settings: the new window was not locked, so Preferences opened there and

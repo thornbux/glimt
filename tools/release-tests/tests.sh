@@ -1309,11 +1309,14 @@ for v in new old; do
     printf '#GQview collection\n' >$XDG_DATA_HOME/glimt/collections/Mine.gqv
     printf '/x\0/y\0' >$XDG_STATE_HOME/glimt/renames/plan
     $BIN --back-up $d/typo >/dev/null 2>&1; missing=$?
+    $BIN --back-up $XDG_DATA_HOME/glimt >/dev/null 2>&1; inside=$?
+    [ -d $XDG_DATA_HOME/glimt/glimt-backup-* ] && inside="$inside, made"
     $BIN --back-up $d/to >/dev/null 2>&1
     got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c renames)"
     # Gone again: every later start would find it and ask about a rename cut short.
     rm -rf $XDG_STATE_HOME/glimt/renames
     if [ $v = new ]; then expect "refused, nothing made; no plan in the backup" "$got" "1 0 0"
+        expect "a backup into Glimt's own folder refused" "$inside" 1
     else note "old: $got"; fi
 done
 as_version new

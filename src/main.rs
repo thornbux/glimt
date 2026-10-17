@@ -10178,6 +10178,14 @@ fn back_up_to(dir: &Path) -> Result<String, String> {
     if own.is_empty() {
         return Err("Nothing to back up: Glimt has no settings, marks or collections here".into());
     }
+    // Inside one of the folders it copies, the backup would copy itself until paths are too long.
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_owned());
+    if let Some((_, inside)) = own.iter().find(|(_, d)| real(dir).starts_with(real(d))) {
+        return Err(format!(
+            "A backup cannot go inside {}, which it copies",
+            inside.display()
+        ));
+    }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
         .chars()
