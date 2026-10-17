@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- After Tab, a click on the button or menu that had the keyboard focus took the ring away but left
+  the focus there, so every shortcut stopped working: a click now puts the focus away.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

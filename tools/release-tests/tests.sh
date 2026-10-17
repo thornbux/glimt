@@ -1153,6 +1153,25 @@ expect "inverted" "$(filtered filter-invert-new)" cyan
 expect "the filter kept in the settings" "$kept" 1
 note "old: $(filtered filter-grey-old)"
 
+echo "-- Tab to a menu, then a click on that same menu: the shortcuts work again"
+for v in new old; do
+    as_version $v
+    d=/tmp/focus-click-$v
+    mkdir -p $d
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d
+    sleep 2
+    key Tab; key Tab; sleep 0.5         # Go, the second Tab stop
+    click 52 11; click 52 11            # Go opened and closed by clicks
+    key End; sleep 1
+    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then expect "End shows the last image" "$got" "c.png"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
