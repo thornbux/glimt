@@ -52,6 +52,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - With Fit Width or Fit Height, the images read ahead are decoded as large as they will be shown,
   not to the shape of the image shown now, so one of another shape is not blurred and decoded
   again when it comes.
+- Save This Frame on the first frame of a GIF too large to animate reads it as a still image
+  instead of failing.
+- Pan view: a file that crashes its date reader no longer gives the files read after it in the
+  same thread other files' dates.
+- A PNG or WebP saved turned sets the orientation in its XMP upright too, as in its EXIF, so
+  programs that read the XMP do not turn it again.
+- A JPEG with fill bytes (0xff) before a marker has its EXIF read from the head of the file and
+  its orientation saved, instead of being taken for one without segments.
+- A lossless WebP with transparency, turned and saved with its EXIF, keeps its transparency in
+  other viewers: the extended header now says it has alpha.
 
 ## [0.33.0] - 2026-10-17
 

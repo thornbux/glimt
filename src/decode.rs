@@ -284,11 +284,16 @@ pub fn each_frame(
 ) -> Result<usize, String> {
     let wanted = |k: usize| only.is_none_or(|o| o == k);
     let mut done = 0;
-    // Each frame decoded once, as it is given: not all first to learn that it is animated.
-    if let Some((frames, size)) = animated_frames(path) {
-        if too_large_animation(size) {
-            return Err("image too large".into());
-        }
+    // Each frame decoded once, as it is given: not all first to learn that it is animated. One
+    // too large for its frames may still have its first read alone, as a still image by `load`.
+    let animated = animated_frames(path);
+    if let Some((_, size)) = &animated
+        && too_large_animation(*size)
+        && only != Some(0)
+    {
+        return Err("image too large".into());
+    }
+    if let Some((frames, _)) = animated.filter(|(_, size)| !too_large_animation(*size)) {
         for (k, frame) in frames.enumerate() {
             if only.is_some_and(|o| k > o) {
                 break;
@@ -589,6 +594,8 @@ pub fn check(path: &Path) -> Result<(), String> {
 /// Whether a JPEG's image data reaches its end marker (FF D9), which the data itself never
 /// holds (an FF in it is followed by 00 or a restart marker). Looked for from the image data
 /// on, not in the last bytes: phones put a video of megabytes after it in a motion photo.
+// shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
+// data's start in blocks if motion photos of hundreds of MB make it slow.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
     let scan = crate::exif::jpeg_scan_start(&data).unwrap_or(data.len());

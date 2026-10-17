@@ -346,6 +346,11 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
     let mut segments = Vec::new();
     let mut i = 2;
     while let (Some(&0xff), Some(&marker)) = (data.get(i), data.get(i + 1)) {
+        // Fill bytes: a marker may follow any number of 0xff.
+        if marker == 0xff {
+            i += 1;
+            continue;
+        }
         if marker == 0xda {
             return Some((segments, true));
         }
@@ -810,6 +815,11 @@ mod tests {
         assert!(matches!(from_head(), Some(Some(_))));
         assert_eq!(camera(&jpeg(5)), Some("Canon".into()));
         assert_eq!(from_head(), None);
+        // Fill bytes before a marker, which some cameras write.
+        let mut filled = jpeg(0);
+        filled.splice(2..2, [0xff; 3]);
+        assert_eq!(camera(&filled), Some("Canon".into()));
+        assert!(matches!(from_head(), Some(Some(_))));
         assert_eq!(camera(&base), None);
         assert_eq!(from_head(), Some(None));
         std::fs::remove_dir_all(dir).unwrap();
