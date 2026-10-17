@@ -21,6 +21,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   one with nothing to copy says so instead of "0 files", a file that cannot be copied is named,
   and the plan of a Rename Many running meanwhile is left out, which restored later would rename
   files again. The README says where the Flatpak keeps the folders to restore.
+- After Tab, a click on the button or menu that had the keyboard focus took the ring away but left
+  the focus there, so every shortcut stopped working: a click now puts the focus away.
 
 ## [0.31.0] - 2026-10-17
 

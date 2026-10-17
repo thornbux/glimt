@@ -5407,18 +5407,28 @@ impl App {
     /// once Tab has moved it there; a click makes it go. egui draws none in menus and on flat
     /// buttons, so without it Tab moved an invisible focus. Text fields show their own.
     fn focus_ring(&mut self, ctx: &egui::Context) {
-        ctx.input(|i| {
+        let pressed = ctx.input(|i| {
             if i.key_pressed(egui::Key::Tab) {
                 self.focus_by_keys = true;
             }
-            if i.pointer.any_pressed() {
-                self.focus_by_keys = false;
-            }
+            i.pointer.any_pressed()
         });
+        if pressed {
+            self.focus_by_keys = false;
+        }
         let Some(id) = ctx.memory(|m| m.focused()) else {
             return;
         };
-        if !self.focus_by_keys || Some(id) == self.image_id || ctx.text_edit_focused() {
+        if Some(id) == self.image_id || ctx.text_edit_focused() {
+            return;
+        }
+        // A click puts the focus Tab gave away, also on the widget clicked, where egui keeps it:
+        // the keys would go there, not to the shortcuts, with no ring to show it.
+        if pressed {
+            ctx.memory_mut(|m| m.surrender_focus(id));
+            return;
+        }
+        if !self.focus_by_keys {
             return;
         }
         if let Some(widget) = ctx.read_response(id) {
