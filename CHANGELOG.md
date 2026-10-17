@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Marks and stars set in another Glimt window are read again when a window gets the focus: each
   window knew only what was there when it started, so marking by mark (Select by Mark, mark:1)
   missed them and pressing a mark's key set it again instead of taking it off.
+- A camera RAW file whose sensor data holds a JPEG start and frame marker by chance shows its real
+  preview: the chance one claimed a far larger size and was taken, failed, and left a failed-
+  thumbnail mark in the shared cache.
 
 ## [0.32.0] - 2026-10-17
 
