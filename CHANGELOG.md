@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- After a new sort order or a refresh moved the shown file in the list while every decoding thread
+  was busy, its image could stay undecoded, with the image before it on screen under its name.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

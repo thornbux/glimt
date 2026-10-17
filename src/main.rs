@@ -2714,6 +2714,16 @@ impl App {
                 Some(Err(e)) if wanted => {
                     self.errors.insert(idx, e);
                 }
+                // Skipped by a worker that went by the place the job had when sent; the list
+                // was read again meanwhile and moved the file to `idx`, still wanted there.
+                // Asked for again, else nothing would: the previous image stayed on screen.
+                None if !full
+                    && self.is_file(idx, &d.path)
+                    && !self.slots.contains_key(&idx)
+                    && self.keep.lock().unwrap().contains(&idx) =>
+                {
+                    self.request(idx, false);
+                }
                 _ => {}
             }
         }
