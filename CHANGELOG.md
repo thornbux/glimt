@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A --remote select that comes while Delete or Rename asks waits until the question is answered:
   the answer acted on the files the script selected meanwhile, so Enter on "Permanently delete
   a.jpg?" could delete every file the script named.
+- A second Rename Many while one is running is refused: it wrote over the first one's plan for a
+  crash, and the first one's renamed files were not followed in the list or the collection.
 
 ## [0.31.0] - 2026-10-17
 

@@ -6940,6 +6940,10 @@ impl App {
             }
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Print => {}
+            // One Rename Many at a time: its result is awaited, and its plan kept for a crash.
+            Action::Rename if self.renaming.is_some() => {
+                self.notice = Some("Rename Many is still renaming".into());
+            }
             Action::Rename if self.targets().len() > 1 => {
                 self.asked_for = (self.files_gen, self.cur);
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
