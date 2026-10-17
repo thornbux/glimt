@@ -127,13 +127,10 @@ pub fn output_of(
     too_large: impl FnOnce(&mut std::process::Child),
 ) -> (Option<Vec<u8>>, String, bool) {
     use std::io::Read;
-    let errors = child.stderr.take().map(|mut e| {
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = e.read_to_string(&mut text);
-            text
-        })
-    });
+    let errors = child
+        .stderr
+        .take()
+        .map(|e| std::thread::spawn(move || last_text(e, 64 << 10)));
     let mut out = Vec::new();
     if let Some(stdout) = child.stdout.take() {
         let _ = stdout.take(max + 1).read_to_end(&mut out);
@@ -145,6 +142,20 @@ pub fn output_of(
     let ok = child.wait().is_ok_and(|s| s.success());
     let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
     ((!large).then_some(out), err, ok)
+}
+
+/// The last `keep` bytes or so that `from` writes, read to its end so the program never waits on
+/// a full pipe, as text even where it is not UTF-8 (a file name in another encoding): a damaged
+/// video can make ffmpeg write an error for every packet, and the last line is what is told.
+fn last_text(mut from: impl std::io::Read, keep: usize) -> String {
+    let (mut text, mut chunk) = (Vec::new(), [0u8; 8192]);
+    while let Ok(n @ 1..) = from.read(&mut chunk) {
+        text.extend_from_slice(&chunk[..n]);
+        if text.len() > 2 * keep {
+            text.drain(..text.len() - keep);
+        }
+    }
+    String::from_utf8_lossy(&text).into_owned()
 }
 
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
@@ -398,6 +409,17 @@ fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
 
 #[cfg(test)]
 mod tests {
+    /// A program's errors: kept to their last part, however much it writes, and told even in
+    /// another encoding.
+    #[test]
+    fn keeps_the_last_errors() {
+        let mut out = vec![b'x'; 1 << 20];
+        out.extend(b"\nferie_\xe6.mp4: no frame");
+        let text = super::last_text(&out[..], 1000);
+        assert!(text.len() <= 2000);
+        assert!(text.ends_with(".mp4: no frame"));
+    }
+
     /// A server name the system finds needs no hint; one it does not gets name.local or the IP.
     /// The name is the one after a user and password and before a port.
     #[test]

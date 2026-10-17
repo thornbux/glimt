@@ -15,6 +15,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The errors of ffmpeg and decoder plugins are read with a limit, the last 64 KB, so a damaged
+  video cannot fill memory with them; and an error naming a file in another encoding is told, not
+  lost.
 - SVG thumbnails are drawn at the thumbnail's size, not at 2048 pixels and shrunk: a folder of
   icons gets its thumbnails many times faster, with a fraction of the memory.
 
