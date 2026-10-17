@@ -6152,30 +6152,7 @@ impl App {
             self.marks.refresh();
         }
         self.has_focus = focus;
-        if self.listing_rx.is_none()
-            && !self.asking_about_selection()
-            && let Some((command, reply)) = self.waiting_select.take()
-        {
-            let _ = reply.send(self.select_paths(ctx, &command));
-        }
-        while let Ok((command, reply)) = self.remote_rx.try_recv() {
-            match reply {
-                // After `open`, the folder is still being read: its files are not all listed. A
-                // dialog asking about the selection (Delete, Rename) is answered for the one it
-                // asked about, not one a script put in its place meanwhile.
-                Some(reply)
-                    if command.starts_with("select ")
-                        && (self.listing_rx.is_some() || self.asking_about_selection()) =>
-                {
-                    self.waiting_select = Some((command, reply));
-                }
-                Some(reply) if command.starts_with("select ") => {
-                    let _ = reply.send(self.select_paths(ctx, &command));
-                }
-                Some(reply) => drop(reply.send(self.remote_query(&command))),
-                None => self.remote_command(ctx, &command),
-            }
-        }
+        self.receive_remote(ctx);
         if let Some(img) = self.clip_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.clip_rx = None;
             ctx.copy_image(img);
@@ -6193,24 +6170,7 @@ impl App {
         let decoding = !self.files.is_empty()
             && !self.slots.contains_key(&self.cur)
             && !self.errors.contains_key(&self.cur);
-        if let Some(done) = self.mounting_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.mounting_rx = None;
-            // "Connecting to …" goes: the folder, the error or the login takes its place.
-            self.notice = None;
-            match done {
-                (Ok(path), _) => self.visit(ctx, path),
-                (Err(Some(e)), _) => self.notice = Some(e),
-                // Ask for the login; the user name defaults to this one, as gio's does.
-                (Err(None), login) => {
-                    let user = std::env::var("USER").unwrap_or_default();
-                    self.login = Some(Login {
-                        user,
-                        domain: "WORKGROUP".into(),
-                        ..login
-                    });
-                }
-            }
-        }
+        self.receive_mount(ctx);
         if self.listing_rx.is_some()
             || decoding
             || self.mounting_rx.is_some()
@@ -6253,6 +6213,62 @@ impl App {
         if let Some(all) = self.together.take() {
             self.open_folders(ctx, all);
         }
+        self.receive_picked(ctx);
+    }
+
+    /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
+    /// dialog asks about the selection.
+    fn receive_remote(&mut self, ctx: &egui::Context) {
+        if self.listing_rx.is_none()
+            && !self.asking_about_selection()
+            && let Some((command, reply)) = self.waiting_select.take()
+        {
+            let _ = reply.send(self.select_paths(ctx, &command));
+        }
+        while let Ok((command, reply)) = self.remote_rx.try_recv() {
+            match reply {
+                // After `open`, the folder is still being read: its files are not all listed. A
+                // dialog asking about the selection (Delete, Rename) is answered for the one it
+                // asked about, not one a script put in its place meanwhile.
+                Some(reply)
+                    if command.starts_with("select ")
+                        && (self.listing_rx.is_some() || self.asking_about_selection()) =>
+                {
+                    self.waiting_select = Some((command, reply));
+                }
+                Some(reply) if command.starts_with("select ") => {
+                    let _ = reply.send(self.select_paths(ctx, &command));
+                }
+                Some(reply) => drop(reply.send(self.remote_query(&command))),
+                None => self.remote_command(ctx, &command),
+            }
+        }
+    }
+
+    /// A share mounted, or why not: its folder opens, or the error or a login is asked for.
+    fn receive_mount(&mut self, ctx: &egui::Context) {
+        if let Some(done) = self.mounting_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.mounting_rx = None;
+            // "Connecting to …" goes: the folder, the error or the login takes its place.
+            self.notice = None;
+            match done {
+                (Ok(path), _) => self.visit(ctx, path),
+                (Err(Some(e)), _) => self.notice = Some(e),
+                // Ask for the login; the user name defaults to this one, as gio's does.
+                (Err(None), login) => {
+                    let user = std::env::var("USER").unwrap_or_default();
+                    self.login = Some(Login {
+                        user,
+                        domain: "WORKGROUP".into(),
+                        ..login
+                    });
+                }
+            }
+        }
+    }
+
+    /// The file dialog's answer, for what it was opened for.
+    fn receive_picked(&mut self, ctx: &egui::Context) {
         if let Some(Ok(picked)) = self.dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
             let (purpose, _) = self.dialog.take().unwrap();
             match (purpose, picked) {
