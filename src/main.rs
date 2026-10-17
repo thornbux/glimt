@@ -891,7 +891,8 @@ struct App {
     image_id: Option<egui::Id>,
     /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
     focus_by_keys: bool,
-    /// A `--remote select` that came while the folder was being read: done once it is.
+    /// A `--remote select` that came while the folder was being read or a dialog was open: done
+    /// once neither is.
     waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
     relist: bool,
@@ -7203,14 +7204,20 @@ impl App {
         }
         self.has_focus = focus;
         if self.listing_rx.is_none()
+            && !self.dialog_open()
             && let Some((command, reply)) = self.waiting_select.take()
         {
             let _ = reply.send(self.select_paths(ctx, &command));
         }
         while let Ok((command, reply)) = self.remote_rx.try_recv() {
             match reply {
-                // After `open`, the folder is still being read: its files are not all listed.
-                Some(reply) if command.starts_with("select ") && self.listing_rx.is_some() => {
+                // After `open`, the folder is still being read: its files are not all listed. A
+                // dialog asking about the selection (Delete, Rename) is answered for the one it
+                // asked about, not one a script put in its place meanwhile.
+                Some(reply)
+                    if command.starts_with("select ")
+                        && (self.listing_rx.is_some() || self.dialog_open()) =>
+                {
                     self.waiting_select = Some((command, reply));
                 }
                 Some(reply) if command.starts_with("select ") => {

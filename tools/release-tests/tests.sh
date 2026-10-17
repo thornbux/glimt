@@ -312,6 +312,26 @@ break.jpg")"
 done
 as_version new
 
+echo "-- --remote select while Delete asks: the answer deletes the file it asked about only"
+for v in new old; do
+    as_version $v
+    d=/tmp/select-dialog-$v
+    mkdir -p $d
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+    config confirm_delete=true
+    start $d
+    sleep 2
+    key shift+Delete; sleep 1           # "Permanently delete a.png?"
+    $BIN --remote select $d/a.png $d/b.png $d/c.png >/dev/null 2>&1 &
+    sleep 1
+    key Return; sleep 2
+    quit
+    got="$(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then expect "only a deleted" "$got" "b.png c.png "
+    else note "old, left: $got"; fi
+done
+as_version new
+
 echo "-- --remote select: right after open, files of the list selected, the others printed"
 for v in new old; do
     as_version $v

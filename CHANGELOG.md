@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A --remote select that comes while Delete or Rename asks waits until the question is answered:
+  the answer acted on the files the script selected meanwhile, so Enter on "Permanently delete
+  a.jpg?" could delete every file the script named.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
