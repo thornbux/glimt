@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Printing shrinks each image before it goes to sRGB, and decodes a JPEG at a fraction of its size
+  when that is enough: a large photo with its own profile no longer takes hundreds of MB for a
+  moment.
 - A PNG saved turned keeps its text (a comment, the prompt an AI tool wrote), its DPI, its time
   and its gamma and colour space, instead of only its profile, EXIF and XMP: a 300 dpi scan no
   longer prints at 72 after a turn.

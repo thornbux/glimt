@@ -405,8 +405,19 @@ impl crate::App {
             let pages = job.paths.iter().filter_map(|path| {
                 // As for the viewer: a broken file that makes a decoder panic is a page short,
                 // not a PDF half written and the thread gone.
-                let img =
-                    survive(|| load(path, job.rotate).and_then(|img| shrink(img, [max, max])));
+                // Shrunk before it goes to sRGB: a 45 MP photo with its own profile would
+                // need two full-size buffers else. A JPEG decoded at a fraction when that is
+                // enough.
+                let img = survive(|| {
+                    let (img, icc) = match decode::scaled_jpeg(path, [max, max], job.rotate) {
+                        Some((img, icc, _)) => (img, icc),
+                        None => decode::load_icc(path, job.rotate)?,
+                    };
+                    Ok(crate::colour::to_srgb(
+                        shrink(img, [max, max])?,
+                        icc.as_deref(),
+                    ))
+                });
                 failed.set(failed.get() + img.is_err() as usize);
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 Some((img.ok()?, job.caption.then(|| name.into_owned())))
