@@ -702,6 +702,24 @@ PY
 done
 as_version new
 
+echo "-- a NIfTI series in FSL's orientation (LAS, 4D): its first volume, the front at the top"
+d=/tmp/nifti-series
+mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+python3 - "$d" <<'PY'
+import sys, numpy, nibabel
+# Brighter to the front (y); x runs left (LAS); 20 volumes, only the first read.
+series = numpy.fromfunction(lambda x, y, z, t: y, (40, 50, 30, 20), dtype=numpy.float32)
+nibabel.save(nibabel.Nifti1Image(series, numpy.diag([-1.0, 1, 1, 1])), f"{sys.argv[1]}/a.nii.gz")
+PY
+config
+start $d/a.nii.gz
+sleep 3
+shot nifti-series
+quit
+expect "the front at the top" \
+    "$([ $(red nifti-series 760 120) -gt 200 ] && [ $(red nifti-series 760 700) -lt 60 ] && echo yes)" yes
+
 echo "-- the Bio-Formats decoder: a microscope file (ICS) shown through bftools"
 for v in new old; do
     as_version $v

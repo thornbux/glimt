@@ -55,6 +55,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   to a .deb) no longer gives a notice at every start; glimt --check-config still lists it.
 - Marks and stars that cannot be saved (a full disk, a folder that cannot be written) are told in
   the window, as the settings are: they were lost without a word.
+- The NIfTI decoder example reads only the first volume of a series: in FSL's own orientation
+  (LAS) it read the whole series before turning it, gigabytes for an fMRI run, and was then
+  stopped after 30 seconds.
 
 ## [0.31.0] - 2026-10-17
 
