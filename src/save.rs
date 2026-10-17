@@ -268,6 +268,10 @@ pub fn webp_with_chunk(
     }
     let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
     let chunks = &webp[12..];
+    // A lossless image tells its alpha in its header (bit 28 after the signature byte); the
+    // extended header must say it too, or viewers show it opaque.
+    let alpha = chunks.starts_with(b"VP8L") && chunks.get(12).is_some_and(|b| b & 0x10 != 0);
+    let flag = if alpha { flag | 0x10 } else { flag };
     if chunks.starts_with(b"VP8X") {
         out.extend(chunks);
         *out.get_mut(20).ok_or("cut off")? |= flag;
@@ -465,6 +469,16 @@ mod tests {
         assert_eq!(dec.dimensions(), (5, 3));
         assert_eq!(dec.exif_metadata().unwrap().as_deref(), Some(&exif[..]));
         assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
+        assert!(!dec.color_type().has_alpha());
+        // One with alpha keeps it.
+        let mut webp = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut webp)
+            .write_image(&[0; 5 * 3 * 4], 5, 3, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        let with = super::webp_with_chunk(&webp, b"EXIF", exif, 5, 3).unwrap();
+        assert_eq!(with[20], 0x18);
+        let dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
+        assert!(dec.color_type().has_alpha());
         // A PNG with XMP in an iTXt chunk, read back by the png decoder, which checks its CRC.
         let mut png = Vec::new();
         image::codecs::png::PngEncoder::new(&mut png)

@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A lossless WebP with transparency, turned and saved with its EXIF, keeps its transparency in
+  other viewers: the extended header now says it has alpha.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed
