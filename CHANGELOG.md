@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A kiosk (--kiosk) saves no settings: the keys it allows (the slideshow's speed and order, the
+  overlay, the histogram, the layout) changed the settings file, and lasted after a restart.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed

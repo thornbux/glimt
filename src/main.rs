@@ -10332,7 +10332,8 @@ fn main() -> eframe::Result {
             rgba: icon.into_raw(),
         });
     }
-    if start.lock_settings || Path::new(config::LOCK_FILE).exists() {
+    // A kiosk changes no settings either: a visitor's keys would last until the next boot.
+    if start.lock_settings || start.kiosk || Path::new(config::LOCK_FILE).exists() {
         config::lock();
     }
     if Config::load().remember_window

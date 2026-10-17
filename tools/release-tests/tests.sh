@@ -1318,6 +1318,24 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a kiosk: a visitor's keys change no saved setting"
+for v in new old; do
+    as_version $v
+    d=/tmp/kiosk-keys-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config delay=5
+    start --kiosk $d
+    sleep 2
+    key ctrl+equal; key r; key i; sleep 1    # faster, random order, overlay
+    $BIN --remote-all quit >/dev/null 2>&1; sleep 1
+    quit
+    got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    else note "old: $(grep -E '^(delay|random|overlay)=' $XDG_CONFIG_HOME/glimt/config | tr '\n' ' ')"; fi
+done
+as_version new
+
 echo "-- the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
 d=/tmp/focus
 mkdir -p $d
