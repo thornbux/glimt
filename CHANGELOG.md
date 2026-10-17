@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- glimt --remote select finds files given through a linked folder (as ~/Pictures may be): the
+  window lists the folder with its links followed, so none matched and all were printed as not in
+  the list.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
