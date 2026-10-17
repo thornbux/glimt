@@ -4,4 +4,6 @@ Comment=GIMP's own files, their visible layers put together, through ImageMagick
 Extensions=xcf
 # GIMP keeps no composite: the layers are merged here, transparency kept (PAM). ImageMagick
 # reads XCF of GIMP 2.8 and older fully; for newer files, export from GIMP if a layer is missing.
-Exec=convert %f -background none -layers merge -depth 8 pam:-
+# The format is named before the path ("xcf:"): without it ImageMagick goes by what the bytes
+# say, and a file from the internet named .xcf could reach Ghostscript or another coder.
+Exec=convert xcf:%f -background none -layers merge -depth 8 pam:-
