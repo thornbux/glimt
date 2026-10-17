@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The HDF5 decoder example shows a file's largest dataset, not the first one listed: of a climate
+  file it showed lat_bnds, a strip two pixels wide, instead of the temperatures.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

@@ -605,6 +605,8 @@ volume = numpy.fromfunction(lambda x, y, z: y, (40, 50, 30), dtype=numpy.float32
 nibabel.save(nibabel.Nifti1Image(volume, numpy.eye(4)), f"{d}/a.nii.gz")
 with h5py.File(f"{d}/b.h5", "w") as f:
     f.create_dataset("data/temperature", data=numpy.fromfunction(lambda r, c: r, (100, 200)))
+    # Coordinate bounds as a climate file has them, listed first: not the picture.
+    f.create_dataset("data/lat_bnds", data=numpy.full((100, 2), 9.0))
 PY
     convert -size 1024x768 xc:red -define tiff:tile-geometry=256x256 -compress jpeg ptif:$d/c.svs
     config
