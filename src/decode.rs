@@ -273,11 +273,13 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
 }
 
 /// Every frame of an animation, or page of a TIFF, at full size and in sRGB, one at a time to
-/// `each` (its number from 0 and the image), or only frame `only`; how many were given. For
-/// File → Save This Frame and Export Frames.
+/// `each` (its number from 0 and the image), or only frame `only`; how many were given. The
+/// first page turned upright by EXIF if `rotate`, as the view shows it. For File → Save This
+/// Frame and Export Frames.
 pub fn each_frame(
     path: &Path,
     only: Option<usize>,
+    rotate: bool,
     mut each: impl FnMut(usize, image::DynamicImage) -> Result<(), String>,
 ) -> Result<usize, String> {
     let wanted = |k: usize| only.is_none_or(|o| o == k);
@@ -306,7 +308,7 @@ pub fn each_frame(
     };
     for k in (0..pages).filter(|&k| wanted(k)) {
         let img = if k == 0 {
-            load(path, true)?
+            load(path, rotate)?
         } else {
             tiff_page(path, k)?
         };
@@ -637,13 +639,13 @@ mod tests {
             .encode_frames([frame(10), frame(120), frame(250)])
             .unwrap();
         let mut seen = Vec::new();
-        let n = super::each_frame(&dir.join("a.gif"), None, |k, img| {
+        let n = super::each_frame(&dir.join("a.gif"), None, true, |k, img| {
             seen.push((k, img.to_rgb8().get_pixel(0, 0)[0] / 100));
             Ok(())
         });
         assert_eq!((n, seen), (Ok(3), vec![(0, 0), (1, 1), (2, 2)]));
         let mut only = Vec::new();
-        let n = super::each_frame(&dir.join("a.gif"), Some(1), |k, _| {
+        let n = super::each_frame(&dir.join("a.gif"), Some(1), true, |k, _| {
             only.push(k);
             Ok(())
         });
@@ -656,11 +658,27 @@ mod tests {
                 .unwrap();
         }
         let mut pages = Vec::new();
-        let n = super::each_frame(&dir.join("b.tif"), None, |k, img| {
+        let n = super::each_frame(&dir.join("b.tif"), None, true, |k, img| {
             pages.push((k, img.to_luma8().get_pixel(0, 0)[0]));
             Ok(())
         });
         assert_eq!((n, pages), (Ok(2), vec![(0, 0), (1, 200)]));
+        // A picture with EXIF orientation 6: turned upright with Auto Rotate on, as it is off.
+        use image::ImageEncoder;
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
+        let turned = dir.join("c.png");
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&turned).unwrap());
+        enc.set_exif_metadata(exif.to_vec()).unwrap();
+        image::RgbImage::new(4, 2).write_with_encoder(enc).unwrap();
+        for (rotate, size) in [(true, (2, 4)), (false, (4, 2))] {
+            let mut got = (0, 0);
+            super::each_frame(&turned, Some(0), rotate, |_, img| {
+                got = (img.width(), img.height());
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(got, size, "rotate {rotate}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
     /// A small GIF of many tiny frames keeps 1,000 of them, not one texture each.

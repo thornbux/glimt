@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Save This Frame of a TIFF's first page follows Auto Rotate, as the view does: with it off, the
+  PNG was still turned by the EXIF orientation.
 - Save This Frame and Export Frames decode an animation once, not first all of it to learn that it
   is animated.
 

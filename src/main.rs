@@ -5555,6 +5555,7 @@ impl App {
         to: PathBuf,
     ) {
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        let rotate = self.config.exif_rotate;
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
             let stem = path
@@ -5576,7 +5577,7 @@ impl App {
                 Err(format!("Could not make {}", folder.display()))
             } else {
                 decode::survive(|| {
-                    decode::each_frame(&path, only, |k, img| {
+                    decode::each_frame(&path, only, rotate, |k, img| {
                         let file = match only {
                             Some(_) => to.clone(),
                             None => folder.join(format!("{stem}-{:03}.png", k + 1)),
