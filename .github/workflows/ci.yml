@@ -43,4 +43,4 @@ jobs:
       # The SBOM in step with Cargo.lock, also after Dependabot changed it.
       - name: sbom.cdx.json up to date
         if: matrix.features == ''
-        run: python3 tools/sbom.py && git diff --exit-code sbom.cdx.json
+        run: python3 tools/sbom.py && git diff --exit-code sbom.cdx.json THIRD-PARTY-LICENSES.txt

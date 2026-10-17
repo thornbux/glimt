@@ -63,7 +63,7 @@ documentation.
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
-| `tools/sbom.py` | Writes `sbom.cdx.json` |
+| `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb |
 | `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures, with `tests.sh`'s setup (`SHOTS=1`) |
 
@@ -103,7 +103,7 @@ cargo clippy --release -- -D warnings
 cargo test --release
 cargo clippy --release --all-features -- -D warnings
 cargo test --release --all-features
-python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
+python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt in step with Cargo.lock
 ```
 
 - **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged

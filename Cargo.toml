@@ -79,6 +79,7 @@ assets = [
     ["CHANGELOG.md", "usr/share/doc/glimt/", "644"],
     ["assets/fonts/LICENSE-Inter.txt", "usr/share/doc/glimt/", "644"],
     ["assets/fonts/LICENSE-Phosphor.txt", "usr/share/doc/glimt/", "644"],
+    ["THIRD-PARTY-LICENSES.txt", "usr/share/doc/glimt/", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -98,6 +99,7 @@ assets = [
     { source = "LICENSE", dest = "/usr/share/licenses/glimt/LICENSE", mode = "644" },
     { source = "assets/fonts/LICENSE-Inter.txt", dest = "/usr/share/licenses/glimt/LICENSE-Inter.txt", mode = "644" },
     { source = "assets/fonts/LICENSE-Phosphor.txt", dest = "/usr/share/licenses/glimt/LICENSE-Phosphor.txt", mode = "644" },
+    { source = "THIRD-PARTY-LICENSES.txt", dest = "/usr/share/licenses/glimt/THIRD-PARTY-LICENSES.txt", mode = "644" },
 ]
 
 # A file, so that Fedora's ffmpeg-free and RPM Fusion's ffmpeg both satisfy it.

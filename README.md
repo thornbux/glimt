@@ -662,3 +662,6 @@ python3 tools/sbom.py
 ## License
 
 MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Hans-Henry Jakobsen.
+The licenses of the crates built into Glimt are in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), and those of its fonts in
+[assets/fonts](assets/fonts).

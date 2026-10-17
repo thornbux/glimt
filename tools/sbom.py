@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Write sbom.cdx.json, a CycloneDX 1.5 SBOM of Glimt and the crates it is built from (Linux,
-all features), from `cargo metadata` and the checksums in Cargo.lock. Run it from the repository
-root after changing dependencies: python3 tools/sbom.py"""
+all features), from `cargo metadata` and the checksums in Cargo.lock, and THIRD-PARTY-LICENSES.txt,
+the license texts of those crates, which their licenses ask to ship with the program. Run it from
+the repository root after changing dependencies: python3 tools/sbom.py"""
 
 import json
+import os
+import re
 import subprocess
 import tomllib
 import uuid
@@ -79,3 +82,40 @@ with open("sbom.cdx.json", "w") as f:
     json.dump(sbom, f, indent=1)
     f.write("\n")
 print(f"sbom.cdx.json: {len(sbom['components'])} components")
+
+
+def license_files(node_id):
+    """The license texts a crate ships: LICENSE*, COPYING* and NOTICE* beside its Cargo.toml."""
+    p = packages[node_id]
+    folder = os.path.dirname(p["manifest_path"])
+    names = {f for f in os.listdir(folder) if re.match(r"(licen[cs]e|copying|notice)", f, re.I)}
+    if p.get("license_file"):
+        names.add(p["license_file"])
+    for name in sorted(names):
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                yield name, f.read().strip()
+
+
+# Each text once, with the crates it covers: most share the same Apache text.
+covers, bare = {}, []
+for i in sorted(used - {root}, key=ref):
+    p = packages[i]
+    crate = f"{p['name']} {p['version']}"
+    texts = list(license_files(i))
+    for name, text in texts:
+        covers.setdefault(text, []).append(f"{crate} ({name})")
+    if not texts:
+        bare.append(f"{crate}: {p.get('license', 'no license given')}")
+with open("THIRD-PARTY-LICENSES.txt", "w") as f:
+    f.write("Glimt is built from the crates below. Their license texts follow, each once, after the\n"
+            "crates it covers. Glimt's own license is in LICENSE.\n")
+    if bare:
+        f.write("\nCrates that ship no license text, with the license they name:\n\n")
+        f.write("".join(f"  {b}\n" for b in bare))
+    for text, crates in covers.items():
+        f.write("\n" + "=" * 78 + "\n")
+        f.write("".join(f"{c}\n" for c in crates))
+        f.write("-" * 78 + "\n\n" + text + "\n")
+print(f"THIRD-PARTY-LICENSES.txt: {len(covers)} texts, {len(bare)} crates without one")
