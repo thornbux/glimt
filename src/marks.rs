@@ -182,10 +182,8 @@ fn save(edit: Edit) {
 /// `changes` applied to the marks file as it is now.
 #[cfg(not(test))]
 fn write(file: &Path, changes: &[Edit]) {
-    // Another window's read and write must not fall between ours, or its change is lost: one
-    // at a time, through a lock beside the file (renamed over, so not on it).
-    let lock = std::fs::File::create(file.with_extension("lock")).ok();
-    let _locked = lock.as_ref().map(|l| l.lock());
+    // Another window's read and write must not fall between ours, or its change is lost.
+    let _locked = crate::config::file_lock(file);
     // A file that is there but cannot be read is not written over with these changes alone:
     // every other mark would be lost.
     let mut map = match std::fs::read(file) {
