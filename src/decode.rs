@@ -209,40 +209,49 @@ pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     Ok(to_srgb(img, icc.as_deref()))
 }
 
-/// The frames of an animated GIF, WebP or PNG (APNG); `None` for other files, which `load`
-/// decodes.
-pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
+/// The frames of a GIF, an animated WebP or an animated PNG (APNG), decoded as they are taken,
+/// and its size; `None` for any other file, a still WebP or PNG among them.
+fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> {
     use image::AnimationDecoder;
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
-    // Every frame is a whole canvas, made without image's limit, and the decoder keeps the last
-    // one while it makes the next: two of them must fit. One too large goes to `load`, which
-    // refuses it, instead of asking for gigabytes here.
-    let too_large = |(w, h): (u32, u32)| u64::from(w) * u64::from(h) * 8 > MAX_DECODE;
-    let frames = match ext.as_str() {
+    Some(match ext.as_str() {
         "gif" => {
             let dec = image::codecs::gif::GifDecoder::new(file).ok()?;
-            if too_large(dec.dimensions()) {
-                return None;
-            }
-            dec.into_frames()
+            let size = dec.dimensions();
+            (dec.into_frames(), size)
         }
         "webp" => {
             let dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
-            if !dec.has_animation() || too_large(dec.dimensions()) {
-                return None;
-            }
-            dec.into_frames()
+            let size = dec.dimensions();
+            (dec.has_animation().then(|| dec.into_frames())?, size)
         }
         "png" | "apng" => {
             let dec = image::codecs::png::PngDecoder::new(file).ok()?;
-            if !dec.is_apng().ok()? || too_large(dec.dimensions()) {
+            let size = dec.dimensions();
+            if !dec.is_apng().ok()? {
                 return None;
             }
-            dec.apng().ok()?.into_frames()
+            (dec.apng().ok()?.into_frames(), size)
         }
         _ => return None,
-    };
+    })
+}
+
+/// Every frame is a whole canvas, made without image's limit, and the decoder keeps the last one
+/// while it makes the next: two of them must fit.
+fn too_large_animation((w, h): (u32, u32)) -> bool {
+    u64::from(w) * u64::from(h) * 8 > MAX_DECODE
+}
+
+/// The frames of an animated GIF, WebP or PNG (APNG); `None` for other files, which `load`
+/// decodes.
+pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
+    let (frames, size) = animated_frames(path)?;
+    // One too large goes to `load`, which refuses it, instead of asking for gigabytes here.
+    if too_large_animation(size) {
+        return None;
+    }
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
     for frame in frames {
         let frame = frame.ok()?;
@@ -271,22 +280,13 @@ pub fn each_frame(
     only: Option<usize>,
     mut each: impl FnMut(usize, image::DynamicImage) -> Result<(), String>,
 ) -> Result<usize, String> {
-    use image::AnimationDecoder;
     let wanted = |k: usize| only.is_none_or(|o| o == k);
     let mut done = 0;
-    if animation(path, [1, 1]).is_some() {
-        let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
-        let frames = match has_ext(path, &["gif"]) {
-            true => (image::codecs::gif::GifDecoder::new(file).map_err(|e| e.to_string())?)
-                .into_frames(),
-            false if has_ext(path, &["webp"]) => (image::codecs::webp::WebPDecoder::new(file)
-                .map_err(|e| e.to_string())?)
-            .into_frames(),
-            false => (image::codecs::png::PngDecoder::new(file).map_err(|e| e.to_string())?)
-                .apng()
-                .map_err(|e| e.to_string())?
-                .into_frames(),
-        };
+    // Each frame decoded once, as it is given: not all first to learn that it is animated.
+    if let Some((frames, size)) = animated_frames(path) {
+        if too_large_animation(size) {
+            return Err("image too large".into());
+        }
         for (k, frame) in frames.enumerate() {
             if only.is_some_and(|o| k > o) {
                 break;

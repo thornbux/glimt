@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Save This Frame and Export Frames decode an animation once, not first all of it to learn that it
+  is animated.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
