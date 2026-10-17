@@ -159,11 +159,14 @@ jobs:
             gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber $files
 
   # Built beside the release in Flathub's image, and added to it afterwards, so that a broken
-  # Flatpak build does not hold back the other packages.
+  # Flatpak build does not hold back the other packages. The image is pinned by its digest, as
+  # the actions are by their commits: a tag can be moved, and this one runs privileged and its
+  # bundle is signed. A new runtime: its tag's digest from
+  # `docker buildx imagetools inspect ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-XX.YY`.
   flatpak:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08@sha256:6ed6921bb5a9e1a916989971844f159b854b7b225880c381fa34f7a158863039
       options: --privileged
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

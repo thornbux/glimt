@@ -192,7 +192,7 @@ the binary's mount goes when the first window closes; only when the binary is in
 `$APPDIR`, as every program started from an AppImage inherits its `$APPIMAGE`.
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
-Flathub's `freedesktop-26.08` image (change the image with `runtime-version`), and adds it to the
+Flathub's `freedesktop-26.08` image, pinned by its digest (change both with `runtime-version`), and adds it to the
 release in a job of its own. To build it locally: its runtime, SDK and Rust extension take about
 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
 
