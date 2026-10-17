@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- CI builds with --locked and checks that sbom.cdx.json matches Cargo.lock; the release workflow
+  takes the tag through the environment and only as vX.Y.Z, and runs the Flatpak build in an image
+  pinned by its digest; the weekly parser run takes other broken inputs each week; Dependabot no
+  longer proposes versions of png, tiff, winit and arboard that image and eframe do not use.
+
 ### Fixed
 
 - Rename Many in a collection keeps the renamed images in it when the list changed while it ran
