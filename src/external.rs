@@ -255,9 +255,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
 /// "Invalid argument" after the login rather than saying so.
 fn unknown_host(uri: &str) -> String {
     use std::net::ToSocketAddrs;
-    let host = uri.split_once("://").map_or("", |r| r.1);
-    let host = host.split(['/', ':']).next().unwrap_or_default();
-    let host = host.rsplit('@').next().unwrap_or(host);
+    let host = uri_host(uri);
     if host.is_empty()
         || (host, 445)
             .to_socket_addrs()
@@ -268,6 +266,18 @@ fn unknown_host(uri: &str) -> String {
     match host.contains('.') {
         true => format!(" (the name {host} is not found)"),
         false => format!(" (the name {host} is not found; try {host}.local or its IP address)"),
+    }
+}
+
+/// The server's name in `uri`: after the user and password (which may hold a colon), before the
+/// port; empty for an IPv6 address in brackets, which is no name to look up.
+fn uri_host(uri: &str) -> &str {
+    let rest = uri.split_once("://").map_or("", |r| r.1);
+    let authority = rest.split('/').next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    match host.starts_with('[') {
+        true => "",
+        false => host.split(':').next().unwrap_or_default(),
     }
 }
 
@@ -356,9 +366,13 @@ fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
 #[cfg(test)]
 mod tests {
     /// A server name the system finds needs no hint; one it does not gets name.local or the IP.
+    /// The name is the one after a user and password and before a port.
     #[test]
     fn hints_at_an_unknown_host() {
         assert_eq!(super::unknown_host("smb://localhost/share"), "");
+        assert_eq!(super::uri_host("smb://user:pw@nas:445/share"), "nas");
+        assert_eq!(super::uri_host("sftp://[fe80::1]/home"), "");
+        assert_eq!(super::uri_host("smb://nas.local"), "nas.local");
         assert_eq!(super::unknown_host("smb://user@127.0.0.1/share"), "");
         let hint = super::unknown_host("smb://no-such-glimt-host/share");
         assert!(hint.contains("no-such-glimt-host.local"), "{hint}");

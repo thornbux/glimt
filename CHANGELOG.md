@@ -73,6 +73,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A plain list's relative paths with .. name the image as its folder does, so its stars are the
   same; file://localhost/ URIs are read, those of another computer left out, and a % not followed
   by two hex digits is kept as it is.
+- The hint after a failed network mount names the server, also when the address has a user and
+  password (smb://user:pw@nas/share gave "try user.local") or an IPv6 address.
 
 ## [0.31.0] - 2026-10-17
 
