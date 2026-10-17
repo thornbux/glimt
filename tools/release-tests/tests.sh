@@ -267,6 +267,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the folder read again while zoomed in: the zoom stays"
+for v in new old; do
+    as_version $v
+    d=/tmp/refresh-zoom-$v
+    mkdir -p $d
+    # Blue with a red middle: zoomed in, red reaches the left of the image area.
+    convert -size 400x300 xc:blue -fill red -draw 'rectangle 100,75 300,225' $d/a.png
+    config auto_refresh=true
+    start $d/a.png
+    sleep 2
+    key equal; key equal; sleep 1
+    convert -size 64x64 xc:lime $d/z.png      # another program writes to the folder
+    sleep 3
+    shot refresh-zoom-$v
+    quit
+    got=$(colour refresh-zoom-$v 400 410)
+    if [ $v = new ]; then expect "still zoomed in" "$got" red
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- a refresh keeps the selection: a delete after it takes what was selected"
 for v in new old; do
     as_version $v
