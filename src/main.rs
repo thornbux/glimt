@@ -2705,6 +2705,12 @@ impl App {
                             pages,
                         },
                     );
+                    // A full-resolution decode keeps fewer frames of a large animation (its
+                    // memory budget): the frame stepped to stays among them.
+                    let frames = self.slots.get(&idx).map_or(0, |s| s.anim.len());
+                    if idx == self.cur && frames > 0 && self.frame.is_some_and(|k| k >= frames) {
+                        self.frame = Some(frames - 1);
+                    }
                     if idx == self.cur
                         && let Some(t) = self.started.take()
                     {

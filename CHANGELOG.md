@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A frame of a large animation stepped to, then zoomed in, stays shown and counted right: the
+  full-resolution decode keeps fewer frames, and the view showed the first while the status bar
+  said "frame 11/3".
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
