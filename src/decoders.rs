@@ -124,7 +124,7 @@ impl Decoder {
         let local = self.dir.join(&program);
         let program = if local.is_file() { local } else { program };
         use std::os::unix::process::CommandExt;
-        let mut child = crate::external::command(program.to_string_lossy().as_ref())
+        let mut child = crate::external::stoppable_command(program.to_string_lossy().as_ref())
             .args(&args[1..])
             // A group of its own: a script's own children are stopped with it.
             .process_group(0)
@@ -138,8 +138,14 @@ impl Decoder {
         let (done, timer) = std::sync::mpsc::channel::<()>();
         std::thread::spawn(move || {
             if timer.recv_timeout(limit).is_err() {
+                // TERM first: in a Flatpak, flatpak-spawn passes it on to the program on the
+                // host, which a KILL of the group cannot reach; then KILL what is left.
                 // SAFETY: kill has no preconditions; the group is ours, and waited for below.
-                unsafe { libc_kill(-(id as i32), 9) };
+                unsafe { libc_kill(-(id as i32), 15) };
+                if timer.recv_timeout(Duration::from_secs(1)).is_err() {
+                    // SAFETY: as above; not yet waited for, so the group is still ours.
+                    unsafe { libc_kill(-(id as i32), 9) };
+                }
             }
         });
         let errors = child.stderr.take().map(|mut e| {
@@ -183,7 +189,7 @@ mod tests {
     use std::time::Duration;
 
     /// A decoder file read, a program run on a file of its own format and its image taken; one
-    /// that takes too long stopped; a file without %f or extensions left out.
+    /// that takes too long stopped, also when it ignores TERM; a file without %f or extensions left out.
     #[test]
     fn decodes_through_a_program() {
         let dir = std::env::temp_dir().join(format!("glimt-test-decoders-{}", std::process::id()));
@@ -214,6 +220,12 @@ mod tests {
         let slow = super::parse(slow, &dir).unwrap();
         let start = std::time::Instant::now();
         assert!(slow.run(&file, Duration::from_millis(300)).is_err());
+        assert!(start.elapsed() < Duration::from_secs(5));
+        // One that ignores TERM: killed a second later.
+        let stubborn = "Name=Stubborn\nExtensions=xyz\nExec=sh -c \"trap '' TERM; sleep 30\" %f";
+        let stubborn = super::parse(stubborn, &dir).unwrap();
+        let start = std::time::Instant::now();
+        assert!(stubborn.run(&file, Duration::from_millis(300)).is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
         assert!(super::parse("Name=No file\nExtensions=xyz\nExec=cat", &dir).is_none());
         assert!(super::parse("Name=No ext\nExec=cat %f", Path::new("/")).is_none());

@@ -22,6 +22,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Rename Collection and Move Collection to Trash are no longer offered for a plain list (.txt,
   .m3u), which Glimt promises never to write: renaming made show.m3u a .gqv, and trashing sent the
   user's own list away.
+- A decoder plugin that takes too long is stopped in the Flatpak too: there it runs on the host,
+  which the kill of its process group did not reach, so a hanging one kept a decoding thread busy.
+  It now gets TERM, which flatpak-spawn passes on, KILL a second later, and flatpak-spawn's
+  --watch-bus.
 
 ## [0.30.0] - 2026-10-16
 

@@ -334,11 +334,22 @@ pub fn open_url(url: &str) {
 /// An external program: ffmpeg, gio, zenity, a player. Inside a Flatpak it runs on the host,
 /// which has them, through `flatpak-spawn --host`.
 pub fn command(program: &str) -> std::process::Command {
+    host_command(program, &[])
+}
+
+/// As `command`, for a program Glimt may have to stop: inside a Flatpak it runs on the host,
+/// out of reach of a signal to its process group, and `--watch-bus` ends it when its
+/// flatpak-spawn is killed.
+pub fn stoppable_command(program: &str) -> std::process::Command {
+    host_command(program, &["--watch-bus"])
+}
+
+fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
     if std::env::var_os("FLATPAK_ID").is_none() {
         return std::process::Command::new(program);
     }
     let mut cmd = std::process::Command::new("flatpak-spawn");
-    cmd.args(["--host", program]);
+    cmd.arg("--host").args(flags).arg(program);
     cmd
 }
 
