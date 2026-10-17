@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A second Rename Many while one is running is refused: it wrote over the first one's plan for a
+  crash, and the first one's renamed files were not followed in the list or the collection.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

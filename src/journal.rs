@@ -34,8 +34,13 @@ impl Drop for Journal {
 pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     std::fs::create_dir_all(dir).ok()?;
     let path = dir.join(crate::remote::instance_id());
-    let mut file = File::create(&path).ok()?;
+    // Emptied only once locked: a plan this window is still carrying out is never wiped.
+    let mut file = (std::fs::OpenOptions::new().write(true).create(true))
+        .truncate(false)
+        .open(&path)
+        .ok()?;
     file.try_lock().ok()?;
+    file.set_len(0).ok()?;
     let mut bytes = Vec::new();
     for (a, b) in moves {
         for p in [a, b] {
@@ -60,6 +65,10 @@ pub fn interrupted(dir: &Path) -> Vec<(PathBuf, Moves)> {
                 .filter(|p| !p.is_empty())
                 .map(|p| PathBuf::from(OsStr::from_bytes(p)))
                 .collect();
+            // Made a moment ago and not yet locked or written: not one left by a crash.
+            if paths.is_empty() {
+                return None;
+            }
             let moves = (paths.as_chunks::<2>().0.iter()).map(|[a, b]| (a.clone(), b.clone()));
             Some((e.path(), moves.collect()))
         })
@@ -92,8 +101,8 @@ pub fn settle(plan: &Path, moves: &[(PathBuf, PathBuf)], undo: bool) -> (usize, 
 
 #[cfg(test)]
 mod tests {
-    /// A plan locked by a running rename is not taken for a cut-short one; one left by a crash
-    /// is, and its files get their old names back, or their new ones.
+    /// A plan locked by a running rename is not taken for a cut-short one, nor written over by a
+    /// second; one left by a crash is, and its files get their old names back, or their new ones.
     #[test]
     fn puts_cut_short_renames_right() {
         let dir = std::env::temp_dir().join(format!("glimt-test-journal-{}", std::process::id()));
@@ -109,6 +118,16 @@ mod tests {
         ];
         let running = super::begin(&plans, &moves).unwrap();
         assert!(super::interrupted(&plans).is_empty());
+        // A second one while it runs is refused, and the plan stays as it was.
+        assert!(super::begin(&plans, &moves[..1]).is_none());
+        let plan_now = std::fs::read(plans.join(crate::remote::instance_id())).unwrap();
+        assert_eq!(
+            plan_now
+                .split(|&b| b == 0)
+                .filter(|p| !p.is_empty())
+                .count(),
+            8
+        );
         drop(running);
         assert!(std::fs::read_dir(&plans).unwrap().next().is_none());
         // Cut short after two steps: both files under hidden names.
