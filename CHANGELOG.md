@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- A gzipped SVG (.svgz) is unpacked with a limit of 64 MB: one made of zeros, a few MB on disk,
+  can no longer take all memory and end Glimt when its folder is opened. A gzipped SVG inside
+  another SVG is not drawn.
+
 ## [0.34.1] - 2026-10-17
 
 ### Changed

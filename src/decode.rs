@@ -505,8 +505,9 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         match reader.ok().and_then(|r| r.into_dimensions().ok()) {
             Some((w, h)) => u64::from(w) * u64::from(h) * 4 <= MAX_DECODE,
-            // Not a picture image reads, such as an SVG: usvg reads it with these limits.
-            None => true,
+            // Not a picture image reads, such as an SVG: usvg reads it with these limits, but
+            // unpacks one that is gzipped (svgz) without a limit.
+            None => !data.starts_with(&[0x1f, 0x8b]),
         }
     };
     let (data, string) = (R::default_data_resolver(), R::default_string_resolver());
@@ -534,6 +535,19 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     }
 }
 
+/// Gzipped `data` unpacked, or an error once it would be larger than `limit` bytes.
+#[cfg(feature = "svg")]
+fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    let mut reader = flate2::read::GzDecoder::new(data).take(limit + 1);
+    reader.read_to_end(&mut out).map_err(|e| e.to_string())?;
+    match out.len() as u64 > limit {
+        true => Err("SVG too large once unpacked".into()),
+        false => Ok(out),
+    }
+}
+
 #[cfg(feature = "svg")]
 pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
     use resvg::{tiny_skia, usvg};
@@ -551,7 +565,11 @@ pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
         image_href_resolver: svg_images(),
         ..usvg::Options::default()
     };
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut data = std::fs::read(path).map_err(|e| e.to_string())?;
+    // usvg unpacks a .svgz without a limit: 10 MB of zeros would be 10 GB.
+    if data.starts_with(&[0x1f, 0x8b]) {
+        data = gunzip(&data, 64 << 20)?;
+    }
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
     // At most 8192 pixels on the longer side: an SVG may claim any size, and the pixmap is
@@ -969,6 +987,20 @@ mod tests {
             )
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A .svgz is unpacked only up to the limit: a few KB of gzipped zeros cannot take
+    /// gigabytes.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn unpacks_svgz_within_a_limit() {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        gz.write_all(&[b' '; 5000]).unwrap();
+        let packed = gz.finish().unwrap();
+        assert_eq!(super::gunzip(&packed, 5000).map(|d| d.len()), Ok(5000));
+        assert!(super::gunzip(&packed, 4999).is_err());
+        assert!(super::gunzip(&packed[..10], 5000).is_err());
     }
 
     /// An SVG that points at /dev/zero, or at a picture claiming 100,000×100,000 pixels, is
