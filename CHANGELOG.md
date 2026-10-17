@@ -65,6 +65,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
   writes to is read again every second.
 - Rename Many keeps the view where it was: with Include Subfolders, several folders shown together
   or a slideshow with subfolders, it no longer opens the shown file's own folder.
+- A screen reader hears the image's name as the list shows it, not the whole path, in a collection
+  or several folders shown together.
+- Back from a folder opened while a collection was shown goes back to the collection, not to the
+  folder of its image.
+- Save as Theme no longer writes over a theme file of the same name, which may be hand-edited, nor
+  makes one named as a built-in theme, which would hide that one for good: it asks for another
+  name.
+- Rename with one file selected, by a right-click in the list say, renames that file, as Delete
+  and Move take it, not the image shown beside it.
+- When the folder is read again (another program writing to it, or Glimt's own sidecars and saves
+  beside the files), the shown image keeps its zoom, turn and place and the images read ahead
+  stay; a refresh in which nothing changed does nothing at all.
 
 ## [0.34.1] - 2026-10-17
 

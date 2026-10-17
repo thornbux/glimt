@@ -1913,11 +1913,16 @@ impl App {
         self.title(ctx);
     }
 
+    /// Where Back comes back to: the collection shown, else the file shown or the folder.
+    fn back_step(&self) -> PathBuf {
+        self.collection.clone().unwrap_or_else(|| self.location())
+    }
+
     /// Open `path` as a new step in the Back/Forward history.
     fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
         // A message about the folder before (a share that could not be mounted) goes with it.
         self.notice = None;
-        self.back.push(self.location());
+        self.back.push(self.back_step());
         // Not without end: a slideshow of folders, or a script's --remote open, visits many.
         if self.back.len() > 200 {
             self.back.remove(0);
@@ -2113,6 +2118,11 @@ impl App {
             let listed: HashSet<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
             self.collection_read.retain(|p| listed.contains(p));
         }
+        // Nothing changed (most refreshes, after Glimt's own writes beside the files): the list,
+        // the selection and the search stay as they are.
+        if files == self.files && !self.sort_collection {
+            return;
+        }
         let shown = self.files.get(self.cur).cloned();
         // A refresh keeps the selection: Delete or Move after it still acts on what was picked.
         let picked: HashSet<OsString> = (self.selected.iter())
@@ -2130,23 +2140,30 @@ impl App {
         }
     }
 
-    /// Replace the file list and go to `shown` (otherwise the first image). The texture shown now
-    /// is kept if it was made from the same file. All index-based state is reset; jobs in flight
-    /// are rejected by path when they arrive.
+    /// Replace the file list and go to `shown` (otherwise the first image). Textures are kept
+    /// for the files they were made from, at their new places. All other index-based state is
+    /// reset; jobs in flight are rejected by path when they arrive. The same file still shown (a
+    /// refresh, the list put in another order) keeps its zoom, turn and place.
     fn replace_files(
         &mut self,
         ctx: &egui::Context,
         files: Vec<OsString>,
         shown: Option<OsString>,
     ) {
+        let still = shown.is_some() && self.files.get(self.cur) == shown.as_ref();
         // The shown file's decodes still being made: kept, so it is not decoded twice. Not
         // those of a later page, as the file is shown again from its first.
         let jobs: Vec<_> = ([false, true].into_iter())
             .filter(|_| self.page == 0)
             .filter_map(|full| Some((full, self.decodes_pending.remove(&(self.cur, full))?)))
             .collect();
-        self.leave_image(ctx);
-        let slot = self.slots.remove(&self.cur);
+        if !still {
+            self.leave_image(ctx);
+        }
+        // By name: the neighbours read ahead stay, after a refresh as after a delete.
+        let mut slots: HashMap<OsString, Slot> = (self.slots.drain())
+            .filter_map(|(i, s)| Some((self.files.get(i)?.clone(), s)))
+            .collect();
         self.files = files;
         self.files_gen += 1;
         self.details.clear();
@@ -2155,14 +2172,25 @@ impl App {
         // A rectangle or a collection drag holds places in the old list, now other files'.
         self.rubber_band = None;
         self.dragging = None;
-        self.slots.clear();
         self.decodes_pending.clear();
         self.decode_errors.clear();
         let cur = shown
             .and_then(|p| self.files.iter().position(|f| *f == p))
             .unwrap_or(0);
-        if let Some(slot) = slot.filter(|s| self.is_file(cur, &s.path)) {
-            self.slots.insert(cur, slot);
+        // One pass over the list for a handful of textures.
+        let mut kept = Vec::new();
+        for (i, name) in self.files.iter().enumerate() {
+            if slots.is_empty() {
+                break;
+            }
+            if let Some(slot) = slots.remove(name) {
+                kept.push((i, slot));
+            }
+        }
+        for (i, slot) in kept {
+            if self.is_file(i, &slot.path) {
+                self.slots.insert(i, slot);
+            }
         }
         for (full, job) in jobs {
             if self.is_file(cur, &job.1) {
@@ -2170,6 +2198,12 @@ impl App {
             }
         }
         self.update_search(ctx);
+        if still {
+            self.cur = cur;
+            self.refill();
+            self.title(ctx);
+            return;
+        }
         // go() clears the notice for a new image; a new list is not one, and a notice is often
         // why the list was read again.
         let notice = self.notice.take();
@@ -5208,7 +5242,7 @@ impl App {
                 self.go(ctx, to);
             }
             Action::Back | Action::Forward => {
-                let here = self.location();
+                let here = self.back_step();
                 let (from, to) = if action == Action::Back {
                     (&mut self.back, &mut self.forward)
                 } else {
@@ -5423,6 +5457,11 @@ impl App {
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
+                // The one file selected, as Delete and Move take it (right-clicked in the list,
+                // say), not the image shown beside it.
+                if let Some(&i) = self.selected.first().filter(|&&i| i != self.cur) {
+                    self.go(ctx, i);
+                }
                 // The name only: in the list with subfolders the entry has its folders too.
                 if let Some(name) = self
                     .files
@@ -6382,8 +6421,23 @@ impl App {
         if let Prompt::SaveTheme = prompt {
             let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
             let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
+                // Never over a theme there, hand-edited perhaps, nor in the place of a built-in
+                // one, which a file of its name would hide for good.
+                if theme::built_in(text) {
+                    return Err(format!("{text} is a built-in theme: choose another name"));
+                }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
-                std::fs::write(&f, theme::Theme::file_from(ctx))
+                let new = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&f);
+                let mut file = new.map_err(|e| match e.kind() {
+                    std::io::ErrorKind::AlreadyExists => {
+                        format!("{text} exists already: choose another name")
+                    }
+                    _ => e.to_string(),
+                })?;
+                std::io::Write::write_all(&mut file, theme::Theme::file_from(ctx).as_bytes())
                     .map(|_| f)
                     .map_err(|e| e.to_string())
             });
