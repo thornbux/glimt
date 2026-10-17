@@ -434,6 +434,13 @@ fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
     }
 }
 
+/// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
+/// then it is decoded again at that size, not at full resolution. Not the decoders' limit, whose
+/// free side is `long` itself in Fit Width and Fit Height.
+fn fits_texture(orig: [usize; 2], scale: f32, long: u32) -> bool {
+    orig.iter().all(|&side| side as f32 * scale < long as f32)
+}
+
 /// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
 /// also when the shown file is not in the list (hidden by a search). Several panes step by
 /// their number, so the round may end past the last row, not on the first.
@@ -7359,7 +7366,7 @@ impl App {
                     let [w, h] = turned(s.orig);
                     fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
-                let (view, long) = self.decode_size(area, ppp, max_fit);
+                let long = self.decode_size(area, ppp, max_fit);
                 if response.hovered()
                     && !self.dialog_open()
                     && let Some(step) = self.wheel_input(ctx, &response, fit, area, &panes, right)
@@ -7387,13 +7394,15 @@ impl App {
 
                 // Texture too small: in fit mode the window has grown, so decode again at window
                 // size (the previous texture is shown meanwhile); when zoomed, load full resolution.
-                let too_small = self.slots.get(&self.cur).is_some_and(|s| {
+                let slot = self.slots.get(&self.cur);
+                let too_small = slot.is_some_and(|s| {
                     let needed = (s.orig[0] as f32 * scale).min(s.orig[0] as f32);
                     !s.full && (s.tex.size()[0] as f32) + 1.0 < needed
                 });
-                // Not zoomed: decoded again to the size shown, which `view` now holds; full
-                // resolution only where that is larger than a texture may be.
-                if too_small && self.zoom.is_none() && view[0] < long && view[1] < long {
+                // Not zoomed: decoded again to the size shown, which the decoders' limit now
+                // holds; full resolution only where that is larger than a texture may be.
+                let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
+                if too_small && self.zoom.is_none() && fits {
                     self.slots.remove(&self.cur);
                     self.request(self.cur, false);
                 } else if too_small {
@@ -7474,8 +7483,8 @@ impl App {
     }
 
     /// The size the shown image and its neighbours are decoded to, set as the decoders' limit
-    /// (also the projector's size), and the longest side a texture may have.
-    fn decode_size(&mut self, area: egui::Rect, ppp: f32, max_fit: f32) -> ([u32; 2], u32) {
+    /// (also the projector's size); returns the longest side a texture may have.
+    fn decode_size(&mut self, area: egui::Rect, ppp: f32, max_fit: f32) -> u32 {
         // The image area, not the whole screen: a small window on a 4K screen needs a fraction
         // of the memory (3840×2160 is 33 MB per image).
         let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
@@ -7504,7 +7513,7 @@ impl App {
         };
         let [pw, ph] = self.projector_size;
         self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
-        (view, long)
+        long
     }
 
     /// The shown image in `area` at `scale`, turned as the view is, fading from the one before
@@ -8125,6 +8134,16 @@ mod tests {
 
     /// Images of a collection moved: each one place, never past another moved one, and to the
     /// start or the end in their own order.
+    /// A photo shown larger after the window grew is decoded again at the size shown, whatever
+    /// the fit mode; only one shown larger than a texture may be needs full resolution.
+    #[test]
+    fn decodes_again_at_the_size_shown() {
+        // 6000×4000 shown at 0.5 in a texture of at most 16384: 3000×2000 fits.
+        assert!(super::fits_texture([6000, 4000], 0.5, 16384));
+        // A panorama shown 20,000 pixels wide does not.
+        assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
+    }
+
     #[test]
     fn slideshow_round_ends_past_the_last() {
         // Ten images in three panes: 0, 3, 6, 9, then a new round.

@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Fit Width or Fit Height, an image shown larger after the window grew (or went full screen)
+  is decoded again at the size shown, not at full resolution, which took many times the memory.
+
 ## [0.34.1] - 2026-10-17
 
 ### Changed
