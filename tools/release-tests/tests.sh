@@ -481,6 +481,23 @@ for v in new old; do
 done
 as_version new
 
+echo "-- stars to XMP for two files, the first one's sidecar not writable: the second still gets them"
+for v in new old; do
+    as_version $v
+    d=/tmp/stars-xmp-$v
+    mkdir -p $d/a.png.xmp                # where a's sidecar would go: a folder, so it fails
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config xmp_stars=true
+    start $d
+    sleep 2
+    key ctrl+a; key alt+3; sleep 3
+    got=$(grep -c 'Rating="3"\|Rating>3<' $d/b.png.xmp 2>/dev/null)
+    quit
+    if [ $v = new ]; then expect "b's sidecar has three stars" "$got" 1
+    else note "old: ${got:-none}"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Stars written to XMP sidecars go on past a file whose sidecar cannot be written, and are written
+  in the background with the keywords, in one order: they stopped at the first failure, and a
+  thousand files on a network share held the window.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
