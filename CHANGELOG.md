@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Stars written to XMP sidecars go on past a file whose sidecar cannot be written, and are written
   in the background with the keywords, in one order: they stopped at the first failure, and a
   thousand files on a network share held the window.
+- Holding Shift+↓ or Shift+Page Down in a selection of hundreds of thousands no longer stutters:
+  the size of the selection is worked out once it has stayed the same a moment, not in every step.
 
 ## [0.32.0] - 2026-10-17
 
