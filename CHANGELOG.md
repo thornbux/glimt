@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A settings file Glimt cannot read, such as one with a byte that is not UTF-8 or the wrong
+  permissions, is no longer replaced by the defaults at the first change in a menu: Glimt says it
+  cannot save, and reads the rest of a file with a stray byte.
 - Marks and stars follow a folder that is renamed, and go with one moved to the trash, instead of
   staying under the old paths, where a new folder of the same name got them.
 - Marks and stars follow their files through a Rename Many that swaps or shifts names, instead of

@@ -1323,6 +1323,24 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a settings file with a byte that is not UTF-8: a menu toggle leaves the rest as it was"
+d=/tmp/config-latin1
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+for v in new old; do
+    as_version $v
+    printf 'delay=7\nvideo_player=/opt/caf\351/player\n' >$XDG_CONFIG_HOME/glimt/config
+    start $d/a.jpg
+    sleep 2
+    key t; key t          # Thumbnails off and on: each saves the settings
+    sleep 1
+    quit
+    got=$(grep -c '^delay=7$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then expect "the own delay kept" "$got" 1
+    else note "old: delay=7 lines: $got"; fi
+done
+as_version new
+
 echo "-- Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
 for v in new old; do
     as_version $v
