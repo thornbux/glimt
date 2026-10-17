@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The DICOM decoder example shows colour pictures right with pydicom 3, which gives YCbCr as RGB
+  already: turned again, a JPEG-compressed ultrasound or dental photo came out green and purple.
+  With pydicom 3 it also decodes only the frame shown, not every frame of a clip.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
