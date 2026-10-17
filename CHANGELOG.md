@@ -33,6 +33,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   does: it went on playing.
 - After a new sort order or a refresh moved the shown file in the list while every decoding thread
   was busy, its image could stay undecoded, with the image before it on screen under its name.
+- Fit Width, Fit Height and Fill the View decode an image to the size they show it at, not at full
+  resolution: a 6000×4000 photo took 96 MB instead of 10, and was slower to show.
 
 ## [0.31.0] - 2026-10-17
 
