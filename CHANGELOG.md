@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A plain list's relative paths with .. name the image as its folder does, so its stars are the
+  same; file://localhost/ URIs are read, those of another computer left out, and a % not followed
+  by two hex digits is kept as it is.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
