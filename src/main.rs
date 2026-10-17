@@ -925,8 +925,15 @@ struct App {
     selected: std::collections::BTreeSet<usize>,
     /// A rectangle being dragged in the icon grid to select: where it started (from the top left
     /// of the grid's content, so it scrolls along), the selection before it (kept with Ctrl or
-    /// Shift), and whether the pointer has moved far enough to be a rectangle and not a click.
-    band: Option<(egui::Vec2, std::collections::BTreeSet<usize>, bool)>,
+    /// Shift), whether the pointer has moved far enough to be a rectangle and not a click, and
+    /// the rows and columns it touched when the selection was last made from it.
+    #[allow(clippy::type_complexity)]
+    band: Option<(
+        egui::Vec2,
+        std::collections::BTreeSet<usize>,
+        bool,
+        Option<[usize; 4]>,
+    )>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Size of the selected files; computed in the background when the selection changes.
@@ -9109,9 +9116,9 @@ impl App {
             } else {
                 Default::default()
             };
-            self.band = Some((p - origin, base, false));
+            self.band = Some((p - origin, base, false, None));
         }
-        let Some((start, base, moved)) = &mut self.band else {
+        let Some((start, base, moved, last)) = &mut self.band else {
             return;
         };
         let start = origin + *start;
@@ -9137,16 +9144,22 @@ impl App {
         let rel = band.translate(-origin.to_vec2());
         let rows = touched(rel.top(), rel.bottom(), pitch, row_h);
         let columns = touched(rel.left(), rel.right(), cell.x + gap, cell.x);
-        let mut selected = base.clone();
-        for r in rows {
-            for c in columns.start..columns.end.min(cols) {
-                let k = r * cols + c;
-                if k < count {
-                    selected.insert(self.matches.as_ref().map_or(k, |m| m[k]));
+        // Made again only when it touches other cells: the selection before it may be large
+        // (Ctrl+A in a big folder, then Ctrl and a rectangle), and frames come many a second.
+        let touches = [rows.start, rows.end, columns.start, columns.end];
+        if *last != Some(touches) {
+            *last = Some(touches);
+            let mut selected = base.clone();
+            for r in rows {
+                for c in columns.start..columns.end.min(cols) {
+                    let k = r * cols + c;
+                    if k < count {
+                        selected.insert(self.matches.as_ref().map_or(k, |m| m[k]));
+                    }
                 }
             }
+            self.selected = selected;
         }
-        self.selected = selected;
         let v = ui.visuals();
         let painter = ui.painter().with_clip_rect(clip);
         painter.rect_filled(band, 2.0, v.selection.bg_fill.gamma_multiply(0.25));
