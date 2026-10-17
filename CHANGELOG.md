@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A delete in a collection that fails, or is stopped, keeps the images that are still there in the
+  collection, instead of taking them out of its file for good.
 - A settings file Glimt cannot read, such as one with a byte that is not UTF-8 or the wrong
   permissions, is no longer replaced by the defaults at the first change in a menu: Glimt says it
   cannot save, and reads the rest of a file with a stray byte.

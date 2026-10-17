@@ -267,6 +267,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a delete that fails in a collection: the image stays in the collection"
+for v in new old; do
+    as_version $v
+    d=/tmp/failed-collection-delete-$v
+    mkdir -p $d/ro
+    convert -size 300x200 xc:blue $d/a.jpg
+    convert -size 300x200 xc:red $d/ro/b.jpg
+    chmod 555 $d/ro
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/ro/b.jpg"\n' $d $d >$d/show.gqv
+    config auto_refresh=false confirm_delete=false
+    start $d/show.gqv
+    sleep 2
+    key End; key shift+Delete; sleep 3     # ro/b.jpg cannot be deleted
+    quit
+    chmod 755 $d/ro
+    got=$(grep -c 'ro/b.jpg' $d/show.gqv)
+    if [ $v = new ]; then expect "b.jpg still in the collection" "$got" 1
+    else note "old: b.jpg lines in the collection: $got"; fi
+done
+as_version new
+
 echo "-- a refresh keeps the selection: a delete after it takes what was selected"
 for v in new old; do
     as_version $v
