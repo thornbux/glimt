@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Many in a collection keeps the renamed images in it when the list changed while it ran
+  (an image taken out meanwhile): they were looked for by their old names on disk, and the
+  collection was saved empty.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed

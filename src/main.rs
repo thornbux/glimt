@@ -568,9 +568,7 @@ struct LightroomPlan {
 /// renamed with their new names, and which of them was shown.
 struct RenameJob {
     files_gen: usize,
-    targets: Vec<usize>,
-    /// The old names, for the marks to follow.
-    #[cfg_attr(not(feature = "marks"), allow(dead_code))]
+    /// The old names, for the marks and a collection's entries to follow.
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
     shown: Option<usize>,
@@ -3896,7 +3894,6 @@ impl App {
         let shown = from.iter().position(|f| *f == self.path(self.cur));
         let job = RenameJob {
             files_gen: self.files_gen,
-            targets,
             from: from.clone(),
             to: to.clone(),
             shown,
@@ -3930,21 +3927,24 @@ impl App {
                 .collect();
             self.marks.put(pairs, false);
         }
-        // The list changed meanwhile: its numbers are other files' now, so it is read again.
-        if job.files_gen != self.files_gen {
-            return self.list(ctx);
-        }
         if self.collection.is_some() {
-            // The collection keeps the files, under their new names. Nothing renamed: the names
-            // stay.
+            // The collection keeps the files, under their new names, found by their old ones:
+            // the list may have changed while they were renamed. Nothing renamed: the names stay.
             if !failed {
-                for (&i, t) in job.targets.iter().zip(&job.to) {
-                    if let Ok(rel) = t.strip_prefix(&self.dir) {
+                let new: HashMap<&PathBuf, &PathBuf> = job.from.iter().zip(&job.to).collect();
+                for i in 0..self.files.len() {
+                    if let Some(to) = new.get(&self.path(i))
+                        && let Ok(rel) = to.strip_prefix(&self.dir)
+                    {
                         self.files[i] = rel.as_os_str().to_owned();
                     }
                 }
                 self.save_collection();
             }
+            return self.list(ctx);
+        }
+        // The list changed meanwhile: its numbers are other files' now, so it is read again.
+        if job.files_gen != self.files_gen {
             return self.list(ctx);
         }
         match job.shown {
