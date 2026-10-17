@@ -1,6 +1,7 @@
 //! Find Duplicates, as in Geeqie: groups of images that are the same file, have the same name,
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
+use crate::*;
 use std::collections::HashMap;
 use std::hash::Hasher;
 use std::io::Read;
@@ -269,6 +270,181 @@ fn similar(
         }
     }
     found
+}
+
+// ---- The Find Duplicates window ----
+
+impl crate::App {
+    /// The Find Duplicates window: compares the images of the list in the background, and
+    /// lists the groups found; checked files can go to the trash.
+    pub(crate) fn duplicates_window(&mut self, ctx: &egui::Context) {
+        let Some(mut dups) = self.dups.take() else {
+            return;
+        };
+        if let Some(Ok(groups)) = dups.running.as_ref().map(|rx| rx.try_recv()) {
+            dups.running = None;
+            dups.groups = groups;
+            dups.sizes.clear();
+            dups.checked.clear();
+            dups.remove(&HashSet::new());
+        }
+        let (mut open, mut start, mut trash, mut show) = (true, false, false, None);
+        egui::Window::new("Find Duplicates")
+            .open(&mut open)
+            .default_size([620.0, 480.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "Among the {} in the list, compare by",
+                        count(self.files.len(), "image")
+                    ));
+                    let label = ALL.iter().find(|a| a.0 == dups.by).map_or("", |a| a.1);
+                    egui::ComboBox::from_id_salt("compare by")
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            for (by, label) in ALL {
+                                ui.selectable_value(&mut dups.by, by, label);
+                            }
+                        });
+                    if dups.running.is_some() {
+                        if ui.button("Stop").clicked() {
+                            dups.progress.cancel.store(true, Ordering::Relaxed);
+                        }
+                    } else {
+                        start = ui
+                            .add_enabled(self.files.len() > 1, egui::Button::new("Find"))
+                            .clicked();
+                    }
+                });
+                if dups.running.is_some() {
+                    let (done, total) = (
+                        dups.progress.done.load(Ordering::Relaxed),
+                        dups.progress.total.load(Ordering::Relaxed),
+                    );
+                    ui.label(format!(
+                        "Comparing… {} of {}",
+                        thousands(done),
+                        thousands(total)
+                    ));
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                    return;
+                }
+                if dups.searched == 0 {
+                    if !self.recursive {
+                        ui.weak(
+                            "Include Subfolders in the View menu searches the folders below too.",
+                        );
+                    }
+                    return;
+                }
+                let files: usize = dups.groups.iter().map(Vec::len).sum();
+                ui.label(format!(
+                    "{}, {}, among {}",
+                    count(dups.groups.len(), "group"),
+                    count(files, "file"),
+                    count(dups.searched, "image")
+                ));
+                ui.horizontal(|ui| {
+                    if ui.button("Check all but the first of each group").clicked() {
+                        dups.checked = dups
+                            .groups
+                            .iter()
+                            .flat_map(|g| g[1..].iter().cloned())
+                            .collect();
+                    }
+                    if ui.button("Uncheck all").clicked() {
+                        dups.checked.clear();
+                    }
+                    let n = dups.checked.len();
+                    trash = ui
+                        .add_enabled(
+                            n > 0,
+                            egui::Button::new(format!("Move {n} checked to trash…")),
+                        )
+                        .clicked();
+                });
+                ui.separator();
+                let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+                egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+                    ui,
+                    row_h,
+                    dups.rows.len(),
+                    |ui, range| {
+                        for &(g, f) in &dups.rows[range] {
+                            let group = &dups.groups[g];
+                            if f == usize::MAX {
+                                ui.strong(format!(
+                                    "Group {} ({})",
+                                    g + 1,
+                                    count(group.len(), "file")
+                                ));
+                                continue;
+                            }
+                            let path = &group[f];
+                            ui.horizontal(|ui| {
+                                let mut on = dups.checked.contains(path);
+                                if ui.checkbox(&mut on, "").changed() {
+                                    match on {
+                                        true => dups.checked.insert(path.clone()),
+                                        false => dups.checked.remove(path),
+                                    };
+                                }
+                                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                                if ui.link(name).clicked() {
+                                    show = Some(path.clone());
+                                }
+                                let size = *(dups.sizes.entry(path.clone()))
+                                    .or_insert_with(|| path.metadata().map_or(0, |m| m.len()));
+                                ui.weak(format!(
+                                    "{}  {}",
+                                    human_size(size),
+                                    path.parent().unwrap_or(path).display()
+                                ));
+                            });
+                        }
+                    },
+                );
+            });
+        if start {
+            let paths: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+            let (tx, ctx) = (mpsc::channel(), ctx.clone());
+            let (by, progress) = (dups.by, Arc::new(Progress::default()));
+            let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
+            dups.searched = paths.len();
+            dups.progress = progress.clone();
+            dups.running = Some(tx.1);
+            let sender = tx.0;
+            std::thread::spawn(move || {
+                let _ = sender.send(find(paths, by, rotate, save, &progress));
+                ctx.request_repaint();
+            });
+        }
+        if let Some(path) = show {
+            match (0..self.files.len()).find(|&i| self.is_file(i, &path)) {
+                Some(i) => self.go(ctx, i),
+                None => self.visit(ctx, path),
+            }
+        }
+        if trash {
+            // The checked files of the list, through the usual delete with its confirmation.
+            self.selected = (0..self.files.len())
+                .filter(|&i| dups.checked.contains(&self.path(i)))
+                .collect();
+            self.selection_changed(ctx);
+            // With none selected the delete takes the shown image: only when the list still has
+            // every checked file, else it would be another one, or too few.
+            if self.selected.len() == dups.checked.len() {
+                self.request_delete(ctx, true);
+            } else {
+                self.notice = Some("The checked files are no longer all in the list".into());
+            }
+        }
+        if open {
+            self.dups = Some(dups);
+        } else {
+            dups.progress.cancel.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 #[cfg(test)]

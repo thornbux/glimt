@@ -2,6 +2,7 @@
 //! each day, oldest first, or as a calendar of the months that have images. The days come from
 //! the file dates, or from the EXIF dates.
 
+use crate::*;
 use std::ffi::OsString;
 use std::path::Path;
 
@@ -156,6 +157,275 @@ fn days_in_month(y: i32, m: u32) -> u32 {
         2 => 28,
         4 | 6 | 9 | 11 => 30,
         _ => 31,
+    }
+}
+
+// ---- The pan view's window: the timeline and the calendar ----
+
+impl crate::App {
+    /// The pan view (Ctrl+J): the images of the list by day. A click shows one, a double click
+    /// also closes the view.
+    pub(crate) fn pan_view(&mut self, ctx: &egui::Context) {
+        // The thumbnail workers make the cells drawn last frame (a frame late is soon enough);
+        // this frame's are noted as they are drawn.
+        let mut view = std::mem::take(&mut self.pan_thumbs);
+        view.sort_unstable();
+        view.dedup();
+        self.thumb_view.lock().unwrap()[1] = view;
+        let Some(mut pan) = self.pan_window.take() else {
+            return;
+        };
+        // The days again when the list changed, also only its order; only the visible rows are
+        // drawn.
+        let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.files_gen);
+        if stale && pan.rx.is_none() {
+            let (tx, rx) = mpsc::channel();
+            let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
+            let (busy, ctx, made) = (self.busy.clone(), ctx.clone(), self.files_gen);
+            busy.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let _ = tx.send((timeline(&dir, &files, exif), made));
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+            });
+            pan.rx = Some(rx);
+        }
+        // Days for a list that changed meanwhile are taken as old, and made again.
+        if let Some(days) = pan.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            pan.months = months(&days.0);
+            pan.days = Some(days);
+            pan.rx = None;
+            pan.columns = 0;
+        }
+        let (mut open, mut show, mut close) = (true, None, false);
+        egui::Window::new("Pan View")
+            .open(&mut open)
+            .default_size([900.0, 640.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut pan.calendar, false, "Timeline");
+                    ui.selectable_value(&mut pan.calendar, true, "Calendar");
+                    ui.separator();
+                    if ui.checkbox(&mut pan.exif, "EXIF date").changed() {
+                        pan.days = None;
+                        pan.rx = None;
+                    }
+                    // Days of an older list are not shown while new ones are made: they point
+                    // at other images now.
+                    match pan.days.as_ref().filter(|d| d.1 == self.files_gen) {
+                        Some((days, _)) => {
+                            let n = days.iter().filter(|d| d.0 != "No date").count();
+                            let total: usize = days.iter().map(|d| d.1.len()).sum();
+                            ui.weak(format!("{} on {}", count(total, "image"), count(n, "day")))
+                        }
+                        None => ui.spinner(),
+                    };
+                });
+                ui.separator();
+                let Some((days, _)) = pan.days.as_ref().filter(|d| d.1 == self.files_gen) else {
+                    return;
+                };
+                let cell = self.cell();
+                if pan.calendar {
+                    if let Some(d) = self.pan_calendar(ui, &pan.months, days) {
+                        // The day in the timeline, which has all its images.
+                        (pan.calendar, pan.jump) = (false, Some(d));
+                    }
+                    return;
+                }
+                let heading = 26.0;
+                let columns = ((ui.available_width() / cell.x) as usize).max(1);
+                if columns != pan.columns {
+                    (pan.rows, pan.height) = layout(days, columns, heading, cell.y);
+                    pan.columns = columns;
+                }
+                let mut area = egui::ScrollArea::vertical().auto_shrink(false);
+                if let Some(d) = pan.jump.take()
+                    && let Some(row) = pan.rows.iter().find(|r| r.1 == Row::Heading(d))
+                {
+                    area = area.vertical_scroll_offset(row.0);
+                }
+                area.show_viewport(ui, |ui, view| {
+                    ui.set_height(pan.height);
+                    let top = ui.min_rect().min;
+                    let first = pan.rows.partition_point(|r| r.0 + cell.y < view.min.y);
+                    for &(y, row) in &pan.rows[first..] {
+                        if y > view.max.y {
+                            break;
+                        }
+                        match row {
+                            Row::Heading(d) => {
+                                let (day, list) = &days[d];
+                                ui.painter().text(
+                                    top + egui::vec2(4.0, y + heading - 6.0),
+                                    egui::Align2::LEFT_BOTTOM,
+                                    format!("{day}   {}", count(list.len(), "image")),
+                                    egui::TextStyle::Body.resolve(ui.style()),
+                                    ui.visuals().strong_text_color(),
+                                );
+                            }
+                            Row::Cells(d, start) => {
+                                let list = &days[d].1;
+                                let end = (start + columns).min(list.len());
+                                for (j, &i) in list[start..end].iter().enumerate() {
+                                    if i >= self.files.len() {
+                                        continue;
+                                    }
+                                    let at = top + egui::vec2(j as f32 * cell.x, y);
+                                    let rect = egui::Rect::from_min_size(at, cell);
+                                    self.pan_thumbs.push(i);
+                                    let r = self.file_cell(ui, i, rect, i == self.cur);
+                                    if r.clicked() {
+                                        show = Some(i);
+                                    }
+                                    if r.double_clicked() {
+                                        (show, close) = (Some(i), true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        // Its cells' thumbnails are let go here too: the file list, which also does it, may be
+        // hidden (Hide File List). Kept are the same as there, so the two never undo each other.
+        self.trim_thumbs(self.list_rows.clone());
+        if let Some(i) = show {
+            self.go(ctx, i);
+        }
+        if open && !close {
+            self.pan_window = Some(pan);
+        }
+    }
+
+    /// The calendar of the Pan view: the months with images, a week to a row, each day with its
+    /// first image and how many it has. Only the months in view are drawn. The day clicked.
+    pub(crate) fn pan_calendar(
+        &mut self,
+        ui: &mut egui::Ui,
+        months: &[Month],
+        days: &[Day],
+    ) -> Option<usize> {
+        const NAMES: [&str; 12] = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ];
+        let cell = self.cell();
+        let w = (ui.available_width() / 7.0).min(cell.x);
+        let h = w * cell.y / cell.x;
+        let (title, names) = (30.0, 22.0);
+        let tall = |m: &Month| title + names + m.weeks() as f32 * h;
+        let total: f32 = months.iter().map(tall).sum();
+        let mut picked = None;
+        egui::ScrollArea::vertical()
+            .id_salt("calendar")
+            .auto_shrink(false)
+            .show_viewport(ui, |ui, view| {
+                ui.set_height(total);
+                let top = ui.min_rect().min;
+                let font = egui::TextStyle::Small.resolve(ui.style());
+                let mut y = 0.0;
+                for m in months {
+                    let (y0, height) = (y, tall(m));
+                    y += height;
+                    if y0 + height < view.min.y {
+                        continue;
+                    }
+                    if y0 > view.max.y {
+                        break;
+                    }
+                    let strong = ui.visuals().strong_text_color();
+                    let weak = ui.visuals().weak_text_color();
+                    ui.painter().text(
+                        top + egui::vec2(4.0, y0 + title - 6.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        format!("{} {}", NAMES[m.month as usize - 1], m.year),
+                        egui::TextStyle::Body.resolve(ui.style()),
+                        strong,
+                    );
+                    for (k, day) in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                        .iter()
+                        .enumerate()
+                    {
+                        ui.painter().text(
+                            top + egui::vec2((k as f32 + 0.5) * w, y0 + title + names - 4.0),
+                            egui::Align2::CENTER_BOTTOM,
+                            *day,
+                            font.clone(),
+                            weak,
+                        );
+                    }
+                    for day in 1..=m.days {
+                        let slot = m.first + day - 1;
+                        let at = egui::vec2(
+                            (slot % 7) as f32 * w,
+                            y0 + title + names + (slot / 7) as f32 * h,
+                        );
+                        let rect =
+                            egui::Rect::from_min_size(top + at, egui::vec2(w, h)).shrink(2.0);
+                        // A faint square for every day, so the weeks read as a grid.
+                        ui.painter()
+                            .rect_filled(rect, 3.0, ui.visuals().faint_bg_color);
+                        let found = (m.images.iter().find(|x| x.0 == day))
+                            .and_then(|&(_, d)| Some((d, *days.get(d)?.1.first()?)))
+                            .filter(|&(_, i)| i < self.files.len());
+                        let Some((d, first)) = found else {
+                            ui.painter().text(
+                                rect.min + egui::vec2(4.0, 2.0),
+                                egui::Align2::LEFT_TOP,
+                                day.to_string(),
+                                font.clone(),
+                                weak,
+                            );
+                            continue;
+                        };
+                        let r = ui.interact(rect, ui.id().with(("day", d)), egui::Sense::click());
+                        if r.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                3.0,
+                                ui.visuals().widgets.hovered.weak_bg_fill,
+                            );
+                        }
+                        self.pan_thumbs.push(first);
+                        self.paint_thumb(ui, first, rect.shrink(4.0));
+                        // The day and the number of images, on dark so they read on any picture.
+                        let p = ui.painter();
+                        let dark = egui::Color32::from_black_alpha(170);
+                        for (text, align, corner) in [
+                            (
+                                day.to_string(),
+                                egui::Align2::LEFT_TOP,
+                                rect.min + egui::vec2(6.0, 6.0),
+                            ),
+                            (
+                                thousands(days[d].1.len()),
+                                egui::Align2::RIGHT_BOTTOM,
+                                rect.max - egui::vec2(6.0, 6.0),
+                            ),
+                        ] {
+                            let g = p.layout_no_wrap(text, font.clone(), egui::Color32::WHITE);
+                            let at = align.anchor_size(corner, g.size());
+                            p.rect_filled(at.expand(2.0), 3.0, dark);
+                            p.galley(at.min, g, egui::Color32::WHITE);
+                        }
+                        if r.on_hover_text(count(days[d].1.len(), "image")).clicked() {
+                            picked = Some(d);
+                        }
+                    }
+                }
+            });
+        picked
     }
 }
 
