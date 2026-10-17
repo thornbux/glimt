@@ -66,6 +66,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A frame of a large animation stepped to, then zoomed in, stays shown and counted right: the
   full-resolution decode keeps fewer frames, and the view showed the first while the status bar
   said "frame 11/3".
+- Save This Frame of a TIFF's first page follows Auto Rotate, as the view does: with it off, the
+  PNG was still turned by the EXIF orientation.
+- Save This Frame and Export Frames decode an animation once, not first all of it to learn that it
+  is animated.
 
 ## [0.31.0] - 2026-10-17
 
