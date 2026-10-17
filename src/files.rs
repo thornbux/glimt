@@ -124,19 +124,19 @@ pub fn is_hidden(path: &Path) -> bool {
 }
 
 fn is_listed_type(path: &Path, types: Types) -> bool {
-    (types.images && (own_image(path) || crate::decoders::for_path(path).is_some()))
+    (types.images && (built_in_image(path) || crate::decoders::for_path(path).is_some()))
         || (types.raw && has_ext(path, raw::EXTS))
         || (types.videos && is_video(path))
 }
 
 /// The image formats Glimt reads itself, as built.
-fn own_image(path: &Path) -> bool {
+fn built_in_image(path: &Path) -> bool {
     has_ext(path, EXTS) || is_heif(path) || has_ext(path, JXL_EXTS) || has_ext(path, SVG_EXTS)
 }
 
 /// Whether Glimt reads the format of `path` itself, as built: a decoder plugin is not asked.
-pub fn own_ext(path: &Path) -> bool {
-    own_image(path) || has_ext(path, raw::EXTS) || is_video(path)
+pub fn built_in_format(path: &Path) -> bool {
+    built_in_image(path) || has_ext(path, raw::EXTS) || is_video(path)
 }
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its folders,
@@ -253,7 +253,7 @@ pub const SORTS: [(Sort, &str, &str); 8] = [
 ];
 
 impl Sort {
-    pub fn entry(self) -> (Sort, &'static str, &'static str) {
+    pub fn row(self) -> (Sort, &'static str, &'static str) {
         SORTS.into_iter().find(|s| s.0 == self).unwrap_or(SORTS[0])
     }
 }
@@ -361,7 +361,7 @@ impl std::str::FromStr for Sort {
 
 impl std::fmt::Display for Sort {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(self.entry().1)
+        f.write_str(self.row().1)
     }
 }
 

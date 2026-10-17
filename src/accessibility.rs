@@ -19,7 +19,7 @@ impl App {
             let path = self.path(self.cur);
             let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
             let mut text = format!("{}, {place}", self.files[self.cur].to_string_lossy());
-            if let Some(e) = self.errors.get(&self.cur) {
+            if let Some(e) = self.decode_errors.get(&self.cur) {
                 text += &format!(", could not be shown: {e}");
             }
             #[cfg(feature = "marks")]

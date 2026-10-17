@@ -6,7 +6,7 @@ use crate::*;
 impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_settings;
+        let mut open = self.preferences_open;
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for.
         if open
@@ -112,7 +112,7 @@ impl crate::App {
                     }
                 });
             });
-        self.show_settings = open;
+        self.preferences_open = open;
     }
 
     /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.

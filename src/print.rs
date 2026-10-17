@@ -278,7 +278,7 @@ pub fn send(
 impl crate::App {
     /// File → Print: the printer or a PDF, the paper, and images or contact sheets.
     pub(crate) fn print_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(mut dialog) = self.print.take() {
+        if let Some(mut dialog) = self.print_window.take() {
             if let Ok((names, default)) = dialog.printers_rx.try_recv() {
                 // The printer used last, else CUPS's default; a PDF file if neither is there.
                 let c = &mut self.config;
@@ -374,7 +374,7 @@ impl crate::App {
                     p => self.print(ctx, job, PrintTo::Printer(p)),
                 }
             } else if !modal.should_close() {
-                self.print = Some(dialog);
+                self.print_window = Some(dialog);
             }
         }
     }
@@ -387,7 +387,7 @@ impl crate::App {
             let _ = tx.send(print::printers());
             ctx.request_repaint();
         });
-        self.print = Some(PrintDialog {
+        self.print_window = Some(PrintDialog {
             paths: self.targets().iter().map(|&i| self.path(i)).collect(),
             printers: None,
             printers_rx: rx,

@@ -178,7 +178,7 @@ impl crate::App {
         // The days again when the list changed, also only its order; only the visible rows are
         // drawn.
         let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.files_gen);
-        if stale && pan.rx.is_none() {
+        if stale && pan.days_rx.is_none() {
             let (tx, rx) = mpsc::channel();
             let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
             let (busy, ctx, made) = (self.busy.clone(), ctx.clone(), self.files_gen);
@@ -188,13 +188,13 @@ impl crate::App {
                 busy.fetch_sub(1, Ordering::Relaxed);
                 ctx.request_repaint();
             });
-            pan.rx = Some(rx);
+            pan.days_rx = Some(rx);
         }
         // Days for a list that changed meanwhile are taken as old, and made again.
-        if let Some(days) = pan.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+        if let Some(days) = pan.days_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             pan.months = months(&days.0);
             pan.days = Some(days);
-            pan.rx = None;
+            pan.days_rx = None;
             pan.columns = 0;
         }
         let (mut open, mut show, mut close) = (true, None, false);
@@ -208,7 +208,7 @@ impl crate::App {
                     ui.separator();
                     if ui.checkbox(&mut pan.exif, "EXIF date").changed() {
                         pan.days = None;
-                        pan.rx = None;
+                        pan.days_rx = None;
                     }
                     // Days of an older list are not shown while new ones are made: they point
                     // at other images now.

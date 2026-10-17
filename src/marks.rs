@@ -140,7 +140,7 @@ fn put(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep:
     }
 }
 
-fn edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
+fn apply_edit(map: &mut HashMap<PathBuf, (u8, u8)>, edit: &Edit) {
     match edit {
         Edit::Change(paths, change) => apply(map, paths, *change),
         Edit::Put(pairs, keep) => put(map, pairs, *keep),
@@ -166,14 +166,14 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 /// shortcut: the whole file each time, fine for thousands of marked files; write changes only
 /// if hundreds of thousands are marked.
 #[cfg(not(test))]
-fn save(change: Edit) {
+fn save(edit: Edit) {
     use std::sync::atomic::Ordering::Relaxed;
     // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
     // a mark set, or moved with its file, just before closing is not lost.
     WRITING.fetch_add(1, Relaxed);
-    crate::config::in_background(move || {
+    crate::config::write_later(move || {
         if let Some(file) = file() {
-            write(&file, &[change]);
+            write(&file, &[edit]);
         }
         WRITING.fetch_sub(1, Relaxed);
     });
@@ -199,7 +199,7 @@ fn write(file: &Path, changes: &[Edit]) {
         }
     };
     for change in changes {
-        edit(&mut map, change);
+        apply_edit(&mut map, change);
     }
     crate::config::write_atomic(file, to_text(&map));
 }

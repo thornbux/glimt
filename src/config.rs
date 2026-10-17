@@ -4,7 +4,7 @@
 use crate::actions::Keys;
 use crate::files::Sort;
 use crate::{
-    CPU_LEVELS, DEFAULT_AHEAD, DEFAULT_DELAY, FADES, MAX_DELAY, OSD_TEMPLATE, count, local_time,
+    CPU_LEVELS, DEFAULT_DELAY, DEFAULT_PRELOAD, FADES, MAX_DELAY, OSD_TEMPLATE, count, local_time,
     print,
 };
 use eframe::egui;
@@ -191,7 +191,7 @@ macro_rules! config {
 }
 
 config! {
-    preload: usize = DEFAULT_AHEAD,
+    preload: usize = DEFAULT_PRELOAD,
     /// Seconds between images in a slideshow.
     delay: u64 = DEFAULT_DELAY,
     /// Start in the last used folder when no folder is given on the command line.
@@ -463,7 +463,7 @@ impl Config {
             );
             // Read, merged and written in the background, as each toggle in a menu saves: the
             // file's sync must not hold the window.
-            in_background(move || {
+            write_later(move || {
                 let _held = file_lock(&p);
                 let on_disk = std::fs::read_to_string(&p).unwrap_or_default();
                 write_atomic(&p, merged(&ours, &before, &on_disk));
@@ -506,10 +506,10 @@ pub fn locked() -> bool {
 static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 /// Writes of Glimt's own files waiting in their thread.
-static PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static WRITES_WAITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
-pub fn in_background(work: impl FnOnce() + Send + 'static) {
+pub fn write_later(work: impl FnOnce() + Send + 'static) {
     use std::sync::atomic::Ordering::Relaxed;
     type Work = Box<dyn FnOnce() + Send>;
     static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
@@ -520,14 +520,14 @@ pub fn in_background(work: impl FnOnce() + Send + 'static) {
                 // One that panics must not end the thread: every later write would be lost,
                 // and Glimt would wait for them at exit.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
-                PENDING.fetch_sub(1, Relaxed);
+                WRITES_WAITING.fetch_sub(1, Relaxed);
             }
         });
         works
     });
-    PENDING.fetch_add(1, Relaxed);
+    WRITES_WAITING.fetch_add(1, Relaxed);
     if writer.send(Box::new(work)).is_err() {
-        PENDING.fetch_sub(1, Relaxed);
+        WRITES_WAITING.fetch_sub(1, Relaxed);
     }
 }
 
@@ -535,7 +535,7 @@ pub fn in_background(work: impl FnOnce() + Send + 'static) {
 /// a setting must not be lost with the thread.
 pub fn flush() {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while PENDING.load(std::sync::atomic::Ordering::Relaxed) > 0
+    while WRITES_WAITING.load(std::sync::atomic::Ordering::Relaxed) > 0
         && std::time::Instant::now() < until
     {
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -709,8 +709,8 @@ mod tests {
     fn writer_survives_a_panic() {
         use std::sync::atomic::{AtomicBool, Ordering};
         static DONE: AtomicBool = AtomicBool::new(false);
-        super::in_background(|| panic!("a broken write"));
-        super::in_background(|| DONE.store(true, Ordering::Relaxed));
+        super::write_later(|| panic!("a broken write"));
+        super::write_later(|| DONE.store(true, Ordering::Relaxed));
         super::flush();
         assert!(DONE.load(Ordering::Relaxed));
     }

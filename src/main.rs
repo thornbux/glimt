@@ -63,7 +63,7 @@ mod thumbs;
 mod video;
 
 /// Default number of images kept decoded on each side of the shown one.
-const DEFAULT_AHEAD: usize = 2;
+const DEFAULT_PRELOAD: usize = 2;
 /// Default seconds between images in a slideshow.
 const DEFAULT_DELAY: u64 = 3;
 const MAX_DELAY: u64 = 60;
@@ -214,7 +214,7 @@ const MEMORY_LEVELS: [MemoryLevel; 3] = [
     },
     MemoryLevel {
         name: "Medium",
-        preload: DEFAULT_AHEAD,
+        preload: DEFAULT_PRELOAD,
         decode_threads: 4,
         animation_mb: 128,
         one_arena: true,
@@ -238,7 +238,7 @@ struct Pan {
     exif: bool,
     /// The days, and the version of the file list they are for (`App::files_gen`).
     days: Option<(Vec<pan::Day>, usize)>,
-    rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize)>>,
+    days_rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize)>>,
     /// The rows for this many columns, and their height.
     rows: Vec<(f32, pan::Row)>,
     columns: usize,
@@ -302,7 +302,7 @@ impl Job {
 struct Dups {
     by: duplicates::By,
     progress: Arc<duplicates::Progress>,
-    running: Option<mpsc::Receiver<Vec<Vec<PathBuf>>>>,
+    groups_rx: Option<mpsc::Receiver<Vec<Vec<PathBuf>>>>,
     groups: Vec<Vec<PathBuf>>,
     /// (group, file) of each row: the file `usize::MAX` for the group's heading.
     rows: Vec<(usize, usize)>,
@@ -321,7 +321,7 @@ struct Check {
     working: Arc<AtomicUsize>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     total: usize,
-    found: mpsc::Receiver<(OsString, String)>,
+    found_rx: mpsc::Receiver<(OsString, String)>,
     /// The broken ones found: (name in the list, why).
     broken: Vec<(OsString, String)>,
 }
@@ -331,7 +331,7 @@ impl Dups {
         Dups {
             by: duplicates::By::Checksum,
             progress: Arc::default(),
-            running: None,
+            groups_rx: None,
             groups: Vec::new(),
             sizes: HashMap::new(),
             rows: Vec::new(),
@@ -928,7 +928,7 @@ struct App {
     /// File list size and date columns: (bytes, mtime) by file name.
     details: HashMap<OsString, (u64, i64)>,
     /// The file list is shuffled for a random slideshow.
-    random: bool,
+    shuffled: bool,
     /// The next listing is shuffled as a whole instead of merged into the current order.
     whole_shuffle: bool,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
@@ -951,7 +951,7 @@ struct App {
     /// Shift), whether the pointer has moved far enough to be a rectangle and not a click, and
     /// the rows and columns it touched when the selection was last made from it.
     #[allow(clippy::type_complexity)]
-    band: Option<(
+    rubber_band: Option<(
         egui::Vec2,
         std::collections::BTreeSet<usize>,
         bool,
@@ -973,7 +973,7 @@ struct App {
     /// and the compared one beside it.
     full_ok: Arc<AtomicUsize>,
     /// Number of images preloaded on each side (Preferences).
-    ahead: Arc<AtomicUsize>,
+    preload: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
     rotate: Arc<AtomicBool>,
     /// Max decode size in physical pixels: [image area in the window, max texture side].
@@ -984,12 +984,12 @@ struct App {
     slots: HashMap<usize, Slot>,
     /// Decodes asked for, with the number of the job: only its result is taken, so one asked
     /// for before the list, the page, the look or the file changed is dropped.
-    pending: HashMap<(usize, bool), (u64, PathBuf)>,
-    jobs_sent: u64,
+    decodes_pending: HashMap<(usize, bool), (u64, PathBuf)>,
+    decodes_sent: u64,
     /// Thumbnails still being made when a setting changed how they look: their results are
     /// dropped once, as they come back in the old look.
     stale_thumbs: HashSet<OsString>,
-    errors: HashMap<usize, String>,
+    decode_errors: HashMap<usize, String>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
     /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
@@ -1026,7 +1026,7 @@ struct App {
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
     row_step: isize,
     /// View → Hide File List: only the image, as in full screen but in a window.
-    hide_tools: bool,
+    hide_file_list: bool,
     /// The search field takes the focus when it is next drawn (/).
     focus_search: bool,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
@@ -1041,7 +1041,7 @@ struct App {
     /// The folder path in the toolbar, as typed.
     path_text: String,
     /// Window geometry seen in the last frame, saved at exit.
-    window: WindowState,
+    window_state: WindowState,
     /// The screen saver inhibitor running while in full screen.
     inhibitor: Option<std::process::Child>,
     /// Since when the pointer has been away from an open menu of the menu bar.
@@ -1051,7 +1051,7 @@ struct App {
     /// The projector's image area in pixels, which images are decoded to cover too.
     projector_size: [u32; 2],
     /// What the image area showed in the last frame, for the projector to show the same.
-    view: Option<View>,
+    last_view: Option<View>,
     /// --kiosk: full screen, only the image, only actions that show and browse.
     kiosk: bool,
     /// `--remote quit` came: a kiosk may close.
@@ -1072,7 +1072,7 @@ struct App {
     /// Slideshow paused (P): stays on the image until resumed.
     paused: bool,
     /// --slideshow: start it once the folder is read.
-    start_slideshow: bool,
+    slideshow_at_start: bool,
     /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
     /// shown last.
     next_pane: usize,
@@ -1085,7 +1085,7 @@ struct App {
     /// (image index, file)
     thumb_jobs: mpsc::Sender<(usize, PathBuf)>,
     /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
-    thumbs_done: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+    thumbs_rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
     /// The files the file list (or film strip) shows, with some rows around them, and those pan
     /// view shows, both sorted: a thumbnail job for another file is skipped. Files, not a range:
     /// the matches of a search, or pan view's days, are spread over the whole folder.
@@ -1101,7 +1101,7 @@ struct App {
     // ---- EXIF, keywords, comment and marks ----
     /// To the EXIF reader thread, and its answers.
     exif_jobs: mpsc::Sender<PathBuf>,
-    exif_done: mpsc::Receiver<ExifRead>,
+    exif_rx: mpsc::Receiver<ExifRead>,
     /// The file the EXIF panel asked for last, and the panel's rows as read for a file.
     exif_asked: Option<PathBuf>,
     exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
@@ -1136,7 +1136,7 @@ struct App {
     /// The rows among the matches of the shown file and of the one a slideshow of several panes
     /// steps from, as (file, row): found once per image and search, not in every frame, as the
     /// matches can be 300,000 long.
-    rows: std::cell::Cell<[Option<FileRow>; 2]>,
+    match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
     /// Why a re: search pattern is not one, shown under the search field.
@@ -1157,7 +1157,7 @@ struct App {
     /// Background deletes, copies and moves still running, for the busy pointer.
     busy: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
-    jobs: Vec<Arc<Job>>,
+    file_jobs: Vec<Arc<Job>>,
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
@@ -1196,7 +1196,7 @@ struct App {
 
     // ---- Dialogs, windows and messages ----
     /// Edit → Preferences is open.
-    show_settings: bool,
+    preferences_open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
     preferences_unsaved: bool,
     /// The help page open (F1), if any.
@@ -1210,7 +1210,7 @@ struct App {
     /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
     folder_target: Option<PathBuf>,
     confirm_folder: bool,
-    print: Option<PrintDialog>,
+    print_window: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
     lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
@@ -1222,14 +1222,14 @@ struct App {
     /// A Rename Many running in the background.
     renaming: Option<(mpsc::Receiver<Result<(), String>>, RenameJob)>,
     /// Answer from an open file dialog (zenity).
-    dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
+    file_dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     pan_window: Option<Pan>,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
     /// The Check Images window: `None` closed, `Some(None)` open and not started.
     check: Option<Option<Check>>,
     /// Files Check Images found broken, marked in the list until another list is shown.
-    broken: HashSet<OsString>,
+    broken_files: HashSet<OsString>,
     /// Images of a collection being dragged in the file list, and the place they would go.
     dragging: Option<(HashSet<usize>, Option<usize>)>,
     /// The message shown over the image, until the next image.
@@ -1595,7 +1595,7 @@ impl App {
                 })
             })
             .unwrap_or_else(|| ".".into());
-        let ahead = Arc::new(AtomicUsize::new(config.preload));
+        let preload = Arc::new(AtomicUsize::new(config.preload));
         let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
@@ -1605,9 +1605,9 @@ impl App {
         // Thumbnails have their own workers, so scrolling the list never delays the shown image.
         let thumb_view: ThumbView = Arc::default();
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
-        let (thumb_jobs, thumbs_done) =
+        let (thumb_jobs, thumbs_rx) =
             spawn_thumbnailers(&cc.egui_ctx, workers, &rotate, &thumb_view, &save_thumbs);
-        let (exif_jobs, exif_done) = spawn_exif_reader(&cc.egui_ctx);
+        let (exif_jobs, exif_rx) = spawn_exif_reader(&cc.egui_ctx);
         theme::fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
         // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
@@ -1637,7 +1637,7 @@ impl App {
             notices_tx,
             mounting_rx: None,
             login: None,
-            print: None,
+            print_window: None,
             lightroom_rx: None,
             lightroom: None,
             cut_short_rx: Some({
@@ -1672,7 +1672,7 @@ impl App {
             sort_collection: false,
             dups: None,
             check: None,
-            broken: HashSet::new(),
+            broken_files: HashSet::new(),
             dragging: None,
             whole_shuffle: false,
             #[cfg(feature = "marks")]
@@ -1702,9 +1702,9 @@ impl App {
             cur: 0,
             keep,
             full_ok,
-            ahead,
+            preload,
             rotate,
-            show_settings: false,
+            preferences_open: false,
             preferences_unsaved: false,
             help: None,
             confirm_delete: None,
@@ -1713,36 +1713,36 @@ impl App {
             opened_type: Types::NONE,
             prompt: None,
             selected: Default::default(),
-            band: None,
+            rubber_band: None,
             last_drawn: None,
             fade: None,
             last_scale: 1.0,
             wheel: 0.0,
             config,
             slideshow: None,
-            start_slideshow: start.slideshow,
-            random: false,
+            slideshow_at_start: start.slideshow,
+            shuffled: false,
             limits,
             decode_jobs: jobs,
             page: 0,
             frame: None,
             decoded_rx: done,
             slots: HashMap::new(),
-            pending: HashMap::new(),
-            jobs_sent: 0,
+            decodes_pending: HashMap::new(),
+            decodes_sent: 0,
             stale_thumbs: HashSet::new(),
-            errors: HashMap::new(),
+            decode_errors: HashMap::new(),
             zoom: None,
             pan_offset: egui::Vec2::ZERO,
             started: Some(Instant::now()),
-            dialog: None,
-            hide_tools: false,
+            file_dialog: None,
+            hide_file_list: false,
             focus_search: false,
             kiosk: start.kiosk,
             menu_away: None,
             projector: false,
             projector_size: [0, 0],
-            view: None,
+            last_view: None,
             kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
@@ -1766,13 +1766,13 @@ impl App {
             thumbs: HashMap::new(),
             thumbs_pending: HashSet::new(),
             thumb_jobs,
-            thumbs_done,
+            thumbs_rx,
             thumb_view,
             pan_thumbs: Vec::new(),
             list_rows: 0..0,
             save_thumbs,
             exif_jobs,
-            exif_done,
+            exif_rx,
             exif_all: Vec::new(),
             exif_window: false,
             exif_asked: None,
@@ -1785,7 +1785,7 @@ impl App {
             status_grid: [1, 1],
             status_place: None,
             path_text: String::new(),
-            window: WindowState::default(),
+            window_state: WindowState::default(),
             inhibitor: None,
             details: HashMap::new(),
             deleting: HashSet::new(),
@@ -1797,11 +1797,11 @@ impl App {
             saved_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
-            jobs: Vec::new(),
+            file_jobs: Vec::new(),
             closing: 0,
             search: String::new(),
             matches: None,
-            rows: Default::default(),
+            match_rows: Default::default(),
             match_size: 0,
             search_error: None,
             match_rx: None,
@@ -1859,7 +1859,7 @@ impl App {
             .and_then(Path::file_name)
             .map(OsString::from);
         self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
-        self.start_list();
+        self.forget_old_list();
         self.recursive = self.config.show_subfolders;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
@@ -1870,15 +1870,15 @@ impl App {
 
     /// What belongs to the list shown before, which a new folder, collection or set of folders
     /// starts without.
-    fn start_list(&mut self) {
+    fn forget_old_list(&mut self) {
         // A check still running finds names of the old list: stopped, its window closed.
         if let Some(Some(check)) = self.check.take() {
             check.stop.store(true, Ordering::Relaxed);
         }
-        self.broken.clear();
+        self.broken_files.clear();
         self.subdirs.clear();
         self.deleting.clear();
-        self.random = false;
+        self.shuffled = false;
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
@@ -1897,7 +1897,7 @@ impl App {
         let files: Vec<OsString> = (paths.iter())
             .filter_map(|p| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
             .collect();
-        self.start_list();
+        self.forget_old_list();
         self.recursive = false;
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
@@ -1936,7 +1936,7 @@ impl App {
         }
         self.leave_image(ctx);
         self.collection = None;
-        self.start_list();
+        self.forget_old_list();
         // No one folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = PathBuf::from("/");
@@ -2135,7 +2135,7 @@ impl App {
         }
         // A refresh during random order keeps the order, so Previous still goes back
         // through the images that were shown; a list shuffled whole in the thread stays as it is.
-        let files = if self.random && !std::mem::take(&mut self.whole_shuffle) {
+        let files = if self.shuffled && !std::mem::take(&mut self.whole_shuffle) {
             merge_shuffled(&self.files, files)
         } else {
             files
@@ -2176,7 +2176,7 @@ impl App {
         // those of a later page, as the file is shown again from its first.
         let jobs: Vec<_> = ([false, true].into_iter())
             .filter(|_| self.page == 0)
-            .filter_map(|full| Some((full, self.pending.remove(&(self.cur, full))?)))
+            .filter_map(|full| Some((full, self.decodes_pending.remove(&(self.cur, full))?)))
             .collect();
         self.leave_image(ctx);
         let slot = self.slots.remove(&self.cur);
@@ -2186,11 +2186,11 @@ impl App {
         self.anchor = None;
         self.selected.clear();
         // A rectangle or a collection drag holds places in the old list, now other files'.
-        self.band = None;
+        self.rubber_band = None;
         self.dragging = None;
         self.slots.clear();
-        self.pending.clear();
-        self.errors.clear();
+        self.decodes_pending.clear();
+        self.decode_errors.clear();
         let cur = shown
             .and_then(|p| self.files.iter().position(|f| *f == p))
             .unwrap_or(0);
@@ -2199,7 +2199,7 @@ impl App {
         }
         for (full, job) in jobs {
             if self.is_file(cur, &job.1) {
-                self.pending.insert((cur, full), job);
+                self.decodes_pending.insert((cur, full), job);
             }
         }
         self.update_search(ctx);
@@ -2227,14 +2227,14 @@ impl App {
         });
         self.files_gen += 1;
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
-        self.errors = without_indices(std::mem::take(&mut self.errors), removed);
+        self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
         self.selected.clear();
         self.anchor = None;
-        self.band = None;
+        self.rubber_band = None;
         self.dragging = None;
         self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
-        self.pending.clear();
+        self.decodes_pending.clear();
         self.save_collection();
         // A collection being read meanwhile would bring the removed back: read it again.
         if self.collection.is_some() && self.listing_rx.is_some() {
@@ -2282,7 +2282,7 @@ impl App {
         let mut ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
         // Another window adding to it must not fall between reading and writing.
         // shortcut: read and written in the UI thread, small text files; move to
-        // config::in_background if collections of hundreds of thousands are edited.
+        // config::write_later if collections of hundreds of thousands are edited.
         let file = file.clone();
         let _held = config::file_lock(&file);
         // One that cannot be read is not written over: what it holds would be lost.
@@ -2292,7 +2292,7 @@ impl App {
             Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
         };
         // Shuffled for a slideshow: saved in its own order, not the random one.
-        if self.random {
+        if self.shuffled {
             ours = collections::in_saved_order(&on_disk, ours);
         }
         let paths = collections::merged(ours, &self.collection_read, on_disk);
@@ -2321,7 +2321,7 @@ impl App {
         if self.files.is_empty() {
             return;
         }
-        if self.random {
+        if self.shuffled {
             self.notice = Some("Random order is on: R turns it off to move images".into());
             return;
         }
@@ -2555,13 +2555,13 @@ impl App {
 
     /// The row of `file` among the search matches `m`, kept for the shown file and one other.
     fn row_of(&self, m: &[usize], file: usize) -> Option<usize> {
-        let mut rows = self.rows.get();
+        let mut rows = self.match_rows.get();
         if let Some((_, row)) = rows.iter().flatten().find(|r| r.0 == file) {
             return *row;
         }
         let row = m.iter().position(|&i| i == file);
         rows[(file != self.cur) as usize] = Some((file, row));
-        self.rows.set(rows);
+        self.match_rows.set(rows);
         row
     }
 
@@ -2677,14 +2677,17 @@ impl App {
 
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
-        if !have && !self.errors.contains_key(&idx) && !self.pending.contains_key(&(idx, full)) {
-            self.jobs_sent += 1;
+        if !have
+            && !self.decode_errors.contains_key(&idx)
+            && !self.decodes_pending.contains_key(&(idx, full))
+        {
+            self.decodes_sent += 1;
             let path = self.path(idx);
-            self.pending
-                .insert((idx, full), (self.jobs_sent, path.clone()));
+            self.decodes_pending
+                .insert((idx, full), (self.decodes_sent, path.clone()));
             // The neighbours are preloaded at their first page.
             let page = if idx == self.cur { self.page } else { 0 };
-            let _ = (self.decode_jobs).send((idx, full, path, page, self.jobs_sent));
+            let _ = (self.decode_jobs).send((idx, full, path, page, self.decodes_sent));
         }
     }
 
@@ -2696,7 +2699,7 @@ impl App {
         }
         self.fill_panes();
         // The shown image first, then its neighbours in the order the list shows.
-        let (cur, ahead) = (self.cur, self.ahead.load(Ordering::Relaxed) as isize);
+        let (cur, ahead) = (self.cur, self.preload.load(Ordering::Relaxed) as isize);
         let mut window = vec![cur];
         // The compared image second: it may be loaded at full resolution too.
         let other = self.compare_other().filter(|&i| i != cur);
@@ -2734,13 +2737,13 @@ impl App {
         while let Ok(d) = self.decoded_rx.try_recv() {
             // Not a job still asked for: asked for again, in another list, page or look. Its
             // place in the list is the job's now, as the list may have been read again since.
-            let Some(&(idx, full)) = (self.pending.iter())
+            let Some(&(idx, full)) = (self.decodes_pending.iter())
                 .find(|(_, j)| j.0 == d.job)
                 .map(|(k, _)| k)
             else {
                 continue;
             };
-            self.pending.remove(&(idx, full));
+            self.decodes_pending.remove(&(idx, full));
             let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.cur { self.page } else { 0 }
@@ -2790,7 +2793,7 @@ impl App {
                     }
                 }
                 Some(Err(e)) if wanted => {
-                    self.errors.insert(idx, e);
+                    self.decode_errors.insert(idx, e);
                 }
                 // Skipped by a worker that went by the place the job had when sent; the list
                 // was read again meanwhile and moved the file to `idx`, still wanted there.
@@ -2810,8 +2813,8 @@ impl App {
     /// Decode the images and thumbnails again, to be shown in other colours.
     fn redecode(&mut self) {
         self.slots.clear();
-        self.pending.clear();
-        self.errors.clear();
+        self.decodes_pending.clear();
+        self.decode_errors.clear();
         self.thumbs.clear();
         self.stale_thumbs.extend(self.thumbs_pending.drain());
         self.last_drawn = None;
@@ -2825,7 +2828,7 @@ impl App {
             let _ = self.exif_jobs.send(path.clone());
             self.exif_asked = Some(path);
         }
-        let done: Vec<ExifRead> = self.exif_done.try_iter().collect();
+        let done: Vec<ExifRead> = self.exif_rx.try_iter().collect();
         for (path, rows, all, meta, paths, access) in done {
             // Kept while being edited: the reader may answer for the image again.
             if self.meta.as_ref().is_none_or(|m| m.path != path) {
@@ -3137,7 +3140,7 @@ impl App {
             return;
         }
         self.leave_image(ctx);
-        self.random = on;
+        self.shuffled = on;
         if !on {
             // A collection back in its own order, which shuffling left only in its file.
             // shortcut: the file read in the UI thread; collections are small text files.
@@ -3168,10 +3171,10 @@ impl App {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
             self.recursive = true;
-            self.random = self.config.random;
-            self.whole_shuffle = self.random;
+            self.shuffled = self.config.random;
+            self.whole_shuffle = self.shuffled;
             self.list(ctx);
-        } else if self.config.random != self.random {
+        } else if self.config.random != self.shuffled {
             self.shuffle_list(ctx, self.config.random);
         }
         // The first slide comes at once: start as if the delay has already run out.
@@ -3192,9 +3195,9 @@ impl App {
         self.paused = false;
         if self.recursive != self.config.show_subfolders {
             self.recursive = self.config.show_subfolders;
-            self.random = false;
+            self.shuffled = false;
             self.list(ctx);
-        } else if self.random {
+        } else if self.shuffled {
             self.shuffle_list(ctx, false);
         }
         self.title(ctx);
@@ -3232,10 +3235,10 @@ impl App {
             ctx.request_repaint_after(left);
         } else if round_over && !self.config.slideshow_repeat {
             self.stop_slideshow(ctx);
-        } else if self.random && round_over && self.files.len() > 2 {
+        } else if self.shuffled && round_over && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
             self.shuffle_list(ctx, true);
-        } else if !self.pending.contains_key(&(next, false)) {
+        } else if !self.decodes_pending.contains_key(&(next, false)) {
             let before = self.shown_textures();
             if turns && self.next_pane > 0 {
                 self.panes[self.next_pane - 1] = next;
@@ -3294,7 +3297,7 @@ impl App {
                     // dragging its edge decodes nothing again.
                     if grown {
                         self.slots.retain(|_, s| s.full);
-                        self.pending.retain(|&(_, full), _| full);
+                        self.decodes_pending.retain(|&(_, full), _| full);
                         self.refill();
                     }
                 }
@@ -3331,7 +3334,7 @@ impl App {
             fit.min(1.0)
         };
         // Zoomed: the same part of the image, as large as this window allows.
-        let (scale, pan) = match self.view {
+        let (scale, pan) = match self.last_view {
             Some(v) if v.zoomed => {
                 let k = (area.width() * ppp / (v.area.width() * v.ppp))
                     .min(area.height() * ppp / (v.area.height() * v.ppp));
@@ -3354,7 +3357,7 @@ impl App {
             .paint_at(ui, rect);
         // Where the pointer is over the main window's image, to point things out.
         if self.config.projector_pointer
-            && let Some(v) = self.view
+            && let Some(v) = self.last_view
             && let Some(at) = v.pointer
         {
             let at = area.center() + pan + at * (scale / ppp) / (v.scale / v.ppp);
@@ -3439,12 +3442,12 @@ impl App {
     }
 
     fn dialog_open(&self) -> bool {
-        self.show_settings
+        self.preferences_open
             || self.confirm_delete.is_some()
             || self.confirm_folder
             || self.prompt.is_some()
             || self.login.is_some()
-            || self.print.is_some()
+            || self.print_window.is_some()
             || self.lightroom.is_some()
             || !self.cut_short.is_empty()
     }
@@ -3564,7 +3567,7 @@ impl App {
             let _ = tx.send(picked);
             ctx.request_repaint();
         });
-        self.dialog = Some((purpose, rx));
+        self.file_dialog = Some((purpose, rx));
     }
 
     /// The text dialog was answered with `text`.
@@ -3830,7 +3833,7 @@ impl App {
     }
 
     fn receive_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok((path, result)) = self.thumbs_done.try_recv() {
+        while let Ok((path, result)) = self.thumbs_rx.try_recv() {
             // The name as the list has it: with its folders in a slideshow with subfolders.
             let Ok(name) = path.strip_prefix(&self.dir).map(Path::as_os_str) else {
                 continue;
@@ -3943,7 +3946,7 @@ impl App {
             name_rect.max.x = r.left() - 8.0;
         }
         // Found broken by Check Images: a warning sign at the right.
-        if self.broken.contains(&self.files[i]) {
+        if self.broken_files.contains(&self.files[i]) {
             let c = egui::pos2(name_rect.max.x - 12.0, rect.center().y);
             broken_mark(ui.painter(), c, font.size);
             name_rect.max.x = c.x - 14.0;
@@ -4004,7 +4007,7 @@ impl App {
         );
         ui.painter().galley(at, galley, color);
         // Found broken by Check Images: the warning sign on the thumbnail's top left.
-        if self.broken.contains(&self.files[i]) {
+        if self.broken_files.contains(&self.files[i]) {
             let size = egui::TextStyle::Body.resolve(ui.style()).size;
             broken_mark(
                 ui.painter(),
@@ -4269,7 +4272,7 @@ impl App {
     /// Geeqie's sort menu in the status bar.
     fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
-        scroll_menu(ui, format!("{} ⏷", self.config.sort.entry().2), |ui| {
+        scroll_menu(ui, format!("{} ⏷", self.config.sort.row().2), |ui| {
             for (sort, _, label) in SORTS {
                 if ui
                     .selectable_label(self.config.sort == sort, label)
@@ -4288,7 +4291,7 @@ impl App {
         if changed {
             self.config.save();
             // A chosen order replaces a shuffled one (kept after a random slideshow).
-            self.random = false;
+            self.shuffled = false;
             self.sort_collection = self.collection.is_some();
             self.list(ctx);
         }
@@ -4566,7 +4569,7 @@ impl App {
             ctx,
             doing,
             paths,
-            move |path| meta::tag(path, &written, on).is_ok(),
+            move |path| meta::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(format!(
                     "The keyword could not be saved for {}",
@@ -4693,7 +4696,7 @@ impl App {
             ctx,
             "Adding keywords",
             paths,
-            move |path| meta::add(path, &keywords).is_ok(),
+            move |path| meta::add_keywords(path, &keywords).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(format!(
                     "Keywords could not be saved for {}",
@@ -4785,7 +4788,7 @@ impl App {
     fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.trim().to_owned();
         let query = query.as_str();
-        self.rows.set(Default::default());
+        self.match_rows.set(Default::default());
         self.search_error = None;
         self.matches = self.search_matches(ctx, query);
         // Size of the matches in the background; a new search drops the receiver, which
@@ -5031,8 +5034,8 @@ impl App {
             return;
         };
         if let Some(c) = &mut check {
-            for (name, why) in c.found.try_iter() {
-                self.broken.insert(name.clone());
+            for (name, why) in c.found_rx.try_iter() {
+                self.broken_files.insert(name.clone());
                 c.broken.push((name, why));
             }
         }
@@ -5102,7 +5105,7 @@ impl App {
         }
         if select {
             self.selected = (self.files.iter().enumerate())
-                .filter(|(_, f)| self.broken.contains(*f))
+                .filter(|(_, f)| self.broken_files.contains(*f))
                 .map(|(i, _)| i)
                 .collect();
             self.selection_changed(ctx);
@@ -5228,7 +5231,7 @@ impl App {
     /// Check every image of the list in background threads, as many as the CPU setting allows,
     /// each taking the next file until all are done or Stop is pressed.
     fn start_check(&mut self, ctx: &egui::Context) -> Check {
-        self.broken.clear();
+        self.broken_files.clear();
         let files: Arc<Vec<(OsString, PathBuf)>> = Arc::new(
             (0..self.files.len())
                 .map(|i| (self.files[i].clone(), self.path(i)))
@@ -5242,7 +5245,7 @@ impl App {
             working: Arc::new(AtomicUsize::new(threads)),
             stop: Arc::default(),
             total: files.len(),
-            found,
+            found_rx: found,
             broken: Vec::new(),
         };
         self.busy.fetch_add(1, Ordering::Relaxed);
@@ -5426,7 +5429,7 @@ impl App {
 
     /// Preload `n` images on each side.
     fn set_preload(&mut self, n: usize) {
-        self.ahead.store(n, Ordering::Relaxed);
+        self.preload.store(n, Ordering::Relaxed);
         self.refill();
         self.config.preload = n;
     }
@@ -5597,7 +5600,7 @@ impl App {
                     self.config.search_bar = true;
                     self.config.save();
                 }
-                self.hide_tools = false;
+                self.hide_file_list = false;
                 if fullscreen {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                 }
@@ -5718,7 +5721,7 @@ impl App {
             Action::Preferences if config::locked() => {
                 self.notice = Some("The settings are locked (--lock-settings)".into());
             }
-            Action::Preferences => self.show_settings = true,
+            Action::Preferences => self.preferences_open = true,
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
@@ -5754,7 +5757,7 @@ impl App {
                 if page != self.page {
                     self.page = page;
                     self.slots.remove(&self.cur);
-                    self.pending.retain(|p, _| p.0 != self.cur);
+                    self.decodes_pending.retain(|p, _| p.0 != self.cur);
                     self.refill();
                 }
             }
@@ -5941,12 +5944,12 @@ impl App {
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
-            Action::HideTools => self.hide_tools = !self.hide_tools,
+            Action::HideTools => self.hide_file_list = !self.hide_file_list,
             Action::Refresh => {
                 self.tree.clear();
                 self.slots.clear();
-                self.pending.clear();
-                self.errors.clear();
+                self.decodes_pending.clear();
+                self.decode_errors.clear();
                 self.list(ctx);
             }
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
@@ -6124,7 +6127,7 @@ impl App {
         self.receive_exif_index(ctx);
         self.receive_deleted();
         self.selection_size(ctx);
-        self.jobs.retain(|job| Arc::strong_count(job) > 1);
+        self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else if self.closing > 0 {
@@ -6138,8 +6141,8 @@ impl App {
             }
         }
         // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.start_slideshow && self.listing_rx.is_none() {
-            self.start_slideshow = false;
+        if self.slideshow_at_start && self.listing_rx.is_none() {
+            self.slideshow_at_start = false;
             self.start_slideshow(ctx);
         }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
@@ -6169,7 +6172,7 @@ impl App {
         // shown image is still being decoded.
         let decoding = !self.files.is_empty()
             && !self.slots.contains_key(&self.cur)
-            && !self.errors.contains_key(&self.cur);
+            && !self.decode_errors.contains_key(&self.cur);
         self.receive_mount(ctx);
         if self.listing_rx.is_some()
             || decoding
@@ -6223,7 +6226,7 @@ impl App {
             && !self.asking_about_selection()
             && let Some((command, reply)) = self.waiting_select.take()
         {
-            let _ = reply.send(self.select_paths(ctx, &command));
+            let _ = reply.send(self.remote_select(ctx, &command));
         }
         while let Ok((command, reply)) = self.remote_rx.try_recv() {
             match reply {
@@ -6237,7 +6240,7 @@ impl App {
                     self.waiting_select = Some((command, reply));
                 }
                 Some(reply) if command.starts_with("select ") => {
-                    let _ = reply.send(self.select_paths(ctx, &command));
+                    let _ = reply.send(self.remote_select(ctx, &command));
                 }
                 Some(reply) => drop(reply.send(self.remote_query(&command))),
                 None => self.remote_command(ctx, &command),
@@ -6269,8 +6272,8 @@ impl App {
 
     /// The file dialog's answer, for what it was opened for.
     fn receive_picked(&mut self, ctx: &egui::Context) {
-        if let Some(Ok(picked)) = self.dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
-            let (purpose, _) = self.dialog.take().unwrap();
+        if let Some(Ok(picked)) = self.file_dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
+            let (purpose, _) = self.file_dialog.take().unwrap();
             match (purpose, picked) {
                 (_, None) => {}
                 (Pick::Open | Pick::Collection, Some(path)) => self.visit(ctx, path),
@@ -6360,7 +6363,7 @@ impl App {
     /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
     /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
     /// Only the selection changes; deleting or moving it is left to the user.
-    fn select_paths(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
+    fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
         let paths = command.strip_prefix("select ").unwrap_or_default();
         let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
         // The list's name of `p`: relative to the folder shown.
@@ -6442,7 +6445,7 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.closing += 1;
             if self.closing == 2 {
-                (self.jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
+                (self.file_jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
             }
             self.notice = Some(
                 match self.closing {
@@ -6464,16 +6467,16 @@ impl App {
                 v.maximized.unwrap_or(false),
             )
         });
-        self.window.maximized = maximized;
+        self.window_state.maximized = maximized;
         if !fullscreen && !maximized {
             // In the desktop's units, as the window opens with them: egui's shrink with the
             // size chosen in Preferences, and a window kept at 200 % opened half as large.
             let zoom = ctx.zoom_factor();
-            self.window.size = Some(size * zoom);
+            self.window_state.size = Some(size * zoom);
             // Wayland reports no position.
-            self.window.pos = outer
+            self.window_state.pos = outer
                 .map(|r| (r.min.to_vec2() * zoom).to_pos2())
-                .or(self.window.pos);
+                .or(self.window_state.pos);
         }
         fullscreen
     }
@@ -6942,9 +6945,9 @@ impl App {
                 self.types_menu(ctx, ui);
                 ui.separator();
                 ui.label(left);
-                if let Some(job) = self.jobs.first() {
+                if let Some(job) = self.file_jobs.first() {
                     ui.separator();
-                    let more = match self.jobs.len() - 1 {
+                    let more = match self.file_jobs.len() - 1 {
                         0 => String::new(),
                         n => format!(", and {n} more"),
                     };
@@ -6955,7 +6958,7 @@ impl App {
                         thousands(job.total)
                     ));
                     if ui.small_button("Stop").clicked() {
-                        self.jobs
+                        self.file_jobs
                             .iter()
                             .for_each(|j| j.stop.store(true, Ordering::Relaxed));
                     }
@@ -7214,7 +7217,7 @@ impl App {
                 }
             }
             if icons {
-                self.rubber_band(ui, &cells, row_h, first_row);
+                self.drag_rubber_band(ui, &cells, row_h, first_row);
             }
             // Dropped: the dragged images before the row the line was at.
             if ctx.input(|i| i.pointer.any_released())
@@ -7232,7 +7235,7 @@ impl App {
     /// it touches, added to the selection with Ctrl or Shift. It starts anywhere but in a
     /// collection, where dragging an image moves it, from the space between them; it counts once
     /// the pointer has moved a little, so a click stays a click. `cells` are the shown ones.
-    fn rubber_band(
+    fn drag_rubber_band(
         &mut self,
         ui: &egui::Ui,
         cells: &[(usize, egui::Rect)],
@@ -7258,7 +7261,7 @@ impl App {
             )
         });
         if pressed
-            && self.band.is_none()
+            && self.rubber_band.is_none()
             && self.dragging.is_none()
             && !self.dialog_open()
             // Not on the scroll bar, which is dragged too.
@@ -7271,9 +7274,9 @@ impl App {
             } else {
                 Default::default()
             };
-            self.band = Some((p - origin, base, false, None));
+            self.rubber_band = Some((p - origin, base, false, None));
         }
-        let Some((start, base, moved, last)) = &mut self.band else {
+        let Some((start, base, moved, last)) = &mut self.rubber_band else {
             return;
         };
         let start = origin + *start;
@@ -7282,12 +7285,12 @@ impl App {
             if std::mem::take(moved) {
                 self.selection_changed(&ctx);
             }
-            self.band = None;
+            self.rubber_band = None;
             return;
         };
         // Something else is being dragged (the panel's edge, a scroll bar): not a rectangle.
         if !*moved && ctx.dragged_id().is_some() {
-            self.band = None;
+            self.rubber_band = None;
             return;
         }
         *moved |= p.distance(start) > 6.0;
@@ -7706,7 +7709,7 @@ impl App {
             let pointer = (ctx.pointer_hover_pos())
                 .filter(|p| area.contains(*p))
                 .map(|p| p - centre);
-            self.view = Some(View {
+            self.last_view = Some(View {
                 area,
                 ppp,
                 scale,
@@ -7715,7 +7718,7 @@ impl App {
                 pointer,
             });
         } else if let Some((tex, orig, thumb)) = self.placeholder()
-            && !self.errors.contains_key(&self.cur)
+            && !self.decode_errors.contains_key(&self.cur)
         {
             // A thumbnail fills the area, as the image will; the image before keeps
             // its size.
@@ -7732,7 +7735,7 @@ impl App {
                     "No images in folder"
                 }
                 .to_owned()
-            } else if let Some(e) = self.errors.get(&self.cur) {
+            } else if let Some(e) = self.decode_errors.get(&self.cur) {
                 format!("Could not open {}:\n{e}", self.path(self.cur).display())
             } else {
                 String::new()
@@ -7871,7 +7874,7 @@ impl eframe::App for App {
             state += &format!("last_dir={}\n", last.display());
         }
         if self.config.remember_window {
-            state += &self.window.to_text();
+            state += &self.window_state.to_text();
         }
         // Nothing to keep: the folder and window of before go too, not left for a later start.
         match state_path() {
@@ -7890,7 +7893,7 @@ impl eframe::App for App {
         let mut act = self.read_keys(ctx);
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = self.track_window(ctx);
-        let bare = fullscreen || self.hide_tools || self.kiosk;
+        let bare = fullscreen || self.hide_file_list || self.kiosk;
         if !bare {
             self.menu_bar(ui, &mut act);
         }

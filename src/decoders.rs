@@ -46,7 +46,7 @@ pub fn all() -> &'static [Decoder] {
 /// The decoder of a desktop file; `None` without a name, extensions, or %f in its command (also
 /// inside a word, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<Decoder> {
-    let value = crate::plugins::entry(text);
+    let value = crate::plugins::values(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))
         .map(|e| e.trim().trim_start_matches('.').to_lowercase())
         .filter(|e| !e.is_empty())
@@ -70,7 +70,7 @@ pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     if all().is_empty() {
         return None;
     }
-    if crate::files::own_ext(path) {
+    if crate::files::built_in_format(path) {
         return None;
     }
     let name = path.file_name()?.to_str()?.to_lowercase();

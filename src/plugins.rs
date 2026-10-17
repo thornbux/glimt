@@ -44,7 +44,7 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
 
 /// The values of a desktop file's first group (its [Desktop Entry] or [Glimt Decoder], not its
 /// actions), by key.
-pub fn entry<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
+pub fn values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
     let entry = text.split("\n[").next().unwrap_or_default();
     move |key| {
         (entry.lines())
@@ -55,7 +55,7 @@ pub fn entry<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
 
 /// The plugin of a desktop file; `None` if it is hidden or has no command.
 fn parse(text: &str, dir: &Path) -> Option<Plugin> {
-    let value = entry(text);
+    let value = values(text);
     if value("Hidden") == Some("true") || value("NoDisplay") == Some("true") {
         return None;
     }

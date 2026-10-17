@@ -281,8 +281,8 @@ impl crate::App {
         let Some(mut dups) = self.dups.take() else {
             return;
         };
-        if let Some(Ok(groups)) = dups.running.as_ref().map(|rx| rx.try_recv()) {
-            dups.running = None;
+        if let Some(Ok(groups)) = dups.groups_rx.as_ref().map(|rx| rx.try_recv()) {
+            dups.groups_rx = None;
             dups.groups = groups;
             dups.sizes.clear();
             dups.checked.clear();
@@ -306,7 +306,7 @@ impl crate::App {
                                 ui.selectable_value(&mut dups.by, by, label);
                             }
                         });
-                    if dups.running.is_some() {
+                    if dups.groups_rx.is_some() {
                         if ui.button("Stop").clicked() {
                             dups.progress.cancel.store(true, Ordering::Relaxed);
                         }
@@ -316,7 +316,7 @@ impl crate::App {
                             .clicked();
                     }
                 });
-                if dups.running.is_some() {
+                if dups.groups_rx.is_some() {
                     let (done, total) = (
                         dups.progress.done.load(Ordering::Relaxed),
                         dups.progress.total.load(Ordering::Relaxed),
@@ -412,7 +412,7 @@ impl crate::App {
             let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
             dups.searched = paths.len();
             dups.progress = progress.clone();
-            dups.running = Some(tx.1);
+            dups.groups_rx = Some(tx.1);
             let sender = tx.0;
             std::thread::spawn(move || {
                 let _ = sender.send(find(paths, by, rotate, save, &progress));

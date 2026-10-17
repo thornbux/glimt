@@ -222,7 +222,7 @@ pub fn write_changed(
 }
 
 /// Add `keywords` to those `path` has, read and written as one change.
-pub fn add(path: &Path, keywords: &[String]) -> Result<(), String> {
+pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _held = held();
     let mut meta = read(path);
     for k in keywords {
@@ -462,7 +462,7 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
 /// A keyword of the keyword tree, "Places|Norway|Oslo", on `path` or off: its name (Oslo)
 /// among the keywords, and the whole path in lr:hierarchicalSubject, where darktable, digiKam
 /// and Lightroom keep the tree's place of a keyword.
-pub fn tag(path: &Path, tag: &str, on: bool) -> Result<(), String> {
+pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let _held = held();
     let mut meta = read(path);
     let mut paths = tree_paths(path);
@@ -679,8 +679,8 @@ mod tests {
                 "lr:hierarchicalSubject",
             )
         };
-        tag(&file, "Places|Norway|Oslo", true).unwrap();
-        tag(&file, "Places|Norway|Bergen", true).unwrap();
+        tag_file(&file, "Places|Norway|Oslo", true).unwrap();
+        tag_file(&file, "Places|Norway|Bergen", true).unwrap();
         assert_eq!(read(&file).keywords, ["Oslo", "Bergen"]);
         assert_eq!(paths(&file), ["Places|Norway|Oslo", "Places|Norway|Bergen"]);
         assert!(
@@ -688,7 +688,7 @@ mod tests {
                 .unwrap()
                 .contains("xmlns:lr=")
         );
-        tag(&file, "Places|Norway|Oslo", false).unwrap();
+        tag_file(&file, "Places|Norway|Oslo", false).unwrap();
         assert_eq!(read(&file).keywords, ["Bergen"]);
         assert_eq!(paths(&file), ["Places|Norway|Bergen"]);
         std::fs::remove_dir_all(dir).unwrap();
@@ -877,7 +877,7 @@ mod tests {
                 let path = &path;
                 s.spawn(move || {
                     for n in 0..10 {
-                        add(path, &[format!("k{k}-{n}")]).unwrap();
+                        add_keywords(path, &[format!("k{k}-{n}")]).unwrap();
                     }
                 });
             }
@@ -912,8 +912,8 @@ mod tests {
         .unwrap();
         // The person and the flower stay two; a tag and an added keyword leave both comments.
         assert_eq!(read(&file).keywords, ["Rose", "rose"]);
-        tag(&file, "Places|Oslo", true).unwrap();
-        add(&file, &k(&["ROSE"])).unwrap();
+        tag_file(&file, "Places|Oslo", true).unwrap();
+        add_keywords(&file, &k(&["ROSE"])).unwrap();
         let x = std::fs::read_to_string(sidecar(&file)).unwrap();
         assert_eq!(read(&file).keywords, ["Rose", "rose", "Oslo"]);
         assert!(x.contains(">Hello<") && x.contains(">Hallo<"), "{x}");
@@ -928,7 +928,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
         write_changed(&file, Some(vec!["a".into()]), None).unwrap();
-        tag(&file, "b", true).unwrap();
+        tag_file(&file, "b", true).unwrap();
         let meta = write_changed(&file, None, Some("c".into())).unwrap();
         assert_eq!(
             (meta.keywords, meta.comment),
@@ -954,7 +954,7 @@ mod tests {
         bytes.extend(&base[2..]);
         std::fs::write(&jpeg, bytes).unwrap();
         assert_eq!(tree_paths(&jpeg), ["Places|Oslo"]);
-        tag(&jpeg, "Events|Party", true).unwrap();
+        tag_file(&jpeg, "Events|Party", true).unwrap();
         assert_eq!(tree_paths(&jpeg), ["Places|Oslo", "Events|Party"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }

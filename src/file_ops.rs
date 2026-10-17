@@ -45,7 +45,7 @@ impl crate::App {
     /// Files still being written: copies, moves, deletes, sidecars (`jobs`), a Rename Many, a
     /// turned image being saved. Closing waits for them.
     pub(crate) fn work_left(&self) -> bool {
-        !self.jobs.is_empty() || self.renaming.is_some() || !self.saving.is_empty()
+        !self.file_jobs.is_empty() || self.renaming.is_some() || !self.saving.is_empty()
     }
 
     /// A file operation on `total` files, shown in the status bar until its thread drops it.
@@ -57,7 +57,7 @@ impl crate::App {
             stop: Default::default(),
             started: Instant::now(),
         });
-        self.jobs.push(job.clone());
+        self.file_jobs.push(job.clone());
         job
     }
 
@@ -419,7 +419,7 @@ impl crate::App {
     pub(crate) fn saved(&mut self, path: &Path) {
         if self.is_file(self.cur, path) {
             self.orient = (0, false);
-            self.pending.retain(|p, _| p.0 != self.cur);
+            self.decodes_pending.retain(|p, _| p.0 != self.cur);
             self.exif = None;
         }
         self.slots.retain(|_, s| s.path != path);
