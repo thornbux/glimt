@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename Folder while several folders are shown together keeps the renamed folder's images in the
+  list, read under its new name.
 - Rename and a confirmed delete act when the folder was read again while their dialog was open, as
   long as the same files are meant, instead of saying the list changed: a folder another program
   writes to is read again every second.

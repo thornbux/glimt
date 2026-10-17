@@ -472,6 +472,12 @@ impl crate::App {
             return;
         }
         self.forget_folder(&old);
+        // Several folders shown together: the renamed one is read under its new name.
+        for folder in &mut self.folders {
+            if let Ok(rest) = folder.strip_prefix(&old) {
+                *folder = new.join(rest);
+            }
+        }
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {
                 // The shown file is under the new name now, also for a turn not saved yet.
