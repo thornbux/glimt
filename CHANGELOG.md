@@ -19,6 +19,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Copy Image to Clipboard, printing and Find Duplicates by likeness survive a decoder that panics
   on a broken file, as showing it does: the busy pointer stayed for good, a PDF was left half
   written, or a share of the files went uncompared.
+- Stars written to XMP sidecars go on past a file whose sidecar cannot be written, and are written
+  in the background with the keywords, in one order: they stopped at the first failure, and a
+  thousand files on a network share held the window.
 
 ## [0.32.0] - 2026-10-17
 

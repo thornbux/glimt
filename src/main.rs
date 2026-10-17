@@ -5035,62 +5035,66 @@ impl App {
         self.exif_stale
             .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        // One writer for every window's ticks, so a tick and its untick land in that order.
-        type Tagging = (
-            Vec<PathBuf>,
-            String,
-            bool,
-            Arc<Job>,
-            mpsc::Sender<String>,
-            Arc<AtomicUsize>,
-            egui::Context,
-        );
-        static WRITER: std::sync::OnceLock<mpsc::Sender<Tagging>> = std::sync::OnceLock::new();
-        let writer = WRITER.get_or_init(|| {
-            let (jobs, rx) = mpsc::channel::<Tagging>();
-            std::thread::spawn(move || {
-                for (paths, tag, on, job, tx, busy, ctx) in rx {
-                    let mut failed = 0;
-                    for path in &paths {
-                        if job.stopped() {
-                            break;
-                        }
-                        failed += meta::tag(path, &tag, on).is_err() as usize;
-                        job.did(1);
-                    }
-                    if failed > 0 {
-                        let _ = tx.send(format!(
-                            "The keyword could not be saved for {}",
-                            count(failed, "file")
-                        ));
-                    } else if job.stopped() {
-                        let _ = tx.send(job.stopped_text());
-                    } else if paths.len() > 1 {
-                        let verb = if on { "set on" } else { "taken off" };
-                        let _ = tx.send(format!("{tag} {verb} {}", count(paths.len(), "file")));
-                    }
-                    busy.fetch_sub(1, Ordering::Relaxed);
-                    ctx.request_repaint();
-                }
-            });
-            jobs
-        });
-        self.busy.fetch_add(1, Ordering::Relaxed);
-        let doing = if on {
-            "Setting keywords"
-        } else {
-            "Taking keywords off"
+        let (doing, verb) = match on {
+            true => ("Setting keywords", "set on"),
+            false => ("Taking keywords off", "taken off"),
         };
-        let job = (
-            paths.clone(),
-            tag,
-            on,
-            self.start_job(doing, paths.len()),
-            self.notices_tx.clone(),
-            self.busy.clone(),
-            ctx.clone(),
+        let (n, written) = (paths.len(), tag.clone());
+        self.write_sidecars(
+            ctx,
+            doing,
+            paths,
+            move |path| meta::tag(path, &written, on).is_ok(),
+            move |failed, job| match () {
+                _ if failed > 0 => Some(format!(
+                    "The keyword could not be saved for {}",
+                    count(failed, "file")
+                )),
+                _ if job.stopped() => Some(job.stopped_text()),
+                _ if n > 1 => Some(format!("{tag} {verb} {}", count(n, "file"))),
+                _ => None,
+            },
         );
-        if writer.send(job).is_err() {
+    }
+
+    /// Write the sidecars of `paths` in the background, through one thread for every window's
+    /// keywords and stars, so changes to one file land in the order they were made and never
+    /// cross. The status bar counts them; `report` words the end from how many failed.
+    fn write_sidecars(
+        &mut self,
+        ctx: &egui::Context,
+        doing: &'static str,
+        paths: Vec<PathBuf>,
+        write: impl Fn(&Path) -> bool + Send + 'static,
+        report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
+    ) {
+        type Work = Box<dyn FnOnce() + Send>;
+        static WRITER: std::sync::OnceLock<mpsc::Sender<Work>> = std::sync::OnceLock::new();
+        let writer = WRITER.get_or_init(|| {
+            let (works, rx) = mpsc::channel::<Work>();
+            std::thread::spawn(move || rx.into_iter().for_each(|work| work()));
+            works
+        });
+        let job = self.start_job(doing, paths.len());
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        self.busy.fetch_add(1, Ordering::Relaxed);
+        let work: Work = Box::new(move || {
+            let mut failed = 0;
+            for path in &paths {
+                if job.stopped() {
+                    break;
+                }
+                failed += !write(path) as usize;
+                job.did(1);
+            }
+            if let Some(text) = report(failed, &job) {
+                let _ = tx.send(text);
+            }
+            drop(job);
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+        if writer.send(work).is_err() {
             self.busy.fetch_sub(1, Ordering::Relaxed);
         }
     }
@@ -5148,20 +5152,22 @@ impl App {
         self.exif_stale
             .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            let mut errors = 0;
-            for path in &paths {
-                errors += meta::add(path, &keywords).is_err() as usize;
-            }
-            let _ = tx.send(match errors {
-                0 => format!("Keywords added to {}", count(paths.len(), "file")),
-                n => format!("Keywords could not be saved for {}", count(n, "file")),
-            });
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
+        let n = paths.len();
+        // Through the sidecar writer, with keywords ticked and stars: in the order asked.
+        self.write_sidecars(
+            ctx,
+            "Adding keywords",
+            paths,
+            move |path| meta::add(path, &keywords).is_ok(),
+            move |failed, job| match () {
+                _ if failed > 0 => Some(format!(
+                    "Keywords could not be saved for {}",
+                    count(failed, "file")
+                )),
+                _ if job.stopped() => Some(job.stopped_text()),
+                _ => Some(format!("Keywords added to {}", count(n, "file"))),
+            },
+        );
     }
 
     /// The exif: search index once it is read, and the search again with it.
@@ -7139,11 +7145,22 @@ impl App {
             self.marks.toggle(&paths, n);
         } else {
             self.marks.rate(&paths, n);
+            // In the background: a thousand photos on a network share would hold the window.
             if self.config.xmp_stars {
-                let failed = paths.iter().find_map(|p| marks::write_xmp(p, n).err());
-                if let Some(e) = failed {
-                    self.notice = Some(format!("Could not write the XMP sidecar: {e}"));
-                }
+                self.write_sidecars(
+                    ctx,
+                    "Writing stars",
+                    paths,
+                    move |path| marks::write_xmp(path, n).is_ok(),
+                    |failed, job| match () {
+                        _ if failed > 0 => Some(format!(
+                            "The stars could not be written to the XMP sidecar of {}",
+                            count(failed, "file")
+                        )),
+                        _ if job.stopped() => Some(job.stopped_text()),
+                        _ => None,
+                    },
+                );
             }
         }
         // A "mark:" or "stars:" search shows the new state.
