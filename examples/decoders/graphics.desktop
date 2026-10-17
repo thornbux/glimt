@@ -1,8 +1,0 @@
-[Glimt Decoder]
-Name=Photoshop, TGA and OpenEXR (ImageMagick)
-Comment=The picture of a Photoshop file as saved (its composite), TGA from games and 3D, and OpenEXR renderings, through ImageMagick
-Extensions=psd;psb;tga;exr
-# %f[0]: a Photoshop file's composite, the picture as last saved, not its layers one by one.
-# PAM keeps transparency. The path Glimt gives is absolute, so ImageMagick never reads a
-# "format:" prefix in a file name. ImageMagick 7 names the program magick instead of convert.
-Exec=convert %f[0] -depth 8 pam:-

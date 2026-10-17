@@ -493,9 +493,10 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | `jpeg2000.desktop` | JPEG 2000 (`.jp2`, `.j2k`, `.jpf`, `.jpx`) | archives, libraries, scanned documents | ffmpeg |
 | `fits.desktop` | FITS (`.fits`, `.fit`, `.fts`, also compressed `.fits.fz` and `.fits.gz`): the first image, with astronomers' zscale stretch | astronomy, solar physics | python3-astropy |
 | `dicom.desktop` | DICOM (`.dcm`, `.dicom`, `.dic`), also compressed (JPEG, JPEG 2000, JPEG-LS), in the window the file names; the middle frame of a series | medicine, dentistry (X-ray, CT, MR, ultrasound, panoramic, intraoral) | python3-pydicom, python3-gdcm |
-| `graphics.desktop` | Photoshop (`.psd`, `.psb`) as saved, TGA, OpenEXR (`.exr`) renderings | design, architecture, games, 3D | ImageMagick |
+| `photoshop.desktop` | Photoshop (`.psd`, `.psb`) as saved | design, architecture | ImageMagick |
+| `tga.desktop`, `exr.desktop` | TGA, OpenEXR (`.exr`) renderings | games, 3D | ImageMagick |
 | `xcf.desktop` | GIMP's own files (`.xcf`), their layers put together | design | ImageMagick |
-| `science.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
+| `imagemagick-fits.desktop`, `imagemagick-dicom.desktop` | FITS and DICOM through ImageMagick only, for a computer without astropy or pydicom | astronomy, medical imaging | ImageMagick (`convert`; `magick` for version 7) |
 | `nifti.desktop` | NIfTI (`.nii`, `.nii.gz`): the middle axial slice, front at the top | brain MRI, fMRI | python3-nibabel |
 | `openslide.desktop` | Whole-slide images (`.svs`, `.ndpi`, `.mrxs`, `.scn`, `.bif` …), whole at up to 4096 pixels | pathology | python3-openslide |
 | `bioformats.desktop` | Microscope files through Bio-Formats, as Fiji reads them: Zeiss `.czi`, Leica `.lif`, Nikon `.nd2`, Olympus `.oib`/`.oir`, ICS and more; the first plane | microscopy, cell biology | Java and Bio-Formats' bftools (`bfconvert`, or `GLIMT_BFTOOLS` set to its folder) |

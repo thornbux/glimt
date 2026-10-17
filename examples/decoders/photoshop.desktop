@@ -1,0 +1,10 @@
+[Glimt Decoder]
+Name=Photoshop (ImageMagick)
+Comment=The picture of a Photoshop file as saved (its composite), through ImageMagick
+Extensions=psd;psb
+# %f[0]: the composite, the picture as last saved, not its layers one by one; ImageMagick's PSD
+# reader also reads large documents (.psb). PAM keeps transparency.
+# The format is named before the path ("psd:"): without it ImageMagick goes by what the bytes
+# say, and a file from the internet named .psd could reach Ghostscript or another coder.
+# ImageMagick 7 names the program magick instead of convert.
+Exec=convert psd:%f[0] -depth 8 pam:-

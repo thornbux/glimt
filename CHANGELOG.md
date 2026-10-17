@@ -13,6 +13,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Ctrl+Shift+↑, ↓, Home or End (File → Move in Collection) in an empty collection closed Glimt.
+- The ImageMagick decoder examples name the format before the file (psd:, tga:, exr:, xcf:, fits:,
+  dcm:), one desktop file each: ImageMagick went by the file's bytes, so a file from the internet
+  named .psd could reach Ghostscript or another of its coders. graphics.desktop and
+  science.desktop are now photoshop, tga, exr, imagemagick-fits and imagemagick-dicom.
 
 ## [0.30.0] - 2026-10-16
 

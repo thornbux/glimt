@@ -1,0 +1,7 @@
+[Glimt Decoder]
+Name=TGA (ImageMagick)
+Comment=TGA images from games and 3D programs, through ImageMagick
+Extensions=tga
+# The format is named before the path ("tga:"): without it ImageMagick goes by what the bytes
+# say, and a file from the internet named .tga could reach Ghostscript or another coder.
+Exec=convert tga:%f -depth 8 pam:-

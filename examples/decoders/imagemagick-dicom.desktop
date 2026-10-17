@@ -1,0 +1,9 @@
+[Glimt Decoder]
+Name=DICOM (ImageMagick)
+Comment=DICOM through ImageMagick, for a computer without pydicom: dicom.desktop comes first by name, and takes these when both are there
+Extensions=dcm
+# %f[0]: the first frame of a series. -auto-level stretches the values from the lowest to the
+# highest, as the data is seldom 0-255.
+# The format is named before the path ("dcm:"): without it ImageMagick goes by what the bytes
+# say, and a file from the internet named .dcm could reach Ghostscript or another coder.
+Exec=convert dcm:%f[0] -auto-level -depth 8 ppm:-

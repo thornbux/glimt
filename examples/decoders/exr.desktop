@@ -1,0 +1,7 @@
+[Glimt Decoder]
+Name=OpenEXR (ImageMagick)
+Comment=OpenEXR renderings, through ImageMagick built with OpenEXR
+Extensions=exr
+# The format is named before the path ("exr:"): without it ImageMagick goes by what the bytes
+# say, and a file from the internet named .exr could reach Ghostscript or another coder.
+Exec=convert exr:%f -depth 8 pam:-
