@@ -45,9 +45,14 @@ pub fn find(
     save: bool,
     p: &Progress,
 ) -> Vec<Vec<PathBuf>> {
-    // A link is the same file as its target: it would be a "duplicate" of it, and the target,
-    // checked and trashed, would leave the link pointing at nothing.
-    let paths: Vec<PathBuf> = paths.into_iter().filter(|p| !p.is_symlink()).collect();
+    // The same file reached twice, by a link to it or through a linked folder, would be its own
+    // "duplicate", and checked and trashed the only copy would go: each file once.
+    let real = parallel(&paths, p, |path| path.canonicalize().ok());
+    let mut seen = std::collections::HashSet::new();
+    let paths: Vec<PathBuf> = (paths.into_iter().zip(real))
+        .filter(|(path, real)| seen.insert(real.clone().unwrap_or_else(|| path.clone())))
+        .map(|(path, _)| path)
+        .collect();
     let mut groups = match by {
         By::Name => {
             let names = paths
@@ -341,6 +346,11 @@ mod tests {
         std::os::unix::fs::symlink(&a, &link).unwrap();
         let linked = vec![a.clone(), link, d.clone()];
         assert!(find(linked, By::Checksum, false, false, &p).is_empty());
+        // Nor is a reached through a linked folder.
+        let folder = dir.join("linked");
+        std::os::unix::fs::symlink(&dir, &folder).unwrap();
+        let twice = vec![a.clone(), folder.join("a.png"), d.clone()];
+        assert!(find(twice, By::Checksum, false, false, &p).is_empty());
         // A JPEG's size from its frame header: width first.
         let jpeg = dir.join("e.jpg");
         image::RgbImage::new(40, 20).save(&jpeg).unwrap();
