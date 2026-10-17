@@ -79,7 +79,7 @@ pub fn save_rotated(
     // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
     // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
     // view did not turn them by it: else other programs would turn them again.
-    let (mut exif, xmp) = image::ImageReader::open(path)
+    let (mut exif, mut xmp) = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -91,6 +91,9 @@ pub fn save_rotated(
     let lossy = !png && webp_lossless(path) == Some(false);
     if let Some(exif) = &mut exif {
         exif::set_upright(exif)?;
+    }
+    if let Some(xmp) = &mut xmp {
+        xmp_upright(xmp);
     }
     let (mut img, icc) = load_icc(path, rotate)?;
     if mirrored {
@@ -161,6 +164,26 @@ pub fn save_rotated(
         };
     }
     replace_image(path, &out)
+}
+
+/// The XMP's `tiff:Orientation` set to 1 (upright), as an attribute or an element; the length
+/// stays, as a value is one digit.
+fn xmp_upright(xmp: &mut [u8]) {
+    let key = b"tiff:Orientation";
+    let mut from = 0;
+    while let Some(at) = xmp[from..].windows(key.len()).position(|w| w == key) {
+        let rest = from + at + key.len();
+        let value = match xmp.get(rest..rest + 2) {
+            Some([b'=', b'"' | b'\'']) => rest + 2,
+            Some([b'>', _]) => rest + 1,
+            _ => rest,
+        };
+        let digit = xmp.get(value).is_some_and(u8::is_ascii_digit);
+        if digit && !xmp.get(value + 1).is_some_and(u8::is_ascii_digit) {
+            xmp[value] = b'1';
+        }
+        from = rest;
+    }
 }
 
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
@@ -296,6 +319,31 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
+    /// The XMP's orientation upright in both forms; nothing else changed, and broken XMP is
+    /// survived.
+    #[test]
+    fn sets_xmp_upright() {
+        let mut xmp =
+            br#"<x tiff:Orientation="6" a="6"/><tiff:Orientation>8</tiff:Orientation>"#.to_vec();
+        super::xmp_upright(&mut xmp);
+        assert_eq!(
+            xmp,
+            br#"<x tiff:Orientation="1" a="6"/><tiff:Orientation>1</tiff:Orientation>"#
+        );
+        let mut odd = b"tiff:Orientation='12' tiff:Orientation".to_vec();
+        super::xmp_upright(&mut odd);
+        assert_eq!(odd, b"tiff:Orientation='12' tiff:Orientation");
+    }
+
+    #[test]
+    fn survives_broken_xmp_orientation() {
+        for mut xmp in
+            crate::broken(br#"<x tiff:Orientation="6"/><tiff:Orientation>8</tiff:Orientation>"#)
+        {
+            super::xmp_upright(&mut xmp);
+        }
+    }
+
     /// WebP files broken in thousands of ways: told lossless, lossy or neither without a panic
     /// or a loop.
     #[test]
