@@ -549,6 +549,43 @@ fn unescape(text: &str) -> String {
     out + rest
 }
 
+/// Keyword tree paths cleaned: trimmed around each level, without empty ones, sorted, each once.
+pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = paths
+        .map(|p| {
+            p.split('|')
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("|")
+        })
+        .filter(|p| !p.is_empty())
+        .collect();
+    // In another letter case it is the same path: the first spelling stays.
+    out.sort_by_key(|p| p.to_lowercase());
+    out.dedup_by(|a, b| same(a, b));
+    out
+}
+
+/// The keyword tree `tree` with `add` added, or `remove` and the paths below it taken out (an
+/// inner level is only there for the paths under it).
+pub(crate) fn keyword_tree_changed(
+    tree: &[String],
+    add: Vec<String>,
+    remove: Option<String>,
+) -> Vec<String> {
+    let under = remove.as_ref().map(|p| format!("{p}|"));
+    let kept = (tree.iter()).filter(|t| {
+        remove.as_ref().is_none_or(|p| *t != p)
+            && under.as_ref().is_none_or(|u| !t.starts_with(u.as_str()))
+    });
+    let all: Vec<&str> = kept
+        .map(String::as_str)
+        .chain(add.iter().map(String::as_str))
+        .collect();
+    keyword_paths(all.into_iter())
+}
+
 #[cfg(test)]
 mod tests {
     /// Read together, the keywords, their tree paths and the alt text are those read one by
@@ -979,5 +1016,37 @@ mod tests {
             parse_access(&xmp);
             set_access(&xmp, &Access::default(), true);
         }
+    }
+
+    /// Keyword tree paths are trimmed around each level, sorted and kept once.
+    #[test]
+    fn cleans_keyword_paths() {
+        let paths = [
+            " places | Norway|Oslo ",
+            "Animals",
+            "",
+            "Places||x|",
+            "Animals",
+        ];
+        let got = super::keyword_paths(paths.into_iter());
+        assert_eq!(got, ["Animals", "places|Norway|Oslo", "Places|x"]);
+    }
+
+    /// The keyword tree changed by one window keeps what another added; removing a level takes
+    /// the levels below it.
+    #[test]
+    fn changes_the_keyword_tree_alone() {
+        let on_disk = [
+            "Animals".to_string(),
+            "Places|Oslo".into(),
+            "People|Kari".into(),
+        ];
+        let added = super::keyword_tree_changed(&on_disk, vec!["Places|Bergen".into()], None);
+        assert_eq!(
+            added,
+            ["Animals", "People|Kari", "Places|Bergen", "Places|Oslo"]
+        );
+        let removed = super::keyword_tree_changed(&added, Vec::new(), Some("Places".into()));
+        assert_eq!(removed, ["Animals", "People|Kari"]);
     }
 }

@@ -1,6 +1,12 @@
 //! Fuzzy file name search in the style of fzf: the letters of the query must appear in the
 //! name in order, but not next to each other, and case is ignored. Names where they come
-//! together, at the start of a word or early in the name rank first.
+//! together, at the start of a word or early in the name rank first. Also the EXIF index that
+//! `exif:` terms search: each file's fields and keywords as one line.
+
+use crate::{exif, meta, small_alloc_threads};
+use std::collections::HashMap;
+use std::ffi::OsString;
+use std::path::Path;
 
 /// Score of the lowercase `name` for the lowercase `query`, higher is better; `None` if it
 /// does not match. Generic over bytes (ASCII names, no allocation) and chars (the rest).
@@ -206,6 +212,23 @@ fn in_parallel(
             .filter_map(|(i, n)| Some((score_one(n, &mut buf)?, at + i)))
             .collect()
     })
+}
+
+/// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
+pub fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
+    let index = crate::in_parts(files, small_alloc_threads(), |part, _| {
+        (part.iter())
+            .map(|name| {
+                let path = dir.join(name);
+                let rows = exif::read(&path);
+                let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+                let meta = meta::read(&path).text();
+                text.push(&meta);
+                (name.clone(), text.join(" ").to_lowercase())
+            })
+            .collect()
+    });
+    index.into_iter().collect()
 }
 
 #[cfg(test)]

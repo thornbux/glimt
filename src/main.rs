@@ -18,8 +18,8 @@ use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load,
 use eframe::egui;
 use external::{Login, Mounted, apps_for, command, gio_mount, is_video, open_url};
 use files::{
-    SORTS, Types, exif_index, has_ext, is_listed, list_folder, list_tree, merge_shuffled,
-    pattern_name, shuffle, sort_files, walk,
+    SORTS, Types, has_ext, is_listed, list_folder, list_tree, merge_shuffled, pattern_name,
+    shuffle, sort_files, walk,
 };
 use meta::Meta;
 use save::save_rotated;
@@ -1651,7 +1651,7 @@ impl App {
             cut_short: Vec::new(),
             renaming: None,
             keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
-                .map_or_else(Vec::new, |t| keyword_paths(t.lines())),
+                .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
             new_keyword: String::new(),
             sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
@@ -4528,7 +4528,7 @@ impl App {
     /// window changed meanwhile stays.
     fn change_keyword_tree(&mut self, add: Vec<String>, remove: Option<String>) {
         let Some(p) = keyword_tree_path() else {
-            self.keyword_tree = keyword_tree_changed(&self.keyword_tree, add, remove);
+            self.keyword_tree = meta::keyword_tree_changed(&self.keyword_tree, add, remove);
             return;
         };
         let _held = config::file_lock(&p);
@@ -4538,7 +4538,7 @@ impl App {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return self.notice = Some(format!("Could not read the keyword tree: {e}")),
         };
-        self.keyword_tree = keyword_tree_changed(&on_disk, add, remove);
+        self.keyword_tree = meta::keyword_tree_changed(&on_disk, add, remove);
         write_atomic(&p, self.keyword_tree.join("\n") + "\n");
     }
 
@@ -4915,7 +4915,7 @@ impl App {
             let (dir, ctx, busy) = (self.dir.clone(), ctx.clone(), self.busy.clone());
             busy.fetch_add(1, Ordering::Relaxed);
             std::thread::spawn(move || {
-                let _ = tx.send(exif_index(&dir, &names));
+                let _ = tx.send(search::exif_index(&dir, &names));
                 busy.fetch_sub(1, Ordering::Relaxed);
                 ctx.request_repaint();
             });
@@ -4929,7 +4929,7 @@ impl App {
                 let busy = self.busy.clone();
                 busy.fetch_add(1, Ordering::Relaxed);
                 std::thread::spawn(move || {
-                    let _ = tx.send(exif_index(&dir, &files));
+                    let _ = tx.send(search::exif_index(&dir, &files));
                     busy.fetch_sub(1, Ordering::Relaxed);
                     ctx.request_repaint();
                 });
@@ -5202,7 +5202,9 @@ impl App {
     /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
     /// copy them back while Glimt is closed; the README says where.
     fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
-        self.background(ctx, move || Some(back_up_to(&dir).unwrap_or_else(|e| e)));
+        self.background(ctx, move || {
+            Some(config::back_up_to(&dir).unwrap_or_else(|e| e))
+        });
     }
 
     /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
@@ -5580,7 +5582,7 @@ impl App {
             Action::TrashCollection => self.trash_collection(ctx),
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
                 let picked: HashSet<usize> = self.targets().into_iter().collect();
-                let order = moved(self.files.len(), &picked, action);
+                let order = collections::moved(self.files.len(), &picked, action);
                 self.move_in_collection(ctx, picked, order)
             }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
@@ -7202,7 +7204,7 @@ impl App {
             if ctx.input(|i| i.pointer.any_released())
                 && let Some((picked, Some(to))) = self.dragging.take()
             {
-                let order = dropped(self.files.len(), &picked, to);
+                let order = collections::dropped(self.files.len(), &picked, to);
                 self.move_in_collection(ctx, picked, order);
             } else if !ctx.input(|i| i.pointer.any_down()) {
                 self.dragging = None;
@@ -7949,39 +7951,6 @@ fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
     })
 }
 
-/// Keyword tree paths cleaned: trimmed around each level, without empty ones, sorted, each once.
-fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
-    let mut out: Vec<String> = paths
-        .map(|p| {
-            p.split('|')
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .collect::<Vec<_>>()
-                .join("|")
-        })
-        .filter(|p| !p.is_empty())
-        .collect();
-    // In another letter case it is the same path: the first spelling stays.
-    out.sort_by_key(|p| p.to_lowercase());
-    out.dedup_by(|a, b| meta::same(a, b));
-    out
-}
-
-/// The keyword tree `tree` with `add` added, or `remove` and the paths below it taken out (an
-/// inner level is only there for the paths under it).
-fn keyword_tree_changed(tree: &[String], add: Vec<String>, remove: Option<String>) -> Vec<String> {
-    let under = remove.as_ref().map(|p| format!("{p}|"));
-    let kept = (tree.iter()).filter(|t| {
-        remove.as_ref().is_none_or(|p| *t != p)
-            && under.as_ref().is_none_or(|u| !t.starts_with(u.as_str()))
-    });
-    let all: Vec<&str> = kept
-        .map(String::as_str)
-        .chain(add.iter().map(String::as_str))
-        .collect();
-    keyword_paths(all.into_iter())
-}
-
 /// A level of the keyword tree: its children by name.
 #[derive(Default)]
 struct KeywordNode(std::collections::BTreeMap<String, KeywordNode>);
@@ -8064,53 +8033,6 @@ fn config_notice(problems: &[String]) -> Option<String> {
     Some(format!("Settings file: {first}{more}"))
 }
 
-/// Glimt's own folders copied to a new folder glimt-backup-DATE in `dir`: what was done, or
-/// what went wrong.
-fn back_up_to(dir: &Path) -> Result<String, String> {
-    // A mistyped or unmounted folder is not made: the backup would land where no one looks.
-    if !dir.is_dir() {
-        return Err(format!("{} is not a folder", dir.display()));
-    }
-    let own = config::own_folders();
-    if own.is_empty() {
-        return Err("Nothing to back up: Glimt has no settings, marks or collections here".into());
-    }
-    // Inside one of the folders it copies, the backup would copy itself until paths are too long.
-    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_owned());
-    if let Some((_, inside)) = own.iter().find(|(_, d)| real(dir).starts_with(real(d))) {
-        return Err(format!(
-            "A backup cannot go inside {}, which it copies",
-            inside.display()
-        ));
-    }
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
-        .chars()
-        .take(10)
-        .collect();
-    // A second backup the same day goes beside the first, never over it.
-    let to = (1..)
-        .map(|n| match n {
-            1 => dir.join(format!("glimt-backup-{date}")),
-            n => dir.join(format!("glimt-backup-{date}-{n}")),
-        })
-        .find(|p| !p.exists())
-        .unwrap_or_default();
-    let copied: std::io::Result<usize> = (own.into_iter())
-        .map(|(name, from)| config::copy_tree(&from, &to.join(name)))
-        .sum();
-    // Not the plan of a Rename Many running now: restored later, it would rename files again.
-    let _ = std::fs::remove_dir_all(to.join("state/renames"));
-    match copied {
-        Ok(n) => Ok(format!(
-            "Glimt's data backed up to {}: {}",
-            to.display(),
-            count(n, "file")
-        )),
-        Err(e) => Err(format!("The backup to {} is not whole: {e}", to.display())),
-    }
-}
-
 /// glimt --check-config [FILE]: what is wrong in the settings file, or FILE; exit 1 if anything.
 fn check_config(file: Option<PathBuf>) -> ! {
     let Some(path) = file.or_else(config::config_path) else {
@@ -8161,7 +8083,7 @@ fn main() -> eframe::Result {
             eprintln!("glimt: --back-up takes the folder to put the backup in");
             std::process::exit(2);
         };
-        match back_up_to(Path::new(dir)) {
+        match config::back_up_to(Path::new(dir)) {
             Ok(done) => println!("{done}"),
             Err(e) => {
                 eprintln!("glimt: {e}");
@@ -8258,48 +8180,11 @@ fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32) {
     );
 }
 
-/// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
-/// (each picked passes one that is not, never one another), or all to the start or end, among
-/// themselves in the order they had.
-fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..n).collect();
-    let (first, rest): (Vec<usize>, Vec<usize>) = order.iter().partition(|i| picked.contains(i));
-    match action {
-        Action::MoveFirst => order = [first, rest].concat(),
-        Action::MoveLast => order = [rest, first].concat(),
-        Action::MoveEarlier => {
-            for at in 1..n {
-                if picked.contains(&order[at]) && !picked.contains(&order[at - 1]) {
-                    order.swap(at - 1, at);
-                }
-            }
-        }
-        Action::MoveLater => {
-            for at in (0..n.saturating_sub(1)).rev() {
-                if picked.contains(&order[at]) && !picked.contains(&order[at + 1]) {
-                    order.swap(at, at + 1);
-                }
-            }
-        }
-        _ => {}
-    }
-    order
-}
-
 /// The places along a row or column of items `size` long, one every `step`, that the span
 /// `lo..hi` (from the first item's start) overlaps.
 fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
     let first = ((lo - size) / step).floor() + 1.0;
     first.max(0.0) as usize..(hi / step).ceil().max(0.0) as usize
-}
-
-/// The new order of a list of `n` after the `picked` places are dragged before place `to` (`n`:
-/// to the end), among themselves in the order they had.
-fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize> {
-    let (first, mut rest): (Vec<usize>, Vec<usize>) = (0..n).partition(|i| picked.contains(i));
-    let at = rest.iter().take_while(|&&i| i < to).count();
-    rest.splice(at..at, first);
-    rest
 }
 
 /// `template` (see OSD_TEMPLATE) with each `%field%` replaced by `value(field)`.
@@ -8330,23 +8215,6 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// The keyword tree changed by one window keeps what another added; removing a level takes
-    /// the levels below it.
-    #[test]
-    fn changes_the_keyword_tree_alone() {
-        let on_disk = [
-            "Animals".to_string(),
-            "Places|Oslo".into(),
-            "People|Kari".into(),
-        ];
-        let added = super::keyword_tree_changed(&on_disk, vec!["Places|Bergen".into()], None);
-        assert_eq!(
-            added,
-            ["Animals", "People|Kari", "Places|Bergen", "Places|Oslo"]
-        );
-        let removed = super::keyword_tree_changed(&added, Vec::new(), Some("Places".into()));
-        assert_eq!(removed, ["Animals", "People|Kari"]);
-    }
 
     /// A setting this Glimt does not know is no notice at start; a wrong value is.
     #[test]
@@ -8378,27 +8246,6 @@ mod tests {
         assert!(super::round_ends(Some(8), 3, 10));
         assert!(super::round_ends(Some(0), 1, 1));
         assert!(super::round_ends(None, 1, 5));
-    }
-
-    #[test]
-    fn moves_in_a_collection() {
-        use super::{Action, moved};
-        let set = |v: &[usize]| v.iter().copied().collect();
-        // 0 1 2 3 4 5 with 1, 2 and 5 picked.
-        let picked = set(&[1, 2, 5]);
-        assert_eq!(moved(6, &picked, Action::MoveEarlier), [1, 2, 0, 3, 5, 4]);
-        assert_eq!(moved(6, &picked, Action::MoveLater), [0, 3, 1, 2, 4, 5]);
-        assert_eq!(moved(6, &picked, Action::MoveFirst), [1, 2, 5, 0, 3, 4]);
-        assert_eq!(moved(6, &picked, Action::MoveLast), [0, 3, 4, 1, 2, 5]);
-        // At the edge already: where it was.
-        assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
-        assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
-        // Dragged before 4, before 0, to the end, and onto a place of their own.
-        use super::dropped;
-        assert_eq!(dropped(6, &picked, 4), [0, 3, 1, 2, 5, 4]);
-        assert_eq!(dropped(6, &picked, 0), [1, 2, 5, 0, 3, 4]);
-        assert_eq!(dropped(6, &picked, 6), [0, 3, 4, 1, 2, 5]);
-        assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
     }
 
     /// Cells 100 high every 110: a band from 50 to 230 touches rows 0, 1 and 2; one in the gap
@@ -8510,20 +8357,6 @@ mod tests {
             "x a.jpg\n50%"
         );
         assert_eq!(fill(""), "");
-    }
-
-    /// Keyword tree paths are trimmed around each level, sorted and kept once.
-    #[test]
-    fn cleans_keyword_paths() {
-        let paths = [
-            " places | Norway|Oslo ",
-            "Animals",
-            "",
-            "Places||x|",
-            "Animals",
-        ];
-        let got = super::keyword_paths(paths.into_iter());
-        assert_eq!(got, ["Animals", "places|Norway|Oslo", "Places|x"]);
     }
 
     /// New Window starts the AppImage only from inside it, not when Glimt was merely started

@@ -2,8 +2,8 @@
 //! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
 
 use crate::external::{is_heif, is_video};
-use crate::{exif, meta, raw, small_alloc_threads};
-use std::collections::{HashMap, HashSet};
+use crate::{exif, raw};
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -43,23 +43,6 @@ pub const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
 pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
     let ext = path.extension().and_then(|e| e.to_str());
     ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
-}
-
-/// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
-pub fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
-    let index = crate::in_parts(files, small_alloc_threads(), |part, _| {
-        (part.iter())
-            .map(|name| {
-                let path = dir.join(name);
-                let rows = exif::read(&path);
-                let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-                let meta = meta::read(&path).text();
-                text.push(&meta);
-                (name.clone(), text.join(" ").to_lowercase())
-            })
-            .collect()
-    });
-    index.into_iter().collect()
 }
 
 /// A new file name from `pattern`: * is the old name without extension, a run of # the number

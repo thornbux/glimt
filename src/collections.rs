@@ -2,6 +2,8 @@
 //! file, one quoted path per line, kept in `$XDG_DATA_HOME/glimt/collections`; Geeqie's own
 //! collections can be opened too.
 
+use crate::actions::Action;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -233,6 +235,43 @@ fn to_text(paths: &[PathBuf]) -> Vec<u8> {
     text
 }
 
+/// The new order of a list of `n` after `action` moves the `picked` places: one earlier or later
+/// (each picked passes one that is not, never one another), or all to the start or end, among
+/// themselves in the order they had.
+pub(crate) fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..n).collect();
+    let (first, rest): (Vec<usize>, Vec<usize>) = order.iter().partition(|i| picked.contains(i));
+    match action {
+        Action::MoveFirst => order = [first, rest].concat(),
+        Action::MoveLast => order = [rest, first].concat(),
+        Action::MoveEarlier => {
+            for at in 1..n {
+                if picked.contains(&order[at]) && !picked.contains(&order[at - 1]) {
+                    order.swap(at - 1, at);
+                }
+            }
+        }
+        Action::MoveLater => {
+            for at in (0..n.saturating_sub(1)).rev() {
+                if picked.contains(&order[at]) && !picked.contains(&order[at + 1]) {
+                    order.swap(at, at + 1);
+                }
+            }
+        }
+        _ => {}
+    }
+    order
+}
+
+/// The new order of a list of `n` after the `picked` places are dragged before place `to` (`n`:
+/// to the end), among themselves in the order they had.
+pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize> {
+    let (first, mut rest): (Vec<usize>, Vec<usize>) = (0..n).partition(|i| picked.contains(i));
+    let at = rest.iter().take_while(|&&i| i < to).count();
+    rest.splice(at..at, first);
+    rest
+}
+
 #[cfg(test)]
 mod tests {
     /// Shuffled files back in the saved order; one added since goes last.
@@ -356,5 +395,26 @@ mod tests {
         for text in crate::broken(&super::to_text(&paths)) {
             super::parse(&text);
         }
+    }
+
+    #[test]
+    fn moves_in_a_collection() {
+        use super::{Action, moved};
+        let set = |v: &[usize]| v.iter().copied().collect();
+        // 0 1 2 3 4 5 with 1, 2 and 5 picked.
+        let picked = set(&[1, 2, 5]);
+        assert_eq!(moved(6, &picked, Action::MoveEarlier), [1, 2, 0, 3, 5, 4]);
+        assert_eq!(moved(6, &picked, Action::MoveLater), [0, 3, 1, 2, 4, 5]);
+        assert_eq!(moved(6, &picked, Action::MoveFirst), [1, 2, 5, 0, 3, 4]);
+        assert_eq!(moved(6, &picked, Action::MoveLast), [0, 3, 4, 1, 2, 5]);
+        // At the edge already: where it was.
+        assert_eq!(moved(3, &set(&[0]), Action::MoveEarlier), [0, 1, 2]);
+        assert_eq!(moved(0, &set(&[]), Action::MoveLater), Vec::<usize>::new());
+        // Dragged before 4, before 0, to the end, and onto a place of their own.
+        use super::dropped;
+        assert_eq!(dropped(6, &picked, 4), [0, 3, 1, 2, 5, 4]);
+        assert_eq!(dropped(6, &picked, 0), [1, 2, 5, 0, 3, 4]);
+        assert_eq!(dropped(6, &picked, 6), [0, 3, 4, 1, 2, 5]);
+        assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
     }
 }
