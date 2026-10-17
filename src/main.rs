@@ -248,6 +248,10 @@ struct Pan {
     jump: Option<usize>,
 }
 
+/// Files a delete or a move was asked for, those that are gone now (found out in its thread,
+/// not one `stat` each in the window's), and whether to read the folder again.
+type Deleted = (Vec<PathBuf>, Vec<PathBuf>, bool);
+
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
 /// import), for the status bar: how far it is, and a Stop that takes effect between files.
 struct Job {
@@ -1160,8 +1164,8 @@ struct App {
     closing: u8,
     /// Deletes and moves done, and whether to read the folder again: one failed, so the files
     /// may still be there, or files were moved or copied into the list.
-    deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
-    deleted_rx: mpsc::Receiver<(Vec<PathBuf>, bool)>,
+    deleted_tx: mpsc::Sender<Deleted>,
+    deleted_rx: mpsc::Receiver<Deleted>,
     /// Files copied or moved, (from, to), and whether copied: their marks follow.
     put_tx: mpsc::Sender<(Vec<(PathBuf, PathBuf)>, bool)>,
     put_rx: mpsc::Receiver<(Vec<(PathBuf, PathBuf)>, bool)>,
@@ -3542,9 +3546,10 @@ impl App {
             }) {
                 let _ = tx.send(text);
             }
+            let gone: Vec<PathBuf> = paths.iter().filter(|p| !p.exists()).cloned().collect();
             // Their sidecars go the same way; a new file of the same name must not get their
             // keywords.
-            let sides: Vec<PathBuf> = (paths.iter().filter(|p| !p.exists()))
+            let sides: Vec<PathBuf> = (gone.iter())
                 .map(|p| meta::sidecar(p))
                 .filter(|s| s.exists())
                 .collect();
@@ -3556,7 +3561,7 @@ impl App {
                 }
             }
             // Those not reached after Stop are still there, as after a failure.
-            let _ = deleted_tx.send((paths, !errors.is_empty() || job.stopped()));
+            let _ = deleted_tx.send((paths, gone, !errors.is_empty() || job.stopped()));
             drop(job);
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
@@ -3571,25 +3576,13 @@ impl App {
             #[cfg(not(feature = "marks"))]
             let _ = (pairs, keep);
         }
-        for (paths, failed) in self.deleted_rx.try_iter() {
+        for (paths, gone, failed) in self.deleted_rx.try_iter() {
             // Deleted: their marks go, so that a new file of the same name does not get them.
             #[cfg(feature = "marks")]
-            self.marks.forget(
-                &paths
-                    .iter()
-                    .filter(|p| !p.exists())
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            );
+            self.marks.forget(&gone);
             if let Some(dups) = &mut self.dups {
                 // Those that failed are still there.
-                dups.remove(
-                    &paths
-                        .iter()
-                        .filter(|p| !p.exists())
-                        .map(PathBuf::as_path)
-                        .collect(),
-                );
+                dups.remove(&gone.iter().map(PathBuf::as_path).collect());
             }
             // By the name the list has, with its folders in the list with subfolders and in a
             // collection.
@@ -3793,6 +3786,10 @@ impl App {
                 }
                 job.did(1);
             }
+            let gone: Vec<PathBuf> = match keep {
+                true => Vec::new(),
+                false => put.iter().map(|(from, _)| from.clone()).collect(),
+            };
             // Before the deleted ones below, whose marks would go otherwise.
             let _ = put_tx.send((put, keep));
             if let Some(first) = errors.first() {
@@ -3815,7 +3812,7 @@ impl App {
             // failed to go or were not reached after Stop.
             if listed || !keep {
                 let relist = listed || !errors.is_empty() || job.stopped();
-                let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, relist));
+                let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, gone, relist));
             }
             drop(job);
             busy.fetch_sub(1, Ordering::Relaxed);
@@ -4117,7 +4114,12 @@ impl App {
                 Err(e) => Some(format!("gio trash (from glib): {e}")),
             };
             // Failed: listed again, as a failed delete of files is.
-            let _ = deleted_tx.send((vec![dir], error.is_some()));
+            let gone = if error.is_none() {
+                vec![dir.clone()]
+            } else {
+                Vec::new()
+            };
+            let _ = deleted_tx.send((vec![dir], gone, error.is_some()));
             error.map(|e| format!("Could not move the folder to the trash: {e}"))
         });
     }
@@ -6325,7 +6327,7 @@ impl App {
                 for f in files {
                     let _ = saved.send((f, Ok(())));
                 }
-                let _ = deleted.send((Vec::new(), true));
+                let _ = deleted.send((Vec::new(), Vec::new(), true));
                 result.err().map(|e| format!("{}: {e}", plugin.name))
             });
         });

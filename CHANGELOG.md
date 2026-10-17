@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A delete or move of hundreds of thousands of files no longer freezes the window when it ends:
+  which files were gone was looked up twice for each, in the window's thread.
 - Import Lightroom Catalog writes stars and keywords to the sidecars through the same writer as
   stars and keywords set by hand, in the order they were made: a star given during a long import
   could be overwritten by Lightroom's.
