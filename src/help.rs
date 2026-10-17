@@ -680,6 +680,18 @@ const MOUSE: &[(&str, &str)] = &[
     ("Drag", "Move a zoomed image"),
     ("Double-click", "Full Screen"),
     ("Ctrl+click in the list", "Select or unselect a file"),
+    (
+        "Shift+click in the list",
+        "Select the files from the last one clicked",
+    ),
+    (
+        "Drag in the grid of icons",
+        "Select with a rectangle (Ctrl or Shift: add to the selection)",
+    ),
+    (
+        "Drag in a collection's list",
+        "Move the images to another place",
+    ),
 ];
 
 fn shortcuts(ui: &mut egui::Ui) {

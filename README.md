@@ -231,7 +231,7 @@ Extra file types are optional features, so the default build stays small:
 | `jxl` | JPEG XL photos, decoded in Rust (jxl-oxide) | nothing |
 | `svg` | SVG images, drawn in Rust (resvg) | nothing |
 | `marks` | Marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
-| `accessibility` | Screen readers such as Orca: menus, buttons and lists, and the shown image read as its name, place, stars, keywords and comment | a screen reader (AT-SPI), when you use one |
+| `accessibility` | Screen readers such as Orca: menus, buttons and lists, and the shown image read as its alt text, name, place, stars, keywords, comment and extended description | a screen reader (AT-SPI), when you use one |
 
 ```sh
 cargo build --release --features video,heic,marks
