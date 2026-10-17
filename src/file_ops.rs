@@ -457,6 +457,8 @@ impl crate::App {
             return;
         }
         self.forget_folder(&old);
+        #[cfg(feature = "marks")]
+        self.marks.put_folder(&old, &new);
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {
                 // The shown file is under the new name now, also for a turn not saved yet.

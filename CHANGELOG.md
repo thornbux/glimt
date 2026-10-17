@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Marks and stars follow a folder that is renamed, and go with one moved to the trash, instead of
+  staying under the old paths, where a new folder of the same name got them.
 - Marks and stars follow their files through a Rename Many that swaps or shifts names, instead of
   being lost or given to the wrong file.
 - A Rename Many cut short in the middle of one rename, with the file under both names, is put
