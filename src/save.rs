@@ -157,6 +157,11 @@ pub fn save_rotated(
         }
     };
     written.map_err(|e| e.to_string())?;
+    // The rest of what the PNG said of itself: its text (a comment, an AI tool's prompt), its
+    // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn.
+    if png && let Ok(old) = std::fs::read(path) {
+        out = png_with_chunks(&out, &old);
+    }
     if let Some(xmp) = &xmp {
         out = match png {
             true => png_with_xmp(&out, xmp)?,
@@ -204,6 +209,37 @@ fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
     out.extend(crc32(&chunk).to_be_bytes());
     out.extend(&png[end..]);
     Ok(out)
+}
+
+/// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header:
+/// text, physical size, time and colour space. Not the profile, EXIF or XMP, which are written
+/// anew, nor what depends on how the pixels are stored (palette, transparency, bit depth).
+fn png_with_chunks(new: &[u8], old: &[u8]) -> Vec<u8> {
+    const KEPT: [&[u8; 4]; 8] = [
+        b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB",
+    ];
+    let (end, mut kept) = (33, Vec::new());
+    let mut at = 8;
+    while let Some(len) = old.get(at..at + 4) {
+        let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
+        let Some(chunk) = old.get(at..at.saturating_add(12).saturating_add(len)) else {
+            break;
+        };
+        let name = &chunk[4..8];
+        let xmp = name == b"iTXt" && chunk[8..].starts_with(b"XML:com.adobe.xmp\0");
+        if KEPT.iter().any(|k| *k == name) && !xmp {
+            kept.extend_from_slice(chunk);
+        }
+        // Text may come after the pixels too: read up to the end.
+        if name == b"IEND" {
+            break;
+        }
+        at += 12 + len;
+    }
+    if new.get(12..16) != Some(&b"IHDR"[..]) || new.len() < end {
+        return new.to_vec();
+    }
+    [&new[..end], &kept, &new[end..]].concat()
 }
 
 /// The CRC that PNG chunks end with (ISO 3309), bit by bit: run once per saved image.
@@ -319,6 +355,40 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
+    /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored;
+    /// broken ones are survived.
+    #[test]
+    fn keeps_png_chunks() {
+        use image::ImageEncoder;
+        let chunk = |name: &[u8], data: &[u8]| {
+            let mut c = (data.len() as u32).to_be_bytes().to_vec();
+            let body = [name, data].concat();
+            c.extend(&body);
+            c.extend(super::crc32(&body).to_be_bytes());
+            c
+        };
+        let mut new = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut new)
+            .write_image(&[0; 2 * 2 * 3], 2, 2, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut old = new[..33].to_vec();
+        old.extend(chunk(b"pHYs", &[0, 0, 11, 19, 0, 0, 11, 19, 1]));
+        old.extend(chunk(b"tRNS", &[0, 0, 0, 0, 0, 0]));
+        old.extend(chunk(b"iTXt", b"XML:com.adobe.xmp\0\0\0\0\0<x/>"));
+        old.extend(&new[33..new.len() - 12]);
+        old.extend(chunk(b"tEXt", b"Comment\0hello"));
+        old.extend(&new[new.len() - 12..]);
+        let out = super::png_with_chunks(&new, &old);
+        let has = |name: &[u8]| out.windows(4).any(|w| w == name);
+        assert!(has(b"pHYs") && has(b"tEXt"));
+        assert!(!has(b"tRNS") && !has(b"iTXt"));
+        let dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
+        assert_eq!(image::ImageDecoder::dimensions(&dec), (2, 2));
+        for broken in crate::broken(&old) {
+            super::png_with_chunks(&new, &broken);
+        }
+    }
+
     /// The XMP's orientation upright in both forms; nothing else changed, and broken XMP is
     /// survived.
     #[test]

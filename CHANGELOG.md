@@ -77,6 +77,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - When the folder is read again (another program writing to it, or Glimt's own sidecars and saves
   beside the files), the shown image keeps its zoom, turn and place and the images read ahead
   stay; a refresh in which nothing changed does nothing at all.
+- README: it no longer promises that sidecars keep what another window wrote at the same moment;
+  settings, collections, marks and the keyword tree do.
+- Printing shrinks each image before it goes to sRGB, and decodes a JPEG at a fraction of its size
+  when that is enough: a large photo with its own profile no longer takes hundreds of MB for a
+  moment.
+- A PNG saved turned keeps its text (a comment, the prompt an AI tool wrote), its DPI, its time
+  and its gamma and colour space, instead of only its profile, EXIF and XMP: a 300 dpi scan no
+  longer prints at 72 after a turn.
 
 ## [0.34.1] - 2026-10-17
 
