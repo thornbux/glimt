@@ -81,7 +81,8 @@ pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
 }
 
 /// The paths of a plain list, those relative to it joined to `base`, its folder; each once.
-/// Lines may be quoted, end in CR, or be file:// URIs, as players write them.
+/// Lines may be quoted, end in CR, or be file:// URIs, as players write them; a URI of another
+/// computer is left out.
 fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
     let mut seen = std::collections::HashSet::new();
     (text.split(|&b| b == b'\n'))
@@ -91,12 +92,32 @@ fn parse_list(text: &[u8], base: &Path) -> Vec<PathBuf> {
             [b'"', inner @ .., b'"'] => inner,
             line => line,
         })
-        .map(|line| match line.strip_prefix(b"file://") {
-            Some(uri) => PathBuf::from(OsStr::from_bytes(&percent_decoded(uri))),
-            None => base.join(OsStr::from_bytes(line)),
+        .filter_map(|line| match line.strip_prefix(b"file://") {
+            Some(uri) => {
+                let uri = uri.strip_prefix(b"localhost").unwrap_or(uri);
+                let path = PathBuf::from(OsStr::from_bytes(&percent_decoded(uri)));
+                path.is_absolute().then_some(path)
+            }
+            None => Some(lexical(&base.join(OsStr::from_bytes(line)))),
         })
         .filter(|p| seen.insert(p.clone()))
         .collect()
+}
+
+/// `path` with its `.` and `..` worked out as written, without looking at the disk: the same
+/// image named "../Pictures/a.jpg" in a list is "/home/u/Pictures/a.jpg", the key its stars are
+/// kept by when it is shown from its folder.
+fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => drop(out.pop()),
+            part => out.push(part),
+        }
+    }
+    out
 }
 
 /// A URI's path with its %XX escapes undone.
@@ -104,8 +125,9 @@ fn percent_decoded(uri: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(uri.len());
     let mut i = 0;
     while i < uri.len() {
-        let hex = uri
-            .get(i + 1..i + 3)
+        // Two hex digits: from_str_radix alone takes "+4" too.
+        let hex = (uri.get(i + 1..i + 3))
+            .filter(|h| h.iter().all(u8::is_ascii_hexdigit))
             .and_then(|h| std::str::from_utf8(h).ok());
         match (uri[i], hex.and_then(|h| u8::from_str_radix(h, 16).ok())) {
             (b'%', Some(b)) => {
@@ -226,12 +248,14 @@ mod tests {
 
     use std::path::PathBuf;
 
-    /// A plain list: relative to its folder or absolute, quoted or not, file:// URIs, comments,
-    /// blank lines and CR, each image once and in the order written.
+    /// A plain list: relative to its folder (also with ..) or absolute, quoted or not, file://
+    /// URIs (of this computer), comments, blank lines and CR, each image once and in the order
+    /// written.
     #[test]
     fn reads_plain_lists() {
         let text = b"#EXTM3U\r\nb.jpg\r\n\n  \"sub/a b.jpg\"\n/abs/c.png\n\
-                     file:///abs/with%20space.jpg\n# a comment\nb.jpg\n";
+                     file:///abs/with%20space.jpg\n# a comment\nb.jpg\n../Pictures/./d.jpg\n\
+                     file://localhost/abs/e.jpg\nfile://nas/abs/f.jpg\nfile:///abs/100%+4.jpg\n";
         let paths = super::parse_list(text, std::path::Path::new("/lists"));
         assert_eq!(
             paths,
@@ -239,7 +263,10 @@ mod tests {
                 "/lists/b.jpg",
                 "/lists/sub/a b.jpg",
                 "/abs/c.png",
-                "/abs/with space.jpg"
+                "/abs/with space.jpg",
+                "/Pictures/d.jpg",
+                "/abs/e.jpg",
+                "/abs/100%+4.jpg"
             ]
             .map(PathBuf::from)
         );

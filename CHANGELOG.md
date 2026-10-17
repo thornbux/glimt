@@ -70,6 +70,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   PNG was still turned by the EXIF orientation.
 - Save This Frame and Export Frames decode an animation once, not first all of it to learn that it
   is animated.
+- A plain list's relative paths with .. name the image as its folder does, so its stars are the
+  same; file://localhost/ URIs are read, those of another computer left out, and a % not followed
+  by two hex digits is kept as it is.
 
 ## [0.31.0] - 2026-10-17
 
