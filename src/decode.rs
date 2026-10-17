@@ -956,7 +956,10 @@ mod tests {
                     hidden: false
                 }
             ),
-            ["a.png", "b.gif", "sub/c.png"]
+            (
+                vec![dir.join("sub")],
+                ["a.png", "b.gif", "sub/c.png"].map(Into::into).to_vec()
+            )
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

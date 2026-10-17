@@ -35,6 +35,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   over the whole picture first, about 300 MB for a 48 MP phone photo, in each thumbnail thread.
 - Printing a contact sheet says how many images went on how many pages (80 images on 4 pages), not
   80 pages.
+- With Include Subfolders on, a folder is read once, not twice (500,000 files took both readings);
+  a folder given to Open Several Folders inside another one given has its images listed once, not
+  twice.
 
 ## [0.32.0] - 2026-10-17
 
