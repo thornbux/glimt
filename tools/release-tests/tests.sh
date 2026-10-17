@@ -1153,6 +1153,26 @@ expect "inverted" "$(filtered filter-invert-new)" cyan
 expect "the filter kept in the settings" "$kept" 1
 note "old: $(filtered filter-grey-old)"
 
+echo "-- the projector shows the frame of an animation stepped to"
+for v in new old; do
+    as_version $v
+    d=/tmp/projector-frame-$v
+    mkdir -p $d
+    # Red for 20 s, then blue: stepped to, the blue frame is shown at once.
+    convert -delay 2000 -size 300x200 xc:red xc:blue $d/a.gif
+    config
+    start $d/a.gif
+    sleep 2
+    click 225 10; click 236 95 2       # Window → Projector
+    key ctrl+Next; sleep 1             # the next frame: blue
+    p=$(xdotool search --name "Glimt Projector" 2>/dev/null | head -1)
+    [ -n "$p" ] && import -window $p /t/out/projector-frame-$v.png
+    quit
+    if [ $v = new ]; then expect "the blue frame on the projector" "$(colour projector-frame-new 480 300)" blue
+    else note "old: $(colour projector-frame-old 480 300 2>/dev/null)"; fi
+done
+as_version new
+
 echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d

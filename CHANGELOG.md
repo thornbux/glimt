@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The projector shows the frame of an animation stepped to with Ctrl+Page Down, as the main window
+  does: it went on playing.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

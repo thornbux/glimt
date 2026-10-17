@@ -3246,10 +3246,7 @@ impl App {
             false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
         };
         let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-        let tex = match self.config.animate {
-            true => slot.frame(self.opened.elapsed(), ui.ctx()),
-            false => &slot.tex,
-        };
+        let tex = self.texture(slot, ui.ctx());
         egui::Image::new(tex)
             .uv(uv)
             .rotate(angle, egui::Vec2::splat(0.5))
@@ -5527,6 +5524,16 @@ impl App {
         match self.config.animate {
             true => slot.map_or(0, |s| s.frame_at(self.opened.elapsed()).0),
             false => 0,
+        }
+    }
+
+    /// What `slot` shows now, in the main window and on the projector alike: the frame stepped
+    /// to, the frame playing, or the image.
+    fn texture<'a>(&self, slot: &'a Slot, ctx: &egui::Context) -> &'a egui::TextureHandle {
+        match self.frame {
+            Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
+            None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
+            None => &slot.tex,
         }
     }
 
@@ -9365,11 +9372,7 @@ impl App {
                         egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
                     };
                     let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-                    let tex = match self.frame {
-                        Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
-                        None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
-                        None => &slot.tex,
-                    };
+                    let tex = self.texture(slot, ctx);
                     // Within its pane or half, which zoom makes it overflow.
                     let clip = ui.clip_rect();
                     ui.set_clip_rect(area.intersect(clip));
