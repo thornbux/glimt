@@ -432,12 +432,22 @@ const KIOSK_ACTIONS: &[Action] = &[
     Action::PrevPage,
 ];
 
-/// `orig` fitted into `rect`, centred; larger than its size only with `enlarge`.
-fn fitted(rect: egui::Rect, orig: [usize; 2], ppp: f32, enlarge: bool) -> egui::Rect {
+/// Where an image of `orig` is drawn in `rect`, and its scale: at the `zoom` and pan given, else
+/// fitted in fit `mode`, centred, and larger than its size only with `enlarge`.
+fn placed(
+    rect: egui::Rect,
+    orig: [usize; 2],
+    ppp: f32,
+    (enlarge, mode): (bool, u8),
+    zoom: Option<(f32, egui::Vec2)>,
+) -> (egui::Rect, f32) {
     let size = egui::vec2(orig[0] as f32, orig[1] as f32);
-    let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
-    let fit = if enlarge { fit } else { fit.min(1.0) };
-    egui::Rect::from_center_size(rect.center(), size * fit / ppp)
+    let (scale, pan) = zoom.unwrap_or_else(|| {
+        let fit = fit_scale(rect.size() * ppp, size.into(), mode);
+        (if enlarge { fit } else { fit.min(1.0) }, egui::Vec2::ZERO)
+    });
+    let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
+    (at, scale)
 }
 
 /// A texture shown and its image's size, which a fade goes from.
@@ -2995,25 +3005,14 @@ impl App {
         let fade = k.and_then(|k| self.fading(ui.ctx(), k, now));
         let slot = self.slots.get(&i)?;
         let ppp = ui.ctx().pixels_per_point();
-        let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
-        let (scale, pan) = match zoom {
-            Some(z) => (z, self.pan_offset),
-            None => {
-                let fit = fit_scale(rect.size() * ppp, size.into(), self.config.fit_mode);
-                let fit = if self.config.enlarge {
-                    fit
-                } else {
-                    fit.min(1.0)
-                };
-                (fit, egui::Vec2::ZERO)
-            }
-        };
-        let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
+        let look = (self.config.enlarge, self.config.fit_mode);
+        let zoom = zoom.map(|z| (z, self.pan_offset));
+        let (at, scale) = placed(rect, slot.orig, ppp, look, zoom);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let p = ui.painter().with_clip_rect(rect);
         let shown = match &fade {
             Some((t, old, orig)) => {
-                let from = fitted(rect, *orig, ppp, self.config.enlarge);
+                let from = placed(rect, *orig, ppp, look, zoom).0;
                 p.image(old.id(), from, uv, alpha(1.0 - t.powi(4)));
                 *t
             }
@@ -9580,7 +9579,9 @@ impl App {
                     // A slideshow fading: the image before goes as this one comes.
                     let shown = match &fade {
                         Some((t, old, orig)) => {
-                            let at = fitted(area, *orig, ppp, self.config.enlarge);
+                            let look = (self.config.enlarge, mode);
+                            let zoom = self.zoom.map(|z| (z, self.pan_offset));
+                            let at = placed(area, *orig, ppp, look, zoom).0;
                             let uv1 =
                                 egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                             ui.painter()
