@@ -10,6 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A rectangle being dragged in the grid, or images of a collection being dragged, when the list
   changed under them (auto refresh, a delete finishing) held places of the old list: the selection
   then took other files, which Delete would have acted on.
+- Check Images no longer reports phone motion photos (a video after the JPEG) as cut off: it
+  looked for the JPEG's end only in the last 64 KB, which a video of megabytes after it may lack.
 
 ## [0.31.0] - 2026-10-17
 

@@ -570,17 +570,13 @@ pub fn check(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether the last 64 KB of a JPEG hold its end marker (FF D9): some cameras write more after
-/// it, so it need not be the last two bytes.
+/// Whether a JPEG's image data reaches its end marker (FF D9), which the data itself never
+/// holds (an FF in it is followed by 00 or a restart marker). Looked for from the image data
+/// on, not in the last bytes: phones put a video of megabytes after it in a motion photo.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let len = file.metadata().map_err(|e| e.to_string())?.len();
-    file.seek(SeekFrom::Start(len.saturating_sub(64 << 10)))
-        .map_err(|e| e.to_string())?;
-    let mut tail = Vec::new();
-    file.read_to_end(&mut tail).map_err(|e| e.to_string())?;
-    Ok(tail.windows(2).any(|w| w == [0xff, 0xd9]))
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let scan = crate::exif::jpeg_scan_start(&data).unwrap_or(data.len());
+    Ok(data[scan..].windows(2).any(|w| w == [0xff, 0xd9]))
 }
 
 /// `work`, or an error if it panics: a decoder crashing on a broken file must not end the
@@ -820,6 +816,10 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("whole.jpg"), &jpeg).unwrap();
         std::fs::write(dir.join("cut.jpg"), &jpeg[..jpeg.len() * 2 / 3]).unwrap();
+        // A motion photo: a video after the JPEG's end, longer than 64 KB and without FF D9.
+        let motion = [&jpeg[..], &vec![0x42; 200_000]].concat();
+        std::fs::write(dir.join("motion.jpg"), motion).unwrap();
+        assert_eq!(super::check(&dir.join("motion.jpg")), Ok(()));
         std::fs::write(dir.join("text.png"), b"not a picture").unwrap();
         std::fs::write(dir.join("empty.webp"), b"").unwrap();
         assert_eq!(super::check(&dir.join("whole.jpg")), Ok(()));
