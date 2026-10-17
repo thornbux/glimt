@@ -7117,6 +7117,8 @@ impl App {
         let Some((kind, n)) = action.mark() else {
             return;
         };
+        // What another window marked meanwhile counts too.
+        self.marks.refresh();
         if kind == 's' {
             let bit = 1 << (n - 1);
             self.selected = (self.shown_files().into_iter())
@@ -7270,6 +7272,11 @@ impl App {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.has_focus && self.config.remote_control {
             remote::mark_focused();
+        }
+        // Back from another window, which may have marked files meanwhile.
+        #[cfg(feature = "marks")]
+        if focus && !self.has_focus {
+            self.marks.refresh();
         }
         self.has_focus = focus;
         if self.listing_rx.is_none()
