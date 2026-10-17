@@ -84,6 +84,7 @@ jobs:
           dir="glimt-$VERSION-x86_64-linux"
           mkdir -p "$dir"
           cp "target/$TARGET/release/glimt" assets/glimt.desktop assets/glimt.svg assets/glimt-256.png \
+             assets/io.github.thornbux.Glimt.metainfo.xml \
              docs/glimt.1 LICENSE README.md CHANGELOG.md assets/fonts/LICENSE-*.txt \
              THIRD-PARTY-LICENSES.txt "$dir/"
           tar czf "$dir.tar.gz" "$dir"
@@ -102,6 +103,7 @@ jobs:
           app=Glimt.AppDir
           install -Dm755 "target/$TARGET/release/glimt" "$app/usr/bin/glimt"
           install -Dm644 assets/glimt.desktop "$app/usr/share/applications/glimt.desktop"
+          install -Dm644 -t "$app/usr/share/metainfo" assets/io.github.thornbux.Glimt.metainfo.xml
           install -Dm644 assets/glimt.svg "$app/usr/share/icons/hicolor/scalable/apps/glimt.svg"
           install -Dm644 assets/glimt-256.png "$app/usr/share/icons/hicolor/256x256/apps/glimt.png"
           install -Dm644 docs/glimt.1 "$app/usr/share/man/man1/glimt.1"

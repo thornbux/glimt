@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- An AppStream metainfo file in every package, so software centres show Glimt with a description
+  and screenshots.
 - THIRD-PARTY-LICENSES.txt: the license texts of the crates built into Glimt, in every package
   (deb, rpm, tar.gz, AppImage and Flatpak), as their licenses ask; `tools/sbom.py` writes it.
 
