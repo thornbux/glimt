@@ -518,9 +518,10 @@ impl Config {
 
     /// The settings, and what is wrong in their file: its lines, or that it cannot be read.
     pub fn load_checked() -> (Self, Vec<String>) {
-        let read = config_path().map(std::fs::read_to_string);
+        let read = config_path().map(std::fs::read);
         let (config, problems) = match read {
-            Some(Ok(text)) => Self::check(&text),
+            // A byte that is not UTF-8 (a path in another encoding) does not cost the rest.
+            Some(Ok(bytes)) => Self::check(&String::from_utf8_lossy(&bytes)),
             Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => (
                 Config::default(),
                 vec![format!("cannot be read ({e}); the defaults are used")],
@@ -547,7 +548,18 @@ impl Config {
             // file's sync must not hold the window.
             write_later(move || {
                 let _held = file_lock(&p);
-                let on_disk = std::fs::read_to_string(&p).unwrap_or_default();
+                // One that is there but cannot be read is not written over: every setting the
+                // user had would be the defaults then.
+                let on_disk = match std::fs::read_to_string(&p) {
+                    Ok(text) => text,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(e) => {
+                        return save_failed(format!(
+                            "Settings not saved: {} cannot be read: {e}",
+                            p.display()
+                        ));
+                    }
+                };
                 write_atomic(&p, merged(&ours, &before, &on_disk));
             });
         }

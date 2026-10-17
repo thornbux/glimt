@@ -61,15 +61,27 @@ impl Marks {
         self.change(paths, Change::Stars(stars));
     }
 
-    /// Files deleted: their marks go, so a new file of the same name does not get them.
+    /// Files deleted, or folders with all in them: their marks go, so a new file of the same name
+    /// does not get them.
     pub fn forget(&mut self, paths: &[PathBuf]) {
-        let marked: Vec<PathBuf> = (paths.iter())
-            .filter(|p| self.map.contains_key(*p))
+        let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        // Each marked file and the folders above it, not every path deleted: a few thousand
+        // marked against 100 files at a time to the trash.
+        let marked: Vec<PathBuf> = (self.map.keys())
+            .filter(|k| k.ancestors().any(|a| gone.contains(a)))
             .cloned()
             .collect();
         if !marked.is_empty() {
             self.change(&marked, Change::Clear);
         }
+    }
+
+    /// Folder `old` renamed to `new`: the marks of the files in it go along.
+    pub fn put_folder(&mut self, old: &Path, new: &Path) {
+        let pairs = (self.map.keys())
+            .filter_map(|k| Some((k.clone(), new.join(k.strip_prefix(old).ok()?))))
+            .collect();
+        self.put(pairs, false);
     }
 
     /// Files copied (`keep`) or moved and renamed `(from, to)`: the new ones get the marks.
@@ -126,13 +138,16 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
     }
 }
 
-/// The marks of each `from` to its `to`, kept on `from` too when copied.
+/// The marks of each `from` to its `to`, kept on `from` too when copied. All are taken before
+/// any is put: in a Rename Many that swaps or shifts names, a `to` is another pair's `from`.
 fn put(map: &mut HashMap<PathBuf, (u8, u8)>, pairs: &[(PathBuf, PathBuf)], keep: bool) {
-    for (from, to) in pairs {
-        let marks = match keep {
+    let taken: Vec<Option<(u8, u8)>> = (pairs.iter())
+        .map(|(from, _)| match keep {
             true => map.get(from).copied(),
             false => map.remove(from),
-        };
+        })
+        .collect();
+    for ((_, to), marks) in pairs.iter().zip(taken) {
         match marks {
             Some(v) => drop(map.insert(to.clone(), v)),
             None => drop(map.remove(to)),
@@ -340,9 +355,28 @@ mod tests {
         );
         m.forget(&[p("/b.jpg")]);
         assert_eq!(m.get(&p("/b.jpg")), (0, 0));
+        // A folder renamed: its files' marks go along; trashed: they go.
+        m.rate(&[p("/trip/a.jpg")], 5);
+        m.put_folder(&p("/trip"), &p("/trip 2024"));
+        assert_eq!(m.get(&p("/trip 2024/a.jpg")), (0, 5));
+        m.forget(&[p("/trip 2024")]);
+        assert_eq!(m.get(&p("/trip 2024/a.jpg")), (0, 0));
         // An old entry where an unmarked file lands is cleared.
         m.put(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
+        // Rename Many swapping names, and shifting them: each keeps its own.
+        m.rate(&[p("/x.jpg")], 1);
+        m.rate(&[p("/y.jpg")], 2);
+        m.put(
+            vec![(p("/x.jpg"), p("/y.jpg")), (p("/y.jpg"), p("/x.jpg"))],
+            false,
+        );
+        assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/y.jpg")).1), (2, 1));
+        m.put(
+            vec![(p("/x.jpg"), p("/z.jpg")), (p("/y.jpg"), p("/x.jpg"))],
+            false,
+        );
+        assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/z.jpg")).1), (1, 2));
     }
 
     /// Marks files broken in thousands of ways: read without a panic.

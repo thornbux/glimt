@@ -5,15 +5,33 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-
-- With Fit Width or Fit Height, an image shown larger after the window grew (or went full screen)
-  is decoded again at the size shown, not at full resolution, which took many times the memory.
-
 ### Changed
 
 - The release tests allow 100 ms and 20 MB of slack beside the 1.5 times limit, as a few hundred
   ms vary by more than half when something else runs.
+
+### Fixed
+
+- With Fit Width or Fit Height, an image shown larger after the window grew (or went full screen)
+  is decoded again at the size shown, not at full resolution, which took many times the memory.
+- An image taken out of a collection in one window no longer comes back when another window that
+  shows the same collection saves it.
+- A delete in a collection that fails, or is stopped, keeps the images that are still there in the
+  collection, instead of taking them out of its file for good.
+- A settings file Glimt cannot read, such as one with a byte that is not UTF-8 or the wrong
+  permissions, is no longer replaced by the defaults at the first change in a menu: Glimt says it
+  cannot save, and reads the rest of a file with a stray byte.
+- Marks and stars follow a folder that is renamed, and go with one moved to the trash, instead of
+  staying under the old paths, where a new folder of the same name got them.
+- Marks and stars follow their files through a Rename Many that swaps or shifts names, instead of
+  being lost or given to the wrong file.
+- A Rename Many cut short in the middle of one rename, with the file under both names, is put
+  right at the next start instead of being asked about at every start.
+- Two windows that both found a Rename Many cut short no longer both put it right: the second one,
+  which would rename the files again, does nothing.
+- Rename Many cut short by a crash is put right by what was done, which the plan now counts: a
+  swap of names finished at the next start is no longer done a second time, which undid it, and
+  putting the old names back after a crash before the first rename changes nothing.
 
 ## [0.34.1] - 2026-10-17
 

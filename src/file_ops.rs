@@ -153,7 +153,8 @@ impl crate::App {
             #[cfg(not(feature = "marks"))]
             let _ = (pairs, keep);
         }
-        for (paths, gone, failed) in self.deleted_rx.try_iter() {
+        let reports: Vec<Deleted> = self.deleted_rx.try_iter().collect();
+        for (paths, gone, failed) in reports {
             // Deleted: their marks go, so that a new file of the same name does not get them.
             #[cfg(feature = "marks")]
             self.marks.forget(&gone);
@@ -166,9 +167,30 @@ impl crate::App {
             for rel in paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok()) {
                 self.deleting.remove(rel.as_os_str());
             }
+            // A collection is read again from its own list, which they left when the delete
+            // began: those still there (it failed, or Stop came first) go back into it.
+            if failed && self.collection.is_some() {
+                self.restore_to_collection(&paths, &gone);
+            }
             // The files that are still there come back into the list. A listing that started
             // before the files went still has them: the folder is read again after it.
             self.relist |= failed || self.listing_rx.is_some();
+        }
+    }
+
+    /// `paths` that are not `gone` back at the end of the collection, and in its file.
+    fn restore_to_collection(&mut self, paths: &[PathBuf], gone: &[PathBuf]) {
+        let gone: HashSet<&PathBuf> = gone.iter().collect();
+        let listed: HashSet<&std::ffi::OsStr> = self.files.iter().map(|f| f.as_os_str()).collect();
+        let back: Vec<OsString> = (paths.iter())
+            .filter(|p| !gone.contains(p))
+            .filter_map(|p| p.strip_prefix(&self.dir).ok())
+            .filter(|rel| !listed.contains(rel.as_os_str()))
+            .map(|rel| rel.as_os_str().to_owned())
+            .collect();
+        if !back.is_empty() {
+            self.files.extend(back);
+            self.save_collection();
         }
     }
 
@@ -457,6 +479,8 @@ impl crate::App {
             return;
         }
         self.forget_folder(&old);
+        #[cfg(feature = "marks")]
+        self.marks.put_folder(&old, &new);
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {
                 // The shown file is under the new name now, also for a turn not saved yet.
@@ -595,7 +619,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
         moves.extend(from.iter().cloned().zip(to.iter().cloned()));
     }
     // On disk while the renames run: a crash halfway is put right at the next start.
-    let _plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
+    let mut plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
         if let Err(e) = put_file(a, b, false) {
             // Named by the file and its new name, not a temporary one.
@@ -607,6 +631,9 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
             }
             let (f, t) = (name(&from[j]), name(&to[j]));
             return Err(format!("Could not rename {f} to {t}: {e}; nothing renamed"));
+        }
+        if let Some(plan) = plan.as_mut() {
+            plan.done();
         }
     }
     Ok(())

@@ -268,6 +268,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a delete that fails in a collection: the image stays in the collection"
+for v in new old; do
+    as_version $v
+    d=/tmp/failed-collection-delete-$v
+    mkdir -p $d/ro
+    convert -size 300x200 xc:blue $d/a.jpg
+    convert -size 300x200 xc:red $d/ro/b.jpg
+    chmod 555 $d/ro
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/ro/b.jpg"\n' $d $d >$d/show.gqv
+    config auto_refresh=false confirm_delete=false
+    start $d/show.gqv
+    sleep 2
+    key End; key shift+Delete; sleep 3     # ro/b.jpg cannot be deleted
+    quit
+    chmod 755 $d/ro
+    got=$(grep -c 'ro/b.jpg' $d/show.gqv)
+    if [ $v = new ]; then expect "b.jpg still in the collection" "$got" 1
+    else note "old: b.jpg lines in the collection: $got"; fi
+done
+as_version new
+
 echo "-- a refresh keeps the selection: a delete after it takes what was selected"
 for v in new old; do
     as_version $v
@@ -1321,6 +1342,24 @@ for v in new old; do
         expect "Check Images marks the cut files of the folder it began in" "$before" "marked marked"
         expect "the new folder's files not marked" "$got" "- - -"
     else note "old: $before, then $got"; fi
+done
+as_version new
+
+echo "-- a settings file with a byte that is not UTF-8: a menu toggle leaves the rest as it was"
+d=/tmp/config-latin1
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+for v in new old; do
+    as_version $v
+    printf 'delay=7\nvideo_player=/opt/caf\351/player\n' >$XDG_CONFIG_HOME/glimt/config
+    start $d/a.jpg
+    sleep 2
+    key t; key t          # Thumbnails off and on: each saves the settings
+    sleep 1
+    quit
+    got=$(grep -c '^delay=7$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then expect "the own delay kept" "$got" 1
+    else note "old: delay=7 lines: $got"; fi
 done
 as_version new
 

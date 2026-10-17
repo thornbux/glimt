@@ -1121,8 +1121,8 @@ struct App {
     renaming: Option<(mpsc::Receiver<Result<(), String>>, RenameJob)>,
     /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
     /// right; read in the background.
-    cut_short_rx: Option<mpsc::Receiver<Vec<(PathBuf, journal::Moves)>>>,
-    cut_short: Vec<(PathBuf, journal::Moves)>,
+    cut_short_rx: Option<mpsc::Receiver<Vec<journal::CutShort>>>,
+    cut_short: Vec<journal::CutShort>,
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
@@ -6475,8 +6475,8 @@ impl App {
         let plans = std::mem::take(&mut self.cut_short);
         self.background(ctx, move || {
             let (mut renamed, mut left) = (0, 0);
-            for (plan, moves) in &plans {
-                let (r, l) = journal::settle(plan, moves, undo);
+            for (plan, moves, done) in &plans {
+                let (r, l) = journal::settle(plan, moves, *done, undo);
                 (renamed, left) = (renamed + r, left + l);
             }
             let what = if undo {
