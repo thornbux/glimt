@@ -29,6 +29,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   files again. The README says where the Flatpak keeps the folders to restore.
 - After Tab, a click on the button or menu that had the keyboard focus took the ring away but left
   the focus there, so every shortcut stopped working: a click now puts the focus away.
+- The projector shows the frame of an animation stepped to with Ctrl+Page Down, as the main window
+  does: it went on playing.
 
 ## [0.31.0] - 2026-10-17
 
