@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Include Subfolders on, a folder is read once, not twice (500,000 files took both readings);
+  a folder given to Open Several Folders inside another one given has its images listed once, not
+  twice.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed

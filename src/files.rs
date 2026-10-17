@@ -173,9 +173,12 @@ pub fn own_ext(path: &Path) -> bool {
         || is_video(path)
 }
 
-/// `dir` and every folder below it, one at a time: (its path relative to `dir`, its images).
-/// A folder reached again through a link is read once.
-pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = (PathBuf, Vec<OsString>)> {
+/// `dir` and every folder below it, one at a time: (its path relative to `dir`, its folders,
+/// its images). A folder reached again through a link is read once.
+pub fn walk(
+    dir: &Path,
+    types: Types,
+) -> impl Iterator<Item = (PathBuf, Vec<PathBuf>, Vec<OsString>)> {
     let (dir, mut seen, mut todo) = (dir.to_path_buf(), HashSet::new(), vec![PathBuf::new()]);
     std::iter::from_fn(move || {
         loop {
@@ -190,19 +193,26 @@ pub fn walk(dir: &Path, types: Types) -> impl Iterator<Item = (PathBuf, Vec<OsSt
                     .filter_map(|d| d.file_name())
                     .map(|n| rel.join(n)),
             );
-            return Some((rel, files));
+            return Some((rel, dirs, files));
         }
     })
 }
 
-/// The images in `dir` and every folder below it, as paths relative to `dir`.
-pub fn list_tree(dir: &Path, types: Types) -> Vec<OsString> {
+/// The folders in `dir`, as `list_folder` gives them, and the images in it and every folder
+/// below it, as paths relative to `dir`: `dir` read once.
+pub fn list_tree(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
+    let mut top = Vec::new();
     let mut out: Vec<OsString> = walk(dir, types)
-        .flat_map(|(rel, files)| files.into_iter().map(move |f| rel.join(f).into_os_string()))
+        .flat_map(|(rel, dirs, files)| {
+            if rel.as_os_str().is_empty() {
+                top = dirs;
+            }
+            files.into_iter().map(move |f| rel.join(f).into_os_string())
+        })
         .collect();
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
-    out
+    (top, out)
 }
 
 /// Whether a folder entry is a file and whether a folder, from the entry's own type (no `stat`),

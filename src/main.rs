@@ -1985,10 +1985,13 @@ impl App {
                 };
                 let mut files: Vec<OsString> = (folders.iter())
                     .flat_map(|d| match recursive {
-                        true => rel(d, list_tree(d, types)),
+                        true => rel(d, list_tree(d, types).1),
                         false => rel(d, list_folder(d, types).1),
                     })
                     .collect();
+                // A folder inside another one given has its images listed once.
+                let mut seen = HashSet::new();
+                files.retain(|f| seen.insert(f.clone()));
                 sort_files(&list_dir, &mut files, by, ascending, case);
                 if shuffled {
                     shuffle(&mut files);
@@ -2018,10 +2021,11 @@ impl App {
                 }
                 return;
             }
-            let (dirs, mut files) = list_folder(&list_dir, types);
-            if recursive {
-                files = list_tree(&list_dir, types);
-            }
+            // The folder read once, also with the folders below it.
+            let (dirs, mut files) = match recursive {
+                true => list_tree(&list_dir, types),
+                false => list_folder(&list_dir, types),
+            };
             sort_files(&list_dir, &mut files, by, ascending, case);
             if shuffled {
                 shuffle(&mut files);
@@ -2035,7 +2039,7 @@ impl App {
             // chunks, so the status bar fills in gradually without a copy of the whole list in memory.
             // A tree a folder at a time, unsorted.
             if recursive {
-                let sizes = walk(&list_dir, types).flat_map(|(rel, files)| {
+                let sizes = walk(&list_dir, types).flat_map(|(rel, _, files)| {
                     let folder = list_dir.join(rel);
                     (files.into_iter())
                         .filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
