@@ -5029,7 +5029,7 @@ impl App {
             let enter = ui.add(field).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if (add || enter) && !self.new_keyword.trim().is_empty() {
                 let new = std::mem::take(&mut self.new_keyword);
-                self.set_keyword_tree(self.keyword_tree.iter().cloned().chain([new]).collect());
+                self.change_keyword_tree(vec![new], None);
             }
         });
         // The image's own keywords that the tree does not have yet, at its top.
@@ -5045,30 +5045,33 @@ impl App {
                 .small_button("Add this image's keywords to the tree")
                 .clicked()
         {
-            self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(missing).collect());
+            self.change_keyword_tree(missing, None);
         }
         if let Some(p) = drop {
-            // With all below it: an inner level is only there for the paths under it.
-            let under = format!("{p}|");
-            self.set_keyword_tree(
-                self.keyword_tree
-                    .iter()
-                    .filter(|t| **t != p && !t.starts_with(&under))
-                    .cloned()
-                    .collect(),
-            );
+            self.change_keyword_tree(Vec::new(), Some(p));
         }
         if let Some((tag, on)) = tick {
             self.tag_files(ui.ctx(), tag, on);
         }
     }
 
-    /// The keyword tree is `paths` from now on, kept in `$XDG_CONFIG_HOME/glimt/keywords`.
-    fn set_keyword_tree(&mut self, paths: Vec<String>) {
-        self.keyword_tree = keyword_paths(paths.iter().map(String::as_str));
-        if let Some(p) = keyword_tree_path() {
-            write_atomic(&p, self.keyword_tree.join("\n") + "\n");
-        }
+    /// Add `add` to the keyword tree in `$XDG_CONFIG_HOME/glimt/keywords`, or take `remove` and
+    /// the paths below it out: this change alone, on the file as it is now, so what another
+    /// window changed meanwhile stays.
+    fn change_keyword_tree(&mut self, add: Vec<String>, remove: Option<String>) {
+        let Some(p) = keyword_tree_path() else {
+            self.keyword_tree = keyword_tree_changed(&self.keyword_tree, add, remove);
+            return;
+        };
+        let _held = config::file_lock(&p);
+        // One that is there but cannot be read is not written over: its keywords would be lost.
+        let on_disk = match std::fs::read_to_string(&p) {
+            Ok(text) => text.lines().map(str::to_owned).collect(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return self.notice = Some(format!("Could not read the keyword tree: {e}")),
+        };
+        self.keyword_tree = keyword_tree_changed(&on_disk, add, remove);
+        write_atomic(&p, self.keyword_tree.join("\n") + "\n");
     }
 
     /// Set the keyword `tag` (a tree path) on the selected images, or the shown one, or take it
@@ -7243,7 +7246,11 @@ impl App {
         let started = exe.and_then(|exe| {
             let exe = exe.to_string_lossy();
             let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
-            std::process::Command::new(exe).arg(self.location()).spawn()
+            // Locked settings stay locked in the new window, which is a Glimt of its own.
+            (std::process::Command::new(exe))
+                .args(config::locked().then_some("--lock-settings"))
+                .arg(self.location())
+                .spawn()
         });
         match started {
             // Reap the child when it exits, so it does not linger as a zombie.
@@ -8687,7 +8694,7 @@ impl App {
             }
         }
         let mut done = vec![count(keywords.len(), "keyword")];
-        self.set_keyword_tree(self.keyword_tree.iter().cloned().chain(keywords).collect());
+        self.change_keyword_tree(keywords, None);
         #[cfg(feature = "marks")]
         let stars: Vec<(PathBuf, u8)> = (stars.into_iter())
             .filter(|(p, _)| take_lightroom || self.marks.get(p).1 == 0)
@@ -10086,6 +10093,21 @@ fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
     out
 }
 
+/// The keyword tree `tree` with `add` added, or `remove` and the paths below it taken out (an
+/// inner level is only there for the paths under it).
+fn keyword_tree_changed(tree: &[String], add: Vec<String>, remove: Option<String>) -> Vec<String> {
+    let under = remove.as_ref().map(|p| format!("{p}|"));
+    let kept = (tree.iter()).filter(|t| {
+        remove.as_ref().is_none_or(|p| *t != p)
+            && under.as_ref().is_none_or(|u| !t.starts_with(u.as_str()))
+    });
+    let all: Vec<&str> = kept
+        .map(String::as_str)
+        .chain(add.iter().map(String::as_str))
+        .collect();
+    keyword_paths(all.into_iter())
+}
+
 /// A level of the keyword tree: its children by name.
 #[derive(Default)]
 struct KeywordNode(std::collections::BTreeMap<String, KeywordNode>);
@@ -10178,6 +10200,14 @@ fn back_up_to(dir: &Path) -> Result<String, String> {
     let own = config::own_folders();
     if own.is_empty() {
         return Err("Nothing to back up: Glimt has no settings, marks or collections here".into());
+    }
+    // Inside one of the folders it copies, the backup would copy itself until paths are too long.
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_owned());
+    if let Some((_, inside)) = own.iter().find(|(_, d)| real(dir).starts_with(real(d))) {
+        return Err(format!(
+            "A backup cannot go inside {}, which it copies",
+            inside.display()
+        ));
     }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
@@ -10355,7 +10385,8 @@ fn main() -> eframe::Result {
             rgba: icon.into_raw(),
         });
     }
-    if start.lock_settings || Path::new(config::LOCK_FILE).exists() {
+    // A kiosk changes no settings either: a visitor's keys would last until the next boot.
+    if start.lock_settings || start.kiosk || Path::new(config::LOCK_FILE).exists() {
         config::lock();
     }
     if Config::load().remember_window
@@ -10472,6 +10503,24 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The keyword tree changed by one window keeps what another added; removing a level takes
+    /// the levels below it.
+    #[test]
+    fn changes_the_keyword_tree_alone() {
+        let on_disk = [
+            "Animals".to_string(),
+            "Places|Oslo".into(),
+            "People|Kari".into(),
+        ];
+        let added = super::keyword_tree_changed(&on_disk, vec!["Places|Bergen".into()], None);
+        assert_eq!(
+            added,
+            ["Animals", "People|Kari", "Places|Bergen", "Places|Oslo"]
+        );
+        let removed = super::keyword_tree_changed(&added, Vec::new(), Some("Places".into()));
+        assert_eq!(removed, ["Animals", "People|Kari"]);
+    }
+
     /// A setting this Glimt does not know is no notice at start; a wrong value is.
     #[test]
     fn tells_settings_problems_but_unknown_ones() {

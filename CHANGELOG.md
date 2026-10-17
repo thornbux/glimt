@@ -22,6 +22,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   later write would have been dropped without a word, and the busy pointer stayed.
 - Marks and stars changed just before Glimt closes, or moved with files whose move it waited for,
   are written before it ends: their writer was not waited for.
+- A backup into one of the folders it copies (glimt --back-up ~/.local/share/glimt) is refused: it
+  copied itself into itself until the paths were too long.
+- The keyword tree keeps what other Glimt windows added or removed: each window wrote its own copy
+  over the file, so one's new keyword went with the other's next change.
+- New Window keeps --lock-settings: the new window was not locked, so Preferences opened there and
+  its changes were saved.
+- A kiosk (--kiosk) saves no settings: the keys it allows (the slideshow's speed and order, the
+  overlay, the histogram, the layout) changed the settings file, and lasted after a restart.
 
 ## [0.33.0] - 2026-10-17
 

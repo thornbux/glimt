@@ -1338,12 +1338,53 @@ for v in new old; do
     printf '#GQview collection\n' >$XDG_DATA_HOME/glimt/collections/Mine.gqv
     printf '/x\0/y\0' >$XDG_STATE_HOME/glimt/renames/plan
     $BIN --back-up $d/typo >/dev/null 2>&1; missing=$?
+    $BIN --back-up $XDG_DATA_HOME/glimt >/dev/null 2>&1; inside=$?
+    [ -d $XDG_DATA_HOME/glimt/glimt-backup-* ] && inside="$inside, made"
     $BIN --back-up $d/to >/dev/null 2>&1
     got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c renames)"
     # Gone again: every later start would find it and ask about a rename cut short.
     rm -rf $XDG_STATE_HOME/glimt/renames
     if [ $v = new ]; then expect "refused, nothing made; no plan in the backup" "$got" "1 0 0"
+        expect "a backup into Glimt's own folder refused" "$inside" 1
     else note "old: $got"; fi
+done
+as_version new
+
+echo "-- a kiosk: a visitor's keys change no saved setting"
+for v in new old; do
+    as_version $v
+    d=/tmp/kiosk-keys-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config delay=5
+    start --kiosk $d
+    sleep 2
+    key ctrl+equal; key r; key i; sleep 1    # faster, random order, overlay
+    $BIN --remote-all quit >/dev/null 2>&1; sleep 1
+    quit
+    got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    else note "old: $(grep -E '^(delay|random|overlay)=' $XDG_CONFIG_HOME/glimt/config | tr '\n' ' ')"; fi
+done
+as_version new
+
+echo "-- --lock-settings, then New Window: the new window is locked too"
+for v in new old; do
+    as_version $v
+    d=/tmp/lock-new-window-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config delay=5
+    start --lock-settings $d
+    sleep 2
+    key ctrl+n; sleep 3                   # a new window: Faster pressed there
+    other=$(xdotool search --name Glimt 2>/dev/null | grep -vx "$WIN" | tail -1)
+    xdotool windowfocus $other key ctrl+equal 2>/dev/null; sleep 1
+    $BIN --remote-all quit >/dev/null 2>&1; sleep 1
+    quit
+    got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    else note "old: $(grep '^delay=' $XDG_CONFIG_HOME/glimt/config)"; fi
 done
 as_version new
 
