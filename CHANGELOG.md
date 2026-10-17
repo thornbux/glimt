@@ -12,6 +12,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   then took other files, which Delete would have acted on.
 - Check Images no longer reports phone motion photos (a video after the JPEG) as cut off: it
   looked for the JPEG's end only in the last 64 KB, which a video of megabytes after it may lack.
+- A --remote select that comes while Delete or Rename asks waits until the question is answered:
+  the answer acted on the files the script selected meanwhile, so Enter on "Permanently delete
+  a.jpg?" could delete every file the script named.
 
 ## [0.31.0] - 2026-10-17
 
