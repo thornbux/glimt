@@ -41,28 +41,15 @@ fn each<T: Send>(
     files: &[OsString],
     f: impl Fn(&Path) -> Option<T> + Sync,
 ) -> Vec<Option<T>> {
-    let threads = crate::small_alloc_threads();
-    let chunk = files.len().div_ceil(threads).max(1);
-    std::thread::scope(|s| {
-        let parts: Vec<_> = (files.chunks(chunk))
-            .map(|part| {
-                let f = &f;
-                s.spawn(move || {
-                    let mut path = dir.to_path_buf();
-                    let mut out = Vec::with_capacity(part.len());
-                    for name in part {
-                        path.push(name);
-                        out.push(f(&path));
-                        path.pop();
-                    }
-                    out
-                })
-            })
-            .collect();
-        parts
-            .into_iter()
-            .flat_map(|p| p.join().unwrap_or_default())
-            .collect()
+    crate::in_parts(files, crate::small_alloc_threads(), |part, _| {
+        let mut path = dir.to_path_buf();
+        let mut out = Vec::with_capacity(part.len());
+        for name in part {
+            path.push(name);
+            out.push(f(&path));
+            path.pop();
+        }
+        out
     })
 }
 

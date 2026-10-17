@@ -145,6 +145,27 @@ fn small_alloc_threads() -> usize {
     }
 }
 
+/// `work` on `items` cut into one part for each of `threads`, run at once; the results in the
+/// order of the parts. `work` gets a part and the place in `items` where it starts.
+fn in_parts<T: Sync, R: Send>(
+    items: &[T],
+    threads: usize,
+    work: impl Fn(&[T], usize) -> Vec<R> + Sync,
+) -> Vec<R> {
+    let chunk = items.len().div_ceil(threads.max(1)).max(1);
+    std::thread::scope(|s| {
+        let parts: Vec<_> = (items.chunks(chunk).enumerate())
+            .map(|(c, part)| {
+                let work = &work;
+                s.spawn(move || work(part, c * chunk))
+            })
+            .collect();
+        (parts.into_iter())
+            .flat_map(|p| p.join().unwrap_or_default())
+            .collect()
+    })
+}
+
 /// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
 /// pan view.
 fn background_threads() -> usize {

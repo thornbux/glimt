@@ -47,31 +47,19 @@ pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
 
 /// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
 pub fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
-    let threads = small_alloc_threads();
-    let chunk = files.len().div_ceil(threads).max(1);
-    std::thread::scope(|s| {
-        let parts: Vec<_> = files
-            .chunks(chunk)
-            .map(|part| {
-                s.spawn(move || {
-                    part.iter()
-                        .map(|name| {
-                            let path = dir.join(name);
-                            let rows = exif::read(&path);
-                            let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-                            let meta = meta::read(&path).text();
-                            text.push(&meta);
-                            (name.clone(), text.join(" ").to_lowercase())
-                        })
-                        .collect::<Vec<_>>()
-                })
+    let index = crate::in_parts(files, small_alloc_threads(), |part, _| {
+        (part.iter())
+            .map(|name| {
+                let path = dir.join(name);
+                let rows = exif::read(&path);
+                let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+                let meta = meta::read(&path).text();
+                text.push(&meta);
+                (name.clone(), text.join(" ").to_lowercase())
             })
-            .collect();
-        parts
-            .into_iter()
-            .flat_map(|p| p.join().unwrap_or_default())
             .collect()
-    })
+    });
+    index.into_iter().collect()
 }
 
 /// A new file name from `pattern`: * is the old name without extension, a run of # the number

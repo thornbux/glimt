@@ -200,26 +200,10 @@ fn in_parallel(
     names: &[std::ffi::OsString],
     score_one: impl Fn(&std::ffi::OsString, &mut Vec<u8>) -> Option<i32> + Sync,
 ) -> Vec<(i32, usize)> {
-    let threads = crate::background_threads().min(8);
-    let chunk = names.len().div_ceil(threads).max(1);
-    std::thread::scope(|s| {
-        let parts: Vec<_> = names
-            .chunks(chunk)
-            .enumerate()
-            .map(|(c, part)| {
-                let score_one = &score_one;
-                s.spawn(move || {
-                    let mut buf = Vec::new();
-                    part.iter()
-                        .enumerate()
-                        .filter_map(|(i, n)| Some((score_one(n, &mut buf)?, c * chunk + i)))
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        parts
-            .into_iter()
-            .flat_map(|p| p.join().unwrap_or_default())
+    crate::in_parts(names, crate::background_threads().min(8), |part, at| {
+        let mut buf = Vec::new();
+        (part.iter().enumerate())
+            .filter_map(|(i, n)| Some((score_one(n, &mut buf)?, at + i)))
             .collect()
     })
 }
