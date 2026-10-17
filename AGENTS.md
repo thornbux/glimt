@@ -193,7 +193,8 @@ the binary's mount goes when the first window closes; only when the binary is in
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
 Flathub's `freedesktop-26.08` image, pinned by its digest (change both with `runtime-version`), and adds it to the
-release in a job of its own. To build it locally: its runtime, SDK and Rust extension take about
+release in a job of its own. Dependabot does not move a container's digest: before a release,
+take the tag's current one (the command is in `release.yml`), which brings the image's fixes. To build it locally: its runtime, SDK and Rust extension take about
 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
 
 ```sh

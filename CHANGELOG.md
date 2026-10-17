@@ -12,6 +12,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- CI builds Glimt with Rust 1.95 too, the oldest that `rust-version` promises.
 - The release workflow runs the tests on the tagged code before it builds the packages.
 
 ### Fixed
