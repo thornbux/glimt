@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A rectangle dragged past the top or bottom of the grid of icons keeps selecting as the grid
+  scrolls: it moved with the screen instead of the images, and the rows scrolled out of view were
+  dropped from the selection.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
