@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 pub struct Marks {
     /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
     map: HashMap<PathBuf, (u8, u8)>,
+    /// When the file was written, as it was read: another window's changes since are read again.
+    read: Option<std::time::SystemTime>,
 }
 
 fn file() -> Option<PathBuf> {
@@ -18,10 +20,28 @@ fn file() -> Option<PathBuf> {
 
 impl Marks {
     pub fn load() -> Self {
-        let text = file()
-            .and_then(|f| std::fs::read(f).ok())
-            .unwrap_or_default();
-        Marks { map: parse(&text) }
+        let file = file();
+        let read = file
+            .as_ref()
+            .and_then(|f| std::fs::metadata(f).ok()?.modified().ok());
+        let text = file.and_then(|f| std::fs::read(f).ok()).unwrap_or_default();
+        Marks {
+            map: parse(&text),
+            read,
+        }
+    }
+
+    /// Read the file again if it changed since: what another Glimt window marked meanwhile, so
+    /// a mark toggled here goes from what is there. Not while this window's own changes are
+    /// still on their way to it: those would be read back as they were before.
+    pub fn refresh(&mut self) {
+        if WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+            return;
+        }
+        let changed = file().and_then(|f| std::fs::metadata(f).ok()?.modified().ok());
+        if changed != self.read {
+            *self = Self::load();
+        }
     }
 
     /// (mark bits, stars) of `path`.
@@ -31,6 +51,7 @@ impl Marks {
 
     /// Toggle mark `n` (1–6) as Geeqie does: set on all of `paths`, or off if all have it.
     pub fn toggle(&mut self, paths: &[PathBuf], n: u8) {
+        self.refresh();
         let bit = 1 << (n - 1);
         let all = paths.iter().all(|p| self.get(p).0 & bit != 0);
         self.change(paths, Change::Mark(bit, !all));
@@ -67,6 +88,9 @@ impl Marks {
         save(Edit::Change(paths.to_vec(), change));
     }
 }
+
+/// Changes sent to the writer and not yet in the file.
+static WRITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// What a window did, applied to the file as it is then.
 enum Edit {
@@ -149,34 +173,44 @@ fn save(change: Edit) {
         let (tx, rx) = mpsc::channel::<Edit>();
         std::thread::spawn(move || {
             for change in rx.iter() {
-                let Some(file) = file() else { continue };
-                // Another window's read and write must not fall between ours, or its change is
-                // lost: one at a time, through a lock beside the file (renamed over, so not on it).
-                let lock = std::fs::File::create(file.with_extension("lock")).ok();
-                let _locked = lock.as_ref().map(|l| l.lock());
-                // A file that is there but cannot be read is not written over with this change
-                // alone: every other mark would be lost.
-                let mut map = match std::fs::read(&file) {
-                    Ok(text) => parse(&text),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
-                    Err(e) => {
-                        crate::config::save_failed(format!(
-                            "Marks and stars not saved: {} cannot be read: {e}",
-                            file.display()
-                        ));
-                        continue;
-                    }
-                };
-                edit(&mut map, &change);
-                for change in rx.try_iter() {
-                    edit(&mut map, &change);
+                let changes: Vec<Edit> = std::iter::once(change).chain(rx.try_iter()).collect();
+                if let Some(file) = file() {
+                    write(&file, &changes);
                 }
-                crate::config::write_atomic(&file, to_text(&map));
+                WRITING.fetch_sub(changes.len(), std::sync::atomic::Ordering::Relaxed);
             }
         });
         tx
     });
-    let _ = writer.send(change);
+    WRITING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if writer.send(change).is_err() {
+        WRITING.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// `changes` applied to the marks file as it is now.
+#[cfg(not(test))]
+fn write(file: &Path, changes: &[Edit]) {
+    // Another window's read and write must not fall between ours, or its change is lost: one
+    // at a time, through a lock beside the file (renamed over, so not on it).
+    let lock = std::fs::File::create(file.with_extension("lock")).ok();
+    let _locked = lock.as_ref().map(|l| l.lock());
+    // A file that is there but cannot be read is not written over with these changes alone:
+    // every other mark would be lost.
+    let mut map = match std::fs::read(file) {
+        Ok(text) => parse(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+        Err(e) => {
+            return crate::config::save_failed(format!(
+                "Marks and stars not saved: {} cannot be read: {e}",
+                file.display()
+            ));
+        }
+    };
+    for change in changes {
+        edit(&mut map, change);
+    }
+    crate::config::write_atomic(file, to_text(&map));
 }
 
 #[cfg(test)]

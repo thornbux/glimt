@@ -481,6 +481,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a mark set by another window meanwhile: a mark's key here goes from it"
+for v in new old; do
+    as_version $v
+    d=/tmp/marks-windows-$v
+    mkdir -p $d $XDG_STATE_HOME/glimt
+    convert -size 64x64 xc:red $d/a.png
+    rm -f $XDG_STATE_HOME/glimt/marks
+    config
+    start $d
+    sleep 2
+    # As if marked in another window: mark 1 on a.png, which this one has not seen.
+    printf '1\t0\t%s/a.png\n' $d >$XDG_STATE_HOME/glimt/marks
+    key 1; sleep 2                       # mark 1 toggled: off, as it was on
+    got=$(grep -c "a.png" $XDG_STATE_HOME/glimt/marks)
+    quit
+    if [ $v = new ]; then expect "the mark taken off" "$got" 0
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v

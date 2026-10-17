@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Marks and stars set in another Glimt window are read again when a window gets the focus: each
+  window knew only what was there when it started, so marking by mark (Select by Mark, mark:1)
+  missed them and pressing a mark's key set it again instead of taking it off.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
