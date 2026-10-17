@@ -167,25 +167,16 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 /// if hundreds of thousands are marked.
 #[cfg(not(test))]
 fn save(change: Edit) {
-    use std::sync::{OnceLock, mpsc};
-    static WRITER: OnceLock<mpsc::Sender<Edit>> = OnceLock::new();
-    let writer = WRITER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<Edit>();
-        std::thread::spawn(move || {
-            for change in rx.iter() {
-                let changes: Vec<Edit> = std::iter::once(change).chain(rx.try_iter()).collect();
-                if let Some(file) = file() {
-                    write(&file, &changes);
-                }
-                WRITING.fetch_sub(changes.len(), std::sync::atomic::Ordering::Relaxed);
-            }
-        });
-        tx
+    use std::sync::atomic::Ordering::Relaxed;
+    // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
+    // a mark set, or moved with its file, just before closing is not lost.
+    WRITING.fetch_add(1, Relaxed);
+    crate::config::in_background(move || {
+        if let Some(file) = file() {
+            write(&file, &[change]);
+        }
+        WRITING.fetch_sub(1, Relaxed);
     });
-    WRITING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if writer.send(change).is_err() {
-        WRITING.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    }
 }
 
 /// `changes` applied to the marks file as it is now.

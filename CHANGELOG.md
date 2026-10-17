@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Marks and stars changed just before Glimt closes, or moved with files whose move it waited for,
+  are written before it ends: their writer was not waited for.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed
