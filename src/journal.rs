@@ -115,6 +115,11 @@ pub fn settle(
     done: Option<usize>,
     undo: bool,
 ) -> (usize, usize) {
+    // One window at a time, and only while the plan is there: a second window that asked about
+    // it too would do the same steps again, on files already put right.
+    let Some(_held) = File::open(plan).ok().filter(|f| f.try_lock().is_ok()) else {
+        return (0, 0);
+    };
     let (mut renamed, mut left) = (0, 0);
     let (before, after) = match done {
         Some(done) => moves.split_at(done.min(moves.len())),
@@ -188,10 +193,18 @@ mod tests {
             .find(|f| f.0.ends_with("crashed"))
             .unwrap();
         assert_eq!((&read, done), (&moves, Some(2)));
+        // While another window puts it right, this one does nothing.
+        let other = std::fs::File::open(&path).unwrap();
+        other.lock().unwrap();
+        assert_eq!(super::settle(&path, &read, done, true), (0, 0));
+        drop(other);
         assert_eq!(super::settle(&path, &read, done, true), (2, 0));
         let text = |n| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         assert!(!path.exists());
+        // A second window that asked about it too finds it gone, and does nothing.
+        assert_eq!(super::settle(&path, &read, done, true), (0, 0));
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         // Finishing instead gives the new names.
         std::fs::rename(p("a.jpg"), p(".tmp-0")).unwrap();
         std::fs::rename(p("b.jpg"), p(".tmp-1")).unwrap();
