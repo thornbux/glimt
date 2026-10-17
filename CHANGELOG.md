@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Many cut short by a crash is put right by what was done, which the plan now counts: a
+  swap of names finished at the next start is no longer done a second time, which undid it, and
+  putting the old names back after a crash before the first rename changes nothing.
+
 ## [0.34.1] - 2026-10-17
 
 ### Changed

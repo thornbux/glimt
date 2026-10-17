@@ -595,7 +595,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
         moves.extend(from.iter().cloned().zip(to.iter().cloned()));
     }
     // On disk while the renames run: a crash halfway is put right at the next start.
-    let _plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
+    let mut plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
         if let Err(e) = put_file(a, b, false) {
             // Named by the file and its new name, not a temporary one.
@@ -607,6 +607,9 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
             }
             let (f, t) = (name(&from[j]), name(&to[j]));
             return Err(format!("Could not rename {f} to {t}: {e}; nothing renamed"));
+        }
+        if let Some(plan) = plan.as_mut() {
+            plan.done();
         }
     }
     Ok(())
