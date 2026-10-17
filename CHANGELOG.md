@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Closing Glimt waits for Export Frames, Save This Frame and Back Up Glimt's Data as it does for
+  copies, and a frame is written whole or not at all, also over a file the dialog let it replace.
 - A second file dialog does not open while one is open: its answer replaced the first one's, so a
   Copy to Folder could become a move, or nothing.
 - Saving a JPEG's orientation reads and writes it in the background, as PNG and WebP already were,

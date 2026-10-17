@@ -712,6 +712,8 @@ impl crate::App {
         to: PathBuf,
     ) {
         let rotate = self.config.exif_rotate;
+        // A job, so closing waits for it (or stops it between frames), as for copies.
+        let job = self.start_job("Exporting", 1);
         self.background(ctx, move || {
             let stem = path
                 .file_stem()
@@ -733,11 +735,21 @@ impl crate::App {
             } else {
                 decode::survive(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
+                        if job.stopped() {
+                            return Err(job.stopped_text());
+                        }
                         let file = match only {
                             Some(_) => to.clone(),
                             None => folder.join(format!("{stem}-{:03}.png", k + 1)),
                         };
-                        img.save_with_format(&file, image::ImageFormat::Png)
+                        // Whole or not at all, also over a file the dialog let it replace.
+                        let mut png = std::io::Cursor::new(Vec::new());
+                        (img.write_to(&mut png, image::ImageFormat::Png))
+                            .map_err(|e| e.to_string())
+                            .and_then(|_| {
+                                config::replace_file(&file, png.into_inner())
+                                    .map_err(|e| e.to_string())
+                            })
                             .map_err(|e| format!("{}: {e}", file.display()))
                     })
                 })
@@ -755,8 +767,12 @@ impl crate::App {
     /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
     /// copy them back while Glimt is closed; the README says where.
     pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
+        // A job, so closing waits for the copy to be whole.
+        let job = self.start_job("Backing up", 1);
         self.background(ctx, move || {
-            Some(config::back_up_to(&dir).unwrap_or_else(|e| e))
+            let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
+            drop(job);
+            Some(done)
         });
     }
 }
