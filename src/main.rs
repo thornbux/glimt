@@ -6398,8 +6398,23 @@ impl App {
         if let Prompt::SaveTheme = prompt {
             let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
             let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
+                // Never over a theme there, hand-edited perhaps, nor in the place of a built-in
+                // one, which a file of its name would hide for good.
+                if theme::built_in(text) {
+                    return Err(format!("{text} is a built-in theme: choose another name"));
+                }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
-                std::fs::write(&f, theme::Theme::file_from(ctx))
+                let new = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&f);
+                let mut file = new.map_err(|e| match e.kind() {
+                    std::io::ErrorKind::AlreadyExists => {
+                        format!("{text} exists already: choose another name")
+                    }
+                    _ => e.to_string(),
+                })?;
+                std::io::Write::write_all(&mut file, theme::Theme::file_from(ctx).as_bytes())
                     .map(|_| f)
                     .map_err(|e| e.to_string())
             });

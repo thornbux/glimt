@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Save as Theme no longer writes over a theme file of the same name, which may be hand-edited, nor
+  makes one named as a built-in theme, which would hide that one for good: it asks for another
+  name.
 - Rename with one file selected, by a right-click in the list say, renames that file, as Delete
   and Move take it, not the image shown beside it.
 - When the folder is read again (another program writing to it, or Glimt's own sidecars and saves

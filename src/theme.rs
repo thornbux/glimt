@@ -81,6 +81,11 @@ pub fn dir() -> Option<std::path::PathBuf> {
 }
 
 /// The built-in themes, then the user's, by name.
+/// Whether `name` is one of the themes built in.
+pub fn built_in(name: &str) -> bool {
+    BUILT_IN.iter().any(|b| b.0 == name)
+}
+
 pub fn names() -> Vec<String> {
     let mut own: Vec<String> = (dir().and_then(|d| std::fs::read_dir(d).ok()))
         .into_iter()
