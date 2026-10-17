@@ -133,6 +133,15 @@ pub fn settle(
         if !a.exists() {
             continue;
         }
+        // Cut short between the link and the unlink of a move: both names are the file, and
+        // only the old one is to go.
+        if same_file(a, b) {
+            match std::fs::remove_file(a) {
+                Ok(()) => renamed += 1,
+                Err(_) => left += 1,
+            }
+            continue;
+        }
         match !b.exists() && std::fs::rename(a, b).is_ok() {
             true => renamed += 1,
             false => left += 1,
@@ -142,6 +151,15 @@ pub fn settle(
         let _ = std::fs::remove_file(plan);
     }
     (renamed, left)
+}
+
+/// Whether `a` and `b` are names of the same file.
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(x), Ok(y)) => (x.dev(), x.ino()) == (y.dev(), y.ino()),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -193,13 +211,25 @@ mod tests {
             .find(|f| f.0.ends_with("crashed"))
             .unwrap();
         assert_eq!((&read, done), (&moves, Some(2)));
+        let text = |n| std::fs::read_to_string(p(n)).unwrap();
+        // Cut short between the link and the unlink of the third step: b.jpg and .tmp-0 are one
+        // file. Finished, the old name goes; nothing is left to ask about again.
+        std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
+        std::fs::copy(&path, plans.join("linked")).unwrap();
+        assert_eq!(
+            super::settle(&plans.join("linked"), &read, Some(2), false),
+            (2, 0)
+        );
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
+        assert!(!p(".tmp-0").exists());
+        std::fs::rename(p("a.jpg"), p(".tmp-1")).unwrap();
+        std::fs::rename(p("b.jpg"), p(".tmp-0")).unwrap();
         // While another window puts it right, this one does nothing.
         let other = std::fs::File::open(&path).unwrap();
         other.lock().unwrap();
         assert_eq!(super::settle(&path, &read, done, true), (0, 0));
         drop(other);
         assert_eq!(super::settle(&path, &read, done, true), (2, 0));
-        let text = |n| std::fs::read_to_string(p(n)).unwrap();
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         assert!(!path.exists());
         // A second window that asked about it too finds it gone, and does nothing.

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Rename Many cut short in the middle of one rename, with the file under both names, is put
+  right at the next start instead of being asked about at every start.
 - Two windows that both found a Rename Many cut short no longer both put it right: the second one,
   which would rename the files again, does nothing.
 - Rename Many cut short by a crash is put right by what was done, which the plan now counts: a
