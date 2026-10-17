@@ -351,6 +351,26 @@ quit" >/dev/null 2>&1; refused=$?
 done
 as_version new
 
+echo "-- --remote select while Preferences is open: answered at once"
+for v in new old; do
+    as_version $v
+    d=/tmp/select-prefs-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d
+    sleep 2
+    key ctrl+o; sleep 1                    # Preferences
+    start_at=$(date +%s)
+    $BIN --remote select $d/b.png >/dev/null 2>&1
+    took=$(( $(date +%s) - start_at ))
+    got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
+    quit
+    if [ $v = new ]; then expect "b selected at once" "$got $([ $took -lt 5 ] && echo soon)" "b.png  soon"
+    else note "old: '$got', ${took}s"; fi
+done
+as_version new
+
 echo "-- --remote select through a linked folder: the files are found"
 for v in new old; do
     as_version $v
@@ -358,13 +378,14 @@ for v in new old; do
     mkdir -p $d/real
     for f in a b; do convert -size 64x64 xc:red $d/real/$f.png; done
     ln -sfn $d/real $d/link
+    ln -sf a.png $d/real/c.png            # a linked image, listed under its own name
     config
     start $d/link
     sleep 2
-    missing=$($BIN --remote select $d/link/b.png 2>/dev/null | tr '\0' ' ')
+    missing=$($BIN --remote select $d/link/b.png $d/link/c.png 2>/dev/null | tr '\0' ' ')
     got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/real/||g")
     quit
-    if [ $v = new ]; then expect "b selected, none missing" "$got|$missing" "b.png |"
+    if [ $v = new ]; then expect "b and the link c selected, none missing" "$got|$missing" "b.png c.png |"
     else note "old: $got|$missing"; fi
 done
 as_version new

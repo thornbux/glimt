@@ -113,7 +113,7 @@ Name this Glimt: letters, digits,
 .B \-
 and
 .BR _ ,
-not only digits. The window title shows it, and
+not only digits, at most 64. The window title shows it, and
 .B glimt \-\-name
 .I NAME
 .B \-\-remote
@@ -128,7 +128,8 @@ control is off in Preferences.
 .BI \-\-remote " COMMAND"
 Send
 .I COMMAND
-to the Glimt window used last, on this computer.
+to the Glimt window used last, on this computer. Exits with 2 for a command Glimt does not
+know, and with 1 when no Glimt runs or none answers within 10 seconds.
 .TP
 .BI \-\-remote\-all " COMMAND"
 Send

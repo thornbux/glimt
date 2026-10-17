@@ -30,6 +30,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   its changes were saved.
 - A kiosk (--kiosk) saves no settings: the keys it allows (the slideshow's speed and order, the
   overlay, the histogram, the layout) changed the settings file, and lasted after a restart.
+- `--remote` with a command Glimt does not know, such as `nxet`, stops with an error instead of
+  sending it; a window that does not answer in time gives exit status 1, and `--name` takes at
+  most 64 characters, so its socket path fits.
+- glimt --remote select of a linked image selects the link, as the list shows it, not the file it
+  points to, which Delete would then have removed; only the links in its folders are followed.
+- A --remote select waits only while Delete or Rename asks, as the notes said: it waited for any
+  dialog, Preferences too, so a script got no answer and the selection changed later.
 
 ## [0.33.0] - 2026-10-17
 
