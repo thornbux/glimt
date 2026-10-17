@@ -119,7 +119,13 @@ impl Catalog {
             .zip(now)
             .filter(|r| !r.1.as_os_str().is_empty())
             .collect();
+        // Only a path below the root: one with .. or an absolute one, in a catalog from
+        // elsewhere, would put sidecars outside the folder the user chose.
+        let below_root = |below: &String| {
+            (Path::new(below).components()).all(|c| matches!(c, std::path::Component::Normal(_)))
+        };
         (self.images.iter())
+            .filter(|(_, (_, below, _))| below_root(below))
             .filter_map(|(&id, (root, below, _))| Some((id, roots.get(root)?.join(below))))
             .collect()
     }
@@ -282,6 +288,13 @@ mod tests {
         let mut keywords = c.keyword_paths();
         keywords.sort();
         assert_eq!(keywords, ["Places", "Places|Oslo"]);
+        // Paths that would leave the root folder: left out.
+        let mut odd = sample();
+        odd.extend(
+            b"\x1ei\x1f13\x1f1\x1f../../home/u/x.jpg\x1f0\x1ei\x1f14\x1f1\x1f/etc/y.jpg\x1f0",
+        );
+        let paths = super::parse(&odd).paths(&now);
+        assert!(paths.contains_key(&10) && !paths.contains_key(&13) && !paths.contains_key(&14));
         assert_eq!(c.stars(&c.paths(&now)), [(a.clone(), 4)]);
         // Each image's keywords as tree paths; one of an image not in the catalog left out.
         let tags = |c: &super::Catalog| c.image_keywords(&c.paths(&now));

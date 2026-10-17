@@ -49,6 +49,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the image while zoomed.
 - The EXIF panel reads a photo's EXIF block, its sidecar and its own XMP once each, not six times
   in all: slow on a network share.
+- Import Lightroom Catalog leaves out an image whose path in the catalog leads out of its root
+  folder (with .. or as an absolute path), which would have put a sidecar outside the folder
+  chosen.
 
 ## [0.32.0] - 2026-10-17
 
