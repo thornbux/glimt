@@ -40,19 +40,16 @@ quick look, which is what an image viewer is for.
 
 ## Speed and memory
 
-Measured with Glimt 0.17.0 in a 1280×800 window, the file given on the command line: the time
-until the image is on screen, and the memory (RSS) 3 seconds later, the median of five runs
-(three for the large folders).
+Glimt is built to be as quick in a folder of several hundred thousand files as in one of a few,
+and to use as little memory as it can:
 
-| | |
-|---|---|
-| First image, 12 MP JPEG photos | 0.44 s |
-| First image, 20 screenshots (PNG) | 0.39 s |
-| First image, folder of 500,000 PNG files | 0.46 s |
-| First image, folder of 500,000 JPEG photos | 0.46 s |
-| Memory, folder of 500,000 files | 159 MB |
-| Memory, 12 MP photos | 143 MB |
-| Peak memory, 12 MP photos | 184 MB |
+- Decoding, reading folders and copying run in the background, so the window answers at once.
+- The file list draws only the rows on screen and reads no file it does not need, so a large
+  folder costs no more per frame than a small one.
+- Images are decoded to the size they are shown, at full resolution only when you zoom in, and
+  only a fixed number ahead of you.
+- Each release is tested against the one before with a folder of 500,000 files; it may not be
+  slower or take more memory than half as much again.
 
 ## Screenshots
 
