@@ -940,6 +940,8 @@ struct App {
     /// Size of the selected files; computed in the background when the selection changes.
     selected_size: Option<u64>,
     selected_rx: Option<mpsc::Receiver<u64>>,
+    /// When to work out that size: once the selection has stayed the same a moment.
+    selected_size_due: Option<Instant>,
 
     // ---- Decoding: the shown image and its neighbours ----
     /// The images to keep decoded, the shown one first: its neighbours in list order.
@@ -1737,6 +1739,7 @@ impl App {
             freed_rx,
             selected_size: None,
             selected_rx: None,
+            selected_size_due: None,
             scroll_to_cur: true,
             thumbs: HashMap::new(),
             thumbs_pending: HashSet::new(),
@@ -2592,6 +2595,22 @@ impl App {
         }
         self.selected_size = None;
         self.selected_rx = None;
+        // Not at once: Shift+↓ held in a selection of 500,000 changes it every frame, and each
+        // time a path for every file would be made here.
+        let wait = std::time::Duration::from_millis(200);
+        self.selected_size_due = (!self.selected.is_empty()).then(|| Instant::now() + wait);
+        ctx.request_repaint_after(wait);
+    }
+
+    /// The size of the selection, in the background, once it has stayed the same a moment.
+    fn selection_size(&mut self, ctx: &egui::Context) {
+        if self
+            .selected_size_due
+            .is_none_or(|due| Instant::now() < due)
+        {
+            return;
+        }
+        self.selected_size_due = None;
         if self.selected.is_empty() {
             return;
         }
@@ -7249,6 +7268,7 @@ impl App {
         self.receive_sizes();
         self.receive_exif_index(ctx);
         self.receive_deleted();
+        self.selection_size(ctx);
         self.jobs.retain(|job| Arc::strong_count(job) > 1);
         if !self.jobs.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));

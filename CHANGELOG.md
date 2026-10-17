@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Holding Shift+↓ or Shift+Page Down in a selection of hundreds of thousands no longer stutters:
+  the size of the selection is worked out once it has stayed the same a moment, not in every step.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
