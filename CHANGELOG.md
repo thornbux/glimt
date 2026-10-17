@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A thumbnail's source in the shared cache is read with the same URI decoding as lists (a % before
+  two hex digits only); the thumbnail and WebP readers get tests with thousands of broken files,
+  as every parser of file contents has.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed

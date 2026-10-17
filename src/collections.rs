@@ -121,7 +121,7 @@ fn lexical(path: &Path) -> PathBuf {
 }
 
 /// A URI's path with its %XX escapes undone.
-fn percent_decoded(uri: &[u8]) -> Vec<u8> {
+pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(uri.len());
     let mut i = 0;
     while i < uri.len() {
