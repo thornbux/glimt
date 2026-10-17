@@ -9484,16 +9484,17 @@ impl App {
                     let [w, h] = turned(s.orig);
                     fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
-                // Decoded to the size shown: the view for a whole image. A mode that fills one
-                // side may need more on the other: the image's size at its scale once that is
-                // known (also while it is decoded again, from the image drawn), else the side it
-                // fills (Fill: the longer side).
+                // Decoded to the size shown: the view for a whole image. Fit Width and Fit Height
+                // fill one side and may need up to the screen on the other, whatever the image,
+                // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
+                // its size at its scale once that is known (also while it is decoded again, from
+                // the image drawn), else the longer side.
                 let long = self.limits.lock().unwrap()[1][0];
                 let orig = (self.slots.get(&self.cur).map(|s| s.orig))
                     .or(self.last_drawn.as_ref().map(|d| d.1));
                 let view = match (mode, orig) {
                     (0, _) => [w, h],
-                    (_, Some([ow, oh])) => {
+                    (3, Some([ow, oh])) => {
                         let [tw, th] = turned([ow, oh]);
                         let s = fit_scale(area.size() * ppp, [tw as f32, th as f32], mode);
                         let size = |side: usize| (side as f32 * s.min(max_fit)).ceil() as u32;

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Fit Width or Fit Height, the images read ahead are decoded as large as they will be shown,
+  not to the shape of the image shown now, so one of another shape is not blurred and decoded
+  again when it comes.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed
