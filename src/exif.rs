@@ -29,14 +29,18 @@ pub fn read(path: &Path) -> Vec<(&'static str, String)> {
     raw(path).map_or_else(Vec::new, |raw| parse(&raw))
 }
 
-/// Every field of IFD0, the Exif and the GPS directory: (directory, name, value), for the EXIF
-/// window. Unknown tags are shown by number.
-pub fn all(path: &Path) -> Vec<(&'static str, String, String)> {
-    raw(path).map_or_else(Vec::new, |raw| fields(&raw))
+/// A field of the EXIF window: (directory, name, value).
+pub type Field = (&'static str, String, String);
+
+/// `read` of `path`, and every field of IFD0, the Exif and the GPS directory for the EXIF
+/// window (unknown tags by number), from one reading of its EXIF block: on a network share
+/// each reading of a large photo costs.
+pub fn read_and_all(path: &Path) -> (Vec<(&'static str, String)>, Vec<Field>) {
+    raw(path).map_or_else(Default::default, |raw| (parse(&raw), fields(&raw)))
 }
 
-/// `all` of an EXIF block.
-fn fields(raw: &[u8]) -> Vec<(&'static str, String, String)> {
+/// Every field of an EXIF block, for the EXIF window.
+fn fields(raw: &[u8]) -> Vec<Field> {
     let Some((t, ifd0, exif, gps)) = ifds(raw) else {
         return Vec::new();
     };

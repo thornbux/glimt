@@ -47,6 +47,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An image whose own profile is sRGB (as most exports from Lightroom and Photoshop are) is no
   longer run through a colour transform to sRGB, which changed nothing and held a second copy of
   the image while zoomed.
+- The EXIF panel reads a photo's EXIF block, its sidecar and its own XMP once each, not six times
+  in all: slow on a network share.
 
 ## [0.32.0] - 2026-10-17
 
