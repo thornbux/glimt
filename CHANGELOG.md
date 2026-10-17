@@ -5,11 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An AppStream metainfo file in every package, so software centres show Glimt with a description
+  and screenshots.
+- THIRD-PARTY-LICENSES.txt: the license texts of the crates built into Glimt, in every package
+  (deb, rpm, tar.gz, AppImage and Flatpak), as their licenses ask; `tools/sbom.py` writes it.
+
 ### Changed
 
 - With many files selected, the Rename Many, New Collection and delete dialogs no longer list the
   whole selection in every frame; Back keeps the last 200 places; Preferences saves when a slider
   is let go, not in every frame it is dragged.
+- CI builds Glimt with Rust 1.95 too, the oldest that `rust-version` promises.
+- The release workflow runs the tests on the tagged code before it builds the packages.
 
 ### Fixed
 
@@ -62,6 +71,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   its orientation saved, instead of being taken for one without segments.
 - A lossless WebP with transparency, turned and saved with its EXIF, keeps its transparency in
   other viewers: the extended header now says it has alpha.
+- Documentation: when `--check-config` and `--back-up` exit with 1, Stop for the trash (after the
+  100 at hand), the JPEG 2000 example with `-protocol_whitelist file` as in examples/decoders, and
+  the Flatpak's settings file.
+- sbom.cdx.json's serial number comes from the crates' names and versions, so the file is the same
+  on every machine.
+- README: install one decoder of each pair (FITS, DICOM) instead of every example, as the first by
+  name takes the files even without the modules it needs.
 
 ## [0.33.0] - 2026-10-17
 

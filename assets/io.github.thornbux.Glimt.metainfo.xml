@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What software centres (GNOME Software, KDE Discover) show for Glimt. -->
+<component type="desktop-application">
+  <id>io.github.thornbux.Glimt</id>
+  <name>Glimt</name>
+  <summary>A fast, memory-frugal image viewer</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.thornbux">
+    <name>Hans-Henry Jakobsen</name>
+  </developer>
+  <description>
+    <p>
+      Glimt shows images quickly, in folders of any size, from a few images to several hundred
+      thousand. It is inspired by Geeqie and follows its keyboard shortcuts.
+    </p>
+    <ul>
+      <li>JPEG, PNG, WebP, GIF, TIFF, SVG, camera RAW, HEIC, AVIF and JPEG XL</li>
+      <li>Thumbnails, several images at once, comparing, a slideshow and full screen</li>
+      <li>Marks, stars, keywords and collections; Find Duplicates and Rename Many</li>
+      <li>Colour management, EXIF, a histogram, and a Pan view by date</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">glimt.desktop</launchable>
+  <url type="homepage">https://glimt.pario.no</url>
+  <url type="bugtracker">https://github.com/thornbux/glimt/issues</url>
+  <url type="vcs-browser">https://github.com/thornbux/glimt</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Thumbnails in the file list</caption>
+      <image>https://raw.githubusercontent.com/thornbux/glimt/main/docs/screenshots/main.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Four images at once</caption>
+      <image>https://raw.githubusercontent.com/thornbux/glimt/main/docs/screenshots/layout.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Graphics</category>
+    <category>Viewer</category>
+  </categories>
+</component>

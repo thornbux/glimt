@@ -140,6 +140,10 @@ red() { convert /t/out/$1.png -format "%[fx:int(255*p{$2,$3}.r)]" info:; }
 first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
 wait_first() { for i in $(seq 240); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done; }
 rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
+# The smaller of the variable named $1 and the number $2, kept in $1: the best of the runs, as one
+# can be slow by chance. within: yes when $1 is at most 1.5 times $2.
+best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -lt "$best_seen" ]; } && eval "$1=${2:-999999}"; }
+within() { [ $(( ${1:-999999} * 2 )) -le $(( ${2:-0} * 3 )) ] && echo yes; }
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 
 cd /tmp
@@ -1168,15 +1172,15 @@ for v in new old; do
     key ctrl+i; sleep 1
     click 19 313                    # b shown; Ctrl+click on c selects both
     xdotool keydown ctrl; click 131 313; xdotool keyup ctrl
-    # Ctrl and a rectangle from below the cells, which adds to b and c; a.png comes meanwhile,
-    # before them in the list.
+    # Ctrl and a rectangle from below the cells up into the second row, which adds d to b and
+    # c; a.png comes meanwhile, before them in the list, and ends the rectangle.
     xdotool keydown ctrl; xdotool mousemove 60 650; sleep 0.3
-    xdotool mousedown 1; for y in 645 640 635; do xdotool mousemove 70 $y; sleep 0.1; done
-    convert -size 64x64 xc:blue $d/a.png; sleep 3
-    xdotool mousemove 75 630; sleep 0.3; xdotool mouseup 1; xdotool keyup ctrl; sleep 1
+    xdotool mousedown 1; for y in 640 600 520 460; do xdotool mousemove 70 $y; sleep 0.1; done
+    sleep 0.5; convert -size 64x64 xc:blue $d/a.png; sleep 3
+    xdotool mousemove 75 455; sleep 0.3; xdotool mouseup 1; xdotool keyup ctrl; sleep 1
     got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
     quit
-    if [ $v = new ]; then expect "b and c still selected, not a" "$got" "b.png c.png "
+    if [ $v = new ]; then expect "b, c and d still selected, not a" "$got" "b.png c.png d.png "
     else note "old: $got"; fi
 done
 as_version new
@@ -1302,15 +1306,20 @@ for v in new old; do
     sleep 2
     click 20 10; sleep 1
     click 66 540; sleep 1
-    click 56 127; sleep 1
+    click 56 127; sleep 2
+    # The check runs: a's first files, cut, are marked before b opens.
+    shot check-switch-a-$v
     $BIN --remote open $d/b >/dev/null 2>&1
     sleep 15
     shot check-switch-$v
     quit
-    marked() { [ $(red check-switch-$v 214 $1) -gt 200 ] && echo marked || echo -; }
-    got="$(marked 337) $(marked 419) $(marked 501)"
-    if [ $v = new ]; then expect "the new folder's files not marked" "$got" "- - -"
-    else note "old: $got"; fi
+    marked() { [ $(red $1 214 $2) -gt 200 ] && echo marked || echo -; }
+    before="$(marked check-switch-a-$v 501) $(marked check-switch-a-$v 583)"   # below its window
+    got="$(marked check-switch-$v 337) $(marked check-switch-$v 419) $(marked check-switch-$v 501)"
+    if [ $v = new ]; then
+        expect "Check Images marks the cut files of the folder it began in" "$before" "marked marked"
+        expect "the new folder's files not marked" "$got" "- - -"
+    else note "old: $before, then $got"; fi
 done
 as_version new
 
@@ -1522,12 +1531,14 @@ for v in new old; do
     p=$(xdotool search --name "Glimt Projector" 2>/dev/null | head -1)
     # As full screen on a large screen; Xvfb has no window manager to make it so.
     xdotool windowsize $p 1600 1000 2>/dev/null; sleep 4
+    rm -f /t/out/projector-sharp-$v.png
     [ -n "$p" ] && import -window $p /t/out/projector-sharp-$v.png
     quit
     # How far from the picture at the projector's scale (0.5 exactly): RMSE in tenths of a
-    # percent; decoded for the main view and stretched, it is blurred and off by more.
+    # percent; decoded for the main view and stretched, it is blurred and off by more. No
+    # number (no projector, no shot) leaves it empty, which fails.
     eval "off_$v=$(compare -metric RMSE /t/out/projector-sharp-$v.png $d/half.png null: 2>&1 \
-        | sed 's/.*(\(.*\))/\1/' | awk '{print int($1 * 1000)}')"
+        | grep -o '([0-9.e+-]*)' | tr -d '()' | awk '{print int($1 * 1000)}')"
 done
 as_version new
 expect "the stripes as they are on the projector" "$([ ${off_new:-999} -le 50 ] && echo yes)" yes
@@ -1830,6 +1841,8 @@ quit
 r=$(convert $d/a.jpg -format "%[fx:p{150,100}.r>0.5]" info: 2>/dev/null)
 got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/renames | wc -l)"
 expect "a.jpg (red) and b.jpg back, the plan gone" "$got" "a.jpg b.jpg 1 0"
+# A plan left by a failure here would be put back at every later start.
+rm -rf $XDG_STATE_HOME/glimt/renames
 
 echo "-- size and date columns with thumbnails: the list wide enough for the names"
 d=/tmp/columns
@@ -2035,9 +2048,14 @@ for s in range(10):
         wait_first
         sleep 15
         note "$v run $run: $(first_image), RssAnon $(rss)"
+        best big_ms_$v "$(first_image | grep -o '[0-9]*')"
+        best big_mb_$v "$(rss | grep -o '[0-9]*')"
         quit
     done; done
     as_version new
+    expect "first image within 1.5 times the last release's time" \
+        "$(within $big_ms_new $big_ms_old)" yes
+    expect "memory within 1.5 times the last release's" "$(within $big_mb_new $big_mb_old)" yes
     config thumbnails=false screen_profile=$adobe
     start $big
     wait_first
@@ -2059,8 +2077,11 @@ for s in range(10):
         start $e
         wait_first
         note "$v run $run: $(first_image)"
+        best exif_ms_$v "$(first_image | grep -o '[0-9]*')"
         quit
     done; done
+    as_version new
+    expect "sorted within 1.5 times the last release's time" "$(within $exif_ms_new $exif_ms_old)" yes
 fi
 
 echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"

@@ -72,6 +72,7 @@ recommends = "ffmpeg, zenity, libglib2.0-bin, sqlite3"
 assets = [
     ["target/release/glimt", "usr/bin/", "755"],
     ["assets/glimt.desktop", "usr/share/applications/", "644"],
+    ["assets/io.github.thornbux.Glimt.metainfo.xml", "usr/share/metainfo/", "644"],
     ["assets/glimt.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["assets/glimt-256.png", "usr/share/icons/hicolor/256x256/apps/glimt.png", "644"],
     ["docs/glimt.1", "usr/share/man/man1/", "644"],
@@ -79,6 +80,7 @@ assets = [
     ["CHANGELOG.md", "usr/share/doc/glimt/", "644"],
     ["assets/fonts/LICENSE-Inter.txt", "usr/share/doc/glimt/", "644"],
     ["assets/fonts/LICENSE-Phosphor.txt", "usr/share/doc/glimt/", "644"],
+    ["THIRD-PARTY-LICENSES.txt", "usr/share/doc/glimt/", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -90,6 +92,7 @@ requires = { glibc = ">= 2.28", libglvnd-egl = "*", libxkbcommon = "*", libxkbco
 assets = [
     { source = "target/release/glimt", dest = "/usr/bin/glimt", mode = "755" },
     { source = "assets/glimt.desktop", dest = "/usr/share/applications/glimt.desktop", mode = "644" },
+    { source = "assets/io.github.thornbux.Glimt.metainfo.xml", dest = "/usr/share/metainfo/io.github.thornbux.Glimt.metainfo.xml", mode = "644" },
     { source = "assets/glimt.svg", dest = "/usr/share/icons/hicolor/scalable/apps/glimt.svg", mode = "644" },
     { source = "assets/glimt-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/glimt.png", mode = "644" },
     { source = "docs/glimt.1", dest = "/usr/share/man/man1/glimt.1", mode = "644", doc = true },
@@ -98,6 +101,7 @@ assets = [
     { source = "LICENSE", dest = "/usr/share/licenses/glimt/LICENSE", mode = "644" },
     { source = "assets/fonts/LICENSE-Inter.txt", dest = "/usr/share/licenses/glimt/LICENSE-Inter.txt", mode = "644" },
     { source = "assets/fonts/LICENSE-Phosphor.txt", dest = "/usr/share/licenses/glimt/LICENSE-Phosphor.txt", mode = "644" },
+    { source = "THIRD-PARTY-LICENSES.txt", dest = "/usr/share/licenses/glimt/THIRD-PARTY-LICENSES.txt", mode = "644" },
 ]
 
 # A file, so that Fedora's ffmpeg-free and RPM Fusion's ffmpeg both satisfy it.

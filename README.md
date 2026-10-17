@@ -287,7 +287,8 @@ flatpak run io.github.thornbux.Glimt
 
 The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity, gio and sqlite3 on the host
 through `flatpak-spawn --host`, so those must be installed there. The thumbnail cache is the
-host's. Settings live in `~/.var/app/io.github.thornbux.Glimt`. Remote control works between
+host's. Settings are in `~/.var/app/io.github.thornbux.Glimt/config/glimt/config`, not in
+`~/.config/glimt`, so a Flatpak and a package each have their own. Remote control works between
 Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.
 
 ## Coming from Lightroom
@@ -473,7 +474,7 @@ A decoder plugin:
 [Glimt Decoder]
 Name=JPEG 2000
 Extensions=jp2;j2k;j2c;jpf;jpx
-Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
+Exec=ffmpeg -v error -protocol_whitelist file -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
 ```
 
 - `Extensions`: the file endings it takes, separated by `;`; an ending may have two parts, as
@@ -503,9 +504,15 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | `mrc.desktop` | MRC (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`, `.ali`): a micrograph, or the middle section of a map or tomogram | cryo-electron microscopy, structural biology | python3-mrcfile |
 | `hdf5.desktop` | HDF5, NetCDF-4 and NeXus (`.h5`, `.hdf5`, `.he5`, `.nc`, `.nxs`): the largest dataset of two or more dimensions | climate, physics, neutron and synchrotron sources, satellites, microscopy | python3-h5py |
 
+Copy those you need, with the script a desktop file names (`glimt-fits` for `fits.desktop`).
+Take one of each pair: `fits.desktop` or `imagemagick-fits.desktop`, `dicom.desktop` or
+`imagemagick-dicom.desktop`. With both, the first by name takes the files, also on a computer
+without the Python modules it needs.
+
 ```sh
 mkdir -p ~/.local/share/glimt/decoders
-cp examples/decoders/* ~/.local/share/glimt/decoders/     # the desktop files and their scripts
+cd examples/decoders
+cp jpeg2000.desktop fits.desktop glimt-fits ~/.local/share/glimt/decoders/
 ```
 
 These are for a quick look, not for measuring: the values are stretched to grey, from the
@@ -662,3 +669,6 @@ python3 tools/sbom.py
 ## License
 
 MIT, see [LICENSE](LICENSE). Copyright (c) 2026 Hans-Henry Jakobsen.
+The licenses of the crates built into Glimt are in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt), and those of its fonts in
+[assets/fonts](assets/fonts).

@@ -146,8 +146,9 @@ line by line: a line that is not
 .IR setting = value ,
 a setting that does not exist or is set twice, and a value that cannot be read or is out of
 range, with the value used instead. Prints OK and exits with 0 when nothing is wrong, else
-exits with 1. Glimt tells the first of these in its window when it starts, and also when it
-cannot save a file.
+exits with 1, also when the file cannot be read. When it starts, Glimt tells the first of these
+in its window, but not a setting it does not know, which a newer Glimt beside it may have
+written.
 .TP
 .BI "\-\-back\-up " FOLDER
 Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins and
@@ -157,7 +158,10 @@ in
 .IR FOLDER ,
 as File \(-> Back Up Glimt's Data does, without opening a window: for cron or a systemd
 timer. A second backup the same day goes beside the first. Prints where it went; exits with 1
-when a file could not be copied.
+when
+.I FOLDER
+is no folder or lies inside Glimt's own folders, when there is nothing to back up, or when a
+file could not be copied.
 .TP
 .BR \-V ", " \-\-version
 Print the version.

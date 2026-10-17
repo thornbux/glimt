@@ -65,6 +65,10 @@ jobs:
           tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm,cargo-audit
       - name: Known vulnerabilities in the crates (RustSec)
         run: cargo audit
+      # The tagged code itself, with the toolchain of this day: a tag pushed by hand, or a
+      # crate changed since the last CI run, is not published untested.
+      - name: Tests
+        run: cargo test --locked --release --features full
       - name: Build against glibc ${{ env.GLIBC }}
         # Zig's linker says it ignores the -O1 that rustc gives it; nothing else is wrong.
         env:
@@ -80,7 +84,9 @@ jobs:
           dir="glimt-$VERSION-x86_64-linux"
           mkdir -p "$dir"
           cp "target/$TARGET/release/glimt" assets/glimt.desktop assets/glimt.svg assets/glimt-256.png \
-             docs/glimt.1 LICENSE README.md CHANGELOG.md assets/fonts/LICENSE-*.txt "$dir/"
+             assets/io.github.thornbux.Glimt.metainfo.xml \
+             docs/glimt.1 LICENSE README.md CHANGELOG.md assets/fonts/LICENSE-*.txt \
+             THIRD-PARTY-LICENSES.txt "$dir/"
           tar czf "$dir.tar.gz" "$dir"
       - name: AppImage
         # The same binary, which loads OpenGL, Wayland and X11 from the system as it starts, so
@@ -97,10 +103,12 @@ jobs:
           app=Glimt.AppDir
           install -Dm755 "target/$TARGET/release/glimt" "$app/usr/bin/glimt"
           install -Dm644 assets/glimt.desktop "$app/usr/share/applications/glimt.desktop"
+          install -Dm644 -t "$app/usr/share/metainfo" assets/io.github.thornbux.Glimt.metainfo.xml
           install -Dm644 assets/glimt.svg "$app/usr/share/icons/hicolor/scalable/apps/glimt.svg"
           install -Dm644 assets/glimt-256.png "$app/usr/share/icons/hicolor/256x256/apps/glimt.png"
           install -Dm644 docs/glimt.1 "$app/usr/share/man/man1/glimt.1"
-          install -Dm644 -t "$app/usr/share/doc/glimt" LICENSE assets/fonts/LICENSE-*.txt
+          install -Dm644 -t "$app/usr/share/doc/glimt" LICENSE assets/fonts/LICENSE-*.txt \
+            THIRD-PARTY-LICENSES.txt
           cp assets/glimt.desktop assets/glimt.svg "$app/"
           cp assets/glimt-256.png "$app/.DirIcon"
           ln -s usr/bin/glimt "$app/AppRun"

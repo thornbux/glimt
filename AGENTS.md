@@ -63,7 +63,7 @@ documentation.
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
-| `tools/sbom.py` | Writes `sbom.cdx.json` |
+| `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb |
 | `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures, with `tests.sh`'s setup (`SHOTS=1`) |
 
@@ -103,7 +103,7 @@ cargo clippy --release -- -D warnings
 cargo test --release
 cargo clippy --release --all-features -- -D warnings
 cargo test --release --all-features
-python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
+python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt in step with Cargo.lock
 ```
 
 - **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
@@ -193,7 +193,8 @@ the binary's mount goes when the first window closes; only when the binary is in
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
 Flathub's `freedesktop-26.08` image, pinned by its digest (change both with `runtime-version`), and adds it to the
-release in a job of its own. To build it locally: its runtime, SDK and Rust extension take about
+release in a job of its own. Dependabot does not move a container's digest: before a release,
+take the tag's current one (the command is in `release.yml`), which brings the image's fixes. To build it locally: its runtime, SDK and Rust extension take about
 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
 
 ```sh
