@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A JPEG with fill bytes (0xff) before a marker has its EXIF read from the head of the file and
+  its orientation saved, instead of being taken for one without segments.
 - A lossless WebP with transparency, turned and saved with its EXIF, keeps its transparency in
   other viewers: the extended header now says it has alpha.
 
