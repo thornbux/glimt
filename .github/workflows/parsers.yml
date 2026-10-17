@@ -1,6 +1,6 @@
 # The parsers' tests with five million broken inputs each (GLIMT_FUZZ), every Sunday: more
-# than every test run can afford, and the samples' mutations go further each time the number
-# grows. A failure names the test; run it with the same GLIMT_FUZZ to see it again.
+# than every test run can afford, and other ones each week (GLIMT_FUZZ_SEED, the run's number).
+# A failure names the test; run it with the same GLIMT_FUZZ and GLIMT_FUZZ_SEED to see it again.
 name: Parsers
 
 on:
@@ -27,3 +27,4 @@ jobs:
       - run: cargo test --release --all-features survives_broken
         env:
           GLIMT_FUZZ: "5000000"
+          GLIMT_FUZZ_SEED: ${{ github.run_id }}

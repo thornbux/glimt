@@ -9939,14 +9939,19 @@ fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), String> {
 }
 
 /// Broken forms of `seed`, as a damaged or crafted file has them, for the parsers' tests: bits
-/// flipped, bytes changed, cut short, a piece doubled. Always the same ones, so a failure comes
-/// again; GLIMT_FUZZ=N for N of them instead of 2,000.
+/// flipped, bytes changed, cut short, a piece doubled. Always the same ones for a seed, so a
+/// failure comes again; GLIMT_FUZZ=N for N of them instead of 2,000, GLIMT_FUZZ_SEED=S for
+/// other ones.
 #[cfg(test)]
 fn broken(seed: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
     let n = std::env::var("GLIMT_FUZZ")
         .ok()
         .and_then(|n| n.parse().ok());
-    let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+    // Another seed (GLIMT_FUZZ_SEED) gives other mutations; never 0, which xorshift keeps.
+    let seed_value = (std::env::var("GLIMT_FUZZ_SEED").ok())
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&s| s != 0);
+    let mut x: u64 = seed_value.unwrap_or(0x9e37_79b9_7f4a_7c15);
     let mut next = move || {
         x ^= x << 13;
         x ^= x >> 7;

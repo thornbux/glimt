@@ -23,6 +23,8 @@ permissions:
 env:
   TARGET: x86_64-unknown-linux-gnu
   GLIBC: "2.28"
+  # Through the environment, never pasted into a script: a tag name may hold $( ) and quotes.
+  TAG_GIVEN: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -36,7 +38,8 @@ jobs:
         # A tag without the version in Cargo.toml would publish packages named for one version
         # holding another, and one without a CHANGELOG section empty release notes.
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="$TAG_GIVEN"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$TAG is no vX.Y.Z"; exit 1; }
           VERSION="${TAG#v}"
           grep -qx "version = \"$VERSION\"" Cargo.toml ||
             { echo "::error::Cargo.toml is not at version $VERSION"; exit 1; }
@@ -135,7 +138,7 @@ jobs:
           name: packages
       - name: Checksums
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="$TAG_GIVEN"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
           sha256sum glimt-*-x86_64-linux.tar.gz glimt_*_amd64.deb glimt-*-1.x86_64.rpm \
@@ -175,7 +178,7 @@ jobs:
           persist-credentials: false
       - name: Build the bundle
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="$TAG_GIVEN"
           flatpak-builder --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo \
               build flatpak/io.github.thornbux.Glimt.yml
           flatpak build-bundle repo "glimt-${TAG#v}-x86_64.flatpak" io.github.thornbux.Glimt \
@@ -203,7 +206,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="$TAG_GIVEN"
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p SHA256SUMS
           # Run again by hand: the old line goes.
           grep -v '\.flatpak$' SHA256SUMS > sums || true

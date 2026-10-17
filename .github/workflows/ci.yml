@@ -36,5 +36,11 @@ jobs:
         with:
           key: ${{ matrix.features }}
       - run: cargo fmt --check
-      - run: cargo clippy --release ${{ matrix.features }} -- -D warnings
-      - run: cargo test --release ${{ matrix.features }}
+      # --locked as the release builds: a Cargo.toml changed without its Cargo.lock fails here,
+      # not on the tag.
+      - run: cargo clippy --locked --release ${{ matrix.features }} -- -D warnings
+      - run: cargo test --locked --release ${{ matrix.features }}
+      # The SBOM in step with Cargo.lock, also after Dependabot changed it.
+      - name: sbom.cdx.json up to date
+        if: matrix.features == ''
+        run: python3 tools/sbom.py && git diff --exit-code sbom.cdx.json

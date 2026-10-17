@@ -12,6 +12,16 @@ updates:
       # copy. Remove when image moves to moxcms 0.9.
       - dependency-name: moxcms
         versions: [">= 0.9"]
+      # The same: in Cargo.toml for a feature of the version image or eframe already use, so a
+      # minor or major step of their own would add a second copy. They move with image and eframe.
+      - dependency-name: png
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: tiff
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: winit
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: arboard
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
