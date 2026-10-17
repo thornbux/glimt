@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A backup to a folder that is not there (a typo, a disk not mounted) is refused instead of made,
+  one with nothing to copy says so instead of "0 files", a file that cannot be copied is named,
+  and the plan of a Rename Many running meanwhile is left out, which restored later would rename
+  files again. The README says where the Flatpak keeps the folders to restore.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

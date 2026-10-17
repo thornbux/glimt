@@ -641,6 +641,9 @@ cp -r glimt-backup-2026-10-16/state/.  ~/.local/state/glimt/
 cp -r glimt-backup-2026-10-16/data/.   ~/.local/share/glimt/
 ```
 
+In the Flatpak the three folders are `~/.var/app/io.github.thornbux.Glimt/config/glimt`,
+`…/data/glimt` and `…/.local/state/glimt`: copy them back there.
+
 Keywords, comments and alt text are in the XMP sidecars beside the photos (`photo.jpg.xmp`),
 so a backup of the photo folders takes them along; so do stars, when Preferences writes them
 there too. A Lightroom catalog is Lightroom's own: Glimt only reads it, and never changes it.

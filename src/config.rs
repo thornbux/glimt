@@ -585,7 +585,9 @@ pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
         if source.is_dir() {
             files += copy_tree(&source, &target)?;
         } else if source.is_file() {
-            std::fs::copy(&source, &target)?;
+            // Named, as the files after it are not copied.
+            std::fs::copy(&source, &target)
+                .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", source.display())))?;
             files += 1;
         }
     }

@@ -9950,6 +9950,14 @@ fn config_notice(problems: &[String]) -> Option<String> {
 /// Glimt's own folders copied to a new folder glimt-backup-DATE in `dir`: what was done, or
 /// what went wrong.
 fn back_up_to(dir: &Path) -> Result<String, String> {
+    // A mistyped or unmounted folder is not made: the backup would land where no one looks.
+    if !dir.is_dir() {
+        return Err(format!("{} is not a folder", dir.display()));
+    }
+    let own = config::own_folders();
+    if own.is_empty() {
+        return Err("Nothing to back up: Glimt has no settings, marks or collections here".into());
+    }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
         .chars()
@@ -9963,9 +9971,11 @@ fn back_up_to(dir: &Path) -> Result<String, String> {
         })
         .find(|p| !p.exists())
         .unwrap_or_default();
-    let copied: std::io::Result<usize> = (config::own_folders().into_iter())
+    let copied: std::io::Result<usize> = (own.into_iter())
         .map(|(name, from)| config::copy_tree(&from, &to.join(name)))
         .sum();
+    // Not the plan of a Rename Many running now: restored later, it would rename files again.
+    let _ = std::fs::remove_dir_all(to.join("state/renames"));
     match copied {
         Ok(n) => Ok(format!(
             "Glimt's data backed up to {}: {}",
