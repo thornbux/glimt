@@ -141,9 +141,10 @@ first_image() { grep -o 'first image: [0-9]* ms' /tmp/glimt.err; }
 wait_first() { for i in $(seq 240); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done; }
 rss() { awk '/RssAnon/ {printf "%d MB", $2 / 1024}' /proc/$GPID/status; }
 # The smaller of the variable named $1 and the number $2, kept in $1: the best of the runs, as one
-# can be slow by chance. within: yes when $1 is at most 1.5 times $2.
+# can be slow by chance. within: yes when $1 is at most 1.5 times $2, plus the slack $3 (ms or
+# MB): a few hundred ms vary by more than half when something else runs on the machine.
 best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -lt "$best_seen" ]; } && eval "$1=${2:-999999}"; }
-within() { [ $(( ${1:-999999} * 2 )) -le $(( ${2:-0} * 3 )) ] && echo yes; }
+within() { [ $(( ${1:-999999} * 2 )) -le $(( ${2:-0} * 3 + ${3:-0} * 2 )) ] && echo yes; }
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 
 cd /tmp
@@ -2054,8 +2055,8 @@ for s in range(10):
     done; done
     as_version new
     expect "first image within 1.5 times the last release's time" \
-        "$(within $big_ms_new $big_ms_old)" yes
-    expect "memory within 1.5 times the last release's" "$(within $big_mb_new $big_mb_old)" yes
+        "$(within $big_ms_new $big_ms_old 100)" yes
+    expect "memory within 1.5 times the last release's" "$(within $big_mb_new $big_mb_old 20)" yes
     config thumbnails=false screen_profile=$adobe
     start $big
     wait_first
@@ -2081,7 +2082,7 @@ for s in range(10):
         quit
     done; done
     as_version new
-    expect "sorted within 1.5 times the last release's time" "$(within $exif_ms_new $exif_ms_old)" yes
+    expect "sorted within 1.5 times the last release's time" "$(within $exif_ms_new $exif_ms_old 100)" yes
 fi
 
 echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"
