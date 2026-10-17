@@ -5781,7 +5781,12 @@ impl App {
 
     /// The file dialog's answer, for what it was opened for.
     fn receive_picked(&mut self, ctx: &egui::Context) {
-        if let Some(Ok(picked)) = self.file_dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
+        let answer = self.file_dialog.as_ref().map(|(_, rx)| rx.try_recv());
+        // A dialog whose thread ended without an answer is over too: the next may open.
+        if let Some(Err(mpsc::TryRecvError::Disconnected)) = answer {
+            self.file_dialog = None;
+        }
+        if let Some(Ok(picked)) = answer {
             let (purpose, _) = self.file_dialog.take().unwrap();
             match (purpose, picked) {
                 (_, None) => {}
@@ -5825,6 +5830,12 @@ impl App {
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
     fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
+        // One at a time: only one answer is waited for, and a second dialog's would replace the
+        // first's, whose copy or move would then never happen.
+        if self.file_dialog.is_some() {
+            self.notice = Some("A file dialog is open already".into());
+            return;
+        }
         let (tx, rx) = mpsc::channel();
         let start = match &purpose {
             // A name for the file to save: the first image's, as a PDF.

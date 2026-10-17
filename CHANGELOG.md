@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A second file dialog does not open while one is open: its answer replaced the first one's, so a
+  Copy to Folder could become a move, or nothing.
 - Saving a JPEG's orientation reads and writes it in the background, as PNG and WebP already were,
   so the window no longer stops while a large photo on a share or a slow stick is written.
 - Moving images of a collection no longer checks each file in the window's thread first, which

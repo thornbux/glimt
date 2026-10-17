@@ -233,6 +233,23 @@ quit
 got="$(exiftool -s3 -n -Orientation $d/a.jpg) $(exiftool -s3 -n -Orientation $d/b.jpg)"
 expect "a.jpg has orientation 6, b.jpg none" "$got" "6 "
 
+echo "-- Copy to Folder, then Move to Folder while its dialog is open: the copy is done, not a move"
+for v in new old; do
+    as_version $v
+    d=/tmp/two-dialogs-$v
+    mkdir -p $d/sub
+    convert -size 100x100 xc:red $d/a.jpg
+    printf '#!/bin/sh\nsleep 3\necho "%s"\n' $d/sub >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
+    config auto_refresh=false
+    start $d/a.jpg
+    key ctrl+c; key ctrl+m; sleep 5
+    quit
+    got="$(ls $d | tr '\n' ' ')$(ls $d/sub | tr '\n' ' ')"
+    if [ $v = new ]; then expect "a.jpg copied, still in its folder" "$got" "a.jpg sub a.jpg "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
 mkdir -p $d/sub/deep && cd $d
