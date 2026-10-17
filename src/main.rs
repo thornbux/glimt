@@ -2313,15 +2313,13 @@ impl App {
         let Some(file) = self.collection.clone() else {
             return;
         };
-        let (tx, busy, repaint) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
+        self.background(ctx, move || {
             let name = file
                 .file_stem()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let _ = tx.send(
+            Some(
                 match command("gio").arg("trash").arg("--").arg(&file).output() {
                     Ok(out) if out.status.success() => {
                         format!("Collection {name} moved to the trash")
@@ -2332,9 +2330,7 @@ impl App {
                     ),
                     Err(e) => format!("Could not trash {name} (gio is needed): {e}"),
                 },
-            );
-            busy.fetch_sub(1, Ordering::Relaxed);
-            repaint.request_repaint();
+            )
         });
         let folder = (!self.files.is_empty())
             .then(|| self.path(self.cur))
@@ -4083,26 +4079,16 @@ impl App {
         {
             self.visit(ctx, parent.to_path_buf());
         }
-        let (tx, deleted_tx, ctx) = (
-            self.notices_tx.clone(),
-            self.deleted_tx.clone(),
-            ctx.clone(),
-        );
-        let busy = self.busy.clone();
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
+        let deleted_tx = self.deleted_tx.clone();
+        self.background(ctx, move || {
             let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
                 Ok(o) if o.status.success() => None,
                 Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
                 Err(e) => Some(format!("gio trash (from glib): {e}")),
             };
-            if let Some(e) = &error {
-                let _ = tx.send(format!("Could not move the folder to the trash: {e}"));
-            }
             // Failed: listed again, as a failed delete of files is.
             let _ = deleted_tx.send((vec![dir], error.is_some()));
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
+            error.map(|e| format!("Could not move the folder to the trash: {e}"))
         });
     }
 
@@ -5656,10 +5642,8 @@ impl App {
         only: Option<usize>,
         to: PathBuf,
     ) {
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         let rotate = self.config.exif_rotate;
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
+        self.background(ctx, move || {
             let stem = path
                 .file_stem()
                 .unwrap_or_default()
@@ -5689,14 +5673,12 @@ impl App {
                     })
                 })
             };
-            let _ = tx.send(match (saved, only) {
+            Some(match (saved, only) {
                 (Ok(0), _) => "No such frame".to_owned(),
                 (Ok(_), Some(_)) => format!("Saved {}", to.display()),
                 (Ok(n), None) => format!("{} saved in {}", count(n, "frame"), folder.display()),
                 (Err(e), _) => format!("Could not save the frames: {e}"),
-            });
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
+            })
         });
     }
 
@@ -5704,10 +5686,22 @@ impl App {
     /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
     /// copy them back while Glimt is closed; the README says where.
     fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
+        self.background(ctx, move || Some(back_up_to(&dir).unwrap_or_else(|e| e)));
+    }
+
+    /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
+    /// told in the window.
+    fn background(
+        &self,
+        ctx: &egui::Context,
+        work: impl FnOnce() -> Option<String> + Send + 'static,
+    ) {
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
-            let _ = tx.send(back_up_to(&dir).unwrap_or_else(|e| e));
+            if let Some(text) = work() {
+                let _ = tx.send(text);
+            }
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
@@ -6281,24 +6275,15 @@ impl App {
             };
             let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
             let plugin = self.plugins[k].clone();
-            let (dir, ctx) = (self.dir.clone(), ui.ctx().clone());
-            let (tx, saved, deleted) = (
-                self.notices_tx.clone(),
-                self.saved_tx.clone(),
-                self.deleted_tx.clone(),
-            );
-            let busy = self.busy.clone();
-            busy.fetch_add(1, Ordering::Relaxed);
-            std::thread::spawn(move || {
-                if let Err(e) = plugin.run(&files, &dir) {
-                    let _ = tx.send(format!("{}: {e}", plugin.name));
-                }
+            let dir = self.dir.clone();
+            let (saved, deleted) = (self.saved_tx.clone(), self.deleted_tx.clone());
+            self.background(ui.ctx(), move || {
+                let result = plugin.run(&files, &dir);
                 for f in files {
                     let _ = saved.send((f, Ok(())));
                 }
                 let _ = deleted.send((Vec::new(), true));
-                busy.fetch_sub(1, Ordering::Relaxed);
-                ctx.request_repaint();
+                result.err().map(|e| format!("{}: {e}", plugin.name))
             });
         });
     }
@@ -8470,9 +8455,7 @@ impl App {
         });
         let Some(undo) = choice else { return };
         let plans = std::mem::take(&mut self.cut_short);
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
+        self.background(ctx, move || {
             let (mut renamed, mut left) = (0, 0);
             for (plan, moves) in &plans {
                 let (r, l) = journal::settle(plan, moves, undo);
@@ -8490,9 +8473,7 @@ impl App {
                     count(left, "file")
                 );
             }
-            let _ = tx.send(msg);
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
+            Some(msg)
         });
         self.relist = true;
     }
