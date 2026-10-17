@@ -809,16 +809,29 @@ unsafe extern "C" {
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
 
-/// A file's EXIF from the reader thread: the panel's rows, every field, keywords and comment.
-type ExifRead = (
-    PathBuf,
-    Vec<(&'static str, String)>,
-    Vec<(&'static str, String, String)>,
-    meta::Meta,
-    // Its keyword tree paths.
-    Vec<String>,
-    meta::Access,
-);
+/// A file's EXIF from the reader thread.
+struct ExifRead {
+    path: PathBuf,
+    /// The EXIF panel's rows, and every field for the EXIF window.
+    rows: Vec<(&'static str, String)>,
+    all: Vec<(&'static str, String, String)>,
+    /// Keywords and comment, their keyword tree paths, and the alt text and description.
+    meta: meta::Meta,
+    paths: Vec<String>,
+    access: meta::Access,
+}
+
+/// A rectangle being dragged in the icon grid to select.
+struct RubberBand {
+    /// Where it started, from the top left of the grid's content, so it scrolls along.
+    start: egui::Vec2,
+    /// The selection before it, kept with Ctrl or Shift.
+    before: std::collections::BTreeSet<usize>,
+    /// Whether the pointer has moved far enough to be a rectangle and not a click.
+    moved: bool,
+    /// The rows and columns it touched when the selection was last made from it.
+    touched: Option<[usize; 4]>,
+}
 
 /// Keywords and comment of the shown image as being edited in the EXIF panel, and as last read
 /// or saved, to tell whether they changed.
@@ -946,17 +959,8 @@ struct App {
     // ---- The selection ----
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
     selected: std::collections::BTreeSet<usize>,
-    /// A rectangle being dragged in the icon grid to select: where it started (from the top left
-    /// of the grid's content, so it scrolls along), the selection before it (kept with Ctrl or
-    /// Shift), whether the pointer has moved far enough to be a rectangle and not a click, and
-    /// the rows and columns it touched when the selection was last made from it.
-    #[allow(clippy::type_complexity)]
-    rubber_band: Option<(
-        egui::Vec2,
-        std::collections::BTreeSet<usize>,
-        bool,
-        Option<[usize; 4]>,
-    )>,
+    /// A rectangle being dragged in the icon grid to select.
+    rubber_band: Option<RubberBand>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
     /// Size of the selected files; computed in the background when the selection changes.
@@ -1519,12 +1523,12 @@ fn spawn_thumbnailers(
 /// The EXIF reader: one thread that skips to the newest request, so fast browsing never
 /// queues up; it sends the panel's rows, every field, and the keywords and comment.
 fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Receiver<ExifRead>) {
-    let (exif_jobs, exif_rx) = mpsc::channel::<PathBuf>();
-    let (exif_tx, exif_done) = mpsc::channel();
+    let (exif_jobs, paths_rx) = mpsc::channel::<PathBuf>();
+    let (exif_tx, exif_rx) = mpsc::channel();
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        while let Ok(mut path) = exif_rx.recv() {
-            path = exif_rx.try_iter().last().unwrap_or(path);
+        while let Ok(mut path) = paths_rx.recv() {
+            path = paths_rx.try_iter().last().unwrap_or(path);
             let size = std::fs::metadata(&path).map_or(0, |m| m.len());
             let mut rows = vec![("File size", human_size(size))];
             let (mut all, mut meta, mut paths, mut access) = Default::default();
@@ -1543,16 +1547,21 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
                     (all, meta, paths, access) = (a, m, p, x);
                 }
             }
-            if exif_tx
-                .send((path, rows, all, meta, paths, access))
-                .is_err()
-            {
+            let read = ExifRead {
+                path,
+                rows,
+                all,
+                meta,
+                paths,
+                access,
+            };
+            if exif_tx.send(read).is_err() {
                 return;
             }
             ctx.request_repaint();
         }
     });
-    (exif_jobs, exif_done)
+    (exif_jobs, exif_rx)
 }
 
 impl App {
@@ -2829,7 +2838,15 @@ impl App {
             self.exif_asked = Some(path);
         }
         let done: Vec<ExifRead> = self.exif_rx.try_iter().collect();
-        for (path, rows, all, meta, paths, access) in done {
+        for ExifRead {
+            path,
+            rows,
+            all,
+            meta,
+            paths,
+            access,
+        } in done
+        {
             // Kept while being edited: the reader may answer for the image again.
             if self.meta.as_ref().is_none_or(|m| m.path != path) {
                 self.save_meta();
@@ -7269,14 +7286,25 @@ impl App {
             && p.x < clip.right() - ui.spacing().scroll.allocated_width()
             && (self.collection.is_none() || !cells.iter().any(|c| c.1.contains(p)))
         {
-            let base = if add {
+            let before = if add {
                 self.selected.clone()
             } else {
                 Default::default()
             };
-            self.rubber_band = Some((p - origin, base, false, None));
+            self.rubber_band = Some(RubberBand {
+                start: p - origin,
+                before,
+                moved: false,
+                touched: None,
+            });
         }
-        let Some((start, base, moved, last)) = &mut self.rubber_band else {
+        let Some(RubberBand {
+            start,
+            before,
+            moved,
+            touched: last,
+        }) = &mut self.rubber_band
+        else {
             return;
         };
         let start = origin + *start;
@@ -7307,7 +7335,7 @@ impl App {
         let touches = [rows.start, rows.end, columns.start, columns.end];
         if *last != Some(touches) {
             *last = Some(touches);
-            let mut selected = base.clone();
+            let mut selected = before.clone();
             for r in rows {
                 for c in columns.start..columns.end.min(cols) {
                     let k = r * cols + c;

@@ -3,7 +3,8 @@
 
 use eframe::egui;
 
-/// Everything the user can do from a menu or a shortcut.
+/// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
+/// settings for the user's own keys (`{a:?}`): renaming one loses those keys.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Action {
     OpenFile,
