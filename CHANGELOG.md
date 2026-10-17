@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `--remote` with a command Glimt does not know, such as `nxet`, stops with an error instead of
+  sending it; a window that does not answer in time gives exit status 1, and `--name` takes at
+  most 64 characters, so its socket path fits.
 - glimt --remote select of a linked image selects the link, as the list shows it, not the file it
   points to, which Delete would then have removed; only the links in its folders are followed.
 - A --remote select waits only while Delete or Rename asks, as the notes said: it waited for any

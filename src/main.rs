@@ -540,7 +540,8 @@ impl Start {
                     let name = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
                     if !remote::valid_name(name) || name.is_empty() {
                         return Err(
-                            "--name takes letters, digits, - and _ (not only digits)".into()
+                            "--name takes up to 64 letters, digits, - and _ (not only digits)"
+                                .into(),
                         );
                     }
                     start.name = Some(name.to_owned());
@@ -10270,6 +10271,10 @@ fn main() -> eframe::Result {
     }
     let to_all = args.first().is_some_and(|a| a == "--remote-all");
     if args.first().is_some_and(|a| a == "--remote") || to_all {
+        if !remote::known(&args[1..]) {
+            eprintln!("glimt: no such command; glimt --help lists them");
+            std::process::exit(2);
+        }
         let mut command = args[1..].join(" ");
         // select: whole paths after a NUL each, as names may hold spaces; a line ends the command.
         if args.get(1).is_some_and(|a| a == "select") {
@@ -10316,6 +10321,9 @@ fn main() -> eframe::Result {
             (Some(name), false) => remote::send_to(name, &command),
             (None, false) => remote::send(&command),
         };
+        if remote::unanswered() {
+            std::process::exit(1);
+        }
         if sent {
             return Ok(());
         }

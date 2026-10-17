@@ -92,10 +92,28 @@ pub fn given_name() -> Option<&'static str> {
     NAME.get().map(String::as_str)
 }
 
-/// A name that cannot be taken for a process ID or a path: letters, digits, - and _.
+/// A name that cannot be taken for a process ID or a path: letters, digits, - and _, short
+/// enough for the socket's path (at most 108 bytes).
 pub fn valid_name(name: &str) -> bool {
     let ok = |c: char| c.is_alphanumeric() || c == '-' || c == '_';
-    name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit())
+    name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit()) && name.len() <= 64
+}
+
+/// One of `COMMANDS`, with a path where it takes one and none where it does not.
+pub fn known(words: &[String]) -> bool {
+    let takes_path = |c: &str| c.contains(' ');
+    (COMMANDS.iter()).any(|(c, _)| {
+        c.split(' ').next() == words.first().map(String::as_str)
+            && takes_path(c) == (words.len() > 1)
+    })
+}
+
+/// A window took a command but gave no answer in time.
+static UNANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a window took a command but gave no answer within `WAIT`.
+pub fn unanswered() -> bool {
+    UNANSWERED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The socket's name: the --name, or the process ID.
@@ -120,7 +138,10 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
     let _ = s.shutdown(std::net::Shutdown::Write);
     let _ = s.set_read_timeout(Some(WAIT));
     let mut answer = Vec::new();
-    let _ = s.read_to_end(&mut answer);
+    if let Err(e) = s.read_to_end(&mut answer) {
+        eprintln!("glimt: no answer from {}: {e}", path.display());
+        UNANSWERED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let _ = std::io::stdout().write_all(&answer);
     true
 }
@@ -260,6 +281,18 @@ pub fn stop() {
 
 #[cfg(test)]
 mod tests {
+    /// Only the commands Glimt knows go out, with a path only where one is taken.
+    #[test]
+    fn knows_its_commands() {
+        let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        assert!(super::known(&words("next")));
+        assert!(super::known(&words("open /a b.jpg")));
+        assert!(!super::known(&words("nxet")));
+        assert!(!super::known(&words("open")));
+        assert!(!super::known(&words("next 2")));
+        assert!(!super::known(&[]));
+    }
+
     /// A socket that a Glimt answers on is kept; one it left behind is taken over.
     #[test]
     fn claims_only_a_left_socket() {
