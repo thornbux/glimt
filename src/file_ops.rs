@@ -608,6 +608,141 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
     Ok(())
 }
 
+// ---- Work in the background: sidecars, frames, the backup and other jobs ----
+
+impl crate::App {
+    /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
+    /// told in the window.
+    pub(crate) fn background(
+        &self,
+        ctx: &egui::Context,
+        work: impl FnOnce() -> Option<String> + Send + 'static,
+    ) {
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            if let Some(text) = work() {
+                let _ = tx.send(text);
+            }
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Write the sidecars of `paths` in the background, through one thread for every window's
+    /// keywords and stars, so changes to one file land in the order they were made and never
+    /// cross. The status bar counts them; `report` words the end from how many failed.
+    pub(crate) fn write_sidecars(
+        &mut self,
+        ctx: &egui::Context,
+        doing: &'static str,
+        paths: Vec<PathBuf>,
+        write: impl Fn(&Path) -> bool + Send + 'static,
+        report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
+    ) {
+        type Work = Box<dyn FnOnce() + Send>;
+        static WRITER: std::sync::OnceLock<mpsc::Sender<Work>> = std::sync::OnceLock::new();
+        let writer = WRITER.get_or_init(|| {
+            let (works, rx) = mpsc::channel::<Work>();
+            // One that panics must not end the thread, and with it every later write.
+            std::thread::spawn(move || {
+                for work in rx {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+                }
+            });
+            works
+        });
+        let job = self.start_job(doing, paths.len());
+        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        self.busy.fetch_add(1, Ordering::Relaxed);
+        let work: Work = Box::new(move || {
+            // A file that makes the writing panic ends this job, not the count or the busy
+            // pointer.
+            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut failed = 0;
+                for path in &paths {
+                    if job.stopped() {
+                        break;
+                    }
+                    failed += !write(path) as usize;
+                    job.did(1);
+                }
+                report(failed, &job)
+            }))
+            .unwrap_or_else(|_| {
+                Some("Writing the sidecars stopped at a file that broke it".into())
+            });
+            if let Some(text) = text {
+                let _ = tx.send(text);
+            }
+            drop(job);
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
+        if writer.send(work).is_err() {
+            self.busy.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
+    /// in `to` (never over a file), in the background, at full size.
+    pub(crate) fn export_frames(
+        &mut self,
+        ctx: &egui::Context,
+        path: PathBuf,
+        only: Option<usize>,
+        to: PathBuf,
+    ) {
+        let rotate = self.config.exif_rotate;
+        self.background(ctx, move || {
+            let stem = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let folder = match only {
+                Some(_) => to.clone(),
+                None => (1..)
+                    .map(|n| match n {
+                        1 => to.join(format!("{stem}-frames")),
+                        n => to.join(format!("{stem}-frames-{n}")),
+                    })
+                    .find(|p| !p.exists())
+                    .unwrap_or_default(),
+            };
+            let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
+                Err(format!("Could not make {}", folder.display()))
+            } else {
+                decode::survive(|| {
+                    decode::each_frame(&path, only, rotate, |k, img| {
+                        let file = match only {
+                            Some(_) => to.clone(),
+                            None => folder.join(format!("{stem}-{:03}.png", k + 1)),
+                        };
+                        img.save_with_format(&file, image::ImageFormat::Png)
+                            .map_err(|e| format!("{}: {e}", file.display()))
+                    })
+                })
+            };
+            Some(match (saved, only) {
+                (Ok(0), _) => "No such frame".to_owned(),
+                (Ok(_), Some(_)) => format!("Saved {}", to.display()),
+                (Ok(n), None) => format!("{} saved in {}", count(n, "frame"), folder.display()),
+                (Err(e), _) => format!("Could not save the frames: {e}"),
+            })
+        });
+    }
+
+    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
+    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
+    /// copy them back while Glimt is closed; the README says where.
+    pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
+        self.background(ctx, move || {
+            Some(config::back_up_to(&dir).unwrap_or_else(|e| e))
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// Copying and moving never replace a file at the destination, and move or copy otherwise;

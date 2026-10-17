@@ -3,10 +3,7 @@
 
 use crate::actions::Keys;
 use crate::files::Sort;
-use crate::{
-    CPU_LEVELS, DEFAULT_DELAY, DEFAULT_PRELOAD, FADES, MAX_DELAY, OSD_TEMPLATE, count, local_time,
-    print,
-};
+use crate::{count, local_time, print};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +11,88 @@ use std::path::{Path, PathBuf};
 pub fn config_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "config")
 }
+
+// ---- Defaults and ranges of settings ----
+
+/// Default number of images kept decoded on each side of the shown one.
+pub(crate) const DEFAULT_PRELOAD: usize = 2;
+/// Default seconds between images in a slideshow.
+pub(crate) const DEFAULT_DELAY: u64 = 3;
+pub(crate) const MAX_DELAY: u64 = 60;
+/// The full screen info as Geeqie writes its overlay template: fields in percent signs, `|`
+/// between parts of a line (a part whose fields are all empty is left out) and `\n` for a new
+/// line. The default shows what Glimt always showed.
+pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|\
+                            %Aperture%|ISO %ISO%|%Focal length%|%marks%";
+/// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
+/// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
+/// two thumbnails at once and runs those on every core; Full makes thumbnails on every core.
+pub(crate) const CPU_LEVELS: [(&str, &str); 3] = [
+    (
+        "Power saving",
+        "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two \
+         cores. Slower in large folders, kinder to a laptop battery.",
+    ),
+    (
+        "Balanced",
+        "Two thumbnails at once; searches and Find Duplicates on every core.",
+    ),
+    (
+        "Full",
+        "Every core: thumbnails and searches as fast as the machine allows.",
+    ),
+];
+
+/// Slideshow → Fade: (name for the config and --fade, menu label, milliseconds).
+pub(crate) const FADES: [(&str, &str, u64); 3] = [
+    ("off", "Off", 0),
+    ("short", "Short", 400),
+    ("long", "Long", 1000),
+];
+
+/// A memory use level in Preferences. The config holds the values; the level shown is the one
+/// they match, or Custom.
+#[derive(Clone, Copy)]
+pub(crate) struct MemoryLevel {
+    pub(crate) name: &'static str,
+    /// Images preloaded on each side.
+    pub(crate) preload: usize,
+    pub(crate) decode_threads: usize,
+    /// The most an animation's frames may take, in MB.
+    pub(crate) animation_mb: usize,
+    /// One malloc arena for all threads.
+    pub(crate) one_arena: bool,
+    pub(crate) hover: &'static str,
+}
+
+pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
+    MemoryLevel {
+        name: "Low",
+        preload: 1,
+        decode_threads: 1,
+        animation_mb: 32,
+        one_arena: true,
+        hover: "Least memory: one image decoded at a time, one preloaded on each side. Slow \
+                storage (SMB, NFS, USB) makes browsing wait for each file.",
+    },
+    MemoryLevel {
+        name: "Medium",
+        preload: DEFAULT_PRELOAD,
+        decode_threads: 4,
+        animation_mb: 128,
+        one_arena: true,
+        hover: "The default: four images decoded at once, two preloaded on each side.",
+    },
+    MemoryLevel {
+        name: "High",
+        preload: 5,
+        decode_threads: 8,
+        animation_mb: 256,
+        one_arena: false,
+        hover: "Fastest browsing: eight images decoded at once, five preloaded on each side; \
+                hides the wait of slow storage (SMB, NFS) best.",
+    },
+];
 
 /// `$XDG_CONFIG_HOME/glimt/keywords`: the keyword tree, a path such as "Places|Norway|Oslo"
 /// on each line.
@@ -836,7 +915,7 @@ mod tests {
         assert_eq!((c.decode_threads, c.animation_mb), (1, 1024));
         // The defaults are the Medium level.
         let d = Config::default();
-        let medium = crate::MEMORY_LEVELS
+        let medium = super::MEMORY_LEVELS
             .iter()
             .find(|l| l.name == "Medium")
             .unwrap();

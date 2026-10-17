@@ -11,8 +11,9 @@ use colour::{
     srgb_to_display,
 };
 use config::{
-    Config, WindowState, keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path,
-    state_path, write_atomic, xdg_dir,
+    CPU_LEVELS, Config, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE, WindowState,
+    keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
+    write_atomic, xdg_dir,
 };
 use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load, shrink, survive};
 use eframe::egui;
@@ -62,16 +63,6 @@ mod thumbs;
 #[cfg(feature = "video")]
 mod video;
 
-/// Default number of images kept decoded on each side of the shown one.
-const DEFAULT_PRELOAD: usize = 2;
-/// Default seconds between images in a slideshow.
-const DEFAULT_DELAY: u64 = 3;
-const MAX_DELAY: u64 = 60;
-/// The full screen info as Geeqie writes its overlay template: fields in percent signs, `|`
-/// between parts of a line (a part whose fields are all empty is left out) and `\n` for a new
-/// line. The default shows what Glimt always showed.
-const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|\
-                            %Aperture%|ISO %ISO%|%Focal length%|%marks%";
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
 const THUMBS: [egui::Vec2; 3] = [
     egui::vec2(96.0, 72.0),
@@ -91,32 +82,6 @@ const DATE_WIDTH: f32 = 140.0;
 const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
 /// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
 const MAX_THUMBS: usize = 600;
-
-/// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
-/// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
-/// two thumbnails at once and runs those on every core; Full makes thumbnails on every core.
-const CPU_LEVELS: [(&str, &str); 3] = [
-    (
-        "Power saving",
-        "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two \
-         cores. Slower in large folders, kinder to a laptop battery.",
-    ),
-    (
-        "Balanced",
-        "Two thumbnails at once; searches and Find Duplicates on every core.",
-    ),
-    (
-        "Full",
-        "Every core: thumbnails and searches as fast as the machine allows.",
-    ),
-];
-
-/// Slideshow → Fade: (name for the config and --fade, menu label, milliseconds).
-const FADES: [(&str, &str, u64); 3] = [
-    ("off", "Off", 0),
-    ("short", "Short", 400),
-    ("long", "Long", 1000),
-];
 
 /// The CPU use level (index in CPU_LEVELS), for the worker threads, and the signal that wakes
 /// the thumbnail workers it leaves idle when it changes.
@@ -186,50 +151,6 @@ fn thumb_threads(decoders: usize) -> usize {
         _ => cores(),
     }
 }
-
-/// A memory use level in Preferences. The config holds the values; the level shown is the one
-/// they match, or Custom.
-#[derive(Clone, Copy)]
-struct MemoryLevel {
-    name: &'static str,
-    /// Images preloaded on each side.
-    preload: usize,
-    decode_threads: usize,
-    /// The most an animation's frames may take, in MB.
-    animation_mb: usize,
-    /// One malloc arena for all threads.
-    one_arena: bool,
-    hover: &'static str,
-}
-
-const MEMORY_LEVELS: [MemoryLevel; 3] = [
-    MemoryLevel {
-        name: "Low",
-        preload: 1,
-        decode_threads: 1,
-        animation_mb: 32,
-        one_arena: true,
-        hover: "Least memory: one image decoded at a time, one preloaded on each side. Slow \
-                storage (SMB, NFS, USB) makes browsing wait for each file.",
-    },
-    MemoryLevel {
-        name: "Medium",
-        preload: DEFAULT_PRELOAD,
-        decode_threads: 4,
-        animation_mb: 128,
-        one_arena: true,
-        hover: "The default: four images decoded at once, two preloaded on each side.",
-    },
-    MemoryLevel {
-        name: "High",
-        preload: 5,
-        decode_threads: 8,
-        animation_mb: 256,
-        one_arena: false,
-        hover: "Fastest browsing: eight images decoded at once, five preloaded on each side; \
-                hides the wait of slow storage (SMB, NFS) best.",
-    },
-];
 
 /// The pan view's window (Ctrl+J).
 #[derive(Default)]
@@ -313,19 +234,6 @@ struct Dups {
     sizes: HashMap<PathBuf, u64>,
 }
 
-/// Check Images: every image of the list opened in the background, as the viewer would; those
-/// that cannot be are listed, and marked in the file list.
-struct Check {
-    /// Files checked, and the threads still at work.
-    done: Arc<AtomicUsize>,
-    working: Arc<AtomicUsize>,
-    stop: Arc<std::sync::atomic::AtomicBool>,
-    total: usize,
-    found_rx: mpsc::Receiver<(OsString, String)>,
-    /// The broken ones found: (name in the list, why).
-    broken: Vec<(OsString, String)>,
-}
-
 impl Dups {
     fn new() -> Self {
         Dups {
@@ -353,6 +261,19 @@ impl Dups {
             })
             .collect();
     }
+}
+
+/// Check Images: every image of the list opened in the background, as the viewer would; those
+/// that cannot be are listed, and marked in the file list.
+struct Check {
+    /// Files checked, and the threads still at work.
+    done: Arc<AtomicUsize>,
+    working: Arc<AtomicUsize>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    total: usize,
+    found_rx: mpsc::Receiver<(OsString, String)>,
+    /// The broken ones found: (name in the list, why).
+    broken: Vec<(OsString, String)>,
 }
 
 /// View → Layout: the config value, the menu label and the panes as [columns, rows].
@@ -889,9 +810,23 @@ impl Slot {
 
 struct App {
     // ---- Settings ----
+    /// The desktop's dark style and accent colour, once read from the portal.
+    desktop_look: theme::Desktop,
+    desktop_rx: Option<mpsc::Receiver<theme::Desktop>>,
+    /// The desktop's screen profile file, once read from colord.
+    desktop_screen: Option<String>,
+    desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
+    /// The action whose key is being chosen in Preferences: the next key press goes to it.
+    capturing: Option<Action>,
     config: Config,
 
     // ---- The list: the folder (or collection, or several folders) and its files ----
+    /// A network location (smb:// …) being mounted: its local path, or why it failed.
+    mounting_rx: Option<mpsc::Receiver<(Mounted, Login)>>,
+    /// The login dialog for a network share that needs one.
+    login: Option<Login>,
+    /// The folder path in the toolbar, as typed.
+    path_text: String,
     dir: PathBuf,
     subdirs: Vec<PathBuf>,
     /// The images in `dir`, file name only (the full path is built on demand by `path`): saves
@@ -921,14 +856,6 @@ struct App {
     together: Option<Vec<PathBuf>>,
     /// Folder listing in the background: (subfolders, images).
     listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
-    /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
-    /// takes the keys from the shortcuts.
-    image_id: Option<egui::Id>,
-    /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
-    focus_by_keys: bool,
-    /// A `--remote select` that came while the folder was being read or Delete or Rename asked:
-    /// done once neither is.
-    waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
     relist: bool,
     /// Generation of the folder watcher; opening another folder ends the old thread.
@@ -940,10 +867,6 @@ struct App {
     deleting: HashSet<OsString>,
     /// File list size and date columns: (bytes, mtime) by file name.
     details: HashMap<OsString, (u64, i64)>,
-    /// The file list is shuffled for a random slideshow.
-    shuffled: bool,
-    /// The next listing is shuffled as a whole instead of merged into the current order.
-    whole_shuffle: bool,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
@@ -957,6 +880,8 @@ struct App {
     tree_shown: PathBuf,
 
     // ---- The selection ----
+    /// Images of a collection being dragged in the file list, and the place they would go.
+    dragging: Option<(HashSet<usize>, Option<usize>)>,
     /// Selected files (Ctrl/Shift+click in the file list) that Delete acts on.
     selected: std::collections::BTreeSet<usize>,
     /// A rectangle being dragged in the icon grid to select.
@@ -990,9 +915,6 @@ struct App {
     /// for before the list, the page, the look or the file changed is dropped.
     decodes_pending: HashMap<(usize, bool), (u64, PathBuf)>,
     decodes_sent: u64,
-    /// Thumbnails still being made when a setting changed how they look: their results are
-    /// dropped once, as they come back in the old look.
-    stale_thumbs: HashSet<OsString>,
     decode_errors: HashMap<usize, String>,
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
@@ -1009,6 +931,11 @@ struct App {
     started: Option<Instant>,
 
     // ---- The view: zoom, panes, the window ----
+    /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
+    /// takes the keys from the shortcuts.
+    image_id: Option<egui::Id>,
+    /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
+    focus_by_keys: bool,
     /// Physical screen pixels per original pixel; `None` = fit to window.
     zoom: Option<f32>,
     pan_offset: egui::Vec2,
@@ -1031,19 +958,6 @@ struct App {
     row_step: isize,
     /// View → Hide File List: only the image, as in full screen but in a window.
     hide_file_list: bool,
-    /// The search field takes the focus when it is next drawn (/).
-    focus_search: bool,
-    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
-    /// one under the pointer, else the first) and the panes as [columns, rows].
-    pane_info: Vec<(usize, Option<f32>)>,
-    status_pane: usize,
-    status_grid: [usize; 2],
-    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
-    status_place: Option<(usize, usize, String)>,
-    /// Size in bytes of the shown file, for the status bar.
-    cur_size: Option<(PathBuf, u64)>,
-    /// The folder path in the toolbar, as typed.
-    path_text: String,
     /// Window geometry seen in the last frame, saved at exit.
     window_state: WindowState,
     /// The screen saver inhibitor running while in full screen.
@@ -1063,14 +977,12 @@ struct App {
     /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
     /// talks to.
     has_focus: bool,
-    /// The desktop's dark style and accent colour, once read from the portal.
-    desktop_look: theme::Desktop,
-    desktop_rx: Option<mpsc::Receiver<theme::Desktop>>,
-    /// The desktop's screen profile file, once read from colord.
-    desktop_screen: Option<String>,
-    desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
 
     // ---- The slideshow ----
+    /// The file list is shuffled for a random slideshow.
+    shuffled: bool,
+    /// The next listing is shuffled as a whole instead of merged into the current order.
+    whole_shuffle: bool,
     /// Slideshow: when the previous image was shown; `None` = off.
     slideshow: Option<Instant>,
     /// Slideshow paused (P): stays on the image until resumed.
@@ -1083,6 +995,9 @@ struct App {
     last_slide: usize,
 
     // ---- Thumbnails ----
+    /// Thumbnails still being made when a setting changed how they look: their results are
+    /// dropped once, as they come back in the old look.
+    stale_thumbs: HashSet<OsString>,
     /// File list thumbnails by file name; `None` = could not be made.
     thumbs: HashMap<OsString, Option<egui::TextureHandle>>,
     thumbs_pending: HashSet<OsString>,
@@ -1133,6 +1048,8 @@ struct App {
     marks: marks::Marks,
 
     // ---- The search ----
+    /// The search field takes the focus when it is next drawn (/).
+    focus_search: bool,
     /// File name search above the file list, and the matching files best first while it has
     /// at least three letters.
     search: String,
@@ -1147,7 +1064,16 @@ struct App {
     search_error: Option<String>,
     match_rx: Option<mpsc::Receiver<u64>>,
 
-    // ---- Sizes in the status bar ----
+    // ---- The status bar ----
+    /// Size in bytes of the shown file, for the status bar.
+    cur_size: Option<(PathBuf, u64)>,
+    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
+    /// one under the pointer, else the first) and the panes as [columns, rows].
+    pane_info: Vec<(usize, Option<f32>)>,
+    status_pane: usize,
+    status_grid: [usize; 2],
+    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
+    status_place: Option<(usize, usize, String)>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
@@ -1158,6 +1084,12 @@ struct App {
     freed_rx: mpsc::Receiver<u64>,
 
     // ---- File operations in the background ----
+    /// A Rename Many running in the background.
+    renaming: Option<(mpsc::Receiver<Result<(), String>>, RenameJob)>,
+    /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
+    /// right; read in the background.
+    cut_short_rx: Option<mpsc::Receiver<Vec<(PathBuf, journal::Moves)>>>,
+    cut_short: Vec<(PathBuf, journal::Moves)>,
     /// Background deletes, copies and moves still running, for the busy pointer.
     busy: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
@@ -1182,14 +1114,12 @@ struct App {
     asked_for: (usize, usize),
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
-    /// A network location (smb:// …) being mounted: its local path, or why it failed.
-    mounting_rx: Option<mpsc::Receiver<(Mounted, Login)>>,
-    /// The login dialog for a network share that needs one.
-    login: Option<Login>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
     clip_rx: Option<mpsc::Receiver<egui::ColorImage>>,
+
+    // ---- Dialogs, windows and messages ----
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
     apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
@@ -1197,16 +1127,12 @@ struct App {
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
     /// Edit → Plugins, read at start.
     plugins: Vec<plugins::Plugin>,
-
-    // ---- Dialogs, windows and messages ----
     /// Edit → Preferences is open.
     preferences_open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
     preferences_unsaved: bool,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
-    /// The action whose key is being chosen in Preferences: the next key press goes to it.
-    capturing: Option<Action>,
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
@@ -1219,12 +1145,6 @@ struct App {
     /// are now.
     lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
     lightroom: Option<lightroom::LightroomImport>,
-    /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
-    /// right; read in the background.
-    cut_short_rx: Option<mpsc::Receiver<Vec<(PathBuf, journal::Moves)>>>,
-    cut_short: Vec<(PathBuf, journal::Moves)>,
-    /// A Rename Many running in the background.
-    renaming: Option<(mpsc::Receiver<Result<(), String>>, RenameJob)>,
     /// Answer from an open file dialog (zenity).
     file_dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     pan_window: Option<Pan>,
@@ -1234,8 +1154,6 @@ struct App {
     check: Option<Option<Check>>,
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken_files: HashSet<OsString>,
-    /// Images of a collection being dragged in the file list, and the place they would go.
-    dragging: Option<(HashSet<usize>, Option<usize>)>,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
@@ -1243,6 +1161,9 @@ struct App {
     notices_rx: mpsc::Receiver<String>,
     /// Commands from `glimt --remote`.
     remote_rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
+    /// A `--remote select` that came while the folder was being read or Delete or Rename asked:
+    /// done once neither is.
+    waiting_select: Option<(String, remote::Reply)>,
 }
 
 /// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
@@ -2666,6 +2587,20 @@ impl App {
         self.selected_rx = Some(rx);
     }
 
+    fn receive_sizes(&mut self) {
+        while let Ok(freed) = self.freed_rx.try_recv() {
+            // shortcut: a delete while the sum is still being computed can make it slightly off;
+            // fine for a status bar figure.
+            self.total_size = self.total_size.saturating_sub(freed);
+        }
+        if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
+            self.selected_size = Some(size);
+            self.selected_rx = None;
+        }
+        drain(&mut self.match_rx, &mut self.match_size);
+        drain(&mut self.size_rx, &mut self.total_size);
+    }
+
     /// File operations act on the selected files, otherwise on the shown image. Sorted.
     fn targets(&self) -> Vec<usize> {
         if self.selected.is_empty() {
@@ -2828,42 +2763,6 @@ impl App {
         self.stale_thumbs.extend(self.thumbs_pending.drain());
         self.last_drawn = None;
         self.refill();
-    }
-
-    /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
-    fn want_exif(&mut self) {
-        let path = self.path(self.cur);
-        if self.exif_asked.as_ref() != Some(&path) {
-            let _ = self.exif_jobs.send(path.clone());
-            self.exif_asked = Some(path);
-        }
-        let done: Vec<ExifRead> = self.exif_rx.try_iter().collect();
-        for ExifRead {
-            path,
-            rows,
-            all,
-            meta,
-            paths,
-            access,
-        } in done
-        {
-            // Kept while being edited: the reader may answer for the image again.
-            if self.meta.as_ref().is_none_or(|m| m.path != path) {
-                self.save_meta();
-                self.meta = Some(MetaEdit {
-                    path: path.clone(),
-                    keywords: meta.keywords_text(),
-                    comment: meta.comment.clone(),
-                    saved: meta,
-                    paths,
-                    alt: access.alt.clone(),
-                    extended: access.extended.clone(),
-                    access,
-                });
-            }
-            self.exif = Some((path, rows));
-            self.exif_all = all;
-        }
     }
 
     /// The textures each pane shows now, for a fade to start from; `None` with fading off.
@@ -3149,6 +3048,161 @@ impl App {
         p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
     }
 
+    /// Window → Projector: a second window, for another screen or a projector, with only the
+    /// shown image, as the main window shows it: fitted, or when zoomed the same part of it,
+    /// scaled to this window. Same process, so the textures are shared and nothing is decoded
+    /// twice. Wayland lets no program put a window on a chosen screen: it is dragged there, and
+    /// F or a double-click makes it full screen. Its keys browse the main window.
+    fn projector_window(&mut self, ctx: &egui::Context) {
+        let id = egui::ViewportId::from_hash_of("glimt projector");
+        let builder = egui::ViewportBuilder::default()
+            .with_title("Glimt Projector")
+            .with_app_id("glimt")
+            .with_inner_size([960.0, 600.0]);
+        let mut act = None;
+        let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
+            let pctx = ui.ctx().clone();
+            let full = pctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+            let (f, esc) = pctx.input(|i| {
+                let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
+                (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))
+            });
+            let key = Self::shortcut(&pctx, self.config.delete_key, self.collection.is_some())
+                .filter(|a| KIOSK_ACTIONS.contains(a));
+            act = key;
+            let [r, g, b] = self.config.background.0;
+            let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
+            egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+                let area = ui.max_rect();
+                // A projector larger than the main view (full screen on a big screen): the
+                // images decoded again to its size, which they were too small for.
+                let ppp = pctx.pixels_per_point();
+                let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
+                if size != self.projector_size {
+                    self.projector_size = size;
+                    // Before the decodes are asked for: the image area sets it next frame.
+                    let grown = {
+                        let limits = &mut self.limits.lock().unwrap()[0];
+                        let grown = size[0] > limits[0] || size[1] > limits[1];
+                        *limits = [limits[0].max(size[0]), limits[1].max(size[1])];
+                        grown
+                    };
+                    // Only then: a projector smaller than the view shows the images it has, and
+                    // dragging its edge decodes nothing again.
+                    if grown {
+                        self.slots.retain(|_, s| s.full);
+                        self.decodes_pending.retain(|&(_, full), _| full);
+                        self.refill();
+                    }
+                }
+                let response = ui.allocate_rect(area, egui::Sense::click());
+                if f || response.double_clicked() || (esc && full) {
+                    pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+                }
+                self.paint_projector(ui, area);
+            });
+            pctx.input(|i| i.viewport().close_requested())
+        });
+        if closed {
+            self.projector = false;
+            self.projector_size = [0, 0];
+        }
+        if let Some(action) = act {
+            self.run(ctx, action);
+        }
+    }
+
+    /// The shown image in the projector's `area`, as `view` showed it, and the pointer's ring.
+    fn paint_projector(&self, ui: &egui::Ui, area: egui::Rect) {
+        let Some(slot) = self.slots.get(&self.cur) else {
+            return;
+        };
+        let ppp = ui.ctx().pixels_per_point();
+        let (turns, mirrored) = self.orient;
+        let [w, h] = slot.orig.map(|n| n as f32);
+        let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
+        let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
+        let fit = if self.config.enlarge {
+            fit
+        } else {
+            fit.min(1.0)
+        };
+        // Zoomed: the same part of the image, as large as this window allows.
+        let (scale, pan) = match self.last_view {
+            Some(v) if v.zoomed => {
+                let k = (area.width() * ppp / (v.area.width() * v.ppp))
+                    .min(area.height() * ppp / (v.area.height() * v.ppp));
+                let scale = v.scale * k;
+                (scale, v.pan * (scale / ppp) / (v.scale / v.ppp))
+            }
+            _ => (fit, egui::Vec2::ZERO),
+        };
+        let rect =
+            egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
+        let uv = match mirrored {
+            true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
+            false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        };
+        let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
+        let tex = self.texture(slot, ui.ctx());
+        egui::Image::new(tex)
+            .uv(uv)
+            .rotate(angle, egui::Vec2::splat(0.5))
+            .paint_at(ui, rect);
+        // Where the pointer is over the main window's image, to point things out.
+        if self.config.projector_pointer
+            && let Some(v) = self.last_view
+            && let Some(at) = v.pointer
+        {
+            let at = area.center() + pan + at * (scale / ppp) / (v.scale / v.ppp);
+            let p = ui.painter();
+            p.circle_stroke(
+                at,
+                22.0,
+                egui::Stroke::new(5.0, egui::Color32::from_black_alpha(160)),
+            );
+            p.circle_stroke(
+                at,
+                22.0,
+                egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 210, 0)),
+            );
+        }
+    }
+
+    /// The frame of the shown animation playing now.
+    fn playing_frame(&self) -> usize {
+        let slot = self.slots.get(&self.cur);
+        match self.config.animate {
+            true => slot.map_or(0, |s| s.frame_at(self.opened.elapsed()).0),
+            false => 0,
+        }
+    }
+
+    /// What `slot` shows now, in the main window and on the projector alike: the frame stepped
+    /// to, the frame playing, or the image.
+    fn texture<'a>(&self, slot: &'a Slot, ctx: &egui::Context) -> &'a egui::TextureHandle {
+        match self.frame {
+            Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
+            None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
+            None => &slot.tex,
+        }
+    }
+
+    /// The frame (or page) shown now: the one stepped to, else the page.
+    fn shown_frame(&self) -> usize {
+        let animated = self.slots.get(&self.cur).is_some_and(|s| s.anim.len() > 1);
+        match self.frame {
+            Some(k) => k,
+            None if animated => self.playing_frame(),
+            None => self.page,
+        }
+    }
+
+    /// Frames, or pages, of the shown file: for the status bar and the File menu's entries.
+    fn frame_count(&self) -> usize {
+        (self.slots.get(&self.cur)).map_or(1, |s| s.anim.len().max(s.pages))
+    }
+
     // ---- The slideshow ----
 
     /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
@@ -3271,127 +3325,6 @@ impl App {
         }
     }
 
-    /// Window → Projector: a second window, for another screen or a projector, with only the
-    /// shown image, as the main window shows it: fitted, or when zoomed the same part of it,
-    /// scaled to this window. Same process, so the textures are shared and nothing is decoded
-    /// twice. Wayland lets no program put a window on a chosen screen: it is dragged there, and
-    /// F or a double-click makes it full screen. Its keys browse the main window.
-    fn projector_window(&mut self, ctx: &egui::Context) {
-        let id = egui::ViewportId::from_hash_of("glimt projector");
-        let builder = egui::ViewportBuilder::default()
-            .with_title("Glimt Projector")
-            .with_app_id("glimt")
-            .with_inner_size([960.0, 600.0]);
-        let mut act = None;
-        let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
-            let pctx = ui.ctx().clone();
-            let full = pctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-            let (f, esc) = pctx.input(|i| {
-                let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
-                (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))
-            });
-            let key = Self::shortcut(&pctx, self.config.delete_key, self.collection.is_some())
-                .filter(|a| KIOSK_ACTIONS.contains(a));
-            act = key;
-            let [r, g, b] = self.config.background.0;
-            let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
-            egui::CentralPanel::default().frame(frame).show(ui, |ui| {
-                let area = ui.max_rect();
-                // A projector larger than the main view (full screen on a big screen): the
-                // images decoded again to its size, which they were too small for.
-                let ppp = pctx.pixels_per_point();
-                let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
-                if size != self.projector_size {
-                    self.projector_size = size;
-                    // Before the decodes are asked for: the image area sets it next frame.
-                    let grown = {
-                        let limits = &mut self.limits.lock().unwrap()[0];
-                        let grown = size[0] > limits[0] || size[1] > limits[1];
-                        *limits = [limits[0].max(size[0]), limits[1].max(size[1])];
-                        grown
-                    };
-                    // Only then: a projector smaller than the view shows the images it has, and
-                    // dragging its edge decodes nothing again.
-                    if grown {
-                        self.slots.retain(|_, s| s.full);
-                        self.decodes_pending.retain(|&(_, full), _| full);
-                        self.refill();
-                    }
-                }
-                let response = ui.allocate_rect(area, egui::Sense::click());
-                if f || response.double_clicked() || (esc && full) {
-                    pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
-                }
-                self.paint_projector(ui, area);
-            });
-            pctx.input(|i| i.viewport().close_requested())
-        });
-        if closed {
-            self.projector = false;
-            self.projector_size = [0, 0];
-        }
-        if let Some(action) = act {
-            self.run(ctx, action);
-        }
-    }
-
-    /// The shown image in the projector's `area`, as `view` showed it, and the pointer's ring.
-    fn paint_projector(&self, ui: &egui::Ui, area: egui::Rect) {
-        let Some(slot) = self.slots.get(&self.cur) else {
-            return;
-        };
-        let ppp = ui.ctx().pixels_per_point();
-        let (turns, mirrored) = self.orient;
-        let [w, h] = slot.orig.map(|n| n as f32);
-        let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
-        let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
-        let fit = if self.config.enlarge {
-            fit
-        } else {
-            fit.min(1.0)
-        };
-        // Zoomed: the same part of the image, as large as this window allows.
-        let (scale, pan) = match self.last_view {
-            Some(v) if v.zoomed => {
-                let k = (area.width() * ppp / (v.area.width() * v.ppp))
-                    .min(area.height() * ppp / (v.area.height() * v.ppp));
-                let scale = v.scale * k;
-                (scale, v.pan * (scale / ppp) / (v.scale / v.ppp))
-            }
-            _ => (fit, egui::Vec2::ZERO),
-        };
-        let rect =
-            egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
-        let uv = match mirrored {
-            true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
-            false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-        };
-        let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-        let tex = self.texture(slot, ui.ctx());
-        egui::Image::new(tex)
-            .uv(uv)
-            .rotate(angle, egui::Vec2::splat(0.5))
-            .paint_at(ui, rect);
-        // Where the pointer is over the main window's image, to point things out.
-        if self.config.projector_pointer
-            && let Some(v) = self.last_view
-            && let Some(at) = v.pointer
-        {
-            let at = area.center() + pan + at * (scale / ppp) / (v.scale / v.ppp);
-            let p = ui.painter();
-            p.circle_stroke(
-                at,
-                22.0,
-                egui::Stroke::new(5.0, egui::Color32::from_black_alpha(160)),
-            );
-            p.circle_stroke(
-                at,
-                22.0,
-                egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 210, 0)),
-            );
-        }
-    }
-
     /// The fade's length: none in power saving, where every frame counts.
     fn fade_ms(&self) -> u64 {
         match self.config.cpu_use {
@@ -3407,395 +3340,6 @@ impl App {
         if self.slideshow.is_some() {
             self.shuffle_list(ctx, on);
             self.title(ctx);
-        }
-    }
-
-    /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
-    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
-    fn inhibit(&mut self, on: bool) {
-        if on == self.inhibitor.is_some() {
-            return;
-        }
-        if let Some(mut child) = self.inhibitor.take() {
-            let _ = child.kill();
-            std::thread::spawn(move || child.wait());
-            return;
-        }
-        let commands: [&[&str]; 2] = [
-            &[
-                "gnome-session-inhibit",
-                "--inhibit",
-                "idle",
-                "--reason",
-                "Glimt full screen",
-                "cat",
-            ],
-            &[
-                "systemd-inhibit",
-                "--what=idle",
-                "--who=Glimt",
-                "--why=Full screen",
-                "cat",
-            ],
-        ];
-        self.inhibitor = commands.iter().find_map(|c| {
-            command(c[0])
-                .args(&c[1..])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .ok()
-        });
-    }
-
-    // ---- File operations: delete, copy and move, rename, save the orientation ----
-
-    /// Preferences or a modal dialog is open: keys go there.
-    /// A question about the selection on screen (Delete, Rename): what it acts on must stay as
-    /// it was when asked. Preferences and the like do not count: a script would wait on them.
-    fn asking_about_selection(&self) -> bool {
-        self.confirm_delete.is_some() || self.prompt.is_some()
-    }
-
-    fn dialog_open(&self) -> bool {
-        self.preferences_open
-            || self.confirm_delete.is_some()
-            || self.confirm_folder
-            || self.prompt.is_some()
-            || self.login.is_some()
-            || self.print_window.is_some()
-            || self.lightroom.is_some()
-            || !self.cut_short.is_empty()
-    }
-
-    fn receive_sizes(&mut self) {
-        while let Ok(freed) = self.freed_rx.try_recv() {
-            // shortcut: a delete while the sum is still being computed can make it slightly off;
-            // fine for a status bar figure.
-            self.total_size = self.total_size.saturating_sub(freed);
-        }
-        if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
-            self.selected_size = Some(size);
-            self.selected_rx = None;
-        }
-        drain(&mut self.match_rx, &mut self.match_size);
-        drain(&mut self.size_rx, &mut self.total_size);
-    }
-
-    /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
-    fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
-        use std::os::unix::ffi::OsStringExt;
-        let (tx, rx) = mpsc::channel();
-        let start = match &purpose {
-            // A name for the file to save: the first image's, as a PDF.
-            Pick::SavePdf(job) => self.dir.join(
-                (job.paths.first())
-                    .map_or("print".into(), |p| p.with_extension("pdf"))
-                    .file_name()
-                    .unwrap_or_default(),
-            ),
-            // "name-frame-3.png" beside the file.
-            Pick::SaveFrame(path, k) => {
-                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-                self.dir.join(format!("{stem}-frame-{}.png", k + 1))
-            }
-            // Made first: the file dialog cannot start in a folder that is not there.
-            Pick::Collection => (collections::dir())
-                .inspect(|d| drop(std::fs::create_dir_all(d)))
-                .unwrap_or_default()
-                .join(""),
-            // Where colord and the user keep them.
-            Pick::ScreenProfile | Pick::InputProfile => {
-                (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
-                    .filter(|d| d.is_dir())
-                    .unwrap_or_else(|| "/usr/share/color/icc".into())
-                    .join("")
-            }
-            _ => self.dir.join(""),
-        };
-        let save = matches!(purpose, Pick::SavePdf(_) | Pick::SaveFrame(..));
-        let several = matches!(purpose, Pick::Folders);
-        let ctx = ctx.clone();
-        let title = match purpose {
-            Pick::Open if folder => "Open Folder",
-            Pick::Open => "Open File",
-            Pick::Folders => "Open Folders (Ctrl+click for several)",
-            Pick::Recursive => "Open Folder with Its Subfolders",
-            Pick::Collection => "Open Collection",
-            Pick::CopyTo(_) => "Copy to Folder",
-            Pick::MoveTo(_) => "Move to Folder",
-            Pick::SavePdf(_) => "Save as PDF",
-            Pick::SortFolder => "Add to the Sort Manager",
-            Pick::ScreenProfile => "Screen Profile",
-            Pick::InputProfile => "Profile of Images Without One",
-            Pick::Lightroom => "Import Lightroom Catalog",
-            Pick::BackUp => "Back Up Glimt's Data To",
-            Pick::SaveFrame(..) => "Save This Frame as PNG",
-            Pick::ExportFrames(_) => "Export Every Frame To",
-        };
-        let notices = self.notices_tx.clone();
-        std::thread::spawn(move || {
-            let zenity = || {
-                let mut cmd = command("zenity");
-                cmd.arg("--file-selection").arg("--title").arg(title);
-                cmd.arg("--filename").arg(&start);
-                if save {
-                    cmd.arg("--save").arg("--confirm-overwrite");
-                }
-                if folder {
-                    cmd.arg("--directory");
-                }
-                if several {
-                    cmd.arg("--multiple").arg("--separator=\n");
-                }
-                cmd.output()
-            };
-            // KDE desktops often have kdialog but not zenity.
-            let kdialog = || {
-                let mode = if save {
-                    "--getsavefilename"
-                } else if folder {
-                    "--getexistingdirectory"
-                } else {
-                    "--getopenfilename"
-                };
-                let mut cmd = command("kdialog");
-                cmd.arg("--title").arg(title).arg(mode).arg(&start);
-                cmd.output()
-            };
-            let output = match zenity() {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => kdialog(),
-                other => other,
-            };
-            let picked = match output {
-                Err(e) => {
-                    let _ =
-                        notices.send(format!("No file dialog (install zenity or kdialog): {e}"));
-                    None
-                }
-                // Cancel exits with status 1 in both.
-                Ok(o) if !o.status.success() => None,
-                Ok(mut o) => {
-                    o.stdout.pop_if(|b| *b == b'\n');
-                    Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
-                }
-            };
-            let _ = tx.send(picked);
-            ctx.request_repaint();
-        });
-        self.file_dialog = Some((purpose, rx));
-    }
-
-    /// The text dialog was answered with `text`.
-    fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
-        if let Prompt::NewCollection = prompt {
-            return match collections::new_file(text) {
-                Ok(file) => self.add_to_collection(&file),
-                Err(e) => self.notice = Some(e),
-            };
-        }
-        if let Prompt::RenameCollection = prompt {
-            let Some(old) = self.collection.clone() else {
-                return;
-            };
-            match collections::rename(&old, text) {
-                Ok(new) => {
-                    self.collection = Some(new);
-                    self.title(ctx);
-                }
-                Err(e) => self.notice = Some(e),
-            }
-            return;
-        }
-        if text.is_empty() || text.contains('/') || text == "." || text == ".." {
-            self.notice = Some(format!("Not a valid name: \"{text}\""));
-            return;
-        }
-        if let Prompt::SaveTheme = prompt {
-            let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
-            let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
-                let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
-                std::fs::write(&f, theme::Theme::file_from(ctx))
-                    .map(|_| f)
-                    .map_err(|e| e.to_string())
-            });
-            self.notice = Some(match saved {
-                Ok(f) => {
-                    self.config.theme = text.to_owned();
-                    self.config.save();
-                    format!("Saved as {}: edit it, then choose it again", f.display())
-                }
-                Err(e) => format!("Could not save the theme: {e}"),
-            });
-            return;
-        }
-        if let Prompt::RenameFolder = prompt {
-            return self.rename_folder(ctx, text);
-        }
-        if matches!(prompt, Prompt::Rename | Prompt::RenameMany) && !self.still_asked() {
-            return;
-        }
-        if matches!(prompt, Prompt::Rename)
-            && !self.files.is_empty()
-            && !self.none_saving(&[self.path(self.cur)])
-        {
-            return;
-        }
-        // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
-        let target = match prompt {
-            Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
-            _ => self.dir.join(text),
-        };
-        let result = match prompt {
-            Prompt::NewFolder => {
-                self.tree.remove(&self.dir);
-                std::fs::create_dir(&target)
-            }
-            Prompt::Rename if self.files.is_empty() => return,
-            Prompt::Rename if target == self.path(self.cur) => return,
-            // rename() would silently replace an existing file.
-            Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
-            Prompt::RenameMany => return self.rename_many(ctx, text),
-            Prompt::NewCollection
-            | Prompt::RenameCollection
-            | Prompt::SaveTheme
-            | Prompt::RenameFolder => return,
-            Prompt::Rename => std::fs::rename(self.path(self.cur), &target).inspect(|_| {
-                meta::follow(&self.path(self.cur), &target, false);
-                #[cfg(feature = "marks")]
-                self.marks
-                    .put(vec![(self.path(self.cur), target.clone())], false);
-            }),
-        };
-        match (result, prompt) {
-            (Ok(()), Prompt::NewFolder) => self.list(ctx),
-            // The list keeps its folder and mode; the shown entry takes the new name.
-            (Ok(()), _) => {
-                if let Ok(rel) = target.strip_prefix(&self.dir) {
-                    self.files[self.cur] = rel.as_os_str().to_owned();
-                }
-                self.save_collection();
-                self.title(ctx);
-                self.list(ctx);
-            }
-            (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
-        }
-    }
-
-    /// Open the shown file in `player` (a command line), or in the default application when
-    /// `player` is empty. Runs in its own thread, which waits for the program to exit.
-    fn launch(&self, player: &str) {
-        if self.files.is_empty() {
-            return;
-        }
-        let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
-        let mut words = plugins::words(player);
-        std::thread::spawn(move || {
-            let run = |cmd: &str, args: &[String]| {
-                let out = command(cmd).args(args).arg(&path).output();
-                out.map_err(|e| format!("{cmd}: {e}"))
-            };
-            let out = if words.is_empty() {
-                // gio is part of glib; xdg-open covers systems without it.
-                run("gio", &["open".into()]).or_else(|_| run("xdg-open", &[]))
-            } else {
-                let cmd = words.remove(0);
-                run(&cmd, &words)
-            };
-            match out {
-                Ok(o) if o.status.success() => {}
-                Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                Err(e) => drop(tx.send(e)),
-            }
-        });
-    }
-
-    /// The sort manager (Shift+S), as in Geeqie: a click on a folder copies or moves the selected
-    /// files, or the shown one, there.
-    fn sort_manager(&mut self, ui: &mut egui::Ui) {
-        let mut remove = None;
-        egui::Panel::right("sort manager")
-            .resizable(true)
-            .default_size(200.0)
-            .show(ui, |ui| {
-                ui.strong("Sort Manager");
-                ui.horizontal(|ui| {
-                    let c = &mut self.config;
-                    let changed = ui.radio_value(&mut c.sort_move, false, "Copy").changed()
-                        | ui.radio_value(&mut c.sort_move, true, "Move").changed();
-                    if changed {
-                        c.save();
-                    }
-                });
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .small_button(theme::icon::CLOSE)
-                                .on_hover_text("Remove")
-                                .clicked()
-                            {
-                                remove = Some(k);
-                            }
-                            let name = dir.file_name().unwrap_or(dir.as_os_str());
-                            let here = dir == self.dir;
-                            let button = ui.add_enabled(
-                                !here && !self.files.is_empty(),
-                                egui::Button::new(name.to_string_lossy()),
-                            );
-                            if button.on_hover_text(dir.display().to_string()).clicked() {
-                                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
-                                self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
-                            }
-                        });
-                    }
-                    ui.horizontal(|ui| {
-                        if ui.button("Add This Folder").clicked() {
-                            self.add_sort_folder(self.dir.clone());
-                        }
-                        if ui.button("Add…").clicked() {
-                            self.pick(ui.ctx(), true, Pick::SortFolder);
-                        }
-                    });
-                });
-            });
-        if let Some(k) = remove {
-            let dir = self.sort_folders[k].clone();
-            self.change_sort_folders(None, Some(&dir));
-        }
-    }
-
-    fn add_sort_folder(&mut self, dir: PathBuf) {
-        if !self.sort_folders.contains(&dir) {
-            self.change_sort_folders(Some(&dir), None);
-        }
-    }
-
-    /// Add a folder to the sort manager or take one out: the change goes to the file as it is
-    /// now, so another window's folders stay, and is written whole or not at all.
-    fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
-        if config::locked() {
-            return self.notice = Some("The settings are locked (--lock-settings)".into());
-        }
-        let Some(path) = sort_folders_path() else {
-            return self.notice =
-                Some("Could not save the sort manager's folders: no home folder".into());
-        };
-        // One that is there but cannot be read is not written over: its folders would be lost.
-        let on_disk = match std::fs::read(&path) {
-            Ok(text) => sort_folders_from(&text),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => {
-                return self.notice =
-                    Some(format!("Could not read the sort manager's folders: {e}"));
-            }
-        };
-        let dirs = config::sort_folders_changed(on_disk, add, remove);
-        match config::replace_file(&path, config::sort_folders_text(&dirs)) {
-            Ok(()) => self.sort_folders = dirs,
-            Err(e) => self.notice = Some(format!("Could not save the sort manager's folders: {e}")),
         }
     }
 
@@ -4249,6 +3793,94 @@ impl App {
         });
     }
 
+    /// The sort manager (Shift+S), as in Geeqie: a click on a folder copies or moves the selected
+    /// files, or the shown one, there.
+    fn sort_manager(&mut self, ui: &mut egui::Ui) {
+        let mut remove = None;
+        egui::Panel::right("sort manager")
+            .resizable(true)
+            .default_size(200.0)
+            .show(ui, |ui| {
+                ui.strong("Sort Manager");
+                ui.horizontal(|ui| {
+                    let c = &mut self.config;
+                    let changed = ui.radio_value(&mut c.sort_move, false, "Copy").changed()
+                        | ui.radio_value(&mut c.sort_move, true, "Move").changed();
+                    if changed {
+                        c.save();
+                    }
+                });
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (k, dir) in self.sort_folders.clone().into_iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .small_button(theme::icon::CLOSE)
+                                .on_hover_text("Remove")
+                                .clicked()
+                            {
+                                remove = Some(k);
+                            }
+                            let name = dir.file_name().unwrap_or(dir.as_os_str());
+                            let here = dir == self.dir;
+                            let button = ui.add_enabled(
+                                !here && !self.files.is_empty(),
+                                egui::Button::new(name.to_string_lossy()),
+                            );
+                            if button.on_hover_text(dir.display().to_string()).clicked() {
+                                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+                                self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
+                            }
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Add This Folder").clicked() {
+                            self.add_sort_folder(self.dir.clone());
+                        }
+                        if ui.button("Add…").clicked() {
+                            self.pick(ui.ctx(), true, Pick::SortFolder);
+                        }
+                    });
+                });
+            });
+        if let Some(k) = remove {
+            let dir = self.sort_folders[k].clone();
+            self.change_sort_folders(None, Some(&dir));
+        }
+    }
+
+    fn add_sort_folder(&mut self, dir: PathBuf) {
+        if !self.sort_folders.contains(&dir) {
+            self.change_sort_folders(Some(&dir), None);
+        }
+    }
+
+    /// Add a folder to the sort manager or take one out: the change goes to the file as it is
+    /// now, so another window's folders stay, and is written whole or not at all.
+    fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
+        if config::locked() {
+            return self.notice = Some("The settings are locked (--lock-settings)".into());
+        }
+        let Some(path) = sort_folders_path() else {
+            return self.notice =
+                Some("Could not save the sort manager's folders: no home folder".into());
+        };
+        // One that is there but cannot be read is not written over: its folders would be lost.
+        let on_disk = match std::fs::read(&path) {
+            Ok(text) => sort_folders_from(&text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => {
+                return self.notice =
+                    Some(format!("Could not read the sort manager's folders: {e}"));
+            }
+        };
+        let dirs = config::sort_folders_changed(on_disk, add, remove);
+        match config::replace_file(&path, config::sort_folders_text(&dirs)) {
+            Ok(()) => self.sort_folders = dirs,
+            Err(e) => self.notice = Some(format!("Could not save the sort manager's folders: {e}")),
+        }
+    }
+
     /// The file types the list shows, from the Types menu.
     /// The type of a file opened directly is listed too, in its folder.
     fn types(&self) -> Types {
@@ -4389,6 +4021,42 @@ impl App {
     }
 
     // ---- EXIF, keywords, comment and marks ----
+
+    /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
+    fn want_exif(&mut self) {
+        let path = self.path(self.cur);
+        if self.exif_asked.as_ref() != Some(&path) {
+            let _ = self.exif_jobs.send(path.clone());
+            self.exif_asked = Some(path);
+        }
+        let done: Vec<ExifRead> = self.exif_rx.try_iter().collect();
+        for ExifRead {
+            path,
+            rows,
+            all,
+            meta,
+            paths,
+            access,
+        } in done
+        {
+            // Kept while being edited: the reader may answer for the image again.
+            if self.meta.as_ref().is_none_or(|m| m.path != path) {
+                self.save_meta();
+                self.meta = Some(MetaEdit {
+                    path: path.clone(),
+                    keywords: meta.keywords_text(),
+                    comment: meta.comment.clone(),
+                    saved: meta,
+                    paths,
+                    alt: access.alt.clone(),
+                    extended: access.extended.clone(),
+                    access,
+                });
+            }
+            self.exif = Some((path, rows));
+            self.exif_all = all;
+        }
+    }
 
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
     fn exif_panel(&mut self, ui: &mut egui::Ui) {
@@ -4599,61 +4267,6 @@ impl App {
         );
     }
 
-    /// Write the sidecars of `paths` in the background, through one thread for every window's
-    /// keywords and stars, so changes to one file land in the order they were made and never
-    /// cross. The status bar counts them; `report` words the end from how many failed.
-    fn write_sidecars(
-        &mut self,
-        ctx: &egui::Context,
-        doing: &'static str,
-        paths: Vec<PathBuf>,
-        write: impl Fn(&Path) -> bool + Send + 'static,
-        report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
-    ) {
-        type Work = Box<dyn FnOnce() + Send>;
-        static WRITER: std::sync::OnceLock<mpsc::Sender<Work>> = std::sync::OnceLock::new();
-        let writer = WRITER.get_or_init(|| {
-            let (works, rx) = mpsc::channel::<Work>();
-            // One that panics must not end the thread, and with it every later write.
-            std::thread::spawn(move || {
-                for work in rx {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
-                }
-            });
-            works
-        });
-        let job = self.start_job(doing, paths.len());
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        self.busy.fetch_add(1, Ordering::Relaxed);
-        let work: Work = Box::new(move || {
-            // A file that makes the writing panic ends this job, not the count or the busy
-            // pointer.
-            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut failed = 0;
-                for path in &paths {
-                    if job.stopped() {
-                        break;
-                    }
-                    failed += !write(path) as usize;
-                    job.did(1);
-                }
-                report(failed, &job)
-            }))
-            .unwrap_or_else(|_| {
-                Some("Writing the sidecars stopped at a file that broke it".into())
-            });
-            if let Some(text) = text {
-                let _ = tx.send(text);
-            }
-            drop(job);
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
-        if writer.send(work).is_err() {
-            self.busy.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-
     /// Save the keywords and comment being edited, if they changed.
     fn save_meta(&mut self) {
         let Some(edit) = &mut self.meta else { return };
@@ -4723,23 +4336,6 @@ impl App {
                 _ => Some(format!("Keywords added to {}", count(n, "file"))),
             },
         );
-    }
-
-    /// The exif: search index once it is read, and the search again with it.
-    fn receive_exif_index(&mut self, ctx: &egui::Context) {
-        if let Some(index) = self
-            .exif_index_rx
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.exif_index_rx = None;
-            // The files read again go into the index there is; else this is the whole index.
-            match &mut self.exif_index {
-                Some(old) => old.extend(index),
-                None => self.exif_index = Some(index),
-            }
-            self.update_search(ctx);
-        }
     }
 
     /// Stars and marks of file `i` as text ("★★★  1 4"); empty without the marks feature.
@@ -4823,6 +4419,23 @@ impl App {
             send_sizes(sizes, tx, &ctx);
         });
         self.match_rx = Some(rx);
+    }
+
+    /// The exif: search index once it is read, and the search again with it.
+    fn receive_exif_index(&mut self, ctx: &egui::Context) {
+        if let Some(index) = self
+            .exif_index_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.exif_index_rx = None;
+            // The files read again go into the index there is; else this is the whole index.
+            match &mut self.exif_index {
+                Some(old) => old.extend(index),
+                None => self.exif_index = Some(index),
+            }
+            self.update_search(ctx);
+        }
     }
 
     /// The files a search finds: one term as it always was (fuzzy names best first), or terms
@@ -5002,47 +4615,7 @@ impl App {
         None
     }
 
-    // ---- Windows: Find Duplicates and pan view ----
-
-    /// A ring in the accent colour around the widget with the keyboard focus, over everything,
-    /// once Tab has moved it there; a click makes it go. egui draws none in menus and on flat
-    /// buttons, so without it Tab moved an invisible focus. Text fields show their own.
-    fn focus_ring(&mut self, ctx: &egui::Context) {
-        let pressed = ctx.input(|i| {
-            if i.key_pressed(egui::Key::Tab) {
-                self.focus_by_keys = true;
-            }
-            i.pointer.any_pressed()
-        });
-        if pressed {
-            self.focus_by_keys = false;
-        }
-        let Some(id) = ctx.memory(|m| m.focused()) else {
-            return;
-        };
-        if Some(id) == self.image_id || ctx.text_edit_focused() {
-            return;
-        }
-        // A click puts the focus Tab gave away, also on the widget clicked, where egui keeps it:
-        // the keys would go there, not to the shortcuts, with no ring to show it.
-        if pressed {
-            ctx.memory_mut(|m| m.surrender_focus(id));
-            return;
-        }
-        if !self.focus_by_keys {
-            return;
-        }
-        if let Some(widget) = ctx.read_response(id) {
-            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("focus ring"));
-            let accent = ctx.global_style().visuals.selection.bg_fill;
-            ctx.layer_painter(layer).rect_stroke(
-                widget.rect.expand(1.0),
-                4.0,
-                egui::Stroke::new(2.0, accent),
-                egui::StrokeKind::Outside,
-            );
-        }
-    }
+    // ---- Windows: Check Images ----
 
     /// The Check Images window: starts the check of every image in the list, shows how far it
     /// is, and lists the broken ones; a click shows one, Select Them selects them in the list.
@@ -5133,116 +4706,6 @@ impl App {
             // Closed while it runs: the threads stop at their next file.
             c.stop.store(true, Ordering::Relaxed);
         }
-    }
-
-    /// The frame of the shown animation playing now.
-    fn playing_frame(&self) -> usize {
-        let slot = self.slots.get(&self.cur);
-        match self.config.animate {
-            true => slot.map_or(0, |s| s.frame_at(self.opened.elapsed()).0),
-            false => 0,
-        }
-    }
-
-    /// What `slot` shows now, in the main window and on the projector alike: the frame stepped
-    /// to, the frame playing, or the image.
-    fn texture<'a>(&self, slot: &'a Slot, ctx: &egui::Context) -> &'a egui::TextureHandle {
-        match self.frame {
-            Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
-            None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
-            None => &slot.tex,
-        }
-    }
-
-    /// The frame (or page) shown now: the one stepped to, else the page.
-    fn shown_frame(&self) -> usize {
-        let animated = self.slots.get(&self.cur).is_some_and(|s| s.anim.len() > 1);
-        match self.frame {
-            Some(k) => k,
-            None if animated => self.playing_frame(),
-            None => self.page,
-        }
-    }
-
-    /// Frames, or pages, of the shown file: for the status bar and the File menu's entries.
-    fn frame_count(&self) -> usize {
-        (self.slots.get(&self.cur)).map_or(1, |s| s.anim.len().max(s.pages))
-    }
-
-    /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
-    /// in `to` (never over a file), in the background, at full size.
-    fn export_frames(
-        &mut self,
-        ctx: &egui::Context,
-        path: PathBuf,
-        only: Option<usize>,
-        to: PathBuf,
-    ) {
-        let rotate = self.config.exif_rotate;
-        self.background(ctx, move || {
-            let stem = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            let folder = match only {
-                Some(_) => to.clone(),
-                None => (1..)
-                    .map(|n| match n {
-                        1 => to.join(format!("{stem}-frames")),
-                        n => to.join(format!("{stem}-frames-{n}")),
-                    })
-                    .find(|p| !p.exists())
-                    .unwrap_or_default(),
-            };
-            let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
-                Err(format!("Could not make {}", folder.display()))
-            } else {
-                decode::survive(|| {
-                    decode::each_frame(&path, only, rotate, |k, img| {
-                        let file = match only {
-                            Some(_) => to.clone(),
-                            None => folder.join(format!("{stem}-{:03}.png", k + 1)),
-                        };
-                        img.save_with_format(&file, image::ImageFormat::Png)
-                            .map_err(|e| format!("{}: {e}", file.display()))
-                    })
-                })
-            };
-            Some(match (saved, only) {
-                (Ok(0), _) => "No such frame".to_owned(),
-                (Ok(_), Some(_)) => format!("Saved {}", to.display()),
-                (Ok(n), None) => format!("{} saved in {}", count(n, "frame"), folder.display()),
-                (Err(e), _) => format!("Could not save the frames: {e}"),
-            })
-        });
-    }
-
-    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
-    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
-    /// copy them back while Glimt is closed; the README says where.
-    fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
-        self.background(ctx, move || {
-            Some(config::back_up_to(&dir).unwrap_or_else(|e| e))
-        });
-    }
-
-    /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
-    /// told in the window.
-    fn background(
-        &self,
-        ctx: &egui::Context,
-        work: impl FnOnce() -> Option<String> + Send + 'static,
-    ) {
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            if let Some(text) = work() {
-                let _ = tx.send(text);
-            }
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
     }
 
     /// Check every image of the list in background threads, as many as the CPU setting allows,
@@ -5342,108 +4805,6 @@ impl App {
         }
     }
 
-    /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
-    /// they are read again afterwards, as plugins change them.
-    fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(ui, "Plugins", |ui| {
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
-            if self.plugins.is_empty() {
-                ui.weak("No plugins");
-            }
-            let mut chosen = None;
-            for (k, plugin) in self.plugins.iter().enumerate() {
-                if ui.button(&plugin.name).clicked() {
-                    chosen = Some(k);
-                }
-            }
-            ui.separator();
-            if ui
-                .button("Open the Plugins Folder")
-                .on_hover_text(
-                    "Desktop files there, as Geeqie's, show in this menu after a restart",
-                )
-                .clicked()
-                && let Some(dir) = dir
-            {
-                let _ = std::fs::create_dir_all(&dir);
-                open_url(&dir.to_string_lossy());
-            }
-            let Some(k) = chosen.filter(|_| !self.files.is_empty()) else {
-                return;
-            };
-            let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-            let plugin = self.plugins[k].clone();
-            let dir = self.dir.clone();
-            let (saved, deleted) = (self.saved_tx.clone(), self.deleted_tx.clone());
-            self.background(ui.ctx(), move || {
-                let result = plugin.run(&files, &dir);
-                for f in files {
-                    let _ = saved.send((f, Ok(())));
-                }
-                let _ = deleted.send((Vec::new(), Vec::new(), true));
-                result.err().map(|e| format!("{}: {e}", plugin.name))
-            });
-        });
-    }
-
-    /// "Open With" submenu: the applications registered for the shown file's type; the chosen
-    /// one opens the selected files (or the shown one).
-    fn open_with_menu(&mut self, ui: &mut egui::Ui) {
-        let Some(name) = self.files.get(self.cur) else {
-            return;
-        };
-        let ext = Path::new(name)
-            .extension()
-            .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
-        let path = self.path(self.cur);
-        scroll_menu(ui, "Open With", |ui| {
-            // The menu keeps the width of its first frame, "…": names must not wrap to it.
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            for (ext, apps) in self.apps_rx.try_iter() {
-                self.apps.insert(ext, Some(apps));
-            }
-            // apps_for runs gio twice: in the background, so the menu never stalls.
-            let apps = self.apps.entry(ext.clone()).or_insert_with(|| {
-                let (tx, ctx) = (self.apps_tx.clone(), ui.ctx().clone());
-                std::thread::spawn(move || {
-                    let _ = tx.send((ext, apps_for(&path)));
-                    ctx.request_repaint();
-                });
-                None
-            });
-            let Some(apps) = apps else {
-                ui.label("…");
-                return;
-            };
-            if apps.is_empty() {
-                ui.label("No applications found");
-            }
-            let mut chosen = None;
-            for (name, desktop) in apps.iter() {
-                if ui.button(name).clicked() {
-                    chosen = Some(desktop.clone());
-                }
-            }
-            if let Some(desktop) = chosen {
-                let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-                let tx = self.notices_tx.clone();
-                std::thread::spawn(move || {
-                    let out = command("gio")
-                        .arg("launch")
-                        .arg(&desktop)
-                        .args(&files)
-                        .output();
-                    match out {
-                        Ok(o) if o.status.success() => {}
-                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                        Err(e) => drop(tx.send(format!("gio: {e}"))),
-                    }
-                });
-            }
-        });
-    }
-
     /// Preload `n` images on each side.
     fn set_preload(&mut self, n: usize) {
         self.preload.store(n, Ordering::Relaxed);
@@ -5538,7 +4899,134 @@ impl App {
         self.redecode();
     }
 
+    // ---- Remote control ----
+
+    /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
+    /// dialog asks about the selection.
+    fn receive_remote(&mut self, ctx: &egui::Context) {
+        if self.listing_rx.is_none()
+            && !self.asking_about_selection()
+            && let Some((command, reply)) = self.waiting_select.take()
+        {
+            let _ = reply.send(self.remote_select(ctx, &command));
+        }
+        while let Ok((command, reply)) = self.remote_rx.try_recv() {
+            match reply {
+                // After `open`, the folder is still being read: its files are not all listed. A
+                // dialog asking about the selection (Delete, Rename) is answered for the one it
+                // asked about, not one a script put in its place meanwhile.
+                Some(reply)
+                    if command.starts_with("select ")
+                        && (self.listing_rx.is_some() || self.asking_about_selection()) =>
+                {
+                    self.waiting_select = Some((command, reply));
+                }
+                Some(reply) if command.starts_with("select ") => {
+                    let _ = reply.send(self.remote_select(ctx, &command));
+                }
+                Some(reply) => drop(reply.send(self.remote_query(&command))),
+                None => self.remote_command(ctx, &command),
+            }
+        }
+    }
+
+    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random, fullscreen,
+    /// quit, or open PATH.
+    fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
+        let action = match command.trim() {
+            "next" => Some(Action::Next),
+            "prev" => Some(Action::Prev),
+            "first" => Some(Action::First),
+            "last" => Some(Action::Last),
+            "slideshow" => Some(Action::Slideshow),
+            "random" => Some(Action::RandomOrder),
+            "fullscreen" => Some(Action::FullScreen),
+            "quit" => {
+                // The only way out of a kiosk.
+                self.kiosk_quit = true;
+                Some(Action::Quit)
+            }
+            other => {
+                if let Some(path) = other.strip_prefix("open ") {
+                    self.visit(ctx, PathBuf::from(path));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                None
+            }
+        };
+        if let Some(action) = action {
+            self.run(ctx, action);
+        }
+    }
+
+    /// The answer to `glimt --remote current` or `selection`: the paths, each ending in a NUL
+    /// byte. Nothing else is told, and nothing changes.
+    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
+    // selected; in a thread of its own if scripts ask for large selections often.
+    fn remote_query(&self, command: &str) -> Vec<u8> {
+        use std::os::unix::ffi::OsStringExt;
+        let files = match command.trim() {
+            "current" => vec![self.cur],
+            _ => self.targets(),
+        };
+        (files.into_iter().filter(|&i| i < self.files.len()))
+            .flat_map(|i| {
+                let path = self.path(i).into_os_string().into_vec();
+                path.into_iter().chain([0])
+            })
+            .collect()
+    }
+
+    /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
+    /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
+    /// Only the selection changes; deleting or moving it is left to the user.
+    fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
+        let paths = command.strip_prefix("select ").unwrap_or_default();
+        let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
+        // The list's name of `p`: relative to the folder shown.
+        fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
+            Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
+        }
+        let dir = self.dir.clone();
+        let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
+        let found: std::collections::BTreeSet<usize> = (self.files.iter().enumerate())
+            .filter(|(_, f)| names.contains(f.as_os_str()))
+            .map(|(i, _)| i)
+            .collect();
+        let listed: HashSet<&std::ffi::OsStr> =
+            found.iter().map(|&i| self.files[i].as_os_str()).collect();
+        let missing: Vec<u8> = (paths.iter())
+            .filter(|p| !name(&dir, p).is_some_and(|n| listed.contains(n)))
+            .flat_map(|p| p.bytes().chain([0]))
+            .collect();
+        if let Some(&first) = found.first() {
+            self.go(ctx, first);
+            self.selected = found;
+            self.anchor = None;
+            self.selection_changed(ctx);
+        }
+        missing
+    }
+
     // ---- Keys and actions ----
+
+    /// Preferences or a modal dialog is open: keys go there.
+    /// A question about the selection on screen (Delete, Rename): what it acts on must stay as
+    /// it was when asked. Preferences and the like do not count: a script would wait on them.
+    fn asking_about_selection(&self) -> bool {
+        self.confirm_delete.is_some() || self.prompt.is_some()
+    }
+
+    fn dialog_open(&self) -> bool {
+        self.preferences_open
+            || self.confirm_delete.is_some()
+            || self.confirm_folder
+            || self.prompt.is_some()
+            || self.login.is_some()
+            || self.print_window.is_some()
+            || self.lightroom.is_some()
+            || !self.cut_short.is_empty()
+    }
 
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
@@ -6114,7 +5602,9 @@ impl App {
     }
 }
 
-// The parts of a frame, in the order `ui` draws them.
+// The parts of a frame, in the order `ui` draws them, and what reaches it from the threads in the
+// background. The windows of one feature (pan view, Find Duplicates, Check Images, Preferences,
+// the projector) are with that feature: above, or in its own module.
 impl App {
     /// What the background threads and the rest of the desktop sent since the last frame: decoded
     /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
@@ -6236,35 +5726,6 @@ impl App {
         self.receive_picked(ctx);
     }
 
-    /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
-    /// dialog asks about the selection.
-    fn receive_remote(&mut self, ctx: &egui::Context) {
-        if self.listing_rx.is_none()
-            && !self.asking_about_selection()
-            && let Some((command, reply)) = self.waiting_select.take()
-        {
-            let _ = reply.send(self.remote_select(ctx, &command));
-        }
-        while let Ok((command, reply)) = self.remote_rx.try_recv() {
-            match reply {
-                // After `open`, the folder is still being read: its files are not all listed. A
-                // dialog asking about the selection (Delete, Rename) is answered for the one it
-                // asked about, not one a script put in its place meanwhile.
-                Some(reply)
-                    if command.starts_with("select ")
-                        && (self.listing_rx.is_some() || self.asking_about_selection()) =>
-                {
-                    self.waiting_select = Some((command, reply));
-                }
-                Some(reply) if command.starts_with("select ") => {
-                    let _ = reply.send(self.remote_select(ctx, &command));
-                }
-                Some(reply) => drop(reply.send(self.remote_query(&command))),
-                None => self.remote_command(ctx, &command),
-            }
-        }
-    }
-
     /// A share mounted, or why not: its folder opens, or the error or a login is asked for.
     fn receive_mount(&mut self, ctx: &egui::Context) {
         if let Some(done) = self.mounting_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
@@ -6330,82 +5791,108 @@ impl App {
         }
     }
 
-    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random, fullscreen,
-    /// quit, or open PATH.
-    fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
-        let action = match command.trim() {
-            "next" => Some(Action::Next),
-            "prev" => Some(Action::Prev),
-            "first" => Some(Action::First),
-            "last" => Some(Action::Last),
-            "slideshow" => Some(Action::Slideshow),
-            "random" => Some(Action::RandomOrder),
-            "fullscreen" => Some(Action::FullScreen),
-            "quit" => {
-                // The only way out of a kiosk.
-                self.kiosk_quit = true;
-                Some(Action::Quit)
-            }
-            other => {
-                if let Some(path) = other.strip_prefix("open ") {
-                    self.visit(ctx, PathBuf::from(path));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                }
-                None
-            }
-        };
-        if let Some(action) = action {
-            self.run(ctx, action);
-        }
-    }
-
-    /// The answer to `glimt --remote current` or `selection`: the paths, each ending in a NUL
-    /// byte. Nothing else is told, and nothing changes.
-    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
-    // selected; in a thread of its own if scripts ask for large selections often.
-    fn remote_query(&self, command: &str) -> Vec<u8> {
+    /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
+    fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
-        let files = match command.trim() {
-            "current" => vec![self.cur],
-            _ => self.targets(),
+        let (tx, rx) = mpsc::channel();
+        let start = match &purpose {
+            // A name for the file to save: the first image's, as a PDF.
+            Pick::SavePdf(job) => self.dir.join(
+                (job.paths.first())
+                    .map_or("print".into(), |p| p.with_extension("pdf"))
+                    .file_name()
+                    .unwrap_or_default(),
+            ),
+            // "name-frame-3.png" beside the file.
+            Pick::SaveFrame(path, k) => {
+                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                self.dir.join(format!("{stem}-frame-{}.png", k + 1))
+            }
+            // Made first: the file dialog cannot start in a folder that is not there.
+            Pick::Collection => (collections::dir())
+                .inspect(|d| drop(std::fs::create_dir_all(d)))
+                .unwrap_or_default()
+                .join(""),
+            // Where colord and the user keep them.
+            Pick::ScreenProfile | Pick::InputProfile => {
+                (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
+                    .filter(|d| d.is_dir())
+                    .unwrap_or_else(|| "/usr/share/color/icc".into())
+                    .join("")
+            }
+            _ => self.dir.join(""),
         };
-        (files.into_iter().filter(|&i| i < self.files.len()))
-            .flat_map(|i| {
-                let path = self.path(i).into_os_string().into_vec();
-                path.into_iter().chain([0])
-            })
-            .collect()
-    }
-
-    /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
-    /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
-    /// Only the selection changes; deleting or moving it is left to the user.
-    fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
-        let paths = command.strip_prefix("select ").unwrap_or_default();
-        let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
-        // The list's name of `p`: relative to the folder shown.
-        fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
-            Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
-        }
-        let dir = self.dir.clone();
-        let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
-        let found: std::collections::BTreeSet<usize> = (self.files.iter().enumerate())
-            .filter(|(_, f)| names.contains(f.as_os_str()))
-            .map(|(i, _)| i)
-            .collect();
-        let listed: HashSet<&std::ffi::OsStr> =
-            found.iter().map(|&i| self.files[i].as_os_str()).collect();
-        let missing: Vec<u8> = (paths.iter())
-            .filter(|p| !name(&dir, p).is_some_and(|n| listed.contains(n)))
-            .flat_map(|p| p.bytes().chain([0]))
-            .collect();
-        if let Some(&first) = found.first() {
-            self.go(ctx, first);
-            self.selected = found;
-            self.anchor = None;
-            self.selection_changed(ctx);
-        }
-        missing
+        let save = matches!(purpose, Pick::SavePdf(_) | Pick::SaveFrame(..));
+        let several = matches!(purpose, Pick::Folders);
+        let ctx = ctx.clone();
+        let title = match purpose {
+            Pick::Open if folder => "Open Folder",
+            Pick::Open => "Open File",
+            Pick::Folders => "Open Folders (Ctrl+click for several)",
+            Pick::Recursive => "Open Folder with Its Subfolders",
+            Pick::Collection => "Open Collection",
+            Pick::CopyTo(_) => "Copy to Folder",
+            Pick::MoveTo(_) => "Move to Folder",
+            Pick::SavePdf(_) => "Save as PDF",
+            Pick::SortFolder => "Add to the Sort Manager",
+            Pick::ScreenProfile => "Screen Profile",
+            Pick::InputProfile => "Profile of Images Without One",
+            Pick::Lightroom => "Import Lightroom Catalog",
+            Pick::BackUp => "Back Up Glimt's Data To",
+            Pick::SaveFrame(..) => "Save This Frame as PNG",
+            Pick::ExportFrames(_) => "Export Every Frame To",
+        };
+        let notices = self.notices_tx.clone();
+        std::thread::spawn(move || {
+            let zenity = || {
+                let mut cmd = command("zenity");
+                cmd.arg("--file-selection").arg("--title").arg(title);
+                cmd.arg("--filename").arg(&start);
+                if save {
+                    cmd.arg("--save").arg("--confirm-overwrite");
+                }
+                if folder {
+                    cmd.arg("--directory");
+                }
+                if several {
+                    cmd.arg("--multiple").arg("--separator=\n");
+                }
+                cmd.output()
+            };
+            // KDE desktops often have kdialog but not zenity.
+            let kdialog = || {
+                let mode = if save {
+                    "--getsavefilename"
+                } else if folder {
+                    "--getexistingdirectory"
+                } else {
+                    "--getopenfilename"
+                };
+                let mut cmd = command("kdialog");
+                cmd.arg("--title").arg(title).arg(mode).arg(&start);
+                cmd.output()
+            };
+            let output = match zenity() {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => kdialog(),
+                other => other,
+            };
+            let picked = match output {
+                Err(e) => {
+                    let _ =
+                        notices.send(format!("No file dialog (install zenity or kdialog): {e}"));
+                    None
+                }
+                // Cancel exits with status 1 in both.
+                Ok(o) if !o.status.success() => None,
+                Ok(mut o) => {
+                    o.stdout.pop_if(|b| *b == b'\n');
+                    Some(PathBuf::from(std::ffi::OsString::from_vec(o.stdout)))
+                }
+            };
+            let _ = tx.send(picked);
+            ctx.request_repaint();
+        });
+        self.file_dialog = Some((purpose, rx));
     }
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
@@ -6441,6 +5928,46 @@ impl App {
         (!self.dialog_open() && !typing)
             .then(|| Self::shortcut(ctx, self.config.delete_key, self.collection.is_some()))
             .flatten()
+    }
+
+    /// A ring in the accent colour around the widget with the keyboard focus, over everything,
+    /// once Tab has moved it there; a click makes it go. egui draws none in menus and on flat
+    /// buttons, so without it Tab moved an invisible focus. Text fields show their own.
+    fn focus_ring(&mut self, ctx: &egui::Context) {
+        let pressed = ctx.input(|i| {
+            if i.key_pressed(egui::Key::Tab) {
+                self.focus_by_keys = true;
+            }
+            i.pointer.any_pressed()
+        });
+        if pressed {
+            self.focus_by_keys = false;
+        }
+        let Some(id) = ctx.memory(|m| m.focused()) else {
+            return;
+        };
+        if Some(id) == self.image_id || ctx.text_edit_focused() {
+            return;
+        }
+        // A click puts the focus Tab gave away, also on the widget clicked, where egui keeps it:
+        // the keys would go there, not to the shortcuts, with no ring to show it.
+        if pressed {
+            ctx.memory_mut(|m| m.surrender_focus(id));
+            return;
+        }
+        if !self.focus_by_keys {
+            return;
+        }
+        if let Some(widget) = ctx.read_response(id) {
+            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("focus ring"));
+            let accent = ctx.global_style().visuals.selection.bg_fill;
+            ctx.layer_painter(layer).rect_stroke(
+                widget.rect.expand(1.0),
+                4.0,
+                egui::Stroke::new(2.0, accent),
+                egui::StrokeKind::Outside,
+            );
+        }
     }
 
     /// Keeps a kiosk in full screen and the screensaver off in full screen, and remembers the
@@ -6496,6 +6023,45 @@ impl App {
                 .or(self.window_state.pos);
         }
         fullscreen
+    }
+
+    /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
+    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
+    fn inhibit(&mut self, on: bool) {
+        if on == self.inhibitor.is_some() {
+            return;
+        }
+        if let Some(mut child) = self.inhibitor.take() {
+            let _ = child.kill();
+            std::thread::spawn(move || child.wait());
+            return;
+        }
+        let commands: [&[&str]; 2] = [
+            &[
+                "gnome-session-inhibit",
+                "--inhibit",
+                "idle",
+                "--reason",
+                "Glimt full screen",
+                "cat",
+            ],
+            &[
+                "systemd-inhibit",
+                "--what=idle",
+                "--who=Glimt",
+                "--why=Full screen",
+                "cat",
+            ],
+        ];
+        self.inhibitor = commands.iter().find_map(|c| {
+            command(c[0])
+                .args(&c[1..])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok()
+        });
     }
 
     /// The menu bar, as Geeqie's, and the toolbar under it.
@@ -6736,6 +6302,102 @@ impl App {
             } else if !modal.should_close() {
                 self.prompt = Some((prompt, text));
             }
+        }
+    }
+
+    /// The text dialog was answered with `text`.
+    fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
+        if let Prompt::NewCollection = prompt {
+            return match collections::new_file(text) {
+                Ok(file) => self.add_to_collection(&file),
+                Err(e) => self.notice = Some(e),
+            };
+        }
+        if let Prompt::RenameCollection = prompt {
+            let Some(old) = self.collection.clone() else {
+                return;
+            };
+            match collections::rename(&old, text) {
+                Ok(new) => {
+                    self.collection = Some(new);
+                    self.title(ctx);
+                }
+                Err(e) => self.notice = Some(e),
+            }
+            return;
+        }
+        if text.is_empty() || text.contains('/') || text == "." || text == ".." {
+            self.notice = Some(format!("Not a valid name: \"{text}\""));
+            return;
+        }
+        if let Prompt::SaveTheme = prompt {
+            let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
+            let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
+                let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
+                std::fs::write(&f, theme::Theme::file_from(ctx))
+                    .map(|_| f)
+                    .map_err(|e| e.to_string())
+            });
+            self.notice = Some(match saved {
+                Ok(f) => {
+                    self.config.theme = text.to_owned();
+                    self.config.save();
+                    format!("Saved as {}: edit it, then choose it again", f.display())
+                }
+                Err(e) => format!("Could not save the theme: {e}"),
+            });
+            return;
+        }
+        if let Prompt::RenameFolder = prompt {
+            return self.rename_folder(ctx, text);
+        }
+        if matches!(prompt, Prompt::Rename | Prompt::RenameMany) && !self.still_asked() {
+            return;
+        }
+        if matches!(prompt, Prompt::Rename)
+            && !self.files.is_empty()
+            && !self.none_saving(&[self.path(self.cur)])
+        {
+            return;
+        }
+        // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
+        let target = match prompt {
+            Prompt::Rename if !self.files.is_empty() => self.path(self.cur).with_file_name(text),
+            _ => self.dir.join(text),
+        };
+        let result = match prompt {
+            Prompt::NewFolder => {
+                self.tree.remove(&self.dir);
+                std::fs::create_dir(&target)
+            }
+            Prompt::Rename if self.files.is_empty() => return,
+            Prompt::Rename if target == self.path(self.cur) => return,
+            // rename() would silently replace an existing file.
+            Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
+            Prompt::RenameMany => return self.rename_many(ctx, text),
+            Prompt::NewCollection
+            | Prompt::RenameCollection
+            | Prompt::SaveTheme
+            | Prompt::RenameFolder => return,
+            Prompt::Rename => std::fs::rename(self.path(self.cur), &target).inspect(|_| {
+                meta::follow(&self.path(self.cur), &target, false);
+                #[cfg(feature = "marks")]
+                self.marks
+                    .put(vec![(self.path(self.cur), target.clone())], false);
+            }),
+        };
+        match (result, prompt) {
+            (Ok(()), Prompt::NewFolder) => self.list(ctx),
+            // The list keeps its folder and mode; the shown entry takes the new name.
+            (Ok(()), _) => {
+                if let Ok(rel) = target.strip_prefix(&self.dir) {
+                    self.files[self.cur] = rel.as_os_str().to_owned();
+                }
+                self.save_collection();
+                self.title(ctx);
+                self.list(ctx);
+            }
+            (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
         }
     }
 
@@ -7477,6 +7139,136 @@ impl App {
         ui.separator();
         menu_item(ui, list_act, Action::Delete);
         menu_item(ui, list_act, Action::DeletePermanently);
+    }
+
+    /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
+    /// they are read again afterwards, as plugins change them.
+    fn plugins_menu(&mut self, ui: &mut egui::Ui) {
+        scroll_menu(ui, "Plugins", |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
+            if self.plugins.is_empty() {
+                ui.weak("No plugins");
+            }
+            let mut chosen = None;
+            for (k, plugin) in self.plugins.iter().enumerate() {
+                if ui.button(&plugin.name).clicked() {
+                    chosen = Some(k);
+                }
+            }
+            ui.separator();
+            if ui
+                .button("Open the Plugins Folder")
+                .on_hover_text(
+                    "Desktop files there, as Geeqie's, show in this menu after a restart",
+                )
+                .clicked()
+                && let Some(dir) = dir
+            {
+                let _ = std::fs::create_dir_all(&dir);
+                open_url(&dir.to_string_lossy());
+            }
+            let Some(k) = chosen.filter(|_| !self.files.is_empty()) else {
+                return;
+            };
+            let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+            let plugin = self.plugins[k].clone();
+            let dir = self.dir.clone();
+            let (saved, deleted) = (self.saved_tx.clone(), self.deleted_tx.clone());
+            self.background(ui.ctx(), move || {
+                let result = plugin.run(&files, &dir);
+                for f in files {
+                    let _ = saved.send((f, Ok(())));
+                }
+                let _ = deleted.send((Vec::new(), Vec::new(), true));
+                result.err().map(|e| format!("{}: {e}", plugin.name))
+            });
+        });
+    }
+
+    /// "Open With" submenu: the applications registered for the shown file's type; the chosen
+    /// one opens the selected files (or the shown one).
+    fn open_with_menu(&mut self, ui: &mut egui::Ui) {
+        let Some(name) = self.files.get(self.cur) else {
+            return;
+        };
+        let ext = Path::new(name)
+            .extension()
+            .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
+        let path = self.path(self.cur);
+        scroll_menu(ui, "Open With", |ui| {
+            // The menu keeps the width of its first frame, "…": names must not wrap to it.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            for (ext, apps) in self.apps_rx.try_iter() {
+                self.apps.insert(ext, Some(apps));
+            }
+            // apps_for runs gio twice: in the background, so the menu never stalls.
+            let apps = self.apps.entry(ext.clone()).or_insert_with(|| {
+                let (tx, ctx) = (self.apps_tx.clone(), ui.ctx().clone());
+                std::thread::spawn(move || {
+                    let _ = tx.send((ext, apps_for(&path)));
+                    ctx.request_repaint();
+                });
+                None
+            });
+            let Some(apps) = apps else {
+                ui.label("…");
+                return;
+            };
+            if apps.is_empty() {
+                ui.label("No applications found");
+            }
+            let mut chosen = None;
+            for (name, desktop) in apps.iter() {
+                if ui.button(name).clicked() {
+                    chosen = Some(desktop.clone());
+                }
+            }
+            if let Some(desktop) = chosen {
+                let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+                let tx = self.notices_tx.clone();
+                std::thread::spawn(move || {
+                    let out = command("gio")
+                        .arg("launch")
+                        .arg(&desktop)
+                        .args(&files)
+                        .output();
+                    match out {
+                        Ok(o) if o.status.success() => {}
+                        Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                        Err(e) => drop(tx.send(format!("gio: {e}"))),
+                    }
+                });
+            }
+        });
+    }
+
+    /// Open the shown file in `player` (a command line), or in the default application when
+    /// `player` is empty. Runs in its own thread, which waits for the program to exit.
+    fn launch(&self, player: &str) {
+        if self.files.is_empty() {
+            return;
+        }
+        let (path, tx) = (self.path(self.cur), self.notices_tx.clone());
+        let mut words = plugins::words(player);
+        std::thread::spawn(move || {
+            let run = |cmd: &str, args: &[String]| {
+                let out = command(cmd).args(args).arg(&path).output();
+                out.map_err(|e| format!("{cmd}: {e}"))
+            };
+            let out = if words.is_empty() {
+                // gio is part of glib; xdg-open covers systems without it.
+                run("gio", &["open".into()]).or_else(|_| run("xdg-open", &[]))
+            } else {
+                let cmd = words.remove(0);
+                run(&cmd, &words)
+            };
+            match out {
+                Ok(o) if o.status.success() => {}
+                Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
+                Err(e) => drop(tx.send(e)),
+            }
+        });
     }
 
     /// The image area: the shown image in one or more panes, compare, zoom and drag, the overlay,
