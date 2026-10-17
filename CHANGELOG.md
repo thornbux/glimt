@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An image whose own profile is sRGB (as most exports from Lightroom and Photoshop are) is no
+  longer run through a colour transform to sRGB, which changed nothing and held a second copy of
+  the image while zoomed.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
