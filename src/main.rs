@@ -7486,9 +7486,6 @@ impl App {
                 } else {
                     (full, None)
                 };
-                // Decode to the image area, not the whole screen: a small window on a 4K screen
-                // needs a fraction of the memory (3840×2160 is 33 MB per image).
-                let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 // The wheel and dragging work over every pane, and the compared half.
                 let several = panes.len() > 1 || right.is_some();
                 let input = if several { ui.max_rect() } else { area };
@@ -7508,28 +7505,7 @@ impl App {
                     let [w, h] = turned(s.orig);
                     fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
-                // Decoded to the size shown: the view for a whole image. Fit Width and Fit Height
-                // fill one side and may need up to the screen on the other, whatever the image,
-                // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
-                // its size at its scale once that is known (also while it is decoded again, from
-                // the image drawn), else the longer side.
-                let long = self.limits.lock().unwrap()[1][0];
-                let orig = (self.slots.get(&self.cur).map(|s| s.orig))
-                    .or(self.last_drawn.as_ref().map(|d| d.1));
-                let view = match (mode, orig) {
-                    (0, _) => [w, h],
-                    (3, Some([ow, oh])) => {
-                        let [tw, th] = turned([ow, oh]);
-                        let s = fit_scale(area.size() * ppp, [tw as f32, th as f32], mode);
-                        let size = |side: usize| (side as f32 * s.min(max_fit)).ceil() as u32;
-                        [size(ow).clamp(1, long), size(oh).clamp(1, long)]
-                    }
-                    (1, _) => [w, long],
-                    (2, _) => [long, h],
-                    _ => [w.max(h); 2],
-                };
-                let [pw, ph] = self.projector_size;
-                self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
+                let (view, long) = self.decode_size(area, ppp, max_fit);
                 if response.hovered()
                     && !self.dialog_open()
                     && let Some(step) = self.wheel_input(ctx, &response, fit, area, &panes, right)
@@ -7569,86 +7545,7 @@ impl App {
                 } else if too_small {
                     self.request(self.cur, true);
                 }
-                let now = self.slots.get(&self.cur).map(|s| s.tex.id());
-                let fade = now.and_then(|id| self.fading(ctx, 0, id));
-                if let Some(slot) = self.slots.get(&self.cur) {
-                    let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
-                    let rect = egui::Rect::from_center_size(area.center() + self.pan_offset, size);
-                    let (turns, mirrored) = self.orient;
-                    let uv = if mirrored {
-                        egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
-                    } else {
-                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
-                    };
-                    let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-                    let tex = self.texture(slot, ctx);
-                    // Within its pane or half, which zoom makes it overflow.
-                    let clip = ui.clip_rect();
-                    ui.set_clip_rect(area.intersect(clip));
-                    // A slideshow fading: the image before goes as this one comes.
-                    let shown = match &fade {
-                        Some((t, old, orig)) => {
-                            let look = (self.config.enlarge, mode);
-                            let zoom = self.zoom.map(|z| (z, self.pan_offset));
-                            let at = placed(area, *orig, ppp, look, zoom).0;
-                            let uv1 =
-                                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
-                            ui.painter()
-                                .image(old.id(), at, uv1, alpha(1.0 - t.powi(4)));
-                            *t
-                        }
-                        None => 1.0,
-                    };
-                    egui::Image::new(tex)
-                        .uv(uv)
-                        .rotate(angle, egui::Vec2::splat(0.5))
-                        .tint(alpha(shown))
-                        .paint_at(ui, rect);
-                    ui.set_clip_rect(clip);
-                    self.last_drawn = Some((slot.tex.clone(), slot.orig));
-                    // For the projector: this view, and the pointer from the image's centre.
-                    let centre = area.center() + self.pan_offset;
-                    let pointer = (ctx.pointer_hover_pos())
-                        .filter(|p| area.contains(*p))
-                        .map(|p| p - centre);
-                    self.view = Some(View {
-                        area,
-                        ppp,
-                        scale,
-                        pan: self.pan_offset,
-                        zoomed: self.zoom.is_some(),
-                        pointer,
-                    });
-                } else if let Some((tex, orig, thumb)) = self.placeholder()
-                    && !self.errors.contains_key(&self.cur)
-                {
-                    // A thumbnail fills the area, as the image will; the image before keeps
-                    // its size.
-                    let size = egui::vec2(orig[0] as f32, orig[1] as f32);
-                    let fit = (area.width() * ppp / size.x).min(area.height() * ppp / size.y);
-                    let fit = if thumb { fit } else { fit.min(max_fit) };
-                    let rect = egui::Rect::from_center_size(area.center(), size * fit / ppp);
-                    egui::Image::new(&tex).paint_at(ui, rect);
-                } else {
-                    let text = if self.files.is_empty() {
-                        if self.listing_rx.is_some() {
-                            "Reading folder…"
-                        } else {
-                            "No images in folder"
-                        }
-                        .to_owned()
-                    } else if let Some(e) = self.errors.get(&self.cur) {
-                        format!("Could not open {}:\n{e}", self.path(self.cur).display())
-                    } else {
-                        String::new()
-                    };
-                    // Broken into lines that fit, as an error can be long: a decoder's message.
-                    let (font, grey) = (egui::FontId::proportional(16.0), egui::Color32::GRAY);
-                    let width = (area.width() - 32.0).max(80.0);
-                    let galley = ui.painter().layout(text, font, grey, width);
-                    let at = area.center() - galley.size() / 2.0;
-                    ui.painter().galley(at, galley, grey);
-                }
+                self.paint_shown(ctx, ui, area, scale, max_fit);
                 // A video: a play button over the preview frame (click or Enter), readable on
                 // any frame, also in the slideshow and full screen.
                 #[cfg(feature = "video")]
@@ -7712,24 +7609,155 @@ impl App {
                 if fullscreen && !self.kiosk && !self.files.is_empty() {
                     clicked_pane = self.filmstrip(ui, ui.max_rect()).or(clicked_pane);
                 }
-                // Wrapped to the image area, on a dark band so it reads over any image.
-                if let Some(notice) = &self.notice {
-                    let (font, red) = (egui::FontId::proportional(16.0), egui::Color32::LIGHT_RED);
-                    let width = (area.width() - 48.0).max(80.0);
-                    let galley = ui.painter().layout(notice.clone(), font, red, width);
-                    let at = area.center_bottom()
-                        - egui::vec2(galley.size().x / 2.0, 16.0 + galley.size().y);
-                    let band = egui::Rect::from_min_size(at, galley.size()).expand(8.0);
-                    ui.painter()
-                        .rect_filled(band, 6.0, egui::Color32::from_black_alpha(200));
-                    ui.painter().galley(at, galley, red);
-                }
+                self.paint_notice(ui, area);
             });
         if let Some(action) = later {
             self.run(ctx, action);
         }
         if let Some(i) = clicked_pane {
             self.go(ctx, i);
+        }
+    }
+
+    /// The size the shown image and its neighbours are decoded to, set as the decoders' limit
+    /// (also the projector's size), and the longest side a texture may have.
+    fn decode_size(&mut self, area: egui::Rect, ppp: f32, max_fit: f32) -> ([u32; 2], u32) {
+        // The image area, not the whole screen: a small window on a 4K screen needs a fraction
+        // of the memory (3840×2160 is 33 MB per image).
+        let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
+        let quarter = self.orient.0 % 2 == 1;
+        let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
+        let mode = self.config.fit_mode;
+        // Decoded to the size shown: the view for a whole image. Fit Width and Fit Height
+        // fill one side and may need up to the screen on the other, whatever the image,
+        // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
+        // its size at its scale once that is known (also while it is decoded again, from
+        // the image drawn), else the longer side.
+        let long = self.limits.lock().unwrap()[1][0];
+        let orig =
+            (self.slots.get(&self.cur).map(|s| s.orig)).or(self.last_drawn.as_ref().map(|d| d.1));
+        let view = match (mode, orig) {
+            (0, _) => [w, h],
+            (3, Some([ow, oh])) => {
+                let [tw, th] = turned([ow, oh]);
+                let s = fit_scale(area.size() * ppp, [tw as f32, th as f32], mode);
+                let size = |side: usize| (side as f32 * s.min(max_fit)).ceil() as u32;
+                [size(ow).clamp(1, long), size(oh).clamp(1, long)]
+            }
+            (1, _) => [w, long],
+            (2, _) => [long, h],
+            _ => [w.max(h); 2],
+        };
+        let [pw, ph] = self.projector_size;
+        self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
+        (view, long)
+    }
+
+    /// The shown image in `area` at `scale`, turned as the view is, fading from the one before
+    /// in a slideshow; while it is decoded its thumbnail or the image before, else why not.
+    fn paint_shown(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &mut egui::Ui,
+        area: egui::Rect,
+        scale: f32,
+        max_fit: f32,
+    ) {
+        let ppp = ctx.pixels_per_point();
+        let mode = self.config.fit_mode;
+        let now = self.slots.get(&self.cur).map(|s| s.tex.id());
+        let fade = now.and_then(|id| self.fading(ctx, 0, id));
+        if let Some(slot) = self.slots.get(&self.cur) {
+            let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
+            let rect = egui::Rect::from_center_size(area.center() + self.pan_offset, size);
+            let (turns, mirrored) = self.orient;
+            let uv = if mirrored {
+                egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
+            } else {
+                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
+            };
+            let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
+            let tex = self.texture(slot, ctx);
+            // Within its pane or half, which zoom makes it overflow.
+            let clip = ui.clip_rect();
+            ui.set_clip_rect(area.intersect(clip));
+            // A slideshow fading: the image before goes as this one comes.
+            let shown = match &fade {
+                Some((t, old, orig)) => {
+                    let look = (self.config.enlarge, mode);
+                    let zoom = self.zoom.map(|z| (z, self.pan_offset));
+                    let at = placed(area, *orig, ppp, look, zoom).0;
+                    let uv1 = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
+                    ui.painter()
+                        .image(old.id(), at, uv1, alpha(1.0 - t.powi(4)));
+                    *t
+                }
+                None => 1.0,
+            };
+            egui::Image::new(tex)
+                .uv(uv)
+                .rotate(angle, egui::Vec2::splat(0.5))
+                .tint(alpha(shown))
+                .paint_at(ui, rect);
+            ui.set_clip_rect(clip);
+            self.last_drawn = Some((slot.tex.clone(), slot.orig));
+            // For the projector: this view, and the pointer from the image's centre.
+            let centre = area.center() + self.pan_offset;
+            let pointer = (ctx.pointer_hover_pos())
+                .filter(|p| area.contains(*p))
+                .map(|p| p - centre);
+            self.view = Some(View {
+                area,
+                ppp,
+                scale,
+                pan: self.pan_offset,
+                zoomed: self.zoom.is_some(),
+                pointer,
+            });
+        } else if let Some((tex, orig, thumb)) = self.placeholder()
+            && !self.errors.contains_key(&self.cur)
+        {
+            // A thumbnail fills the area, as the image will; the image before keeps
+            // its size.
+            let size = egui::vec2(orig[0] as f32, orig[1] as f32);
+            let fit = (area.width() * ppp / size.x).min(area.height() * ppp / size.y);
+            let fit = if thumb { fit } else { fit.min(max_fit) };
+            let rect = egui::Rect::from_center_size(area.center(), size * fit / ppp);
+            egui::Image::new(&tex).paint_at(ui, rect);
+        } else {
+            let text = if self.files.is_empty() {
+                if self.listing_rx.is_some() {
+                    "Reading folder…"
+                } else {
+                    "No images in folder"
+                }
+                .to_owned()
+            } else if let Some(e) = self.errors.get(&self.cur) {
+                format!("Could not open {}:\n{e}", self.path(self.cur).display())
+            } else {
+                String::new()
+            };
+            // Broken into lines that fit, as an error can be long: a decoder's message.
+            let (font, grey) = (egui::FontId::proportional(16.0), egui::Color32::GRAY);
+            let width = (area.width() - 32.0).max(80.0);
+            let galley = ui.painter().layout(text, font, grey, width);
+            let at = area.center() - galley.size() / 2.0;
+            ui.painter().galley(at, galley, grey);
+        }
+    }
+
+    /// The notice at the foot of `area`, wrapped to it, on a dark band so it reads over any image.
+    fn paint_notice(&self, ui: &egui::Ui, area: egui::Rect) {
+        if let Some(notice) = &self.notice {
+            let (font, red) = (egui::FontId::proportional(16.0), egui::Color32::LIGHT_RED);
+            let width = (area.width() - 48.0).max(80.0);
+            let galley = ui.painter().layout(notice.clone(), font, red, width);
+            let at =
+                area.center_bottom() - egui::vec2(galley.size().x / 2.0, 16.0 + galley.size().y);
+            let band = egui::Rect::from_min_size(at, galley.size()).expand(8.0);
+            ui.painter()
+                .rect_filled(band, 6.0, egui::Color32::from_black_alpha(200));
+            ui.painter().galley(at, galley, red);
         }
     }
 
