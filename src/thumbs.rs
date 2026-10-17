@@ -194,24 +194,7 @@ fn thumb_source(thumb: &Path) -> Option<PathBuf> {
         .iter()
         .find(|t| t.keyword == "Thumb::URI")?;
     let encoded = uri.text.strip_prefix("file://")?.as_bytes();
-    // Undo the percent-encoding.
-    let mut bytes = Vec::with_capacity(encoded.len());
-    let mut i = 0;
-    while i < encoded.len() {
-        let hex = encoded
-            .get(i + 1..i + 3)
-            .and_then(|h| std::str::from_utf8(h).ok());
-        match (encoded[i], hex.and_then(|h| u8::from_str_radix(h, 16).ok())) {
-            (b'%', Some(b)) => {
-                bytes.push(b);
-                i += 3;
-            }
-            (b, _) => {
-                bytes.push(b);
-                i += 1;
-            }
-        }
-    }
+    let bytes = crate::collections::percent_decoded(encoded);
     // SAFETY: on Unix any bytes are a valid OsStr.
     Some(PathBuf::from(unsafe {
         std::ffi::OsStr::from_encoded_bytes_unchecked(&bytes)
@@ -275,6 +258,30 @@ fn md5(data: &[u8]) -> [u8; 16] {
 
 #[cfg(test)]
 mod tests {
+    /// Thumbnails broken in thousands of ways, as the shared cache may hold them: their source
+    /// read without a panic.
+    #[test]
+    fn survives_broken_thumbnails() {
+        let mut png = Vec::new();
+        let mut enc = png::Encoder::new(&mut png, 2, 2);
+        enc.set_color(png::ColorType::Rgba);
+        enc.add_text_chunk("Thumb::URI".into(), "file:///home/u/a%20b.jpg".into())
+            .unwrap();
+        enc.write_header()
+            .unwrap()
+            .write_image_data(&[0; 16])
+            .unwrap();
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-thumb-{}.png", std::process::id()));
+        std::fs::write(&file, &png).unwrap();
+        assert_eq!(super::thumb_source(&file), Some("/home/u/a b.jpg".into()));
+        for bytes in crate::broken(&png) {
+            std::fs::write(&file, bytes).unwrap();
+            super::thumb_source(&file);
+        }
+        std::fs::remove_file(file).unwrap();
+    }
+
     fn hex(data: &[u8]) -> String {
         super::md5(data)
             .iter()

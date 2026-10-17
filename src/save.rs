@@ -292,6 +292,24 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
+    /// WebP files broken in thousands of ways: told lossless, lossy or neither without a panic
+    /// or a loop.
+    #[test]
+    fn survives_broken_webp() {
+        use image::ImageEncoder;
+        let mut webp = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut webp)
+            .write_image(&[0; 4 * 2 * 3], 4, 2, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-webp-{}.webp", std::process::id()));
+        for bytes in crate::broken(&webp) {
+            std::fs::write(&file, bytes).unwrap();
+            super::webp_lossless(&file);
+        }
+        std::fs::remove_file(file).unwrap();
+    }
+
     /// The new bytes replace the image with its permissions; a failed replace leaves no
     /// temporary file and the old one as it was.
     #[test]
