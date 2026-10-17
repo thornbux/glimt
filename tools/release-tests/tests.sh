@@ -1563,6 +1563,25 @@ for v in new old; do
 done
 as_version new
 
+echo "-- an image of a collection moved to another folder: the collection follows it"
+for v in new old; do
+    as_version $v
+    d=/tmp/collection-move-$v
+    mkdir -p $d/to
+    for f in a b; do convert -size 64x64 xc:red $d/$f.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n' $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    sleep 2
+    answer $d/to
+    key ctrl+m; sleep 2                  # a, shown, to the folder "to"
+    quit
+    got="$(grep -o '[a-z/-]*/[ab]\.jpg' $d/show.gqv | sed "s|$d/||" | tr '\n' ' ') $(ls $d/to)"
+    if [ $v = new ]; then expect "the collection names a where it went" "$got" "to/a.jpg b.jpg  a.jpg"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- a collection renamed, then moved to the trash: its images stay"
 d=/tmp/coll
 mkdir -p $d $XDG_DATA_HOME/glimt/collections
