@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A decoder plugin that takes too long is stopped in the Flatpak too: there it runs on the host,
+  which the kill of its process group did not reach, so a hanging one kept a decoding thread busy.
+  It now gets TERM, which flatpak-spawn passes on, KILL a second later, and flatpak-spawn's
+  --watch-bus.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
