@@ -1506,14 +1506,10 @@ fn spawn_exif_reader(ctx: &egui::Context) -> (mpsc::Sender<PathBuf>, mpsc::Recei
             if decode::is_file(&path) {
                 let read = std::panic::catch_unwind(|| {
                     let mut rows = vec![("Colour profile", colour_source(&path))];
-                    rows.extend(exif::read(&path));
-                    (
-                        rows,
-                        exif::all(&path),
-                        meta::read(&path),
-                        meta::tree_paths(&path),
-                        meta::access(&path),
-                    )
+                    let (exif_rows, all) = exif::read_and_all(&path);
+                    rows.extend(exif_rows);
+                    let (meta, paths, access) = meta::read_all(&path);
+                    (rows, all, meta, paths, access)
                 });
                 if let Ok((more, a, m, p, x)) = read {
                     rows.extend(more);

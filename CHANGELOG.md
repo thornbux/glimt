@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The EXIF panel reads a photo's EXIF block, its sidecar and its own XMP once each, not six times
+  in all: slow on a network share.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed

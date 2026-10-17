@@ -53,13 +53,23 @@ fn parse_access(xmp: &str) -> Access {
     }
 }
 
-/// The alt text and extended description of `path`: from its sidecar if that has them, else
-/// from the image.
-pub fn access(path: &Path) -> Access {
-    let has = |x: &String| x.contains(&format!("<{ALT}")) || x.contains(&format!("<{EXTENDED}"));
-    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
-    side.or_else(|| embedded(path))
-        .map_or_else(Access::default, |x| parse_access(&x))
+/// `read` and `tree_paths` of `path`, and its alt text and extended description (from its
+/// sidecar if that has them, else from the image), its sidecar and the XMP inside it each read
+/// once, for the panel: on a network share each reading of a large photo costs.
+pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
+    let side = std::fs::read_to_string(sidecar(path)).ok();
+    let inside = std::cell::OnceCell::new();
+    let inside = || inside.get_or_init(|| embedded(path)).clone();
+    let has_meta = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
+    let has_access =
+        |x: &String| x.contains(&format!("<{ALT}")) || x.contains(&format!("<{EXTENDED}"));
+    let source = side.clone().filter(has_meta).or_else(inside);
+    let access = side.filter(has_access).or_else(inside);
+    (
+        source.as_deref().map_or_else(Meta::default, parse),
+        source.map_or_else(Vec::new, |x| unique(items(&x, "lr:hierarchicalSubject"))),
+        access.map_or_else(Access::default, |x| parse_access(&x)),
+    )
 }
 
 /// Write the alt text and extended description of `path` to its sidecar; everything else in it
@@ -541,6 +551,27 @@ fn unescape(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Read together, the keywords, their tree paths and the alt text are those read one by
+    /// one: the sidecar's where it has them, else the image's own.
+    #[test]
+    fn reads_all_as_one_by_one() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-readall-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = dir.join("a.jpg");
+        std::fs::write(&img, b"not a jpeg").unwrap();
+        std::fs::write(
+            super::sidecar(&img),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/"><dc:subject><rdf:Bag><rdf:li>Oslo</rdf:li></rdf:Bag></dc:subject><lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Oslo</rdf:li></rdf:Bag></lr:hierarchicalSubject></rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let (meta, paths, access) = super::read_all(&img);
+        assert_eq!(meta.keywords, super::read(&img).keywords);
+        assert_eq!(paths, super::tree_paths(&img));
+        assert_eq!(paths, ["Places|Oslo"]);
+        assert_eq!(access, super::Access::default());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
 
     /// A JPEG with an empty APP1 segment followed by the XMP name: no keywords, and no panic.
