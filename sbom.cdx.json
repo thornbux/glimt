@@ -8077,6 +8077,7 @@
     "pkg:cargo/arboard@3.6.1",
     "pkg:cargo/eframe@0.36.2",
     "pkg:cargo/fast_image_resize@6.1.0",
+    "pkg:cargo/flate2@1.1.10",
     "pkg:cargo/image@0.25.10",
     "pkg:cargo/jpeg-decoder@0.3.2",
     "pkg:cargo/jxl-oxide@0.12.6",

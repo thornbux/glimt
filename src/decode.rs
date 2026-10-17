@@ -340,8 +340,8 @@ pub fn load_for(
     rotate: bool,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    // Only ffmpeg's formats take it; without them it has no use.
-    #[cfg(not(any(feature = "video", feature = "heic", feature = "avif")))]
+    // Only ffmpeg's formats and SVG take it; without them it has no use.
+    #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
     let _ = max;
     #[cfg(feature = "video")]
     if crate::external::is_video(path) {
@@ -356,7 +356,7 @@ pub fn load_for(
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::files::SVG_EXTS) {
-        return Ok((svg(path)?, None));
+        return Ok((svg(path, max)?, None));
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::files::JXL_EXTS) {
@@ -493,8 +493,6 @@ pub fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
 /// image's default limit (`Limits::max_alloc`).
 pub const MAX_DECODE: u64 = 512 << 20;
 
-/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
-/// stays sharp when fitted to the window.
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first: a linked one
 /// only if it is a file under 64 MB (not /dev/zero or a pipe), and none whose header claims
 /// more pixels than an image Glimt decodes may have.
@@ -505,14 +503,23 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         match reader.ok().and_then(|r| r.into_dimensions().ok()) {
             Some((w, h)) => u64::from(w) * u64::from(h) * 4 <= MAX_DECODE,
-            // Not a picture image reads, such as an SVG: usvg reads it with these limits.
-            None => true,
+            // Not a picture image reads, such as an SVG: usvg reads it with these limits, but
+            // unpacks one that is gzipped (svgz) without a limit.
+            None => !data.starts_with(&[0x1f, 0x8b]),
         }
     };
     let (data, string) = (R::default_data_resolver(), R::default_string_resolver());
+    // At most 256 MB of pictures for one SVG: a small one may name the same large picture a
+    // thousand times, and each is read and decoded again.
+    let total = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let room = move |bytes: u64| {
+        let before = total.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+        before + bytes <= 256 << 20
+    };
+    let room_too = room.clone();
     R {
         resolve_data: Box::new(move |mime, bytes, opts| {
-            fits(bytes.as_slice())
+            (room(bytes.len() as u64) && fits(bytes.as_slice()))
                 .then(|| data(mime, bytes, opts))
                 .flatten()
         }),
@@ -526,7 +533,8 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
                     .join(p),
             };
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
-            if meta.len() > 64 << 20 || !fits(&std::fs::read(&file).ok()?) {
+            if meta.len() > 64 << 20 || !room_too(meta.len()) || !fits(&std::fs::read(&file).ok()?)
+            {
                 return None;
             }
             string(href, opts)
@@ -534,8 +542,23 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     }
 }
 
+/// Gzipped `data` unpacked, or an error once it would be larger than `limit` bytes.
 #[cfg(feature = "svg")]
-pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
+fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut out = Vec::new();
+    let mut reader = flate2::read::GzDecoder::new(data).take(limit + 1);
+    reader.read_to_end(&mut out).map_err(|e| e.to_string())?;
+    match out.len() as u64 > limit {
+        true => Err("SVG too large once unpacked".into()),
+        false => Ok(out),
+    }
+}
+
+/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
+/// stays sharp when fitted to the window; for a thumbnail, fitted in `max`.
+#[cfg(feature = "svg")]
+pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
     use resvg::{tiny_skia, usvg};
     use std::sync::Arc;
     // The system fonts, for text in SVGs, are read once: it takes tens of milliseconds.
@@ -551,13 +574,22 @@ pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
         image_href_resolver: svg_images(),
         ..usvg::Options::default()
     };
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut data = std::fs::read(path).map_err(|e| e.to_string())?;
+    // usvg unpacks a .svgz without a limit: 10 MB of zeros would be 10 GB.
+    if data.starts_with(&[0x1f, 0x8b]) {
+        data = gunzip(&data, 64 << 20)?;
+    }
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
     // At most 8192 pixels on the longer side: an SVG may claim any size, and the pixmap is
     // 4 bytes per pixel (60000×60000 would be 14 GB).
     let longer = size.width().max(size.height());
-    let scale = (2048.0 / longer).max(1.0).min(8192.0 / longer);
+    let scale = match max {
+        // A thumbnail: drawn at its size, not at 2048 and shrunk.
+        Some([w, h]) => (w as f32 / size.width()).min(h as f32 / size.height()),
+        None => (2048.0 / longer).max(1.0),
+    }
+    .min(8192.0 / longer);
     let (w, h) = (
         (size.width() * scale).ceil() as u32,
         (size.height() * scale).ceil() as u32,
@@ -971,6 +1003,20 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A .svgz is unpacked only up to the limit: a few KB of gzipped zeros cannot take
+    /// gigabytes.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn unpacks_svgz_within_a_limit() {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        gz.write_all(&[b' '; 5000]).unwrap();
+        let packed = gz.finish().unwrap();
+        assert_eq!(super::gunzip(&packed, 5000).map(|d| d.len()), Ok(5000));
+        assert!(super::gunzip(&packed, 4999).is_err());
+        assert!(super::gunzip(&packed[..10], 5000).is_err());
+    }
+
     /// An SVG that points at /dev/zero, or at a picture claiming 100,000×100,000 pixels, is
     /// drawn without them, at once.
     #[cfg(feature = "svg")]
@@ -996,7 +1042,28 @@ mod tests {
                  <image href="huge.png" width="10" height="10"/></svg>"#,
         )
         .unwrap();
-        assert!(super::svg(&svg).is_ok());
+        assert!(super::svg(&svg, None).is_ok());
+        // For a thumbnail, at the thumbnail's size.
+        let thumb = super::svg(&svg, Some([128, 128])).unwrap();
+        assert_eq!((thumb.width(), thumb.height()), (128, 128));
+        // One picture of 4 MB named again and again: taken until 256 MB, then no more.
+        let noise: Vec<u8> = (0..1024 * 1024 * 4u32)
+            .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
+            .collect();
+        image::RgbaImage::from_raw(1024, 1024, noise)
+            .unwrap()
+            .save(dir.join("big.png"))
+            .unwrap();
+        let resolver = super::svg_images();
+        let opts = resvg::usvg::Options {
+            resources_dir: Some(dir.clone()),
+            ..resvg::usvg::Options::default()
+        };
+        let taken = (0..100)
+            .filter(|_| (resolver.resolve_string)("big.png", &opts).is_some())
+            .count();
+        let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
+        assert_eq!(taken as u64, (256 << 20) / size);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

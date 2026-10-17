@@ -10,6 +10,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The release tests allow 100 ms and 20 MB of slack beside the 1.5 times limit, as a few hundred
   ms vary by more than half when something else runs.
 
+### Security
+
+- An SVG takes at most 256 MB of linked or embedded pictures: a small one naming the same large
+  picture a thousand times can no longer take all memory.
+- A gzipped SVG (.svgz) is unpacked with a limit of 64 MB: one made of zeros, a few MB on disk,
+  can no longer take all memory and end Glimt when its folder is opened. A gzipped SVG inside
+  another SVG is not drawn.
+
 ### Fixed
 
 - With Fit Width or Fit Height, an image shown larger after the window grew (or went full screen)
@@ -32,6 +40,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Rename Many cut short by a crash is put right by what was done, which the plan now counts: a
   swap of names finished at the next start is no longer done a second time, which undid it, and
   putting the old names back after a crash before the first rename changes nothing.
+- A video, HEIC or plugin file that ffmpeg or the plugin cannot read is marked as having no
+  thumbnail, as other files are, instead of being tried again on every visit; TypeScript sources
+  named .ts, a video ending too, no longer start ffmpeg twice each time their folder opens. A
+  program that is not installed still leaves no mark.
+- The errors of ffmpeg and decoder plugins are read with a limit, the last 64 KB, so a damaged
+  video cannot fill memory with them; and an error naming a file in another encoding is told, not
+  lost.
+- SVG thumbnails are drawn at the thumbnail's size, not at 2048 pixels and shrunk: a folder of
+  icons gets its thumbnails many times faster, with a fraction of the memory.
 
 ## [0.34.1] - 2026-10-17
 

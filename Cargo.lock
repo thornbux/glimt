@@ -1286,6 +1286,7 @@ dependencies = [
  "arboard",
  "eframe",
  "fast_image_resize",
+ "flate2",
  "image",
  "jpeg-decoder",
  "jxl-oxide",
