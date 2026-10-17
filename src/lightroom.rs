@@ -200,6 +200,43 @@ impl Catalog {
         }
         best.into_iter().collect()
     }
+
+    /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
+    /// clicked: it goes through every image of the self.
+    // shortcut: made in the window's thread, a short pause for a catalog of some 100,000 images;
+    // in a thread with the busy pointer when that is too long.
+    pub(crate) fn plan(&self, now: &[String], stars_here: impl Fn(&Path) -> u8) -> Plan {
+        let now: Vec<PathBuf> = now.iter().map(|s| root_now(s)).collect();
+        let paths = self.paths(&now);
+        let collections = self.collections(&paths);
+        let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
+        let existing = (collections.iter())
+            .filter(|c| there.contains(&c.0))
+            .map(|c| c.0.clone())
+            .collect();
+        #[cfg(feature = "marks")]
+        let stars = self.stars(&paths);
+        #[cfg(not(feature = "marks"))]
+        let stars = Vec::new();
+        #[cfg(feature = "marks")]
+        let differ = (stars.iter())
+            .filter(|(p, n)| ![0, *n].contains(&stars_here(p)))
+            .count();
+        #[cfg(not(feature = "marks"))]
+        let differ = {
+            let _ = stars_here;
+            0
+        };
+        Plan {
+            collections,
+            existing,
+            keywords: self.keyword_paths(),
+            image_keywords: self.image_keywords(&paths),
+            stars,
+            differ,
+            take_lightroom: false,
+        }
+    }
 }
 
 /// The names from the top down to `id`, through `parent_and_name`; the nameless root that
@@ -250,13 +287,13 @@ pub fn roots_now(catalog: &Catalog) -> Vec<String> {
 
 /// A Lightroom catalog read, the folders where its root folders are now, and once Next is
 /// clicked what importing it will do.
-pub(crate) struct LightroomImport {
+pub(crate) struct Import {
     pub(crate) catalog: Catalog,
     pub(crate) now: Vec<String>,
-    pub(crate) plan: Option<LightroomPlan>,
+    pub(crate) plan: Option<Plan>,
 }
 
-pub(crate) struct LightroomPlan {
+pub(crate) struct Plan {
     collections: Vec<(String, Vec<PathBuf>)>,
     /// The names of those that are there already.
     existing: Vec<String>,
@@ -367,7 +404,11 @@ impl crate::App {
             }
         });
         if next {
-            lr.plan = Some(self.lightroom_plan(&lr.catalog, &lr.now));
+            #[cfg(feature = "marks")]
+            let stars_here = |p: &Path| self.marks.get(p).1;
+            #[cfg(not(feature = "marks"))]
+            let stars_here = |_: &Path| 0;
+            lr.plan = Some(lr.catalog.plan(&lr.now, stars_here));
         }
         if back {
             lr.plan = None;
@@ -379,44 +420,10 @@ impl crate::App {
         }
     }
 
-    /// What importing `catalog` with its root folders `now` would do. Made once, when Next is
-    /// clicked: it goes through every image of the catalog.
-    // shortcut: made in the window's thread, a short pause for a catalog of some 100,000 images;
-    // in a thread with the busy pointer when that is too long.
-    pub(crate) fn lightroom_plan(&self, catalog: &Catalog, now: &[String]) -> LightroomPlan {
-        let now: Vec<PathBuf> = now.iter().map(|s| root_now(s)).collect();
-        let paths = catalog.paths(&now);
-        let collections = catalog.collections(&paths);
-        let there: HashSet<String> = collections::list().into_iter().map(|c| c.0).collect();
-        let existing = (collections.iter())
-            .filter(|c| there.contains(&c.0))
-            .map(|c| c.0.clone())
-            .collect();
-        #[cfg(feature = "marks")]
-        let stars = catalog.stars(&paths);
-        #[cfg(not(feature = "marks"))]
-        let stars = Vec::new();
-        #[cfg(feature = "marks")]
-        let differ = (stars.iter())
-            .filter(|(p, n)| ![0, *n].contains(&self.marks.get(p).1))
-            .count();
-        #[cfg(not(feature = "marks"))]
-        let differ = 0;
-        LightroomPlan {
-            collections,
-            existing,
-            keywords: catalog.keyword_paths(),
-            image_keywords: catalog.image_keywords(&paths),
-            stars,
-            differ,
-            take_lightroom: false,
-        }
-    }
-
     /// The keyword tree and stars here; the collections' files, and the stars' XMP when they
     /// go there, in the background.
-    pub(crate) fn import_lightroom(&mut self, ctx: &egui::Context, plan: LightroomPlan) {
-        let LightroomPlan {
+    pub(crate) fn import_lightroom(&mut self, ctx: &egui::Context, plan: Plan) {
+        let Plan {
             collections: all,
             keywords,
             stars,

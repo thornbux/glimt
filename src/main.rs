@@ -1165,7 +1165,7 @@ struct App {
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
     lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
-    lightroom: Option<lightroom::LightroomImport>,
+    lightroom: Option<lightroom::Import>,
     /// Answer from an open file dialog (zenity).
     file_dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
     pan_window: Option<Pan>,
@@ -5712,7 +5712,7 @@ impl App {
             match read {
                 Ok(catalog) => {
                     let now = lightroom::roots_now(&catalog);
-                    self.lightroom = Some(lightroom::LightroomImport {
+                    self.lightroom = Some(lightroom::Import {
                         catalog,
                         now,
                         plan: None,
