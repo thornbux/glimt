@@ -61,6 +61,8 @@ impl crate::App {
         job
     }
 
+    /// Delete the selected files (or the shown one) in the background, to the trash or for good,
+    /// as a job with progress and Stop; the list follows when `receive_deleted` hears back.
     pub(crate) fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
         let targets = self.targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
@@ -141,6 +143,8 @@ impl crate::App {
         });
     }
 
+    /// What deletes and moves report: files moved (their marks go along), and files gone, which
+    /// leave the list, the marks and Find Duplicates; or the folder read again after a failure.
     pub(crate) fn receive_deleted(&mut self) {
         // Moved before their sources are taken for deleted ones: the marks go along first.
         for (pairs, keep) in self.put_rx.try_iter() {
@@ -629,9 +633,11 @@ impl crate::App {
         });
     }
 
-    /// Write the sidecars of `paths` in the background, through one thread for every window's
-    /// keywords and stars, so changes to one file land in the order they were made and never
-    /// cross. The status bar counts them; `report` words the end from how many failed.
+    /// Write the sidecars of `paths` in the background, through one thread for this window's
+    /// keywords, stars and Lightroom import, so changes to one file land in the order they were
+    /// made and never cross. The status bar counts them; `report` words the end from how many
+    /// failed. A thread of its own, not `config::write_later`'s: settings saved meanwhile must
+    /// not wait behind 3,000 sidecars, and `flush` at exit waits only for Glimt's own files.
     pub(crate) fn write_sidecars(
         &mut self,
         ctx: &egui::Context,

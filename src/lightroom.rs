@@ -1,7 +1,7 @@
 //! Lightroom Classic catalogs (`.lrcat`, an SQLite database), read once through the `sqlite3`
 //! program: the collections, the keyword tree, the stars and each image's keywords, for Glimt's
-//! own files. Only
-//! columns that have been the same for many Lightroom versions are read.
+//! own files. Only columns that have been the same for many Lightroom versions are read. Also
+//! File → Import Lightroom Catalog's dialog, what it will do (`Catalog::plan`) and the import.
 
 use crate::*;
 use std::collections::HashMap;

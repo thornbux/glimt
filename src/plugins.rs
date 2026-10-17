@@ -1,7 +1,8 @@
 //! Plugins, as Geeqie's: programs in desktop files (`*.desktop`), in the Edit → Plugins menu,
 //! run on the selected files. They are read from `glimt/plugins` in the XDG data folders
 //! (`~/.local/share/glimt/plugins` first). Geeqie's own plugins are not read: many of them ask
-//! a running Geeqie for things with `geeqie --remote`.
+//! a running Geeqie for things with `geeqie --remote`. Decoder plugins' desktop files are read
+//! with the same `desktop_files` and `values`.
 
 use std::path::{Path, PathBuf};
 

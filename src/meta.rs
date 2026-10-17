@@ -1,6 +1,8 @@
 //! Keywords and comment, as Geeqie's info sidebar edits them: dc:subject and dc:description in
-//! XMP. They are written to the sidecar `<file>.xmp`, which darktable and digiKam read too, and
-//! read from it, or else from the XMP inside the image.
+//! XMP; also IPTC's alt text and extended description, and the keywords' tree paths
+//! (lr:hierarchicalSubject). They are written to the sidecar `<file>.xmp`, which darktable and
+//! digiKam read too, and read from it, or else from the XMP inside the image. `update_sidecar`
+//! writes the stars too, and `follow` takes sidecars along when their files move.
 
 use std::path::{Path, PathBuf};
 

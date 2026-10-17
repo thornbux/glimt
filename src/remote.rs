@@ -2,8 +2,9 @@
 //! window used last, `glimt --remote-all quit` to every one. Each Glimt listens on its own Unix
 //! socket in `$XDG_RUNTIME_DIR/glimt`, which only the user can reach, and the one that gets
 //! the focus writes its process ID to `focused` there. One started with `--name left` listens
-//! as `left` instead, and `glimt --name left --remote next` reaches only it. In a Flatpak the folder is in the app's
-//! own runtime folder, the part of `$XDG_RUNTIME_DIR` its instances share.
+//! as `left` instead, and `glimt --name left --remote next` reaches only it. In a Flatpak the
+//! folder is in the app's own runtime folder, the part of `$XDG_RUNTIME_DIR` its instances
+//! share. Both ends are here: `client` sends, `listen` receives.
 
 use std::io::{BufRead, Write};
 use std::os::unix::net::{UnixListener, UnixStream};

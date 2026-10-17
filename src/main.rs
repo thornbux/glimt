@@ -76,6 +76,8 @@ const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
 static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
 /// Thumbnail jobs further than this from the visible rows are skipped.
 const THUMB_MARGIN: usize = 20;
+/// The files whose thumbnails are on screen, for the thumbnail workers to make first: `[0]` in the
+/// file list, `[1]` in pan view.
 type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
 /// Width of the size and date columns in the file list (points).
 const DATE_WIDTH: f32 = 140.0;
@@ -540,7 +542,7 @@ struct RenameJob {
     shown: Option<usize>,
 }
 
-/// What a zenity file dialog was opened for.
+/// What a file dialog (zenity or kdialog) was opened for.
 enum Pick {
     Open,
     /// Several folders to show as one list.
@@ -775,8 +777,8 @@ struct RubberBand {
     touched: Option<[usize; 4]>,
 }
 
-/// Keywords and comment of the shown image as being edited in the EXIF panel, and as last read
-/// or saved, to tell whether they changed.
+/// Keywords, comment, alt text and extended description of the shown image as being edited in
+/// the EXIF panel, and as last read or saved, to tell whether they changed.
 struct MetaEdit {
     path: PathBuf,
     keywords: String,
@@ -790,6 +792,8 @@ struct MetaEdit {
     access: meta::Access,
 }
 
+/// An image decoded for the view: the shown one or a neighbour read ahead, at the size shown or
+/// (`full`) at full resolution.
 struct Slot {
     tex: egui::TextureHandle,
     /// The file the texture was made from; decides whether it can be kept when the file list changes.
@@ -948,7 +952,8 @@ struct App {
     fade: Option<(Instant, Vec<Option<Shown>>)>,
     /// When the shown image was opened: the clock of an animation.
     opened: Instant,
-    /// Set at startup; taken when the first image is shown.
+    /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
+    /// standard error that the release tests read.
     started: Option<Instant>,
 
     // ---- The view: zoom, panes, the window ----
@@ -1049,8 +1054,8 @@ struct App {
     exif_all: Vec<(&'static str, String, String)>,
     /// View → EXIF Window is open.
     exif_window: bool,
-    /// Keywords and comment in the EXIF panel; saved when a field loses the focus, or another
-    /// image is shown.
+    /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
+    /// loses the focus, or another image is shown.
     meta: Option<MetaEdit>,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
     focus_keywords: bool,
@@ -1111,7 +1116,8 @@ struct App {
     /// right; read in the background.
     cut_short_rx: Option<mpsc::Receiver<Vec<(PathBuf, journal::Moves)>>>,
     cut_short: Vec<(PathBuf, journal::Moves)>,
-    /// Background deletes, copies and moves still running, for the busy pointer.
+    /// Work still running in the background, for the busy pointer: deletes, copies and moves,
+    /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     file_jobs: Vec<Arc<Job>>,
@@ -1119,7 +1125,8 @@ struct App {
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
     /// Deletes and moves done, and whether to read the folder again: one failed, so the files
-    /// may still be there, or files were moved or copied into the list.
+    /// may still be there, or files were moved or copied into the list. A plugin and Move Folder
+    /// to Trash send it too, only for the list to be read again.
     deleted_tx: mpsc::Sender<Deleted>,
     deleted_rx: mpsc::Receiver<Deleted>,
     /// Files copied or moved, (from, to), and whether copied: their marks follow.
@@ -1127,7 +1134,8 @@ struct App {
     put_rx: mpsc::Receiver<(Vec<(PathBuf, PathBuf)>, bool)>,
     /// Those still being saved.
     saving: HashSet<PathBuf>,
-    /// PNG and WebP files saved turned in the background.
+    /// PNG and WebP files saved turned in the background; a plugin sends its files too, as it may
+    /// have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
     /// `files_gen` and `cur` when Rename or a delete was asked: the answer acts on those files
@@ -1166,8 +1174,9 @@ struct App {
     /// are now.
     lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
     lightroom: Option<lightroom::Import>,
-    /// Answer from an open file dialog (zenity).
+    /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
+    /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
@@ -2427,6 +2436,8 @@ impl App {
         })
     }
 
+    /// Show file `idx`: the image before is left (its turn saved or dropped), the zoom reset
+    /// unless kept, and the images around the new one decoded.
     fn go(&mut self, ctx: &egui::Context, idx: usize) {
         if self.files.is_empty() {
             return;
@@ -2640,6 +2651,8 @@ impl App {
 
     // ---- Decoding and painting the image ----
 
+    /// Ask the decoders for file `idx` at the size shown, or at full resolution, unless it is
+    /// there, failed or asked for already.
     fn request(&mut self, idx: usize, full: bool) {
         let have = self.slots.get(&idx).is_some_and(|s| s.full || !full);
         if !have
@@ -2698,6 +2711,7 @@ impl App {
         }
     }
 
+    /// Decoded images into textures, those still wanted; why for those that could not be.
     fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoded_rx.try_recv() {
             // Not a job still asked for: asked for again, in another list, page or look. Its
@@ -3250,6 +3264,7 @@ impl App {
         self.replace_files(ctx, files, Some(shown));
     }
 
+    /// Start the slideshow: with the subfolders when set, shuffled for random order.
     fn start_slideshow(&mut self, ctx: &egui::Context) {
         if self.config.slideshow_subfolders {
             // The images of the subfolders too, listed in the background; random order
@@ -4114,7 +4129,8 @@ impl App {
             });
     }
 
-    /// Keywords and comment of the shown image, as in Geeqie's info sidebar.
+    /// Keywords and comment of the shown image, as in Geeqie's info sidebar, with its alt text and
+    /// extended description.
     fn meta_fields(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.cur);
         let Some(edit) = self.meta.as_mut().filter(|m| m.path == path) else {
@@ -4280,7 +4296,8 @@ impl App {
         );
     }
 
-    /// Save the keywords and comment being edited, if they changed.
+    /// Save the keywords, comment, alt text and extended description being edited, if they
+    /// changed.
     fn save_meta(&mut self) {
         let Some(edit) = &mut self.meta else { return };
         let access = meta::Access {
@@ -5067,6 +5084,7 @@ impl App {
         })
     }
 
+    /// Do `action`, from a menu, a key, a toolbar button or `--remote`: one arm each.
     fn run(&mut self, ctx: &egui::Context, action: Action) {
         // A kiosk shows and browses; it does not change files, settings or the window.
         if self.kiosk && !KIOSK_ACTIONS.contains(&action) && !self.kiosk_quit {
@@ -5688,12 +5706,12 @@ impl App {
         if let Some(path) = dropped.filter(|_| !self.kiosk) {
             self.visit(ctx, path);
         }
-        // Busy pointer while the folder is read, files are deleted, copied or moved, or the
-        // shown image is still being decoded.
+        self.receive_mount(ctx);
+        // Busy pointer while the folder is read, a share mounted, work done in the background,
+        // or the shown image still decoded.
         let decoding = !self.files.is_empty()
             && !self.slots.contains_key(&self.cur)
             && !self.decode_errors.contains_key(&self.cur);
-        self.receive_mount(ctx);
         if self.listing_rx.is_some()
             || decoding
             || self.mounting_rx.is_some()

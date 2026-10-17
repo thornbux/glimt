@@ -1,5 +1,6 @@
-//! The EXIF panel's fields. The image decoder hands over the raw EXIF block (JPEG, PNG, WebP,
-//! TIFF); this walks its TIFF structure for the handful of tags a photographer looks at.
+//! EXIF: a minimal reader of its TIFF structure (from JPEG, PNG, WebP and TIFF) for the panel's
+//! fields a photographer looks at, every field for the EXIF window, the dates that sorting by
+//! EXIF date reads, and the orientation, which turning a JPEG writes.
 
 use std::path::Path;
 

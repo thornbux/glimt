@@ -7,8 +7,9 @@ use eframe::egui;
 
 impl App {
     /// The shown image for a screen reader: its IPTC alt text, name, place in the list, stars,
-    /// keywords, comment and extended description (which a plugin can fill). The image area keeps the focus
-    /// while nothing else has it and no dialog is open, so browsing reads out the next image.
+    /// keywords, comment and extended description (which a plugin can fill). The image area
+    /// keeps the focus while nothing else has it and no dialog is open, so browsing reads out
+    /// the next image.
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_id = Some(response.id);
         let text = if self.files.is_empty() {

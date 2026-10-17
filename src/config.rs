@@ -1,16 +1,14 @@
-//! Preferences: the config file (the config! macro: one line per setting), the window state, and
-//! the XDG paths they live in.
+//! Glimt's own files: the settings (the config! macro, one line per setting, with their defaults
+//! and ranges), the window state and the XDG paths they live in. Also how they are written: one
+//! writer thread that the window waits for at exit (`write_later`, `flush`), a lock beside each
+//! file for windows writing at once (`file_lock`), files replaced whole (`write_atomic`) and a
+//! failed write told once; `--lock-settings`; and the backup of Glimt's folders.
 
 use crate::actions::Keys;
 use crate::files::Sort;
 use crate::{count, local_time, print};
 use eframe::egui;
 use std::path::{Path, PathBuf};
-
-/// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
-pub fn config_path() -> Option<PathBuf> {
-    xdg_file("XDG_CONFIG_HOME", ".config", "config")
-}
 
 // ---- Defaults and ranges of settings ----
 
@@ -22,8 +20,8 @@ pub(crate) const MAX_DELAY: u64 = 60;
 /// The full screen info as Geeqie writes its overlay template: fields in percent signs, `|`
 /// between parts of a line (a part whose fields are all empty is left out) and `\n` for a new
 /// line. The default shows what Glimt always showed.
-pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|\
-                            %Aperture%|ISO %ISO%|%Focal length%|%marks%";
+pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
+     %Focal length%|%marks%";
 /// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
 /// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
 /// two thumbnails at once and runs those on every core; Full makes thumbnails on every core.
@@ -93,6 +91,11 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
                 hides the wait of slow storage (SMB, NFS) best.",
     },
 ];
+
+/// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
+pub fn config_path() -> Option<PathBuf> {
+    xdg_file("XDG_CONFIG_HOME", ".config", "config")
+}
 
 /// `$XDG_CONFIG_HOME/glimt/keywords`: the keyword tree, a path such as "Places|Norway|Oslo"
 /// on each line.

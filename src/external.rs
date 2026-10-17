@@ -1,5 +1,7 @@
 //! External programs: ffmpeg for HEIC, AVIF and video frames, gio for mounting and the programs
-//! that open a file, xdg-open; inside a Flatpak they run on the host.
+//! that open a file, xdg-open; inside a Flatpak they run on the host (`command`). `output_of`
+//! reads a program's output with a limit of time and size, also for decoder plugins, and
+//! `stoppable_command` starts one that can be stopped with everything it started.
 
 use crate::files::{AVIF_EXTS, HEIC_EXTS, has_ext};
 use std::path::{Path, PathBuf};
