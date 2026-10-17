@@ -1,5 +1,8 @@
 [Glimt Decoder]
 Name=Microscopy (Bio-Formats)
 Comment=Microscope files through Bio-Formats, as Fiji reads them: Zeiss, Leica, Nikon, Olympus and more
-Extensions=czi;lif;nd2;oib;oif;oir;ics;ids;vsi;zvi;dv;r3d;ims;sld;lei;obf;msr
+# Not ics and ids (Image Cytometry Standard): .ics is also a calendar invitation, common among
+# downloads, and each would start Java for nothing; add them if you use ICS. Not vsi either: an
+# Olympus slide scanner's whole slide, tens of gigapixels, too large to read whole.
+Extensions=czi;lif;nd2;oib;oif;oir;zvi;dv;r3d;ims;sld;lei;obf;msr
 Exec=glimt-bioformats %f

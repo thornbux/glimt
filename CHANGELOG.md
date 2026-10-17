@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The decoder examples no longer take .ics and .ids (Bio-Formats; .ics is also a calendar
+  invitation, and each started Java for nothing), .dic (DICOM; also a spelling dictionary) or .vsi
+  (whole slides too large to read); their files say how to add them back.
+
 ### Security
 
 - glimt --remote refuses a command with a line break, as in a file name given to open: the window
