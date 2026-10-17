@@ -61,6 +61,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The DICOM decoder example shows colour pictures right with pydicom 3, which gives YCbCr as RGB
   already: turned again, a JPEG-compressed ultrasound or dental photo came out green and purple.
   With pydicom 3 it also decodes only the frame shown, not every frame of a clip.
+- The HDF5 decoder example shows a file's largest dataset, not the first one listed: of a climate
+  file it showed lat_bnds, a strip two pixels wide, instead of the temperatures.
 
 ## [0.31.0] - 2026-10-17
 
