@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `examples/test-model.py` is in `examples/plugins`, beside the plugin it stands in a model for.
+- The marks file's lock is `.marks.lock`, as Glimt's other files' are: a 0.34.0 and a 0.34.1
+  window open at once do not wait for each other while writing marks.
+- The code is easier to find one's way in: Preferences, file operations and the windows of Find
+  Duplicates, pan view, Lightroom import and printing are in their features' modules, and names
+  and comments say what things hold. Nothing changes in how Glimt works.
+
 ## [0.34.0] - 2026-10-17
 
 ### Added
