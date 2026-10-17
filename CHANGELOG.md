@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Find Duplicates no longer takes one file reached twice, through a linked folder, for its own
+  duplicate: checked and moved to the trash, the only copy went.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
