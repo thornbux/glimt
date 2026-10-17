@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An image taken out of a collection in one window no longer comes back when another window that
+  shows the same collection saves it.
 - A delete in a collection that fails, or is stopped, keeps the images that are still there in the
   collection, instead of taking them out of its file for good.
 - A settings file Glimt cannot read, such as one with a byte that is not UTF-8 or the wrong

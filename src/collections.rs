@@ -151,13 +151,19 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
 }
 
 /// What a window writes for a collection it shows as `ours` and read as `read`, while the file
-/// now holds `on_disk`: its own list, then what was added there since (by another window, or
-/// Add to Collection), which would be lost otherwise.
+/// now holds `on_disk`: its own list without what was taken out there since, then what was added
+/// there since (by another window, or Add to Collection), which would be lost otherwise.
 pub fn merged(
     mut ours: Vec<PathBuf>,
     read: &std::collections::HashSet<PathBuf>,
     on_disk: Vec<PathBuf>,
 ) -> Vec<PathBuf> {
+    // Not when the file is gone or empty (moved to the trash, renamed): what this window shows
+    // is then all there is of it.
+    if !on_disk.is_empty() {
+        let there: std::collections::HashSet<&PathBuf> = on_disk.iter().collect();
+        ours.retain(|p| !read.contains(p) || there.contains(p));
+    }
     let mut have: std::collections::HashSet<PathBuf> = ours.iter().cloned().collect();
     for path in on_disk {
         if !read.contains(&path) && have.insert(path.clone()) {
@@ -374,7 +380,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A window's save keeps its own removals and what others added meanwhile.
+    /// A window's save keeps its own removals, and what others added or removed meanwhile.
     #[test]
     fn merges_with_what_others_added() {
         let p = |s: &str| PathBuf::from(s);
@@ -386,6 +392,10 @@ mod tests {
             super::merged(ours, &read, on_disk),
             [p("/a"), p("/c"), p("/d")]
         );
+        // Another window took /a out; this one still shows it, and does not bring it back.
+        let ours = vec![p("/a"), p("/c")];
+        let on_disk = vec![p("/b"), p("/c")];
+        assert_eq!(super::merged(ours, &read, on_disk), [p("/c")]);
     }
 
     /// Collection files broken in thousands of ways: read without a panic.
