@@ -1016,6 +1016,8 @@ struct App {
     menu_away: Option<Instant>,
     /// Window → Projector: a second window with only the image, following this one.
     projector: bool,
+    /// The projector's image area in pixels, which images are decoded to cover too.
+    projector_size: [u32; 2],
     /// What the image area showed in the last frame, for the projector to show the same.
     view: Option<View>,
     /// --kiosk: full screen, only the image, only actions that show and browse.
@@ -1708,6 +1710,7 @@ impl App {
             kiosk: start.kiosk,
             menu_away: None,
             projector: false,
+            projector_size: [0, 0],
             view: None,
             kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
@@ -3198,6 +3201,20 @@ impl App {
             let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
             egui::CentralPanel::default().frame(frame).show(ui, |ui| {
                 let area = ui.max_rect();
+                // A projector larger than the main view (full screen on a big screen): the
+                // images decoded again to its size, which they were too small for.
+                let ppp = pctx.pixels_per_point();
+                let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
+                if size != self.projector_size {
+                    self.projector_size = size;
+                    // Before the decodes are asked for: the image area sets it next frame.
+                    {
+                        let limits = &mut self.limits.lock().unwrap()[0];
+                        *limits = [limits[0].max(size[0]), limits[1].max(size[1])];
+                    }
+                    self.slots.retain(|_, s| s.full);
+                    self.refill();
+                }
                 let response = ui.allocate_rect(area, egui::Sense::click());
                 if f || response.double_clicked() || (esc && full) {
                     pctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
@@ -3208,6 +3225,7 @@ impl App {
         });
         if closed {
             self.projector = false;
+            self.projector_size = [0, 0];
         }
         if let Some(action) = act {
             self.run(ctx, action);
@@ -6951,7 +6969,10 @@ impl App {
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
-            Action::Projector => self.projector = !self.projector,
+            Action::Projector => {
+                self.projector = !self.projector;
+                self.projector_size = [0, 0];
+            }
             Action::ProjectorPointer => {
                 self.config.projector_pointer = !self.config.projector_pointer;
                 self.config.save();
@@ -9333,7 +9354,8 @@ impl App {
                     (2, _) => [long, h],
                     _ => [w.max(h); 2],
                 };
-                self.limits.lock().unwrap()[0] = view;
+                let [pw, ph] = self.projector_size;
+                self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
                 if response.hovered()
                     && !self.dialog_open()
                     && let Some(step) = self.wheel_input(ctx, &response, fit, area, &panes, right)

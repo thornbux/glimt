@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A projector larger than the main window (full screen on a big screen) shows the image sharp: it
+  was decoded for the main window only, and stretched.
 - Fit Width, Fit Height and Fill the View decode an image to the size they show it at, not at full
   resolution: a 6000×4000 photo took 96 MB instead of 10, and was slower to show.
 
