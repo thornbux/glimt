@@ -454,10 +454,17 @@ impl Config {
         }
         if let Some(p) = config_path() {
             let ours = self.to_text();
-            let mut saved = SAVED.lock().unwrap_or_else(|e| e.into_inner());
-            let on_disk = std::fs::read_to_string(&p).unwrap_or_default();
-            write_atomic(&p, merged(&ours, &saved, &on_disk));
-            *saved = ours;
+            let before = std::mem::replace(
+                &mut *SAVED.lock().unwrap_or_else(|e| e.into_inner()),
+                ours.clone(),
+            );
+            // Read, merged and written in the background, as each toggle in a menu saves: the
+            // file's sync must not hold the window.
+            in_background(move || {
+                let _held = file_lock(&p);
+                let on_disk = std::fs::read_to_string(&p).unwrap_or_default();
+                write_atomic(&p, merged(&ours, &before, &on_disk));
+            });
         }
     }
 }
@@ -494,6 +501,51 @@ pub fn locked() -> bool {
 
 /// The settings as this window last read or wrote them.
 static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Writes of Glimt's own files waiting in their thread.
+static PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `work` in the one thread that writes Glimt's own files, in the order given.
+pub fn in_background(work: impl FnOnce() + Send + 'static) {
+    use std::sync::atomic::Ordering::Relaxed;
+    type Work = Box<dyn FnOnce() + Send>;
+    static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
+    let writer = WRITER.get_or_init(|| {
+        let (works, rx) = std::sync::mpsc::channel::<Work>();
+        std::thread::spawn(move || {
+            for work in rx {
+                work();
+                PENDING.fetch_sub(1, Relaxed);
+            }
+        });
+        works
+    });
+    PENDING.fetch_add(1, Relaxed);
+    if writer.send(Box::new(work)).is_err() {
+        PENDING.fetch_sub(1, Relaxed);
+    }
+}
+
+/// Wait for the writes asked for, a few seconds at most, before Glimt ends: the last change of
+/// a setting must not be lost with the thread.
+pub fn flush() {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while PENDING.load(std::sync::atomic::Ordering::Relaxed) > 0
+        && std::time::Instant::now() < until
+    {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// The lock beside `path`, held while it lives: another Glimt window's reading and writing of
+/// the same file does not fall between ours, which would lose its change. The lock is a file of
+/// its own, hidden beside it, as `path` is renamed over.
+pub fn file_lock(path: &Path) -> Option<std::fs::File> {
+    let name = path.file_name()?.to_string_lossy();
+    let lock = std::fs::File::create(path.with_file_name(format!(".{name}.lock"))).ok()?;
+    lock.lock().ok()?;
+    Some(lock)
+}
 
 /// `ours` (key=value lines), but where a value is as this window `saved` it, the one
 /// `on_disk`: another window may have changed that setting since.

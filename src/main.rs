@@ -2252,8 +2252,13 @@ impl App {
             return;
         }
         let mut ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+        // Another window adding to it must not fall between reading and writing.
+        // shortcut: read and written in the UI thread, small text files; move to
+        // config::in_background if collections of hundreds of thousands are edited.
+        let file = file.clone();
+        let _held = config::file_lock(&file);
         // One that cannot be read is not written over: what it holds would be lost.
-        let on_disk = match collections::load(file) {
+        let on_disk = match collections::load(&file) {
             Ok(paths) => paths,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
@@ -2263,7 +2268,7 @@ impl App {
             ours = collections::in_saved_order(&on_disk, ours);
         }
         let paths = collections::merged(ours, &self.collection_read, on_disk);
-        match collections::save(file, &paths) {
+        match collections::save(&file, &paths) {
             Ok(()) => self.collection_read = paths.into_iter().collect(),
             Err(e) => self.notice = Some(format!("Could not save the collection: {e}")),
         }
@@ -9822,6 +9827,7 @@ impl eframe::App for App {
             None => {}
         }
         self.inhibit(false);
+        config::flush();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
