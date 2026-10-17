@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- glimt --remote select of a linked image selects the link, as the list shows it, not the file it
+  points to, which Delete would then have removed; only the links in its folders are followed.
 - A --remote select waits only while Delete or Rename asks, as the notes said: it waited for any
   dialog, Preferences too, so a script got no answer and the selection changed later.
 

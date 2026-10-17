@@ -10280,9 +10280,16 @@ fn main() -> eframe::Result {
             }
             let mut sent = Vec::new();
             for p in paths {
-                // As the window has its folder: with links followed, as ~/Pictures may be one.
-                let p = (std::fs::canonicalize(p).or_else(|_| std::path::absolute(p)))
-                    .unwrap_or_else(|_| p.into());
+                // As the window has its folder: with links followed, as ~/Pictures may be one;
+                // not the file's own, which the list shows under its own name.
+                let p = Path::new(p);
+                let folder = (p.parent()).filter(|f| !f.as_os_str().is_empty());
+                let real = std::fs::canonicalize(folder.unwrap_or(Path::new("."))).ok();
+                let p = (real
+                    .zip(p.file_name())
+                    .map(|(folder, name)| folder.join(name)))
+                .or_else(|| std::path::absolute(p).ok())
+                .unwrap_or_else(|| p.into());
                 match p.to_str().filter(|t| !t.contains('\n')) {
                     Some(text) => sent.push(text.to_owned()),
                     None => {
