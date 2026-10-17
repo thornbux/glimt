@@ -514,7 +514,9 @@ pub fn in_background(work: impl FnOnce() + Send + 'static) {
         let (works, rx) = std::sync::mpsc::channel::<Work>();
         std::thread::spawn(move || {
             for work in rx {
-                work();
+                // One that panics must not end the thread: every later write would be lost,
+                // and Glimt would wait for them at exit.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
                 PENDING.fetch_sub(1, Relaxed);
             }
         });
@@ -652,6 +654,17 @@ pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    /// A write that panics leaves the writer running: the next one is done, and flush waits.
+    #[test]
+    fn writer_survives_a_panic() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static DONE: AtomicBool = AtomicBool::new(false);
+        super::in_background(|| panic!("a broken write"));
+        super::in_background(|| DONE.store(true, Ordering::Relaxed));
+        super::flush();
+        assert!(DONE.load(Ordering::Relaxed));
+    }
+
     /// The file Glimt writes has nothing wrong; each kind of mistake is told with its line.
     #[test]
     fn checks_the_settings_file() {

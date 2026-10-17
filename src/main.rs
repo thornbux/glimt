@@ -5112,22 +5112,35 @@ impl App {
         static WRITER: std::sync::OnceLock<mpsc::Sender<Work>> = std::sync::OnceLock::new();
         let writer = WRITER.get_or_init(|| {
             let (works, rx) = mpsc::channel::<Work>();
-            std::thread::spawn(move || rx.into_iter().for_each(|work| work()));
+            // One that panics must not end the thread, and with it every later write.
+            std::thread::spawn(move || {
+                for work in rx {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+                }
+            });
             works
         });
         let job = self.start_job(doing, paths.len());
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         self.busy.fetch_add(1, Ordering::Relaxed);
         let work: Work = Box::new(move || {
-            let mut failed = 0;
-            for path in &paths {
-                if job.stopped() {
-                    break;
+            // A file that makes the writing panic ends this job, not the count or the busy
+            // pointer.
+            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut failed = 0;
+                for path in &paths {
+                    if job.stopped() {
+                        break;
+                    }
+                    failed += !write(path) as usize;
+                    job.did(1);
                 }
-                failed += !write(path) as usize;
-                job.did(1);
-            }
-            if let Some(text) = report(failed, &job) {
+                report(failed, &job)
+            }))
+            .unwrap_or_else(|_| {
+                Some("Writing the sidecars stopped at a file that broke it".into())
+            });
+            if let Some(text) = text {
                 let _ = tx.send(text);
             }
             drop(job);

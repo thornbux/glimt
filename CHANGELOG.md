@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A write of a sidecar or of Glimt's own files that panics no longer ends its writer thread: every
+  later write would have been dropped without a word, and the busy pointer stayed.
 - Marks and stars changed just before Glimt closes, or moved with files whose move it waited for,
   are written before it ends: their writer was not waited for.
 
