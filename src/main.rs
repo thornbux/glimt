@@ -10118,6 +10118,12 @@ fn main() -> eframe::Result {
             let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
             command = format!("open {}", path.display());
         }
+        // A line ends a command at the window: one in a file name would be read as a command
+        // of its own, such as quit.
+        if command.contains('\n') {
+            eprintln!("glimt: cannot send a line break in a command or file name");
+            std::process::exit(2);
+        }
         let sent = match (&start.name, to_all) {
             (_, true) => remote::send_all(&command) > 0,
             (Some(name), false) => remote::send_to(name, &command),

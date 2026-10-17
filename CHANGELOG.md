@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- glimt --remote refuses a command with a line break, as in a file name given to open: the window
+  read what followed it as a command of its own, so a downloaded file named "x⏎quit.jpg" opened
+  from a script closed Glimt.
+
 ### Fixed
 
 - A rectangle being dragged in the grid, or images of a collection being dragged, when the list
