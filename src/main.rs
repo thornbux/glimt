@@ -1145,9 +1145,9 @@ struct App {
     /// have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
-    /// `files_gen` and `cur` when Rename or a delete was asked: the answer acts on those files
-    /// only if the list and the shown image are still the same.
-    asked_for: (usize, usize),
+    /// When Rename or a delete was asked (`asked_now`): the answer acts only if the list and the
+    /// shown image are still the same, or the same files by name after the list was read again.
+    asked_for: (usize, usize, u64),
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
@@ -1624,7 +1624,7 @@ impl App {
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             files_gen: 0,
-            asked_for: (0, 0),
+            asked_for: (0, 0, 0),
             grid_cols: 1,
             compare: false,
             panes: Vec::new(),
@@ -5419,7 +5419,7 @@ impl App {
                 self.notice = Some("Rename Many is still renaming".into());
             }
             Action::Rename if self.targets().len() > 1 => {
-                self.asked_for = (self.files_gen, self.cur);
+                self.asked_for = self.asked_now();
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
@@ -5429,7 +5429,7 @@ impl App {
                     .get(self.cur)
                     .and_then(|f| Path::new(f).file_name())
                 {
-                    self.asked_for = (self.files_gen, self.cur);
+                    self.asked_for = self.asked_now();
                     self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
                 }
             }
@@ -5788,7 +5788,12 @@ impl App {
 
     /// The file dialog's answer, for what it was opened for.
     fn receive_picked(&mut self, ctx: &egui::Context) {
-        if let Some(Ok(picked)) = self.file_dialog.as_ref().map(|(_, rx)| rx.try_recv()) {
+        let answer = self.file_dialog.as_ref().map(|(_, rx)| rx.try_recv());
+        // A dialog whose thread ended without an answer is over too: the next may open.
+        if let Some(Err(mpsc::TryRecvError::Disconnected)) = answer {
+            self.file_dialog = None;
+        }
+        if let Some(Ok(picked)) = answer {
             let (purpose, _) = self.file_dialog.take().unwrap();
             match (purpose, picked) {
                 (_, None) => {}
@@ -5832,6 +5837,12 @@ impl App {
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
     fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
+        // One at a time: only one answer is waited for, and a second dialog's would replace the
+        // first's, whose copy or move would then never happen.
+        if self.file_dialog.is_some() {
+            self.notice = Some("A file dialog is open already".into());
+            return;
+        }
         let (tx, rx) = mpsc::channel();
         let start = match &purpose {
             // A name for the file to save: the first image's, as a PDF.

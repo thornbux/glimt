@@ -49,6 +49,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
   lost.
 - SVG thumbnails are drawn at the thumbnail's size, not at 2048 pixels and shrunk: a folder of
   icons gets its thumbnails many times faster, with a fraction of the memory.
+- Closing Glimt waits for Export Frames, Save This Frame and Back Up Glimt's Data as it does for
+  copies, and a frame is written whole or not at all, also over a file the dialog let it replace.
+- A second file dialog does not open while one is open: its answer replaced the first one's, so a
+  Copy to Folder could become a move, or nothing.
+- Saving a JPEG's orientation reads and writes it in the background, as PNG and WebP already were,
+  so the window no longer stops while a large photo on a share or a slow stick is written.
+- Moving images of a collection no longer checks each file in the window's thread first, which
+  froze it for seconds with thousands of files on a share; the collection follows the files that
+  were moved, and only those.
+- Rename Folder while several folders are shown together keeps the renamed folder's images in the
+  list, read under its new name.
+- Rename and a confirmed delete act when the folder was read again while their dialog was open, as
+  long as the same files are meant, instead of saying the list changed: a folder another program
+  writes to is read again every second.
+- Rename Many keeps the view where it was: with Include Subfolders, several folders shown together
+  or a slideshow with subfolders, it no longer opens the shown file's own folder.
 
 ## [0.34.1] - 2026-10-17
 

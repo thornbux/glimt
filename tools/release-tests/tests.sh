@@ -222,6 +222,35 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a JPEG turned and left: its orientation field saved, in the background"
+d=/tmp/turn-jpeg
+mkdir -p $d
+convert -size 200x100 xc:red $d/a.jpg
+cp $d/a.jpg $d/b.jpg
+config save_orientation=true
+start $d/a.jpg
+key bracketright; key space; sleep 2      # turned clockwise, then the next image
+quit
+got="$(exiftool -s3 -n -Orientation $d/a.jpg) $(exiftool -s3 -n -Orientation $d/b.jpg)"
+expect "a.jpg has orientation 6, b.jpg none" "$got" "6 "
+
+echo "-- Copy to Folder, then Move to Folder while its dialog is open: the copy is done, not a move"
+for v in new old; do
+    as_version $v
+    d=/tmp/two-dialogs-$v
+    mkdir -p $d/sub
+    convert -size 100x100 xc:red $d/a.jpg
+    printf '#!/bin/sh\nsleep 3\necho "%s"\n' $d/sub >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
+    config auto_refresh=false
+    start $d/a.jpg
+    key ctrl+c; key ctrl+m; sleep 5
+    quit
+    got="$(ls $d | tr '\n' ' ')$(ls $d/sub | tr '\n' ' ')"
+    if [ $v = new ]; then expect "a.jpg copied, still in its folder" "$got" "a.jpg sub a.jpg "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
 mkdir -p $d/sub/deep && cd $d
@@ -594,6 +623,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Rename answered after the folder was read again: the same file renamed"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-refresh-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config auto_refresh=true
+    start $d
+    key ctrl+r
+    convert -size 64x64 xc:blue $d/z.png      # another program writes to the folder
+    sleep 3                                   # read again meanwhile
+    key ctrl+a
+    xdotool type x
+    key Return
+    quit
+    got="$(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then expect "a.png renamed to x" "$got" "b.png x z.png "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v
@@ -672,6 +722,29 @@ xdotool type --delay 30 '*#'; sleep 0.4
 key Return; sleep 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
+
+echo "-- Rename Many with Include Subfolders: the view stays on the folder and its subfolders"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-subfolders-$v
+    mkdir -p $d/sub
+    convert -size 100x100 xc:blue $d/c.jpg
+    convert -size 100x100 xc:red $d/sub/a.jpg
+    convert -size 100x100 xc:lime $d/sub/b.jpg
+    config show_subfolders=true auto_refresh=false
+    start $d
+    sleep 2
+    key End                       # sub/b.jpg shown, so it is among the renamed
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 'x*'; sleep 0.4
+    key Return; sleep 3
+    key End; sleep 1              # the folder's own file sorts last, after sub/
+    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then expect "the folder's own file still in the list" "$got" "xc.jpg"
+    else note "old, last: $got"; fi
+done
+as_version new
 
 echo "-- Find Duplicates: trash the checked files"
 for v in new old; do

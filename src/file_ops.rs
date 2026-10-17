@@ -15,16 +15,33 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            self.asked_for = (self.files_gen, self.cur);
+            self.asked_for = self.asked_now();
             self.confirm_delete = Some(trash);
         } else {
             self.delete_targets_now(ctx, trash);
         }
     }
 
-    /// The list and the shown image are still those a dialog asked about; else a notice.
+    /// The list, the shown image and the selection now: their numbers, and their names hashed,
+    /// which stay when a refresh reads the list again with other numbers.
+    pub(crate) fn asked_now(&self) -> (usize, usize, u64) {
+        use std::hash::{Hash, Hasher};
+        let mut names = std::collections::hash_map::DefaultHasher::new();
+        // The folder too: another one opened meanwhile may hold files of the same names.
+        (&self.dir, &self.folders, &self.collection).hash(&mut names);
+        self.files.get(self.cur).hash(&mut names);
+        for &i in &self.selected {
+            self.files.get(i).hash(&mut names);
+        }
+        (self.files_gen, self.cur, names.finish())
+    }
+
+    /// The files a dialog asked about are still those it acts on; else a notice. The same
+    /// numbers, or the same names: a folder another program writes to is read again every
+    /// second, and that alone must not undo a confirmed delete.
     pub(crate) fn still_asked(&mut self) -> bool {
-        let same = self.asked_for == (self.files_gen, self.cur);
+        let (asked, now) = (self.asked_for, self.asked_now());
+        let same = (asked.0, asked.1) == (now.0, now.1) || asked.2 == now.2;
         if !same {
             self.notice =
                 Some("The list changed while the dialog was open: nothing was done".into());
@@ -147,11 +164,14 @@ impl crate::App {
     /// leave the list, the marks and Find Duplicates; or the folder read again after a failure.
     pub(crate) fn receive_deleted(&mut self) {
         // Moved before their sources are taken for deleted ones: the marks go along first.
-        for (pairs, keep) in self.put_rx.try_iter() {
+        let moves: Vec<(Vec<(PathBuf, PathBuf)>, bool)> = self.put_rx.try_iter().collect();
+        for (pairs, keep) in moves {
+            // A collection's entries follow the files that were moved, and only those.
+            if !keep && self.collection.is_some() {
+                self.follow_in_collection(&pairs);
+            }
             #[cfg(feature = "marks")]
             self.marks.put(pairs, keep);
-            #[cfg(not(feature = "marks"))]
-            let _ = (pairs, keep);
         }
         let reports: Vec<Deleted> = self.deleted_rx.try_iter().collect();
         for (paths, gone, failed) in reports {
@@ -194,6 +214,22 @@ impl crate::App {
         }
     }
 
+    /// The collection's entries of the files moved `(from, to)` changed to where they are now.
+    fn follow_in_collection(&mut self, pairs: &[(PathBuf, PathBuf)]) {
+        let moved: HashMap<&Path, &Path> = pairs
+            .iter()
+            .map(|(a, b)| (a.as_path(), b.as_path()))
+            .collect();
+        for i in 0..self.files.len() {
+            if let Some(to) = moved.get(self.path(i).as_path())
+                && let Ok(rel) = to.strip_prefix(&self.dir)
+            {
+                self.files[i] = rel.as_os_str().to_owned();
+            }
+        }
+        self.save_collection();
+    }
+
     /// Copy or move `paths` into `dest` in the background. Existing files are never
     /// overwritten; a move across file systems falls back to copy + delete.
     pub(crate) fn transfer(
@@ -206,31 +242,8 @@ impl crate::App {
         if !keep && !self.none_saving(&paths) {
             return;
         }
-        if !keep && self.collection.is_some() {
-            // The collection follows the files to their new place.
-            // shortcut: rewritten before the move is done, so a file that fails to move for
-            // another reason than a name taken there drops out at the next refresh; report each
-            // result back if moves in collections fail often.
-            // The files that will get there, in the order the move takes them: not one whose
-            // name is taken there already, nor a second of the same name; those keep their entry.
-            let mut taken = HashSet::new();
-            let moving: HashSet<&PathBuf> = (paths.iter())
-                .filter(|p| {
-                    let to = dest.join(p.file_name().unwrap_or_default());
-                    !to.exists() && taken.insert(to)
-                })
-                .collect();
-            for i in 0..self.files.len() {
-                let path = self.path(i);
-                let to = dest.join(path.file_name().unwrap_or_default());
-                if moving.contains(&path)
-                    && let Ok(rel) = to.strip_prefix(&self.dir)
-                {
-                    self.files[i] = rel.as_os_str().to_owned();
-                }
-            }
-            self.save_collection();
-        } else if !keep {
+        // In a collection, the entries follow the files that got there, in `receive_deleted`.
+        if !keep && self.collection.is_none() {
             // Moved out of its folder: out of the list at once, as when deleting. Names in the
             // list are relative to the folder, also those in subfolders.
             let names: HashSet<&std::ffi::OsStr> = paths
@@ -388,24 +401,22 @@ impl crate::App {
         if job.files_gen != self.files_gen {
             return self.list(ctx);
         }
-        match job.shown {
-            // Still the image shown when it began: the user may have moved on meanwhile, and
-            // the image shown now (and its turn) is another one.
-            Some(k) if !failed && self.path(self.cur) == job.from[k] => {
-                // A turn not saved yet goes to the shown file under its new name: its old name
-                // may now be another file's.
-                if let Ok(rel) = job.to[k].strip_prefix(&self.dir) {
-                    self.files[self.cur] = rel.as_os_str().to_owned();
-                }
-                self.open(ctx, job.to[k].clone())
-            }
-            _ => self.list(ctx),
+        // Still the image shown when it began (the user may have moved on meanwhile): it stays
+        // shown under its new name, with a turn not saved yet, as the list is read again. Read
+        // again, not opened: the view stays in the folder, subfolders or folders it shows.
+        if let Some(k) = job.shown
+            && !failed
+            && self.path(self.cur) == job.from[k]
+            && let Ok(rel) = job.to[k].strip_prefix(&self.dir)
+        {
+            self.files[self.cur] = rel.as_os_str().to_owned();
         }
+        self.list(ctx)
     }
 
-    /// Write the view's rotation into the shown file and show it as it is now.
-    /// shortcut: a JPEG in the UI thread, as it is read and written in milliseconds; a thread
-    /// like PNG and WebP if network folders make it slow.
+    /// Write the view's rotation into the shown file, in the background, and show it as it is
+    /// then. A JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned,
+    /// which takes seconds for a large one. Both read and write the whole file, slow on a share.
     pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
         let (turns, mirrored) = self.orient;
         if self.files.is_empty() || (turns, mirrored) == (0, false) {
@@ -416,29 +427,24 @@ impl crate::App {
         if self.saving.contains(&path) {
             return;
         }
-        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned, which
-        // takes seconds for a large one, so in the background.
-        if !has_ext(&path, &["jpg", "jpeg"]) {
-            let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
-            let (saved, busy, ctx) = (self.saved_tx.clone(), self.busy.clone(), ctx.clone());
-            self.saving.insert(path.clone());
-            busy.fetch_add(1, Ordering::Relaxed);
-            std::thread::spawn(move || {
-                let result = survive(|| save_rotated(&path, rotate, turns, mirrored, quality));
-                let _ = saved.send((path, result));
-                busy.fetch_sub(1, Ordering::Relaxed);
-                ctx.request_repaint();
+        let jpeg = has_ext(&path, &["jpg", "jpeg"]);
+        let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
+        let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
+        let (busy, ctx) = (self.busy.clone(), ctx.clone());
+        self.saving.insert(path.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let result = survive(|| match jpeg {
+                true => exif::write_orientation(&path, turns, mirrored),
+                false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
-            return;
-        }
-        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
-            self.notice = Some(format!("Could not save the orientation: {e}"));
-            return;
-        }
-        if !self.config.exif_rotate {
-            self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
-        }
-        self.saved(&path);
+            if jpeg && result.is_ok() && !rotate {
+                let _ = notices.send("Saved; it shows when Auto Rotate Using EXIF is on".into());
+            }
+            let _ = saved.send((path, result));
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
     }
 
     /// `path` was saved turned: decode it again and make a new thumbnail.
@@ -481,6 +487,12 @@ impl crate::App {
         self.forget_folder(&old);
         #[cfg(feature = "marks")]
         self.marks.put_folder(&old, &new);
+        // Several folders shown together: the renamed one is read under its new name.
+        for folder in &mut self.folders {
+            if let Ok(rest) = folder.strip_prefix(&old) {
+                *folder = new.join(rest);
+            }
+        }
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {
                 // The shown file is under the new name now, also for a turn not saved yet.
@@ -727,6 +739,8 @@ impl crate::App {
         to: PathBuf,
     ) {
         let rotate = self.config.exif_rotate;
+        // A job, so closing waits for it (or stops it between frames), as for copies.
+        let job = self.start_job("Exporting", 1);
         self.background(ctx, move || {
             let stem = path
                 .file_stem()
@@ -748,11 +762,21 @@ impl crate::App {
             } else {
                 decode::survive(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
+                        if job.stopped() {
+                            return Err(job.stopped_text());
+                        }
                         let file = match only {
                             Some(_) => to.clone(),
                             None => folder.join(format!("{stem}-{:03}.png", k + 1)),
                         };
-                        img.save_with_format(&file, image::ImageFormat::Png)
+                        // Whole or not at all, also over a file the dialog let it replace.
+                        let mut png = std::io::Cursor::new(Vec::new());
+                        (img.write_to(&mut png, image::ImageFormat::Png))
+                            .map_err(|e| e.to_string())
+                            .and_then(|_| {
+                                config::replace_file(&file, png.into_inner())
+                                    .map_err(|e| e.to_string())
+                            })
                             .map_err(|e| format!("{}: {e}", file.display()))
                     })
                 })
@@ -770,8 +794,12 @@ impl crate::App {
     /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
     /// copy them back while Glimt is closed; the README says where.
     pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
+        // A job, so closing waits for the copy to be whole.
+        let job = self.start_job("Backing up", 1);
         self.background(ctx, move || {
-            Some(config::back_up_to(&dir).unwrap_or_else(|e| e))
+            let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
+            drop(job);
+            Some(done)
         });
     }
 }
