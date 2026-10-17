@@ -152,25 +152,20 @@ pub fn is_hidden(path: &Path) -> bool {
         .is_some_and(|n| n.as_encoded_bytes().starts_with(b"."))
 }
 
-pub fn is_listed_type(path: &Path, types: Types) -> bool {
-    (types.images
-        && (has_ext(path, EXTS)
-            || is_heif(path)
-            || has_ext(path, JXL_EXTS)
-            || has_ext(path, SVG_EXTS)
-            || crate::decoders::for_path(path).is_some()))
+fn is_listed_type(path: &Path, types: Types) -> bool {
+    (types.images && (own_image(path) || crate::decoders::for_path(path).is_some()))
         || (types.raw && has_ext(path, raw::EXTS))
         || (types.videos && is_video(path))
 }
 
+/// The image formats Glimt reads itself, as built.
+fn own_image(path: &Path) -> bool {
+    has_ext(path, EXTS) || is_heif(path) || has_ext(path, JXL_EXTS) || has_ext(path, SVG_EXTS)
+}
+
 /// Whether Glimt reads the format of `path` itself, as built: a decoder plugin is not asked.
 pub fn own_ext(path: &Path) -> bool {
-    has_ext(path, EXTS)
-        || is_heif(path)
-        || has_ext(path, JXL_EXTS)
-        || has_ext(path, SVG_EXTS)
-        || has_ext(path, raw::EXTS)
-        || is_video(path)
+    own_image(path) || has_ext(path, raw::EXTS) || is_video(path)
 }
 
 /// `dir` and every folder below it, one at a time: (its path relative to `dir`, its images).
