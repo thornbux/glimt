@@ -14,6 +14,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - The release workflow runs the tests on the tagged code before it builds the packages.
 
+### Fixed
+
+- README: install one decoder of each pair (FITS, DICOM) instead of every example, as the first by
+  name takes the files even without the modules it needs.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed

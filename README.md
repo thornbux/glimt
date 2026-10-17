@@ -503,9 +503,15 @@ Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f
 | `mrc.desktop` | MRC (`.mrc`, `.mrcs`, `.map`, `.rec`, `.st`, `.ali`): a micrograph, or the middle section of a map or tomogram | cryo-electron microscopy, structural biology | python3-mrcfile |
 | `hdf5.desktop` | HDF5, NetCDF-4 and NeXus (`.h5`, `.hdf5`, `.he5`, `.nc`, `.nxs`): the largest dataset of two or more dimensions | climate, physics, neutron and synchrotron sources, satellites, microscopy | python3-h5py |
 
+Copy those you need, with the script a desktop file names (`glimt-fits` for `fits.desktop`).
+Take one of each pair: `fits.desktop` or `imagemagick-fits.desktop`, `dicom.desktop` or
+`imagemagick-dicom.desktop`. With both, the first by name takes the files, also on a computer
+without the Python modules it needs.
+
 ```sh
 mkdir -p ~/.local/share/glimt/decoders
-cp examples/decoders/* ~/.local/share/glimt/decoders/     # the desktop files and their scripts
+cd examples/decoders
+cp jpeg2000.desktop fits.desktop glimt-fits ~/.local/share/glimt/decoders/
 ```
 
 These are for a quick look, not for measuring: the values are stretched to grey, from the
