@@ -513,6 +513,30 @@ key Return
 quit
 expect "a.png renamed to x" "$(ls $d | tr '\n' ' ')" "b.png c.png x "
 
+echo "-- Rename Many of 20,000 in a collection, an image taken out while it runs: the others stay"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-collection-$v
+    mkdir -p $d
+    convert -size 64x64 xc:red $d/00000.jpg
+    for i in $(seq -w 1 19999); do ln $d/00000.jpg $d/$i.jpg; done
+    printf '#GQview collection\n' >$d/show.gqv
+    for f in $(ls $d/*.jpg); do printf '"%s"\n' $f >>$d/show.gqv; done
+    config
+    start $d/show.gqv
+    sleep 3
+    key ctrl+a; key ctrl+r; sleep 1
+    # Rename Many as *_###, in the background, and at once, with nothing selected, the last
+    # image out of the collection.
+    key Return ctrl+shift+a End Delete
+    sleep 8
+    quit
+    kept=$(grep -c '_[0-9]*\.jpg' $d/show.gqv)
+    if [ $v = new ]; then expect "the renamed images in the collection" "$([ $kept -ge 19998 ] && echo yes)" yes; fi
+    note "$v: $kept renamed in the collection"
+done
+as_version new
+
 echo "-- Rename Many failing halfway: names that swap, and one too long"
 d=/tmp/rename-many
 long=$(printf 'b%.0s' $(seq 251))
