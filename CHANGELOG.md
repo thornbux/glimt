@@ -45,6 +45,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - glimt --remote select finds files given through a linked folder (as ~/Pictures may be): the
   window lists the folder with its links followed, so none matched and all were printed as not in
   the list.
+- A setting the running Glimt does not know (written by a newer one beside it, as a Flatpak next
+  to a .deb) no longer gives a notice at every start; glimt --check-config still lists it.
 
 ## [0.31.0] - 2026-10-17
 
