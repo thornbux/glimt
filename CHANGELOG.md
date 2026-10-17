@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The NIfTI decoder example reads only the first volume of a series: in FSL's own orientation
+  (LAS) it read the whole series before turning it, gigabytes for an fMRI run, and was then
+  stopped after 30 seconds.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

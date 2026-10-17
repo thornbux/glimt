@@ -5,7 +5,7 @@ fMRI research keep them, written as a grey PGM to standard output.
 The volume is turned to the closest standard orientation (RAS) first, so the slice is seen from
 above with the front at the top; of a 4D series, the first volume. The values are stretched
 between their 1st and 99th percentile, so a few very bright voxels do not leave the rest dark.
-Only that one slice is read from the file.
+Only that first volume is read from the file: an fMRI series holds hundreds.
 
 Needs python3 with nibabel and numpy (Debian and Ubuntu: python3-nibabel).
 """
@@ -31,13 +31,17 @@ def pgm(pixels):
 
 
 def main(path):
-    image = nibabel.as_closest_canonical(nibabel.load(path))
+    image = nibabel.load(path)
+    # The first volume before turning, which reads all it is given: in FSL's own orientation (LAS)
+    # a whole series would be read, gigabytes for an fMRI run.
+    if len(image.shape) > 3:
+        image = image.slicer[(slice(None),) * 3 + (0,) * (len(image.shape) - 3)]
+    image = nibabel.as_closest_canonical(image)
     shape = image.shape
     if len(shape) < 3:
         slice_ = image.dataobj[...]
     else:
-        index = (slice(None), slice(None), shape[2] // 2) + (0,) * (len(shape) - 3)
-        slice_ = image.dataobj[index]
+        slice_ = image.dataobj[:, :, shape[2] // 2]
     # x runs right and y forward in RAS: turned, so the front is at the top of the picture.
     pgm(grey(numpy.rot90(numpy.asarray(slice_))))
 
