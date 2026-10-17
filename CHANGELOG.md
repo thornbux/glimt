@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Marks and stars that cannot be saved (a full disk, a folder that cannot be written) are told in
+  the window, as the settings are: they were lost without a word.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added
