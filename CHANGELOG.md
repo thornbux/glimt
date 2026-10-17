@@ -10,6 +10,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - THIRD-PARTY-LICENSES.txt: the license texts of the crates built into Glimt, in every package
   (deb, rpm, tar.gz, AppImage and Flatpak), as their licenses ask; `tools/sbom.py` writes it.
 
+### Changed
+
+- The release workflow runs the tests on the tagged code before it builds the packages.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed

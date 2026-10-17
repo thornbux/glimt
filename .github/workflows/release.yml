@@ -65,6 +65,10 @@ jobs:
           tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm,cargo-audit
       - name: Known vulnerabilities in the crates (RustSec)
         run: cargo audit
+      # The tagged code itself, with the toolchain of this day: a tag pushed by hand, or a
+      # crate changed since the last CI run, is not published untested.
+      - name: Tests
+        run: cargo test --locked --release --features full
       - name: Build against glibc ${{ env.GLIBC }}
         # Zig's linker says it ignores the -O1 that rustc gives it; nothing else is wrong.
         env:
