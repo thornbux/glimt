@@ -3275,12 +3275,19 @@ impl App {
                 if size != self.projector_size {
                     self.projector_size = size;
                     // Before the decodes are asked for: the image area sets it next frame.
-                    {
+                    let grown = {
                         let limits = &mut self.limits.lock().unwrap()[0];
+                        let grown = size[0] > limits[0] || size[1] > limits[1];
                         *limits = [limits[0].max(size[0]), limits[1].max(size[1])];
+                        grown
+                    };
+                    // Only then: a projector smaller than the view shows the images it has, and
+                    // dragging its edge decodes nothing again.
+                    if grown {
+                        self.slots.retain(|_, s| s.full);
+                        self.pending.retain(|&(_, full), _| full);
+                        self.refill();
                     }
-                    self.slots.retain(|_, s| s.full);
-                    self.refill();
                 }
                 let response = ui.allocate_rect(area, egui::Sense::click());
                 if f || response.double_clicked() || (esc && full) {

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A projector window smaller than the view, or one whose edge is dragged, no longer has every
+  image decoded again; only one that grows past the view's size does.
 - With Fit Width or Fit Height, the images read ahead are decoded as large as they will be shown,
   not to the shape of the image shown now, so one of another shape is not blurred and decoded
   again when it comes.
