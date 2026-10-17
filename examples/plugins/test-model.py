@@ -6,7 +6,7 @@ The answer also carries what a hostile picture could make a model say: a line br
 control character, XML and an order to delete files. After the plugin has run, the comment
 in Glimt shows all of it as plain text on one line, and nothing was run.
 
-    python3 examples/test-model.py &
+    python3 examples/plugins/test-model.py &
     GLIMT_AI_URL=http://127.0.0.1:11435 examples/plugins/glimt-describe ~/test/a.jpg
 """
 

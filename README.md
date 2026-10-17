@@ -426,12 +426,12 @@ glimt ~/glimt-test &
    Show it with `glimt --remote select ~/glimt-test/two*`, then
    `glimt --remote current | xargs -0 ls -l` lists that one file, not two.
 
-3. **The plugin, without a model.** `examples/test-model.py` stands in for a model and answers
+3. **The plugin, without a model.** `examples/plugins/test-model.py` stands in for a model and answers
    every image with the same text, including words a hostile picture could make a model say:
 
    ```sh
    cp examples/plugins/* ~/.local/share/glimt/plugins/
-   python3 examples/test-model.py &
+   python3 examples/plugins/test-model.py &
    glimt --remote quit                                  # the plugin gets Glimt's environment:
    GLIMT_AI_URL=http://127.0.0.1:11435 glimt ~/glimt-test &   # start it with the test address
    ```
