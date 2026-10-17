@@ -16,6 +16,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A camera RAW file whose sensor data holds a JPEG start and frame marker by chance shows its real
   preview: the chance one claimed a far larger size and was taken, failed, and left a failed-
   thumbnail mark in the shared cache.
+- Copy Image to Clipboard, printing and Find Duplicates by likeness survive a decoder that panics
+  on a broken file, as showing it does: the busy pointer stayed for good, a PDF was left half
+  written, or a share of the files went uncompared.
 
 ## [0.32.0] - 2026-10-17
 
