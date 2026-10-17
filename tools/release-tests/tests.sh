@@ -1115,6 +1115,27 @@ expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.j
 expect "the image's keyword in its sidecar, with its place in the tree" \
     "$(grep -c '<rdf:li>Oslo</rdf:li>\|<rdf:li>Places|Oslo</rdf:li>' $d/photos/2024/b.jpg.xmp)" 2
 
+echo "-- a plain list (.m3u) is never renamed or trashed, also by keys of one's own"
+for v in new old; do
+    as_version $v
+    # In the home folder, where gio has a trash.
+    d=$HOME/list-kept-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.jpg
+    printf '#EXTM3U\na.jpg\n' >$d/show.m3u
+    config
+    start $d/show.m3u
+    sleep 2
+    # File → Move Collection to Trash where 0.30.0 has it; without it, Find Duplicates is there.
+    click 20 11
+    click 93 564 2
+    quit
+    got="$(cat $d/show.m3u 2>/dev/null | tr '\n' ' ')"
+    if [ $v = new ]; then expect "the list as it was" "$got" "#EXTM3U a.jpg "
+    else note "old: '$got'"; fi
+done
+as_version new
+
 echo "-- a collection renamed, then moved to the trash: its images stay"
 d=/tmp/coll
 mkdir -p $d $XDG_DATA_HOME/glimt/collections

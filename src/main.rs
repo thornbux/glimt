@@ -2285,10 +2285,13 @@ impl App {
                 }
             });
         }
-        if self.collection.is_some() {
+        if let Some(file) = &self.collection {
             menu_item(ui, act, Action::RemoveFromCollection);
-            menu_item(ui, act, Action::RenameCollection);
-            menu_item(ui, act, Action::TrashCollection);
+            // A plain list is the user's own file: Glimt never writes it.
+            if !collections::is_list(file) {
+                menu_item(ui, act, Action::RenameCollection);
+                menu_item(ui, act, Action::TrashCollection);
+            }
             ui.menu_button("Move in Collection", |ui| {
                 for action in [
                     Action::MoveEarlier,
@@ -6467,6 +6470,11 @@ impl App {
                 self.remove_indices(ctx, &targets);
             }
             Action::RemoveFromCollection => {}
+            Action::RenameCollection | Action::TrashCollection
+                if self.collection.as_deref().is_some_and(collections::is_list) =>
+            {
+                self.notice = Some("A plain list is not renamed or trashed by Glimt".into());
+            }
             Action::RenameCollection => {
                 if let Some(name) = self.collection.as_ref().and_then(|f| f.file_stem()) {
                     let name = name.to_string_lossy().into_owned();

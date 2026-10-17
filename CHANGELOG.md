@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Collection and Move Collection to Trash are no longer offered for a plain list (.txt,
+  .m3u), which Glimt promises never to write: renaming made show.m3u a .gqv, and trashing sent the
+  user's own list away.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
