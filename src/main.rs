@@ -10194,7 +10194,9 @@ fn main() -> eframe::Result {
             }
             let mut sent = Vec::new();
             for p in paths {
-                let p = std::path::absolute(p).unwrap_or_else(|_| p.into());
+                // As the window has its folder: with links followed, as ~/Pictures may be one.
+                let p = (std::fs::canonicalize(p).or_else(|_| std::path::absolute(p)))
+                    .unwrap_or_else(|_| p.into());
                 match p.to_str().filter(|t| !t.contains('\n')) {
                     Some(text) => sent.push(text.to_owned()),
                     None => {

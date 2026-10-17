@@ -351,6 +351,24 @@ quit" >/dev/null 2>&1; refused=$?
 done
 as_version new
 
+echo "-- --remote select through a linked folder: the files are found"
+for v in new old; do
+    as_version $v
+    d=/tmp/select-link-$v
+    mkdir -p $d/real
+    for f in a b; do convert -size 64x64 xc:red $d/real/$f.png; done
+    ln -sfn $d/real $d/link
+    config
+    start $d/link
+    sleep 2
+    missing=$($BIN --remote select $d/link/b.png 2>/dev/null | tr '\0' ' ')
+    got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/real/||g")
+    quit
+    if [ $v = new ]; then expect "b selected, none missing" "$got|$missing" "b.png |"
+    else note "old: $got|$missing"; fi
+done
+as_version new
+
 echo "-- --remote select: right after open, files of the list selected, the others printed"
 for v in new old; do
     as_version $v

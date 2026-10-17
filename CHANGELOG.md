@@ -42,6 +42,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A rectangle dragged past the top or bottom of the grid of icons keeps selecting as the grid
   scrolls: it moved with the screen instead of the images, and the rows scrolled out of view were
   dropped from the selection.
+- glimt --remote select finds files given through a linked folder (as ~/Pictures may be): the
+  window lists the folder with its links followed, so none matched and all were printed as not in
+  the list.
 
 ## [0.31.0] - 2026-10-17
 
