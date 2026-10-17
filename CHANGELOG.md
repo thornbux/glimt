@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-18
+
 ### Changed
 
 - The release tests allow 100 ms and 20 MB of slack beside the 1.5 times limit, as a few hundred
@@ -1269,7 +1271,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.34.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.35.0...HEAD
+[0.35.0]: https://github.com/thornbux/glimt/compare/v0.34.1...v0.35.0
 [0.34.1]: https://github.com/thornbux/glimt/compare/v0.34.0...v0.34.1
 [0.34.0]: https://github.com/thornbux/glimt/compare/v0.33.0...v0.34.0
 [0.33.0]: https://github.com/thornbux/glimt/compare/v0.32.0...v0.33.0
