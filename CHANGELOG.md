@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A collection played as a random slideshow keeps its own order: taking an image out, or moving or
+  renaming one, while it was shuffled saved the random order over the one you set, and stopping
+  the slideshow left it shuffled. Moving images in it waits until random order is off.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added

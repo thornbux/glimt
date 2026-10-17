@@ -891,6 +891,29 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a collection played in random order: an image taken out of it keeps the others' order"
+for v in new old; do
+    as_version $v
+    d=/tmp/shuffled-$v
+    mkdir -p $d
+    for c in a b c d e f g h; do convert -size 300x200 xc:red $d/$c.jpg; done
+    printf '#GQview collection\n' >$d/show.gqv
+    for c in a b c d e f g h; do printf '"%s/%s.jpg"\n' $d $c >>$d/show.gqv; done
+    config random=true
+    start $d/show.gqv
+    sleep 2
+    key s; sleep 1          # the slideshow, shuffled
+    key Delete; sleep 1     # the shown one out of the collection while shuffled
+    key s; sleep 1          # stopped: back in the collection's order
+    quit
+    order=$(grep -o '[a-h]\.jpg' $d/show.gqv | tr '\n' ' ')
+    # Seven left, in the order a to h.
+    kept=$([ "$order" = "$(echo $order | tr ' ' '\n' | sort | tr '\n' ' ')" ] && echo $order | wc -w)
+    if [ $v = new ]; then expect "saved in its own order" "$kept" 7
+    else note "old: $order"; fi
+done
+as_version new
+
 echo "-- Check Images: a photo cut off in copying and a file that is no picture found and marked"
 for v in new old; do
     as_version $v
