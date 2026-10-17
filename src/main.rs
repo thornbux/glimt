@@ -2197,6 +2197,10 @@ impl App {
             self.notice = Some("Only the images of a collection can be moved".into());
             return;
         }
+        // An empty collection: nothing to move, and no shown image to keep.
+        if self.files.is_empty() {
+            return;
+        }
         let shown = self.files.get(self.cur).cloned();
         let names: HashSet<OsString> = picked.iter().map(|&i| self.files[i].clone()).collect();
         let files: Vec<OsString> = order.iter().map(|&i| self.files[i].clone()).collect();
