@@ -891,6 +891,23 @@ for v in new old; do
 done
 as_version new
 
+echo "-- an empty collection: the keys that move images in it leave Glimt running"
+for v in new old; do
+    as_version $v
+    d=/tmp/empty-collection-$v
+    mkdir -p $d
+    printf '#GQview collection\n' >$d/empty.gqv
+    config
+    start $d/empty.gqv
+    sleep 2
+    key ctrl+shift+Up; key ctrl+shift+End; sleep 1
+    running=$(kill -0 $GPID 2>/dev/null && echo running || echo crashed)
+    quit
+    if [ $v = new ]; then expect "Glimt still runs" "$running" running
+    else note "old: $running"; fi
+done
+as_version new
+
 echo "-- Check Images: a photo cut off in copying and a file that is no picture found and marked"
 for v in new old; do
     as_version $v

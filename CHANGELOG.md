@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Ctrl+Shift+↑, ↓, Home or End (File → Move in Collection) in an empty collection closed Glimt.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
