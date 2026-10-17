@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Many keeps the view where it was: with Include Subfolders, several folders shown together
+  or a slideshow with subfolders, it no longer opens the shown file's own folder.
+
 ## [0.34.1] - 2026-10-17
 
 ### Changed

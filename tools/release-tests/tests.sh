@@ -651,6 +651,29 @@ key Return; sleep 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
 
+echo "-- Rename Many with Include Subfolders: the view stays on the folder and its subfolders"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-subfolders-$v
+    mkdir -p $d/sub
+    convert -size 100x100 xc:blue $d/c.jpg
+    convert -size 100x100 xc:red $d/sub/a.jpg
+    convert -size 100x100 xc:lime $d/sub/b.jpg
+    config show_subfolders=true auto_refresh=false
+    start $d
+    sleep 2
+    key End                       # sub/b.jpg shown, so it is among the renamed
+    key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
+    xdotool type --delay 30 'x*'; sleep 0.4
+    key Return; sleep 3
+    key End; sleep 1              # the folder's own file sorts last, after sub/
+    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then expect "the folder's own file still in the list" "$got" "xc.jpg"
+    else note "old, last: $got"; fi
+done
+as_version new
+
 echo "-- Find Duplicates: trash the checked files"
 for v in new old; do
     as_version $v

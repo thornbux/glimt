@@ -366,19 +366,17 @@ impl crate::App {
         if job.files_gen != self.files_gen {
             return self.list(ctx);
         }
-        match job.shown {
-            // Still the image shown when it began: the user may have moved on meanwhile, and
-            // the image shown now (and its turn) is another one.
-            Some(k) if !failed && self.path(self.cur) == job.from[k] => {
-                // A turn not saved yet goes to the shown file under its new name: its old name
-                // may now be another file's.
-                if let Ok(rel) = job.to[k].strip_prefix(&self.dir) {
-                    self.files[self.cur] = rel.as_os_str().to_owned();
-                }
-                self.open(ctx, job.to[k].clone())
-            }
-            _ => self.list(ctx),
+        // Still the image shown when it began (the user may have moved on meanwhile): it stays
+        // shown under its new name, with a turn not saved yet, as the list is read again. Read
+        // again, not opened: the view stays in the folder, subfolders or folders it shows.
+        if let Some(k) = job.shown
+            && !failed
+            && self.path(self.cur) == job.from[k]
+            && let Ok(rel) = job.to[k].strip_prefix(&self.dir)
+        {
+            self.files[self.cur] = rel.as_os_str().to_owned();
         }
+        self.list(ctx)
     }
 
     /// Write the view's rotation into the shown file and show it as it is now.
