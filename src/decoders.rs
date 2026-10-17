@@ -33,19 +33,10 @@ pub struct Decoder {
 pub fn all() -> &'static [Decoder] {
     static ALL: std::sync::OnceLock<Vec<Decoder>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
-        let home = crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-        let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
-        let mut seen = std::collections::HashSet::new();
-        (home.into_iter())
-            .chain(dirs.split(':').map(|d| Path::new(d).join("glimt")))
-            .map(|d| d.join("decoders"))
-            .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
-            .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
-            .filter_map(|p| {
-                let decoder = parse(&std::fs::read_to_string(&p).ok()?, p.parent()?)?;
-                Some((p.file_name()?.to_owned(), decoder))
+        (crate::plugins::desktop_files("decoders").into_iter())
+            .filter_map(|(path, text)| {
+                let decoder = parse(&text, path.parent()?)?;
+                Some((path.file_name()?.to_owned(), decoder))
             })
             .collect::<std::collections::BTreeMap<_, _>>()
             .into_values()
@@ -56,12 +47,7 @@ pub fn all() -> &'static [Decoder] {
 /// The decoder of a desktop file; `None` without a name, extensions, or %f in its command (also
 /// inside a word, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<Decoder> {
-    let entry = text.split("\n[").next()?;
-    let value = |key: &str| {
-        (entry.lines())
-            .find_map(|l| l.strip_prefix(key)?.trim_start().strip_prefix('='))
-            .map(str::trim)
-    };
+    let value = crate::plugins::entry(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))
         .map(|e| e.trim().trim_start_matches('.').to_lowercase())
         .filter(|e| !e.is_empty())

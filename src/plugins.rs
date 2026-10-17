@@ -17,31 +17,45 @@ pub struct Plugin {
 /// The plugins, sorted by name; a desktop file in the user's folder hides one of the same name
 /// in the system's.
 pub fn find() -> Vec<Plugin> {
-    let home = crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
-    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
-    let mut seen = std::collections::HashSet::new();
-    let mut plugins: Vec<Plugin> = (home.into_iter())
-        .chain(dirs.split(':').map(|d| Path::new(d).join("glimt")))
-        .map(|d| d.join("plugins"))
-        .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
-        .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
-        .filter_map(|p| parse(&std::fs::read_to_string(&p).ok()?, p.parent()?))
+    let mut plugins: Vec<Plugin> = (desktop_files("plugins").into_iter())
+        .filter_map(|(path, text)| parse(&text, path.parent()?))
         .collect();
     plugins.sort_by_key(|p| p.name.to_lowercase());
     plugins
 }
 
-/// The plugin of a desktop file; `None` if it is hidden or has no command.
-fn parse(text: &str, dir: &Path) -> Option<Plugin> {
-    // Only the [Desktop Entry] group, not its actions.
-    let entry = text.split("\n[").next()?;
-    let value = |key: &str| {
+/// The desktop files in `kind` (plugins, decoders) of Glimt's folder in the user's data folder
+/// and the system's, with their text: one in the user's hides one of the same name in the
+/// system's.
+pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
+    let home = crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
+    let mut seen = std::collections::HashSet::new();
+    (home.into_iter())
+        .chain(dirs.split(':').map(|d| Path::new(d).join("glimt")))
+        .map(|d| d.join(kind))
+        .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
+        .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
+        .filter_map(|p| Some((p.clone(), std::fs::read_to_string(&p).ok()?)))
+        .collect()
+}
+
+/// The values of a desktop file's first group (its [Desktop Entry] or [Glimt Decoder], not its
+/// actions), by key.
+pub fn entry<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
+    let entry = text.split("\n[").next().unwrap_or_default();
+    move |key| {
         (entry.lines())
             .find_map(|l| l.strip_prefix(key)?.trim_start().strip_prefix('='))
             .map(str::trim)
-    };
+    }
+}
+
+/// The plugin of a desktop file; `None` if it is hidden or has no command.
+fn parse(text: &str, dir: &Path) -> Option<Plugin> {
+    let value = entry(text);
     if value("Hidden") == Some("true") || value("NoDisplay") == Some("true") {
         return None;
     }
