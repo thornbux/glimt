@@ -73,7 +73,9 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
 }
 
 /// Width and height of a baseline or progressive JPEG from its frame header, by walking the
-/// segments after the start marker.
+/// segments after the start marker. Only a header as a camera writes it counts (8 bits, grey or
+/// colour, its length fitting): in compressed sensor data a start marker and a frame marker
+/// turn up by chance, followed by sizes far larger than the real preview's.
 pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
     let be = |i: usize| Some(u16::from_be_bytes([*jpeg.get(i)?, *jpeg.get(i + 1)?]) as usize);
     let mut i = 2;
@@ -83,7 +85,13 @@ pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
             return None;
         }
         match *jpeg.get(i + 1)? {
-            0xc0..=0xc2 => return Some((be(i + 7)? as u32, be(i + 5)? as u32)),
+            0xc0..=0xc2 => {
+                let parts = *jpeg.get(i + 9)? as usize;
+                let real =
+                    *jpeg.get(i + 4)? == 8 && matches!(parts, 1 | 3) && be(i + 2)? == 8 + 3 * parts;
+                let (w, h) = (be(i + 7)? as u32, be(i + 5)? as u32);
+                return (real && w > 0 && h > 0).then_some((w, h));
+            }
             // Other frame types (lossless, arithmetic), or image data before any frame.
             0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf | 0xda => return None,
             _ => i += 2 + be(i + 2)?,
@@ -94,7 +102,8 @@ pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    /// A made-up RAW file: a header, a small JPEG, lossless sensor data and a larger JPEG.
+    /// A made-up RAW file: a header, a small JPEG, lossless sensor data, a larger JPEG and a
+    /// frame header that sensor data holds by chance.
     #[test]
     fn finds_the_largest_preview() {
         let jpeg = |w, h| {
@@ -111,6 +120,11 @@ mod tests {
         data.extend(jpeg(16, 8));
         data.extend([0xff, 0xd8, 0xff, 0xc3, 0, 11, 8, 1, 0, 1, 0]);
         data.extend(jpeg(64, 32));
+        data.extend([7; 100]);
+        // Sensor data that happens to hold a start and a frame marker, then random sizes.
+        data.extend([
+            0xff, 0xd8, 0xff, 0xc0, 0, 0x11, 8, 0xff, 0xff, 0xff, 0xff, 7, 1,
+        ]);
         data.extend([7; 100]);
         let found = super::preview(&data).unwrap();
         let img = image::load_from_memory(found).unwrap();

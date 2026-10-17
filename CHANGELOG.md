@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A camera RAW file whose sensor data holds a JPEG start and frame marker by chance shows its real
+  preview: the chance one claimed a far larger size and was taken, failed, and left a failed-
+  thumbnail mark in the shared cache.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
