@@ -340,6 +340,37 @@ for v in new old; do
 done
 as_version new
 
+echo "-- copying 120 files of 25 MB, closed halfway: counted in the status bar, every copy whole"
+for v in new old; do
+    as_version $v
+    d=/tmp/progress-$v
+    mkdir -p $d/to
+    head -c 25000000 /dev/urandom >$d/00.jpg
+    for i in $(seq -w 1 119); do cp $d/00.jpg $d/$i.jpg; done
+    config
+    start $d
+    sleep 2
+    key ctrl+a
+    answer $d/to
+    key ctrl+c
+    # The copy starts once the stand-in file dialog has answered.
+    for i in $(seq 100); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.1; done
+    sleep 0.5
+    shot progress-$v
+    key ctrl+q; sleep 1
+    waited=$(kill -0 $GPID 2>/dev/null && echo waits || echo closed)
+    for i in $(seq 240); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
+    quit
+    whole=$(find $d/to -name '*.jpg' -size 24415k | wc -l)
+    parts=$(ls -A $d/to | grep -c glimt-copy)
+    rm -rf $d    # 6 GB
+    if [ $v = new ]; then
+        expect "the window waits for the copies" "$waited" waits
+        expect "all 120 copies whole, no hidden ones left" "$whole $parts" "120 0"
+    else note "old: $waited, $whole whole, $parts hidden"; fi
+done
+as_version new
+
 echo "-- thumbnails with Auto Rotate off"
 rm -rf $XDG_CACHE_HOME/thumbnails
 config exif_rotate=false

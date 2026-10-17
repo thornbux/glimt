@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The status bar counts the files of a copy, move, delete, keywords set on many files or a
+  Lightroom import as they go (Copying 120 of 3,000…), with a Stop button that ends it after the
+  file at hand; one that took more than two seconds says when it is done.
+
+### Fixed
+
+- Closing Glimt while files were being copied or moved stopped it halfway, without a word, and
+  could leave a half-copied file under its real name: closing now waits for them (a second close
+  does not), and a copy is written under a hidden name and gets its own when whole.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added

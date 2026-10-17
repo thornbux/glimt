@@ -227,6 +227,50 @@ struct Pan {
     jump: Option<usize>,
 }
 
+/// A file operation running in the background (copy, move, delete, keywords, a Lightroom
+/// import), for the status bar: how far it is, and a Stop that takes effect between files.
+struct Job {
+    /// "Copying", "Deleting" …, before "120 of 3,000".
+    doing: &'static str,
+    total: usize,
+    done: AtomicUsize,
+    stop: std::sync::atomic::AtomicBool,
+    started: Instant,
+}
+
+impl Job {
+    /// Whether Stop was pressed.
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    fn did(&self, n: usize) {
+        self.done.fetch_add(n, Ordering::Relaxed);
+    }
+
+    /// How far a stopped one got.
+    fn stopped_text(&self) -> String {
+        let done = self.done.load(Ordering::Relaxed);
+        format!(
+            "Stopped: {} of {}",
+            thousands(done),
+            count(self.total, "file")
+        )
+    }
+
+    /// What to tell when it ends: how far a stopped one got; `finished` for one that took long
+    /// enough to be lost sight of; nothing for a quick one, which the list already shows.
+    fn report(&self, finished: impl FnOnce() -> String) -> Option<String> {
+        if self.stopped() {
+            Some(self.stopped_text())
+        } else if self.started.elapsed() > std::time::Duration::from_secs(2) {
+            Some(finished())
+        } else {
+            None
+        }
+    }
+}
+
 /// The Find Duplicates window: what to compare by, the search running and its results.
 struct Dups {
     by: duplicates::By,
@@ -1071,6 +1115,10 @@ struct App {
     // ---- File operations in the background ----
     /// Background deletes, copies and moves still running, for the busy pointer.
     busy: Arc<AtomicUsize>,
+    /// File operations running, for the status bar; one is over when its thread let go of it.
+    jobs: Vec<Arc<Job>>,
+    /// Closing waits for `jobs` to end; a second close does not wait.
+    closing: bool,
     /// Deletes and moves done, and whether to read the folder again: one failed, so the files
     /// may still be there, or files were moved or copied into the list.
     deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
@@ -1701,6 +1749,8 @@ impl App {
             saved_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
+            jobs: Vec::new(),
+            closing: false,
             search: String::new(),
             matches: None,
             rows: Default::default(),
@@ -3287,6 +3337,19 @@ impl App {
         !saving
     }
 
+    /// A file operation on `total` files, shown in the status bar until its thread drops it.
+    fn start_job(&mut self, doing: &'static str, total: usize) -> Arc<Job> {
+        let job = Arc::new(Job {
+            doing,
+            total,
+            done: AtomicUsize::new(0),
+            stop: Default::default(),
+            started: Instant::now(),
+        });
+        self.jobs.push(job.clone());
+        job
+    }
+
     fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
         let targets = self.targets();
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
@@ -3299,6 +3362,7 @@ impl App {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
         let busy = self.busy.clone();
+        let job = self.start_job("Deleting", paths.len());
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
@@ -3306,8 +3370,12 @@ impl App {
             ctx.request_repaint();
             let mut errors = Vec::new();
             if trash {
-                // Many files per gio call, so thousands of files do not become thousands of processes.
-                for chunk in paths.chunks(500) {
+                // Many files per gio call, so thousands of files do not become thousands of
+                // processes; few enough that Stop and the count in the status bar keep up.
+                for chunk in paths.chunks(100) {
+                    if job.stopped() {
+                        break;
+                    }
                     match command("gio").arg("trash").arg("--").args(chunk).output() {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => errors.push(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
@@ -3316,12 +3384,17 @@ impl App {
                             break;
                         }
                     }
+                    job.did(chunk.len());
                 }
             } else {
                 for path in &paths {
+                    if job.stopped() {
+                        break;
+                    }
                     if let Err(e) = std::fs::remove_file(path) {
                         errors.push(format!("{}: {e}", path.display()));
                     }
+                    job.did(1);
                 }
             }
             if let Some(first) = errors.first() {
@@ -3329,6 +3402,11 @@ impl App {
                     "Delete failed ({}): {first}",
                     count(errors.len(), "error")
                 ));
+            } else if let Some(text) = job.report(|| match trash {
+                true => format!("{} moved to the trash", count(paths.len(), "file")),
+                false => format!("{} deleted", count(paths.len(), "file")),
+            }) {
+                let _ = tx.send(text);
             }
             // Their sidecars go the same way; a new file of the same name must not get their
             // keywords.
@@ -3343,7 +3421,9 @@ impl App {
                     chunk.iter().for_each(|s| drop(std::fs::remove_file(s)));
                 }
             }
-            let _ = deleted_tx.send((paths, !errors.is_empty()));
+            // Those not reached after Stop are still there, as after a failure.
+            let _ = deleted_tx.send((paths, !errors.is_empty() || job.stopped()));
+            drop(job);
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
@@ -3542,6 +3622,7 @@ impl App {
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
         let busy = self.busy.clone();
+        let job = self.start_job(if keep { "Copying" } else { "Moving" }, paths.len());
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
             if !keep && same_dir {
@@ -3549,11 +3630,15 @@ impl App {
             }
             let mut errors = Vec::new();
             for path in &paths {
+                if job.stopped() {
+                    break;
+                }
                 let target = dest.join(path.file_name().unwrap_or_default());
                 match put_file(path, &target, keep) {
                     Ok(()) => meta::follow(path, &target, keep),
                     Err(e) => errors.push(format!("{}: {e}", target.display())),
                 }
+                job.did(1);
             }
             if let Some(first) = errors.first() {
                 let verb = if keep { "Copy" } else { "Move" };
@@ -3561,13 +3646,23 @@ impl App {
                     "{verb} failed ({}): {first}",
                     count(errors.len(), "error")
                 ));
+            } else if let Some(text) = job.report(|| {
+                let verb = if keep { "copied" } else { "moved" };
+                format!(
+                    "{} {verb} to {}",
+                    count(paths.len(), "file"),
+                    dest.display()
+                )
+            }) {
+                let _ = tx.send(text);
             }
             // Moved: out of `deleting`; read the folder again for files that joined it, or that
-            // failed to go.
+            // failed to go or were not reached after Stop.
             if listed || !keep {
-                let relist = listed || !errors.is_empty();
+                let relist = listed || !errors.is_empty() || job.stopped();
                 let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, relist));
             }
+            drop(job);
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
@@ -4814,27 +4909,35 @@ impl App {
             .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         // One writer for every window's ticks, so a tick and its untick land in that order.
-        type Job = (
+        type Tagging = (
             Vec<PathBuf>,
             String,
             bool,
+            Arc<Job>,
             mpsc::Sender<String>,
             Arc<AtomicUsize>,
             egui::Context,
         );
-        static WRITER: std::sync::OnceLock<mpsc::Sender<Job>> = std::sync::OnceLock::new();
+        static WRITER: std::sync::OnceLock<mpsc::Sender<Tagging>> = std::sync::OnceLock::new();
         let writer = WRITER.get_or_init(|| {
-            let (jobs, rx) = mpsc::channel::<Job>();
+            let (jobs, rx) = mpsc::channel::<Tagging>();
             std::thread::spawn(move || {
-                for (paths, tag, on, tx, busy, ctx) in rx {
-                    let failed = (paths.iter())
-                        .filter(|p| meta::tag(p, &tag, on).is_err())
-                        .count();
+                for (paths, tag, on, job, tx, busy, ctx) in rx {
+                    let mut failed = 0;
+                    for path in &paths {
+                        if job.stopped() {
+                            break;
+                        }
+                        failed += meta::tag(path, &tag, on).is_err() as usize;
+                        job.did(1);
+                    }
                     if failed > 0 {
                         let _ = tx.send(format!(
                             "The keyword could not be saved for {}",
                             count(failed, "file")
                         ));
+                    } else if job.stopped() {
+                        let _ = tx.send(job.stopped_text());
                     } else if paths.len() > 1 {
                         let verb = if on { "set on" } else { "taken off" };
                         let _ = tx.send(format!("{tag} {verb} {}", count(paths.len(), "file")));
@@ -4846,10 +4949,16 @@ impl App {
             jobs
         });
         self.busy.fetch_add(1, Ordering::Relaxed);
+        let doing = if on {
+            "Setting keywords"
+        } else {
+            "Taking keywords off"
+        };
         let job = (
-            paths,
+            paths.clone(),
             tag,
             on,
+            self.start_job(doing, paths.len()),
             self.notices_tx.clone(),
             self.busy.clone(),
             ctx.clone(),
@@ -7007,6 +7116,12 @@ impl App {
         self.receive_sizes();
         self.receive_exif_index(ctx);
         self.receive_deleted();
+        self.jobs.retain(|job| Arc::strong_count(job) > 1);
+        if !self.jobs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        } else if self.closing {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         while let Ok((path, result)) = self.saved_rx.try_recv() {
             self.saving.remove(&path);
             match result {
@@ -7286,6 +7401,14 @@ impl App {
             if ctx.input(|i| i.viewport().fullscreen) == Some(false) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             }
+        }
+        // Files still being copied, moved or written: closed when they are done, not halfway.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.jobs.is_empty() && !self.closing {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.closing = true;
+            self.notice = Some(
+                "Glimt closes when the file operations are done; close again to stop them".into(),
+            );
         }
         self.inhibit(fullscreen && self.config.inhibit_screensaver);
         // Geometry of the normal window only, so leaving full screen or maximized restores it.
@@ -8350,6 +8473,8 @@ impl App {
         let _ = (&stars, take_lightroom);
         let xmp = cfg!(feature = "marks") && self.config.xmp_stars;
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
+        let sidecars = if xmp { stars.len() } else { 0 } + image_keywords.len();
+        let job = self.start_job("Importing", sidecars);
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
             let dir = collections::dir();
@@ -8378,6 +8503,8 @@ impl App {
                 // As stars set by hand go there with this setting.
                 // Not for photos gone since: no sidecar beside nothing.
                 let failed = (stars.iter())
+                    .take_while(|_| !job.stopped())
+                    .inspect(|_| job.did(1))
                     .filter(|(p, _)| p.is_file())
                     .filter(|(p, n)| marks::write_xmp(p, *n).is_err())
                     .count();
@@ -8389,7 +8516,14 @@ impl App {
             let _ = xmp;
             let (mut tagged, mut failed) = (0, 0);
             // Not for photos gone since: no sidecar beside nothing.
-            for (path, tags) in image_keywords.iter().filter(|(p, _)| p.is_file()) {
+            for (path, tags) in &image_keywords {
+                if job.stopped() {
+                    break;
+                }
+                job.did(1);
+                if !path.is_file() {
+                    continue;
+                }
                 match meta::add_tags(path, tags) {
                     Ok(()) => tagged += 1,
                     Err(_) => failed += 1,
@@ -8401,6 +8535,14 @@ impl App {
             if failed > 0 {
                 msg += &format!("; no keywords written for {}", thousands(failed));
             }
+            if job.stopped() {
+                msg += &format!(
+                    "; stopped after {} of {} sidecars",
+                    thousands(job.done.load(Ordering::Relaxed)),
+                    thousands(sidecars)
+                );
+            }
+            drop(job);
             let _ = tx.send(msg);
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
@@ -8573,6 +8715,24 @@ impl App {
                 self.types_menu(ctx, ui);
                 ui.separator();
                 ui.label(left);
+                if let Some(job) = self.jobs.first() {
+                    ui.separator();
+                    let more = match self.jobs.len() - 1 {
+                        0 => String::new(),
+                        n => format!(", and {n} more"),
+                    };
+                    ui.label(format!(
+                        "{} {} of {}…{more}",
+                        job.doing,
+                        thousands(job.done.load(Ordering::Relaxed)),
+                        thousands(job.total)
+                    ));
+                    if ui.small_button("Stop").clicked() {
+                        self.jobs
+                            .iter()
+                            .for_each(|j| j.stop.store(true, Ordering::Relaxed));
+                    }
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if n == 0 {
                         return;
@@ -9494,23 +9654,38 @@ fn thumbs_to_keep<'a>(
 fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
     let copy = || -> std::io::Result<()> {
+        if to.exists() {
+            return Err(AlreadyExists.into());
+        }
+        // Written under a hidden name and given its own when whole: a copy cut short (a full
+        // disk, Glimt closed, a stick pulled out) never looks like the file.
+        static COPIES: AtomicUsize = AtomicUsize::new(0);
+        let k = COPIES.fetch_add(1, Ordering::Relaxed);
+        let part = to.with_file_name(format!(".glimt-copy-{}-{k}", remote::instance_id()));
         let mut out = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(to)?;
+            .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before a move removes the
         // source: a stick pulled out right after must not lose both.
         let copied = std::fs::File::open(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
                 let meta = std::fs::metadata(from)?;
-                std::fs::set_permissions(to, meta.permissions())?;
+                std::fs::set_permissions(&part, meta.permissions())?;
                 out.set_modified(meta.modified()?)?;
                 out.sync_all()
+            })
+            // A link never replaces a file; FAT sticks have none, and get a rename.
+            // shortcut: a file of that name made between the check and the rename is replaced;
+            // use renameat2's RENAME_NOREPLACE if another program ever writes there meanwhile.
+            .and_then(|_| match std::fs::hard_link(&part, to) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == AlreadyExists => Err(e),
+                Err(_) if to.exists() => Err(AlreadyExists.into()),
+                Err(_) => std::fs::rename(&part, to),
             });
-        if copied.is_err() {
-            let _ = std::fs::remove_file(to);
-        }
+        let _ = std::fs::remove_file(&part);
         copied
     };
     if keep {
@@ -10060,7 +10235,8 @@ mod tests {
         );
     }
 
-    /// Copying and moving never replace a file at the destination, and move or copy otherwise.
+    /// Copying and moving never replace a file at the destination, and move or copy otherwise;
+    /// a copy leaves no half file behind.
     #[test]
     fn puts_files_without_overwriting() {
         let dir = std::env::temp_dir().join(format!("glimt-test-put-{}", std::process::id()));
@@ -10078,6 +10254,13 @@ mod tests {
         assert!(b.exists());
         super::put_file(&a, &dir.join("to/a.jpg"), true).unwrap();
         assert!(a.exists());
+        assert_eq!(std::fs::read_to_string(dir.join("to/a.jpg")).unwrap(), "a");
+        // Copied through a hidden name, which is gone, also after a refused copy.
+        let mut names: Vec<_> = (std::fs::read_dir(dir.join("to")).unwrap())
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.jpg", "b.jpg"]);
         std::fs::remove_file(dir.join("to/a.jpg")).unwrap();
         super::put_file(&a, &dir.join("to/a.jpg"), false).unwrap();
         assert!(!a.exists());

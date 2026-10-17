@@ -115,7 +115,11 @@ const MANUAL: &[(&str, &str)] = &[
          otherwise on the shown image; right-click a file for a menu with them. Delete moves \
          files to the trash and Shift+Delete deletes them for good; both ask first, as set \
          under Delete behaviour in Preferences, which can also turn the Delete key off or use \
-         no trash at all. Rename with several files selected asks for a pattern: * is the old \
+         no trash at all. While files are copied, moved, deleted or given keywords, the \
+         status bar counts them (Copying 120 of 3,000…), and Stop ends it after the file at \
+         hand; one that took long says when it is done. A copy is written under a hidden name \
+         and gets its own when whole, and closing Glimt waits for these to end (close again \
+         to stop them). Rename with several files selected asks for a pattern: * is the old \
          name and # a number (### gives 001); existing files are never overwritten. If a \
          crash or a power cut stops it halfway, the next start offers to put the old names \
          back or to finish. File → Open With (also in the right-click menu) opens them in \
