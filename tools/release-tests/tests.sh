@@ -931,6 +931,33 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Check Images still running when another folder opens: nothing marked there"
+for v in new old; do
+    as_version $v
+    d=/tmp/check-switch-$v
+    mkdir -p $d/a $d/b
+    convert -size 600x400 gradient:red-blue $d/whole.jpg
+    head -c $(( $(stat -c %s $d/whole.jpg) * 2 / 3 )) $d/whole.jpg >$d/cut.jpg
+    # Folder a: 20,000 cut photos, checked for some seconds; b: whole ones named as a's last.
+    for i in $(seq -w 1 20000); do ln $d/cut.jpg $d/a/n_$i.jpg; done
+    for i in 19998 19999 20000; do cp $d/whole.jpg $d/b/n_$i.jpg; done
+    config
+    start $d/a
+    sleep 2
+    click 20 10; sleep 1
+    click 66 540; sleep 1
+    click 56 127; sleep 1
+    $BIN --remote open $d/b >/dev/null 2>&1
+    sleep 15
+    shot check-switch-$v
+    quit
+    marked() { [ $(red check-switch-$v 214 $1) -gt 200 ] && echo marked || echo -; }
+    got="$(marked 337) $(marked 419) $(marked 501)"
+    if [ $v = new ]; then expect "the new folder's files not marked" "$got" "- - -"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
 for v in new old; do
     as_version $v

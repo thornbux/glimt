@@ -1773,6 +1773,10 @@ impl App {
     /// What belongs to the list shown before, which a new folder, collection or set of folders
     /// starts without.
     fn start_list(&mut self) {
+        // A check still running finds names of the old list: stopped, its window closed.
+        if let Some(Some(check)) = self.check.take() {
+            check.stop.store(true, Ordering::Relaxed);
+        }
         self.broken.clear();
         self.subdirs.clear();
         self.deleting.clear();

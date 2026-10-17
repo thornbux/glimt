@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Check Images stops when another folder or collection opens: it went on, and marked files of the
+  new list that had the name of a broken file in the old one, which Select Them then selected.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
