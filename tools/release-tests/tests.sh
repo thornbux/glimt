@@ -1139,6 +1139,21 @@ for v in new old; do
 done
 as_version new
 
+echo "-- glimt --back-up: a folder that is not there is refused, a running rename's plan left out"
+for v in new old; do
+    as_version $v
+    d=/tmp/backup-checks-$v
+    mkdir -p $d/to $XDG_DATA_HOME/glimt/collections $XDG_STATE_HOME/glimt/renames
+    printf '#GQview collection\n' >$XDG_DATA_HOME/glimt/collections/Mine.gqv
+    printf '/x\0/y\0' >$XDG_STATE_HOME/glimt/renames/plan
+    $BIN --back-up $d/typo >/dev/null 2>&1; missing=$?
+    $BIN --back-up $d/to >/dev/null 2>&1
+    got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c renames)"
+    if [ $v = new ]; then expect "refused, nothing made; no plan in the backup" "$got" "1 0 0"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
 d=/tmp/focus
 mkdir -p $d

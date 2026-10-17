@@ -17,6 +17,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   a.jpg?" could delete every file the script named.
 - A second Rename Many while one is running is refused: it wrote over the first one's plan for a
   crash, and the first one's renamed files were not followed in the list or the collection.
+- A backup to a folder that is not there (a typo, a disk not mounted) is refused instead of made,
+  one with nothing to copy says so instead of "0 files", a file that cannot be copied is named,
+  and the plan of a Rename Many running meanwhile is left out, which restored later would rename
+  files again. The README says where the Flatpak keeps the folders to restore.
 
 ## [0.31.0] - 2026-10-17
 
