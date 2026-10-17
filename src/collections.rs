@@ -180,6 +180,7 @@ pub fn in_saved_order(saved: &[PathBuf], files: Vec<PathBuf>) -> Vec<PathBuf> {
 
 /// Add `paths` to the collection in `file` (made if new), leaving out those it has.
 pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
+    let _held = crate::config::file_lock(file);
     // Only a collection that is not there yet starts empty: one that cannot be read would be
     // written over.
     let mut all = match load(file) {

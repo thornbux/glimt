@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Settings are merged and written in the background, as every toggle in a menu saves them; a lock
+  beside the settings file and beside each collection keeps two windows saving at once from losing
+  one's change; Glimt waits for the last write before it ends.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
