@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Import Lightroom Catalog leaves out an image whose path in the catalog leads out of its root
+  folder (with .. or as an absolute path), which would have put a sidecar outside the folder
+  chosen.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed
