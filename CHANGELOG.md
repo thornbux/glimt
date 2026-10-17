@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A --remote select waits only while Delete or Rename asks, as the notes said: it waited for any
+  dialog, Preferences too, so a script got no answer and the selection changed later.
+
 ## [0.33.0] - 2026-10-17
 
 ### Changed

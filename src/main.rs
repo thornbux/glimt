@@ -910,8 +910,8 @@ struct App {
     image_id: Option<egui::Id>,
     /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
     focus_by_keys: bool,
-    /// A `--remote select` that came while the folder was being read or a dialog was open: done
-    /// once neither is.
+    /// A `--remote select` that came while the folder was being read or Delete or Rename asked:
+    /// done once neither is.
     waiting_select: Option<(String, remote::Reply)>,
     /// The folder changed while a listing was running; list again when it is done.
     relist: bool,
@@ -3416,6 +3416,12 @@ impl App {
     // ---- File operations: delete, copy and move, rename, save the orientation ----
 
     /// Preferences or a modal dialog is open: keys go there.
+    /// A question about the selection on screen (Delete, Rename): what it acts on must stay as
+    /// it was when asked. Preferences and the like do not count: a script would wait on them.
+    fn asking_about_selection(&self) -> bool {
+        self.confirm_delete.is_some() || self.prompt.is_some()
+    }
+
     fn dialog_open(&self) -> bool {
         self.show_settings
             || self.confirm_delete.is_some()
@@ -7342,7 +7348,7 @@ impl App {
         }
         self.has_focus = focus;
         if self.listing_rx.is_none()
-            && !self.dialog_open()
+            && !self.asking_about_selection()
             && let Some((command, reply)) = self.waiting_select.take()
         {
             let _ = reply.send(self.select_paths(ctx, &command));
@@ -7354,7 +7360,7 @@ impl App {
                 // asked about, not one a script put in its place meanwhile.
                 Some(reply)
                     if command.starts_with("select ")
-                        && (self.listing_rx.is_some() || self.dialog_open()) =>
+                        && (self.listing_rx.is_some() || self.asking_about_selection()) =>
                 {
                     self.waiting_select = Some((command, reply));
                 }
