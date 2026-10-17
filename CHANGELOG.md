@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A screen reader hears the image's name as the list shows it, not the whole path, in a collection
+  or several folders shown together.
 - Back from a folder opened while a collection was shown goes back to the collection, not to the
   folder of its image.
 - Save as Theme no longer writes over a theme file of the same name, which may be hand-edited, nor

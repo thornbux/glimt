@@ -19,7 +19,8 @@ impl App {
             self.want_exif();
             let path = self.path(self.cur);
             let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
-            let mut text = format!("{}, {place}", self.files[self.cur].to_string_lossy());
+            // The name the list shows, not the whole path a collection's entry holds.
+            let mut text = format!("{}, {place}", self.name(self.cur));
             if let Some(e) = self.decode_errors.get(&self.cur) {
                 text += &format!(", could not be shown: {e}");
             }
