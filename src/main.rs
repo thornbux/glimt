@@ -9043,6 +9043,7 @@ impl App {
             }
         }
         area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
+            let first_row = rows.start;
             let rows = rows.start * cols..(rows.end * cols).min(count);
             let shown: Vec<usize> = match &self.matches {
                 Some(m) => m[rows.clone()].to_vec(),
@@ -9113,7 +9114,7 @@ impl App {
                 }
             }
             if icons {
-                self.rubber_band(ui, &cells, row_h);
+                self.rubber_band(ui, &cells, row_h, first_row);
             }
             // Dropped: the dragged images before the row the line was at.
             if ctx.input(|i| i.pointer.any_released())
@@ -9133,9 +9134,21 @@ impl App {
     /// it touches, added to the selection with Ctrl or Shift. It starts anywhere but in a
     /// collection, where dragging an image moves it, from the space between them; it counts once
     /// the pointer has moved a little, so a click stays a click. `cells` are the shown ones.
-    fn rubber_band(&mut self, ui: &egui::Ui, cells: &[(usize, egui::Rect)], row_h: f32) {
+    fn rubber_band(
+        &mut self,
+        ui: &egui::Ui,
+        cells: &[(usize, egui::Rect)],
+        row_h: f32,
+        first_row: usize,
+    ) {
         let ctx = ui.ctx().clone();
-        let origin = ui.max_rect().min;
+        // The grid's top, above the rows drawn: the rectangle is kept in the grid, so it moves
+        // with the images as they scroll.
+        let pitch = row_h + ui.spacing().item_spacing.y;
+        let origin = ui.max_rect().min - egui::vec2(0.0, first_row as f32 * pitch);
+        let (cell, gap) = (self.cell(), ui.spacing().item_spacing.x);
+        let cols = self.grid_cols.max(1);
+        let count = self.matches.as_ref().map_or(self.files.len(), Vec::len);
         let clip = ui.clip_rect();
         let (pressed, down, pos, add) = ctx.input(|i| {
             let m = i.modifiers;
@@ -9184,8 +9197,19 @@ impl App {
             return;
         }
         let band = egui::Rect::from_two_pos(start, p);
+        // Every cell under it, also those scrolled out of view, from where they are in the grid.
+        let rel = band.translate(-origin.to_vec2());
+        let rows = touched(rel.top(), rel.bottom(), pitch, row_h);
+        let columns = touched(rel.left(), rel.right(), cell.x + gap, cell.x);
         let mut selected = base.clone();
-        selected.extend(cells.iter().filter(|c| c.1.intersects(band)).map(|c| c.0));
+        for r in rows {
+            for c in columns.start..columns.end.min(cols) {
+                let k = r * cols + c;
+                if k < count {
+                    selected.insert(self.matches.as_ref().map_or(k, |m| m[k]));
+                }
+            }
+        }
         self.selected = selected;
         let v = ui.visuals();
         let painter = ui.painter().with_clip_rect(clip);
@@ -10286,6 +10310,13 @@ fn moved(n: usize, picked: &HashSet<usize>, action: Action) -> Vec<usize> {
     order
 }
 
+/// The places along a row or column of items `size` long, one every `step`, that the span
+/// `lo..hi` (from the first item's start) overlaps.
+fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range<usize> {
+    let first = ((lo - size) / step).floor() + 1.0;
+    first.max(0.0) as usize..(hi / step).ceil().max(0.0) as usize
+}
+
 /// The new order of a list of `n` after the `picked` places are dragged before place `to` (`n`:
 /// to the end), among themselves in the order they had.
 fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize> {
@@ -10352,6 +10383,16 @@ mod tests {
         assert_eq!(dropped(6, &picked, 0), [1, 2, 5, 0, 3, 4]);
         assert_eq!(dropped(6, &picked, 6), [0, 3, 4, 1, 2, 5]);
         assert_eq!(dropped(6, &picked, 2), [0, 1, 2, 5, 3, 4]);
+    }
+
+    /// Cells 100 high every 110: a band from 50 to 230 touches rows 0, 1 and 2; one in the gap
+    /// from 101 to 109 none; one above the grid none.
+    #[test]
+    fn finds_the_cells_a_rectangle_touches() {
+        use super::touched;
+        assert_eq!(touched(50.0, 230.0, 110.0, 100.0), 0..3);
+        assert_eq!(touched(101.0, 109.0, 110.0, 100.0), 1..1);
+        assert_eq!(touched(-80.0, -10.0, 110.0, 100.0), 0..0);
     }
 
     /// CPU use: thumbnails and background threads for each level.

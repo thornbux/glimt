@@ -1011,6 +1011,29 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a rectangle held at the grid's bottom edge: the grid scrolls, the rows passed stay selected"
+for v in new old; do
+    as_version $v
+    d=/tmp/band-scroll-$v
+    mkdir -p $d
+    convert -size 64x64 xc:red $d/00.png
+    for i in $(seq -w 1 59); do cp $d/00.png $d/$i.png; done
+    config
+    start $d
+    sleep 2
+    key ctrl+i; sleep 2
+    xdotool mousemove 60 320; sleep 0.3; xdotool mousedown 1
+    for y in $(seq 330 20 750); do xdotool mousemove 60 $y; sleep 0.05; done
+    # Held near the edge: the grid scrolls on, a little movement keeps frames coming.
+    for i in $(seq 30); do xdotool mousemove 61 760; sleep 0.1; xdotool mousemove 60 760; sleep 0.1; done
+    xdotool mouseup 1; sleep 1
+    n=$($BIN --remote selection 2>/dev/null | tr -cd '\0' | wc -c)
+    quit
+    if [ $v = new ]; then expect "more than the rows in view selected" "$([ $n -ge 20 ] && echo yes)" yes; fi
+    note "$v: $n selected"
+done
+as_version new
+
 echo "-- an empty collection: the keys that move images in it leave Glimt running"
 for v in new old; do
     as_version $v
