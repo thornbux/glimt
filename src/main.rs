@@ -5149,20 +5149,22 @@ impl App {
         self.exif_stale
             .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
-        std::thread::spawn(move || {
-            let mut errors = 0;
-            for path in &paths {
-                errors += meta::add(path, &keywords).is_err() as usize;
-            }
-            let _ = tx.send(match errors {
-                0 => format!("Keywords added to {}", count(paths.len(), "file")),
-                n => format!("Keywords could not be saved for {}", count(n, "file")),
-            });
-            busy.fetch_sub(1, Ordering::Relaxed);
-            ctx.request_repaint();
-        });
+        let n = paths.len();
+        // Through the sidecar writer, with keywords ticked and stars: in the order asked.
+        self.write_sidecars(
+            ctx,
+            "Adding keywords",
+            paths,
+            move |path| meta::add(path, &keywords).is_ok(),
+            move |failed, job| match () {
+                _ if failed > 0 => Some(format!(
+                    "Keywords could not be saved for {}",
+                    count(failed, "file")
+                )),
+                _ if job.stopped() => Some(job.stopped_text()),
+                _ => Some(format!("Keywords added to {}", count(n, "file"))),
+            },
+        );
     }
 
     /// The exif: search index once it is read, and the search again with it.
