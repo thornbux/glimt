@@ -632,6 +632,8 @@ for v in new old; do
     d=/tmp/bioformats-$v
     mkdir -p $d $XDG_DATA_HOME/glimt/decoders
     cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
+    # ICS, which the example leaves out for calendar invitations, added as its comment says.
+    sed -i 's/^Extensions=czi;/Extensions=ics;ids;czi;/' $XDG_DATA_HOME/glimt/decoders/bioformats.desktop
     # Dark at the top, light at the bottom, 16 bits as a microscope camera writes.
     convert -size 600x400 gradient:black-white -depth 16 /tmp/gradient.tif
     /opt/bftools/bfconvert -no-upgrade -overwrite /tmp/gradient.tif $d/a.ics >/dev/null 2>&1
