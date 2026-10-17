@@ -324,16 +324,30 @@ pub fn load_icc(
     path: &Path,
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+    load_for(path, rotate, None)
+}
+
+/// As `load_icc`, for a thumbnail no larger than `max`: HEIC, AVIF and video frames come so
+/// from ffmpeg, where other formats are shrunk after. Not for the view, which needs the
+/// image's own size.
+pub fn load_for(
+    path: &Path,
+    rotate: bool,
+    max: Option<[u32; 2]>,
+) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+    // Only ffmpeg's formats take it; without them it has no use.
+    #[cfg(not(any(feature = "video", feature = "heic", feature = "avif")))]
+    let _ = max;
     #[cfg(feature = "video")]
     if crate::external::is_video(path) {
-        return Ok((crate::video::preview(path)?, None));
+        return Ok((crate::video::preview(path, max)?, None));
     }
     if has_ext(path, raw::EXTS) {
         return Ok((raw::load(path, rotate)?, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::external::is_heif(path) {
-        return Ok((crate::external::heif(path)?, None));
+        return Ok((crate::external::heif(path, max)?, None));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::files::SVG_EXTS) {

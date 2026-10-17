@@ -9,17 +9,34 @@ pub fn is_heif(path: &Path) -> bool {
     has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
 }
 
-/// A frame `at` seconds in, decoded by the `ffmpeg` program.
+/// A frame `at` seconds in, decoded by the `ffmpeg` program; no larger than `max` if given.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
-pub fn ffmpeg_frame(path: &Path, at: &str) -> Result<image::DynamicImage, String> {
-    ffmpeg_ppm(path, &["-ss", at], &[])
+pub fn ffmpeg_frame(
+    path: &Path,
+    at: &str,
+    max: Option<[u32; 2]>,
+) -> Result<image::DynamicImage, String> {
+    match fit(max) {
+        Some(scale) => ffmpeg_ppm(path, &["-ss", at], &["-vf", &scale]),
+        None => ffmpeg_ppm(path, &["-ss", at], &[]),
+    }
 }
 
-/// A HEIC or AVIF photo. Phones store it as a grid of tiles, which ffmpeg reads as separate streams
-/// with their places in a "Tile Grid" group: they are put together with xstack, cut to the
-/// image size and turned by the stored rotation.
+/// An ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges: a
+/// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first.
+#[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
+fn fit(max: Option<[u32; 2]>) -> Option<String> {
+    let [w, h] = max?;
+    Some(format!(
+        "scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease"
+    ))
+}
+
+/// A HEIC or AVIF photo, no larger than `max` if given. Phones store it as a grid of tiles,
+/// which ffmpeg reads as separate streams with their places in a "Tile Grid" group: they are
+/// put together with xstack, cut to the image size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
-pub fn heif(path: &Path) -> Result<image::DynamicImage, String> {
+pub fn heif(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
     let probe = command("ffprobe")
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .args(FILES_ONLY)
@@ -27,8 +44,14 @@ pub fn heif(path: &Path) -> Result<image::DynamicImage, String> {
         .output()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
     match heif_filter(&String::from_utf8_lossy(&probe.stdout)) {
-        Some(filter) => ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"]),
-        None => ffmpeg_frame(path, "0"),
+        Some(filter) => {
+            let filter = match fit(max) {
+                Some(scale) => filter.replace("[out]", &format!(",{scale}[out]")),
+                None => filter,
+            };
+            ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"])
+        }
+        None => ffmpeg_frame(path, "0", max),
     }
 }
 
@@ -376,6 +399,16 @@ mod tests {
         assert_eq!(super::unknown_host("smb://user@127.0.0.1/share"), "");
         let hint = super::unknown_host("smb://no-such-glimt-host/share");
         assert!(hint.contains("no-such-glimt-host.local"), "{hint}");
+    }
+
+    /// A thumbnail's size as ffmpeg's filter: shrunk to fit, never enlarged; none for the view.
+    #[test]
+    fn fits_ffmpeg_frames() {
+        assert_eq!(
+            super::fit(Some([256, 256])).unwrap(),
+            "scale='min(256,iw)':'min(256,ih)':force_original_aspect_ratio=decrease"
+        );
+        assert_eq!(super::fit(None), None);
     }
 
     /// Two tiles side by side, cut to 1000×500 and turned a quarter: the keys as the parser

@@ -24,6 +24,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   thousand files on a network share held the window.
 - Holding Shift+↓ or Shift+Page Down in a selection of hundreds of thousands no longer stutters:
   the size of the selection is worked out once it has stayed the same a moment, not in every step.
+- Thumbnails of HEIC and AVIF photos and of videos are made by ffmpeg at thumbnail size: it handed
+  over the whole picture first, about 300 MB for a 48 MP phone photo, in each thumbnail thread.
 
 ## [0.32.0] - 2026-10-17
 
