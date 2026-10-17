@@ -37,6 +37,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   was decoded for the main window only, and stretched.
 - Fit Width, Fit Height and Fill the View decode an image to the size they show it at, not at full
   resolution: a 6000×4000 photo took 96 MB instead of 10, and was slower to show.
+- A rectangle dragged in the grid after Ctrl+A in a large folder no longer copies the whole
+  selection in every frame: only when it touches other cells.
 - A rectangle dragged past the top or bottom of the grid of icons keeps selecting as the grid
   scrolls: it moved with the screen instead of the images, and the rows scrolled out of view were
   dropped from the selection.
