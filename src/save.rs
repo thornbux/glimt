@@ -1,5 +1,5 @@
-//! Saving a turned image: the pixels turned, the EXIF kept with orientation 1, in the same format
-//! (a lossy WebP gets its EXIF back in a RIFF chunk).
+//! Saving a turned image: the pixels turned, the EXIF kept with orientation 1 and the XMP kept,
+//! in the same format (a lossy WebP gets them back in RIFF chunks).
 
 use crate::colour::to_srgb;
 use crate::decode::load_icc;
@@ -37,7 +37,8 @@ pub fn replace_image(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
-/// pixels are turned and the file written again with its ICC profile and EXIF block. PNG and
+/// pixels are turned and the file written again with its ICC profile, EXIF block and XMP
+/// (keywords, comment, alt text other programs wrote into it). PNG and
 /// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
 /// sRGB as ffmpeg drops the profile, and gets its EXIF block back afterwards. The new file
 /// replaces the old in one rename.
@@ -78,11 +79,15 @@ pub fn save_rotated(
     // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
     // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
     // view did not turn them by it: else other programs would turn them again.
-    let mut exif = image::ImageReader::open(path)
+    let (mut exif, xmp) = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
-        .and_then(|mut d| d.exif_metadata().ok().flatten());
+        .map(|mut d| {
+            let exif = d.exif_metadata().ok().flatten();
+            (exif, d.xmp_metadata().ok().flatten())
+        })
+        .unwrap_or_default();
     let lossy = !png && webp_lossless(path) == Some(false);
     if let Some(exif) = &mut exif {
         exif::set_upright(exif)?;
@@ -104,7 +109,11 @@ pub fn save_rotated(
         let made = lossy_webp(&img, &tmp, webp_quality)
             .and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()))
             .and_then(|webp| match &exif {
-                Some(exif) => webp_with_exif(&webp, exif, img.width(), img.height()),
+                Some(exif) => webp_with_chunk(&webp, b"EXIF", exif, img.width(), img.height()),
+                None => Ok(webp),
+            })
+            .and_then(|webp| match &xmp {
+                Some(xmp) => webp_with_chunk(&webp, b"XMP ", xmp, img.width(), img.height()),
                 None => Ok(webp),
             });
         return match made {
@@ -118,6 +127,7 @@ pub fn save_rotated(
     // Encoded in memory first: an encoder that owns its file flushes it on drop, where a full
     // disk would go unnoticed and a cut-off file replace the photo.
     let mut out = Vec::new();
+    let (width, height) = (img.width(), img.height());
     let written = if png {
         let mut enc = image::codecs::png::PngEncoder::new(&mut out);
         if let Some(icc) = icc {
@@ -144,7 +154,45 @@ pub fn save_rotated(
         }
     };
     written.map_err(|e| e.to_string())?;
+    if let Some(xmp) = &xmp {
+        out = match png {
+            true => png_with_xmp(&out, xmp)?,
+            false => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
+        };
+    }
     replace_image(path, &out)
+}
+
+/// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
+/// (IHDR), where readers that stop at the pixels find it too.
+fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
+    // The 8-byte signature, then IHDR: its length 13, its name, 13 bytes and a CRC.
+    let end = 33;
+    if png.get(12..16) != Some(&b"IHDR"[..]) || png.len() < end {
+        return Err("not a PNG file".into());
+    }
+    let mut chunk = b"iTXt".to_vec();
+    // Keyword, no compression, no language, no translated keyword, then the text.
+    chunk.extend(b"XML:com.adobe.xmp\0\0\0\0\0");
+    chunk.extend(xmp);
+    let mut out = png[..end].to_vec();
+    out.extend(((chunk.len() - 4) as u32).to_be_bytes());
+    out.extend(&chunk);
+    out.extend(crc32(&chunk).to_be_bytes());
+    out.extend(&png[end..]);
+    Ok(out)
+}
+
+/// The CRC that PNG chunks end with (ISO 3309), bit by bit: run once per saved image.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0u32;
+    for &b in bytes {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ (0xedb8_8320 & (crc & 1).wrapping_neg());
+        }
+    }
+    !crc
 }
 
 /// Whether a WebP file is lossless (a VP8L image) or lossy (VP8); `None` if neither is found.
@@ -204,14 +252,17 @@ pub fn lossy_webp(img: &image::DynamicImage, to: &Path, quality: u8) -> Result<(
     }
 }
 
-/// `webp` with an EXIF chunk, at the end where the format puts it, and its flag set in the
-/// extended format's VP8X header, which is made for a simple file.
-pub fn webp_with_exif(
+/// `webp` with an EXIF or XMP chunk (`name`), at the end where the format puts them, EXIF
+/// before XMP, and its flag set in the extended format's VP8X header, which is made for a
+/// simple file.
+pub fn webp_with_chunk(
     webp: &[u8],
-    exif: &[u8],
+    name: &[u8; 4],
+    data: &[u8],
     width: u32,
     height: u32,
 ) -> Result<Vec<u8>, String> {
+    let flag = if name == b"EXIF" { 0x08 } else { 0x04 };
     if !webp.starts_with(b"RIFF") || webp.get(8..12) != Some(&b"WEBP"[..]) {
         return Err("not a WebP file".into());
     }
@@ -219,18 +270,19 @@ pub fn webp_with_exif(
     let chunks = &webp[12..];
     if chunks.starts_with(b"VP8X") {
         out.extend(chunks);
-        *out.get_mut(20).ok_or("cut off")? |= 0x08;
+        *out.get_mut(20).ok_or("cut off")? |= flag;
     } else {
-        out.extend(b"VP8X\x0a\0\0\0\x08\0\0\0");
+        out.extend(b"VP8X\x0a\0\0\0");
+        out.extend([flag, 0, 0, 0]);
         out.extend(&width.saturating_sub(1).to_le_bytes()[..3]);
         out.extend(&height.saturating_sub(1).to_le_bytes()[..3]);
         out.extend(chunks);
     }
-    out.extend(b"EXIF");
-    out.extend((exif.len() as u32).to_le_bytes());
-    out.extend(exif);
+    out.extend(name);
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
     // Chunks have an even length.
-    if exif.len() % 2 == 1 {
+    if data.len() % 2 == 1 {
         out.push(0);
     }
     let size = (out.len() - 8) as u32;
@@ -278,7 +330,7 @@ mod tests {
     }
 
     /// A PNG turned upright by its EXIF orientation and then a quarter turn keeps its EXIF,
-    /// with an upright orientation.
+    /// with an upright orientation, and its XMP.
     #[test]
     fn saves_rotated_png_with_exif() {
         use image::{ImageDecoder, ImageEncoder};
@@ -291,6 +343,10 @@ mod tests {
         let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
         enc.set_exif_metadata(exif.to_vec()).unwrap();
         image::RgbImage::new(4, 2).write_with_encoder(enc).unwrap();
+        // And XMP, as digiKam writes keywords into a PNG.
+        let xmp = b"<x:xmpmeta>Oslo</x:xmpmeta>";
+        let with_xmp = super::png_with_xmp(&std::fs::read(&file).unwrap(), xmp).unwrap();
+        std::fs::write(&file, with_xmp).unwrap();
         super::save_rotated(&file, true, 1, false, 90).unwrap();
         let mut dec = image::ImageReader::open(&file)
             .unwrap()
@@ -301,30 +357,17 @@ mod tests {
             dec.orientation().unwrap(),
             image::metadata::Orientation::NoTransforms
         );
+        assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
         let rows = crate::exif::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
         // An animated PNG (an acTL chunk after IHDR) is refused and left as it was.
         let apng = dir.join("b.png");
         image::RgbImage::new(4, 2).save(&apng).unwrap();
         let mut bytes = std::fs::read(&apng).unwrap();
-        let crc = |data: &[u8]| {
-            let mut c = !0u32;
-            for &b in data {
-                c ^= u32::from(b);
-                for _ in 0..8 {
-                    c = if c & 1 == 1 {
-                        0xedb8_8320 ^ (c >> 1)
-                    } else {
-                        c >> 1
-                    };
-                }
-            }
-            !c
-        };
         let actl = [b"acTL".as_slice(), &[0, 0, 0, 1, 0, 0, 0, 0]].concat();
         let mut chunk = 8u32.to_be_bytes().to_vec();
         chunk.extend(&actl);
-        chunk.extend(crc(&actl).to_be_bytes());
+        chunk.extend(super::crc32(&actl).to_be_bytes());
         bytes.splice(33..33, chunk);
         std::fs::write(&apng, &bytes).unwrap();
         assert!(super::save_rotated(&apng, false, 1, false, 90).is_err());
@@ -390,17 +433,29 @@ mod tests {
 
     /// A simple WebP gets the extended header and an EXIF chunk that the decoder reads back.
     #[test]
-    fn adds_exif_to_webp() {
+    fn adds_exif_and_xmp() {
         use image::{ImageDecoder, ImageEncoder};
         let mut webp = Vec::new();
         image::codecs::webp::WebPEncoder::new_lossless(&mut webp)
             .write_image(&[0; 5 * 3 * 3], 5, 3, image::ExtendedColorType::Rgb8)
             .unwrap();
         let exif = b"II*\0\x08\0\0\0\0\0\0\0\0";
-        let with = super::webp_with_exif(&webp, exif, 5, 3).unwrap();
+        let with = super::webp_with_chunk(&webp, b"EXIF", exif, 5, 3).unwrap();
+        let xmp = b"<x:xmpmeta>keywords</x:xmpmeta>";
+        let with = super::webp_with_chunk(&with, b"XMP ", xmp, 5, 3).unwrap();
         let mut dec = image::codecs::webp::WebPDecoder::new(std::io::Cursor::new(with)).unwrap();
         assert_eq!(dec.dimensions(), (5, 3));
         assert_eq!(dec.exif_metadata().unwrap().as_deref(), Some(&exif[..]));
+        assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
+        // A PNG with XMP in an iTXt chunk, read back by the png decoder, which checks its CRC.
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(&[0; 5 * 3 * 3], 5, 3, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let png = super::png_with_xmp(&png, xmp).unwrap();
+        let mut dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(png)).unwrap();
+        assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
+        assert_eq!(super::crc32(b"IEND"), 0xae42_6082);
     }
 
     /// "a.png" and "a.webp" saved turned at the same time: each keeps its own pixels and format.
