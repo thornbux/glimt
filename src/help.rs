@@ -262,7 +262,8 @@ const MANUAL: &[(&str, &str)] = &[
         "Backing up",
         "Marks, stars, collections, the keyword tree and the settings are in Glimt's own files, \
          not in the photos. File → Back Up Glimt's Data… copies them to a new folder \
-         glimt-backup-DATE wherever you choose; to restore, close Glimt and copy them back (see \
+         glimt-backup-DATE wherever you choose, and glimt --back-up FOLDER does the same from \
+         a script or a timer, without a window; to restore, close Glimt and copy them back (see \
          the README). Keywords, comments and alt text are in the XMP sidecars beside the \
          photos, and go with a backup of the photo folders.",
     ),

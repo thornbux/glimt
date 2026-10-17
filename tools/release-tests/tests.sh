@@ -956,6 +956,21 @@ for v in new old; do
 done
 as_version new
 
+echo "-- glimt --back-up FOLDER: the same backup without a window, a second one beside the first"
+for v in new old; do
+    as_version $v
+    d=/tmp/backup-cli-$v
+    mkdir -p $d/to $XDG_DATA_HOME/glimt/collections
+    printf '#GQview collection\n"%s/a.jpg"\n' $d >$XDG_DATA_HOME/glimt/collections/Mine.gqv
+    config theme=Light
+    $BIN --back-up $d/to >$d/out 2>&1; status=$?
+    $BIN --back-up $d/to >/dev/null 2>&1
+    got="$status $(ls $d/to | wc -l) $(ls $(ls -d $d/to/glimt-backup-* 2>/dev/null | head -1)/data/collections 2>/dev/null)"
+    if [ $v = new ]; then expect "two backups, the collection in them" "$got" "0 2 Mine.gqv"
+    else note "old: $got $(head -c 60 $d/out)"; fi
+done
+as_version new
+
 echo "-- the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
 d=/tmp/focus
 mkdir -p $d

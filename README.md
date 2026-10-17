@@ -630,7 +630,8 @@ sidecars keep what another window wrote meanwhile.
 Your marks, stars, collections and keyword tree are in these files, not in the photos: back
 them up with your photos. **File → Back Up Glimt's Data…** copies Glimt's three folders
 (config, state and data, without the thumbnails, which are made again) to a new folder
-`glimt-backup-DATE` wherever you choose: on another disk, a share or a cloud folder. They are
+`glimt-backup-DATE` wherever you choose: on another disk, a share or a cloud folder.
+`glimt --back-up FOLDER` does the same without a window, from cron or a systemd timer. They are
 plain text, which any program can read. To restore, close Glimt and copy them back:
 
 ```sh

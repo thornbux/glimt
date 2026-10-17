@@ -148,6 +148,16 @@ range, with the value used instead. Prints OK and exits with 0 when nothing is w
 exits with 1. Glimt tells the first of these in its window when it starts, and also when it
 cannot save a file.
 .TP
+.BI "\-\-back\-up " FOLDER
+Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins and
+decoders; not the thumbnails) to a new folder
+.I glimt\-backup\-DATE
+in
+.IR FOLDER ,
+as File \(-> Back Up Glimt's Data does, without opening a window: for cron or a systemd
+timer. A second backup the same day goes beside the first. Prints where it went; exits with 1
+when a file could not be copied.
+.TP
 .BR \-V ", " \-\-version
 Print the version.
 .SH REMOTE COMMANDS

@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- glimt --back-up FOLDER copies Glimt's data to a new folder glimt-backup-DATE in FOLDER, as File
+  → Back Up Glimt's Data… does, without a window: for cron or a systemd timer.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added

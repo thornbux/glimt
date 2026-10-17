@@ -324,6 +324,10 @@ const START_OPTIONS: &[(&str, &str)] = &[
         "--check-config [FILE]",
         "Tell what is wrong in the settings file (or FILE), line by line",
     ),
+    (
+        "--back-up FOLDER",
+        "Copy Glimt's data to a new folder glimt-backup-DATE in FOLDER",
+    ),
     ("-V, --version", "Print the version"),
     ("-h, --help", "Print this help"),
 ];
@@ -478,7 +482,7 @@ impl Start {
                     args.remove(0);
                 }
                 "--help" | "-h" | "--version" | "-V" | "--remote" | "--remote-all"
-                | "--check-config" => break,
+                | "--check-config" | "--back-up" => break,
                 a if a.starts_with("--") => return Err(format!("unknown option {a}")),
                 _ => break,
             }
@@ -5408,33 +5412,10 @@ impl App {
     }
 
     fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-        let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
-            .chars()
-            .take(10)
-            .collect();
         let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
         busy.fetch_add(1, Ordering::Relaxed);
         std::thread::spawn(move || {
-            // A second backup the same day goes beside the first, never over it.
-            let to = (1..)
-                .map(|n| match n {
-                    1 => dir.join(format!("glimt-backup-{date}")),
-                    n => dir.join(format!("glimt-backup-{date}-{n}")),
-                })
-                .find(|p| !p.exists())
-                .unwrap_or_default();
-            let copied: std::io::Result<usize> = (config::own_folders().into_iter())
-                .map(|(name, from)| config::copy_tree(&from, &to.join(name)))
-                .sum();
-            let _ = tx.send(match copied {
-                Ok(n) => format!(
-                    "Glimt's data backed up to {}: {}",
-                    to.display(),
-                    count(n, "file")
-                ),
-                Err(e) => format!("The backup to {} is not whole: {e}", to.display()),
-            });
+            let _ = tx.send(back_up_to(&dir).unwrap_or_else(|e| e));
             busy.fetch_sub(1, Ordering::Relaxed);
             ctx.request_repaint();
         });
@@ -9709,6 +9690,35 @@ fn config_notice(problems: &[String]) -> Option<String> {
     Some(format!("Settings file: {first}{more}"))
 }
 
+/// Glimt's own folders copied to a new folder glimt-backup-DATE in `dir`: what was done, or
+/// what went wrong.
+fn back_up_to(dir: &Path) -> Result<String, String> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    let date: String = local_time(now.map_or(0, |d| d.as_secs() as i64))
+        .chars()
+        .take(10)
+        .collect();
+    // A second backup the same day goes beside the first, never over it.
+    let to = (1..)
+        .map(|n| match n {
+            1 => dir.join(format!("glimt-backup-{date}")),
+            n => dir.join(format!("glimt-backup-{date}-{n}")),
+        })
+        .find(|p| !p.exists())
+        .unwrap_or_default();
+    let copied: std::io::Result<usize> = (config::own_folders().into_iter())
+        .map(|(name, from)| config::copy_tree(&from, &to.join(name)))
+        .sum();
+    match copied {
+        Ok(n) => Ok(format!(
+            "Glimt's data backed up to {}: {}",
+            to.display(),
+            count(n, "file")
+        )),
+        Err(e) => Err(format!("The backup to {} is not whole: {e}", to.display())),
+    }
+}
+
 /// glimt --check-config [FILE]: what is wrong in the settings file, or FILE; exit 1 if anything.
 fn check_config(file: Option<PathBuf>) -> ! {
     let Some(path) = file.or_else(config::config_path) else {
@@ -9753,6 +9763,20 @@ fn main() -> eframe::Result {
     }
     if args.first().is_some_and(|a| a == "--check-config") {
         check_config(args_os.get(1).map(PathBuf::from));
+    }
+    if args.first().is_some_and(|a| a == "--back-up") {
+        let Some(dir) = args_os.get(1) else {
+            eprintln!("glimt: --back-up takes the folder to put the backup in");
+            std::process::exit(2);
+        };
+        match back_up_to(Path::new(dir)) {
+            Ok(done) => println!("{done}"),
+            Err(e) => {
+                eprintln!("glimt: {e}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
     }
     if args.first().is_some_and(|a| a == "--help" || a == "-h") {
         println!(
