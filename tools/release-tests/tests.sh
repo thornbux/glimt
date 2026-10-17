@@ -593,6 +593,28 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Rename with one file selected by a right-click: that file renamed, not the one shown"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-selected-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d/a.png
+    sleep 2
+    xdotool mousemove 120 419 click 3; sleep 1   # b.png's row: selected, its menu opens
+    key Escape
+    key ctrl+r; sleep 1
+    key ctrl+a
+    xdotool type x
+    key Return
+    quit
+    got="$(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then expect "b.png renamed to x" "$got" "a.png x "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v

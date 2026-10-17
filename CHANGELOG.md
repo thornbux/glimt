@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename with one file selected, by a right-click in the list say, renames that file, as Delete
+  and Move take it, not the image shown beside it.
 - When the folder is read again (another program writing to it, or Glimt's own sidecars and saves
   beside the files), the shown image keeps its zoom, turn and place and the images read ahead
   stay; a refresh in which nothing changed does nothing at all.

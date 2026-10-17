@@ -5445,6 +5445,11 @@ impl App {
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
+                // The one file selected, as Delete and Move take it (right-clicked in the list,
+                // say), not the image shown beside it.
+                if let Some(&i) = self.selected.first().filter(|&&i| i != self.cur) {
+                    self.go(ctx, i);
+                }
                 // The name only: in the list with subfolders the entry has its folders too.
                 if let Some(name) = self
                     .files
