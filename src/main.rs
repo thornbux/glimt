@@ -380,6 +380,27 @@ fn placed(
 /// A texture shown and its image's size, which a fade goes from.
 type Shown = (egui::TextureHandle, [usize; 2]);
 
+/// `tex` drawn in `rect` (its size before turning), turned by quarter `turns` and mirrored as
+/// the view is, tinted.
+fn paint_turned(
+    ui: &egui::Ui,
+    tex: &egui::TextureHandle,
+    rect: egui::Rect,
+    (turns, mirrored): (u8, bool),
+    tint: egui::Color32,
+) {
+    let uv = match mirrored {
+        true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
+        false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+    };
+    let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
+    egui::Image::new(tex)
+        .uv(uv)
+        .rotate(angle, egui::Vec2::splat(0.5))
+        .tint(tint)
+        .paint_at(ui, rect);
+}
+
 /// Faded to `alpha` (0 to 1), as a tint. A fade draws the image before at 1 - t⁴ under the new
 /// one at t: the sum stays near full brightness, where 1 - t would darken the middle.
 fn alpha(a: f32) -> egui::Color32 {
@@ -3118,7 +3139,7 @@ impl App {
             return;
         };
         let ppp = ui.ctx().pixels_per_point();
-        let (turns, mirrored) = self.orient;
+        let turns = self.orient.0;
         let [w, h] = slot.orig.map(|n| n as f32);
         let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
         let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
@@ -3139,16 +3160,8 @@ impl App {
         };
         let rect =
             egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
-        let uv = match mirrored {
-            true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
-            false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-        };
-        let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
         let tex = self.texture(slot, ui.ctx());
-        egui::Image::new(tex)
-            .uv(uv)
-            .rotate(angle, egui::Vec2::splat(0.5))
-            .paint_at(ui, rect);
+        paint_turned(ui, tex, rect, self.orient, egui::Color32::WHITE);
         // Where the pointer is over the main window's image, to point things out.
         if self.config.projector_pointer
             && let Some(v) = self.last_view
@@ -7493,13 +7506,6 @@ impl App {
         if let Some(slot) = self.slots.get(&self.cur) {
             let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
             let rect = egui::Rect::from_center_size(area.center() + self.pan_offset, size);
-            let (turns, mirrored) = self.orient;
-            let uv = if mirrored {
-                egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
-            } else {
-                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
-            };
-            let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
             let tex = self.texture(slot, ctx);
             // Within its pane or half, which zoom makes it overflow.
             let clip = ui.clip_rect();
@@ -7517,11 +7523,7 @@ impl App {
                 }
                 None => 1.0,
             };
-            egui::Image::new(tex)
-                .uv(uv)
-                .rotate(angle, egui::Vec2::splat(0.5))
-                .tint(alpha(shown))
-                .paint_at(ui, rect);
+            paint_turned(ui, tex, rect, self.orient, alpha(shown));
             ui.set_clip_rect(clip);
             self.last_drawn = Some((slot.tex.clone(), slot.orig));
             // For the projector: this view, and the pointer from the image's centre.
