@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Thumbnails of HEIC and AVIF photos and of videos are made by ffmpeg at thumbnail size: it handed
+  over the whole picture first, about 300 MB for a 48 MP phone photo, in each thumbnail thread.
+
 ## [0.32.0] - 2026-10-17
 
 ### Changed

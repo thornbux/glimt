@@ -51,7 +51,7 @@ fn thumbnail_in(
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38.
     let made = match crate::decode::scaled_jpeg(path, [size, size], rotate) {
         Some((img, icc, _)) => Ok((img, icc)),
-        None => crate::decode::load_icc(path, rotate),
+        None => crate::decode::load_for(path, rotate, Some([size, size])),
     }
     .and_then(|(img, icc)| {
         let img = crate::decode::shrink(img, [size, size])?;
