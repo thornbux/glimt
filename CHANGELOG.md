@@ -31,6 +31,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the focus there, so every shortcut stopped working: a click now puts the focus away.
 - The projector shows the frame of an animation stepped to with Ctrl+Page Down, as the main window
   does: it went on playing.
+- After a new sort order or a refresh moved the shown file in the list while every decoding thread
+  was busy, its image could stay undecoded, with the image before it on screen under its name.
 
 ## [0.31.0] - 2026-10-17
 
