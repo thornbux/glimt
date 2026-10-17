@@ -2222,13 +2222,17 @@ impl App {
         if collections::is_list(file) {
             return;
         }
-        let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+        let mut ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
         // One that cannot be read is not written over: what it holds would be lost.
         let on_disk = match collections::load(file) {
             Ok(paths) => paths,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
         };
+        // Shuffled for a slideshow: saved in its own order, not the random one.
+        if self.random {
+            ours = collections::in_saved_order(&on_disk, ours);
+        }
         let paths = collections::merged(ours, &self.collection_read, on_disk);
         match collections::save(file, &paths) {
             Ok(()) => self.collection_read = paths.into_iter().collect(),
@@ -2253,6 +2257,10 @@ impl App {
         }
         // An empty collection: nothing to move, and no shown image to keep.
         if self.files.is_empty() {
+            return;
+        }
+        if self.random {
+            self.notice = Some("Random order is on: R turns it off to move images".into());
             return;
         }
         let shown = self.files.get(self.cur).cloned();
@@ -3045,6 +3053,19 @@ impl App {
         self.leave_image(ctx);
         self.random = on;
         if !on {
+            // A collection back in its own order, which shuffling left only in its file.
+            // shortcut: the file read in the UI thread; collections are small text files.
+            if let Some(file) = self.collection.as_ref().filter(|_| !self.sort_collection)
+                && let Ok(saved) = collections::load(file)
+            {
+                let shown = self.files.get(self.cur).cloned();
+                let files: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+                let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
+                    .filter_map(|p| Some(p.strip_prefix(&self.dir).ok()?.as_os_str().to_owned()))
+                    .collect();
+                self.replace_files(ctx, files, shown);
+                return;
+            }
             // Back to the chosen sort order; listing keeps the shown image.
             self.list(ctx);
             return;

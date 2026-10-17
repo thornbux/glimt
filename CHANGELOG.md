@@ -32,6 +32,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Closing Glimt while files were being copied or moved stopped it halfway, without a word, and
   could leave a half-copied file under its real name: closing now waits for them (a second close
   does not), and a copy is written under a hidden name and gets its own when whole.
+- A collection played as a random slideshow keeps its own order: taking an image out, or moving or
+  renaming one, while it was shuffled saved the random order over the one you set, and stopping
+  the slideshow left it shuffled. Moving images in it waits until random order is off.
 
 ## [0.30.0] - 2026-10-16
 

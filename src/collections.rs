@@ -143,6 +143,19 @@ pub fn merged(
     ours
 }
 
+/// `files` in the order of `saved`, a collection's file: shuffled ones put back, those it lacks
+/// (added since) after them, in the order they had.
+pub fn in_saved_order(saved: &[PathBuf], files: Vec<PathBuf>) -> Vec<PathBuf> {
+    let have: std::collections::HashSet<&PathBuf> = files.iter().collect();
+    let mut ordered: Vec<PathBuf> = (saved.iter())
+        .filter(|p| have.contains(p))
+        .cloned()
+        .collect();
+    let placed: std::collections::HashSet<PathBuf> = ordered.iter().cloned().collect();
+    ordered.extend(files.into_iter().filter(|p| !placed.contains(p)));
+    ordered
+}
+
 /// Add `paths` to the collection in `file` (made if new), leaving out those it has.
 pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
     // Only a collection that is not there yet starts empty: one that cannot be read would be
@@ -199,6 +212,18 @@ fn to_text(paths: &[PathBuf]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    /// Shuffled files back in the saved order; one added since goes last.
+    #[test]
+    fn puts_back_the_saved_order() {
+        use std::path::PathBuf;
+        let p = |names: &[&str]| -> Vec<PathBuf> { names.iter().map(PathBuf::from).collect() };
+        let saved = p(&["/a", "/b", "/c", "/gone"]);
+        assert_eq!(
+            super::in_saved_order(&saved, p(&["/c", "/new", "/a", "/b"])),
+            p(&["/a", "/b", "/c", "/new"])
+        );
+    }
+
     use std::path::PathBuf;
 
     /// A plain list: relative to its folder or absolute, quoted or not, file:// URIs, comments,
