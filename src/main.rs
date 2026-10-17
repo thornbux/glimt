@@ -436,12 +436,22 @@ const KIOSK_ACTIONS: &[Action] = &[
     Action::PrevPage,
 ];
 
-/// `orig` fitted into `rect`, centred; larger than its size only with `enlarge`.
-fn fitted(rect: egui::Rect, orig: [usize; 2], ppp: f32, enlarge: bool) -> egui::Rect {
+/// Where an image of `orig` is drawn in `rect`, and its scale: at the `zoom` and pan given, else
+/// fitted in fit `mode`, centred, and larger than its size only with `enlarge`.
+fn placed(
+    rect: egui::Rect,
+    orig: [usize; 2],
+    ppp: f32,
+    (enlarge, mode): (bool, u8),
+    zoom: Option<(f32, egui::Vec2)>,
+) -> (egui::Rect, f32) {
     let size = egui::vec2(orig[0] as f32, orig[1] as f32);
-    let fit = (rect.width() * ppp / size.x).min(rect.height() * ppp / size.y);
-    let fit = if enlarge { fit } else { fit.min(1.0) };
-    egui::Rect::from_center_size(rect.center(), size * fit / ppp)
+    let (scale, pan) = zoom.unwrap_or_else(|| {
+        let fit = fit_scale(rect.size() * ppp, size.into(), mode);
+        (if enlarge { fit } else { fit.min(1.0) }, egui::Vec2::ZERO)
+    });
+    let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
+    (at, scale)
 }
 
 /// A texture shown and its image's size, which a fade goes from.
@@ -476,6 +486,13 @@ fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
         3 => x.max(y),
         _ => x.min(y),
     }
+}
+
+/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
+/// also when the shown file is not in the list (hidden by a search). Several panes step by
+/// their number, so the round may end past the last row, not on the first.
+fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
+    row.is_none_or(|r| r + delta >= len)
 }
 
 /// A small map of the panes in the status bar, with the one it tells about filled in.
@@ -1199,6 +1216,8 @@ struct App {
     // ---- Dialogs, windows and messages ----
     /// Edit → Preferences is open.
     show_settings: bool,
+    /// Preferences changed while the pointer is down: saved when it is let go.
+    preferences_unsaved: bool,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
@@ -1705,6 +1724,7 @@ impl App {
             ahead,
             rotate,
             show_settings: false,
+            preferences_unsaved: false,
             help: None,
             confirm_delete: None,
             folder_target: None,
@@ -1950,6 +1970,10 @@ impl App {
         // A message about the folder before (a share that could not be mounted) goes with it.
         self.notice = None;
         self.back.push(self.location());
+        // Not without end: a slideshow of folders, or a script's --remote open, visits many.
+        if self.back.len() > 200 {
+            self.back.remove(0);
+        }
         self.forward.clear();
         self.open(ctx, path);
     }
@@ -2661,6 +2685,13 @@ impl App {
         }
     }
 
+    /// How many `targets` there are and the first, without listing them: for a dialog drawn in
+    /// every frame, with 500,000 selected.
+    fn first_target(&self) -> (usize, usize) {
+        let first = self.selected.first().copied().unwrap_or(self.cur);
+        (self.selected.len().max(1), first)
+    }
+
     // ---- Decoding and painting the image ----
 
     fn request(&mut self, idx: usize, full: bool) {
@@ -2994,25 +3025,14 @@ impl App {
         let fade = k.and_then(|k| self.fading(ui.ctx(), k, now));
         let slot = self.slots.get(&i)?;
         let ppp = ui.ctx().pixels_per_point();
-        let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32);
-        let (scale, pan) = match zoom {
-            Some(z) => (z, self.pan_offset),
-            None => {
-                let fit = fit_scale(rect.size() * ppp, size.into(), self.config.fit_mode);
-                let fit = if self.config.enlarge {
-                    fit
-                } else {
-                    fit.min(1.0)
-                };
-                (fit, egui::Vec2::ZERO)
-            }
-        };
-        let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
+        let look = (self.config.enlarge, self.config.fit_mode);
+        let zoom = zoom.map(|z| (z, self.pan_offset));
+        let (at, scale) = placed(rect, slot.orig, ppp, look, zoom);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let p = ui.painter().with_clip_rect(rect);
         let shown = match &fade {
             Some((t, old, orig)) => {
-                let from = fitted(rect, *orig, ppp, self.config.enlarge);
+                let from = placed(rect, *orig, ppp, look, zoom).0;
                 p.image(old.id(), from, uv, alpha(1.0 - t.powi(4)));
                 *t
             }
@@ -3214,22 +3234,24 @@ impl App {
         // Several panes: the next set together, or the next image into one pane at a time.
         let n = self.panes.len() + 1;
         let turns = n > 1 && self.one_at_a_time();
-        let next = match n {
-            1 => self.step(1, true),
-            _ if turns => self.step_from(self.last_slide, 1, true),
-            _ => self.step(n as isize, true),
+        let (from, delta) = match n {
+            1 => (self.cur, 1),
+            _ if turns => (self.last_slide, 1),
+            _ => (self.cur, n),
         };
-        let Some(next) = next else {
+        let Some(next) = self.step_from(from, delta as isize, true) else {
             return;
         };
-        let first = self.step(-isize::MAX / 2, false);
+        let m = self.matches.as_deref();
+        let row = m.map_or(Some(from), |m| self.row_of(m, from));
+        let round_over = round_ends(row, delta, m.map_or(self.files.len(), <[usize]>::len));
         let delay = std::time::Duration::from_secs(self.config.delay);
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
-        } else if Some(next) == first && !self.config.slideshow_repeat {
+        } else if round_over && !self.config.slideshow_repeat {
             self.stop_slideshow(ctx);
-        } else if self.random && Some(next) == first && self.files.len() > 2 {
+        } else if self.random && round_over && self.files.len() > 2 {
             // New round: shuffle again instead of repeating the same order.
             self.shuffle_list(ctx, true);
         } else if !self.pending.contains_key(&(next, false)) {
@@ -3281,12 +3303,19 @@ impl App {
                 if size != self.projector_size {
                     self.projector_size = size;
                     // Before the decodes are asked for: the image area sets it next frame.
-                    {
+                    let grown = {
                         let limits = &mut self.limits.lock().unwrap()[0];
+                        let grown = size[0] > limits[0] || size[1] > limits[1];
                         *limits = [limits[0].max(size[0]), limits[1].max(size[1])];
+                        grown
+                    };
+                    // Only then: a projector smaller than the view shows the images it has, and
+                    // dragging its edge decodes nothing again.
+                    if grown {
+                        self.slots.retain(|_, s| s.full);
+                        self.pending.retain(|&(_, full), _| full);
+                        self.refill();
                     }
-                    self.slots.retain(|_, s| s.full);
-                    self.refill();
                 }
                 let response = ui.allocate_rect(area, egui::Sense::click());
                 if f || response.double_clicked() || (esc && full) {
@@ -6505,7 +6534,7 @@ impl App {
 
     /// Preferences → Memory use: Low, Medium or High set the settings below it at once; other
     /// values are Custom.
-    fn memory_settings(&mut self, ui: &mut egui::Ui) {
+    fn memory_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let c = &self.config;
         let now = (c.preload, c.decode_threads, c.animation_mb, c.low_memory);
         let level = (MEMORY_LEVELS.iter())
@@ -6528,8 +6557,8 @@ impl App {
                 (l.decode_threads, l.animation_mb);
             self.config.low_memory = l.one_arena;
             MAX_ANIMATION.store(l.animation_mb << 20, Ordering::Relaxed);
-            self.config.save();
         }
+        let mut changed = chosen.is_some();
         let restart = "Decoding threads and one malloc arena take effect after a restart.";
         egui::CollapsingHeader::new("Details")
             .open((level.is_none() || custom).then_some(true))
@@ -6539,13 +6568,13 @@ impl App {
                 let slider = egui::Slider::new(&mut n, 0..=20).text("images on each side");
                 if ui.add(slider).changed() {
                     self.set_preload(n);
-                    self.config.save();
+                    changed = true;
                 }
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
                 ui.weak(format!("Up to ≈ {mb} MB, each image at most {w}×{h}"));
                 let c = &mut self.config;
-                let mut changed = ui
+                changed |= ui
                     .add(
                         egui::Slider::new(&mut c.decode_threads, 1..=8)
                             .text("images decoded at once"),
@@ -6561,10 +6590,8 @@ impl App {
                 let low = "One malloc arena: much less memory, decoding up to ~8 % slower";
                 changed |= ui.checkbox(&mut c.low_memory, low).changed();
                 ui.weak(restart);
-                if changed {
-                    c.save();
-                }
             });
+        changed
     }
 
     /// Preload `n` images on each side.
@@ -7950,7 +7977,7 @@ impl App {
                         self.apply_theme(ui.ctx());
                     }
                     ui.separator();
-                    self.memory_settings(ui);
+                    changed |= self.memory_settings(ui);
                     self.cpu_settings(ui);
                     ui.separator();
                     changed |= self.slideshow_settings(ui, ctx);
@@ -7979,7 +8006,10 @@ impl App {
                         ui.separator();
                         changed |= self.video_settings(ui, ctx);
                     }
-                    if changed {
+                    // Saved once a slider is let go, not in every frame it is dragged.
+                    self.preferences_unsaved |= changed;
+                    if self.preferences_unsaved && !ctx.input(|i| i.pointer.any_down()) {
+                        self.preferences_unsaved = false;
                         self.config.save();
                     }
                 });
@@ -8334,15 +8364,16 @@ impl App {
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => format!(
                     "Name of a new collection with {}:",
-                    count(self.targets().len(), "image")
+                    count(self.first_target().0, "image")
                 ),
                 Prompt::RenameMany => format!(
                     "New names for {} (* = old name, # = number, ### = 001):",
-                    count(self.targets().len(), "file")
+                    count(self.first_target().0, "file")
                 ),
             };
             // The first new name, so the pattern can be checked before renaming.
-            let first = self.targets().first().map(|&i| self.path(i));
+            let i = self.first_target().1;
+            let first = (i < self.files.len()).then(|| self.path(i));
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::new("prompt")).show(ctx, |ui| {
                 ui.label(title);
@@ -8864,9 +8895,9 @@ impl App {
     /// Asks before files go to the trash or are deleted for good.
     fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
         if let Some(trash) = self.confirm_delete {
-            let what = match self.targets().as_slice() {
-                [i] => format!("\"{}\"", self.name(*i)),
-                many => count(many.len(), "file"),
+            let what = match self.first_target() {
+                (1, i) => format!("\"{}\"", self.name(i)),
+                (many, _) => count(many, "file"),
             };
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
@@ -9521,16 +9552,17 @@ impl App {
                     let [w, h] = turned(s.orig);
                     fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
-                // Decoded to the size shown: the view for a whole image. A mode that fills one
-                // side may need more on the other: the image's size at its scale once that is
-                // known (also while it is decoded again, from the image drawn), else the side it
-                // fills (Fill: the longer side).
+                // Decoded to the size shown: the view for a whole image. Fit Width and Fit Height
+                // fill one side and may need up to the screen on the other, whatever the image,
+                // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
+                // its size at its scale once that is known (also while it is decoded again, from
+                // the image drawn), else the longer side.
                 let long = self.limits.lock().unwrap()[1][0];
                 let orig = (self.slots.get(&self.cur).map(|s| s.orig))
                     .or(self.last_drawn.as_ref().map(|d| d.1));
                 let view = match (mode, orig) {
                     (0, _) => [w, h],
-                    (_, Some([ow, oh])) => {
+                    (3, Some([ow, oh])) => {
                         let [tw, th] = turned([ow, oh]);
                         let s = fit_scale(area.size() * ppp, [tw as f32, th as f32], mode);
                         let size = |side: usize| (side as f32 * s.min(max_fit)).ceil() as u32;
@@ -9600,7 +9632,9 @@ impl App {
                     // A slideshow fading: the image before goes as this one comes.
                     let shown = match &fade {
                         Some((t, old, orig)) => {
-                            let at = fitted(area, *orig, ppp, self.config.enlarge);
+                            let look = (self.config.enlarge, mode);
+                            let zoom = self.zoom.map(|z| (z, self.pan_offset));
+                            let at = placed(area, *orig, ppp, look, zoom).0;
                             let uv1 =
                                 egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                             ui.painter()
@@ -10564,6 +10598,16 @@ mod tests {
 
     /// Images of a collection moved: each one place, never past another moved one, and to the
     /// start or the end in their own order.
+    #[test]
+    fn slideshow_round_ends_past_the_last() {
+        // Ten images in three panes: 0, 3, 6, 9, then a new round.
+        assert!(!super::round_ends(Some(6), 3, 10));
+        assert!(super::round_ends(Some(9), 3, 10));
+        assert!(super::round_ends(Some(8), 3, 10));
+        assert!(super::round_ends(Some(0), 1, 1));
+        assert!(super::round_ends(None, 1, 5));
+    }
+
     #[test]
     fn moves_in_a_collection() {
         use super::{Action, moved};

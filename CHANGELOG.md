@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- With many files selected, the Rename Many, New Collection and delete dialogs no longer list the
+  whole selection in every frame; Back keeps the last 200 places; Preferences saves when a slider
+  is let go, not in every frame it is dragged.
+
 ### Fixed
 
 - A delete or move of hundreds of thousands of files no longer freezes the window when it ends:
@@ -37,6 +43,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   points to, which Delete would then have removed; only the links in its folders are followed.
 - A --remote select waits only while Delete or Rename asks, as the notes said: it waited for any
   dialog, Preferences too, so a script got no answer and the selection changed later.
+- A slideshow's fade draws the image before at the size it was shown, in Fit Width, Fit Height,
+  Fill or zoomed, instead of jumping to fit the window as it goes.
+- A slideshow in several panes stops at the end of the list when Repeat is off, and shuffles again
+  for a new round, also when the number of images is not a multiple of the panes.
+- A projector window smaller than the view, or one whose edge is dragged, no longer has every
+  image decoded again; only one that grows past the view's size does.
+- With Fit Width or Fit Height, the images read ahead are decoded as large as they will be shown,
+  not to the shape of the image shown now, so one of another shape is not blurred and decoded
+  again when it comes.
 
 ## [0.33.0] - 2026-10-17
 
