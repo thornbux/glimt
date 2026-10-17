@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A rectangle being dragged in the grid, or images of a collection being dragged, when the list
+  changed under them (auto refresh, a delete finishing) held places of the old list: the selection
+  then took other files, which Delete would have acted on.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

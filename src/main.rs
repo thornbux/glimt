@@ -2142,6 +2142,9 @@ impl App {
         self.details.clear();
         self.anchor = None;
         self.selected.clear();
+        // A rectangle or a collection drag holds places in the old list, now other files'.
+        self.band = None;
+        self.dragging = None;
         self.slots.clear();
         self.pending.clear();
         self.errors.clear();
@@ -2184,6 +2187,8 @@ impl App {
         self.errors = without_indices(std::mem::take(&mut self.errors), removed);
         self.selected.clear();
         self.anchor = None;
+        self.band = None;
+        self.dragging = None;
         self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.pending.clear();

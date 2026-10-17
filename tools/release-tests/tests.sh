@@ -947,6 +947,31 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a rectangle dragged while the folder changes: the selection keeps its files"
+for v in new old; do
+    as_version $v
+    d=/tmp/band-refresh-$v
+    mkdir -p $d
+    for f in b c d e; do convert -size 64x64 xc:red $d/$f.png; done
+    config
+    start $d
+    sleep 2
+    key ctrl+i; sleep 1
+    click 19 313                    # b shown; Ctrl+click on c selects both
+    xdotool keydown ctrl; click 131 313; xdotool keyup ctrl
+    # Ctrl and a rectangle from below the cells, which adds to b and c; a.png comes meanwhile,
+    # before them in the list.
+    xdotool keydown ctrl; xdotool mousemove 60 650; sleep 0.3
+    xdotool mousedown 1; for y in 645 640 635; do xdotool mousemove 70 $y; sleep 0.1; done
+    convert -size 64x64 xc:blue $d/a.png; sleep 3
+    xdotool mousemove 75 630; sleep 0.3; xdotool mouseup 1; xdotool keyup ctrl; sleep 1
+    got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
+    quit
+    if [ $v = new ]; then expect "b and c still selected, not a" "$got" "b.png c.png "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- an empty collection: the keys that move images in it leave Glimt running"
 for v in new old; do
     as_version $v
