@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Marks and stars follow the files Glimt copies, moves and renames (also with Rename Many), and go
+  with those it deletes: they were kept by the old path, so every star was lost by a rename, and a
+  new photo with a deleted one's name got its marks.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
