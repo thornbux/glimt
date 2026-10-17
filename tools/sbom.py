@@ -62,8 +62,9 @@ def component(node_id, kind="library"):
 sbom = {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    # Derived from the dependency set, so an unchanged tree gives an unchanged file.
-    "serialNumber": "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, " ".join(sorted(used)))),
+    # Derived from the dependency set, so an unchanged tree gives an unchanged file: by name and
+    # version, as cargo's ids hold the checkout's path, which differs on every machine.
+    "serialNumber": "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, " ".join(sorted(ref(u) for u in used)))),
     "version": 1,
     "metadata": {
         "tools": {"components": [{"type": "application", "name": "tools/sbom.py"}]},
