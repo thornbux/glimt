@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A setting the running Glimt does not know (written by a newer one beside it, as a Flatpak next
+  to a .deb) no longer gives a notice at every start; glimt --check-config still lists it.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

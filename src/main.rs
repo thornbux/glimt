@@ -9937,8 +9937,13 @@ fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString
     }
 }
 
-/// What is wrong in the settings file, for the window: the first, and where to see all.
+/// What is wrong in the settings file, for the window: the first, and where to see all. Not a
+/// setting this Glimt does not know: a newer one beside it (a Flatpak and a .deb) wrote it, and
+/// this one keeps it there, so the notice would come at every start.
 fn config_notice(problems: &[String]) -> Option<String> {
+    let problems: Vec<&String> = (problems.iter())
+        .filter(|p| !p.contains(": there is no setting "))
+        .collect();
     let first = problems.first()?;
     let more = match problems.len() - 1 {
         0 => String::new(),
@@ -10226,6 +10231,18 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A setting this Glimt does not know is no notice at start; a wrong value is.
+    #[test]
+    fn tells_settings_problems_but_unknown_ones() {
+        let unknown = "line 3: there is no setting projector_screen".to_string();
+        let wrong = "line 5: delay=fast is not a number; 3 is used".to_string();
+        assert_eq!(super::config_notice(&[unknown.clone()]), None);
+        assert_eq!(
+            super::config_notice(&[unknown, wrong.clone()]),
+            Some(format!("Settings file: {wrong}"))
+        );
+    }
+
     /// The fit modes: a 4:3 image in a 2:1 view, the whole, the width, the height, filled.
     #[test]
     fn fits_in_each_mode() {
