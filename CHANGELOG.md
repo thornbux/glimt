@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Save This Frame on the first frame of a GIF too large to animate reads it as a still image
+  instead of failing.
 - Pan view: a file that crashes its date reader no longer gives the files read after it in the
   same thread other files' dates.
 - A PNG or WebP saved turned sets the orientation in its XMP upright too, as in its EXIF, so
