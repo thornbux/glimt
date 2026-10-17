@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- README: it no longer promises that sidecars keep what another window wrote at the same moment;
+  settings, collections, marks and the keyword tree do.
 - Printing shrinks each image before it goes to sRGB, and decodes a JPEG at a fraction of its size
   when that is enough: a large photo with its own profile no longer takes hundreds of MB for a
   moment.

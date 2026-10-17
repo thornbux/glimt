@@ -627,8 +627,9 @@ only your own Glimt windows on this computer, through a private socket.
 | Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
 
 Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
-leaves half of one. Several Glimt windows share them; settings, collections, marks and
-sidecars keep what another window wrote meanwhile.
+leaves half of one. Several Glimt windows share them: settings, collections, marks and the
+keyword tree keep what another window wrote meanwhile. A sidecar is written whole, but two
+windows changing the same photo's keywords or stars at the same moment can lose one change.
 
 ### Backup
 
