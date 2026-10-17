@@ -117,7 +117,7 @@ const MANUAL: &[(&str, &str)] = &[
          under Delete behaviour in Preferences, which can also turn the Delete key off or use \
          no trash at all. While files are copied, moved, deleted or given keywords, the \
          status bar counts them (Copying 120 of 3,000…), and Stop ends it after the file at \
-         hand; one that took long says when it is done. A copy is written under a hidden name \
+         hand (to the trash: after the 100 at hand); one that took long says when it is done. A copy is written under a hidden name \
          and gets its own when whole, and closing Glimt waits for these to end (close again \
          to stop them). Rename with several files selected asks for a pattern: * is the old \
          name and # a number (### gives 001); existing files are never overwritten. If a \

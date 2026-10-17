@@ -287,7 +287,8 @@ flatpak run io.github.thornbux.Glimt
 
 The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity, gio and sqlite3 on the host
 through `flatpak-spawn --host`, so those must be installed there. The thumbnail cache is the
-host's. Settings live in `~/.var/app/io.github.thornbux.Glimt`. Remote control works between
+host's. Settings are in `~/.var/app/io.github.thornbux.Glimt/config/glimt/config`, not in
+`~/.config/glimt`, so a Flatpak and a package each have their own. Remote control works between
 Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.
 
 ## Coming from Lightroom
@@ -473,7 +474,7 @@ A decoder plugin:
 [Glimt Decoder]
 Name=JPEG 2000
 Extensions=jp2;j2k;j2c;jpf;jpx
-Exec=ffmpeg -v error -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
+Exec=ffmpeg -v error -protocol_whitelist file -format_whitelist j2k_pipe -f j2k_pipe -i %f -frames:v 1 -f image2pipe -vcodec ppm -
 ```
 
 - `Extensions`: the file endings it takes, separated by `;`; an ending may have two parts, as

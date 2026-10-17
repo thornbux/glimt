@@ -16,6 +16,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Documentation: when `--check-config` and `--back-up` exit with 1, Stop for the trash (after the
+  100 at hand), the JPEG 2000 example with `-protocol_whitelist file` as in examples/decoders, and
+  the Flatpak's settings file.
+- sbom.cdx.json's serial number comes from the crates' names and versions, so the file is the same
+  on every machine.
 - README: install one decoder of each pair (FITS, DICOM) instead of every example, as the first by
   name takes the files even without the modules it needs.
 
