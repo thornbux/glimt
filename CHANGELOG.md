@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving a turned PNG or WebP keeps the XMP inside it (keywords, comment, alt text other programs
+  wrote there), as it keeps the EXIF: it was dropped.
+
 ## [0.30.0] - 2026-10-16
 
 ### Added
