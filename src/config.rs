@@ -456,7 +456,7 @@ impl Config {
             let ours = self.to_text();
             let mut saved = SAVED.lock().unwrap_or_else(|e| e.into_inner());
             let on_disk = std::fs::read_to_string(&p).unwrap_or_default();
-            write_atomic(&p, &merged(&ours, &saved, &on_disk));
+            write_atomic(&p, merged(&ours, &saved, &on_disk));
             *saved = ours;
         }
     }
@@ -551,12 +551,16 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
 }
 
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
-pub fn write_atomic(path: &Path, text: &str) {
-    if let Err(e) = replace_file(path, text) {
-        let error = format!("Could not save {}: {e}", path.display());
-        eprintln!("{error}");
-        *SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
+pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
+    if let Err(e) = replace_file(path, bytes) {
+        save_failed(format!("Could not save {}: {e}", path.display()));
     }
+}
+
+/// A file that could not be saved, told on the terminal and, once, in the window.
+pub fn save_failed(error: String) {
+    eprintln!("{error}");
+    *SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
 }
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,

@@ -462,6 +462,25 @@ for v in new old; do
 done
 as_version new
 
+echo "-- stars that cannot be saved (a folder that cannot be written): told, not lost silently"
+for v in new old; do
+    as_version $v
+    d=/tmp/marks-error-$v
+    mkdir -p $d $XDG_STATE_HOME/glimt
+    convert -size 64x64 xc:red $d/a.png
+    chmod 555 $XDG_STATE_HOME/glimt
+    config
+    start $d
+    sleep 2
+    key alt+3; sleep 2                  # three stars
+    told=$(grep -c "Could not save .*marks" /tmp/glimt.err)
+    quit
+    chmod 755 $XDG_STATE_HOME/glimt
+    if [ $v = new ]; then expect "the failed save told" "$told" 1
+    else note "old: $told"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v

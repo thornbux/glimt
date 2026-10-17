@@ -159,13 +159,19 @@ fn save(change: Edit) {
                 let mut map = match std::fs::read(&file) {
                     Ok(text) => parse(&text),
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
-                    Err(_) => continue,
+                    Err(e) => {
+                        crate::config::save_failed(format!(
+                            "Marks and stars not saved: {} cannot be read: {e}",
+                            file.display()
+                        ));
+                        continue;
+                    }
                 };
                 edit(&mut map, &change);
                 for change in rx.try_iter() {
                     edit(&mut map, &change);
                 }
-                let _ = crate::config::replace_file(&file, to_text(&map));
+                crate::config::write_atomic(&file, to_text(&map));
             }
         });
         tx

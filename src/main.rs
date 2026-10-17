@@ -5008,7 +5008,7 @@ impl App {
     fn set_keyword_tree(&mut self, paths: Vec<String>) {
         self.keyword_tree = keyword_paths(paths.iter().map(String::as_str));
         if let Some(p) = keyword_tree_path() {
-            write_atomic(&p, &(self.keyword_tree.join("\n") + "\n"));
+            write_atomic(&p, self.keyword_tree.join("\n") + "\n");
         }
     }
 
