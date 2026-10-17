@@ -186,6 +186,83 @@ pub fn send_all(command: &str) -> usize {
     live().iter().filter(|p| deliver(p, command)).count()
 }
 
+/// `glimt --remote` and `--remote-all`: `words` (the command and its arguments) sent to the
+/// Glimt used last, to the one of `name`, or to every one; `paths` are `select`'s files, whole.
+/// `None` once sent, its answer printed; the path to open when `open` finds no Glimt running.
+/// Exits with 2 for a command that cannot be sent, and with 1 when no Glimt takes it.
+pub fn client(
+    words: &[String],
+    paths: &[std::ffi::OsString],
+    name: Option<&str>,
+    to_all: bool,
+) -> Option<PathBuf> {
+    if !known(words) {
+        eprintln!("glimt: no such command; glimt --help lists them");
+        std::process::exit(2);
+    }
+    let mut command = words.join(" ");
+    // select: whole paths after a NUL each, as names may hold spaces; a line ends the command.
+    if words.first().is_some_and(|w| w == "select") {
+        if paths.len() > MAX_SELECT {
+            eprintln!("glimt: select takes at most {} files", MAX_SELECT);
+            std::process::exit(2);
+        }
+        let mut sent = Vec::new();
+        for p in paths {
+            // As the window has its folder: with links followed, as ~/Pictures may be one;
+            // not the file's own, which the list shows under its own name.
+            let p = std::path::Path::new(p);
+            let folder = (p.parent()).filter(|f| !f.as_os_str().is_empty());
+            let real = std::fs::canonicalize(folder.unwrap_or(std::path::Path::new("."))).ok();
+            let p = (real
+                .zip(p.file_name())
+                .map(|(folder, name)| folder.join(name)))
+            .or_else(|| std::path::absolute(p).ok())
+            .unwrap_or_else(|| p.into());
+            match p.to_str().filter(|t| !t.contains('\n')) {
+                Some(text) => sent.push(text.to_owned()),
+                None => {
+                    eprintln!("glimt: cannot send {p:?}: not UTF-8, or a line break in it");
+                    std::process::exit(2);
+                }
+            }
+        }
+        command = format!("select {}", sent.join("\0"));
+    }
+    // The running Glimt has another working folder: send the full path.
+    if let Some(path) = command.strip_prefix("open ") {
+        let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
+        command = format!("open {}", path.display());
+    }
+    // A line ends a command at the window: one in a file name would be read as a command
+    // of its own, such as quit.
+    if command.contains('\n') {
+        eprintln!("glimt: cannot send a line break in a command or file name");
+        std::process::exit(2);
+    }
+    let sent = match (name, to_all) {
+        (_, true) => send_all(&command) > 0,
+        (Some(name), false) => send_to(name, &command),
+        (None, false) => send(&command),
+    };
+    if unanswered() {
+        std::process::exit(1);
+    }
+    if sent {
+        return None;
+    }
+    match command.strip_prefix("open ") {
+        Some(path) => Some(path.into()),
+        None => {
+            match name {
+                Some(name) => eprintln!("No Glimt named {name} is running"),
+                None => eprintln!("Glimt is not running"),
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
 /// Listen for commands in the background and pass each line to `tx`, with where to answer for
 /// a query.
 pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {

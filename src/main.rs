@@ -10358,71 +10358,10 @@ fn main() -> eframe::Result {
     }
     let to_all = args.first().is_some_and(|a| a == "--remote-all");
     if args.first().is_some_and(|a| a == "--remote") || to_all {
-        if !remote::known(&args[1..]) {
-            eprintln!("glimt: no such command; glimt --help lists them");
-            std::process::exit(2);
-        }
-        let mut command = args[1..].join(" ");
-        // select: whole paths after a NUL each, as names may hold spaces; a line ends the command.
-        if args.get(1).is_some_and(|a| a == "select") {
-            let paths = &args_os[2..];
-            if paths.len() > remote::MAX_SELECT {
-                eprintln!("glimt: select takes at most {} files", remote::MAX_SELECT);
-                std::process::exit(2);
-            }
-            let mut sent = Vec::new();
-            for p in paths {
-                // As the window has its folder: with links followed, as ~/Pictures may be one;
-                // not the file's own, which the list shows under its own name.
-                let p = Path::new(p);
-                let folder = (p.parent()).filter(|f| !f.as_os_str().is_empty());
-                let real = std::fs::canonicalize(folder.unwrap_or(Path::new("."))).ok();
-                let p = (real
-                    .zip(p.file_name())
-                    .map(|(folder, name)| folder.join(name)))
-                .or_else(|| std::path::absolute(p).ok())
-                .unwrap_or_else(|| p.into());
-                match p.to_str().filter(|t| !t.contains('\n')) {
-                    Some(text) => sent.push(text.to_owned()),
-                    None => {
-                        eprintln!("glimt: cannot send {p:?}: not UTF-8, or a line break in it");
-                        std::process::exit(2);
-                    }
-                }
-            }
-            command = format!("select {}", sent.join("\0"));
-        }
-        // The running Glimt has another working folder: send the full path.
-        if let Some(path) = command.strip_prefix("open ") {
-            let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
-            command = format!("open {}", path.display());
-        }
-        // A line ends a command at the window: one in a file name would be read as a command
-        // of its own, such as quit.
-        if command.contains('\n') {
-            eprintln!("glimt: cannot send a line break in a command or file name");
-            std::process::exit(2);
-        }
-        let sent = match (&start.name, to_all) {
-            (_, true) => remote::send_all(&command) > 0,
-            (Some(name), false) => remote::send_to(name, &command),
-            (None, false) => remote::send(&command),
-        };
-        if remote::unanswered() {
-            std::process::exit(1);
-        }
-        if sent {
-            return Ok(());
-        }
-        match command.strip_prefix("open ") {
-            Some(path) => arg = Some(path.into()),
-            None => {
-                match &start.name {
-                    Some(name) => eprintln!("No Glimt named {name} is running"),
-                    None => eprintln!("Glimt is not running"),
-                }
-                std::process::exit(1);
-            }
+        let paths = args_os.get(2..).unwrap_or_default();
+        match remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
+            Some(path) => arg = Some(path),
+            None => return Ok(()),
         }
     }
     // The app ID matches the desktop file, so the desktop shows its icon for the window:
