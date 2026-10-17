@@ -17,6 +17,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   dcm:), one desktop file each: ImageMagick went by the file's bytes, so a file from the internet
   named .psd could reach Ghostscript or another of its coders. graphics.desktop and
   science.desktop are now photoshop, tga, exr, imagemagick-fits and imagemagick-dicom.
+- Check Images stops when another folder or collection opens: it went on, and marked files of the
+  new list that had the name of a broken file in the old one, which Select Them then selected.
 
 ## [0.30.0] - 2026-10-16
 
