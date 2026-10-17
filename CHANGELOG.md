@@ -13,6 +13,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   can no longer take all memory and end Glimt when its folder is opened. A gzipped SVG inside
   another SVG is not drawn.
 
+### Fixed
+
+- SVG thumbnails are drawn at the thumbnail's size, not at 2048 pixels and shrunk: a folder of
+  icons gets its thumbnails many times faster, with a fraction of the memory.
+
 ## [0.34.1] - 2026-10-17
 
 ### Changed

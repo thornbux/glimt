@@ -340,8 +340,8 @@ pub fn load_for(
     rotate: bool,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    // Only ffmpeg's formats take it; without them it has no use.
-    #[cfg(not(any(feature = "video", feature = "heic", feature = "avif")))]
+    // Only ffmpeg's formats and SVG take it; without them it has no use.
+    #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
     let _ = max;
     #[cfg(feature = "video")]
     if crate::external::is_video(path) {
@@ -356,7 +356,7 @@ pub fn load_for(
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::files::SVG_EXTS) {
-        return Ok((svg(path)?, None));
+        return Ok((svg(path, max)?, None));
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::files::JXL_EXTS) {
@@ -493,8 +493,6 @@ pub fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
 /// image's default limit (`Limits::max_alloc`).
 pub const MAX_DECODE: u64 = 512 << 20;
 
-/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
-/// stays sharp when fitted to the window.
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first: a linked one
 /// only if it is a file under 64 MB (not /dev/zero or a pipe), and none whose header claims
 /// more pixels than an image Glimt decodes may have.
@@ -557,8 +555,10 @@ fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     }
 }
 
+/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
+/// stays sharp when fitted to the window; for a thumbnail, fitted in `max`.
 #[cfg(feature = "svg")]
-pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
+pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
     use resvg::{tiny_skia, usvg};
     use std::sync::Arc;
     // The system fonts, for text in SVGs, are read once: it takes tens of milliseconds.
@@ -584,7 +584,12 @@ pub fn svg(path: &Path) -> Result<image::DynamicImage, String> {
     // At most 8192 pixels on the longer side: an SVG may claim any size, and the pixmap is
     // 4 bytes per pixel (60000×60000 would be 14 GB).
     let longer = size.width().max(size.height());
-    let scale = (2048.0 / longer).max(1.0).min(8192.0 / longer);
+    let scale = match max {
+        // A thumbnail: drawn at its size, not at 2048 and shrunk.
+        Some([w, h]) => (w as f32 / size.width()).min(h as f32 / size.height()),
+        None => (2048.0 / longer).max(1.0),
+    }
+    .min(8192.0 / longer);
     let (w, h) = (
         (size.width() * scale).ceil() as u32,
         (size.height() * scale).ceil() as u32,
@@ -1037,7 +1042,10 @@ mod tests {
                  <image href="huge.png" width="10" height="10"/></svg>"#,
         )
         .unwrap();
-        assert!(super::svg(&svg).is_ok());
+        assert!(super::svg(&svg, None).is_ok());
+        // For a thumbnail, at the thumbnail's size.
+        let thumb = super::svg(&svg, Some([128, 128])).unwrap();
+        assert_eq!((thumb.width(), thumb.height()), (128, 128));
         // One picture of 4 MB named again and again: taken until 256 MB, then no more.
         let noise: Vec<u8> = (0..1024 * 1024 * 4u32)
             .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
