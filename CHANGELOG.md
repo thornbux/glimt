@@ -33,6 +33,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the size of the selection is worked out once it has stayed the same a moment, not in every step.
 - Thumbnails of HEIC and AVIF photos and of videos are made by ffmpeg at thumbnail size: it handed
   over the whole picture first, about 300 MB for a 48 MP phone photo, in each thumbnail thread.
+- Printing a contact sheet says how many images went on how many pages (80 images on 4 pages), not
+  80 pages.
 
 ## [0.32.0] - 2026-10-17
 

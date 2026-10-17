@@ -4148,10 +4148,19 @@ impl App {
                     written.map_err(|e| e.to_string())
                 }
             };
+            // Images, and the pages they fill: a contact sheet holds several on each.
             let n = job.paths.len() - failed.get();
+            let what = match job.per_page {
+                1 => count(n, "page"),
+                per => format!(
+                    "{} on {}",
+                    count(n, "image"),
+                    count(n.div_ceil(per), "page")
+                ),
+            };
             let done = done.map(|()| match &to {
-                PrintTo::Printer(printer) => format!("{} sent to {printer}", count(n, "page")),
-                PrintTo::File(file) => format!("{} saved in {}", count(n, "page"), file.display()),
+                PrintTo::Printer(printer) => format!("{what} sent to {printer}"),
+                PrintTo::File(file) => format!("{what} saved in {}", file.display()),
             });
             let _ = tx.send(match (done, failed.get()) {
                 (Ok(msg), 0) => msg,
