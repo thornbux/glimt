@@ -101,9 +101,6 @@ start() {
 }
 key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
-# A File menu row at y in the old version, one row (24) lower in the new, which has Open Folder
-# Recursive above it.
-file_y() { if [ "$v" = old ]; then echo $1; else echo $(($1 + 24)); fi; }
 quit() {
     $BIN --remote-all quit >/dev/null 2>&1
     sleep 1
@@ -904,7 +901,7 @@ for v in new old; do
     sleep 2
     # File → Check Images…, Check, and the window closed when done to see the list.
     click 20 10; sleep 1
-    click 66 $(file_y 516); sleep 1
+    click 66 540; sleep 1
     click 56 127; sleep 4
     shot check-window-$v
     click 554 38; sleep 1
@@ -919,7 +916,7 @@ for v in new old; do
     # The same marks in the grid of thumbnails (Ctrl+I), on each thumbnail's top left.
     if [ $v = new ]; then
         start $d; sleep 2
-        click 20 10; sleep 1; click 66 $(file_y 516); sleep 1; click 56 127; sleep 4; click 554 38; sleep 1
+        click 20 10; sleep 1; click 66 540; sleep 1; click 56 127; sleep 4; click 554 38; sleep 1
         key ctrl+i; sleep 2
         shot check-grid-$v
         quit
@@ -947,7 +944,7 @@ for v in new old; do
     start $d
     sleep 2
     click 20 10; sleep 1
-    click 80 $(file_y 540); sleep 3     # File → Back Up Glimt's Data…
+    click 80 564; sleep 3     # File → Back Up Glimt's Data…
     quit
     b=$(ls -d $d/to/glimt-backup-* 2>/dev/null | head -1)
     got="$(cat "$b/config/config" 2>/dev/null | grep -c theme=Light) $(ls "$b/data/collections" 2>/dev/null) $(cut -f2 "$b/state/marks" 2>/dev/null)"
