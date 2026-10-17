@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A PNG saved turned keeps its text (a comment, the prompt an AI tool wrote), its DPI, its time
+  and its gamma and colour space, instead of only its profile, EXIF and XMP: a 300 dpi scan no
+  longer prints at 72 after a turn.
+
 ## [0.34.1] - 2026-10-17
 
 ### Changed
