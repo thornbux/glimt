@@ -1159,6 +1159,27 @@ differ "GNOME's text scaling followed" "$(colour scale-new-ui_scale=100-true 300
 expect "not followed when turned off" "$(colour scale-new-ui_scale=100-false 300 400)" red
 note "old at 200 %: $(colour scale-old-ui_scale=200-false 400 400)"
 
+echo "-- Back from a folder opened in a collection: the collection again"
+for v in new old; do
+    as_version $v
+    d=/tmp/back-collection-$v
+    mkdir -p $d/x $d/y
+    convert -size 64x64 xc:red $d/x/a.jpg
+    convert -size 64x64 xc:blue $d/y/b.jpg
+    printf '#GQview collection\n"%s/x/a.jpg"\n"%s/y/b.jpg"\n' $d $d >$d/show.gqv
+    config
+    start $d/show.gqv
+    sleep 2
+    $BIN --remote open $d/y >/dev/null 2>&1; sleep 2
+    click 22 35 2                             # Back, in the toolbar
+    key End; sleep 1
+    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then expect "the collection's last image" "$got" "y/b.jpg"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- a collection put in order with keys: one place earlier, then to the end"
 for v in new old; do
     as_version $v

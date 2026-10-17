@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Back from a folder opened while a collection was shown goes back to the collection, not to the
+  folder of its image.
 - Save as Theme no longer writes over a theme file of the same name, which may be hand-edited, nor
   makes one named as a built-in theme, which would hide that one for good: it asks for another
   name.

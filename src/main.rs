@@ -1906,11 +1906,16 @@ impl App {
         self.title(ctx);
     }
 
+    /// Where Back comes back to: the collection shown, else the file shown or the folder.
+    fn back_step(&self) -> PathBuf {
+        self.collection.clone().unwrap_or_else(|| self.location())
+    }
+
     /// Open `path` as a new step in the Back/Forward history.
     fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
         // A message about the folder before (a share that could not be mounted) goes with it.
         self.notice = None;
-        self.back.push(self.location());
+        self.back.push(self.back_step());
         // Not without end: a slideshow of folders, or a script's --remote open, visits many.
         if self.back.len() > 200 {
             self.back.remove(0);
@@ -5230,7 +5235,7 @@ impl App {
                 self.go(ctx, to);
             }
             Action::Back | Action::Forward => {
-                let here = self.location();
+                let here = self.back_step();
                 let (from, to) = if action == Action::Back {
                     (&mut self.back, &mut self.forward)
                 } else {
