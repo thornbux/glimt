@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- When a Rename Many ends while another image is shown than when it began, the list is read again:
+  the shown entry took the renamed image's new name, and with Save Orientation on its turn was
+  written into the renamed file.
 - Closing Glimt also waits for a Rename Many and for a turned PNG or WebP being saved; closing a
   second time stops the file operations after the file at hand, so no half copy is left behind
   under a hidden name, and only a third close ends at once.

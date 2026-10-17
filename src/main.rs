@@ -3996,7 +3996,9 @@ impl App {
             return self.list(ctx);
         }
         match job.shown {
-            Some(k) if !failed => {
+            // Still the image shown when it began: the user may have moved on meanwhile, and
+            // the image shown now (and its turn) is another one.
+            Some(k) if !failed && self.path(self.cur) == job.from[k] => {
                 // A turn not saved yet goes to the shown file under its new name: its old name
                 // may now be another file's.
                 if let Ok(rel) = job.to[k].strip_prefix(&self.dir) {
