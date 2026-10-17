@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Fit Width, Fit Height and Fill the View decode an image to the size they show it at, not at full
+  resolution: a 6000×4000 photo took 96 MB instead of 10, and was slower to show.
+
 ## [0.31.0] - 2026-10-17
 
 ### Added

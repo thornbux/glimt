@@ -6398,7 +6398,7 @@ impl App {
                 }
                 let [w, h] = self.limits.lock().unwrap()[0];
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
-                ui.weak(format!("Up to ≈ {mb} MB at window size {w}×{h}"));
+                ui.weak(format!("Up to ≈ {mb} MB, each image at most {w}×{h}"));
                 let c = &mut self.config;
                 let mut changed = ui
                     .add(
@@ -9294,8 +9294,7 @@ impl App {
                 };
                 // Decode to the image area, not the whole screen: a small window on a 4K screen
                 // needs a fraction of the memory (3840×2160 is 33 MB per image).
-                let view = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
-                self.limits.lock().unwrap()[0] = view;
+                let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 // The wheel and dragging work over every pane, and the compared half.
                 let several = panes.len() > 1 || right.is_some();
                 let input = if several { ui.max_rect() } else { area };
@@ -9315,6 +9314,26 @@ impl App {
                     let [w, h] = turned(s.orig);
                     fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
+                // Decoded to the size shown: the view for a whole image. A mode that fills one
+                // side may need more on the other: the image's size at its scale once that is
+                // known (also while it is decoded again, from the image drawn), else the side it
+                // fills (Fill: the longer side).
+                let long = self.limits.lock().unwrap()[1][0];
+                let orig = (self.slots.get(&self.cur).map(|s| s.orig))
+                    .or(self.last_drawn.as_ref().map(|d| d.1));
+                let view = match (mode, orig) {
+                    (0, _) => [w, h],
+                    (_, Some([ow, oh])) => {
+                        let [tw, th] = turned([ow, oh]);
+                        let s = fit_scale(area.size() * ppp, [tw as f32, th as f32], mode);
+                        let size = |side: usize| (side as f32 * s.min(max_fit)).ceil() as u32;
+                        [size(ow).clamp(1, long), size(oh).clamp(1, long)]
+                    }
+                    (1, _) => [w, long],
+                    (2, _) => [long, h],
+                    _ => [w.max(h); 2],
+                };
+                self.limits.lock().unwrap()[0] = view;
                 if response.hovered()
                     && !self.dialog_open()
                     && let Some(step) = self.wheel_input(ctx, &response, fit, area, &panes, right)
@@ -9346,8 +9365,9 @@ impl App {
                     let needed = (s.orig[0] as f32 * scale).min(s.orig[0] as f32);
                     !s.full && (s.tex.size()[0] as f32) + 1.0 < needed
                 });
-                // Decoded to the window, which a mode that fills one side more may exceed.
-                if too_small && self.zoom.is_none() && mode == 0 {
+                // Not zoomed: decoded again to the size shown, which `view` now holds; full
+                // resolution only where that is larger than a texture may be.
+                if too_small && self.zoom.is_none() && view[0] < long && view[1] < long {
                     self.slots.remove(&self.cur);
                     self.request(self.cur, false);
                 } else if too_small {
