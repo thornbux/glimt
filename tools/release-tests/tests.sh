@@ -1336,6 +1336,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- --lock-settings, then New Window: the new window is locked too"
+for v in new old; do
+    as_version $v
+    d=/tmp/lock-new-window-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config delay=5
+    start --lock-settings $d
+    sleep 2
+    key ctrl+n; sleep 3                   # a new window: Faster pressed there
+    other=$(xdotool search --name Glimt 2>/dev/null | grep -vx "$WIN" | tail -1)
+    xdotool windowfocus $other key ctrl+equal 2>/dev/null; sleep 1
+    $BIN --remote-all quit >/dev/null 2>&1; sleep 1
+    quit
+    got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
+    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    else note "old: $(grep '^delay=' $XDG_CONFIG_HOME/glimt/config)"; fi
+done
+as_version new
+
 echo "-- the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
 d=/tmp/focus
 mkdir -p $d

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- New Window keeps --lock-settings: the new window was not locked, so Preferences opened there and
+  its changes were saved.
 - A kiosk (--kiosk) saves no settings: the keys it allows (the slideshow's speed and order, the
   overlay, the histogram, the layout) changed the settings file, and lasted after a restart.
 

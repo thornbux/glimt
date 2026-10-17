@@ -7219,7 +7219,11 @@ impl App {
         let started = exe.and_then(|exe| {
             let exe = exe.to_string_lossy();
             let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
-            std::process::Command::new(exe).arg(self.location()).spawn()
+            // Locked settings stay locked in the new window, which is a Glimt of its own.
+            (std::process::Command::new(exe))
+                .args(config::locked().then_some("--lock-settings"))
+                .arg(self.location())
+                .spawn()
         });
         match started {
             // Reap the child when it exits, so it does not linger as a zombie.
