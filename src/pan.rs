@@ -46,7 +46,10 @@ fn each<T: Send>(
         let mut out = Vec::with_capacity(part.len());
         for name in part {
             path.push(name);
-            out.push(f(&path));
+            // A file that breaks its reader has no date: a whole part lost would give the
+            // files after it the dates of others.
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&path)));
+            out.push(found.ok().flatten());
             path.pop();
         }
         out
@@ -159,6 +162,19 @@ fn days_in_month(y: i32, m: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file whose reader panics gets no value; the others keep their own.
+    #[test]
+    fn each_keeps_places_past_a_panic() {
+        let files: Vec<OsString> = (0..9).map(|i| i.to_string().into()).collect();
+        let got = each(Path::new("/"), &files, |p| match p.ends_with("4") {
+            true => panic!("broken file"),
+            false => Some(p.to_path_buf()),
+        });
+        assert_eq!(got.len(), 9);
+        assert_eq!(got[4], None);
+        assert_eq!(got[5].as_deref(), Some(Path::new("/5")));
+    }
 
     #[test]
     fn groups_by_day() {

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Pan view: a file that crashes its date reader no longer gives the files read after it in the
+  same thread other files' dates.
 - A PNG or WebP saved turned sets the orientation in its XMP upright too, as in its EXIF, so
   programs that read the XMP do not turn it again.
 - A JPEG with fill bytes (0xff) before a marker has its EXIF read from the head of the file and
