@@ -1138,9 +1138,9 @@ struct App {
     /// have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
-    /// `files_gen` and `cur` when Rename or a delete was asked: the answer acts on those files
-    /// only if the list and the shown image are still the same.
-    asked_for: (usize, usize),
+    /// When Rename or a delete was asked (`asked_now`): the answer acts only if the list and the
+    /// shown image are still the same, or the same files by name after the list was read again.
+    asked_for: (usize, usize, u64),
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
@@ -1617,7 +1617,7 @@ impl App {
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             files_gen: 0,
-            asked_for: (0, 0),
+            asked_for: (0, 0, 0),
             grid_cols: 1,
             compare: false,
             panes: Vec::new(),
@@ -5412,7 +5412,7 @@ impl App {
                 self.notice = Some("Rename Many is still renaming".into());
             }
             Action::Rename if self.targets().len() > 1 => {
-                self.asked_for = (self.files_gen, self.cur);
+                self.asked_for = self.asked_now();
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
@@ -5422,7 +5422,7 @@ impl App {
                     .get(self.cur)
                     .and_then(|f| Path::new(f).file_name())
                 {
-                    self.asked_for = (self.files_gen, self.cur);
+                    self.asked_for = self.asked_now();
                     self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
                 }
             }

@@ -572,6 +572,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Rename answered after the folder was read again: the same file renamed"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-refresh-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    config auto_refresh=true
+    start $d
+    key ctrl+r
+    convert -size 64x64 xc:blue $d/z.png      # another program writes to the folder
+    sleep 3                                   # read again meanwhile
+    key ctrl+a
+    xdotool type x
+    key Return
+    quit
+    got="$(ls $d | tr '\n' ' ')"
+    if [ $v = new ]; then expect "a.png renamed to x" "$got" "b.png x z.png "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- Rename answered after --remote next: nothing renamed, not the next image"
 for v in new old; do
     as_version $v

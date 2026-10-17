@@ -15,16 +15,33 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            self.asked_for = (self.files_gen, self.cur);
+            self.asked_for = self.asked_now();
             self.confirm_delete = Some(trash);
         } else {
             self.delete_targets_now(ctx, trash);
         }
     }
 
-    /// The list and the shown image are still those a dialog asked about; else a notice.
+    /// The list, the shown image and the selection now: their numbers, and their names hashed,
+    /// which stay when a refresh reads the list again with other numbers.
+    pub(crate) fn asked_now(&self) -> (usize, usize, u64) {
+        use std::hash::{Hash, Hasher};
+        let mut names = std::collections::hash_map::DefaultHasher::new();
+        // The folder too: another one opened meanwhile may hold files of the same names.
+        (&self.dir, &self.folders, &self.collection).hash(&mut names);
+        self.files.get(self.cur).hash(&mut names);
+        for &i in &self.selected {
+            self.files.get(i).hash(&mut names);
+        }
+        (self.files_gen, self.cur, names.finish())
+    }
+
+    /// The files a dialog asked about are still those it acts on; else a notice. The same
+    /// numbers, or the same names: a folder another program writes to is read again every
+    /// second, and that alone must not undo a confirmed delete.
     pub(crate) fn still_asked(&mut self) -> bool {
-        let same = self.asked_for == (self.files_gen, self.cur);
+        let (asked, now) = (self.asked_for, self.asked_now());
+        let same = (asked.0, asked.1) == (now.0, now.1) || asked.2 == now.2;
         if !same {
             self.notice =
                 Some("The list changed while the dialog was open: nothing was done".into());

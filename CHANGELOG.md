@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename and a confirmed delete act when the folder was read again while their dialog was open, as
+  long as the same files are meant, instead of saying the list changed: a folder another program
+  writes to is read again every second.
 - Rename Many keeps the view where it was: with Include Subfolders, several folders shown together
   or a slideshow with subfolders, it no longer opens the shown file's own folder.
 
