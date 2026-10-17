@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Closing Glimt also waits for a Rename Many and for a turned PNG or WebP being saved; closing a
+  second time stops the file operations after the file at hand, so no half copy is left behind
+  under a hidden name, and only a third close ends at once.
 - A write of a sidecar or of Glimt's own files that panics no longer ends its writer thread: every
   later write would have been dropped without a word, and the busy pointer stayed.
 - Marks and stars changed just before Glimt closes, or moved with files whose move it waited for,

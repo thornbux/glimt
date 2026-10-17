@@ -1155,8 +1155,9 @@ struct App {
     busy: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     jobs: Vec<Arc<Job>>,
-    /// Closing waits for `jobs` to end; a second close does not wait.
-    closing: bool,
+    /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
+    /// they are stopped after the file at hand and it waits for that; a third close ends at once.
+    closing: u8,
     /// Deletes and moves done, and whether to read the folder again: one failed, so the files
     /// may still be there, or files were moved or copied into the list.
     deleted_tx: mpsc::Sender<(Vec<PathBuf>, bool)>,
@@ -1791,7 +1792,7 @@ impl App {
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
             jobs: Vec::new(),
-            closing: false,
+            closing: 0,
             search: String::new(),
             matches: None,
             rows: Default::default(),
@@ -3462,6 +3463,12 @@ impl App {
             self.notice = Some("Still saving a rotation: try again in a moment".into());
         }
         !saving
+    }
+
+    /// Files still being written: copies, moves, deletes, sidecars (`jobs`), a Rename Many, a
+    /// turned image being saved. Closing waits for them.
+    fn work_left(&self) -> bool {
+        !self.jobs.is_empty() || self.renaming.is_some() || !self.saving.is_empty()
     }
 
     /// A file operation on `total` files, shown in the status bar until its thread drops it.
@@ -7327,9 +7334,9 @@ impl App {
         self.receive_deleted();
         self.selection_size(ctx);
         self.jobs.retain(|job| Arc::strong_count(job) > 1);
-        if !self.jobs.is_empty() {
+        if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        } else if self.closing {
+        } else if self.closing > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         while let Ok((path, result)) = self.saved_rx.try_recv() {
@@ -7622,12 +7629,20 @@ impl App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             }
         }
-        // Files still being copied, moved or written: closed when they are done, not halfway.
-        if ctx.input(|i| i.viewport().close_requested()) && !self.jobs.is_empty() && !self.closing {
+        // Files still being copied, moved, renamed or saved: closed when they are done, not
+        // halfway; a second close stops them after the file at hand, a third does not wait.
+        if ctx.input(|i| i.viewport().close_requested()) && self.work_left() && self.closing < 2 {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.closing = true;
+            self.closing += 1;
+            if self.closing == 2 {
+                (self.jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
+            }
             self.notice = Some(
-                "Glimt closes when the file operations are done; close again to stop them".into(),
+                match self.closing {
+                    1 => "Glimt closes when the file operations are done; close again to stop them",
+                    _ => "Stopping after the files at hand; close once more to end at once",
+                }
+                .into(),
             );
         }
         self.inhibit(fullscreen && self.config.inhibit_screensaver);

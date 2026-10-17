@@ -425,6 +425,35 @@ for v in new old; do
 done
 as_version new
 
+echo "-- copying, closed twice: stopped after the file at hand, no hidden half copy left"
+for v in new old; do
+    as_version $v
+    d=/tmp/close-twice-$v
+    mkdir -p $d/to
+    head -c 25000000 /dev/urandom >$d/00.jpg
+    for i in $(seq -w 1 119); do cp $d/00.jpg $d/$i.jpg; done
+    config
+    start $d
+    sleep 2
+    key ctrl+a
+    answer $d/to
+    key ctrl+c
+    for i in $(seq 100); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.1; done
+    sleep 0.5
+    key ctrl+q; key ctrl+q
+    for i in $(seq 120); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
+    quit
+    parts=$(ls -A $d/to | grep -c glimt-copy)
+    copied=$(ls $d/to | grep -c jpg)
+    whole=$(find $d/to -name '*.jpg' -size 24415k | wc -l)
+    rm -rf $d    # 6 GB
+    if [ $v = new ]; then
+        expect "no hidden half copy, every copy whole" "$parts $([ $copied = $whole ] && echo whole)" "0 whole"
+        expect "stopped before all 120" "$([ $copied -lt 120 ] && echo yes)" yes
+    else note "old: $parts hidden, $copied copied, $whole whole"; fi
+done
+as_version new
+
 echo "-- thumbnails with Auto Rotate off"
 rm -rf $XDG_CACHE_HOME/thumbnails
 config exif_rotate=false
