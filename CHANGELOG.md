@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Saving a JPEG's orientation reads and writes it in the background, as PNG and WebP already were,
+  so the window no longer stops while a large photo on a share or a slow stick is written.
 - Moving images of a collection no longer checks each file in the window's thread first, which
   froze it for seconds with thousands of files on a share; the collection follows the files that
   were moved, and only those.

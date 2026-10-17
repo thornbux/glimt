@@ -221,6 +221,18 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a JPEG turned and left: its orientation field saved, in the background"
+d=/tmp/turn-jpeg
+mkdir -p $d
+convert -size 200x100 xc:red $d/a.jpg
+cp $d/a.jpg $d/b.jpg
+config save_orientation=true
+start $d/a.jpg
+key bracketright; key space; sleep 2      # turned clockwise, then the next image
+quit
+got="$(exiftool -s3 -n -Orientation $d/a.jpg) $(exiftool -s3 -n -Orientation $d/b.jpg)"
+expect "a.jpg has orientation 6, b.jpg none" "$got" "6 "
+
 echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
 mkdir -p $d/sub/deep && cd $d

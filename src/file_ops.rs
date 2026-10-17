@@ -392,9 +392,9 @@ impl crate::App {
         self.list(ctx)
     }
 
-    /// Write the view's rotation into the shown file and show it as it is now.
-    /// shortcut: a JPEG in the UI thread, as it is read and written in milliseconds; a thread
-    /// like PNG and WebP if network folders make it slow.
+    /// Write the view's rotation into the shown file, in the background, and show it as it is
+    /// then. A JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned,
+    /// which takes seconds for a large one. Both read and write the whole file, slow on a share.
     pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
         let (turns, mirrored) = self.orient;
         if self.files.is_empty() || (turns, mirrored) == (0, false) {
@@ -405,29 +405,24 @@ impl crate::App {
         if self.saving.contains(&path) {
             return;
         }
-        // JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned, which
-        // takes seconds for a large one, so in the background.
-        if !has_ext(&path, &["jpg", "jpeg"]) {
-            let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
-            let (saved, busy, ctx) = (self.saved_tx.clone(), self.busy.clone(), ctx.clone());
-            self.saving.insert(path.clone());
-            busy.fetch_add(1, Ordering::Relaxed);
-            std::thread::spawn(move || {
-                let result = survive(|| save_rotated(&path, rotate, turns, mirrored, quality));
-                let _ = saved.send((path, result));
-                busy.fetch_sub(1, Ordering::Relaxed);
-                ctx.request_repaint();
+        let jpeg = has_ext(&path, &["jpg", "jpeg"]);
+        let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
+        let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
+        let (busy, ctx) = (self.busy.clone(), ctx.clone());
+        self.saving.insert(path.clone());
+        busy.fetch_add(1, Ordering::Relaxed);
+        std::thread::spawn(move || {
+            let result = survive(|| match jpeg {
+                true => exif::write_orientation(&path, turns, mirrored),
+                false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
-            return;
-        }
-        if let Err(e) = exif::write_orientation(&path, turns, mirrored) {
-            self.notice = Some(format!("Could not save the orientation: {e}"));
-            return;
-        }
-        if !self.config.exif_rotate {
-            self.notice = Some("Saved; it shows when Auto Rotate Using EXIF is on".into());
-        }
-        self.saved(&path);
+            if jpeg && result.is_ok() && !rotate {
+                let _ = notices.send("Saved; it shows when Auto Rotate Using EXIF is on".into());
+            }
+            let _ = saved.send((path, result));
+            busy.fetch_sub(1, Ordering::Relaxed);
+            ctx.request_repaint();
+        });
     }
 
     /// `path` was saved turned: decode it again and make a new thumbnail.
