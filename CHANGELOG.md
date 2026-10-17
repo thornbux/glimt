@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Moving images of a collection no longer checks each file in the window's thread first, which
+  froze it for seconds with thousands of files on a share; the collection follows the files that
+  were moved, and only those.
 - Rename Folder while several folders are shown together keeps the renamed folder's images in the
   list, read under its new name.
 - Rename and a confirmed delete act when the folder was read again while their dialog was open, as

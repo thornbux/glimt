@@ -164,11 +164,14 @@ impl crate::App {
     /// leave the list, the marks and Find Duplicates; or the folder read again after a failure.
     pub(crate) fn receive_deleted(&mut self) {
         // Moved before their sources are taken for deleted ones: the marks go along first.
-        for (pairs, keep) in self.put_rx.try_iter() {
+        let moves: Vec<(Vec<(PathBuf, PathBuf)>, bool)> = self.put_rx.try_iter().collect();
+        for (pairs, keep) in moves {
+            // A collection's entries follow the files that were moved, and only those.
+            if !keep && self.collection.is_some() {
+                self.follow_in_collection(&pairs);
+            }
             #[cfg(feature = "marks")]
             self.marks.put(pairs, keep);
-            #[cfg(not(feature = "marks"))]
-            let _ = (pairs, keep);
         }
         for (paths, gone, failed) in self.deleted_rx.try_iter() {
             // Deleted: their marks go, so that a new file of the same name does not get them.
@@ -189,6 +192,22 @@ impl crate::App {
         }
     }
 
+    /// The collection's entries of the files moved `(from, to)` changed to where they are now.
+    fn follow_in_collection(&mut self, pairs: &[(PathBuf, PathBuf)]) {
+        let moved: HashMap<&Path, &Path> = pairs
+            .iter()
+            .map(|(a, b)| (a.as_path(), b.as_path()))
+            .collect();
+        for i in 0..self.files.len() {
+            if let Some(to) = moved.get(self.path(i).as_path())
+                && let Ok(rel) = to.strip_prefix(&self.dir)
+            {
+                self.files[i] = rel.as_os_str().to_owned();
+            }
+        }
+        self.save_collection();
+    }
+
     /// Copy or move `paths` into `dest` in the background. Existing files are never
     /// overwritten; a move across file systems falls back to copy + delete.
     pub(crate) fn transfer(
@@ -201,31 +220,8 @@ impl crate::App {
         if !keep && !self.none_saving(&paths) {
             return;
         }
-        if !keep && self.collection.is_some() {
-            // The collection follows the files to their new place.
-            // shortcut: rewritten before the move is done, so a file that fails to move for
-            // another reason than a name taken there drops out at the next refresh; report each
-            // result back if moves in collections fail often.
-            // The files that will get there, in the order the move takes them: not one whose
-            // name is taken there already, nor a second of the same name; those keep their entry.
-            let mut taken = HashSet::new();
-            let moving: HashSet<&PathBuf> = (paths.iter())
-                .filter(|p| {
-                    let to = dest.join(p.file_name().unwrap_or_default());
-                    !to.exists() && taken.insert(to)
-                })
-                .collect();
-            for i in 0..self.files.len() {
-                let path = self.path(i);
-                let to = dest.join(path.file_name().unwrap_or_default());
-                if moving.contains(&path)
-                    && let Ok(rel) = to.strip_prefix(&self.dir)
-                {
-                    self.files[i] = rel.as_os_str().to_owned();
-                }
-            }
-            self.save_collection();
-        } else if !keep {
+        // In a collection, the entries follow the files that got there, in `receive_deleted`.
+        if !keep && self.collection.is_none() {
             // Moved out of its folder: out of the list at once, as when deleting. Names in the
             // list are relative to the folder, also those in subfolders.
             let names: HashSet<&std::ffi::OsStr> = paths
