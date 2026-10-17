@@ -159,6 +159,12 @@ pub fn convert(
             (Some(p), true) => p.clone(),
             _ => ColorProfile::new_srgb(),
         };
+        // An image's own profile that is sRGB (as most exports have) changes nothing on the way
+        // to sRGB: no pass over every pixel, and no second copy of a large image for it. Looked
+        // at once, as the transform is kept for that profile.
+        if !screen && from >= 2 && like_srgb(&source) {
+            return None;
+        }
         let make = |rendering_intent| {
             let options = TransformOptions {
                 rendering_intent,
@@ -508,6 +514,21 @@ mod tests {
         assert!(super::set_input(&junk).is_err());
         // A profile that cannot be read: left as it is.
         assert_eq!(super::to_srgb(grey(), Some(b"junk")), grey());
+        // The image's own profile is sRGB: no transform kept for it, the pixels as they are.
+        let own_srgb = moxcms::ColorProfile::new_srgb().encode().unwrap();
+        assert_eq!(super::to_srgb(grey(), Some(&own_srgb)), grey());
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::hash::DefaultHasher::new();
+            own_srgb.as_slice().hash(&mut h);
+            h.finish().max(2)
+        };
+        let c = super::COLOUR.read().unwrap();
+        assert!(matches!(
+            c.transforms.lock().unwrap().get(&(key, false)),
+            Some(None)
+        ));
+        drop(c);
         // Profiles that differ only in their date (bytes 24 to 36) are kept a few dozen at most.
         for day in 0..100u8 {
             let mut dated = adobe.clone();
