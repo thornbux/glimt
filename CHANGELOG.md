@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- RAW thumbnails read the first 8 MB of the file, where cameras put the preview, and only read the
+  rest when it is not there; showing a RAW file reads it once, not twice.
 - Colour management changes an image a megabyte at a time: a large photo printed, exported or
   saved with its own profile no longer needs a second full-size copy.
 - An image turned by its EXIF orientation is shrunk to the view first and then turned, not turned

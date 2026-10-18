@@ -15,13 +15,17 @@ pub const EXTS: &[&str] = &[
 
 /// The preview, turned upright if `rotate`.
 pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    let jpeg = preview(&data).ok_or("no preview image in the RAW file")?;
+    load_data(&std::fs::read(path).map_err(|e| e.to_string())?, rotate)
+}
+
+/// `load` of a RAW file read already.
+pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, String> {
+    let jpeg = preview(data).ok_or("no preview image in the RAW file")?;
     let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg))
         .map_err(|e| e.to_string())?;
     crate::decode::check_size(&dec)?;
     // TIFF-based RAW files carry the orientation in their own header; others in the JPEG.
-    let orientation = crate::exif::orientation(&data)
+    let orientation = crate::exif::orientation(data)
         .or_else(|| dec.orientation().ok())
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
@@ -72,6 +76,13 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
         .map(|f| f.1)
 }
 
+/// Whether all of the JPEG at the start of `data` is there: its end marker after its image data,
+/// not only the one of the thumbnail in its EXIF.
+pub fn whole_jpeg(data: &[u8]) -> bool {
+    crate::exif::jpeg_scan_start(data)
+        .is_some_and(|scan| data[scan..].windows(2).any(|w| w == [0xff, 0xd9]))
+}
+
 /// Width and height of a baseline or progressive JPEG from its frame header, by walking the
 /// segments after the start marker. Only a header as a camera writes it counts (8 bits, grey or
 /// colour, its length fitting): in compressed sensor data a start marker and a frame marker
@@ -102,6 +113,20 @@ pub fn jpeg_size(jpeg: &[u8]) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
+    /// A JPEG cut off in the middle of its image data is not whole; one with its end is.
+    #[test]
+    fn tells_a_whole_jpeg() {
+        let mut jpeg = Vec::new();
+        image::RgbImage::from_pixel(64, 64, image::Rgb([200, 30, 30]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        assert!(super::whole_jpeg(&jpeg));
+        assert!(!super::whole_jpeg(&jpeg[..jpeg.len() - 40]));
+    }
+
     /// A made-up RAW file: a header, a small JPEG, lossless sensor data, a larger JPEG and a
     /// frame header that sensor data holds by chance.
     #[test]

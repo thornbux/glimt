@@ -445,12 +445,40 @@ pub fn scaled_jpeg(
         return scaled(&std::fs::read(path).ok()?, max, rotate, None);
     }
     if has_ext(path, raw::EXTS) {
-        let data = std::fs::read(path).ok()?;
         // As raw::load: the orientation from a TIFF-based RAW's own header, and no profile.
-        let (img, _, orig) = scaled(raw::preview(&data)?, max, rotate, exif::orientation(&data))?;
-        return Some((img, None, orig));
+        let from = |data: &[u8]| {
+            let (img, _, orig) = scaled(raw::preview(data)?, max, rotate, exif::orientation(data))?;
+            Some((img, None, orig))
+        };
+        // The first 8 MB first: cameras put the preview before the sensor data, so a folder of
+        // 50 MB RAW files on a share is not read whole for its thumbnails.
+        let head = read_head(path, 8 << 20).ok()?;
+        let covers = |p: &[u8]| raw::jpeg_size(p).is_some_and(|(w, h)| w >= max[0] || h >= max[1]);
+        if let Some(p) = raw::preview(&head).filter(|p| covers(p) && raw::whole_jpeg(p))
+            && let Some(shown) = scaled(p, max, rotate, exif::orientation(&head))
+        {
+            return Some((shown.0, None, shown.2));
+        }
+        let data = std::fs::read(path).ok()?;
+        // Not at a fraction (shown larger than half the preview): decoded whole from what was
+        // read, not read a second time.
+        return from(&data).or_else(|| {
+            let img = raw::load_data(&data, rotate).ok()?;
+            let orig = [img.width() as usize, img.height() as usize];
+            Some((img, None, orig))
+        });
     }
     None
+}
+
+/// The first `max` bytes of `path`.
+fn read_head(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut head = Vec::new();
+    std::fs::File::open(path)?
+        .take(max)
+        .read_to_end(&mut head)?;
+    Ok(head)
 }
 
 /// `scaled_jpeg` of the JPEG in `data`; `orientation` overrides the one in its EXIF.
