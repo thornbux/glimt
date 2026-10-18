@@ -65,6 +65,7 @@ CREATE TABLE Adobe_images (id_local INTEGER PRIMARY KEY, rootFile, rating);
 CREATE TABLE AgLibraryCollection (id_local INTEGER PRIMARY KEY, creationId, name, parent);
 CREATE TABLE AgLibraryCollectionImage (id_local INTEGER PRIMARY KEY, collection, image);
 CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, name, parent);
+CREATE TABLE AgLibraryKeywordImage (id_local INTEGER PRIMARY KEY, image, tag);
 INSERT INTO AgLibraryRootFolder VALUES (1, '/Volumes/Photos/');
 INSERT INTO AgLibraryFolder VALUES (2, 1, 'Summer/');
 INSERT INTO AgLibraryFile VALUES (3, 2, 'fjord_sunrise', 'jpg'), (4, 2, 'lake_mirror', 'jpg'), (5, 2, 'red_cliffs', 'jpg');
@@ -73,6 +74,7 @@ INSERT INTO AgLibraryCollection VALUES (9, 'com.adobe.ag.library.group', 'Travel
     (10, 'com.adobe.ag.library.collection', 'Norway 2025', 9), (11, 'com.adobe.ag.library.collection', 'Best of', NULL);
 INSERT INTO AgLibraryCollectionImage VALUES (12, 10, 6), (13, 10, 7), (14, 11, 6), (15, 11, 8);
 INSERT INTO AgLibraryKeyword VALUES (16, NULL, NULL), (17, 'Places', 16), (18, 'Norway', 17), (19, 'Senja', 18);
+INSERT INTO AgLibraryKeywordImage VALUES (20, 6, 19);
 SQL
 # The window, without the rest of the virtual screen.
 cshot() { import -window root -crop 1280x800+0+0 +repage /t/out/$1.png; }
@@ -86,8 +88,10 @@ key ctrl+t; sleep 1; cshot folder-tree; key ctrl+t
 key e; sleep 2; cshot compare; key e
 key k; sleep 1; cshot histogram; key k; key k
 key ctrl+k; sleep 2
-# The tree's branches open from the bottom up, so the rows above stay where they are.
-click 1029 526; click 1029 502; click 1047 526; click 1029 478
+# The tree's branches open from the bottom up, so the rows above stay where they are: Seasons,
+# then Places and Norway under it, below the alt text and description fields. Nature stays
+# closed, so all of it fits in the window.
+click 1029 636; click 1029 612; click 1047 636
 xdotool mousemove 700 400; sleep 1; cshot keyword-tree; key ctrl+k
 key f; sleep 2; cshot full-screen-info; key Escape
 # Fuzzy search: "sun" in the field above the file list.
@@ -105,7 +109,7 @@ printf '0\t3\t%s\n' $P/Summer/fjord_sunrise.jpg >$XDG_STATE_HOME/glimt/marks
 start $P/Summer/fjord_sunrise.jpg
 sleep 3
 answer /tmp/glimt-demo/Lightroom.lrcat
-click 20 11; click 100 420 3   # File → Import Lightroom Catalog…
+click 20 11; click 100 444 3   # File → Import Lightroom Catalog…
 click 650 390; xdotool type /tmp/glimt-demo/Pictures/; sleep 1
 click 376 447 2   # Next
 xdotool mousemove 700 650; sleep 1
