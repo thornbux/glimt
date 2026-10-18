@@ -11,7 +11,7 @@
 #
 # One container installs the tools and builds both, and is kept as an image; the checks then
 # run in PARTS containers of it at once, each with its own X display, /tmp and HOME, in runs of
-# whole sections in their order (a section may use the files of the one before). The timings
+# whole sections in their order; a section makes what it needs itself. The timings
 # run after them with nothing else running, then cargo audit. The logs are printed in order.
 #
 # The work folder is under $HOME, as Docker on macOS (colima) only shares the home folder.

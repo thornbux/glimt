@@ -93,6 +93,18 @@ as_version() {
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
 config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
+# Set here, not in a section: run.sh may start a part at any section, so none may count on
+# what one before it made. A section's own files are made by the section, or by a function
+# here that makes them once (print_pictures).
+adobe=/usr/share/color/icc/colord/AdobeRGB1998.icc
+# 80 pictures of 3000x2000 in $src, for printing.
+print_pictures() {
+    src=/tmp/print
+    [ -d $src ] && return
+    mkdir -p $src
+    convert -size 3000x2000 xc: +noise Random -quality 92 /tmp/noise.jpg
+    for i in $(seq -w 1 80); do ln /tmp/noise.jpg $src/p$i.jpg; done
+}
 # The file or folder the stand-in file dialog answers with.
 answer() { printf '#!/bin/sh\necho "%s"\n' "$1" >/tmp/stub/zenity; chmod +x /tmp/stub/zenity; }
 # Start Glimt on ARGS and wait for its window; a second try if X refused the first. Sets GPID
@@ -2343,10 +2355,7 @@ for v in empty name; do
 done
 
 echo "-- printing 80 images of 3000x2000 to a PDF"
-src=/tmp/print
-mkdir -p $src
-convert -size 3000x2000 xc: +noise Random -quality 92 /tmp/noise.jpg
-for i in $(seq -w 1 80); do ln /tmp/noise.jpg $src/p$i.jpg; done
+print_pictures
 for v in new old; do
     as_version $v
     pdf=/tmp/print-$v.pdf
@@ -2374,6 +2383,7 @@ for v in new old; do
 done
 
 echo "-- closed while printing to a file: Glimt ends once the PDF is whole"
+print_pictures
 for v in new old; do
     as_version $v
     pdf=/tmp/print-closed-$v.pdf
@@ -2397,7 +2407,6 @@ as_version new
 
 echo "-- screen profile: Adobe RGB, so sRGB red is shown less red"
 as_version new
-adobe=/usr/share/color/icc/colord/AdobeRGB1998.icc
 d=/tmp/screen
 mkdir -p $d
 convert -size 600x400 xc:red $d/red.png

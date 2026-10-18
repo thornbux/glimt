@@ -132,9 +132,8 @@ a virtual X display, an ordinary user, a separate `HOME` and XDG folders, genera
 and a script named `zenity` early in `PATH` that answers for the file dialog. The checks run in
 as many containers at once as Docker's processors and memory allow (two processors and 2.5 GB
 each, 1 to 6; `PARTS=N` to choose), each with its own display, `/tmp` and
-`HOME`, in runs of whole sections, as a section may use the files of the one before; the
-timings run alone after them. A new check that needs another section's files goes right after
-it. Each check prints PASS or FAIL; timings and memory are printed for both versions, to
+`HOME`; the timings run alone after them. A part may start at any section, so a section makes
+what it needs itself (a function in the head of `tests.sh` for files several use). Each check prints PASS or FAIL; timings and memory are printed for both versions, to
 compare. `QUICK=1` leaves out
 the large folder and the EXIF timings. Screenshots of the steps are in
 `~/.cache/glimt-release-tests/out`.
