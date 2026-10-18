@@ -5,6 +5,7 @@ use crate::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::{exif, has_ext, human_size, raw};
 use eframe::egui;
 use image::ImageDecoder;
+use image::metadata::Orientation;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -77,12 +78,24 @@ pub fn decode(
     let (img, icc, orig) = match scaled_jpeg(path, max, rotate) {
         Some(scaled) => scaled,
         None => {
-            let (img, icc) = if page > 0 {
-                (tiff_page(path, page)?, None)
+            let (img, icc, turn) = if page > 0 {
+                (tiff_page(path, page)?, None, Orientation::NoTransforms)
             } else {
-                load_icc(path, rotate)?
+                load_unturned(path, rotate, None)?
             };
-            let orig = [img.width() as usize, img.height() as usize];
+            // Shrunk first, then turned: a 100 MP photo with orientation 6 turned whole would
+            // need a second 400 MB buffer for a moment.
+            let quarter = matches!(
+                turn,
+                Orientation::Rotate90
+                    | Orientation::Rotate270
+                    | Orientation::Rotate90FlipH
+                    | Orientation::Rotate270FlipH
+            );
+            let [w, h] = [img.width() as usize, img.height() as usize];
+            let orig = if quarter { [h, w] } else { [w, h] };
+            let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
+            img.apply_orientation(turn);
             (img, icc, orig)
         }
     };
@@ -340,23 +353,37 @@ pub fn load_for(
     rotate: bool,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
+    let (mut img, icc, turn) = load_unturned(path, rotate, max)?;
+    img.apply_orientation(turn);
+    Ok((img, icc))
+}
+
+/// As `load_for`, but the EXIF turn the image crate reads is returned, not done: the view
+/// shrinks first and turns the small image, not a copy of the whole one. Other formats come
+/// upright already (their turn is `NoTransforms`).
+fn load_unturned(
+    path: &Path,
+    rotate: bool,
+    max: Option<[u32; 2]>,
+) -> Result<(image::DynamicImage, Option<Vec<u8>>, Orientation), String> {
+    let upright = Orientation::NoTransforms;
     // Only ffmpeg's formats and SVG take it; without them it has no use.
     #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
     let _ = max;
     #[cfg(feature = "video")]
     if crate::external::is_video(path) {
-        return Ok((crate::video::preview(path, max)?, None));
+        return Ok((crate::video::preview(path, max)?, None, upright));
     }
     if has_ext(path, raw::EXTS) {
-        return Ok((raw::load(path, rotate)?, None));
+        return Ok((raw::load(path, rotate)?, None, upright));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::external::is_heif(path) {
-        return Ok((crate::external::heif(path, max)?, None));
+        return Ok((crate::external::heif(path, max)?, None, upright));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::files::SVG_EXTS) {
-        return Ok((svg(path, max)?, None));
+        return Ok((svg(path, max)?, None, upright));
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::files::JXL_EXTS) {
@@ -367,10 +394,10 @@ pub fn load_for(
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
-        return Ok((img, icc));
+        return Ok((img, icc, upright));
     }
     if let Some(decoder) = crate::decoders::for_path(path) {
-        return Ok((decoder.decode(path)?, None));
+        return Ok((decoder.decode(path)?, None, upright));
     }
     let dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
@@ -380,7 +407,9 @@ pub fn load_for(
     // Grey TIFFs the image crate does not take (floats, signed): through the tiff crate.
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::files::TIFF_LIKE) => {
-            return tiff_page(path, 0).map(|img| (img, None)).map_err(|_| e);
+            return tiff_page(path, 0)
+                .map(|img| (img, None, upright))
+                .map_err(|_| e);
         }
         dec => dec?,
     };
@@ -395,14 +424,12 @@ pub fn load_for(
         exif::adobe_rgb(&exif).then(|| ADOBE_RGB.clone())
     });
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
-    if rotate {
-        img.apply_orientation(orientation);
-    }
+    let turn = if rotate { orientation } else { upright };
     // Radiance HDR holds light as it was, far brighter than a screen: brought into its range.
     if has_ext(path, &["hdr"]) {
         img = tone_mapped(img.into_rgb32f());
     }
-    Ok((img, icc))
+    Ok((img, icc, turn))
 }
 
 /// A JPEG, or the preview in a RAW file, decoded at 1/2, 1/4 or 1/8 of its size when that still
@@ -668,6 +695,33 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+
+    /// A photo turned by EXIF is shown turned, at its turned size, when it is shrunk before the
+    /// turn: the left of the stored pixels at the top for orientation 6.
+    #[test]
+    fn shows_turned_photos_shrunk_first() {
+        use image::ImageEncoder;
+        let dir = std::env::temp_dir().join(format!("glimt-test-turned-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        // 400×200: red on the left, blue on the right; EXIF orientation 6.
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
+        let img = image::RgbImage::from_fn(400, 200, |x, _| match x < 200 {
+            true => image::Rgb([255, 0, 0]),
+            false => image::Rgb([0, 0, 255]),
+        });
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif.to_vec()).unwrap();
+        img.write_with_encoder(enc).unwrap();
+        let (frames, orig, _) = super::decode(&file, [50, 50], true, 0).unwrap();
+        let shown = &frames[0].0;
+        assert_eq!(orig, [200, 400]);
+        assert_eq!(shown.size, [25, 50]);
+        let (top, bottom) = (shown.pixels[0], shown.pixels[shown.pixels.len() - 1]);
+        assert!(top.r() > 200 && top.b() < 50, "{top:?}");
+        assert!(bottom.b() > 200 && bottom.r() < 50, "{bottom:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Every frame of a GIF and every page of a TIFF, one at a time, or only the one asked for.
     #[test]

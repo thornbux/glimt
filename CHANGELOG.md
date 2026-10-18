@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- An image turned by its EXIF orientation is shrunk to the view first and then turned, not turned
+  whole: a 100 MP PNG turned by EXIF no longer needs a second full-size buffer for a moment.
+
 ## [0.35.0] - 2026-10-18
 
 ### Changed
