@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A PNG saved turned a quarter swaps its resolution across and down (pHYs), so a scan with unequal
+  DPI does not print stretched.
 - A PNG saved turned leaves out ImageMagick's copies of its EXIF and XMP ("Raw profile type"
   text), which still held the old orientation, so Geeqie and digiKam no longer turn it a second
   time.
