@@ -42,6 +42,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   read: a sparse or crafted file of gigabytes in a folder could fill memory and end Glimt when its
   thumbnail was made.
 
+### Changed
+
+- The About page shows Glimt's logo beside its name and version.
+
 ## [0.37.1] - 2026-10-18
 
 ### Changed

@@ -976,11 +976,18 @@ const CREDITS: &[(&str, &str, &str)] = &[
 ];
 
 fn about(ui: &mut egui::Ui) {
-    ui.vertical_centered(|ui| {
-        ui.heading(format!("Glimt {}", env!("CARGO_PKG_VERSION")));
-        ui.label("A fast, memory-frugal image viewer for Linux.");
-        ui.label("Glimt is Norwegian for \"glimpse\": a quick look.");
-        ui.weak("Copyright © 2026 Hans-Henry Jakobsen");
+    // The logo as tall as the four lines beside it, so the two line up.
+    ui.horizontal(|ui| {
+        if let Some(logo) = logo(ui.ctx()) {
+            let tall = 4.0 * ui.text_style_height(&egui::TextStyle::Body) + 3.0 * ui.spacing().item_spacing.y;
+            ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(tall, tall)));
+        }
+        ui.vertical(|ui| {
+            ui.heading(format!("Glimt {}", env!("CARGO_PKG_VERSION")));
+            ui.label("A fast, memory-frugal image viewer for Linux.");
+            ui.label("Glimt is Norwegian for \"glimpse\": a quick look.");
+            ui.weak("Copyright © 2026 Hans-Henry Jakobsen");
+        });
     });
     ui.add_space(8.0);
     egui::CollapsingHeader::new("Credits")
@@ -1001,4 +1008,18 @@ fn about(ui: &mut egui::Ui) {
     egui::CollapsingHeader::new("License (MIT)").show(ui, |ui| {
         ui.label(include_str!("../LICENSE"));
     });
+}
+
+/// Glimt's logo as a texture: made the first time About is shown, then kept in egui's memory.
+fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let id = egui::Id::new("glimt-logo");
+    if let Some(logo) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return Some(logo);
+    }
+    let img = image::load_from_memory(crate::LOGO).ok()?.into_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    let pixels = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+    let logo = ctx.load_texture("glimt-logo", pixels, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, logo.clone()));
+    Some(logo)
 }

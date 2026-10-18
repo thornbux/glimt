@@ -843,6 +843,9 @@ impl Slot {
     }
 }
 
+/// Glimt's logo, 256 pixels square: the window's icon, and on the About page.
+const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
+
 /// One piece of background work, for the busy pointer (`busy`) or for closing (`writing`):
 /// counted while held, and no longer when dropped, also as its thread panics, which a count by
 /// hand would leave on for good.
@@ -8207,7 +8210,7 @@ fn main() -> eframe::Result {
         .with_title("Glimt")
         .with_app_id(app_id)
         .with_inner_size([1280.0, 800.0]);
-    if let Ok(icon) = image::load_from_memory(include_bytes!("../assets/glimt-256.png")) {
+    if let Ok(icon) = image::load_from_memory(LOGO) {
         let icon = icon.into_rgba8();
         viewport = viewport.with_icon(egui::IconData {
             width: icon.width(),
