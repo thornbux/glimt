@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The list of keys in use is made again only when an own key changes, not sorted many times in
+  every frame.
 - The size of a selection is worked out without making the selected files' paths in the window's
   thread, and Select All shows the folder's size, summed already.
 - A mark: or stars: search, and Select by Mark, go from the marked files to the list instead of

@@ -697,7 +697,7 @@ const MOUSE: &[(&str, &str)] = &[
 fn shortcuts(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
-    for (action, mods, key) in all_shortcuts() {
+    for &(action, mods, key) in all_shortcuts().iter() {
         if action == Action::Play && !cfg!(feature = "video") {
             continue;
         }
@@ -836,7 +836,8 @@ fn keymap(ui: &mut egui::Ui) {
         let actions: Vec<String> = key
             .map(|k| {
                 all_shortcuts()
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .filter(|s| s.2 == k && (s.0 != Action::Play || cfg!(feature = "video")))
                     .map(|(a, m, k)| {
                         let keys = ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k));
