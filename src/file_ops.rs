@@ -166,12 +166,7 @@ impl crate::App {
         // Moved before their sources are taken for deleted ones: the marks go along first.
         let moves: Vec<(Vec<(PathBuf, PathBuf)>, bool)> = self.put_rx.try_iter().collect();
         for (pairs, keep) in moves {
-            // A collection's entries follow the files that were moved, and only those.
-            if !keep && self.collection.is_some() {
-                self.follow_in_collection(&pairs);
-            }
-            #[cfg(feature = "marks")]
-            self.marks.put(pairs, keep);
+            self.paths_moved(pairs, keep);
         }
         let reports: Vec<Deleted> = self.deleted_rx.try_iter().collect();
         for (paths, gone, failed) in reports {
@@ -229,26 +224,30 @@ impl crate::App {
         }
     }
 
-    /// The collection's entries of the files moved `(from, to)` changed to where they are now.
-    fn follow_in_collection(&mut self, pairs: &[(PathBuf, PathBuf)]) {
-        let moved: HashMap<&Path, &Path> = pairs
-            .iter()
-            .map(|(a, b)| (a.as_path(), b.as_path()))
-            .collect();
-        for i in 0..self.files.len() {
-            if let Some(to) = moved.get(self.path(i).as_path())
-                && let Ok(rel) = to.strip_prefix(&self.dir)
-            {
-                self.files[i] = rel.as_os_str().to_owned();
-            }
-        }
-        self.edit_collection(|all| {
-            for p in all {
-                if let Some(to) = moved.get(p.as_path()) {
-                    *p = to.to_path_buf();
+    /// Files or folders moved or renamed `(from, to)`, or copied (`copied`): what Glimt keeps
+    /// about them follows, the one place every operation reports to. Their marks go along (to a
+    /// copy too); moved, a collection's entries of them, and of all in a moved folder, take the
+    /// new place, in the list and in its file.
+    pub(crate) fn paths_moved(&mut self, pairs: Vec<(PathBuf, PathBuf)>, copied: bool) {
+        if !copied && self.collection.is_some() {
+            let moved = moves(&pairs);
+            for i in 0..self.files.len() {
+                if let Some(to) = new_place(&self.path(i), &moved)
+                    && let Ok(rel) = to.strip_prefix(&self.dir)
+                {
+                    self.files[i] = rel.as_os_str().to_owned();
                 }
             }
-        });
+            self.edit_collection(|all| {
+                for p in all {
+                    if let Some(to) = new_place(p, &moved) {
+                        *p = to;
+                    }
+                }
+            });
+        }
+        #[cfg(feature = "marks")]
+        self.marks.put(pairs, copied);
     }
 
     /// Copy or move `paths` into `dest` in the background. Existing files are never
@@ -392,36 +391,19 @@ impl crate::App {
         }
         self.selected.clear();
         self.selection_changed(ctx);
-        #[cfg(feature = "marks")]
+        // Found by their old names: the list may have changed while they were renamed. Nothing
+        // renamed: the names stay.
         if !failed {
-            let pairs = job
-                .from
-                .iter()
-                .cloned()
-                .zip(job.to.iter().cloned())
-                .collect();
-            self.marks.put(pairs, false);
+            self.paths_moved(
+                job.from
+                    .iter()
+                    .cloned()
+                    .zip(job.to.iter().cloned())
+                    .collect(),
+                false,
+            );
         }
         if self.collection.is_some() {
-            // The collection keeps the files, under their new names, found by their old ones:
-            // the list may have changed while they were renamed. Nothing renamed: the names stay.
-            if !failed {
-                let new: HashMap<&PathBuf, &PathBuf> = job.from.iter().zip(&job.to).collect();
-                for i in 0..self.files.len() {
-                    if let Some(to) = new.get(&self.path(i))
-                        && let Ok(rel) = to.strip_prefix(&self.dir)
-                    {
-                        self.files[i] = rel.as_os_str().to_owned();
-                    }
-                }
-                self.edit_collection(|all| {
-                    for p in all {
-                        if let Some(to) = new.get(p) {
-                            *p = to.to_path_buf();
-                        }
-                    }
-                });
-            }
             return self.list(ctx);
         }
         // The list changed meanwhile: its numbers are other files' now, so it is read again.
@@ -516,8 +498,6 @@ impl crate::App {
             return;
         }
         self.forget_folder(&old);
-        #[cfg(feature = "marks")]
-        self.marks.put_folder(&old, &new);
         // Several folders shown together: the renamed one is read under its new name.
         for folder in &mut self.folders {
             if let Ok(rest) = folder.strip_prefix(&old) {
@@ -531,22 +511,7 @@ impl crate::App {
         {
             *file = new.join(rest);
         }
-        if self.collection.is_some() {
-            for i in 0..self.files.len() {
-                if let Ok(rest) = self.path(i).strip_prefix(&old)
-                    && let Ok(rel) = new.join(rest).strip_prefix(&self.dir)
-                {
-                    self.files[i] = rel.as_os_str().to_owned();
-                }
-            }
-            self.edit_collection(|all| {
-                for p in all {
-                    if let Ok(rest) = p.strip_prefix(&old) {
-                        *p = new.join(rest);
-                    }
-                }
-            });
-        }
+        self.paths_moved(vec![(old.clone(), new.clone())], false);
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {
                 // The shown file is under the new name now, also for a turn not saved yet.
@@ -860,6 +825,22 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// A moved file, a file in a moved folder, and one not moved; no trailing slash.
+    #[test]
+    fn finds_the_new_place() {
+        let p = std::path::PathBuf::from;
+        let pairs = vec![
+            (p("/a/x.jpg"), p("/b/y.jpg")),
+            (p("/trip"), p("/trip 2024")),
+        ];
+        let moved = super::moves(&pairs);
+        let at = |s: &str| super::new_place(std::path::Path::new(s), &moved);
+        assert_eq!(at("/a/x.jpg").unwrap().as_os_str(), "/b/y.jpg");
+        assert_eq!(at("/trip/day/1.jpg"), Some(p("/trip 2024/day/1.jpg")));
+        assert_eq!(at("/trip").unwrap().as_os_str(), "/trip 2024");
+        assert_eq!(at("/a/z.jpg"), None);
+    }
+
     /// Copying and moving never replace a file at the destination, and move or copy otherwise;
     /// a copy leaves no half file behind.
     #[test]
@@ -949,4 +930,24 @@ mod tests {
         assert_eq!(left, 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+
+/// `(from, to)` pairs to look up by the old path.
+pub(crate) fn moves(pairs: &[(PathBuf, PathBuf)]) -> HashMap<&Path, &Path> {
+    pairs
+        .iter()
+        .map(|(a, b)| (a.as_path(), b.as_path()))
+        .collect()
+}
+
+/// Where `path` is after the `moved` ones: moved itself, or in a folder that was.
+pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<PathBuf> {
+    path.ancestors().find_map(|a| {
+        let to = moved.get(a)?;
+        let rest = path.strip_prefix(a).ok()?;
+        Some(match rest.as_os_str().is_empty() {
+            true => to.to_path_buf(),
+            false => to.join(rest),
+        })
+    })
 }

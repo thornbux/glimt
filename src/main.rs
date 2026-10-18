@@ -6547,22 +6547,16 @@ impl App {
             | Prompt::RenameFolder => return,
             Prompt::Rename => std::fs::rename(self.path(self.cur), &target).inspect(|_| {
                 meta::follow(&self.path(self.cur), &target, false);
-                #[cfg(feature = "marks")]
-                self.marks
-                    .put(vec![(self.path(self.cur), target.clone())], false);
+                self.paths_moved(vec![(self.path(self.cur), target.clone())], false);
             }),
         };
         match (result, prompt) {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
             // The list keeps its folder and mode; the shown entry takes the new name.
             (Ok(()), _) => {
-                let old = self.path(self.cur);
                 if let Ok(rel) = target.strip_prefix(&self.dir) {
                     self.files[self.cur] = rel.as_os_str().to_owned();
                 }
-                self.edit_collection(|all| {
-                    (all.iter_mut().filter(|p| **p == old)).for_each(|p| *p = target.clone())
-                });
                 self.title(ctx);
                 self.list(ctx);
             }

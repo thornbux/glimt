@@ -81,18 +81,23 @@ impl Marks {
         }
     }
 
-    /// Folder `old` renamed to `new`: the marks of the files in it go along.
-    pub fn put_folder(&mut self, old: &Path, new: &Path) {
-        let pairs = (self.map.keys())
-            .filter_map(|k| Some((k.clone(), new.join(k.strip_prefix(old).ok()?))))
-            .collect();
-        self.put(pairs, false);
-    }
-
-    /// Files copied (`keep`) or moved and renamed `(from, to)`: the new ones get the marks.
+    /// Files or folders copied (`keep`) or moved and renamed `(from, to)`: the new ones get the
+    /// marks, also the files in a folder.
     pub fn put(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
+        let inside: Vec<(PathBuf, PathBuf)> = {
+            let moved = crate::file_ops::moves(&pairs);
+            (self.map.keys())
+                .filter_map(|k| {
+                    Some((
+                        k.clone(),
+                        crate::file_ops::new_place(k.parent()?, &moved)?.join(k.file_name()?),
+                    ))
+                })
+                .collect()
+        };
         let pairs: Vec<(PathBuf, PathBuf)> = (pairs.into_iter())
             .filter(|(from, to)| self.map.contains_key(from) || self.map.contains_key(to))
+            .chain(inside)
             .collect();
         if !pairs.is_empty() {
             put(&mut self.map, &pairs, keep);
@@ -362,7 +367,7 @@ mod tests {
         assert_eq!(m.get(&p("/b.jpg")), (0, 0));
         // A folder renamed: its files' marks go along; trashed: they go.
         m.rate(&[p("/trip/a.jpg")], 5);
-        m.put_folder(&p("/trip"), &p("/trip 2024"));
+        m.put(vec![(p("/trip"), p("/trip 2024"))], false);
         assert_eq!(m.get(&p("/trip 2024/a.jpg")), (0, 5));
         m.forget(&[p("/trip 2024")]);
         assert_eq!(m.get(&p("/trip 2024/a.jpg")), (0, 0));
