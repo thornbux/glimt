@@ -490,6 +490,13 @@ pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>
 /// A shortcut: the action, and the modifiers and key that run it.
 pub type Shortcut = (Action, egui::Modifiers, egui::Key);
 
+/// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
+/// alone, where a key pressed (and an own key read back) has both.
+pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
+    let (x, y) = (a.1, b.1);
+    (x.command, x.shift, x.alt, a.2) == (y.command, y.shift, y.alt, b.2)
+}
+
 /// The shortcuts in use: the user's own, and the defaults of the other actions. Those with
 /// more modifiers come first, as egui ignores an extra Shift or Alt when matching. Made again
 /// only when the own keys change: it is asked for many times in every frame.
@@ -505,9 +512,7 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     }
     // Defaults of actions with own keys go, and so does a default whose key an own key took.
     let mut all = own.clone();
-    all.extend(
-        (SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || (o.1, o.2) == (s.1, s.2))),
-    );
+    all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
     let all: std::sync::Arc<[Shortcut]> = all.into();
@@ -596,6 +601,14 @@ mod tests {
             .map(|s| s.0)
             .collect();
         assert_eq!(on_r, [Action::ZoomFit]);
+        // Also a key with Ctrl, which the defaults and own keys say each their way.
+        let ctrl_n = "Next=Ctrl+N".parse::<Keys>().unwrap();
+        *super::OWN_KEYS.write().unwrap() = ctrl_n.0.clone();
+        let all = super::shortcuts();
+        assert!(
+            !all.iter()
+                .any(|s| s.0 == Action::NewWindow && super::same_keys(s, &ctrl_n.0[0]))
+        );
         super::OWN_KEYS.write().unwrap().clear();
     }
 }

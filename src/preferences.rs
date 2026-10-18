@@ -591,7 +591,7 @@ impl crate::App {
                     // Said when another action has the key: the new one takes it, and the other
                     // no longer answers to it.
                     let taken: Vec<&str> = (shortcuts().iter())
-                        .filter(|s| s.0 != action && s.1 == mods && s.2 == key)
+                        .filter(|s| s.0 != action && actions::same_keys(s, &(action, mods, key)))
                         .map(|s| s.0.label())
                         .collect();
                     if !taken.is_empty() {
@@ -608,7 +608,7 @@ impl crate::App {
                     self.config
                         .keys
                         .0
-                        .retain(|k| k.0 != action && (k.1, k.2) != (mods, key));
+                        .retain(|k| k.0 != action && !actions::same_keys(k, &(action, mods, key)));
                     self.config.keys.0.push((action, mods, key));
                     self.config.save();
                     if let Ok(mut own) = OWN_KEYS.write() {

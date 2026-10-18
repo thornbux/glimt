@@ -5155,7 +5155,7 @@ impl App {
             if i.events.len() < copies {
                 // Whatever has Ctrl+C: Copy, unless the user gave the key to another action.
                 return (all.iter())
-                    .find(|s| s.1 == CTRL && s.2 == egui::Key::C)
+                    .find(|s| actions::same_keys(s, &(s.0, CTRL, egui::Key::C)))
                     .map(|s| s.0);
             }
             all.iter()
