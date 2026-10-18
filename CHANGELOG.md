@@ -9,6 +9,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - A file written again gets its permissions before its contents, so a private photo or sidecar is
   never readable by others while it is written.
+- An SVG's pictures count by their decoded size, at most 1 GB for one SVG: a small plain picture
+  that is large once decoded, named a thousand times, can no longer hold the decoding for minutes.
+- An SVG gzipped twice is refused: its inner layer would have been unpacked without a limit, which
+  a small file could use to take all memory.
 
 ### Fixed
 
@@ -30,6 +34,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   getting back every image.
 - A failed delete puts back only the images it took out of the collection shown: not a folder that
   could not go to the trash, nor the images of another collection opened meanwhile.
+- A PNG saved turned a quarter swaps its resolution across and down (pHYs), so a scan with unequal
+  DPI does not print stretched.
+- A PNG saved turned leaves out ImageMagick's copies of its EXIF and XMP ("Raw profile type"
+  text), which still held the old orientation, so Geeqie and digiKam no longer turn it a second
+  time.
 
 ## [0.36.0] - 2026-10-18
 

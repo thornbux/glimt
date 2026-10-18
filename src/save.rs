@@ -201,6 +201,10 @@ fn png_with_chunks(new: &[u8], old: &[u8]) -> Vec<u8> {
         b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB",
     ];
     let (end, mut kept) = (33, Vec::new());
+    // Turned a quarter: width and height swapped in the header, and so in pHYs, the pixels per
+    // unit across and down (a fax-like scan of 204×98 dpi would print stretched else).
+    let size = |png: &[u8]| Some((png.get(16..20)?.to_vec(), png.get(20..24)?.to_vec()));
+    let swapped = matches!((size(old), size(new)), (Some((ow, oh)), Some((nw, nh))) if ow != oh && ow == nh && oh == nw);
     let mut at = 8;
     while let Some(len) = old.get(at..at + 4) {
         let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
@@ -209,7 +213,21 @@ fn png_with_chunks(new: &[u8], old: &[u8]) -> Vec<u8> {
         };
         let name = &chunk[4..8];
         let xmp = name == b"iTXt" && chunk[8..].starts_with(b"XML:com.adobe.xmp\0");
-        if KEPT.iter().any(|k| *k == name) && !xmp {
+        // ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2
+        // (Geeqie, digiKam) reads: the turned file would be turned again there.
+        let old_profile = [
+            &b"Raw profile type exif"[..],
+            b"Raw profile type APP1",
+            b"Raw profile type xmp",
+        ]
+        .iter()
+        .any(|key| matches!(name, b"tEXt" | b"zTXt" | b"iTXt") && chunk[8..].starts_with(key));
+        if name == b"pHYs" && swapped && len == 9 {
+            let body = [&b"pHYs"[..], &chunk[12..16], &chunk[8..12], &chunk[16..17]].concat();
+            kept.extend(9u32.to_be_bytes());
+            kept.extend(&body);
+            kept.extend(crc32(&body).to_be_bytes());
+        } else if KEPT.iter().any(|k| *k == name) && !xmp && !old_profile {
             kept.extend_from_slice(chunk);
         }
         // Text may come after the pixels too: read up to the end.
@@ -359,13 +377,32 @@ mod tests {
         old.extend(chunk(b"iTXt", b"XML:com.adobe.xmp\0\0\0\0\0<x/>"));
         old.extend(&new[33..new.len() - 12]);
         old.extend(chunk(b"tEXt", b"Comment\0hello"));
+        old.extend(chunk(b"zTXt", b"Raw profile type exif\0\0x"));
+        old.extend(chunk(b"tEXt", b"Raw profile type xmp\0x"));
         old.extend(&new[new.len() - 12..]);
         let out = super::png_with_chunks(&new, &old);
         let has = |name: &[u8]| out.windows(4).any(|w| w == name);
         assert!(has(b"pHYs") && has(b"tEXt"));
-        assert!(!has(b"tRNS") && !has(b"iTXt"));
+        assert!(!out.windows(16).any(|w| w == b"Raw profile type"));
+        assert!(!has(b"tRNS") && !has(b"iTXt") && !has(b"zTXt"));
         let dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
         assert_eq!(image::ImageDecoder::dimensions(&dec), (2, 2));
+        // Turned a quarter (a 2×3 picture now): pHYs across and down swapped, its CRC right.
+        let mut tall = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut tall)
+            .write_image(&[0; 2 * 3 * 3], 2, 3, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut wide = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut wide)
+            .write_image(&[0; 3 * 2 * 3], 3, 2, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut old = wide[..33].to_vec();
+        old.extend(chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
+        old.extend(&wide[33..]);
+        let out = super::png_with_chunks(&tall, &old);
+        let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
+        assert_eq!(&out[at + 4..at + 13], &[0, 0, 0, 98, 0, 0, 0, 204, 1]);
+        image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
         for broken in crate::broken(&old) {
             super::png_with_chunks(&new, &broken);
         }
