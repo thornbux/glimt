@@ -77,7 +77,7 @@ pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
 /// Write the alt text and extended description of `path` to its sidecar; everything else in it
 /// stays. Ones the image holds itself and that were cleared are written empty, as the comment.
 pub fn write_access(path: &Path, access: &Access) -> Result<(), String> {
-    let _held = held();
+    let _held = held(path);
     let own = embedded(path).is_some_and(|x| parse_access(&x) != Access::default());
     update(path, *access == Access::default() && !own, |x| {
         set_access(x, access, own)
@@ -202,7 +202,7 @@ pub fn write_changed(
     keywords: Option<Vec<String>>,
     comment: Option<String>,
 ) -> Result<Meta, String> {
-    let _held = held();
+    let _held = held(path);
     let mut meta = read(path);
     let keywords_only = comment.is_none();
     if let Some(k) = keywords {
@@ -225,7 +225,7 @@ pub fn write_changed(
 
 /// Add `keywords` to those `path` has, read and written as one change.
 pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
-    let _held = held();
+    let _held = held(path);
     let mut meta = read(path);
     for k in keywords {
         if !meta.keywords.iter().any(|m| same(m, k)) {
@@ -237,14 +237,32 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     })
 }
 
-/// Held while a sidecar is read and written again: keywords are added in the background while
-/// the stars or the comment of the same file may be saved, each through the same temporary file.
-/// shortcut: within this Glimt only; two windows changing one sidecar at the same moment can
-/// lose one change (not the file, which is replaced whole). A file lock (File::lock, Rust 1.89)
-/// if that is ever seen.
-fn held() -> std::sync::MutexGuard<'static, ()> {
+/// Held while the sidecar of `path` is read and written again, by this window's threads and by
+/// every other Glimt window: keywords added in the background, stars saved and a comment edited
+/// in another window meanwhile each keep what the others wrote. A lock file in Glimt's runtime
+/// folder, one of 64 chosen by the sidecar's path, not one beside it in the user's folder; the
+/// lock within this Glimt alone where there is no runtime folder.
+fn held(path: &Path) -> (std::sync::MutexGuard<'static, ()>, Option<std::fs::File>) {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    let ours = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let side = sidecar(path);
+    let file = crate::remote::dir().and_then(|d| lock_file(&d.join("sidecar-locks"), &side));
+    (ours, file)
+}
+
+fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
+    use std::hash::{Hash, Hasher};
+    use std::os::unix::fs::DirBuilderExt;
+    // The same keys in every process, so every window picks the same file for a sidecar.
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    side.hash(&mut hash);
+    let _ = std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir);
+    let file = std::fs::File::create(dir.join(format!("{}", hash.finish() % 64))).ok()?;
+    file.lock().ok()?;
+    Some(file)
 }
 
 /// Change the sidecar of `path` with `change`, or a new, empty one unless `only_if_there`: then
@@ -255,7 +273,7 @@ pub fn update_sidecar(
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
-    let _held = held();
+    let _held = held(path);
     update(path, only_if_there, change)
 }
 
@@ -465,7 +483,7 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
 /// among the keywords, and the whole path in lr:hierarchicalSubject, where darktable, digiKam
 /// and Lightroom keep the tree's place of a keyword.
 pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
-    let _held = held();
+    let _held = held(path);
     let mut meta = read(path);
     let mut paths = tree_paths(path);
     set_tag(&mut meta.keywords, &mut paths, tag, on);
@@ -479,7 +497,7 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
 /// keywords and each path in lr:hierarchicalSubject, beside what it has, which stays. Nothing is
 /// written when it has them all.
 pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
-    let _held = held();
+    let _held = held(path);
     let mut meta = read(path);
     let mut paths = tree_paths(path);
     let (keywords, known) = (meta.keywords.clone(), paths.clone());
@@ -590,6 +608,25 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// The lock of a sidecar holds off another holder of it, as another window would be, until
+    /// it is let go.
+    #[test]
+    fn sidecar_lock_waits() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-locks-{}", std::process::id()));
+        let side = std::path::PathBuf::from("/photos/a.xmp");
+        let first = super::lock_file(&dir, &side).unwrap();
+        let (dir2, side2) = (dir.clone(), side.clone());
+        let started = std::time::Instant::now();
+        let other = std::thread::spawn(move || {
+            drop(super::lock_file(&dir2, &side2).unwrap());
+            started.elapsed()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(first);
+        assert!(other.join().unwrap() >= std::time::Duration::from_millis(300));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Read together, the keywords, their tree paths and the alt text are those read one by
     /// one: the sidecar's where it has them, else the image's own.
     #[test]

@@ -14,6 +14,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Keywords, a comment, alt text or stars saved for the same image by two Glimt windows at the same
+  moment both stay in its XMP sidecar: each window now waits for the other's write, through a lock
+  in Glimt's runtime folder, not a file beside the photo.
 - Closing Glimt while it prints to a PDF, moves files or a folder to the trash, puts a cut-short
   Rename Many right, runs a plugin or imports Lightroom collections waits for that to end, as it
   does for copies and moves, instead of ending it halfway.

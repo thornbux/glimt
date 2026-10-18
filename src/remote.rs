@@ -56,7 +56,8 @@ fn is_query(command: &str) -> bool {
 /// does not answer, holds up the others no longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-fn dir() -> Option<PathBuf> {
+/// Glimt's runtime folder, which only the user can reach: sockets, and the sidecar locks.
+pub(crate) fn dir() -> Option<PathBuf> {
     let mut dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
     if let Some(id) = std::env::var_os("FLATPAK_ID") {
         dir = dir.join("app").join(id);
