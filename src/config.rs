@@ -704,12 +704,13 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
     // On disk before the rename: after a crash the old file or the new one, never an empty one.
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
         .and_then(|_| std::fs::File::create(&tmp))
-        .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
-        // The file's own permissions, as a sidecar or a list kept private (0600) stays so.
-        .and_then(|_| match std::fs::metadata(path) {
-            Ok(old) => std::fs::set_permissions(&tmp, old.permissions()),
-            Err(_) => Ok(()),
+        // The file's own permissions, as a sidecar or a list kept private (0600) stays so; set
+        // before a byte is written, so no one else can open it meanwhile.
+        .and_then(|f| match std::fs::metadata(path) {
+            Ok(old) => f.set_permissions(old.permissions()).map(|_| f),
+            Err(_) => Ok(f),
         })
+        .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);

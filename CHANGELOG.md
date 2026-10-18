@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- A file written again gets its permissions before its contents, so a private photo or sidecar is
+  never readable by others while it is written.
+
 ### Fixed
 
 - A file saved over under its own name by another program shows its new size and date in the list
@@ -15,6 +20,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   image shown before.
 - A turned image that another program removes or renames no longer passes its turn, or its zoom,
   to the image shown in its place, where moving on wrote the turn into that file.
+- Each Rename Many writes its plan to a file of its own, so a plan left by a crash is never
+  written over by a new Rename Many of a Glimt that got the same process ID after a restart.
+- Putting the old names back after a Rename Many cut short between the two halves of one rename
+  now works, instead of leaving a photo under a hidden name and asking again at every start.
+- Rename Folder while a collection is shown takes the collection's images in that folder along to
+  the new name, in the collection's file too.
+- A collection that another window emptied stays empty when this window saves it, instead of
+  getting back every image.
+- A failed delete puts back only the images it took out of the collection shown: not a folder that
+  could not go to the trash, nor the images of another collection opened meanwhile.
 
 ## [0.36.0] - 2026-10-18
 

@@ -50,14 +50,18 @@ impl Drop for Journal {
 /// if that fails: the renames then run as they did before, without a plan.
 pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     std::fs::create_dir_all(dir).ok()?;
-    let path = dir.join(crate::remote::instance_id());
-    // Emptied only once locked: a plan this window is still carrying out is never wiped.
-    let mut file = (std::fs::OpenOptions::new().write(true).create(true))
-        .truncate(false)
+    // A name of its own, never one there: a plan left by a crash, of a Glimt that had the same
+    // process ID before a restart, is not written over and lost.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let path = dir.join(format!("{}-{nanos}", crate::remote::instance_id()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
         .open(&path)
         .ok()?;
     file.try_lock().ok()?;
-    file.set_len(0).ok()?;
     let mut bytes = [COUNTED, b"\0"].concat();
     for (a, b) in moves {
         for p in [a, b] {
@@ -121,6 +125,15 @@ pub fn settle(
         return (0, 0);
     };
     let (mut renamed, mut left) = (0, 0);
+    // Put back: the step cut short between its link and its unlink, the first not counted, has
+    // its new name taken away first, so the steps before it can be undone.
+    if undo
+        && let Some((a, b)) = done.and_then(|d| moves.get(d))
+        && same_file(a, b)
+        && std::fs::remove_file(b).is_ok()
+    {
+        renamed += 1;
+    }
     let (before, after) = match done {
         Some(done) => moves.split_at(done.min(moves.len())),
         None => (moves, moves),
@@ -180,10 +193,12 @@ mod tests {
             (p(".tmp-1"), p("a.jpg")),
         ];
         let running = super::begin(&plans, &moves).unwrap();
+        // A second one has a plan of its own; neither is taken for one cut short.
+        let second = super::begin(&plans, &moves[..1]).unwrap();
+        assert_ne!(running.path, second.path);
         assert!(super::interrupted(&plans).is_empty());
-        // A second one while it runs is refused, and the plan stays as it was.
-        assert!(super::begin(&plans, &moves[..1]).is_none());
-        let plan_now = std::fs::read(plans.join(crate::remote::instance_id())).unwrap();
+        drop(second);
+        let plan_now = std::fs::read(&running.path).unwrap();
         assert_eq!(
             plan_now
                 .split(|&b| b == 0)
@@ -199,8 +214,8 @@ mod tests {
         let mut cut = super::begin(&plans, &moves).unwrap();
         cut.done();
         cut.done();
+        let plan = cut.path.clone();
         std::mem::forget(cut);
-        let plan = plans.join(crate::remote::instance_id());
         // As after a crash: the lock is gone with the process.
         let found = {
             std::fs::copy(&plan, plans.join("crashed")).unwrap();
@@ -224,6 +239,16 @@ mod tests {
         assert!(!p(".tmp-0").exists());
         std::fs::rename(p("a.jpg"), p(".tmp-1")).unwrap();
         std::fs::rename(p("b.jpg"), p(".tmp-0")).unwrap();
+        // The same, put back: the new name of the half-done step goes, then the two before.
+        std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
+        std::fs::copy(&path, plans.join("linked")).unwrap();
+        assert_eq!(
+            super::settle(&plans.join("linked"), &read, Some(2), true),
+            (3, 0)
+        );
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
+        std::fs::rename(p("a.jpg"), p(".tmp-0")).unwrap();
+        std::fs::rename(p("b.jpg"), p(".tmp-1")).unwrap();
         // While another window puts it right, this one does nothing.
         let other = std::fs::File::open(&path).unwrap();
         other.lock().unwrap();
