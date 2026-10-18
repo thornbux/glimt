@@ -4674,11 +4674,22 @@ impl App {
                 stars >= n
             }
         };
+        let names = self.marked_names(hit);
         Some(
             (0..self.files.len())
-                .filter(|&i| hit(self.marks.get(&self.path(i))))
+                .filter(|&i| names.contains(self.files[i].as_os_str()))
                 .collect(),
         )
+    }
+
+    /// The names in the list of the files whose (marks, stars) `hit` takes: from the marked
+    /// files, a few thousand at most, not a path made for each of 500,000 at every key press.
+    #[cfg(feature = "marks")]
+    fn marked_names(&self, hit: impl Fn((u8, u8)) -> bool) -> HashSet<&std::ffi::OsStr> {
+        (self.marks.marked())
+            .filter(|&(_, v)| hit(v))
+            .filter_map(|(p, _)| Some(p.strip_prefix(&self.dir).ok()?.as_os_str()))
+            .collect()
     }
 
     #[cfg(not(feature = "marks"))]
@@ -5577,9 +5588,11 @@ impl App {
         self.marks.refresh();
         if kind == 's' {
             let bit = 1 << (n - 1);
-            self.selected = (self.shown_files().into_iter())
-                .filter(|&i| self.marks.get(&self.path(i)).0 & bit != 0)
+            let names = self.marked_names(|(bits, _)| bits & bit != 0);
+            let picked = (self.shown_files().into_iter())
+                .filter(|&i| names.contains(self.files[i].as_os_str()))
                 .collect();
+            self.selected = picked;
             self.anchor = None;
             self.selection_changed(ctx);
             return;

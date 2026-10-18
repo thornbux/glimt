@@ -44,6 +44,11 @@ impl Marks {
         }
     }
 
+    /// Every file with a mark or stars, and them.
+    pub fn marked(&self) -> impl Iterator<Item = (&Path, (u8, u8))> {
+        self.map.iter().map(|(p, &v)| (p.as_path(), v))
+    }
+
     /// (mark bits, stars) of `path`.
     pub fn get(&self, path: &Path) -> (u8, u8) {
         self.map.get(path).copied().unwrap_or_default()

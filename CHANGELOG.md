@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A mark: or stars: search, and Select by Mark, go from the marked files to the list instead of
+  making a path for every file: in a folder of 500,000 each key press no longer costs tens of
+  milliseconds.
+
 ## [0.35.0] - 2026-10-18
 
 ### Changed
