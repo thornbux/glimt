@@ -161,7 +161,12 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         loaded => loaded?,
     };
+    let before = all.clone();
     change(&mut all);
+    // Nothing changed (an unrelated folder renamed): the file stays as it is.
+    if all == before {
+        return Ok(());
+    }
     save(file, &all)
 }
 
@@ -401,6 +406,11 @@ mod tests {
         })
         .unwrap();
         assert_eq!(super::load(&file).unwrap(), [p("/b"), p("/d")]);
+        // A change that changes nothing leaves the file as it was.
+        let written = std::fs::metadata(&file).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        super::edit(&file, false, |all| all.retain(|_| true)).unwrap();
+        assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), written);
         let gone = dir.join("gone.gqv");
         assert!(super::edit(&gone, false, |all| all.clear()).is_err());
         assert!(!gone.exists());

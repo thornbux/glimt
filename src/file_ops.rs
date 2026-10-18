@@ -248,20 +248,25 @@ impl crate::App {
             self.turned = to;
         }
         if !copied && self.collection.is_some() {
+            let mut any = false;
             for i in 0..self.files.len() {
                 if let Some(to) = new_place(&self.path(i), &moved)
                     && let Ok(rel) = to.strip_prefix(&self.dir)
                 {
                     self.files[i] = rel.as_os_str().to_owned();
+                    any = true;
                 }
             }
-            self.edit_collection(|all| {
-                for p in all {
-                    if let Some(to) = new_place(p, &moved) {
-                        *p = to;
+            // None of its images moved: the file is not touched, nor said to be gone.
+            if any {
+                self.edit_collection(|all| {
+                    for p in all {
+                        if let Some(to) = new_place(p, &moved) {
+                            *p = to;
+                        }
                     }
-                }
-            });
+                });
+            }
         }
         #[cfg(feature = "marks")]
         self.marks.put(pairs, copied);

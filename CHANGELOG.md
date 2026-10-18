@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A collection's file is no longer written again when a move or rename leaves its images as they
+  were, nor called gone for an unrelated folder renamed while it is shown.
 - Renaming or moving a file with many marked files is quick again: all marks are looked through
   only when a folder is renamed (since 0.37.0).
 - Two Glimt windows from different builds (an AppImage and a distribution's package) wait for each
