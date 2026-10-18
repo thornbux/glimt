@@ -16,6 +16,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   making a path for every file: in a folder of 500,000 each key press no longer costs tens of
   milliseconds.
 
+### Fixed
+
+- The place [n/m] the status bar tells for an image in another pane is worked out again after a
+  new search, which may have as many matches as the one before.
+
 ## [0.35.0] - 2026-10-18
 
 ### Changed

@@ -4484,6 +4484,8 @@ impl App {
         let query = self.search.trim().to_owned();
         let query = query.as_str();
         self.match_rows.set(Default::default());
+        // A place "[n/m]" told for another pane: another search may have as many matches.
+        self.status_place = None;
         self.search_error = None;
         self.matches = self.search_matches(ctx, query);
         // Size of the matches in the background; a new search drops the receiver, which
