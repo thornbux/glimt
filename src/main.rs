@@ -1562,6 +1562,9 @@ impl App {
         let keep = Arc::new(Mutex::new(vec![0]));
         let full_ok = Arc::new(AtomicUsize::new(1));
         let (mut config, problems) = Config::load_checked();
+        // Include Subfolders starts off each time: kept on, every start in a large tree read all
+        // of it before its folders showed.
+        config.show_subfolders = false;
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();
@@ -5088,7 +5091,7 @@ impl App {
     }
 
     /// A command from `glimt --remote`: next, prev, first, last, slideshow, random, fullscreen,
-    /// quit, or open PATH.
+    /// subfolders on|off, quit, or open PATH.
     fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let action = match command.trim() {
             "next" => Some(Action::Next),
@@ -5103,6 +5106,8 @@ impl App {
                 self.kiosk_quit = true;
                 Some(Action::Quit)
             }
+            "subfolders on" => return self.set_subfolders(ctx, true),
+            "subfolders off" => return self.set_subfolders(ctx, false),
             other => {
                 if let Some(path) = other.strip_prefix("open ") {
                     self.visit(ctx, PathBuf::from(path));

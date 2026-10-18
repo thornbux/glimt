@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Include Subfolders is off at every start: kept on, a start in a folder with many subfolders read
+  the whole tree before any folder showed.
+
+### Added
+
+- glimt --remote subfolders on|off turns Include Subfolders on or off.
+
 ## [0.37.2] - 2026-10-18
 
 ### Fixed
