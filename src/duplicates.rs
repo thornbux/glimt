@@ -80,12 +80,7 @@ pub fn find(
             p.done.store(0, Ordering::Relaxed);
             (found.into_iter())
                 .take_while(|_| !p.cancel.load(Ordering::Relaxed))
-                .flat_map(|group| {
-                    let n = group.len();
-                    let alike = same_contents(group);
-                    p.done.fetch_add(n, Ordering::Relaxed);
-                    alike
-                })
+                .flat_map(|group| same_contents(group, p))
                 .collect()
         }
         By::Dimensions => {
@@ -194,9 +189,14 @@ fn parallel<T: Send>(
 }
 
 /// `group` split into the files whose bytes are the same, groups of one left out.
-fn same_contents(group: Vec<PathBuf>) -> Vec<Vec<PathBuf>> {
+/// Counted in `p` file by file, and stopped by its Cancel: one group may hold thousands.
+fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
     let mut alike: Vec<Vec<PathBuf>> = Vec::new();
     for path in group {
+        if p.cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        p.done.fetch_add(1, Ordering::Relaxed);
         match alike.iter_mut().find(|a| same_bytes(&a[0], &path)) {
             Some(a) => a.push(path),
             None => alike.push(vec![path]),
@@ -507,7 +507,7 @@ mod tests {
         let mut other = vec![7u8; 100_000];
         other[99_999] = 8;
         std::fs::write(&files[2], other).unwrap();
-        let groups = super::same_contents(files.clone());
+        let groups = super::same_contents(files.clone(), &super::Progress::default());
         assert_eq!(groups, [files[..2].to_vec()]);
         std::fs::remove_dir_all(dir).unwrap();
     }
