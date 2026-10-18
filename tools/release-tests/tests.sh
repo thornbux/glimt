@@ -271,6 +271,21 @@ for v in new old; do
 done
 as_version new
 
+echo "-- an empty folder: the turn keys leave Glimt running"
+for v in new old; do
+    as_version $v
+    d=/tmp/turn-empty-$v
+    mkdir -p $d
+    config
+    start $d
+    key bracketright; key bracketleft; key shift+m
+    alive=$(kill -0 $GPID 2>/dev/null && echo runs || echo ended)
+    quit
+    if [ $v = new ]; then expect "Glimt still runs" "$alive" runs
+    else note "old: $alive"; fi
+done
+as_version new
+
 echo "-- a turned image removed by another program: its turn goes to no other image"
 for v in new old; do
     as_version $v

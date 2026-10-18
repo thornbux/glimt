@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The turn and mirror keys in an empty folder no longer end Glimt (since 0.37.0).
+
 ## [0.37.1] - 2026-10-18
 
 ### Changed

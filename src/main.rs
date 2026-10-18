@@ -5574,9 +5574,13 @@ impl App {
             | Action::Rotate180
             | Action::Mirror
             | Action::Flip => {
+                // Nothing shown: nothing to turn.
+                if self.files.is_empty() {
+                    return;
+                }
                 // Until it is saved the old picture shows: turned again, it would be saved twice,
                 // into the same temporary file.
-                if !self.files.is_empty() && self.saving.contains(&self.path(self.cur)) {
+                if self.saving.contains(&self.path(self.cur)) {
                     self.notice = Some("Still saving the last rotation of this file".into());
                     return;
                 }
