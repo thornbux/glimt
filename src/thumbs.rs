@@ -67,10 +67,7 @@ fn thumbnail_in(
     {
         match &made {
             Ok(img) => drop(write(file, img, &uri, mtime)),
-            // Not when ffmpeg or a decoder plugin is not there: it may be installed later. A file
-            // it cannot read is marked, or it is tried again on every visit (2,000 TypeScript
-            // sources named .ts, which are video endings too, start ffmpeg 4,000 times).
-            Err(e) if !(needs_program(path) && program_missing(e)) => {
+            Err(e) if worth_marking(path, e) => {
                 drop(write(failed, &image::RgbaImage::new(1, 1), &uri, mtime))
             }
             Err(_) => {}
@@ -254,6 +251,15 @@ fn md5(data: &[u8]) -> [u8; 16] {
     out
 }
 
+/// Whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or a
+/// decoder plugin is not there: it may be installed later; nor when the file could not be read
+/// (a share or a stick away for a moment): the system's errors say "(os error N)", a file that
+/// is no picture does not. Others are marked, or tried again on every visit (2,000 TypeScript
+/// sources named .ts, which are video endings too, would start ffmpeg 4,000 times).
+fn worth_marking(path: &Path, error: &str) -> bool {
+    !(needs_program(path) && program_missing(error)) && !error.contains("(os error")
+}
+
 /// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
 fn needs_program(path: &Path) -> bool {
     crate::external::is_heif(path)
@@ -281,6 +287,14 @@ mod tests {
         assert!(super::program_missing(missing));
         assert!(!super::program_missing(
             "Invalid data found when processing input"
+        ));
+        // A photo whose share went away for a moment is tried again; a broken one is not.
+        let jpg = std::path::Path::new("/a.jpg");
+        let away = std::io::Error::from_raw_os_error(5).to_string();
+        assert!(!super::worth_marking(jpg, &away));
+        assert!(super::worth_marking(
+            jpg,
+            "Format error decoding Jpeg: invalid marker"
         ));
     }
 

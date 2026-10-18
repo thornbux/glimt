@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A thumbnail that failed because the file could not be read for a moment (a share or a stick
+  away) is tried again later, instead of the file being marked as having none until it changes.
 - ffprobe, which reads how a HEIC or AVIF photo is tiled, is stopped after 30 seconds as ffmpeg
   is: a file that kept it busy would hold the decoding with it.
 - A file whose name is not UTF-8 (a Latin-1 "røntgen.dcm") is listed and shown by its decoder
