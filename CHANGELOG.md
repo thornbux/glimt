@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- An SVG gzipped twice is refused: its inner layer would have been unpacked without a limit, which
+  a small file could use to take all memory.
+
 ## [0.36.0] - 2026-10-18
 
 ### Added

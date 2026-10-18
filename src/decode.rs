@@ -633,6 +633,10 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
     // usvg unpacks a .svgz without a limit: 10 MB of zeros would be 10 GB.
     if data.starts_with(&[0x1f, 0x8b]) {
         data = gunzip(&data, 64 << 20)?;
+        // Gzipped twice: usvg would unpack the inner one, without a limit.
+        if data.starts_with(&[0x1f, 0x8b]) {
+            return Err("SVG gzipped twice".into());
+        }
     }
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
@@ -1097,6 +1101,16 @@ mod tests {
         assert_eq!(super::gunzip(&packed, 5000).map(|d| d.len()), Ok(5000));
         assert!(super::gunzip(&packed, 4999).is_err());
         assert!(super::gunzip(&packed[..10], 5000).is_err());
+        // Gzipped twice: refused, not handed to usvg's own unpacking.
+        let mut twice = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        twice.write_all(&packed).unwrap();
+        let file = std::env::temp_dir().join(format!("glimt-twice-{}.svgz", std::process::id()));
+        std::fs::write(&file, twice.finish().unwrap()).unwrap();
+        assert_eq!(
+            super::svg(&file, None).err().as_deref(),
+            Some("SVG gzipped twice")
+        );
+        std::fs::remove_file(file).unwrap();
     }
 
     /// An SVG that points at /dev/zero, or at a picture claiming 100,000×100,000 pixels, is
