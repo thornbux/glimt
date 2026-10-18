@@ -186,15 +186,23 @@ impl crate::App {
             // collection.
             // One of the folder shown that it did not hold back: it was left and opened again
             // meanwhile, and its listing may still have files that are gone now.
-            let mut unknown = false;
-            for rel in paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok()) {
-                unknown |= !self.deleting.remove(rel.as_os_str());
+            let (mut unknown, mut held) = (false, Vec::new());
+            for p in &paths {
+                let Ok(rel) = p.strip_prefix(&self.dir) else {
+                    continue;
+                };
+                match self.deleting.remove(rel.as_os_str()) {
+                    true => held.push(p),
+                    false => unknown = true,
+                }
             }
             self.relist |= unknown;
             // A collection is read again from its own list, which they left when the delete
-            // began: those still there (it failed, or Stop came first) go back into it.
+            // began: those still there (it failed, or Stop came first) go back into it. Only
+            // those this list held back: not a folder moved to the trash, nor the images of
+            // another collection opened meanwhile.
             if failed && self.collection.is_some() {
-                self.restore_to_collection(&paths, &gone);
+                self.restore_to_collection(&held, &gone);
             }
             // The files that are still there come back into the list. A listing that started
             // before the files went still has them: the folder is read again after it.
@@ -203,11 +211,11 @@ impl crate::App {
     }
 
     /// `paths` that are not `gone` back at the end of the collection, and in its file.
-    fn restore_to_collection(&mut self, paths: &[PathBuf], gone: &[PathBuf]) {
+    fn restore_to_collection(&mut self, paths: &[&PathBuf], gone: &[PathBuf]) {
         let gone: HashSet<&PathBuf> = gone.iter().collect();
         let listed: HashSet<&std::ffi::OsStr> = self.files.iter().map(|f| f.as_os_str()).collect();
         let back: Vec<OsString> = (paths.iter())
-            .filter(|p| !gone.contains(p))
+            .filter(|p| !gone.contains(**p))
             .filter_map(|p| p.strip_prefix(&self.dir).ok())
             .filter(|rel| !listed.contains(rel.as_os_str()))
             .map(|rel| rel.as_os_str().to_owned())
