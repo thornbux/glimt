@@ -705,6 +705,11 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
         .and_then(|_| std::fs::File::create(&tmp))
         .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
+        // The file's own permissions, as a sidecar or a list kept private (0600) stays so.
+        .and_then(|_| match std::fs::metadata(path) {
+            Ok(old) => std::fs::set_permissions(&tmp, old.permissions()),
+            Err(_) => Ok(()),
+        })
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -878,6 +883,12 @@ mod tests {
                 .is_symlink()
         );
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        // A file kept private stays private when written again.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        super::replace_file(&real, "newer").unwrap();
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

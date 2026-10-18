@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A sidecar, collection or settings file written again keeps its permissions: one made private
+  (0600) no longer becomes readable by others after a keyword edit.
 - Saving settings keeps the settings file's comments, blank lines and order, so notes written in
   it by hand are no longer lost at the first change in a menu.
 
