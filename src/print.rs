@@ -443,7 +443,7 @@ impl crate::App {
                 // Beside it first: the file chosen is replaced only by a whole PDF, after every
                 // image was read (one of them may be the file chosen).
                 PrintTo::File(file) => {
-                    let tmp = save::tmp_path(file);
+                    let tmp = crate::config::tmp_path(file);
                     let written = std::fs::File::create(&tmp)
                         .and_then(|f| {
                             let mut out = std::io::BufWriter::new(f);

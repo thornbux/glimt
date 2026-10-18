@@ -700,7 +700,7 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
     use std::io::Write;
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let tmp = path.with_extension(format!("{}.tmp", crate::remote::instance_id()));
+    let tmp = tmp_path(path);
     // On disk before the rename: after a crash the old file or the new one, never an empty one.
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
         .and_then(|_| new_beside(&tmp, path))
@@ -710,6 +710,15 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// Where a new version of `path` is written before it is renamed over it: its whole name, this
+/// Glimt's instance ID and ".glimt-tmp", so that "a.png" and "a.webp", saved at the same time,
+/// or one file saved by two windows at once, never share one.
+pub fn tmp_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_owned();
+    name.push(format!(".{}.glimt-tmp", crate::remote::instance_id()));
+    path.with_file_name(name)
 }
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar

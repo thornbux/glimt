@@ -5,33 +5,7 @@ use crate::colour::to_srgb;
 use crate::decode::load_icc;
 use crate::{exif, has_ext};
 use image::ImageDecoder;
-use std::path::{Path, PathBuf};
-
-/// Where a new version of `path` is written before it is renamed over it: its whole name, this
-/// Glimt's instance ID and ".glimt-tmp", so that "a.png" and "a.webp", saved at the same time,
-/// or one file saved by two windows at once, never share one.
-pub fn tmp_path(path: &Path) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_owned();
-    name.push(format!(".{}.glimt-tmp", crate::remote::instance_id()));
-    path.with_file_name(name)
-}
-
-/// Replace the image `path` with `bytes` through `tmp_path`: written and on disk (`sync_all`)
-/// before the rename, with the old file's permissions. Any failure takes the temporary file away
-/// and leaves the old file as it was, also on a full disk.
-pub fn replace_image(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-    let tmp = tmp_path(path);
-    // The old file's permissions before a byte is written: a private photo is never readable
-    // by others while it is written.
-    let written = crate::config::new_beside(&tmp, path)
-        .and_then(|mut f| f.write_all(bytes).and_then(|_| f.sync_all()))
-        .and_then(|_| std::fs::rename(&tmp, path));
-    written.map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
-}
+use std::path::Path;
 
 /// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
 /// pixels are turned and the file written again with its ICC profile, EXIF block and XMP
@@ -124,7 +98,8 @@ pub fn save_rotated(
                 Some(xmp) => webp_with_chunk(&webp, b"XMP ", xmp, img.width(), img.height()),
                 None => Ok(webp),
             });
-        return made.and_then(|webp| replace_image(path, &webp));
+        return made
+            .and_then(|webp| crate::config::replace_file(path, webp).map_err(|e| e.to_string()));
     }
     // Encoded in memory first: an encoder that owns its file flushes it on drop, where a full
     // disk would go unnoticed and a cut-off file replace the photo.
@@ -167,7 +142,7 @@ pub fn save_rotated(
             false => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
         };
     }
-    replace_image(path, &out)
+    crate::config::replace_file(path, out).map_err(|e| e.to_string())
 }
 
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
@@ -440,12 +415,12 @@ mod tests {
         let file = dir.join("a.png");
         std::fs::write(&file, "old").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
-        super::replace_image(&file, b"new").unwrap();
+        crate::config::replace_file(&file, b"new").unwrap();
         assert_eq!(std::fs::read(&file).unwrap(), b"new");
         let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
         // A folder cannot be replaced by a file.
-        assert!(super::replace_image(&dir.join("busy.png"), b"new").is_err());
+        assert!(crate::config::replace_file(&dir.join("busy.png"), b"new").is_err());
         let left: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .flatten()
@@ -611,7 +586,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-same-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (png, webp) = (dir.join("a.png"), dir.join("a.webp"));
-        assert_ne!(super::tmp_path(&png), super::tmp_path(&webp));
+        assert_ne!(
+            crate::config::tmp_path(&png),
+            crate::config::tmp_path(&webp)
+        );
         image::RgbImage::from_pixel(1200, 800, image::Rgb([255, 0, 0]))
             .save(&png)
             .unwrap();
