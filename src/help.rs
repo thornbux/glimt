@@ -390,7 +390,10 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, the \
-         theme, what is shown, window and memory use, and how deleting works. Under Keyboard \
+         theme, what is shown, window and memory use, and how deleting works. Language: the \
+         interface in English or Norwegian bokmål, by the system's language (LANG) or as \
+         chosen; a text not translated shows in English, and this manual stays English. Under \
+         Keyboard \
          shortcuts, Change gives an action the next key you press; Reset gives it Geeqie's keys \
          back. Memory use at the top sets several at once: Low decodes one image at a time and \
          preloads one on each side, Medium (the default) four and two, High eight and five; \
@@ -430,6 +433,11 @@ const MANUAL: &[(&str, &str)] = &[
 
 /// Where Glimt differs from Geeqie: what, Glimt, Geeqie. Shown in the Help Manual (F1).
 const DIFFERENCES: &[(&str, &str, &str)] = &[
+    (
+        "Language",
+        "English or Norwegian bokmål, by LANG or chosen in Preferences; the manual in English",
+        "Some 40 languages by LANG only",
+    ),
     (
         "R",
         "Toggles random order in the slideshow, also while it runs",

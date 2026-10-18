@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The interface in Norwegian bokmål (src/no_nb.po), chosen by the system's language (LANG) or in
+  Preferences → Language; a text not translated shows in English, and the Help Manual, the command
+  line and --remote stay English.
 - The Print dialog shows the first page as it will print: the images, their text and the page
   text, laid out as the PDF is.
 - Printing on both sides of the paper, on a printer that can.

@@ -1709,10 +1709,6 @@ msgid "Copies:"
 msgstr "Kopier:"
 
 #: src/print.rs
-msgid "File name under each image"
-msgstr "Filnavn under hvert bilde"
-
-#: src/print.rs
 msgid "Images per page:"
 msgstr "Bilder per side:"
 

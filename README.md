@@ -108,6 +108,8 @@ The images in the screenshots are generated for the purpose.
 - Decoder plugins: new formats through a program you have (DICOM, FITS, microscope files …).
 - Remote control from scripts and desktop shortcuts: `glimt --remote next`.
 - Screen readers (Orca): menus, lists and each image read out, with its alt text.
+- The interface in English or Norwegian bokmål, by the system's language or chosen in
+  Preferences. Translations are welcome as merge requests: a gettext file named as `src/no_nb.po`.
 
 ## Supported formats
 
