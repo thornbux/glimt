@@ -292,4 +292,80 @@ mod tests {
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    /// Every place a Rename Many can be cut short, also between the link and the unlink of one
+    /// step, for a swap, a cycle of three, a shift and plain new names: put back gives every
+    /// old name, finished every new one, no hidden name is left, and a second settle does
+    /// nothing.
+    #[test]
+    fn settles_every_cut() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-cuts-{}", std::process::id()));
+        let plans = dir.join("plans");
+        let p = |n: &str| dir.join(n);
+        let cases: [(&[&str], &[&str]); 4] = [
+            (&["a", "b"], &["b", "a"]),
+            (&["a", "b", "c"], &["b", "c", "a"]),
+            (&["a", "b"], &["b", "c"]),
+            (&["a", "b"], &["x", "y"]),
+        ];
+        for (from, to) in cases {
+            // As rename_many plans it: through hidden names when a new name is an old one.
+            let mut moves: super::Moves = Vec::new();
+            if to.iter().any(|t| from.contains(t)) {
+                let tmp = |k: usize| p(&format!(".tmp-{k}"));
+                moves.extend(from.iter().enumerate().map(|(k, f)| (p(f), tmp(k))));
+                moves.extend(to.iter().enumerate().map(|(k, t)| (tmp(k), p(t))));
+            } else {
+                moves.extend(from.iter().zip(to).map(|(f, t)| (p(f), p(t))));
+            }
+            for cut in 0..=moves.len() {
+                for half in [false, true] {
+                    if half && cut == moves.len() {
+                        continue;
+                    }
+                    for undo in [false, true] {
+                        let _ = std::fs::remove_dir_all(&dir);
+                        std::fs::create_dir_all(&dir).unwrap();
+                        for f in from {
+                            std::fs::write(p(f), f).unwrap();
+                        }
+                        let mut plan = super::begin(&plans, &moves).unwrap();
+                        for (a, b) in &moves[..cut] {
+                            std::fs::rename(a, b).unwrap();
+                            plan.done();
+                        }
+                        if half {
+                            std::fs::hard_link(&moves[cut].0, &moves[cut].1).unwrap();
+                        }
+                        // As after a crash: the plan on disk, no longer locked.
+                        let bytes = std::fs::read(&plan.path).unwrap();
+                        drop(plan);
+                        std::fs::write(plans.join("crashed"), bytes).unwrap();
+                        let [(path, read, done)] = &super::interrupted(&plans)[..] else {
+                            panic!("one plan");
+                        };
+                        assert_eq!((read, *done), (&moves, Some(cut)));
+                        let (_, left) = super::settle(path, read, *done, undo);
+                        let case = format!("{from:?} -> {to:?}, cut {cut}, half {half}");
+                        assert_eq!(left, 0, "{case}");
+                        assert!(!path.exists(), "{case}");
+                        let names = if undo { from } else { to };
+                        for (f, n) in from.iter().zip(names) {
+                            assert_eq!(std::fs::read_to_string(p(n)).unwrap(), *f, "{case}");
+                        }
+                        let mut there: Vec<String> = (std::fs::read_dir(&dir).unwrap())
+                            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                            .filter(|n| n != "plans")
+                            .collect();
+                        there.sort();
+                        let mut want: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+                        want.sort();
+                        assert_eq!(there, want, "{case}");
+                        assert_eq!(super::settle(path, read, *done, undo), (0, 0), "{case}");
+                    }
+                }
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
