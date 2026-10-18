@@ -46,29 +46,28 @@ pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
 }
 
 /// A new file name from `pattern`: * is the old name without extension, a run of # the number
-/// `n` with that many digits; the old extension is kept.
-pub fn pattern_name(pattern: &str, old: &Path, n: usize) -> String {
-    let stem = old
-        .file_stem()
-        .map_or(String::new(), |s| s.to_string_lossy().into_owned());
-    let (mut out, mut chars) = (String::new(), pattern.chars().peekable());
+/// `n` with that many digits; the old extension is kept. As bytes: an old name that is not
+/// UTF-8 (Latin-1 from an old camera) keeps its letters.
+pub fn pattern_name(pattern: &str, old: &Path, n: usize) -> OsString {
+    let (mut out, mut chars) = (OsString::new(), pattern.chars().peekable());
     while let Some(c) = chars.next() {
         match c {
-            '*' => out += &stem,
+            '*' => out.push(old.file_stem().unwrap_or_default()),
             '#' => {
                 let mut width = 1;
                 while chars.next_if_eq(&'#').is_some() {
                     width += 1;
                 }
-                out += &format!("{n:0width$}");
+                out.push(format!("{n:0width$}"));
             }
-            c => out.push(c),
+            c => out.push(c.encode_utf8(&mut [0; 4])),
         }
     }
-    match old.extension() {
-        Some(ext) => format!("{out}.{}", ext.to_string_lossy()),
-        None => out,
+    if let Some(ext) = old.extension() {
+        out.push(".");
+        out.push(ext);
     }
+    out
 }
 
 /// The file types the list shows, as Geeqie's file classes in its file filter.
@@ -462,6 +461,10 @@ mod tests {
     fn pattern_names() {
         let old = std::path::Path::new("/p/IMG_4711.JPG");
         assert_eq!(super::pattern_name("trip_###", old, 7), "trip_007.JPG");
+        // Latin-1 "r\xf8ntgen.jpg": its ø kept as the byte it is, not made "\u{fffd}".
+        use std::os::unix::ffi::OsStrExt;
+        let latin = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/p/r\xf8ntgen.jpg"));
+        assert_eq!(super::pattern_name("*-#", latin, 1).as_bytes(), b"r\xf8ntgen-1.jpg");
         assert_eq!(super::pattern_name("*-#", old, 12), "IMG_4711-12.JPG");
         assert_eq!(
             super::pattern_name("x", std::path::Path::new("/p/noext"), 1),

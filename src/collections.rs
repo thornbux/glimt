@@ -410,7 +410,10 @@ mod tests {
         let written = std::fs::metadata(&file).unwrap().modified().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         super::edit(&file, false, |all| all.retain(|_| true)).unwrap();
-        assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), written);
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().modified().unwrap(),
+            written
+        );
         let gone = dir.join("gone.gqv");
         assert!(super::edit(&gone, false, |all| all.clear()).is_err());
         assert!(!gone.exists());

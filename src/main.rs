@@ -6460,7 +6460,8 @@ impl App {
                     edit.request_focus();
                 }
                 if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
-                    ui.weak(format!("First: {}", pattern_name(text.trim(), first, 1)));
+                    let name = pattern_name(text.trim(), first, 1);
+                    ui.weak(format!("First: {}", name.to_string_lossy()));
                 }
                 ui.horizontal(|ui| {
                     if ui.button("OK (Enter)").clicked() || enter {

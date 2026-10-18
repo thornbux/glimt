@@ -244,7 +244,12 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 /// threads of one Glimt wait for each other on it too. Where there is no runtime folder, a lock
 /// within this Glimt alone; not both, so a sidecar on a share that stopped answering holds up
 /// only the sidecars of its own lock file, not every write of the window.
-fn held(path: &Path) -> (Option<std::fs::File>, Option<std::sync::MutexGuard<'static, ()>>) {
+fn held(
+    path: &Path,
+) -> (
+    Option<std::fs::File>,
+    Option<std::sync::MutexGuard<'static, ()>>,
+) {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let side = sidecar(path);
     match crate::remote::dir().and_then(|d| lock_file(&d.join("sidecar-locks"), &side)) {
@@ -268,8 +273,9 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
 /// Glimt, also one built with another Rust, whose own hasher may differ.
 fn lock_slot(side: &Path) -> u64 {
     use std::os::unix::ffi::OsStrExt;
-    let fnv = (side.as_os_str().as_bytes().iter())
-        .fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+    let fnv = (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+        (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+    });
     fnv % 64
 }
 

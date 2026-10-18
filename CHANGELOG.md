@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename Many keeps the letters of names that are not UTF-8 (Latin-1 from an old camera or a
+  Windows zip) where the pattern has *, instead of turning them into "�" for good.
 - A collection's file is no longer written again when a move or rename leaves its images as they
   were, nor called gone for an unrelated folder renamed while it is shown.
 - Renaming or moving a file with many marked files is quick again: all marks are looked through
