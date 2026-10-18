@@ -581,24 +581,24 @@ for v in new old; do
 done
 as_version new
 
-echo "-- copying 120 files of 25 MB, closed halfway: counted in the status bar, every copy whole"
+echo "-- copying 240 files of 25 MB, closed halfway: counted in the status bar, every copy whole"
 for v in new old; do
     as_version $v
     d=/tmp/progress-$v
     mkdir -p $d/to
-    head -c 25000000 /dev/urandom >$d/00.jpg
-    for i in $(seq -w 1 119); do cp $d/00.jpg $d/$i.jpg; done
+    # 240 names of one file: as much to copy as a fast machine needs to be still at it.
+    head -c 25000000 /dev/urandom >$d/000.jpg
+    for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
     config
     start $d
     sleep 2
     key ctrl+a
     answer $d/to
     key ctrl+c
-    # The copy starts once the stand-in file dialog has answered.
-    for i in $(seq 100); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.1; done
-    sleep 0.5
+    # The copy starts once the stand-in file dialog has answered; closed as it begins.
+    for i in $(seq 200); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.05; done
+    xdotool windowfocus $WIN key ctrl+q 2>/dev/null; sleep 0.3
     shot progress-$v
-    key ctrl+q; sleep 1
     waited=$(kill -0 $GPID 2>/dev/null && echo waits || echo closed)
     for i in $(seq 240); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
     quit
@@ -607,7 +607,7 @@ for v in new old; do
     rm -rf $d    # 6 GB
     if [ $v = new ]; then
         expect "the window waits for the copies" "$waited" waits
-        expect "all 120 copies whole, no hidden ones left" "$whole $parts" "120 0"
+        expect "all 240 copies whole, no hidden ones left" "$whole $parts" "240 0"
     else note "old: $waited, $whole whole, $parts hidden"; fi
 done
 as_version new
@@ -617,16 +617,16 @@ for v in new old; do
     as_version $v
     d=/tmp/close-twice-$v
     mkdir -p $d/to
-    head -c 25000000 /dev/urandom >$d/00.jpg
-    for i in $(seq -w 1 119); do cp $d/00.jpg $d/$i.jpg; done
+    # 240 names of one file: as much to copy as a fast machine needs to be still at it.
+    head -c 25000000 /dev/urandom >$d/000.jpg
+    for i in $(seq -w 1 239); do ln $d/000.jpg $d/$i.jpg; done
     config
     start $d
     sleep 2
     key ctrl+a
     answer $d/to
     key ctrl+c
-    for i in $(seq 100); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.1; done
-    sleep 0.5
+    for i in $(seq 200); do [ -n "$(ls -A $d/to)" ] && break; sleep 0.05; done
     key ctrl+q; key ctrl+q
     for i in $(seq 120); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
     quit
@@ -636,7 +636,7 @@ for v in new old; do
     rm -rf $d    # 6 GB
     if [ $v = new ]; then
         expect "no hidden half copy, every copy whole" "$parts $([ $copied = $whole ] && echo whole)" "0 whole"
-        expect "stopped before all 120" "$([ $copied -lt 120 ] && echo yes)" yes
+        expect "stopped before all 240" "$([ $copied -lt 240 ] && echo yes)" yes
     else note "old: $parts hidden, $copied copied, $whole whole"; fi
 done
 as_version new
