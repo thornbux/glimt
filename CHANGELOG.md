@@ -13,6 +13,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A turn not saved yet is saved into the file it was made on, whatever happens to the list
   meanwhile, and not at all when another program removed that file.
 
+### Changed
+
+- Glimt prints its slowest frame at exit, beside the first image's time, and the release tests
+  check it with 500,000 files selected, renamed, deleted and searched.
+
 ## [0.36.1] - 2026-10-18
 
 ### Changed

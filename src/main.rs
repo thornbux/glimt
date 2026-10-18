@@ -965,6 +965,9 @@ struct App {
     /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
     /// standard error that the release tests read.
     started: Option<Instant>,
+    /// The longest frame after the first image, for the "slowest frame: N ms" line at exit that
+    /// the release tests read: work that grows with the list shows there.
+    slowest: std::time::Duration,
 
     // ---- The view: zoom, panes, the window ----
     /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
@@ -1708,6 +1711,7 @@ impl App {
             zoom: None,
             pan_offset: egui::Vec2::ZERO,
             started: Some(Instant::now()),
+            slowest: std::time::Duration::ZERO,
             file_dialog: None,
             hide_file_list: false,
             focus_search: false,
@@ -7864,9 +7868,20 @@ impl eframe::App for App {
         }
         self.inhibit(false);
         config::flush();
+        eprintln!("slowest frame: {} ms", self.slowest.as_millis());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let start = Instant::now();
+        self.frame_ui(ui);
+        if self.started.is_none() {
+            self.slowest = self.slowest.max(start.elapsed());
+        }
+    }
+}
+
+impl App {
+    fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);

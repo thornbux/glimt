@@ -2351,6 +2351,22 @@ for s in range(10):
     note "new with a screen profile: $(first_image), RssAnon $(rss)"
     quit
 
+    # Work in the window's thread that grows with the list shows as a slow frame: the slowest
+    # after the first image, printed at exit, while the whole list is selected and acted on.
+    config thumbnails=false
+    start $big
+    wait_first
+    key ctrl+a
+    for i in $(seq 20); do xdotool key shift+Down; sleep 0.1; done
+    key ctrl+d; key Escape
+    key ctrl+r; key Escape
+    key slash; xdotool type "mark:1"; sleep 1; key Escape
+    quit
+    slowest=$(grep -o 'slowest frame: [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
+    note "new: slowest frame $slowest ms, 500,000 selected"
+    expect "no frame over 250 ms with 500,000 files selected" \
+        "$([ "${slowest:-9999}" -le 250 ] && echo yes)" yes
+
     echo "-- sorting 3,000 JPEGs of about 1 MB by EXIF date"
     e=/tmp/exif-dates
     mkdir -p $e
