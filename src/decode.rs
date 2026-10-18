@@ -554,27 +554,27 @@ pub const MAX_DECODE: u64 = 512 << 20;
 #[cfg(feature = "svg")]
 fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     use resvg::usvg::ImageHrefResolver as R;
-    let fits = |data: &[u8]| {
+    // At most 1 GB of decoded pictures for one SVG: a small one may name the same picture a
+    // thousand times, and resvg decodes each again; a plain one of 8000×8000 is 250 KB on disk
+    // but 256 MB decoded, so its pixels count, not its bytes.
+    let total = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let fits = move |data: &[u8]| {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
-        match reader.ok().and_then(|r| r.into_dimensions().ok()) {
-            Some((w, h)) => u64::from(w) * u64::from(h) * 4 <= MAX_DECODE,
+        let cost = match reader.ok().and_then(|r| r.into_dimensions().ok()) {
+            Some((w, h)) => u64::from(w) * u64::from(h) * 4,
             // Not a picture image reads, such as an SVG: usvg reads it with these limits, but
             // unpacks one that is gzipped (svgz) without a limit.
-            None => !data.starts_with(&[0x1f, 0x8b]),
-        }
+            None if data.starts_with(&[0x1f, 0x8b]) => return false,
+            None => data.len() as u64,
+        };
+        let before = total.fetch_add(cost, std::sync::atomic::Ordering::Relaxed);
+        cost <= MAX_DECODE && before + cost <= 1 << 30
     };
+    let fits_too = fits.clone();
     let (data, string) = (R::default_data_resolver(), R::default_string_resolver());
-    // At most 256 MB of pictures for one SVG: a small one may name the same large picture a
-    // thousand times, and each is read and decoded again.
-    let total = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let room = move |bytes: u64| {
-        let before = total.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
-        before + bytes <= 256 << 20
-    };
-    let room_too = room.clone();
     R {
         resolve_data: Box::new(move |mime, bytes, opts| {
-            (room(bytes.len() as u64) && fits(bytes.as_slice()))
+            fits(bytes.as_slice())
                 .then(|| data(mime, bytes, opts))
                 .flatten()
         }),
@@ -588,8 +588,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
                     .join(p),
             };
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
-            if meta.len() > 64 << 20 || !room_too(meta.len()) || !fits(&std::fs::read(&file).ok()?)
-            {
+            if meta.len() > 64 << 20 || !fits_too(&std::fs::read(&file).ok()?) {
                 return None;
             }
             string(href, opts)
@@ -1142,7 +1141,7 @@ mod tests {
         // For a thumbnail, at the thumbnail's size.
         let thumb = super::svg(&svg, Some([128, 128])).unwrap();
         assert_eq!((thumb.width(), thumb.height()), (128, 128));
-        // One picture of 4 MB named again and again: taken until 256 MB, then no more.
+        // One picture of 4 MB decoded named again and again: taken until 1 GB, then no more.
         let noise: Vec<u8> = (0..1024 * 1024 * 4u32)
             .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
             .collect();
@@ -1155,11 +1154,10 @@ mod tests {
             resources_dir: Some(dir.clone()),
             ..resvg::usvg::Options::default()
         };
-        let taken = (0..100)
+        let taken = (0..300)
             .filter(|_| (resolver.resolve_string)("big.png", &opts).is_some())
             .count();
-        let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
-        assert_eq!(taken as u64, (256 << 20) / size);
+        assert_eq!(taken as u64, (1 << 30) / (1024 * 1024 * 4));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

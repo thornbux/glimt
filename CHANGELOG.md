@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- An SVG's pictures count by their decoded size, at most 1 GB for one SVG: a small plain picture
+  that is large once decoded, named a thousand times, can no longer hold the decoding for minutes.
 - An SVG gzipped twice is refused: its inner layer would have been unpacked without a limit, which
   a small file could use to take all memory.
 
