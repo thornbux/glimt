@@ -28,6 +28,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- A lossy WebP saved turned is no longer briefly readable by others while it is made: ffmpeg hands
+  it over in memory, and Glimt writes it through its own temporary file, private from the start,
+  as every other format.
 - A JPEG, RAW or SVG file larger than Glimt decodes (512 MB) is refused by its size before it is
   read: a sparse or crafted file of gigabytes in a folder could fill memory and end Glimt when its
   thumbnail was made.

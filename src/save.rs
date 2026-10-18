@@ -3,7 +3,6 @@
 
 use crate::colour::to_srgb;
 use crate::decode::load_icc;
-use crate::external::command;
 use crate::{exif, has_ext};
 use image::ImageDecoder;
 use std::path::{Path, PathBuf};
@@ -113,11 +112,10 @@ pub fn save_rotated(
         _ => img,
     };
     if lossy {
-        // ffmpeg writes its file; read back, with the EXIF block added, it replaces the image.
-        let tmp = tmp_path(path);
+        // ffmpeg hands the WebP over in memory; with the EXIF block added it replaces the image
+        // through a temporary file of its own, private from the start, not one ffmpeg makes.
         let img = to_srgb(img, icc.as_deref());
-        let made = lossy_webp(&img, &tmp, webp_quality)
-            .and_then(|_| std::fs::read(&tmp).map_err(|e| e.to_string()))
+        let made = lossy_webp(&img, webp_quality)
             .and_then(|webp| match &exif {
                 Some(exif) => webp_with_chunk(&webp, b"EXIF", exif, img.width(), img.height()),
                 None => Ok(webp),
@@ -126,13 +124,7 @@ pub fn save_rotated(
                 Some(xmp) => webp_with_chunk(&webp, b"XMP ", xmp, img.width(), img.height()),
                 None => Ok(webp),
             });
-        return match made {
-            Ok(webp) => replace_image(path, &webp),
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
-                Err(e)
-            }
-        };
+        return made.and_then(|webp| replace_image(path, &webp));
     }
     // Encoded in memory first: an encoder that owns its file flushes it on drop, where a full
     // disk would go unnoticed and a cut-off file replace the photo.
@@ -282,15 +274,18 @@ pub fn webp_lossless(path: &Path) -> Option<bool> {
     None
 }
 
-/// Write `img` as a lossy WebP at `quality` (0–100) through ffmpeg, which has libwebp.
-pub fn lossy_webp(img: &image::DynamicImage, to: &Path, quality: u8) -> Result<(), String> {
+/// `img` as a lossy WebP of `quality`, encoded by ffmpeg (the `image` crate writes only
+/// lossless ones), in memory: its errors read beside it, and stopped after `external::LIMIT`.
+pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     use std::io::Write;
+    use std::os::unix::process::CommandExt;
     let mut png = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
-    let mut child = command("ffmpeg")
+    let mut child = crate::external::stoppable_command("ffmpeg")
+        .process_group(0)
         .args([
-            "-v", "error", "-y", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
+            "-v", "error", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
         ])
         .args([
             "-quality",
@@ -299,19 +294,23 @@ pub fn lossy_webp(img: &image::DynamicImage, to: &Path, quality: u8) -> Result<(
             "1",
             "-f",
             "webp",
+            "-",
         ])
-        .arg(to)
         .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("a lossy WebP needs ffmpeg to be saved: {e}"))?;
-    let _ = child.stdin.take().map(|mut i| i.write_all(&png));
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        let _ = std::fs::remove_file(to);
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
+    // Written in a thread of its own, while its output is read: neither pipe fills and stops it.
+    let mut stdin = child.stdin.take();
+    let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
+    let max = crate::decode::MAX_DECODE;
+    let (webp, err, ok) = crate::external::output_of(&mut child, max, crate::external::LIMIT);
+    let _ = feed.join();
+    match webp {
+        Some(webp) if ok && !webp.is_empty() => Ok(webp),
+        _ if err.trim().is_empty() => Err("ffmpeg made no WebP".into()),
+        _ => Err(err.trim().to_owned()),
     }
 }
 
