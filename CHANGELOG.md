@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-10-18
+
 ### Changed
 
 - The release workflow also checks the build without optional features, as people building from
@@ -38,7 +40,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A collection that another window emptied stays empty when this window saves it, instead of
   getting back every image.
 - A failed delete puts back only the images it took out of the collection shown: not a folder that
-  could not go to the trash, nor the images of another collection opened meanwhile.
+  could not go to the trash, nor the images of another collection opened meanwhile; also when the
+  same collection is opened again meanwhile.
 - A PNG saved turned a quarter swaps its resolution across and down (pHYs), so a scan with unequal
   DPI does not print stretched.
 - A PNG saved turned leaves out ImageMagick's copies of its EXIF and XMP ("Raw profile type"
@@ -1378,7 +1381,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.36.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.36.1...HEAD
+[0.36.1]: https://github.com/thornbux/glimt/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/thornbux/glimt/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/thornbux/glimt/compare/v0.34.1...v0.35.0
 [0.34.1]: https://github.com/thornbux/glimt/compare/v0.34.0...v0.34.1
