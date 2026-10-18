@@ -3325,7 +3325,9 @@ impl App {
             self.list(ctx);
             return;
         }
-        let mut files = std::mem::take(&mut self.files);
+        // A copy, not taken: the textures and the shown image's zoom are kept by the names in
+        // the list as it is.
+        let mut files = self.files.clone();
         let shown = files[self.cur].clone();
         files.swap(0, self.cur);
         shuffle(&mut files[1..]);

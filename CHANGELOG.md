@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Turning Random Order on in a slideshow keeps the shown image and the ones read ahead, instead of
+  decoding them all again.
 - A file of the same name opened in another folder opens fitted, not at the zoom and place of the
   image shown before.
 - A turned image that another program removes or renames no longer passes its turn, or its zoom,
