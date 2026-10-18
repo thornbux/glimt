@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Each Rename Many writes its plan to a file of its own, so a plan left by a crash is never
+  written over by a new Rename Many of a Glimt that got the same process ID after a restart.
 - Putting the old names back after a Rename Many cut short between the two halves of one rename
   now works, instead of leaving a photo under a hidden name and asking again at every start.
 - Rename Folder while a collection is shown takes the collection's images in that folder along to
