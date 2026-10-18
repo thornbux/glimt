@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The Keyboard Map takes the list of keys once per frame, not twice for each key on it.
 - The list of keys in use is made again only when an own key changes, not sorted many times in
   every frame.
 - The size of a selection is worked out without making the selected files' paths in the window's

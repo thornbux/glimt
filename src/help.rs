@@ -832,11 +832,12 @@ fn keymap(ui: &mut egui::Ui) {
     let unit = 34.0;
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(unit * 19.5, unit * 6.6), egui::Sense::hover());
+    // Once for the map, not twice for each of its keys.
+    let all = all_shortcuts();
     let draw = |ui: &mut egui::Ui, label: &str, key: Option<Key>, at: egui::Rect| {
         let actions: Vec<String> = key
             .map(|k| {
-                all_shortcuts()
-                    .iter()
+                all.iter()
                     .copied()
                     .filter(|s| s.2 == k && (s.0 != Action::Play || cfg!(feature = "video")))
                     .map(|(a, m, k)| {
@@ -846,11 +847,8 @@ fn keymap(ui: &mut egui::Ui) {
                     .collect()
             })
             .unwrap_or_default();
-        let plain = key.is_some_and(|k| {
-            all_shortcuts()
-                .iter()
-                .any(|s| s.2 == k && s.1 == egui::Modifiers::NONE)
-        });
+        let plain =
+            key.is_some_and(|k| all.iter().any(|s| s.2 == k && s.1 == egui::Modifiers::NONE));
         let v = ui.visuals();
         let fill = if plain {
             v.selection.bg_fill
