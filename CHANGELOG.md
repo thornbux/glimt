@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The AppStream file names each release and its date, so software centres show Glimt's version;
+  the release workflow checks it is there, and publishes only a tag that is on main.
+
 ## [0.35.0] - 2026-10-18
 
 ### Changed
