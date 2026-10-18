@@ -6,7 +6,8 @@
 #   tools/release-tests/run.sh [NEW] [OLD]      NEW: a git ref, default HEAD
 #                                               OLD: a git ref, default the tag before NEW
 #   QUICK=1 tools/release-tests/run.sh          leaves out the large folder and EXIF timings
-#   PARTS=N tools/release-tests/run.sh          the checks in N containers at once (default 4)
+#   PARTS=N tools/release-tests/run.sh          the checks in N containers at once (default: by
+#                                               Docker's processors and memory, 1 to 6)
 #
 # One container installs the tools and builds both, and is kept as an image; the checks then
 # run in PARTS containers of it at once, each with its own X display, /tmp and HOME, in runs of
@@ -41,7 +42,13 @@ grep -v '^#' tools/release-tests/samples.txt | while read -r name sha url; do
     fi
 done
 echo "new: $(git rev-parse --short "$new") ($new), old: $old, work: $work"
-parts=${PARTS:-4}
+# Each part keeps about two processors busy (Glimt drawing without a GPU, X, the script) and
+# needs about 2.5 GB: as many as Docker has room for, so a small laptop runs them one at a time.
+cpus=$(docker info --format '{{.NCPU}}')
+gb=$(($(docker info --format '{{.MemTotal}}') / 1073741824))
+fit=$((cpus / 2 < gb * 2 / 5 ? cpus / 2 : gb * 2 / 5))
+parts=${PARTS:-$((fit < 1 ? 1 : fit > 6 ? 6 : fit))}
+echo "parts: $parts (Docker has $cpus processors, $gb GB)"
 # The sections of tests.sh: the part before the first, the sections, the end.
 python3 - "$work" "$parts" <<'PY'
 import re, sys
