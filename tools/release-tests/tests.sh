@@ -10,7 +10,11 @@
 # layout; a change to the layout needs the coordinates here changed too. Screenshots of every
 # step are in out/, to look at when a check fails.
 
+# run.sh runs it in steps (STEP): "prepare" installs and builds, once; "run" runs SCRIPT, a part
+# of the checks, in each of several containers at once; "audit" runs cargo audit. Without STEP,
+# all of it in one container, with every check (the screenshots and the quick scripts).
 if [ "$(id -u)" = 0 ]; then
+  if [ "$STEP" != run ] && [ "$STEP" != audit ]; then
     export DEBIAN_FRONTEND=noninteractive
     echo "-- installing tools"
     # A failed install (an unreachable mirror) stops here: without Xvfb every check would fail.
@@ -44,13 +48,18 @@ if [ "$(id -u)" = 0 ]; then
             rm -rf /work-target/old-builds && mkdir /work-target/old-builds && cp /opt/glimt-old $kept
         fi
     done
+    [ "$STEP" = prepare ] && exit 0
+  fi
+  status=0
+  if [ "$STEP" != audit ]; then
     useradd -m tester
     chmod 777 /t/out
     su tester -c "Xvfb :98 -screen 0 1600x1000x24 >/tmp/xvfb.log 2>&1 &"
     sleep 2
-    su tester -c "QUICK=$QUICK SHOTS=$SHOTS bash /t/tests.sh"
+    su tester -c "QUICK=$QUICK SHOTS=$SHOTS bash ${SCRIPT:-/t/tests.sh}"
     status=$?
-    [ -n "$SHOTS" ] && exit $status
+    [ -n "$SHOTS" ] || [ "$STEP" = run ] && exit $status
+  fi
     echo "-- cargo audit"
     tools=/usr/local/cargo/registry/tools
     [ -x $tools/bin/cargo-audit ] || cargo install -q --locked --root $tools cargo-audit
@@ -2422,6 +2431,7 @@ expect "EXIF says Adobe RGB (R03): shown as Adobe RGB" "$(show exif.png)" "$as_a
 expect "its own Adobe RGB profile: shown as Adobe RGB" "$(show icc.png)" "$as_adobe"
 expect "its own profile left out: as sRGB" "$(show icc.png own_profile=false)" "$plain"
 
+echo "-- timings: the large folder and EXIF dates, with nothing else running"
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"
 else
