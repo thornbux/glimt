@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename Folder while a collection is shown takes the collection's images in that folder along to
+  the new name, in the collection's file too.
 - A collection that another window emptied stays empty when this window saves it, instead of
   getting back every image.
 - A failed delete puts back only the images it took out of the collection shown: not a folder that

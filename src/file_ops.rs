@@ -505,6 +505,21 @@ impl crate::App {
                 *folder = new.join(rest);
             }
         }
+        // A collection: its images in the folder follow it to the new name, in its file too.
+        if self.collection.is_some() {
+            let mut moved = false;
+            for i in 0..self.files.len() {
+                if let Ok(rest) = self.path(i).strip_prefix(&old)
+                    && let Ok(rel) = new.join(rest).strip_prefix(&self.dir)
+                {
+                    self.files[i] = rel.as_os_str().to_owned();
+                    moved = true;
+                }
+            }
+            if moved {
+                self.save_collection();
+            }
+        }
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {
                 // The shown file is under the new name now, also for a turn not saved yet.
