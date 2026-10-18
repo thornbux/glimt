@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- One image a page prints at a size of one's own, 10 to 100 % of the room it has, centred, as
+  Geeqie's Image size.
 - A margin of one's own around the printed page, 0 to 50 mm, instead of always 10 mm.
 - Printing turns the paper by the image as before, or always portrait or landscape; a contact
   sheet on landscape paper turns its grid with it.

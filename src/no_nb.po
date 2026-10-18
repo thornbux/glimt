@@ -1853,3 +1853,7 @@ msgstr "Liggende"
 #: src/print.rs
 msgid "Margin (mm):"
 msgstr "Marg (mm):"
+
+#: src/print.rs
+msgid "Image size (%):"
+msgstr "Bildestørrelse (%):"

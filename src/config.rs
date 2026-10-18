@@ -444,6 +444,8 @@ config! {
     print_per_page: usize = 1,
     /// Around the printed page, in millimetres (0 to 50).
     print_margin: u32 = 10,
+    /// One image a page: its size in per cent of the room it has (10 to 100).
+    print_scale: u32 = 100,
 }
 
 impl Config {
@@ -461,6 +463,7 @@ impl Config {
             c.print_per_page = 1;
         }
         c.print_margin = c.print_margin.min(50);
+        c.print_scale = c.print_scale.clamp(10, 100);
         c.animation_mb = c.animation_mb.clamp(8, 1024);
         c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);

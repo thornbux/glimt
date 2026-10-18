@@ -505,6 +505,11 @@ impl crate::App {
                             }
                         });
                     ui.end_row();
+                    if c.print_per_page == 1 {
+                        ui.label(tr("Image size (%):"));
+                        ui.add(egui::DragValue::new(&mut c.print_scale).range(10..=100));
+                        ui.end_row();
+                    }
                     ui.label(tr("Margin (mm):"));
                     ui.add(egui::DragValue::new(&mut c.print_margin).range(0..=50));
                     ui.end_row();
@@ -540,6 +545,7 @@ impl crate::App {
                     layout: print::Layout {
                         orientation: print::Orientation::from(&c.print_orientation),
                         margin: c.print_margin as f32 * print::MM,
+                        scale: c.print_scale as f32 / 100.0,
                         ..print::Layout::new(paper, c.print_per_page)
                     },
                     caption: c.print_caption,
@@ -666,6 +672,20 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// One image a page at half size: half as wide, in the middle of the page; a sheet keeps
+    /// its images whole.
+    #[test]
+    fn scales_one_image() {
+        use super::{Layout, PAPERS, place};
+        let a4 = PAPERS[0].1;
+        let full = place(&Layout::new(a4, 1), &[[100, 100]], false).cells[0].image;
+        let half = place(&Layout { scale: 0.5, ..Layout::new(a4, 1) }, &[[100, 100]], false).cells[0].image;
+        assert!((half[2] - full[2] / 2.0).abs() < 0.01);
+        assert!((half[0] + half[2] / 2.0 - a4[0] / 2.0).abs() < 0.01);
+        let sheet = |scale| place(&Layout { scale, ..Layout::new(a4, 4) }, &[[100, 100]], false).cells[0].image[2];
+        assert_eq!(sheet(0.5), sheet(1.0));
+    }
+
     /// The margin around the page: none puts the image at the paper's edge, 20 mm in from it.
     #[test]
     fn keeps_the_margin() {
