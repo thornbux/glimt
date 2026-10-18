@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With Include Subfolders on, the images of a folder's tree show as they are found, a subfolder at
+  a time, in name order; the sort asked for comes when the whole tree is read.
 - With Include Subfolders on, a folder's own subfolders show at once, before its whole tree is
   read; and opening another folder meanwhile stops reading the tree, which went on in the
   background until its end.

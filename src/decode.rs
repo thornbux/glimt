@@ -1108,6 +1108,7 @@ mod tests {
                     hidden: false
                 },
                 &Default::default(),
+                |_| {},
                 |_| {}
             ),
             (

@@ -911,6 +911,10 @@ struct App {
     listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
     /// The subfolders of a folder listed with its tree, sent at once: the tree may take long.
     subdirs_rx: Option<mpsc::Receiver<Vec<PathBuf>>>,
+    /// The images of the tree found so far, as it is read, a folder of it at a time.
+    part_rx: Option<mpsc::Receiver<Vec<OsString>>>,
+    /// The next listing shows a tree's images as they are found (a folder opened).
+    list_parts: bool,
     /// Set to stop the listing of the tree before, when another one starts.
     listing_stop: Arc<AtomicBool>,
     /// The folder changed while a listing was running; list again when it is done.
@@ -1759,6 +1763,8 @@ impl App {
             back: Vec::new(),
             forward: Vec::new(),
             subdirs_rx: None,
+            part_rx: None,
+            list_parts: false,
             listing_stop: Arc::default(),
             listing_rx: None,
             image_id: None,
@@ -1879,6 +1885,7 @@ impl App {
         self.recursive = self.config.show_subfolders;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
+        self.list_parts = true;
         self.list(ctx);
         self.watch(ctx);
         self.title(ctx);
@@ -2037,6 +2044,11 @@ impl App {
         let stop = self.listing_stop.clone();
         let (subdirs_tx, subdirs_rx) = mpsc::channel();
         self.subdirs_rx = Some(subdirs_rx);
+        let (part_tx, part_rx) = mpsc::channel();
+        self.part_rx = Some(part_rx);
+        // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
+        // its whole list on screen until the new one is read, instead of shrinking and growing.
+        let parts = std::mem::take(&mut self.list_parts);
         std::thread::spawn(move || {
             // Several folders: their images, each folder (with its subfolders) after the other.
             if !folders.is_empty() {
@@ -2048,7 +2060,7 @@ impl App {
                 };
                 let mut files: Vec<OsString> = (folders.iter())
                     .flat_map(|d| match recursive {
-                        true => rel(d, list_tree(d, types, &stop, |_| {}).1),
+                        true => rel(d, list_tree(d, types, &stop, |_| {}, |_| {}).1),
                         false => rel(d, list_folder(d, types).1),
                     })
                     .collect();
@@ -2086,12 +2098,34 @@ impl App {
             }
             // The folder read once, also with the folders below it. Its own subfolders show at
             // once: a large tree takes long to read whole.
+            // Its images too, a folder of it at a time, in name order (the sort asked for comes
+            // with the whole tree): at most four times a second, as each is a copy of the list.
+            let mut sent = Instant::now();
             let (dirs, mut files) = match recursive {
-                true => list_tree(&list_dir, types, &stop, |dirs| {
-                    if subdirs_tx.send(dirs.to_vec()).is_ok() {
-                        ctx2.request_repaint();
-                    }
-                }),
+                true => list_tree(
+                    &list_dir,
+                    types,
+                    &stop,
+                    |dirs| {
+                        if subdirs_tx.send(dirs.to_vec()).is_ok() {
+                            ctx2.request_repaint();
+                        }
+                    },
+                    |so_far| {
+                        if !parts
+                            || shuffled
+                            || sent.elapsed() < std::time::Duration::from_millis(250)
+                        {
+                            return;
+                        }
+                        let mut part = so_far.to_vec();
+                        part.sort_unstable();
+                        if part_tx.send(part).is_ok() {
+                            ctx2.request_repaint();
+                        }
+                        sent = Instant::now();
+                    },
+                ),
                 false => list_folder(&list_dir, types),
             };
             // Stopped: another folder is listed now.
@@ -2165,17 +2199,28 @@ impl App {
             self.subdirs = dirs;
             self.subdirs_rx = None;
         }
+        // The tree's images so far: only the last that came, one list a frame at most.
+        if let Some(part) = self.part_rx.as_ref().and_then(|rx| rx.try_iter().last()) {
+            self.take_files(ctx, part, false);
+        }
         let Some(Ok((dirs, files))) = self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait))
         else {
             return;
         };
         self.subdirs_rx = None;
+        self.part_rx = None;
         self.listing_rx = None;
         // Several folders shown together are listed as "/" with no subfolders: not the tree's.
         if self.collection.is_none() && self.folders.is_empty() {
             self.tree.insert(self.dir.clone(), Some(dirs.clone()));
         }
         self.subdirs = dirs;
+        self.take_files(ctx, files, true);
+    }
+
+    /// The images of the folder read in the background as the list: all of them when `whole`,
+    /// else those of a tree found so far. The shown image and the selection stay.
+    fn take_files(&mut self, ctx: &egui::Context, files: Vec<OsString>, whole: bool) {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
         if !self.deleting.is_empty() {
@@ -2183,7 +2228,7 @@ impl App {
         }
         // A refresh during random order keeps the order, so Previous still goes back
         // through the images that were shown; a list shuffled whole in the thread stays as it is.
-        let files = if self.shuffled && !std::mem::take(&mut self.whole_shuffle) {
+        let files = if whole && self.shuffled && !std::mem::take(&mut self.whole_shuffle) {
             merge_shuffled(&self.files, files)
         } else {
             files
@@ -2208,7 +2253,7 @@ impl App {
                 .map(|(i, _)| i)
                 .collect();
         }
-        if std::mem::take(&mut self.sort_collection) {
+        if whole && std::mem::take(&mut self.sort_collection) {
             self.save_collection_order();
         }
     }
@@ -3555,6 +3600,7 @@ impl App {
         self.config.show_subfolders = on;
         self.config.save();
         self.recursive = on;
+        self.list_parts = on;
         self.list(ctx);
     }
 
