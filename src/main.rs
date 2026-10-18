@@ -1872,7 +1872,15 @@ impl App {
         let files: Vec<OsString> = (paths.iter())
             .filter_map(|p| Some(p.strip_prefix(root).ok()?.as_os_str().to_owned()))
             .collect();
+        // The same collection read again (F5): a delete still running keeps its names, so a
+        // failed one brings its images back.
+        let deleting = if self.collection.as_ref() == Some(&file) {
+            std::mem::take(&mut self.deleting)
+        } else {
+            HashSet::new()
+        };
         self.forget_old_list();
+        self.deleting = deleting;
         self.recursive = false;
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
