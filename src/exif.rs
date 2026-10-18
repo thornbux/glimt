@@ -249,6 +249,7 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, Str
     let exif = segments
         .iter()
         .find(|s| s.0 == 0xe1 && segment(&data, s).starts_with(b"Exif\0\0"));
+    let new;
     match exif {
         Some(&(_, start, len)) => {
             let block = data.get(start..start + len).ok_or("cut off")?;
@@ -261,7 +262,7 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, Str
                     // Read first, which keeps the write inside the block: an entry at its very end
                     // has no room for its value.
                     let old = t.u16(e.at).ok_or("cut off")?;
-                    let new = turned(old as u8, turns, mirrored) as u16;
+                    new = turned(old as u8, turns, mirrored) as u16;
                     // Offsets count from the TIFF header, which ends the block as `t.data` does.
                     let at = start + len - t.data.len() + e.at;
                     let bytes = if little {
@@ -275,13 +276,13 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, Str
                 }
                 Some(_) => return Err("unusual orientation field".into()),
                 None => {
-                    let new = turned(1, turns, mirrored) as u16;
+                    new = turned(1, turns, mirrored) as u16;
                     add_orientation(&mut data, start, len, little, new)?;
                 }
             }
         }
         None => {
-            let new = turned(1, turns, mirrored) as u16;
+            new = turned(1, turns, mirrored) as u16;
             let mut app1 = vec![0xff, 0xe1, 0, 34];
             app1.extend(b"Exif\0\0MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01");
             app1.extend(new.to_be_bytes());
@@ -298,7 +299,37 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, Str
             data.splice(at..at, app1);
         }
     }
+    // The XMP's the same, as Lightroom and digiKam write one there too: else programs that read
+    // it first would turn the photo the old way.
+    if let Some((segments, _)) = jpeg_segments(&data)
+        && let Some(&(_, start, len)) = (segments.iter()).find(|s| {
+            s.0 == 0xe1 && segment(&data, s).starts_with(b"http://ns.adobe.com/xap/1.0/\0")
+        })
+    {
+        let end = (start + len).min(data.len());
+        set_xmp_orientation(&mut data[start..end], new as u8);
+    }
     Ok(data)
+}
+
+/// The XMP's `tiff:Orientation` set to `value` (1–8), as an attribute or an element; the length
+/// stays, as a value is one digit.
+pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
+    let key = b"tiff:Orientation";
+    let mut from = 0;
+    while let Some(at) = xmp[from..].windows(key.len()).position(|w| w == key) {
+        let rest = from + at + key.len();
+        let spot = match xmp.get(rest..rest + 2) {
+            Some([b'=', b'"' | b'\'']) => rest + 2,
+            Some([b'>', _]) => rest + 1,
+            _ => rest,
+        };
+        let digit = xmp.get(spot).is_some_and(u8::is_ascii_digit);
+        if digit && !xmp.get(spot + 1).is_some_and(u8::is_ascii_digit) {
+            xmp[spot] = b'0' + value.min(9);
+        }
+        from = rest;
+    }
 }
 
 /// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
@@ -741,6 +772,31 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
 
 #[cfg(test)]
 mod tests {
+    /// The XMP's orientation upright in both forms; nothing else changed, and broken XMP is
+    /// survived.
+    #[test]
+    fn sets_xmp_upright() {
+        let mut xmp =
+            br#"<x tiff:Orientation="6" a="6"/><tiff:Orientation>8</tiff:Orientation>"#.to_vec();
+        super::set_xmp_orientation(&mut xmp, 1);
+        assert_eq!(
+            xmp,
+            br#"<x tiff:Orientation="1" a="6"/><tiff:Orientation>1</tiff:Orientation>"#
+        );
+        let mut odd = b"tiff:Orientation='12' tiff:Orientation".to_vec();
+        super::set_xmp_orientation(&mut odd, 1);
+        assert_eq!(odd, b"tiff:Orientation='12' tiff:Orientation");
+    }
+
+    #[test]
+    fn survives_broken_xmp_orientation() {
+        for mut xmp in
+            crate::broken(br#"<x tiff:Orientation="6"/><tiff:Orientation>8</tiff:Orientation>"#)
+        {
+            super::set_xmp_orientation(&mut xmp, 1);
+        }
+    }
+
     #[test]
     fn turns_orientations() {
         use super::turned;
@@ -902,6 +958,18 @@ mod tests {
         assert_eq!(o(&file), image::metadata::Orientation::Rotate270);
         let rows = super::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
+        // An XMP segment with its own orientation turns along.
+        let xmp = b"http://ns.adobe.com/xap/1.0/\0<x tiff:Orientation=\"1\"/>";
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend(((xmp.len() + 2) as u16).to_be_bytes());
+        jpeg.extend(xmp);
+        jpeg.extend(&base[2..]);
+        let with_xmp = dir.join("xmp.jpg");
+        std::fs::write(&with_xmp, &jpeg).unwrap();
+        super::write_orientation(&with_xmp, 1, false).unwrap();
+        let text = std::fs::read(&with_xmp).unwrap();
+        let want = b"tiff:Orientation=\"6\"";
+        assert!(text.windows(want.len()).any(|w| w == want));
         // Through a symlink: the file it points to is turned, and the link stays a link.
         let link = dir.join("link.jpg");
         std::os::unix::fs::symlink(&file, &link).unwrap();

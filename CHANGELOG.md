@@ -14,6 +14,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An image turned by its EXIF orientation is shrunk to the view first and then turned, not turned
   whole: a 100 MP PNG turned by EXIF no longer needs a second full-size buffer for a moment.
 
+### Fixed
+
+- Turning a JPEG changes the orientation in its XMP too, which Lightroom and digiKam write beside
+  the EXIF's, so programs that read the XMP first no longer show it the old way.
+
 ## [0.35.0] - 2026-10-18
 
 ### Changed
