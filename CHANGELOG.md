@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A turn not saved yet is saved into the file it was made on, whatever happens to the list
+  meanwhile, and not at all when another program removed that file.
+
 ## [0.36.1] - 2026-10-18
 
 ### Changed

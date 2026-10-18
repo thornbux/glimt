@@ -984,6 +984,9 @@ struct App {
     /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
     /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
     orient: (u8, bool),
+    /// The file `orient` belongs to, set when it is turned: saved into that file even when the
+    /// list changed meanwhile and another file is at `cur`.
+    turned: PathBuf,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// The images of a layout's panes after the first, which shows `cur`.
@@ -1780,6 +1783,7 @@ impl App {
             exif_index_rx: None,
             anchor: None,
             orient: (0, false),
+            turned: PathBuf::new(),
             opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
         };
@@ -5559,6 +5563,7 @@ impl App {
                     return;
                 }
                 let (q, m) = self.orient;
+                self.turned = self.path(self.cur);
                 self.orient = match action {
                     Action::RotateCw => ((q + 1) % 4, m),
                     Action::RotateCcw => ((q + 3) % 4, m),

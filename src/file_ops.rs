@@ -434,7 +434,11 @@ impl crate::App {
         if self.files.is_empty() || (turns, mirrored) == (0, false) {
             return;
         }
-        let path = self.path(self.cur);
+        let path = self.turned.clone();
+        // Removed or renamed by another program meanwhile: nothing to save the turn into.
+        if !path.is_file() {
+            return;
+        }
         // Being saved already, with this rotation: the rotate keys wait for the save.
         if self.saving.contains(&path) {
             return;
