@@ -178,10 +178,16 @@ const MANUAL: &[(&str, &str)] = &[
     (
         "Printing",
         "File → Print (Ctrl+P) prints the selected images, or the shown one, one per page, as \
-         large as fits and turned to landscape for wide images, or several on a page as a \
-         contact sheet (Images per page: 2 to 20, in a grid), with the file name below if you \
-         like. It goes to a printer through CUPS (lp), or into a PDF file. The printer, paper, \
-         images per page and file names are remembered.",
+         large as fits or at an Image size of 10 to 100 %, or several on a page as a contact \
+         sheet (Images per page: 2 to 20, in a grid). The dialog shows the first page as it \
+         will print. Paper: A4, Letter, A3, A5, Legal, or photo paper of 10 × 15 and 13 × 18 \
+         cm; Orientation: by the image (a wide one alone goes landscape), portrait or \
+         landscape; a margin of 0 to 50 mm. Fill each box cuts each image to its box instead \
+         of fitting it in. The text under each image comes from a template, as the full screen \
+         info's: %name% by default, or %Taken%, %Camera%, %keywords%, %comment% and the other \
+         fields. Text at the top and bottom of each page may hold %page% and %pages%. It goes \
+         to a printer through CUPS (lp), on both sides of the paper if the printer can, or \
+         into a PDF file. Every choice is remembered.",
     ),
     (
         "Plugins",
@@ -516,8 +522,10 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
     (
         "Print (Ctrl+P)",
-        "One or 2 to 20 images per page with the file name, to a CUPS printer or a PDF file; A4 or Letter",
-        "GTK print dialog: several images per page, text, page setup",
+        "Its own dialog with a preview of the first page: 1 or 2 to 20 images per page, image and \
+         page text from templates, paper, orientation, margins, two-sided; to a CUPS printer or \
+         a PDF file; no font choice",
+        "GTK print dialog: several images per page, image and page text with a font, page setup",
     ),
     (
         "Plugins",
