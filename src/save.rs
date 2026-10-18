@@ -23,12 +23,14 @@ pub fn tmp_path(path: &Path) -> PathBuf {
 pub fn replace_image(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     let tmp = tmp_path(path);
+    // The old file's permissions before a byte is written: a private photo is never readable
+    // by others while it is written.
     let written = std::fs::File::create(&tmp)
-        .and_then(|mut f| f.write_all(bytes).and_then(|_| f.sync_all()))
-        .and_then(|_| match std::fs::metadata(path) {
-            Ok(meta) => std::fs::set_permissions(&tmp, meta.permissions()),
-            Err(_) => Ok(()),
+        .and_then(|f| match std::fs::metadata(path) {
+            Ok(meta) => f.set_permissions(meta.permissions()).map(|_| f),
+            Err(_) => Ok(f),
         })
+        .and_then(|mut f| f.write_all(bytes).and_then(|_| f.sync_all()))
         .and_then(|_| std::fs::rename(&tmp, path));
     written.map_err(|e| {
         let _ = std::fs::remove_file(&tmp);

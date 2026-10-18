@@ -18,6 +18,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A failed delete puts back only the images it took out of the collection shown: not a folder that
   could not go to the trash, nor the images of another collection opened meanwhile.
 
+### Security
+
+- A file written again gets its permissions before its contents, so a private photo or sidecar is
+  never readable by others while it is written.
+
 ## [0.36.0] - 2026-10-18
 
 ### Added
