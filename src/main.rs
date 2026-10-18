@@ -589,7 +589,8 @@ enum Pick {
 struct PrintJob {
     paths: Vec<PathBuf>,
     layout: print::Layout,
-    caption: bool,
+    /// The template of the text under each image, if there is one.
+    caption: Option<String>,
     rotate: bool,
     copies: u32,
 }

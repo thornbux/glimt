@@ -1861,3 +1861,11 @@ msgstr "Bildestørrelse (%):"
 #: src/print.rs
 msgid "Fill each box, cutting the image to it"
 msgstr "Fyll hver rute, og beskjær bildet etter den"
+
+#: src/print.rs
+msgid "Text under each image:"
+msgstr "Tekst under hvert bilde:"
+
+#: src/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Som bildeinformasjonen i fullskjerm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"

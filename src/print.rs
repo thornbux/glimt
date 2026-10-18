@@ -190,6 +190,36 @@ pub fn max_pixels(layout: &Layout) -> u32 {
     (long / 72.0 * PPI * fill) as u32
 }
 
+/// The text under the image at `path`, `k`th of `n`, from `template`: the full screen info's
+/// fields, read from the file here as the print job runs, in one line.
+pub fn caption(template: &str, path: &Path, k: usize, n: usize) -> String {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
+    let text = crate::fill_template(template, |field| match field {
+        "name" => name.to_string(),
+        "path" => path.display().to_string(),
+        "position" => format!("{}/{n}", k + 1),
+        "dimensions" => image::image_dimensions(path)
+            .map(|(w, h)| format!("{w} × {h}"))
+            .unwrap_or_default(),
+        "File size" => std::fs::metadata(path)
+            .map(|m| crate::human_size(m.len()))
+            .unwrap_or_default(),
+        "keywords" => meta
+            .get_or_init(|| crate::meta::read(path))
+            .keywords
+            .join(", "),
+        "comment" => meta.get_or_init(|| crate::meta::read(path)).comment.clone(),
+        label => (exif
+            .get_or_init(|| crate::exif::read_and_all(path).0)
+            .iter())
+        .find(|r| r.0 == label)
+        .map(|r| r.1.clone())
+        .unwrap_or_default(),
+    });
+    text.replace('\n', " · ")
+}
+
 /// A caption cut to `width` points of `size` type, with ... at the end: Helvetica is about
 /// half as wide as high.
 fn fitted(text: &str, width: f32, size: f32) -> String {
@@ -519,7 +549,16 @@ impl crate::App {
                         ui.end_row();
                     }
                 });
-                ui.checkbox(&mut c.print_caption, tr("File name under each image"));
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut c.print_caption, tr("Text under each image:"));
+                    ui.add_enabled(
+                        c.print_caption,
+                        egui::TextEdit::singleline(&mut c.print_template)
+                            .hint_text("%name%")
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"));
+                });
                 ui.checkbox(
                     &mut c.print_fill,
                     tr("Fill each box, cutting the image to it"),
@@ -553,7 +592,7 @@ impl crate::App {
                         fill: c.print_fill,
                         ..print::Layout::new(paper, c.print_per_page)
                     },
-                    caption: c.print_caption,
+                    caption: c.print_caption.then(|| c.print_template.clone()),
                     rotate: c.exif_rotate,
                     copies: dialog.copies,
                 };
@@ -593,7 +632,7 @@ impl crate::App {
             let _writing = writing;
             let max = print::max_pixels(&job.layout);
             let failed = std::cell::Cell::new(0);
-            let pages = job.paths.iter().filter_map(|path| {
+            let pages = job.paths.iter().enumerate().filter_map(|(k, path)| {
                 // As for the viewer: a broken file that makes a decoder panic is a page short,
                 // not a PDF half written and the thread gone.
                 // Shrunk before it goes to sRGB: a 45 MP photo with its own profile would
@@ -610,8 +649,11 @@ impl crate::App {
                     ))
                 });
                 failed.set(failed.get() + img.is_err() as usize);
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                Some((img.ok()?, job.caption.then(|| name.into_owned())))
+                let text = job
+                    .caption
+                    .as_deref()
+                    .map(|t| print::caption(t, path, k, job.paths.len()));
+                Some((img.ok()?, text))
             });
             // Not one image could be read (HEIC without ffmpeg, say): nothing is sent to the
             // printer, and the file chosen is not replaced by an empty PDF.
@@ -677,6 +719,19 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// The text under an image from the template: its name, place and size, and a field
+    /// it lacks left out with the words around it, as in the full screen info.
+    #[test]
+    fn captions_from_the_template() {
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-caption-{}.png", std::process::id()));
+        image::RgbImage::new(30, 20).save(&file).unwrap();
+        let name = file.file_name().unwrap().to_string_lossy().into_owned();
+        let text = super::caption("%name% (%position%)|%dimensions%|ISO %ISO%", &file, 2, 9);
+        assert_eq!(text, format!("{name} (3/9) · 30 × 20"));
+        std::fs::remove_file(file).unwrap();
+    }
+
     /// Filling its box, a wide image is as high as the box and wider, cut to it in the PDF;
     /// fitted, it lies within it.
     #[test]

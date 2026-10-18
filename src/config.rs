@@ -440,6 +440,9 @@ config! {
     /// "portrait" or "landscape".
     print_orientation: String = String::from("auto"),
     print_caption: bool = true,
+    /// The text under each printed image, as the full screen info's template (%name%, EXIF
+    /// fields, %keywords% …).
+    print_template: String = String::from("%name%"),
     /// Images on each page: 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
     print_per_page: usize = 1,
     /// Around the printed page, in millimetres (0 to 50).

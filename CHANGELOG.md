@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The text under each printed image comes from a template, as the full screen info's: the file
+  name by default, or its date, camera, keywords, comment and other EXIF fields, as Geeqie's image
+  text.
 - Printing can fill each box with its image, cut to the box, for even contact sheets and
   borderless photo prints.
 - One image a page prints at a size of one's own, 10 to 100 % of the room it has, centred, as
