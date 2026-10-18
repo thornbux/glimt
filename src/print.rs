@@ -397,8 +397,8 @@ impl crate::App {
 
     /// Print `job` in the background.
     pub(crate) fn print(&mut self, ctx: &egui::Context, job: PrintJob, to: PrintTo) {
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             let max = print::max_pixels(job.paper, job.per_page);
             let failed = std::cell::Cell::new(0);
@@ -427,7 +427,7 @@ impl crate::App {
             let mut pages = pages.peekable();
             if pages.peek().is_none() {
                 let _ = tx.send("No image could be read: nothing printed".into());
-                busy.fetch_sub(1, Ordering::Relaxed);
+                drop(pointer);
                 ctx.request_repaint();
                 return;
             }
@@ -473,7 +473,7 @@ impl crate::App {
                 (Ok(msg), f) => format!("{msg}; {f} could not be read"),
                 (Err(e), _) => format!("Printing failed: {e}"),
             });
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
     }

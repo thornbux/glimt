@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The busy pointer goes when background work ends however it ends, also when a worker thread
+  panics: each one now holds a guard instead of counting by hand.
 - ffmpeg, ffprobe and decoder programs are all stopped after 30 seconds, with every program they
   started and also on the host in the Flatpak: ffmpeg's own limit counted only its working time,
   so one waiting on a share that stopped answering held the image for good.

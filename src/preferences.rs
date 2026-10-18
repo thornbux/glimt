@@ -456,8 +456,8 @@ impl crate::App {
             .on_hover_text("In ~/.cache/thumbnails; kept for disks that are not plugged in")
             .clicked()
         {
-            let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-            busy.fetch_add(1, Ordering::Relaxed);
+            let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+            let pointer = Busy::new(&self.busy);
             std::thread::spawn(move || {
                 let (removed, seen) = thumbs::clean();
                 let _ = tx.send(format!(
@@ -465,7 +465,7 @@ impl crate::App {
                     thousands(removed),
                     thousands(seen)
                 ));
-                busy.fetch_sub(1, Ordering::Relaxed);
+                drop(pointer);
                 ctx.request_repaint();
             });
         }

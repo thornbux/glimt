@@ -312,11 +312,11 @@ impl crate::App {
     /// Read a Lightroom catalog in the background; the import dialog opens when it is read.
     pub(crate) fn read_lightroom(&mut self, ctx: &egui::Context, file: PathBuf) {
         let (tx, rx) = mpsc::channel();
-        let (busy, ctx) = (self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let ctx = ctx.clone();
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             let _ = tx.send(read(&file));
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
         self.lightroom_rx = Some(rx);

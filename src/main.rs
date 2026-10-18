@@ -843,6 +843,23 @@ impl Slot {
     }
 }
 
+/// One piece of background work, for the busy pointer: counted while held, and no longer when
+/// dropped, also as its thread panics, which a count by hand would leave on for good.
+struct Busy(Arc<AtomicUsize>);
+
+impl Busy {
+    fn new(count: &Arc<AtomicUsize>) -> Self {
+        count.fetch_add(1, Ordering::Relaxed);
+        Busy(count.clone())
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 struct App {
     // ---- Settings ----
     /// The desktop's dark style and accent colour, once read from the portal.
@@ -4659,11 +4676,11 @@ impl App {
         {
             let (tx, rx) = mpsc::channel();
             let names: Vec<OsString> = self.exif_stale.drain().collect();
-            let (dir, ctx, busy) = (self.dir.clone(), ctx.clone(), self.busy.clone());
-            busy.fetch_add(1, Ordering::Relaxed);
+            let (dir, ctx) = (self.dir.clone(), ctx.clone());
+            let pointer = Busy::new(&self.busy);
             std::thread::spawn(move || {
                 let _ = tx.send(search::exif_index(&dir, &names));
-                busy.fetch_sub(1, Ordering::Relaxed);
+                drop(pointer);
                 ctx.request_repaint();
             });
             self.exif_index_rx = Some(rx);
@@ -4673,11 +4690,10 @@ impl App {
                 self.exif_stale.clear();
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
-                let busy = self.busy.clone();
-                busy.fetch_add(1, Ordering::Relaxed);
+                let pointer = Busy::new(&self.busy);
                 std::thread::spawn(move || {
                     let _ = tx.send(search::exif_index(&dir, &files));
-                    busy.fetch_sub(1, Ordering::Relaxed);
+                    drop(pointer);
                     ctx.request_repaint();
                 });
                 self.exif_index_rx = Some(rx);
@@ -4853,7 +4869,6 @@ impl App {
             found_rx: found,
             broken: Vec::new(),
         };
-        self.busy.fetch_add(1, Ordering::Relaxed);
         for _ in 0..threads {
             let (files, tx, next, ctx) = (files.clone(), tx.clone(), next.clone(), ctx.clone());
             let (done, working, stop) = (
@@ -4861,7 +4876,7 @@ impl App {
                 check.working.clone(),
                 check.stop.clone(),
             );
-            let busy = self.busy.clone();
+            let pointer = Busy::new(&self.busy);
             std::thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
                     let Some((name, path)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
@@ -4872,10 +4887,8 @@ impl App {
                     }
                     done.fetch_add(1, Ordering::Relaxed);
                 }
-                // The last thread done: the busy pointer goes.
-                if working.fetch_sub(1, Ordering::Relaxed) == 1 {
-                    busy.fetch_sub(1, Ordering::Relaxed);
-                }
+                working.fetch_sub(1, Ordering::Relaxed);
+                drop(pointer);
                 ctx.request_repaint();
             });
         }
@@ -5706,10 +5719,10 @@ impl App {
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     fn copy_image(&mut self, ctx: &egui::Context) {
         let (path, rotate) = (self.path(self.cur), self.config.exif_rotate);
-        let (busy, tx, ctx) = (self.busy.clone(), self.notices_tx.clone(), ctx.clone());
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.clip_rx = Some(clip_rx);
-        busy.fetch_add(1, Ordering::Relaxed);
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
@@ -5717,7 +5730,7 @@ impl App {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send(format!("Could not copy the image: {e}"))),
             }
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
     }
@@ -8247,6 +8260,20 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// The busy pointer goes when its work ends, also by a panic.
+    #[test]
+    fn busy_ends_with_a_panic() {
+        use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering};
+        let count = Arc::new(AtomicUsize::new(0));
+        let pointer = super::Busy::new(&count);
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        let _ = std::thread::spawn(move || {
+            let _pointer = pointer;
+            panic!("a broken file");
+        })
+        .join();
+        assert_eq!(count.load(Ordering::Relaxed), 0);
+    }
 
     /// A setting this Glimt does not know is no notice at start; a wrong value is.
     #[test]

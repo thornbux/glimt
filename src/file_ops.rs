@@ -91,9 +91,8 @@ impl crate::App {
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
-        let busy = self.busy.clone();
         let job = self.start_job("Deleting", paths.len());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
@@ -155,7 +154,7 @@ impl crate::App {
             // Those not reached after Stop are still there, as after a failure.
             let _ = deleted_tx.send((paths, gone, !errors.is_empty() || job.stopped()));
             drop(job);
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
     }
@@ -284,9 +283,8 @@ impl crate::App {
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
-        let busy = self.busy.clone();
         let job = self.start_job(if keep { "Copying" } else { "Moving" }, paths.len());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             if !keep && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
@@ -335,7 +333,7 @@ impl crate::App {
                 let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, gone, relist));
             }
             drop(job);
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
     }
@@ -368,11 +366,11 @@ impl crate::App {
             shown,
         };
         let (tx, rx) = mpsc::channel();
-        let (busy, ctx) = (self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let ctx = ctx.clone();
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             let _ = tx.send(rename_files(from, to));
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
         self.renaming = Some((rx, job));
@@ -443,9 +441,9 @@ impl crate::App {
         let jpeg = has_ext(&path, &["jpg", "jpeg"]);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
-        let (busy, ctx) = (self.busy.clone(), ctx.clone());
+        let ctx = ctx.clone();
         self.saving.insert(path.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             let result = survive(|| match jpeg {
                 true => exif::write_orientation(&path, turns, mirrored),
@@ -455,7 +453,7 @@ impl crate::App {
                 let _ = notices.send("Saved; it shows when Auto Rotate Using EXIF is on".into());
             }
             let _ = saved.send((path, result));
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
     }
@@ -680,13 +678,13 @@ impl crate::App {
         ctx: &egui::Context,
         work: impl FnOnce() -> Option<String> + Send + 'static,
     ) {
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        busy.fetch_add(1, Ordering::Relaxed);
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let pointer = Busy::new(&self.busy);
         std::thread::spawn(move || {
             if let Some(text) = work() {
                 let _ = tx.send(text);
             }
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
     }
@@ -717,8 +715,8 @@ impl crate::App {
             works
         });
         let job = self.start_job(doing, paths.len());
-        let (tx, busy, ctx) = (self.notices_tx.clone(), self.busy.clone(), ctx.clone());
-        self.busy.fetch_add(1, Ordering::Relaxed);
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let pointer = Busy::new(&self.busy);
         let work: Work = Box::new(move || {
             // A file that makes the writing panic ends this job, not the count or the busy
             // pointer.
@@ -740,12 +738,11 @@ impl crate::App {
                 let _ = tx.send(text);
             }
             drop(job);
-            busy.fetch_sub(1, Ordering::Relaxed);
+            drop(pointer);
             ctx.request_repaint();
         });
-        if writer.send(work).is_err() {
-            self.busy.fetch_sub(1, Ordering::Relaxed);
-        }
+        // Not sent: the work is dropped, and the busy pointer with it.
+        let _ = writer.send(work);
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder

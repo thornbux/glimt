@@ -181,11 +181,11 @@ impl crate::App {
         if stale && pan.days_rx.is_none() {
             let (tx, rx) = mpsc::channel();
             let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
-            let (busy, ctx, made) = (self.busy.clone(), ctx.clone(), self.files_gen);
-            busy.fetch_add(1, Ordering::Relaxed);
+            let (ctx, made) = (ctx.clone(), self.files_gen);
+            let pointer = Busy::new(&self.busy);
             std::thread::spawn(move || {
                 let _ = tx.send((timeline(&dir, &files, exif), made));
-                busy.fetch_sub(1, Ordering::Relaxed);
+                drop(pointer);
                 ctx.request_repaint();
             });
             pan.days_rx = Some(rx);
