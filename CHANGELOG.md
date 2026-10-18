@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Renaming or moving a file with many marked files is quick again: all marks are looked through
+  only when a folder is renamed (since 0.37.0).
 - Two Glimt windows from different builds (an AppImage and a distribution's package) wait for each
   other's sidecar writes too: the lock is chosen by a fixed hash of the path, not Rust's own,
   which may differ between Rust releases.

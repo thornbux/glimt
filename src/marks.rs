@@ -84,7 +84,12 @@ impl Marks {
     /// Files or folders copied (`keep`) or moved and renamed `(from, to)`: the new ones get the
     /// marks, also the files in a folder.
     pub fn put(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
-        let inside: Vec<(PathBuf, PathBuf)> = {
+        // The files in a folder that went: every mark looked at, so only for a folder (Rename
+        // Folder), not for each rename of a file with 500,000 marked.
+        let folder = pairs.len() == 1 && pairs[0].1.is_dir();
+        let inside: Vec<(PathBuf, PathBuf)> = if !folder {
+            Vec::new()
+        } else {
             let moved = crate::file_ops::moves(&pairs);
             (self.map.keys())
                 .filter_map(|k| {
@@ -366,11 +371,15 @@ mod tests {
         m.forget(&[p("/b.jpg")]);
         assert_eq!(m.get(&p("/b.jpg")), (0, 0));
         // A folder renamed: its files' marks go along; trashed: they go.
-        m.rate(&[p("/trip/a.jpg")], 5);
-        m.put(vec![(p("/trip"), p("/trip 2024"))], false);
-        assert_eq!(m.get(&p("/trip 2024/a.jpg")), (0, 5));
-        m.forget(&[p("/trip 2024")]);
-        assert_eq!(m.get(&p("/trip 2024/a.jpg")), (0, 0));
+        // A folder there under its new name, as Rename Folder leaves it.
+        let trip = std::env::temp_dir().join(format!("glimt-test-trip-{}", std::process::id()));
+        std::fs::create_dir_all(trip.join("2024")).unwrap();
+        m.rate(&[trip.join("old/a.jpg")], 5);
+        m.put(vec![(trip.join("old"), trip.join("2024"))], false);
+        assert_eq!(m.get(&trip.join("2024/a.jpg")), (0, 5));
+        m.forget(&[trip.join("2024")]);
+        assert_eq!(m.get(&trip.join("2024/a.jpg")), (0, 0));
+        std::fs::remove_dir_all(&trip).unwrap();
         // An old entry where an unmarked file lands is cleared.
         m.put(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));
