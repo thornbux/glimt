@@ -26,6 +26,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
   plugin, instead of being left out.
 - Turning a JPEG changes the orientation in its XMP too, which Lightroom and digiKam write beside
   the EXIF's, so programs that read the XMP first no longer show it the old way.
+- A --name too long for the socket's path (in a Flatpak from about 47 characters) is refused at
+  the start with a message that says so, and a socket that cannot be made tells why, instead of
+  saying a Glimt of that name runs.
+- Find Duplicates by checksum compares the files of a group byte by byte before it offers them for
+  the trash, instead of trusting a 64-bit hash.
+- A plugin's command passes %% as %, as the desktop file specification says, instead of leaving it
+  out.
+- A collection renamed or moved to the trash in another window, or by another program, is not made
+  again under its old name when this window changes it: Glimt says it is gone.
+- A sidecar, collection or settings file written again keeps its permissions: one made private
+  (0600) no longer becomes readable by others after a keyword edit.
+- Saving settings keeps the settings file's comments, blank lines and order, so notes written in
+  it by hand are no longer lost at the first change in a menu.
 
 ## [0.35.0] - 2026-10-18
 

@@ -1861,6 +1861,25 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a collection renamed by another program while shown: not made again under its old name"
+for v in new old; do
+    as_version $v
+    d=/tmp/coll-gone-$v
+    mkdir -p $d
+    for f in a b; do convert -size 64x64 xc:red $d/$f.jpg; done
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n' $d $d >$d/Trip.gqv
+    config
+    start $d/Trip.gqv
+    sleep 2
+    mv $d/Trip.gqv $d/Holiday.gqv            # renamed elsewhere meanwhile
+    key Delete; sleep 1                      # the shown one out of the collection: a save
+    quit
+    got="$(cd $d && ls *.gqv | tr '\n' ' ')"
+    if [ $v = new ]; then expect "only Holiday.gqv" "$got" "Holiday.gqv "
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- a collection renamed, then moved to the trash: its images stay"
 d=/tmp/coll
 mkdir -p $d $XDG_DATA_HOME/glimt/collections

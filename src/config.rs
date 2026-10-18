@@ -647,7 +647,9 @@ pub fn file_lock(path: &Path) -> Option<std::fs::File> {
 }
 
 /// `ours` (key=value lines), but where a value is as this window `saved` it, the one
-/// `on_disk`: another window may have changed that setting since.
+/// `on_disk`: another window may have changed that setting since. In the file's own order, with
+/// its comments and blank lines, and the settings it lacks after them; settings this Glimt does
+/// not know, from a newer one (a Flatpak beside a .deb), stay.
 fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
     let pairs = |text: &str| -> std::collections::HashMap<String, String> {
         (text.lines().filter_map(|l| l.split_once('=')))
@@ -655,29 +657,38 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
             .collect()
     };
     let (saved, theirs) = (pairs(saved), pairs(on_disk));
-    let mut text = String::new();
-    for line in ours.lines() {
-        let theirs = line
+    let line = |l: &str| -> String {
+        let value = l
             .split_once('=')
             .filter(|(k, v)| saved.get(*k).is_some_and(|s| s == v))
             .and_then(|(k, _)| Some((k, theirs.get(k)?)));
-        match theirs {
-            Some((k, v)) => text += &format!("{k}={v}\n"),
-            None => text += &format!("{line}\n"),
+        match value {
+            Some((k, v)) => format!("{k}={v}\n"),
+            None => format!("{l}\n"),
+        }
+    };
+    let key = |l: &str| Some(l.split_once('=')?.0.trim().to_owned());
+    let mine: std::collections::HashMap<String, &str> =
+        ours.lines().filter_map(|l| Some((key(l)?, l))).collect();
+    let mut done = std::collections::HashSet::new();
+    let mut text = String::new();
+    for l in on_disk.lines() {
+        match key(l).filter(|k| mine.contains_key(k)) {
+            // Ours, once (a setting set twice by hand comes out once).
+            Some(k) => {
+                if done.insert(k.clone()) {
+                    text += &line(mine[&k]);
+                }
+            }
+            None => text += &format!("{l}\n"),
         }
     }
-    // Settings this Glimt does not know, from a newer one (a Flatpak beside a .deb), stay.
-    let known: std::collections::HashSet<&str> = (ours
+    // Those the file lacks, in this Glimt's order.
+    for l in ours
         .lines()
-        .filter_map(|l| Some(l.split_once('=')?.0.trim())))
-    .collect();
-    for line in on_disk.lines() {
-        if line
-            .split_once('=')
-            .is_some_and(|(k, _)| !known.contains(k.trim()))
-        {
-            text += &format!("{line}\n");
-        }
+        .filter(|l| key(l).is_none_or(|k| !done.contains(&k)))
+    {
+        text += &line(l);
     }
     text
 }
@@ -694,6 +705,11 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
         .and_then(|_| std::fs::File::create(&tmp))
         .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
+        // The file's own permissions, as a sidecar or a list kept private (0600) stays so.
+        .and_then(|_| match std::fs::metadata(path) {
+            Ok(old) => std::fs::set_permissions(&tmp, old.permissions()),
+            Err(_) => Ok(()),
+        })
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -867,6 +883,12 @@ mod tests {
                 .is_symlink()
         );
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+        // A file kept private stays private when written again.
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        super::replace_file(&real, "newer").unwrap();
+        let mode = std::fs::metadata(&real).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -893,6 +915,13 @@ mod tests {
         let on_disk = "thumbnails = false\nsort=name\nfrom_a_newer_glimt=1\n";
         let text = super::merged(ours, saved, on_disk);
         assert_eq!(text, "thumbnails=false\nsort=date\nfrom_a_newer_glimt=1\n");
+        // The user's comments and blank lines stay where they are.
+        let on_disk = "# my viewer\nsort=name\n\n# thumbs off on the laptop\nthumbnails=false\n";
+        let text = super::merged(ours, saved, on_disk);
+        assert_eq!(
+            text,
+            "# my viewer\nsort=date\n\n# thumbs off on the laptop\nthumbnails=false\n"
+        );
     }
 
     /// The sort manager's folders come back as they were, also a name that is not UTF-8.
