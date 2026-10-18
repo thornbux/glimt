@@ -242,8 +242,12 @@ impl crate::App {
     /// copy too); moved, a collection's entries of them, and of all in a moved folder, take the
     /// new place, in the list and in its file.
     pub(crate) fn paths_moved(&mut self, pairs: Vec<(PathBuf, PathBuf)>, copied: bool) {
+        let moved = moves(&pairs);
+        // A turn not saved yet goes with its file, saved under the new name.
+        if !copied && let Some(to) = new_place(&self.turned, &moved) {
+            self.turned = to;
+        }
         if !copied && self.collection.is_some() {
-            let moved = moves(&pairs);
             for i in 0..self.files.len() {
                 if let Some(to) = new_place(&self.path(i), &moved)
                     && let Ok(rel) = to.strip_prefix(&self.dir)

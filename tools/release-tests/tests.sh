@@ -271,6 +271,25 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a turned image renamed before its turn is saved: the turn saved under the new name"
+for v in new old; do
+    as_version $v
+    d=/tmp/turn-rename-$v
+    mkdir -p $d
+    convert -size 200x200 xc:red -size 200x200 xc:blue +append -depth 8 $d/a.png
+    convert -size 64x64 xc:lime $d/c.png
+    config save_orientation=true
+    start $d/a.png
+    key bracketright                 # turned, not saved yet
+    key ctrl+r; key ctrl+a; xdotool type b.png; key Return; sleep 1
+    key space; sleep 3               # moving on saves the turn
+    quit
+    got="$(identify -format '%wx%h' $d/b.png 2>/dev/null)"
+    if [ $v = new ]; then expect "b.png turned" "$got" "200x400"
+    else note "old: b.png ${got:-missing}"; fi
+done
+as_version new
+
 echo "-- an empty folder: the turn keys leave Glimt running"
 for v in new old; do
     as_version $v

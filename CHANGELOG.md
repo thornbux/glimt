@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A turn not saved yet is saved into its file under the new name after Rename, Rename Many or
+  Rename Folder, instead of being dropped (since 0.37.0).
 - The turn and mirror keys in an empty folder no longer end Glimt (since 0.37.0).
 
 ## [0.37.1] - 2026-10-18
