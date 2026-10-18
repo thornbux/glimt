@@ -897,8 +897,6 @@ struct App {
     /// The open collection's file. The list is then its images, with `dir` "/" and the paths
     /// without their leading "/" as names, so `path()` works unchanged.
     collection: Option<PathBuf>,
-    /// The collection's paths as last read or written here; what is on disk beyond them was
-    /// added elsewhere and is kept when this window saves.
     /// The collection's next listing is sorted (Sort menu), and saved in that order.
     sort_collection: bool,
     /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
