@@ -442,7 +442,7 @@ pub fn scaled_jpeg(
     rotate: bool,
 ) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
     if has_ext(path, &["jpg", "jpeg"]) {
-        return scaled(&std::fs::read(path).ok()?, max, rotate, None);
+        return scaled(&read_limited(path).ok()?, max, rotate, None);
     }
     if has_ext(path, raw::EXTS) {
         // As raw::load: the orientation from a TIFF-based RAW's own header, and no profile.
@@ -459,7 +459,7 @@ pub fn scaled_jpeg(
         {
             return Some((shown.0, None, shown.2));
         }
-        let data = std::fs::read(path).ok()?;
+        let data = read_limited(path).ok()?;
         // Not at a fraction (shown larger than half the preview): decoded whole from what was
         // read, not read a second time.
         return from(&data).or_else(|| {
@@ -637,7 +637,7 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
         image_href_resolver: svg_images(),
         ..usvg::Options::default()
     };
-    let mut data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut data = read_limited(path).map_err(|e| e.to_string())?;
     // usvg unpacks a .svgz without a limit: 10 MB of zeros would be 10 GB.
     if data.starts_with(&[0x1f, 0x8b]) {
         data = gunzip(&data, 64 << 20)?;
@@ -706,6 +706,25 @@ fn jpeg_ends(path: &Path) -> Result<bool, String> {
 pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
         .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
+}
+
+/// The whole of `path`, read only up to `MAX_DECODE` bytes: a larger file (a sparse one, or
+/// one unpacked from a small zip) is refused before it fills memory, not read whole first.
+pub fn read_limited(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let too_large =
+        || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
+    let file = std::fs::File::open(path)?;
+    // Its size first, so a large one is not read at all; `take` for one that grows meanwhile.
+    if file.metadata()?.len() > MAX_DECODE {
+        return Err(too_large());
+    }
+    let mut data = Vec::new();
+    file.take(MAX_DECODE + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > MAX_DECODE {
+        return Err(too_large());
+    }
+    Ok(data)
 }
 
 /// Scale down to fit within `max`.
@@ -1188,6 +1207,19 @@ mod tests {
             }
         }
         !crc
+    }
+
+    /// A file larger than Glimt decodes is refused before it is read whole: a sparse one of
+    /// 8 GB takes no memory.
+    #[test]
+    fn refuses_huge_files() {
+        let file = std::env::temp_dir().join(format!("glimt-test-huge-{}.jpg", std::process::id()));
+        let f = std::fs::File::create(&file).unwrap();
+        f.set_len(8 << 30).unwrap();
+        assert!(super::read_limited(&file).is_err());
+        f.set_len(10).unwrap();
+        assert_eq!(super::read_limited(&file).unwrap().len(), 10);
+        std::fs::remove_file(file).unwrap();
     }
 
     #[test]

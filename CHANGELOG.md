@@ -26,6 +26,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Rename Folder, instead of being dropped (since 0.37.0).
 - The turn and mirror keys in an empty folder no longer end Glimt (since 0.37.0).
 
+### Security
+
+- A JPEG, RAW or SVG file larger than Glimt decodes (512 MB) is refused by its size before it is
+  read: a sparse or crafted file of gigabytes in a folder could fill memory and end Glimt when its
+  thumbnail was made.
+
 ## [0.37.1] - 2026-10-18
 
 ### Changed

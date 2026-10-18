@@ -15,7 +15,10 @@ pub const EXTS: &[&str] = &[
 
 /// The preview, turned upright if `rotate`.
 pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
-    load_data(&std::fs::read(path).map_err(|e| e.to_string())?, rotate)
+    load_data(
+        &crate::decode::read_limited(path).map_err(|e| e.to_string())?,
+        rotate,
+    )
 }
 
 /// `load` of a RAW file read already.

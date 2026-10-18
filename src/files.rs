@@ -464,7 +464,10 @@ mod tests {
         // Latin-1 "r\xf8ntgen.jpg": its ø kept as the byte it is, not made "\u{fffd}".
         use std::os::unix::ffi::OsStrExt;
         let latin = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/p/r\xf8ntgen.jpg"));
-        assert_eq!(super::pattern_name("*-#", latin, 1).as_bytes(), b"r\xf8ntgen-1.jpg");
+        assert_eq!(
+            super::pattern_name("*-#", latin, 1).as_bytes(),
+            b"r\xf8ntgen-1.jpg"
+        );
         assert_eq!(super::pattern_name("*-#", old, 12), "IMG_4711-12.JPG");
         assert_eq!(
             super::pattern_name("x", std::path::Path::new("/p/noext"), 1),
