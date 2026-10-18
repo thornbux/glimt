@@ -8,7 +8,8 @@
 #   QUICK=1 tools/release-tests/run.sh          leaves out the large folder and EXIF timings
 #
 # The work folder is under $HOME, as Docker on macOS (colima) only shares the home folder.
-# The volumes glimt-target and glimt-cargo keep the builds and crates between runs. The real
+# The volumes glimt-target and glimt-cargo keep the builds and crates between runs, and the
+# build of each OLD by its commit, as a release never changes. The real
 # files of samples.txt are downloaded once to ~/.cache/glimt-samples.
 set -e
 cd "$(git rev-parse --show-toplevel)"
@@ -34,6 +35,7 @@ grep -v '^#' tools/release-tests/samples.txt | while read -r name sha url; do
     fi
 done
 echo "new: $(git rev-parse --short "$new") ($new), old: $old, work: $work"
-docker run --rm --shm-size=1g -e QUICK="${QUICK:-}" -v "$work:/t" -v "$samples:/samples:ro" \
+docker run --rm --shm-size=1g -e QUICK="${QUICK:-}" -e OLD_COMMIT="$(git rev-parse "$old^{commit}")" \
+    -v "$work:/t" -v "$samples:/samples:ro" \
     -v glimt-target:/work-target -v glimt-cargo:/usr/local/cargo/registry \
     rust:1 bash /t/tests.sh

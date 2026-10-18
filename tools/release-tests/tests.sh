@@ -28,10 +28,21 @@ if [ "$(id -u)" = 0 ]; then
         || echo "FAIL installing bftools"
     # tools/screenshots/run.sh (SHOTS=1) needs only this version.
     for v in new $([ -z "$SHOTS" ] && echo old); do
+        # The last release built once: kept by its commit, which never changes.
+        kept=/work-target/old-builds/$OLD_COMMIT
+        if [ $v = old ] && [ -n "$OLD_COMMIT" ] && [ -x $kept ]; then
+            echo "-- old: the build kept from an earlier run"
+            cp $kept /opt/glimt-old
+            continue
+        fi
         echo "-- building $v"
         (cd /t/$v && CARGO_TARGET_DIR=/work-target/release-tests-$v \
             cargo build -q --release --locked --features full) || exit 1
         cp /work-target/release-tests-$v/release/glimt /opt/glimt-$v
+        if [ $v = old ] && [ -n "$OLD_COMMIT" ]; then
+            # Only the latest: a release a run is past is not needed again.
+            rm -rf /work-target/old-builds && mkdir /work-target/old-builds && cp /opt/glimt-old $kept
+        fi
     done
     useradd -m tester
     chmod 777 /t/out
