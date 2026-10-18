@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A key given to an action is taken from the action that had it, as the notice says: from another
+  action's own key too, and a default key taken so no longer shows for that action in the menus
+  and the Keyboard Map.
+
 ## [0.36.0] - 2026-10-18
 
 ### Added

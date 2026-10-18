@@ -503,8 +503,11 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     {
         return all.clone();
     }
+    // Defaults of actions with own keys go, and so does a default whose key an own key took.
     let mut all = own.clone();
-    all.extend(SHORTCUTS.iter().filter(|s| !own.iter().any(|o| o.0 == s.0)));
+    all.extend(
+        (SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || (o.1, o.2) == (s.1, s.2))),
+    );
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
     let all: std::sync::Arc<[Shortcut]> = all.into();
@@ -584,6 +587,15 @@ mod tests {
         // More modifiers first, so Shift+R (rotate) is matched before R.
         let pos = |a| all.iter().position(|s| s.0 == a).unwrap();
         assert!(pos(Action::Rotate180) < pos(Action::RandomOrder));
+        // An own key that is another action's default takes it from that action.
+        let r = "ZoomFit=R".parse::<Keys>().unwrap();
+        *super::OWN_KEYS.write().unwrap() = r.0.clone();
+        let all = super::shortcuts();
+        let on_r: Vec<Action> = (all.iter())
+            .filter(|s| s.2 == eframe::egui::Key::R && s.1 == eframe::egui::Modifiers::NONE)
+            .map(|s| s.0)
+            .collect();
+        assert_eq!(on_r, [Action::ZoomFit]);
         super::OWN_KEYS.write().unwrap().clear();
     }
 }
