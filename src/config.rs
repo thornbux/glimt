@@ -703,19 +703,31 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
     let tmp = path.with_extension(format!("{}.tmp", crate::remote::instance_id()));
     // On disk before the rename: after a crash the old file or the new one, never an empty one.
     let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
-        .and_then(|_| std::fs::File::create(&tmp))
-        // The file's own permissions, as a sidecar or a list kept private (0600) stays so; set
-        // before a byte is written, so no one else can open it meanwhile.
-        .and_then(|f| match std::fs::metadata(path) {
-            Ok(old) => f.set_permissions(old.permissions()).map(|_| f),
-            Err(_) => Ok(f),
-        })
+        .and_then(|_| new_beside(&tmp, path))
         .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
+/// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
+/// those before a byte is written: no one else can open it meanwhile. A new file as usual.
+pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let Ok(old) = std::fs::metadata(path) else {
+        return std::fs::File::create(tmp);
+    };
+    let file = (std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true))
+    .mode(0o600)
+    .open(tmp)?;
+    file.set_permissions(old.permissions())?;
+    Ok(file)
 }
 
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
