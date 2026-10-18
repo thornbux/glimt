@@ -451,6 +451,9 @@ config! {
     print_scale: u32 = 100,
     /// Each image fills its box, cut to it, instead of fitting in it.
     print_fill: bool = false,
+    /// Text at the top and the bottom of every printed page; %page% and %pages% number it.
+    print_header: String = String::new(),
+    print_footer: String = String::new(),
 }
 
 impl Config {

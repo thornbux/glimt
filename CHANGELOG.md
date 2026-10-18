@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Text at the top and the bottom of every printed page, with %page% and %pages% for the page
+  numbers, as Geeqie's page text.
 - The text under each printed image comes from a template, as the full screen info's: the file
   name by default, or its date, camera, keywords, comment and other EXIF fields, as Geeqie's image
   text.

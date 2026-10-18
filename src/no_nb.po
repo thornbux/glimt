@@ -1869,3 +1869,15 @@ msgstr "Tekst under hvert bilde:"
 #: src/print.rs
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Som bildeinformasjonen i fullskjerm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% er sidens nummer, %pages% hvor mange det er"
+
+#: src/print.rs
+msgid "Top of each page:"
+msgstr "Øverst på hver side:"
+
+#: src/print.rs
+msgid "Bottom of each page:"
+msgstr "Nederst på hver side:"

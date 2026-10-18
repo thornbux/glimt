@@ -563,6 +563,21 @@ impl crate::App {
                     &mut c.print_fill,
                     tr("Fill each box, cutting the image to it"),
                 );
+                let numbers = tr("%page% is the page's number, %pages% how many there are");
+                egui::Grid::new("page text").show(ui, |ui| {
+                    ui.label(tr("Top of each page:"));
+                    ui.add(egui::TextEdit::singleline(&mut c.print_header).desired_width(260.0))
+                        .on_hover_text(numbers);
+                    ui.end_row();
+                    ui.label(tr("Bottom of each page:"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut c.print_footer)
+                            .hint_text("%page% / %pages%")
+                            .desired_width(260.0),
+                    )
+                    .on_hover_text(numbers);
+                    ui.end_row();
+                });
                 ui.horizontal(|ui| {
                     let label = if c.print_printer.is_empty() {
                         tr("Save PDF… (Enter)")
@@ -590,6 +605,8 @@ impl crate::App {
                         margin: c.print_margin as f32 * print::MM,
                         scale: c.print_scale as f32 / 100.0,
                         fill: c.print_fill,
+                        header: c.print_header.clone(),
+                        footer: c.print_footer.clone(),
                         ..print::Layout::new(paper, c.print_per_page)
                     },
                     caption: c.print_caption.then(|| c.print_template.clone()),
@@ -719,6 +736,33 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// Text on every page, with its numbers, and room made for it: the image moves down from
+    /// the top line.
+    #[test]
+    fn writes_page_text() {
+        use super::{Layout, PAPERS, place};
+        let a4 = PAPERS[0].1;
+        let layout = Layout {
+            header: "Trip".into(),
+            footer: "Page %page% of %pages%".into(),
+            ..Layout::new(a4, 1)
+        };
+        let mut pdf = Vec::new();
+        let images = (0..2).map(|_| (image::DynamicImage::new_rgb8(20, 40), None));
+        super::pdf(images, &layout, 2, &mut pdf).unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(
+            text.contains("(Trip) Tj")
+                && text.contains("(Page 1 of 2) Tj")
+                && text.contains("(Page 2 of 2) Tj")
+        );
+        let top = |l: &Layout| {
+            let c = &place(l, &[[20, 40]], false).cells[0];
+            c.clip[1] + c.clip[3]
+        };
+        assert!(top(&layout) < top(&Layout::new(a4, 1)));
+    }
+
     /// The text under an image from the template: its name, place and size, and a field
     /// it lacks left out with the words around it, as in the full screen info.
     #[test]
