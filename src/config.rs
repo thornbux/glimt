@@ -329,6 +329,7 @@ config! {
     /// Stars are also written as xmp:Rating to `<file>.xmp` sidecars, for darktable and digiKam.
     xmp_stars: bool = false,
     /// The file list holds the images of all subfolders too, with their folders in the name.
+    /// Off at every start: a large tree is read whole before its folders show.
     show_subfolders: bool = false,
     /// A slideshow also shows the images in the subfolders.
     slideshow_subfolders: bool = false,

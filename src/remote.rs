@@ -21,6 +21,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("random", "Turn random order on or off"),
     ("fullscreen", "Enter or leave full screen"),
     (
+        "subfolders on|off",
+        "Include the images of the subfolders in the list, or not (View → Include Subfolders)",
+    ),
+    (
         "open PATH",
         "Show a file, folder or collection (starts Glimt if it is not running)",
     ),
@@ -383,6 +387,8 @@ mod tests {
         assert!(!super::known(&words("nxet")));
         assert!(!super::known(&words("open")));
         assert!(!super::known(&words("next 2")));
+        assert!(super::known(&words("subfolders on")));
+        assert!(!super::known(&words("subfolders")));
         assert!(!super::known(&[]));
     }
 

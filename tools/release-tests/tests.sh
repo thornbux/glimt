@@ -350,8 +350,9 @@ convert -size 300x200 xc:lime b.jpg
 convert -size 300x200 xc:blue sub/c.jpg
 convert -size 300x200 xc:yellow sub/d.jpg
 cd /tmp
-config show_subfolders=true auto_refresh=false
+config auto_refresh=false
 start $d
+$BIN --remote subfolders on; sleep 2
 answer $d/sub; key ctrl+c; sleep 2
 key space; key space; key space; answer $d; key ctrl+m; sleep 2
 key Home; key space; answer $d/sub/deep; key ctrl+m; sleep 2
@@ -361,6 +362,29 @@ expect "files on disk" "$(cd $d && find . -name '*.jpg' | sort | tr '\n' ' ')" \
     "./a.jpg ./c.jpg ./sub/a.jpg ./sub/d.jpg ./sub/deep/b.jpg "
 # a.jpg, c.jpg, sub/a.jpg, sub/d.jpg, sub/deep/b.jpg
 expect "the list follows" "$(rows subfolders 5)" "red blue red yellow green"
+
+echo "-- Include Subfolders saved on: off at the next start, on again by --remote subfolders on"
+for v in new old; do
+    as_version $v
+    d=/tmp/subfolders-start-$v
+    mkdir -p $d/sub
+    for f in a b; do convert -size 64x64 xc:red $d/$f.jpg; done
+    for f in c d e; do convert -size 64x64 xc:blue $d/sub/$f.jpg; done
+    config show_subfolders=true
+    start $d
+    sleep 2
+    key ctrl+a
+    listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
+    $BIN --remote subfolders on >/dev/null 2>&1; sleep 2
+    key ctrl+a
+    all=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
+    quit
+    if [ $v = new ]; then
+        expect "off at the start: the folder's own two" "$listed" 2
+        expect "on by --remote: all five" "$all" 5
+    else note "old: $listed at the start, $all after"; fi
+done
+as_version new
 
 echo "-- a delete that fails in a subfolder: the file comes back"
 for v in new old; do
@@ -372,8 +396,9 @@ for v in new old; do
     convert -size 300x200 xc:lime sub/c.jpg
     chmod 555 sub
     cd /tmp
-    config show_subfolders=true auto_refresh=false confirm_delete=false
+    config auto_refresh=false confirm_delete=false
     start $d
+    $BIN --remote subfolders on >/dev/null 2>&1; sleep 2
     key space; key shift+Delete; sleep 3
     shot failed-delete-$v
     # A delete that can succeed, so the check above cannot pass by nothing happening.
@@ -919,9 +944,9 @@ for v in new old; do
     convert -size 100x100 xc:blue $d/c.jpg
     convert -size 100x100 xc:red $d/sub/a.jpg
     convert -size 100x100 xc:lime $d/sub/b.jpg
-    config show_subfolders=true auto_refresh=false
+    config auto_refresh=false
     start $d
-    sleep 2
+    $BIN --remote subfolders on >/dev/null 2>&1; sleep 2
     key End                       # sub/b.jpg shown, so it is among the renamed
     key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
     xdotool type --delay 30 'x*'; sleep 0.4

@@ -23,10 +23,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Printing turns the paper by the image as before, or always portrait or landscape; a contact
   sheet on landscape paper turns its grid with it.
 - Printing on A3, A5, Legal and photo paper of 10 × 15 and 13 × 18 cm, beside A4 and Letter.
+- glimt --remote subfolders on|off turns Include Subfolders on or off.
 
 ### Changed
 
 - The About page links to glimt.pario.no and to Glimt's MIT License.
+- Include Subfolders is off at every start: kept on, a start in a folder with many subfolders read
+  the whole tree before any folder showed.
+
+### Fixed
+
+- With Include Subfolders on, the images of a folder's tree show as they are found, a subfolder at
+  a time, in name order; the sort asked for comes when the whole tree is read.
+- With Include Subfolders on, a folder's own subfolders show at once, before its whole tree is
+  read; and opening another folder meanwhile stops reading the tree, which went on in the
+  background until its end.
 
 ## [0.37.2] - 2026-10-18
 
