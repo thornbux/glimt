@@ -605,24 +605,31 @@ static WRITES_WAITING: std::sync::atomic::AtomicUsize = std::sync::atomic::Atomi
 /// `work` in the one thread that writes Glimt's own files, in the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
     use std::sync::atomic::Ordering::Relaxed;
-    type Work = Box<dyn FnOnce() + Send>;
     static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
-    let writer = WRITER.get_or_init(|| {
-        let (works, rx) = std::sync::mpsc::channel::<Work>();
-        std::thread::spawn(move || {
-            for work in rx {
-                // One that panics must not end the thread: every later write would be lost,
-                // and Glimt would wait for them at exit.
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
-                WRITES_WAITING.fetch_sub(1, Relaxed);
-            }
-        });
-        works
-    });
     WRITES_WAITING.fetch_add(1, Relaxed);
-    if writer.send(Box::new(work)).is_err() {
+    let counted = move || {
+        // Counted down also when it panics: Glimt would wait for it at exit.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+        WRITES_WAITING.fetch_sub(1, Relaxed);
+    };
+    if WRITER.get_or_init(serial).send(Box::new(counted)).is_err() {
         WRITES_WAITING.fetch_sub(1, Relaxed);
     }
+}
+
+/// Work for a `serial` thread.
+pub type Work = Box<dyn FnOnce() + Send>;
+
+/// A thread that does the work sent to it one after another, in that order. One that panics
+/// does not end it, or every later work sent would be lost.
+pub fn serial() -> std::sync::mpsc::Sender<Work> {
+    let (works, rx) = std::sync::mpsc::channel::<Work>();
+    std::thread::spawn(move || {
+        for work in rx {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+        }
+    });
+    works
 }
 
 /// Wait for the writes asked for, a few seconds at most, before Glimt ends: the last change of

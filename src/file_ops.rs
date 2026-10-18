@@ -729,18 +729,9 @@ impl crate::App {
         write: impl Fn(&Path) -> bool + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
-        type Work = Box<dyn FnOnce() + Send>;
+        use config::Work;
         static WRITER: std::sync::OnceLock<mpsc::Sender<Work>> = std::sync::OnceLock::new();
-        let writer = WRITER.get_or_init(|| {
-            let (works, rx) = mpsc::channel::<Work>();
-            // One that panics must not end the thread, and with it every later write.
-            std::thread::spawn(move || {
-                for work in rx {
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
-                }
-            });
-            works
-        });
+        let writer = WRITER.get_or_init(config::serial);
         let job = self.start_job(doing, paths.len());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
