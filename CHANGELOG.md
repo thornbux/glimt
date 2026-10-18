@@ -15,6 +15,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   action's own key too, and a default key taken so no longer shows for that action in the menus
   and the Keyboard Map.
 
+### Changed
+
+- The release workflow also checks the build without optional features, as people building from
+  source get it, before it publishes.
+
 ## [0.36.0] - 2026-10-18
 
 ### Added

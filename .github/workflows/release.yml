@@ -76,7 +76,10 @@ jobs:
       # The tagged code itself, with the toolchain of this day: a tag pushed by hand, or a
       # crate changed since the last CI run, is not published untested.
       - name: Tests
-        run: cargo test --locked --release --features full
+        # The packages are built with every feature; a build from source has none: both.
+        run: |
+          cargo test --locked --release --features full
+          cargo check --locked --release
       - name: Build against glibc ${{ env.GLIBC }}
         # Zig's linker says it ignores the -O1 that rustc gives it; nothing else is wrong.
         env:
