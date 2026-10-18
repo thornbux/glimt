@@ -198,15 +198,15 @@ impl crate::App {
             pan.columns = 0;
         }
         let (mut open, mut show, mut close) = (true, None, false);
-        egui::Window::new("Pan View")
+        egui::Window::new(tr("Pan View"))
             .open(&mut open)
             .default_size([900.0, 640.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut pan.calendar, false, "Timeline");
-                    ui.selectable_value(&mut pan.calendar, true, "Calendar");
+                    ui.selectable_value(&mut pan.calendar, false, tr("Timeline"));
+                    ui.selectable_value(&mut pan.calendar, true, tr("Calendar"));
                     ui.separator();
-                    if ui.checkbox(&mut pan.exif, "EXIF date").changed() {
+                    if ui.checkbox(&mut pan.exif, tr("EXIF date")).changed() {
                         pan.days = None;
                         pan.days_rx = None;
                     }
@@ -216,7 +216,11 @@ impl crate::App {
                         Some((days, _)) => {
                             let n = days.iter().filter(|d| d.0 != "No date").count();
                             let total: usize = days.iter().map(|d| d.1.len()).sum();
-                            ui.weak(format!("{} on {}", count(total, "image"), count(n, "day")))
+                            ui.weak(tf!(
+                                "{images} on {days}",
+                                images = count(total, "image"),
+                                days = count(n, "day")
+                            ))
                         }
                         None => ui.spinner(),
                     };
@@ -259,7 +263,11 @@ impl crate::App {
                                 ui.painter().text(
                                     top + egui::vec2(4.0, y + heading - 6.0),
                                     egui::Align2::LEFT_BOTTOM,
-                                    format!("{day}   {}", count(list.len(), "image")),
+                                    format!(
+                                        "{}   {}",
+                                        if day == "No date" { tr("No date") } else { day },
+                                        count(list.len(), "image")
+                                    ),
                                     egui::TextStyle::Body.resolve(ui.style()),
                                     ui.visuals().strong_text_color(),
                                 );
@@ -349,7 +357,7 @@ impl crate::App {
                     ui.painter().text(
                         top + egui::vec2(4.0, y0 + title - 6.0),
                         egui::Align2::LEFT_BOTTOM,
-                        format!("{} {}", NAMES[m.month as usize - 1], m.year),
+                        format!("{} {}", tr(NAMES[m.month as usize - 1]), m.year),
                         egui::TextStyle::Body.resolve(ui.style()),
                         strong,
                     );

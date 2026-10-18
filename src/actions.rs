@@ -187,7 +187,7 @@ impl Action {
     /// The name shown in menus and in the help window.
     pub fn label(self) -> &'static str {
         use Action::*;
-        match self {
+        crate::lang::tr(match self {
             OpenFile => "Open File…",
             OpenFolder => "Open Folder…",
             OpenFolders => "Open Several Folders…",
@@ -328,7 +328,7 @@ impl Action {
             Shortcuts => "Keyboard Shortcuts",
             KeyboardMap => "Keyboard Map",
             About => "About Glimt",
-        }
+        })
     }
 }
 

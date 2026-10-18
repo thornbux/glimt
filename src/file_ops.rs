@@ -54,8 +54,9 @@ impl crate::App {
             false => Vec::new(),
         };
         if found.is_empty() {
-            self.notice =
-                Some("The files asked about are no longer in the list: nothing was done".into());
+            self.notice = Some(
+                tr("The files asked about are no longer in the list: nothing was done").into(),
+            );
             return None;
         }
         Some(found)
@@ -66,7 +67,7 @@ impl crate::App {
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
         let saving = paths.iter().any(|p| self.saving.contains(p));
         if saving {
-            self.notice = Some("Still saving a rotation: try again in a moment".into());
+            self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
         }
         !saving
     }
@@ -105,7 +106,7 @@ impl crate::App {
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
-        let job = self.start_job("Deleting", paths.len());
+        let job = self.start_job(tr("Deleting"), paths.len());
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
@@ -123,7 +124,7 @@ impl crate::App {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => errors.push(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
                         Err(e) => {
-                            errors.push(format!("gio trash (from glib): {e}"));
+                            errors.push(tf!("gio trash (from glib): {e}", e));
                             break;
                         }
                     }
@@ -135,19 +136,23 @@ impl crate::App {
                         break;
                     }
                     if let Err(e) = std::fs::remove_file(path) {
-                        errors.push(format!("{}: {e}", path.display()));
+                        errors.push(format!("{display}: {e}", display = path.display()));
                     }
                     job.did(1);
                 }
             }
             if let Some(first) = errors.first() {
-                let _ = tx.send(format!(
-                    "Delete failed ({}): {first}",
-                    count(errors.len(), "error")
+                let _ = tx.send(tf!(
+                    "Delete failed ({count}): {first}",
+                    count = count(errors.len(), "error"),
+                    first
                 ));
             } else if let Some(text) = job.report(|| match trash {
-                true => format!("{} moved to the trash", count(paths.len(), "file")),
-                false => format!("{} deleted", count(paths.len(), "file")),
+                true => tf!(
+                    "{count} moved to the trash",
+                    count = count(paths.len(), "file")
+                ),
+                false => tf!("{count} deleted", count = count(paths.len(), "file")),
             }) {
                 let _ = tx.send(text);
             }
@@ -306,7 +311,7 @@ impl crate::App {
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
-        let job = self.start_job(if keep { "Copying" } else { "Moving" }, paths.len());
+        let job = self.start_job(tr(if keep { "Copying" } else { "Moving" }), paths.len());
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             if !keep && same_dir {
@@ -323,7 +328,7 @@ impl crate::App {
                         meta::follow(path, &target, keep);
                         put.push((path.clone(), target));
                     }
-                    Err(e) => errors.push(format!("{}: {e}", target.display())),
+                    Err(e) => errors.push(format!("{display}: {e}", display = target.display())),
                 }
                 job.did(1);
             }
@@ -334,10 +339,12 @@ impl crate::App {
             // Before the deleted ones below, whose marks would go otherwise.
             let _ = put_tx.send((put, keep));
             if let Some(first) = errors.first() {
-                let verb = if keep { "Copy" } else { "Move" };
-                let _ = tx.send(format!(
-                    "{verb} failed ({}): {first}",
-                    count(errors.len(), "error")
+                let verb = tr(if keep { "Copy" } else { "Move" });
+                let _ = tx.send(tf!(
+                    "{verb} failed ({count}): {first}",
+                    verb,
+                    count = count(errors.len(), "error"),
+                    first
                 ));
             } else if let Some(text) = job.report(|| {
                 let verb = if keep { "copied" } else { "moved" };
@@ -375,8 +382,9 @@ impl crate::App {
             .collect();
         let unique: HashSet<&PathBuf> = to.iter().collect();
         if unique.len() < to.len() {
-            self.notice =
-                Some("The pattern gives several files the same name; add # for a number".into());
+            self.notice = Some(
+                tr("The pattern gives several files the same name; add # for a number").into(),
+            );
             return;
         }
         // The files are looked at and renamed in the background: thousands, or a network
@@ -473,7 +481,8 @@ impl crate::App {
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
             if jpeg && result.is_ok() && !rotate {
-                let _ = notices.send("Saved; it shows when Auto Rotate Using EXIF is on".into());
+                let _ =
+                    notices.send(tr("Saved; it shows when Auto Rotate Using EXIF is on").into());
             }
             let _ = saved.send((path, result));
             drop(pointer);
@@ -515,7 +524,7 @@ impl crate::App {
             false => std::fs::rename(&old, &new),
         };
         if let Err(e) = result {
-            self.notice = Some(format!("{}: {e}", new.display()));
+            self.notice = Some(format!("{display}: {e}", display = new.display()));
             return;
         }
         self.forget_folder(&old);
@@ -561,7 +570,7 @@ impl crate::App {
             let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
                 Ok(o) if o.status.success() => None,
                 Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
-                Err(e) => Some(format!("gio trash (from glib): {e}")),
+                Err(e) => Some(tf!("gio trash (from glib): {e}", e)),
             };
             // Failed: listed again, as a failed delete of files is.
             let gone = if error.is_none() {
@@ -652,9 +661,9 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
     // Checked with the sidecars too: one at a new name belongs to another file.
     let sources: HashSet<&PathBuf> = from.iter().collect();
     if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
-        return Err(format!(
-            "{} exists already; nothing renamed",
-            taken.display()
+        return Err(tf!(
+            "{name} exists already; nothing renamed",
+            name = taken.display()
         ));
     }
     let swap = to.iter().any(|t| sources.contains(t));
@@ -682,7 +691,12 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
                 let _ = std::fs::rename(b, a);
             }
             let (f, t) = (name(&from[j]), name(&to[j]));
-            return Err(format!("Could not rename {f} to {t}: {e}; nothing renamed"));
+            return Err(tf!(
+                "Could not rename {f} to {t}: {e}; nothing renamed",
+                f,
+                t,
+                e
+            ));
         }
         if let Some(plan) = plan.as_mut() {
             plan.done();
@@ -750,7 +764,7 @@ impl crate::App {
                 report(failed, &job)
             }))
             .unwrap_or_else(|_| {
-                Some("Writing the sidecars stopped at a file that broke it".into())
+                Some(tr("Writing the sidecars stopped at a file that broke it").into())
             });
             if let Some(text) = text {
                 let _ = tx.send(text);
@@ -774,7 +788,7 @@ impl crate::App {
     ) {
         let rotate = self.config.exif_rotate;
         // A job, so closing waits for it (or stops it between frames), as for copies.
-        let job = self.start_job("Exporting", 1);
+        let job = self.start_job(tr("Exporting"), 1);
         self.background(ctx, true, move || {
             let stem = path
                 .file_stem()
@@ -792,7 +806,7 @@ impl crate::App {
                     .unwrap_or_default(),
             };
             let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
-                Err(format!("Could not make {}", folder.display()))
+                Err(tf!("Could not make {folder}", folder = folder.display()))
             } else {
                 decode::survive(|| {
                     decode::each_frame(&path, only, rotate, |k, img| {
@@ -817,9 +831,13 @@ impl crate::App {
             };
             Some(match (saved, only) {
                 (Ok(0), _) => "No such frame".to_owned(),
-                (Ok(_), Some(_)) => format!("Saved {}", to.display()),
-                (Ok(n), None) => format!("{} saved in {}", count(n, "frame"), folder.display()),
-                (Err(e), _) => format!("Could not save the frames: {e}"),
+                (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
+                (Ok(n), None) => tf!(
+                    "{frames} saved in {folder}",
+                    frames = count(n, "frame"),
+                    folder = folder.display()
+                ),
+                (Err(e), _) => tf!("Could not save the frames: {e}", e),
             })
         });
     }
@@ -829,7 +847,7 @@ impl crate::App {
     /// copy them back while Glimt is closed; the README says where.
     pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
         // A job, so closing waits for the copy to be whole.
-        let job = self.start_job("Backing up", 1);
+        let job = self.start_job(tr("Backing up"), 1);
         self.background(ctx, true, move || {
             let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
             drop(job);

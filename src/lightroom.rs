@@ -46,7 +46,7 @@ pub struct Catalog {
 /// Read `file`; an error says why in words for the user.
 pub fn read(file: &Path) -> Result<Catalog, String> {
     if file.with_extension("lrcat.lock").exists() {
-        return Err("Lightroom has the catalog open: close Lightroom first".into());
+        return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
     let out = crate::external::command("sqlite3")
         .args([
@@ -65,11 +65,11 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if !out.status.success() {
         let why = String::from_utf8_lossy(&out.stderr);
         if missing(out.status.code(), &why) {
-            return Err(format!("{NEEDS}, which is not installed"));
+            return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
         }
-        return Err(format!(
-            "Not a Lightroom Classic catalog Glimt can read: {}",
-            why.trim()
+        return Err(tf!(
+            "Not a Lightroom Classic catalog Glimt can read: {why}",
+            why = why.trim()
         ));
     }
     Ok(parse(&out.stdout))
@@ -331,10 +331,10 @@ impl crate::App {
         };
         let (mut next, mut back, mut go) = (false, false, false);
         let modal = egui::Modal::new(egui::Id::new("lightroom")).show(ctx, |ui| {
-            ui.strong("Import from Lightroom");
+            ui.strong(tr("Import from Lightroom"));
             match &mut lr.plan {
                 None => {
-                    ui.label("Where the catalog's folders are now (empty: left out):");
+                    ui.label(tr("Where the catalog's folders are now (empty: left out):"));
                     egui::Grid::new("lightroom roots").show(ui, |ui| {
                         for ((_, was), now) in lr.catalog.roots.iter().zip(&mut lr.now) {
                             ui.label(was);
@@ -352,26 +352,27 @@ impl crate::App {
                          stars to the marks. Smart collections are left out.",
                     );
                     ui.horizontal(|ui| {
-                        next = ui.button("Next").clicked();
-                        if ui.button("Cancel (Esc)").clicked() {
+                        next = ui.button(tr("Next")).clicked();
+                        if ui.button(tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
                     });
                 }
                 Some(plan) => {
-                    ui.label(format!(
-                        "{}, {} and the stars of {}.",
-                        count(plan.collections.len(), "collection"),
-                        count(plan.keywords.len(), "keyword"),
-                        count(plan.stars.len(), "image"),
+                    ui.label(tf!(
+                        "{collections}, {keywords} and the stars of {images}.",
+                        collections = count(plan.collections.len(), "collection"),
+                        keywords = count(plan.keywords.len(), "keyword"),
+                        images = count(plan.stars.len(), "image")
                     ));
                     if !plan.existing.is_empty() {
                         let mut names = plan.existing[..plan.existing.len().min(5)].join(", ");
                         if plan.existing.len() > 5 {
                             names += &format!(" and {} more", plan.existing.len() - 5);
                         }
-                        ui.label(format!(
-                            "There already, so they get only the images they lack: {names}."
+                        ui.label(tf!(
+                            "There already, so they get only the images they lack: {names}.",
+                            names
                         ));
                     }
                     if !plan.image_keywords.is_empty() {
@@ -383,20 +384,24 @@ impl crate::App {
                         ui.checkbox(&mut self.config.lightroom_keywords, what);
                     }
                     if plan.differ > 0 {
-                        ui.label(format!(
-                            "{} other stars in Glimt:",
-                            match plan.differ {
+                        ui.label(tf!(
+                            "{n} other stars in Glimt:",
+                            n = match plan.differ {
                                 1 => "1 image has".to_owned(),
-                                n => format!("{} have", count(n, "image")),
+                                n => tf!("{count} have", count = count(n, "image")),
                             }
                         ));
-                        ui.radio_value(&mut plan.take_lightroom, false, "Keep Glimt's stars");
-                        ui.radio_value(&mut plan.take_lightroom, true, "Take Lightroom's stars");
+                        ui.radio_value(&mut plan.take_lightroom, false, tr("Keep Glimt's stars"));
+                        ui.radio_value(
+                            &mut plan.take_lightroom,
+                            true,
+                            tr("Take Lightroom's stars"),
+                        );
                     }
                     ui.horizontal(|ui| {
-                        go = ui.button("Import").clicked();
-                        back = ui.button("Back").clicked();
-                        if ui.button("Cancel (Esc)").clicked() {
+                        go = ui.button(tr("Import")).clicked();
+                        back = ui.button(tr("Back")).clicked();
+                        if ui.button(tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
                     });
@@ -459,15 +464,18 @@ impl crate::App {
                     self.marks.rate(&paths, n);
                 }
             }
-            done.push(format!("the stars of {}", count(stars.len(), "image")));
+            done.push(tf!(
+                "the stars of {count}",
+                count = count(stars.len(), "image")
+            ));
         }
         #[cfg(not(feature = "marks"))]
         let _ = (&stars, take_lightroom);
         let xmp = cfg!(feature = "marks") && self.config.xmp_stars;
         if !image_keywords.is_empty() {
-            done.push(format!(
-                "the keywords of {}",
-                count(image_keywords.len(), "image")
+            done.push(tf!(
+                "the keywords of {count}",
+                count = count(image_keywords.len(), "image")
             ));
         }
         // The stars (as stars set by hand go there with this setting) and the keywords to the
@@ -484,7 +492,7 @@ impl crate::App {
         let paths: Vec<PathBuf> = sidecars.keys().cloned().collect();
         self.write_sidecars(
             ctx,
-            "Importing",
+            tr("Importing"),
             paths,
             move |path| {
                 // Not for photos gone since: no sidecar beside nothing.
@@ -498,9 +506,9 @@ impl crate::App {
                 stars && (tags.is_empty() || meta::add_tags(path, tags).is_ok())
             },
             |failed, job| match () {
-                _ if failed > 0 => Some(format!(
-                    "Lightroom's stars or keywords not written to the sidecars of {}",
-                    count(failed, "image")
+                _ if failed > 0 => Some(tf!(
+                    "Lightroom's stars or keywords not written to the sidecars of {count}",
+                    count = count(failed, "image")
                 )),
                 _ if job.stopped() => Some(job.stopped_text()),
                 _ => None,

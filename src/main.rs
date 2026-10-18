@@ -22,6 +22,7 @@ use files::{
     SORTS, Types, has_ext, is_listed, list_folder, list_tree, merge_shuffled, pattern_name,
     shuffle, sort_files, walk,
 };
+use lang::tr;
 use meta::Meta;
 use save::save_rotated;
 use std::collections::{HashMap, HashSet};
@@ -46,6 +47,7 @@ mod file_ops;
 mod files;
 mod help;
 mod journal;
+mod lang;
 mod lightroom;
 #[cfg(feature = "marks")]
 mod marks;
@@ -201,10 +203,10 @@ impl Job {
     /// How far a stopped one got.
     fn stopped_text(&self) -> String {
         let done = self.done.load(Ordering::Relaxed);
-        format!(
-            "Stopped: {} of {}",
-            thousands(done),
-            count(self.total, "file")
+        tf!(
+            "Stopped: {done} of {total}",
+            done = thousands(done),
+            total = count(self.total, "file")
         )
     }
 
@@ -465,7 +467,9 @@ fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
                 .rect_stroke(r, 1.0, stroke, egui::StrokeKind::Inside);
         }
     }
-    response.on_hover_text("The pane these details are of: the one under the pointer");
+    response.on_hover_text(tr(
+        "The pane these details are of: the one under the pointer",
+    ));
 }
 
 /// What the start options ask for.
@@ -741,7 +745,7 @@ fn menu_button(
 /// A toolbar button with the action's name and shortcut as tooltip.
 fn tool_button(ui: &mut egui::Ui, act: &mut Option<Action>, icon: &str, action: Action, on: bool) {
     let tip = match shortcut_text(ui.ctx(), action) {
-        Some(keys) => format!("{} ({keys})", action.label()),
+        Some(keys) => format!("{label} ({keys})", label = action.label()),
         None => action.label().to_owned(),
     };
     if ui
@@ -1373,8 +1377,8 @@ fn middle_cut(text: &str, fits: impl Fn(&str) -> bool) -> String {
 }
 
 /// `n` and `noun` in the singular or plural, with thousands separated: "1 image", "1,200 images".
-fn count(n: usize, noun: &str) -> String {
-    format!("{} {noun}{}", thousands(n), if n == 1 { "" } else { "s" })
+fn count(n: usize, noun: &'static str) -> String {
+    format!("{} {}", thousands(n), lang::plural(noun, n))
 }
 
 /// A file of the list and its row among the search matches (`None`: not among them).
@@ -1562,6 +1566,7 @@ impl App {
         let keep = Arc::new(Mutex::new(vec![0]));
         let full_ok = Arc::new(AtomicUsize::new(1));
         let (mut config, problems) = Config::load_checked();
+        lang::set(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();
@@ -1897,7 +1902,9 @@ impl App {
     fn open_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
         let paths = match collections::load(&file) {
             Ok(paths) => paths,
-            Err(e) => return self.notice = Some(format!("{}: {e}", file.display())),
+            Err(e) => {
+                return self.notice = Some(format!("{display}: {e}", display = file.display()));
+            }
         };
         self.leave_image(ctx);
         let root = Path::new("/");
@@ -1998,7 +2005,7 @@ impl App {
     /// Mount `login.uri`, answering gio's questions from `login` if `answer`.
     fn mount_as(&mut self, ctx: &egui::Context, login: Login, answer: bool) {
         // Says which address is tried; replaces what an attempt before left.
-        self.notice = Some(format!("Connecting to {}…", login.uri));
+        self.notice = Some(tf!("Connecting to {uri}…", uri = login.uri));
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -2312,7 +2319,7 @@ impl App {
         };
         // A named Glimt says which it is.
         let app = match remote::given_name() {
-            Some(n) => format!("Glimt ({n})"),
+            Some(n) => tf!("Glimt ({n})", n),
             None => "Glimt".to_owned(),
         };
         let title = if self.config.app_name_first {
@@ -2339,12 +2346,12 @@ impl App {
             // Renamed or moved to the trash in another window since it was opened here: not
             // made again under its old name.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                self.notice = Some(format!(
-                    "The collection {} is gone (renamed or removed in another window): not saved",
-                    file.display()
+                self.notice = Some(tf!(
+                    "The collection {file} is gone (renamed or removed in another window): not saved",
+                    file = file.display()
                 ))
             }
-            Err(e) => self.notice = Some(format!("Could not save the collection: {e}")),
+            Err(e) => self.notice = Some(tf!("Could not save the collection: {e}", e)),
         }
     }
 
@@ -2369,7 +2376,7 @@ impl App {
         order: Vec<usize>,
     ) {
         if self.collection.is_none() {
-            self.notice = Some("Only the images of a collection can be moved".into());
+            self.notice = Some(tr("Only the images of a collection can be moved").into());
             return;
         }
         // An empty collection: nothing to move, and no shown image to keep.
@@ -2377,7 +2384,7 @@ impl App {
             return;
         }
         if self.shuffled {
-            self.notice = Some("Random order is on: R turns it off to move images".into());
+            self.notice = Some(tr("Random order is on: R turns it off to move images").into());
             return;
         }
         let shown = self.files.get(self.cur).cloned();
@@ -2411,11 +2418,12 @@ impl App {
                     Ok(out) if out.status.success() => {
                         format!("Collection {name} moved to the trash")
                     }
-                    Ok(out) => format!(
-                        "Could not trash {name}: {}",
-                        String::from_utf8_lossy(&out.stderr).trim()
+                    Ok(out) => tf!(
+                        "Could not trash {name}: {err}",
+                        name,
+                        err = String::from_utf8_lossy(&out.stderr).trim()
                     ),
-                    Err(e) => format!("Could not trash {name} (gio is needed): {e}"),
+                    Err(e) => tf!("Could not trash {name} (gio is needed): {e}", name, e),
                 },
             )
         });
@@ -2432,8 +2440,8 @@ impl App {
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
         let name = file.file_stem().unwrap_or_default().to_string_lossy();
         self.notice = Some(match collections::append(file, &paths) {
-            Ok(n) => format!("{n} added to the collection \"{name}\""),
-            Err(e) => format!("Could not save the collection: {e}"),
+            Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
+            Err(e) => tf!("Could not save the collection: {e}", e),
         });
     }
 
@@ -2444,10 +2452,10 @@ impl App {
         menu_item(ui, act, Action::OpenCollection);
         menu_item(ui, act, Action::ImportLightroom);
         let mut open = None;
-        scroll_menu(ui, "Collections", |ui| {
+        scroll_menu(ui, tr("Collections"), |ui| {
             let all = collections::list();
             if all.is_empty() {
-                ui.label("No collections yet");
+                ui.label(tr("No collections yet"));
             }
             for (name, file) in all {
                 if ui.button(name).clicked() {
@@ -2456,10 +2464,10 @@ impl App {
             }
         });
         if !self.files.is_empty() {
-            scroll_menu(ui, "Add to Collection", |ui| {
+            scroll_menu(ui, tr("Add to Collection"), |ui| {
                 let all = collections::list();
                 if all.is_empty() {
-                    ui.label("No collections yet");
+                    ui.label(tr("No collections yet"));
                 }
                 for (name, file) in all {
                     if ui.button(name).clicked() {
@@ -2475,7 +2483,7 @@ impl App {
                 menu_item(ui, act, Action::RenameCollection);
                 menu_item(ui, act, Action::TrashCollection);
             }
-            ui.menu_button("Move in Collection", |ui| {
+            ui.menu_button(tr("Move in Collection"), |ui| {
                 for action in [
                     Action::MoveEarlier,
                     Action::MoveLater,
@@ -2506,7 +2514,7 @@ impl App {
                     .into_owned()
             };
             let folder = path.parent().map(last).unwrap_or_default();
-            return format!("{folder}/{}", last(path)).into();
+            return format!("{folder}/{last}", last = last(path)).into();
         }
         match self.collection {
             Some(_) => Path::new(name)
@@ -2999,11 +3007,11 @@ impl App {
 
     /// View → Layout: one image, two or four, and how a slideshow changes them.
     fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        scroll_menu(ui, "Layout", |ui| {
+        scroll_menu(ui, tr("Layout"), |ui| {
             menu_item(ui, act, Action::NextLayout);
             ui.separator();
             for (key, label, _) in LAYOUTS {
-                if ui.radio(self.config.layout == key, label).clicked() {
+                if ui.radio(self.config.layout == key, tr(label)).clicked() {
                     self.set_layout(key);
                 }
             }
@@ -3012,16 +3020,16 @@ impl App {
             }
             ui.separator();
             if ui
-                .checkbox(&mut self.config.layout_names, "Show File Names")
+                .checkbox(&mut self.config.layout_names, tr("Show File Names"))
                 .changed()
             {
                 self.config.save();
             }
-            ui.weak("Slideshow in this layout:");
+            ui.weak(tr("Slideshow in this layout:"));
             let turns = self.one_at_a_time();
             let mut chosen = turns;
-            ui.radio_value(&mut chosen, false, "All Images Change Together");
-            ui.radio_value(&mut chosen, true, "One Image at a Time");
+            ui.radio_value(&mut chosen, false, tr("All Images Change Together"));
+            ui.radio_value(&mut chosen, true, tr("One Image at a Time"));
             if chosen != turns {
                 let layout = self.config.layout.clone();
                 let mut list: Vec<&str> = (self.config.layout_turns.split(','))
@@ -3908,7 +3916,7 @@ impl App {
             let shown = self.folders.contains(&dir.to_path_buf()) || dir == self.dir;
             if !shown
                 && self.collection.is_none()
-                && ui.button("Show Together with These Images").clicked()
+                && ui.button(tr("Show Together with These Images")).clicked()
             {
                 let mut all = match self.folders.is_empty() {
                     true => vec![self.dir.clone()],
@@ -3917,12 +3925,12 @@ impl App {
                 all.push(dir.to_path_buf());
                 self.together = Some(all);
             }
-            if ui.button("Rename Folder…").clicked() {
+            if ui.button(tr("Rename Folder…")).clicked() {
                 let name = dir.file_name().unwrap_or_default().to_string_lossy();
                 self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
                 self.folder_target = Some(dir.to_path_buf());
             }
-            if ui.button("Move Folder to Trash…").clicked() {
+            if ui.button(tr("Move Folder to Trash…")).clicked() {
                 self.folder_target = Some(dir.to_path_buf());
                 self.confirm_folder = true;
             }
@@ -3937,11 +3945,13 @@ impl App {
             .resizable(true)
             .default_size(200.0)
             .show(ui, |ui| {
-                ui.strong("Sort Manager");
+                ui.strong(tr("Sort Manager"));
                 ui.horizontal(|ui| {
                     let c = &mut self.config;
-                    let changed = ui.radio_value(&mut c.sort_move, false, "Copy").changed()
-                        | ui.radio_value(&mut c.sort_move, true, "Move").changed();
+                    let changed = ui
+                        .radio_value(&mut c.sort_move, false, tr("Copy"))
+                        .changed()
+                        | ui.radio_value(&mut c.sort_move, true, tr("Move")).changed();
                     if changed {
                         c.save();
                     }
@@ -3952,7 +3962,7 @@ impl App {
                         ui.horizontal(|ui| {
                             if ui
                                 .small_button(theme::icon::CLOSE)
-                                .on_hover_text("Remove")
+                                .on_hover_text(tr("Remove"))
                                 .clicked()
                             {
                                 remove = Some(k);
@@ -3970,10 +3980,10 @@ impl App {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Add This Folder").clicked() {
+                        if ui.button(tr("Add This Folder")).clicked() {
                             self.add_sort_folder(self.dir.clone());
                         }
-                        if ui.button("Add…").clicked() {
+                        if ui.button(tr("Add…")).clicked() {
                             self.pick(ui.ctx(), true, Pick::SortFolder);
                         }
                     });
@@ -3995,11 +4005,11 @@ impl App {
     /// now, so another window's folders stay, and is written whole or not at all.
     fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
         if config::locked() {
-            return self.notice = Some("The settings are locked (--lock-settings)".into());
+            return self.notice = Some(tr("The settings are locked (--lock-settings)").into());
         }
         let Some(path) = sort_folders_path() else {
             return self.notice =
-                Some("Could not save the sort manager's folders: no home folder".into());
+                Some(tr("Could not save the sort manager's folders: no home folder").into());
         };
         // Another window's read and write must not fall between ours, or its folder is lost.
         let _held = config::file_lock(&path);
@@ -4009,13 +4019,13 @@ impl App {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => {
                 return self.notice =
-                    Some(format!("Could not read the sort manager's folders: {e}"));
+                    Some(tf!("Could not read the sort manager's folders: {e}", e));
             }
         };
         let dirs = config::sort_folders_changed(on_disk, add, remove);
         match config::replace_file(&path, config::sort_folders_text(&dirs)) {
             Ok(()) => self.sort_folders = dirs,
-            Err(e) => self.notice = Some(format!("Could not save the sort manager's folders: {e}")),
+            Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),
         }
     }
 
@@ -4034,9 +4044,9 @@ impl App {
     /// The file types to list, as the file classes of Geeqie's file filter; beside the sort menu.
     fn types_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let c = &mut self.config;
-        let mut all = vec![("Images", &mut c.list_images), ("RAW", &mut c.list_raw)];
+        let mut all = vec![(tr("Images"), &mut c.list_images), ("RAW", &mut c.list_raw)];
         if cfg!(feature = "video") {
-            all.push(("Videos", &mut c.videos));
+            all.push((tr("Videos"), &mut c.videos));
         }
         let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
         let title = match on.len() {
@@ -4071,9 +4081,11 @@ impl App {
             }
             ui.separator();
             changed |= ui
-                .checkbox(&mut self.config.sort_ascending, "Ascending")
+                .checkbox(&mut self.config.sort_ascending, tr("Ascending"))
                 .changed();
-            changed |= ui.checkbox(&mut self.config.sort_case, "Case").changed();
+            changed |= ui
+                .checkbox(&mut self.config.sort_case, tr("Case"))
+                .changed();
         });
         if changed {
             self.config.save();
@@ -4101,7 +4113,7 @@ impl App {
             } else if path.exists() {
                 self.visit(ui.ctx(), path);
             } else {
-                self.notice = Some(format!("No such folder: {}", path.display()));
+                self.notice = Some(tf!("No such folder: {folder}", folder = path.display()));
             }
         }
         if !response.has_focus() {
@@ -4205,11 +4217,11 @@ impl App {
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
-                        ui.weak("File");
+                        ui.weak(tr("File"));
                         ui.label(self.name(self.cur));
                         ui.end_row();
                         if let Some(s) = self.slots.get(&self.cur) {
-                            ui.weak("Dimensions");
+                            ui.weak(tr("Dimensions"));
                             ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
                             ui.end_row();
                         }
@@ -4218,7 +4230,7 @@ impl App {
                             ui.weak(*label);
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
-                                let link = ui.link(value).on_hover_text("Show on OpenStreetMap");
+                                let link = ui.link(value).on_hover_text(tr("Show on OpenStreetMap"));
                                 if link.clicked()
                                     && let Some((lat, lon)) = value.split_once(", ")
                                 {
@@ -4246,30 +4258,30 @@ impl App {
         let Some(edit) = self.meta.as_mut().filter(|m| m.path == path) else {
             return;
         };
-        ui.weak("Keywords");
+        ui.weak(tr("Keywords"));
         let keywords = ui.add(
             egui::TextEdit::singleline(&mut edit.keywords)
-                .hint_text("Separated by commas")
+                .hint_text(tr("Separated by commas"))
                 .desired_width(f32::INFINITY),
         );
         if std::mem::take(&mut self.focus_keywords) {
             keywords.request_focus();
         }
-        ui.weak("Comment");
+        ui.weak(tr("Comment"));
         let comment = ui.add(
             egui::TextEdit::multiline(&mut edit.comment)
                 .desired_rows(3)
                 .desired_width(f32::INFINITY),
         );
         // IPTC's accessibility fields, which screen readers and web pages read.
-        ui.weak("Alt text");
+        ui.weak(tr("Alt text"));
         let alt = ui.add(
             egui::TextEdit::multiline(&mut edit.alt)
-                .hint_text("What the picture shows, for someone who cannot see it")
+                .hint_text(tr("What the picture shows, for someone who cannot see it"))
                 .desired_rows(2)
                 .desired_width(f32::INFINITY),
         );
-        ui.weak("Extended description");
+        ui.weak(tr("Extended description"));
         let extended = ui.add(
             egui::TextEdit::multiline(&mut edit.extended)
                 .desired_rows(2)
@@ -4280,8 +4292,11 @@ impl App {
         if n > 1
             && !add.is_empty()
             && ui
-                .button(format!("Add the keywords to the {} selected", thousands(n)))
-                .on_hover_text("Each file keeps its own keywords and gets these too")
+                .button(tf!(
+                    "Add the keywords to the {n} selected",
+                    n = thousands(n)
+                ))
+                .on_hover_text(tr("Each file keeps its own keywords and gets these too"))
                 .clicked()
         {
             self.add_keywords(ui.ctx(), add);
@@ -4305,7 +4320,7 @@ impl App {
             return;
         };
         ui.separator();
-        ui.weak("Keyword tree");
+        ui.weak(tr("Keyword tree"));
         let mut root = KeywordNode::default();
         for p in &self.keyword_tree {
             root.insert(p);
@@ -4317,9 +4332,9 @@ impl App {
         let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
         let layout = egui::Layout::right_to_left(egui::Align::Center);
         ui.allocate_ui_with_layout(row, layout, |ui| {
-            let add = ui.button("Add").clicked();
+            let add = ui.button(tr("Add")).clicked();
             let field = egui::TextEdit::singleline(&mut self.new_keyword)
-                .hint_text("Places|Norway|Oslo")
+                .hint_text(tr("Places|Norway|Oslo"))
                 .desired_width(ui.available_width());
             let enter = ui.add(field).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if (add || enter) && !self.new_keyword.trim().is_empty() {
@@ -4337,7 +4352,7 @@ impl App {
             .collect();
         if !missing.is_empty()
             && ui
-                .small_button("Add this image's keywords to the tree")
+                .small_button(tr("Add this image's keywords to the tree"))
                 .clicked()
         {
             self.change_keyword_tree(missing, None);
@@ -4363,7 +4378,7 @@ impl App {
         let on_disk = match std::fs::read_to_string(&p) {
             Ok(text) => text.lines().map(str::to_owned).collect(),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return self.notice = Some(format!("Could not read the keyword tree: {e}")),
+            Err(e) => return self.notice = Some(tf!("Could not read the keyword tree: {e}", e)),
         };
         self.keyword_tree = meta::keyword_tree_changed(&on_disk, add, remove);
         write_atomic(&p, self.keyword_tree.join("\n") + "\n");
@@ -4385,8 +4400,8 @@ impl App {
             .extend(targets.iter().filter_map(|&i| self.files.get(i).cloned()));
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let (doing, verb) = match on {
-            true => ("Setting keywords", "set on"),
-            false => ("Taking keywords off", "taken off"),
+            true => (tr("Setting keywords"), tr("set on")),
+            false => (tr("Taking keywords off"), tr("taken off")),
         };
         let (n, written) = (paths.len(), tag.clone());
         self.write_sidecars(
@@ -4395,12 +4410,12 @@ impl App {
             paths,
             move |path| meta::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
-                _ if failed > 0 => Some(format!(
-                    "The keyword could not be saved for {}",
-                    count(failed, "file")
+                _ if failed > 0 => Some(tf!(
+                    "The keyword could not be saved for {count}",
+                    count = count(failed, "file")
                 )),
                 _ if job.stopped() => Some(job.stopped_text()),
-                _ if n > 1 => Some(format!("{tag} {verb} {}", count(n, "file"))),
+                _ if n > 1 => Some(format!("{tag} {verb} {count}", count = count(n, "file"))),
                 _ => None,
             },
         );
@@ -4425,7 +4440,7 @@ impl App {
             let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
             config::write_later(move || {
                 if let Err(e) = meta::write_access(&path, &access) {
-                    let _ = tx.send(format!("Could not save the alt text: {e}"));
+                    let _ = tx.send(tf!("Could not save the alt text: {e}", e));
                 }
             });
         }
@@ -4449,7 +4464,7 @@ impl App {
         let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
         config::write_later(move || {
             if let Err(e) = meta::write_changed(&path, keywords, comment) {
-                let _ = tx.send(format!("Could not save the keywords: {e}"));
+                let _ = tx.send(tf!("Could not save the keywords: {e}", e));
             }
         });
         // "exif:" searches find keywords and comments too: read again when next used.
@@ -4472,16 +4487,16 @@ impl App {
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
         self.write_sidecars(
             ctx,
-            "Adding keywords",
+            tr("Adding keywords"),
             paths,
             move |path| meta::add_keywords(path, &keywords).is_ok(),
             move |failed, job| match () {
-                _ if failed > 0 => Some(format!(
-                    "Keywords could not be saved for {}",
-                    count(failed, "file")
+                _ if failed > 0 => Some(tf!(
+                    "Keywords could not be saved for {count}",
+                    count = count(failed, "file")
                 )),
                 _ if job.stopped() => Some(job.stopped_text()),
-                _ => Some(format!("Keywords added to {}", count(n, "file"))),
+                _ => Some(tf!("Keywords added to {count}", count = count(n, "file"))),
             },
         );
     }
@@ -4529,8 +4544,8 @@ impl App {
             let mut changed = field.changed();
             if geeqie
                 && ui
-                    .checkbox(&mut self.config.search_case, "Case")
-                    .on_hover_text("Tell upper and lower case apart")
+                    .checkbox(&mut self.config.search_case, tr("Case"))
+                    .on_hover_text(tr("Tell upper and lower case apart"))
                     .changed()
             {
                 self.config.save();
@@ -4790,7 +4805,7 @@ impl App {
             }
         }
         let (mut open, mut start, mut show, mut select) = (true, false, None, false);
-        egui::Window::new("Check Images")
+        egui::Window::new(tr("Check Images"))
             .open(&mut open)
             .default_size([560.0, 400.0])
             .show(ctx, |ui| {
@@ -4801,7 +4816,7 @@ impl App {
                          are no image. They are marked in the list too.",
                         count(self.files.len(), "image")
                     ));
-                    start = ui.button("Check").clicked();
+                    start = ui.button(tr("Check")).clicked();
                     return;
                 };
                 let (done, working) = (
@@ -4817,7 +4832,7 @@ impl App {
                             .desired_width(260.0),
                     );
                     if working > 0 {
-                        if ui.button("Stop").clicked() {
+                        if ui.button(tr("Stop")).clicked() {
                             c.stop.store(true, Ordering::Relaxed);
                         }
                         ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -4825,9 +4840,9 @@ impl App {
                 });
                 ui.label(match (c.broken.len(), working) {
                     (0, 0) => "None broken.".to_owned(),
-                    (n, _) => format!("{} broken:", thousands(n)),
+                    (n, _) => tf!("{n} broken:", n = thousands(n)),
                 });
-                if !c.broken.is_empty() && ui.button("Select Them").clicked() {
+                if !c.broken.is_empty() && ui.button(tr("Select Them")).clicked() {
                     select = true;
                 }
                 let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
@@ -4948,16 +4963,16 @@ impl App {
 
     /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
     fn theme_buttons(&mut self, ui: &mut egui::Ui) {
-        if ui.button("Save as Theme…").clicked() {
+        if ui.button(tr("Save as Theme…")).clicked() {
             self.prompt = Some((Prompt::SaveTheme, String::new()));
         }
-        if ui.button("Open Themes Folder").clicked()
+        if ui.button(tr("Open Themes Folder")).clicked()
             && let Some(dir) = theme::dir()
         {
             let _ = std::fs::create_dir_all(&dir);
             open_url(&dir.to_string_lossy());
         }
-        if ui.button("Get More Themes…").clicked() {
+        if ui.button(tr("Get More Themes…")).clicked() {
             open_url("https://github.com/thornbux/glimt/tree/main/themes");
         }
     }
@@ -5226,7 +5241,9 @@ impl App {
             Action::NewCollection if !self.files.is_empty() => {
                 self.prompt = Some((Prompt::NewCollection, String::new()));
             }
-            Action::NewCollection => self.notice = Some("No images for a collection here".into()),
+            Action::NewCollection => {
+                self.notice = Some(tr("No images for a collection here").into())
+            }
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
             Action::RemoveFromCollection if self.collection.is_some() && !self.files.is_empty() => {
@@ -5237,7 +5254,7 @@ impl App {
             Action::RenameCollection | Action::TrashCollection
                 if self.collection.as_deref().is_some_and(collections::is_list) =>
             {
-                self.notice = Some("A plain list is not renamed or trashed by Glimt".into());
+                self.notice = Some(tr("A plain list is not renamed or trashed by Glimt").into());
             }
             Action::RenameCollection => {
                 if let Some(name) = self.collection.as_ref().and_then(|f| f.file_stem()) {
@@ -5382,7 +5399,7 @@ impl App {
             Action::CopyFiles if !self.files.is_empty() => self.copy_files(),
             Action::CopyFiles => {}
             Action::Preferences if config::locked() => {
-                self.notice = Some("The settings are locked (--lock-settings)".into());
+                self.notice = Some(tr("The settings are locked (--lock-settings)").into());
             }
             Action::Preferences => self.preferences_open = true,
             Action::Help => self.help = Some(help::Page::Manual),
@@ -5527,7 +5544,7 @@ impl App {
             // would be made in /.
             Action::NewFolder if self.collection.is_some() || !self.folders.is_empty() => {
                 self.notice =
-                    Some("New Folder makes a folder in the folder shown: open one".into());
+                    Some(tr("New Folder makes a folder in the folder shown: open one").into());
             }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Print if !self.files.is_empty() => self.open_print(ctx),
@@ -5542,7 +5559,7 @@ impl App {
             Action::Print => {}
             // One Rename Many at a time: its result is awaited, and its plan kept for a crash.
             Action::Rename if self.renaming.is_some() => {
-                self.notice = Some("Rename Many is still renaming".into());
+                self.notice = Some(tr("Rename Many is still renaming").into());
             }
             Action::Rename if self.targets().len() > 1 => {
                 self.ask_about_targets();
@@ -5592,7 +5609,7 @@ impl App {
                 // Until it is saved the old picture shows: turned again, it would be saved twice,
                 // into the same temporary file.
                 if self.saving.contains(&self.path(self.cur)) {
-                    self.notice = Some("Still saving the last rotation of this file".into());
+                    self.notice = Some(tr("Still saving the last rotation of this file").into());
                     return;
                 }
                 let (q, m) = self.orient;
@@ -5695,13 +5712,13 @@ impl App {
             if self.config.xmp_stars {
                 self.write_sidecars(
                     ctx,
-                    "Writing stars",
+                    tr("Writing stars"),
                     paths,
                     move |path| marks::write_xmp(path, n).is_ok(),
                     |failed, job| match () {
-                        _ if failed > 0 => Some(format!(
-                            "The stars could not be written to the XMP sidecar of {}",
-                            count(failed, "file")
+                        _ if failed > 0 => Some(tf!(
+                            "The stars could not be written to the XMP sidecar of {count}",
+                            count = count(failed, "file")
                         )),
                         _ if job.stopped() => Some(job.stopped_text()),
                         _ => None,
@@ -5735,7 +5752,7 @@ impl App {
         match started {
             // Reap the child when it exits, so it does not linger as a zombie.
             Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
-            Err(e) => self.notice = Some(format!("Could not open a new window: {e}")),
+            Err(e) => self.notice = Some(tf!("Could not open a new window: {e}", e)),
         }
     }
 
@@ -5751,7 +5768,7 @@ impl App {
             // would stay for good.
             match survive(|| load(&path, rotate)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
-                Err(e) => drop(tx.send(format!("Could not copy the image: {e}"))),
+                Err(e) => drop(tx.send(tf!("Could not copy the image: {e}", e))),
             }
             drop(pointer);
             ctx.request_repaint();
@@ -5773,7 +5790,7 @@ impl App {
             set
         });
         if let Err(e) = result {
-            self.notice = Some(format!("Could not copy to the clipboard: {e}"));
+            self.notice = Some(tf!("Could not copy to the clipboard: {e}", e));
         }
     }
 }
@@ -5820,7 +5837,7 @@ impl App {
             self.saving.remove(&path);
             match result {
                 Ok(()) => self.saved(&path),
-                Err(e) => self.notice = Some(format!("Could not save the orientation: {e}")),
+                Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
             }
         }
         // --slideshow: once the folder is read, so random order shuffles all of it.
@@ -5978,7 +5995,7 @@ impl App {
         // One at a time: only one answer is waited for, and a second dialog's would replace the
         // first's, whose copy or move would then never happen.
         if self.file_dialog.is_some() {
-            self.notice = Some("A file dialog is open already".into());
+            self.notice = Some(tr("A file dialog is open already").into());
             return;
         }
         let (tx, rx) = mpsc::channel();
@@ -6065,8 +6082,7 @@ impl App {
             };
             let picked = match output {
                 Err(e) => {
-                    let _ =
-                        notices.send(format!("No file dialog (install zenity or kdialog): {e}"));
+                    let _ = notices.send(tf!("No file dialog (install zenity or kdialog): {e}", e));
                     None
                 }
                 // Cancel exits with status 1 in both.
@@ -6255,7 +6271,7 @@ impl App {
     fn menu_bar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         let bar = egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                scroll_menu(ui, "File", |ui| {
+                scroll_menu(ui, tr("File"), |ui| {
                     menu_item(ui, act, Action::OpenFile);
                     menu_item(ui, act, Action::OpenFolder);
                     menu_item(ui, act, Action::OpenRecursive);
@@ -6287,7 +6303,7 @@ impl App {
                     menu_item(ui, act, Action::CloseWindow);
                     menu_item(ui, act, Action::Quit);
                 });
-                scroll_menu(ui, "Go", |ui| {
+                scroll_menu(ui, tr("Go"), |ui| {
                     menu_item(ui, act, Action::First);
                     menu_item(ui, act, Action::Prev);
                     menu_item(ui, act, Action::Next);
@@ -6300,7 +6316,7 @@ impl App {
                     ui.separator();
                     menu_item(ui, act, Action::FocusSearch);
                 });
-                scroll_menu(ui, "Select", |ui| {
+                scroll_menu(ui, tr("Select"), |ui| {
                     menu_item(ui, act, Action::SelectAll);
                     menu_item(ui, act, Action::SelectNone);
                     menu_item(ui, act, Action::InvertSelection);
@@ -6310,9 +6326,9 @@ impl App {
                     menu_item(ui, act, Action::CopyImage);
                     menu_item(ui, act, Action::CopyFiles);
                 });
-                scroll_menu(ui, "Edit", |ui| {
+                scroll_menu(ui, tr("Edit"), |ui| {
                     #[cfg(feature = "marks")]
-                    scroll_menu(ui, "Marks and Stars", |ui| {
+                    scroll_menu(ui, tr("Marks and Stars"), |ui| {
                         for action in [
                             Action::Mark1,
                             Action::Mark2,
@@ -6346,7 +6362,7 @@ impl App {
                             menu_item(ui, act, action);
                         }
                     });
-                    scroll_menu(ui, "Orientation", |ui| {
+                    scroll_menu(ui, tr("Orientation"), |ui| {
                         for action in [
                             Action::RotateCw,
                             Action::RotateCcw,
@@ -6365,11 +6381,11 @@ impl App {
                     ui.separator();
                     menu_item(ui, act, Action::Preferences);
                 });
-                scroll_menu(ui, "View", |ui| {
+                scroll_menu(ui, tr("View"), |ui| {
                     self.layout_menu(ui, act);
-                    scroll_menu(ui, "Theme", |ui| self.theme_menu(ui));
-                    scroll_menu(ui, "Colour Management", |ui| self.colour_settings(ui));
-                    scroll_menu(ui, "Filter", |ui| {
+                    scroll_menu(ui, tr("Theme"), |ui| self.theme_menu(ui));
+                    scroll_menu(ui, tr("Colour Management"), |ui| self.colour_settings(ui));
+                    scroll_menu(ui, tr("Filter"), |ui| {
                         for (f, label) in FILTERS.iter().enumerate() {
                             if ui.radio(self.config.view_filter == f, *label).clicked() {
                                 self.set_view_filter(f);
@@ -6378,7 +6394,7 @@ impl App {
                         ui.separator();
                         menu_item(ui, act, Action::ViewFilter);
                     });
-                    scroll_menu(ui, "Zoom", |ui| {
+                    scroll_menu(ui, tr("Zoom"), |ui| {
                         menu_item(ui, act, Action::ZoomIn);
                         menu_item(ui, act, Action::ZoomOut);
                         menu_item(ui, act, Action::Zoom1To1);
@@ -6408,9 +6424,9 @@ impl App {
                     menu_item(ui, act, Action::Refresh);
                     ui.separator();
                     let label = if self.slideshow.is_some() {
-                        "Stop Slideshow"
+                        tr("Stop Slideshow")
                     } else {
-                        "Start Slideshow"
+                        tr("Start Slideshow")
                     };
                     menu_button(ui, act, egui::Button::new(label), Action::Slideshow);
                     menu_toggle(ui, act, self.paused, Action::Pause);
@@ -6418,7 +6434,7 @@ impl App {
                     menu_item(ui, act, Action::Slower);
                     menu_toggle(ui, act, self.config.random, Action::RandomOrder);
                 });
-                scroll_menu(ui, "Window", |ui| {
+                scroll_menu(ui, tr("Window"), |ui| {
                     menu_item(ui, act, Action::NewWindow);
                     menu_item(ui, act, Action::CloseWindow);
                     ui.separator();
@@ -6426,7 +6442,7 @@ impl App {
                     let pointer = self.config.projector_pointer;
                     menu_toggle(ui, act, pointer, Action::ProjectorPointer);
                 });
-                scroll_menu(ui, "Help", |ui| {
+                scroll_menu(ui, tr("Help"), |ui| {
                     menu_item(ui, act, Action::Help);
                     menu_item(ui, act, Action::Shortcuts);
                     menu_item(ui, act, Action::KeyboardMap);
@@ -6451,13 +6467,13 @@ impl App {
                 Prompt::SaveTheme => "Name of the new theme:".to_owned(),
                 Prompt::RenameCollection => "New name of the collection:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
-                Prompt::NewCollection => format!(
-                    "Name of a new collection with {}:",
-                    count(self.first_target().0, "image")
+                Prompt::NewCollection => tf!(
+                    "Name of a new collection with {count}:",
+                    count = count(self.first_target().0, "image")
                 ),
-                Prompt::RenameMany => format!(
-                    "New names for {} (* = old name, # = number, ### = 001):",
-                    count(self.first_target().0, "file")
+                Prompt::RenameMany => tf!(
+                    "New names for {count} (* = old name, # = number, ### = 001):",
+                    count = count(self.first_target().0, "file")
                 ),
             };
             // The first new name, so the pattern can be checked before renaming.
@@ -6474,13 +6490,13 @@ impl App {
                 }
                 if let (Prompt::RenameMany, Some(first)) = (prompt, &first) {
                     let name = pattern_name(text.trim(), first, 1);
-                    ui.weak(format!("First: {}", name.to_string_lossy()));
+                    ui.weak(tf!("First: {name}", name = name.to_string_lossy()));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("OK (Enter)").clicked() || enter {
+                    if ui.button(tr("OK (Enter)")).clicked() || enter {
                         answer = Some(text.clone());
                     }
-                    if ui.button("Cancel (Esc)").clicked() {
+                    if ui.button(tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -6515,7 +6531,7 @@ impl App {
             return;
         }
         if text.is_empty() || text.contains('/') || text == "." || text == ".." {
-            self.notice = Some(format!("Not a valid name: \"{text}\""));
+            self.notice = Some(tf!("Not a valid name: \"{text}\"", text));
             return;
         }
         if let Prompt::SaveTheme = prompt {
@@ -6524,7 +6540,7 @@ impl App {
                 // Never over a theme there, hand-edited perhaps, nor in the place of a built-in
                 // one, which a file of its name would hide for good.
                 if theme::built_in(text) {
-                    return Err(format!("{text} is a built-in theme: choose another name"));
+                    return Err(tf!("{text} is a built-in theme: choose another name", text));
                 }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
                 let new = std::fs::OpenOptions::new()
@@ -6547,7 +6563,7 @@ impl App {
                     self.config.save();
                     format!("Saved as {}: edit it, then choose it again", f.display())
                 }
-                Err(e) => format!("Could not save the theme: {e}"),
+                Err(e) => tf!("Could not save the theme: {e}", e),
             });
             return;
         }
@@ -6604,7 +6620,9 @@ impl App {
                 self.title(ctx);
                 self.list(ctx);
             }
-            (Err(e), _) => self.notice = Some(format!("{}: {e}", target.display())),
+            (Err(e), _) => {
+                self.notice = Some(format!("{display}: {e}", display = target.display()))
+            }
         }
     }
 
@@ -6621,20 +6639,20 @@ impl App {
             .map_or(String::new(), |p| p.display().to_string());
         let mut choice = None;
         egui::Modal::new(egui::Id::new("cut short")).show(ctx, |ui| {
-            ui.strong("Rename Many was cut short");
+            ui.strong(tr("Rename Many was cut short"));
             ui.label(format!(
                 "A crash or a power cut stopped it in {folder}. Some files may have their new \
                  names, some their old ones, and some hidden temporary names ({} to put right).",
                 count(files, "step")
             ));
             ui.horizontal(|ui| {
-                if ui.button("Put the old names back").clicked() {
+                if ui.button(tr("Put the old names back")).clicked() {
                     choice = Some(true);
                 }
-                if ui.button("Finish the renaming").clicked() {
+                if ui.button(tr("Finish the renaming")).clicked() {
                     choice = Some(false);
                 }
-                if ui.button("Later").clicked() {
+                if ui.button(tr("Later")).clicked() {
                     choice = None;
                     self.cut_short.clear();
                 }
@@ -6678,7 +6696,7 @@ impl App {
                 .vscroll(true)
                 .show(ctx, |ui| {
                     if self.exif_all.is_empty() {
-                        ui.weak("No EXIF data");
+                        ui.weak(tr("No EXIF data"));
                     }
                     egui::Grid::new("exif all")
                         .striped(true)
@@ -6701,19 +6719,19 @@ impl App {
         if let Some(mut login) = self.login.take() {
             let mut connect = false;
             let modal = egui::Modal::new(egui::Id::new("login")).show(ctx, |ui| {
-                ui.label(format!("Log in to {}", login.uri));
+                ui.label(tf!("Log in to {uri}", uri = login.uri));
                 egui::Grid::new("login fields").show(ui, |ui| {
                     // Sized outright: in the grid of a modal, desired_width left them a few
                     // letters wide.
                     let size = egui::vec2(220.0, ui.spacing().interact_size.y);
                     let field = |text| egui::TextEdit::singleline(text);
-                    ui.label("User:");
+                    ui.label(tr("User:"));
                     ui.add_sized(size, field(&mut login.user));
                     ui.end_row();
-                    ui.label("Domain:");
+                    ui.label(tr("Domain:"));
                     ui.add_sized(size, field(&mut login.domain));
                     ui.end_row();
-                    ui.label("Password:");
+                    ui.label(tr("Password:"));
                     let edit = ui.add_sized(size, field(&mut login.password).password(true));
                     // The password field first, as the rest has defaults.
                     if login.password.is_empty() && ui.memory(|m| m.focused().is_none()) {
@@ -6723,8 +6741,8 @@ impl App {
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
-                    connect |= ui.button("Connect (Enter)").clicked();
-                    if ui.button("Cancel (Esc)").clicked() {
+                    connect |= ui.button(tr("Connect (Enter)")).clicked();
+                    if ui.button(tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -6747,15 +6765,15 @@ impl App {
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
                 if trash {
-                    ui.label(format!("Move {what} to the trash?"));
+                    ui.label(tf!("Move {what} to the trash?", what));
                 } else {
-                    ui.label(format!("Permanently delete {what}?"));
-                    ui.weak("This cannot be undone.");
+                    ui.label(tf!("Permanently delete {what}?", what));
+                    ui.weak(tr("This cannot be undone."));
                 }
                 ui.horizontal(|ui| {
-                    delete = ui.button("Delete (Enter)").clicked()
+                    delete = ui.button(tr("Delete (Enter)")).clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button("Cancel (Esc)").clicked() {
+                    if ui.button(tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -6781,13 +6799,14 @@ impl App {
                 .into_owned();
             let mut trash = false;
             let modal = egui::Modal::new(egui::Id::new("confirm-folder")).show(ctx, |ui| {
-                ui.label(format!(
-                    "Move the folder \"{name}\" and all in it to the trash?"
+                ui.label(tf!(
+                    "Move the folder \"{name}\" and all in it to the trash?",
+                    name
                 ));
                 ui.horizontal(|ui| {
-                    trash = ui.button("Move to Trash (Enter)").clicked()
+                    trash = ui.button(tr("Move to Trash (Enter)")).clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button("Cancel (Esc)").clicked() {
+                    if ui.button(tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -6810,7 +6829,7 @@ impl App {
                 let n = self.files.len();
                 let size = size_text(self.size_rx.is_none().then_some(self.total_size));
                 let mut left = match &self.matches {
-                    _ if self.listing_rx.is_some() => "Reading folder…".to_owned(),
+                    _ if self.listing_rx.is_some() => tr("Reading folder…").to_owned(),
                     // A search shows the matches: count and size of what the list shows.
                     Some(found) => {
                         let size = size_text(self.match_rx.is_none().then_some(self.match_size));
@@ -6820,7 +6839,7 @@ impl App {
                             count(n, "image")
                         )
                     }
-                    None => format!("{} ({size})", count(n, "image")),
+                    None => format!("{count} ({size})", count = count(n, "image")),
                 };
                 if !self.selected.is_empty() {
                     let m = thousands(self.selected.len());
@@ -6835,15 +6854,16 @@ impl App {
                     ui.separator();
                     let more = match self.file_jobs.len() - 1 {
                         0 => String::new(),
-                        n => format!(", and {n} more"),
+                        n => tf!(", and {n} more", n),
                     };
-                    ui.label(format!(
-                        "{} {} of {}…{more}",
-                        job.doing,
-                        thousands(job.done.load(Ordering::Relaxed)),
-                        thousands(job.total)
+                    ui.label(tf!(
+                        "{doing} {done} of {total}…{more}",
+                        doing = tr(job.doing),
+                        done = thousands(job.done.load(Ordering::Relaxed)),
+                        total = thousands(job.total),
+                        more
                     ));
-                    if ui.small_button("Stop").clicked() {
+                    if ui.small_button(tr("Stop")).clicked() {
                         self.file_jobs
                             .iter()
                             .for_each(|j| j.stop.store(true, Ordering::Relaxed));
@@ -7332,7 +7352,7 @@ impl App {
             menu_item(ui, list_act, action);
         }
         self.open_with_menu(ui);
-        scroll_menu(ui, "Add to Collection", |ui| {
+        scroll_menu(ui, tr("Add to Collection"), |ui| {
             for (name, file) in collections::list() {
                 if ui.button(name).clicked() {
                     self.add_to_collection(&file);
@@ -7351,11 +7371,11 @@ impl App {
     /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
     /// they are read again afterwards, as plugins change them.
     fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(ui, "Plugins", |ui| {
+        scroll_menu(ui, tr("Plugins"), |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
             if self.plugins.is_empty() {
-                ui.weak("No plugins");
+                ui.weak(tr("No plugins"));
             }
             let mut chosen = None;
             for (k, plugin) in self.plugins.iter().enumerate() {
@@ -7365,10 +7385,10 @@ impl App {
             }
             ui.separator();
             if ui
-                .button("Open the Plugins Folder")
-                .on_hover_text(
+                .button(tr("Open the Plugins Folder"))
+                .on_hover_text(tr(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
-                )
+                )))
                 .clicked()
                 && let Some(dir) = dir
             {
@@ -7404,7 +7424,7 @@ impl App {
             .extension()
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
         let path = self.path(self.cur);
-        scroll_menu(ui, "Open With", |ui| {
+        scroll_menu(ui, tr("Open With"), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             for (ext, apps) in self.apps_rx.try_iter() {
@@ -7424,7 +7444,7 @@ impl App {
                 return;
             };
             if apps.is_empty() {
-                ui.label("No applications found");
+                ui.label(tr("No applications found"));
             }
             let mut chosen = None;
             for (name, desktop) in apps.iter() {
@@ -7444,7 +7464,7 @@ impl App {
                     match out {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                        Err(e) => drop(tx.send(format!("gio: {e}"))),
+                        Err(e) => drop(tx.send(tf!("gio: {e}", e))),
                     }
                 });
             }
@@ -7749,9 +7769,9 @@ impl App {
         } else {
             let text = if self.files.is_empty() {
                 if self.listing_rx.is_some() {
-                    "Reading folder…"
+                    tr("Reading folder…")
                 } else {
-                    "No images in folder"
+                    tr("No images in folder")
                 }
                 .to_owned()
             } else if let Some(e) = self.decode_errors.get(&self.cur) {
@@ -7867,7 +7887,7 @@ fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
         egui::Stroke::NONE,
     ));
     let label = p.layout_no_wrap(
-        "Video: Enter or click to play".into(),
+        tr("Video: Enter or click to play").into(),
         egui::FontId::proportional(16.0),
         egui::Color32::WHITE,
     );
@@ -8071,7 +8091,7 @@ impl KeywordNode {
                     *tick = Some((path.clone(), on));
                 }
                 response.context_menu(|ui| {
-                    if ui.button("Remove from the tree").clicked() {
+                    if ui.button(tr("Remove from the tree")).clicked() {
                         *drop = Some(path.clone());
                     }
                 });
@@ -8112,7 +8132,7 @@ fn config_notice(problems: &[String]) -> Option<String> {
     let first = problems.first()?;
     let more = match problems.len() - 1 {
         0 => String::new(),
-        n => format!("; and {n} more (glimt --check-config)"),
+        n => tf!("; and {n} more (glimt --check-config)", n),
     };
     Some(format!("Settings file: {first}{more}"))
 }

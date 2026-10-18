@@ -136,7 +136,7 @@ pub fn pdf(
                     pdf_text(&text)
                 ));
             }
-            names.push(format!("/Im{k} {} 0 R", next + k));
+            names.push(format!("/Im{k} {nextk} 0 R", nextk = next + k));
         }
         kids.push(format!("{page} 0 R"));
         pdf.object(
@@ -292,11 +292,11 @@ impl crate::App {
                 let n = dialog.paths.len();
                 ui.strong(match n {
                     1 => "Print the image".to_owned(),
-                    n => format!("Print {}", count(n, "image")),
+                    n => tf!("Print {count}", count = count(n, "image")),
                 });
                 let c = &mut self.config;
                 egui::Grid::new("print fields").show(ui, |ui| {
-                    ui.label("Printer:");
+                    ui.label(tr("Printer:"));
                     let shown = |p: &str| if p.is_empty() { "PDF file" } else { p }.to_owned();
                     egui::ComboBox::from_id_salt("printer")
                         .selected_text(shown(&c.print_printer))
@@ -304,15 +304,19 @@ impl crate::App {
                             for p in dialog.printers.iter().flatten() {
                                 ui.selectable_value(&mut c.print_printer, p.clone(), p);
                             }
-                            ui.selectable_value(&mut c.print_printer, String::new(), "PDF file");
+                            ui.selectable_value(
+                                &mut c.print_printer,
+                                String::new(),
+                                tr("PDF file"),
+                            );
                         });
                     match &dialog.printers {
                         None => drop(ui.spinner()),
-                        Some(p) if p.is_empty() => drop(ui.weak("No printers found")),
+                        Some(p) if p.is_empty() => drop(ui.weak(tr("No printers found"))),
                         Some(_) => {}
                     }
                     ui.end_row();
-                    ui.label("Paper:");
+                    ui.label(tr("Paper:"));
                     egui::ComboBox::from_id_salt("paper")
                         .selected_text(c.print_paper.clone())
                         .show_ui(ui, |ui| {
@@ -321,7 +325,7 @@ impl crate::App {
                             }
                         });
                     ui.end_row();
-                    ui.label("Images per page:");
+                    ui.label(tr("Images per page:"));
                     egui::ComboBox::from_id_salt("per page")
                         .selected_text(c.print_per_page.to_string())
                         .show_ui(ui, |ui| {
@@ -335,21 +339,21 @@ impl crate::App {
                         });
                     ui.end_row();
                     if !c.print_printer.is_empty() {
-                        ui.label("Copies:");
+                        ui.label(tr("Copies:"));
                         ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
                         ui.end_row();
                     }
                 });
-                ui.checkbox(&mut c.print_caption, "File name under each image");
+                ui.checkbox(&mut c.print_caption, tr("File name under each image"));
                 ui.horizontal(|ui| {
                     let label = if c.print_printer.is_empty() {
-                        "Save PDF… (Enter)"
+                        tr("Save PDF… (Enter)")
                     } else {
-                        "Print (Enter)"
+                        tr("Print (Enter)")
                     };
                     go =
                         ui.button(label).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button("Cancel (Esc)").clicked() {
+                    if ui.button(tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -429,7 +433,7 @@ impl crate::App {
             // printer, and the file chosen is not replaced by an empty PDF.
             let mut pages = pages.peekable();
             if pages.peek().is_none() {
-                let _ = tx.send("No image could be read: nothing printed".into());
+                let _ = tx.send(tr("No image could be read: nothing printed").into());
                 drop(pointer);
                 ctx.request_repaint();
                 return;
@@ -461,20 +465,22 @@ impl crate::App {
             let n = job.paths.len() - failed.get();
             let what = match job.per_page {
                 1 => count(n, "page"),
-                per => format!(
-                    "{} on {}",
-                    count(n, "image"),
-                    count(n.div_ceil(per), "page")
+                per => tf!(
+                    "{images} on {pages}",
+                    images = count(n, "image"),
+                    pages = count(n.div_ceil(per), "page")
                 ),
             };
             let done = done.map(|()| match &to {
-                PrintTo::Printer(printer) => format!("{what} sent to {printer}"),
-                PrintTo::File(file) => format!("{what} saved in {}", file.display()),
+                PrintTo::Printer(printer) => tf!("{what} sent to {printer}", what, printer),
+                PrintTo::File(file) => {
+                    tf!("{what} saved in {file}", what, file = file.display())
+                }
             });
             let _ = tx.send(match (done, failed.get()) {
                 (Ok(msg), 0) => msg,
-                (Ok(msg), f) => format!("{msg}; {f} could not be read"),
-                (Err(e), _) => format!("Printing failed: {e}"),
+                (Ok(msg), f) => tf!("{msg}; {f} could not be read", msg, f),
+                (Err(e), _) => tf!("Printing failed: {e}", e),
             });
             drop(pointer);
             ctx.request_repaint();

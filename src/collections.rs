@@ -3,6 +3,7 @@
 //! collections can be opened too.
 
 use crate::actions::Action;
+use crate::tf;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -46,7 +47,7 @@ pub fn list() -> Vec<(String, PathBuf)> {
 fn valid(name: &str) -> Result<&str, String> {
     let name = name.trim();
     match name.is_empty() || name.contains('/') || name.starts_with('.') {
-        true => Err(format!("Not a valid collection name: \"{name}\"")),
+        true => Err(tf!("Not a valid collection name: \"{name}\"", name)),
         false => Ok(name),
     }
 }
@@ -58,7 +59,7 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
         .ok_or("no data folder ($HOME is not set)")?
         .join(format!("{name}.gqv"));
     match file.exists() {
-        true => Err(format!("There is a collection called \"{name}\" already")),
+        true => Err(tf!("There is a collection called \"{name}\" already", name)),
         false => Ok(file),
     }
 }
@@ -68,7 +69,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     let name = valid(name)?;
     let new = file.with_file_name(format!("{name}.gqv"));
     if new.exists() {
-        return Err(format!("There is a collection called \"{name}\" already"));
+        return Err(tf!("There is a collection called \"{name}\" already", name));
     }
     std::fs::rename(file, &new).map_err(|e| format!("Could not rename the collection: {e}"))?;
     Ok(new)

@@ -15,12 +15,13 @@ pub enum Page {
 
 impl Page {
     fn title(self) -> &'static str {
-        match self {
+        // The window's title in the interface's language; the pages themselves stay English.
+        crate::lang::tr(match self {
             Page::Manual => "Help Manual",
             Page::Shortcuts => "Keyboard Shortcuts",
             Page::Keymap => "Keyboard Map",
             Page::About => "About Glimt",
-        }
+        })
     }
 }
 

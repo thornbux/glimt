@@ -13,7 +13,7 @@ impl App {
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_id = Some(response.id);
         let text = if self.files.is_empty() {
-            "No images".to_owned()
+            crate::lang::tr("No images").to_owned()
         } else {
             // Read in the background, as for the EXIF panel: here once for each image.
             self.want_exif();

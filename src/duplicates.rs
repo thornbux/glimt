@@ -336,30 +336,30 @@ impl crate::App {
             dups.remove(&HashSet::new());
         }
         let (mut open, mut start, mut trash, mut show) = (true, false, false, None);
-        egui::Window::new("Find Duplicates")
+        egui::Window::new(tr("Find Duplicates"))
             .open(&mut open)
             .default_size([620.0, 480.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "Among the {} in the list, compare by",
-                        count(self.files.len(), "image")
+                    ui.label(tf!(
+                        "Among the {count} in the list, compare by",
+                        count = count(self.files.len(), "image")
                     ));
                     let label = ALL.iter().find(|a| a.0 == dups.by).map_or("", |a| a.1);
                     egui::ComboBox::from_id_salt("compare by")
-                        .selected_text(label)
+                        .selected_text(tr(label))
                         .show_ui(ui, |ui| {
                             for (by, label) in ALL {
-                                ui.selectable_value(&mut dups.by, by, label);
+                                ui.selectable_value(&mut dups.by, by, tr(label));
                             }
                         });
                     if dups.groups_rx.is_some() {
-                        if ui.button("Stop").clicked() {
+                        if ui.button(tr("Stop")).clicked() {
                             dups.progress.cancel.store(true, Ordering::Relaxed);
                         }
                     } else {
                         start = ui
-                            .add_enabled(self.files.len() > 1, egui::Button::new("Find"))
+                            .add_enabled(self.files.len() > 1, egui::Button::new(tr("Find")))
                             .clicked();
                     }
                 });
@@ -368,45 +368,48 @@ impl crate::App {
                         dups.progress.done.load(Ordering::Relaxed),
                         dups.progress.total.load(Ordering::Relaxed),
                     );
-                    ui.label(format!(
-                        "Comparing… {} of {}",
-                        thousands(done),
-                        thousands(total)
+                    ui.label(tf!(
+                        "Comparing… {done} of {total}",
+                        done = thousands(done),
+                        total = thousands(total)
                     ));
                     ctx.request_repaint_after(std::time::Duration::from_millis(100));
                     return;
                 }
                 if dups.searched == 0 {
                     if !self.recursive {
-                        ui.weak(
+                        ui.weak(tr(
                             "Include Subfolders in the View menu searches the folders below too.",
-                        );
+                        ));
                     }
                     return;
                 }
                 let files: usize = dups.groups.iter().map(Vec::len).sum();
-                ui.label(format!(
-                    "{}, {}, among {}",
-                    count(dups.groups.len(), "group"),
-                    count(files, "file"),
-                    count(dups.searched, "image")
+                ui.label(tf!(
+                    "{groups}, {files}, among {images}",
+                    groups = count(dups.groups.len(), "group"),
+                    files = count(files, "file"),
+                    images = count(dups.searched, "image")
                 ));
                 ui.horizontal(|ui| {
-                    if ui.button("Check all but the first of each group").clicked() {
+                    if ui
+                        .button(tr("Check all but the first of each group"))
+                        .clicked()
+                    {
                         dups.checked = dups
                             .groups
                             .iter()
                             .flat_map(|g| g[1..].iter().cloned())
                             .collect();
                     }
-                    if ui.button("Uncheck all").clicked() {
+                    if ui.button(tr("Uncheck all")).clicked() {
                         dups.checked.clear();
                     }
                     let n = dups.checked.len();
                     trash = ui
                         .add_enabled(
                             n > 0,
-                            egui::Button::new(format!("Move {n} checked to trash…")),
+                            egui::Button::new(tf!("Move {n} checked to trash…", n)),
                         )
                         .clicked();
                 });
@@ -420,10 +423,10 @@ impl crate::App {
                         for &(g, f) in &dups.rows[range] {
                             let group = &dups.groups[g];
                             if f == usize::MAX {
-                                ui.strong(format!(
-                                    "Group {} ({})",
-                                    g + 1,
-                                    count(group.len(), "file")
+                                ui.strong(tf!(
+                                    "Group {n} ({files})",
+                                    n = g + 1,
+                                    files = count(group.len(), "file")
                                 ));
                                 continue;
                             }
@@ -483,7 +486,7 @@ impl crate::App {
             if self.selected.len() == dups.checked.len() {
                 self.request_delete(ctx, true);
             } else {
-                self.notice = Some("The checked files are no longer all in the list".into());
+                self.notice = Some(tr("The checked files are no longer all in the list").into());
             }
         }
         if open {
