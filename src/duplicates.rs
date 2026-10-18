@@ -71,7 +71,11 @@ pub fn find(
             let sizes = parallel(&paths, p, size);
             let candidates: Vec<PathBuf> = groups(paths, sizes).into_iter().flatten().collect();
             let sums = parallel(&candidates, p, checksum);
-            groups(candidates, sums)
+            // The hash only finds them: the files of a group are compared byte by byte, as two
+            // that differ could share a 64-bit hash, and these are offered for the trash.
+            (groups(candidates, sums).into_iter())
+                .flat_map(same_contents)
+                .collect()
         }
         By::Dimensions => {
             let dims = parallel(&paths, p, |path| {
@@ -176,6 +180,38 @@ fn parallel<T: Send>(
         all[i] = v;
     }
     all
+}
+
+/// `group` split into the files whose bytes are the same, groups of one left out.
+fn same_contents(group: Vec<PathBuf>) -> Vec<Vec<PathBuf>> {
+    let mut alike: Vec<Vec<PathBuf>> = Vec::new();
+    for path in group {
+        match alike.iter_mut().find(|a| same_bytes(&a[0], &path)) {
+            Some(a) => a.push(path),
+            None => alike.push(vec![path]),
+        }
+    }
+    alike.retain(|a| a.len() > 1);
+    alike
+}
+
+/// Whether files `a` and `b` hold the same bytes; not when one cannot be read.
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    let (Ok(mut a), Ok(mut b)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
+        return false;
+    };
+    let (mut x, mut y) = (vec![0; 1 << 16], vec![0; 1 << 16]);
+    loop {
+        let Ok(n) = a.read(&mut x) else { return false };
+        // A read may return less than asked: as much of `b` as `a` gave.
+        if b.read_exact(&mut y[..n]).is_err() || x[..n] != y[..n] {
+            return false;
+        }
+        if n == 0 {
+            // At the end of both: `b` has no byte more.
+            return b.read(&mut y[..1]).is_ok_and(|m| m == 0);
+        }
+    }
 }
 
 /// A 64-bit hash of the whole file.
@@ -449,6 +485,22 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// Files of one hash are grouped only when their bytes are the same.
+    #[test]
+    fn compares_the_bytes() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-bytes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files: Vec<std::path::PathBuf> = ["a", "b", "c"].iter().map(|n| dir.join(n)).collect();
+        std::fs::write(&files[0], vec![7u8; 100_000]).unwrap();
+        std::fs::write(&files[1], vec![7u8; 100_000]).unwrap();
+        let mut other = vec![7u8; 100_000];
+        other[99_999] = 8;
+        std::fs::write(&files[2], other).unwrap();
+        let groups = super::same_contents(files.clone());
+        assert_eq!(groups, [files[..2].to_vec()]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
 
     /// The band means never rule out a pair that is alike enough.

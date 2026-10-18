@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Find Duplicates by checksum compares the files of a group byte by byte before it offers them for
+  the trash, instead of trusting a 64-bit hash.
 - A plugin's command passes %% as %, as the desktop file specification says, instead of leaving it
   out.
 - A collection renamed or moved to the trash in another window, or by another program, is not made
