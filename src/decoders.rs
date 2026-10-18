@@ -87,7 +87,7 @@ impl Decoder {
 
     /// The image the command writes for `path`.
     pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
-        self.run(path, Duration::from_secs(30))
+        self.run(path, crate::external::LIMIT)
     }
 
     fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {
@@ -119,27 +119,8 @@ impl Decoder {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
-        // Stopped after `limit`: a file can keep a program busy for good.
-        let id = child.id();
-        let (done, timer) = std::sync::mpsc::channel::<()>();
-        std::thread::spawn(move || {
-            if timer.recv_timeout(limit).is_err() {
-                // TERM first: in a Flatpak, flatpak-spawn passes it on to the program on the
-                // host, which a KILL of the group cannot reach; then KILL what is left.
-                // SAFETY: kill has no preconditions; the group is ours, and waited for below.
-                unsafe { libc_kill(-(id as i32), 15) };
-                if timer.recv_timeout(Duration::from_secs(1)).is_err() {
-                    // SAFETY: as above; not yet waited for, so the group is still ours.
-                    unsafe { libc_kill(-(id as i32), 9) };
-                }
-            }
-        });
         let max = crate::decode::MAX_DECODE + 64;
-        let (image, err, ok) = crate::external::output_of(&mut child, max, |_| {
-            // SAFETY: as above.
-            unsafe { libc_kill(-(id as i32), 9) };
-        });
-        let _ = done.send(());
+        let (image, err, ok) = crate::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
             let last = err.lines().last().unwrap_or("no image").trim().to_owned();

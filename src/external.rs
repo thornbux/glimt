@@ -39,8 +39,10 @@ fn fit(max: Option<[u32; 2]>) -> Option<String> {
 /// put together with xstack, cut to the image size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
 pub fn heif(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
+    use std::os::unix::process::CommandExt;
     use std::process::Stdio;
     let mut child = stoppable_command("ffprobe")
+        .process_group(0)
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .args(FILES_ONLY)
         .arg(path)
@@ -49,20 +51,7 @@ pub fn heif(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, S
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
-    // Stopped after 30 s, as ffmpeg is by its -timelimit: a file that keeps it busy for good
-    // would hold the decoder thread with it.
-    let (id, (done, timer)) = (child.id(), std::sync::mpsc::channel::<()>());
-    std::thread::spawn(move || {
-        if timer
-            .recv_timeout(std::time::Duration::from_secs(30))
-            .is_err()
-        {
-            // SAFETY: kill has no preconditions; the process is ours, not yet waited for.
-            unsafe { crate::decoders::libc_kill(id as i32, 9) };
-        }
-    });
-    let (probe, _, _) = output_of(&mut child, 1 << 20, |c| drop(c.kill()));
-    let _ = done.send(());
+    let (probe, _, _) = output_of(&mut child, 1 << 20, LIMIT);
     match heif_filter(&String::from_utf8_lossy(&probe.unwrap_or_default())) {
         Some(filter) => {
             let filter = match fit(max) {
@@ -136,15 +125,37 @@ const FILES_ONLY: [&str; 4] = [
     "mov,matroska,avi,mpeg,mpegts,asf,flv",
 ];
 
-/// What `child` writes, `max` bytes at most (more: `None`, once `too_large` has stopped it), its
-/// errors, and whether it ended well. Its errors are read beside its output, so neither pipe
-/// can fill and stop both.
+/// How long a program may take over one file: a crafted file, or a share that stops answering,
+/// can keep it busy for good, and the decoder thread with it.
+pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What `child` writes, `max` bytes at most (more: `None`, and it is stopped), its errors, and
+/// whether it ended well. Its errors are read beside its output, so neither pipe can fill and
+/// stop both. `child` was started with `stoppable_command` in a process group of its own, which
+/// is stopped after `limit`: TERM first, as in a Flatpak flatpak-spawn passes it on to the
+/// program on the host, which a KILL of the group cannot reach; then KILL what is left.
 pub fn output_of(
     child: &mut std::process::Child,
     max: u64,
-    too_large: impl FnOnce(&mut std::process::Child),
+    limit: std::time::Duration,
 ) -> (Option<Vec<u8>>, String, bool) {
+    use crate::decoders::libc_kill;
     use std::io::Read;
+    let group = -(child.id() as i32);
+    let (done, timer) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        if timer.recv_timeout(limit).is_err() {
+            // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
+            unsafe { libc_kill(group, 15) };
+            if timer
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .is_err()
+            {
+                // SAFETY: as above.
+                unsafe { libc_kill(group, 9) };
+            }
+        }
+    });
     let errors = child
         .stderr
         .take()
@@ -155,9 +166,11 @@ pub fn output_of(
     }
     let large = out.len() as u64 > max;
     if large {
-        too_large(child);
+        // SAFETY: as above.
+        unsafe { libc_kill(group, 9) };
     }
     let ok = child.wait().is_ok_and(|s| s.success());
+    let _ = done.send(());
     let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
     ((!large).then_some(out), err, ok)
 }
@@ -184,10 +197,12 @@ pub fn ffmpeg_ppm(
     after: &[&str],
 ) -> Result<image::DynamicImage, String> {
     use std::process::Stdio;
-    // 30 s of work at most, and a frame no larger than Glimt decodes: a crafted file could
-    // otherwise keep ffmpeg busy for good, or hand over gigabytes.
-    let mut child = command("ffmpeg")
-        .args(["-v", "error", "-timelimit", "30"])
+    // A frame no larger than Glimt decodes, in `LIMIT`: a crafted file could otherwise keep
+    // ffmpeg busy for good, or hand over gigabytes.
+    use std::os::unix::process::CommandExt;
+    let mut child = stoppable_command("ffmpeg")
+        .process_group(0)
+        .args(["-v", "error"])
         .args(before)
         .args(FILES_ONLY)
         .arg("-i")
@@ -199,7 +214,7 @@ pub fn ffmpeg_ppm(
         .spawn()
         .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
     let limit = crate::decode::MAX_DECODE + 64;
-    let (frame, err, ok) = output_of(&mut child, limit, |c| drop(c.kill()));
+    let (frame, err, ok) = output_of(&mut child, limit, LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
         let err = err.trim();

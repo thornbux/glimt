@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- ffmpeg, ffprobe and decoder programs are all stopped after 30 seconds, with every program they
+  started and also on the host in the Flatpak: ffmpeg's own limit counted only its working time,
+  so one waiting on a share that stopped answering held the image for good.
 - A turn not saved yet is saved into the file it was made on, whatever happens to the list
   meanwhile, and not at all when another program removed that file.
 
