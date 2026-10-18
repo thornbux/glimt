@@ -18,6 +18,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- New Folder in a collection, or with several folders shown together, says it needs a folder
+  shown, instead of trying to make the folder in /.
 - The place [n/m] the status bar tells for an image in another pane is worked out again after a
   new search, which may have as many matches as the one before.
 

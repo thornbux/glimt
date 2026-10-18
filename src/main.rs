@@ -5461,6 +5461,12 @@ impl App {
                 *flag = !*flag;
                 c.save();
             }
+            // A collection, or several folders shown together, is no folder to make one in: it
+            // would be made in /.
+            Action::NewFolder if self.collection.is_some() || !self.folders.is_empty() => {
+                self.notice =
+                    Some("New Folder makes a folder in the folder shown: open one".into());
+            }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Print if !self.files.is_empty() => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
