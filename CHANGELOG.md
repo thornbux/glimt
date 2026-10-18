@@ -12,6 +12,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An SVG gzipped twice is refused: its inner layer would have been unpacked without a limit, which
   a small file could use to take all memory.
 
+### Fixed
+
+- A PNG saved turned leaves out ImageMagick's copies of its EXIF and XMP ("Raw profile type"
+  text), which still held the old orientation, so Geeqie and digiKam no longer turn it a second
+  time.
+
 ## [0.36.0] - 2026-10-18
 
 ### Added

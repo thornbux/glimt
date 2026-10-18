@@ -207,7 +207,16 @@ fn png_with_chunks(new: &[u8], old: &[u8]) -> Vec<u8> {
         };
         let name = &chunk[4..8];
         let xmp = name == b"iTXt" && chunk[8..].starts_with(b"XML:com.adobe.xmp\0");
-        if KEPT.iter().any(|k| *k == name) && !xmp {
+        // ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2
+        // (Geeqie, digiKam) reads: the turned file would be turned again there.
+        let old_profile = [
+            &b"Raw profile type exif"[..],
+            b"Raw profile type APP1",
+            b"Raw profile type xmp",
+        ]
+        .iter()
+        .any(|key| matches!(name, b"tEXt" | b"zTXt" | b"iTXt") && chunk[8..].starts_with(key));
+        if KEPT.iter().any(|k| *k == name) && !xmp && !old_profile {
             kept.extend_from_slice(chunk);
         }
         // Text may come after the pixels too: read up to the end.
@@ -357,11 +366,14 @@ mod tests {
         old.extend(chunk(b"iTXt", b"XML:com.adobe.xmp\0\0\0\0\0<x/>"));
         old.extend(&new[33..new.len() - 12]);
         old.extend(chunk(b"tEXt", b"Comment\0hello"));
+        old.extend(chunk(b"zTXt", b"Raw profile type exif\0\0x"));
+        old.extend(chunk(b"tEXt", b"Raw profile type xmp\0x"));
         old.extend(&new[new.len() - 12..]);
         let out = super::png_with_chunks(&new, &old);
         let has = |name: &[u8]| out.windows(4).any(|w| w == name);
         assert!(has(b"pHYs") && has(b"tEXt"));
-        assert!(!has(b"tRNS") && !has(b"iTXt"));
+        assert!(!out.windows(16).any(|w| w == b"Raw profile type"));
+        assert!(!has(b"tRNS") && !has(b"iTXt") && !has(b"zTXt"));
         let dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
         assert_eq!(image::ImageDecoder::dimensions(&dec), (2, 2));
         for broken in crate::broken(&old) {
