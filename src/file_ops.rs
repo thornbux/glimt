@@ -505,7 +505,13 @@ impl crate::App {
                 *folder = new.join(rest);
             }
         }
-        // A collection: its images in the folder follow it to the new name, in its file too.
+        // A collection: its own file follows the folder it is in, and its images in the folder
+        // follow it to the new name, in its file too.
+        if let Some(file) = &mut self.collection
+            && let Ok(rest) = file.strip_prefix(&old)
+        {
+            *file = new.join(rest);
+        }
         if self.collection.is_some() {
             let mut moved = false;
             for i in 0..self.files.len() {
