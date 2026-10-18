@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file saved over under its own name by another program shows its new size and date in the list
+  after the folder is read again.
 - Turning Random Order on in a slideshow keeps the shown image and the ones read ahead, instead of
   decoding them all again.
 - A file of the same name opened in another folder opens fitted, not at the zoom and place of the

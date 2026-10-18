@@ -2129,6 +2129,9 @@ impl App {
         // Nothing changed (most refreshes, after Glimt's own writes beside the files): the list,
         // the selection and the search stay as they are.
         if files == self.files && !self.sort_collection {
+            // A file saved over under its own name (an editor writes and renames): its size
+            // and date read again, for the rows on screen only.
+            self.details.clear();
             return;
         }
         let shown = self.files.get(self.cur).cloned();
