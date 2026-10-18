@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The man page says --name takes at most 64 bytes, and fewer in a Flatpak.
 - The Bio-Formats decoder example cleans up its temporary folder and stops bfconvert when Glimt
   stops it after 30 seconds, instead of leaving them in /tmp.
 - Find Duplicates by checksum counts its byte-by-byte check in the progress and stops it on
