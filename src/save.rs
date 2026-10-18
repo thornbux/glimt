@@ -77,15 +77,24 @@ pub fn save_rotated(
     // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
     // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
     // view did not turn them by it: else other programs would turn them again.
-    let (mut exif, mut xmp) = image::ImageReader::open(path)
+    let (mut exif, mut xmp, stored) = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
         .map(|mut d| {
             let exif = d.exif_metadata().ok().flatten();
-            (exif, d.xmp_metadata().ok().flatten())
+            let stored = d.orientation().ok();
+            (exif, d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
+    // Turned a quarter in all: by the view, and by the stored orientation with Auto Rotate.
+    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
+    let stored_quarter = rotate
+        && matches!(
+            stored,
+            Some(Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH)
+        );
+    let quarter = (turns % 2 == 1) != stored_quarter;
     let lossy = !png && webp_lossless(path) == Some(false);
     if let Some(exif) = &mut exif {
         exif::set_upright(exif)?;
@@ -158,7 +167,7 @@ pub fn save_rotated(
     // The rest of what the PNG said of itself: its text (a comment, an AI tool's prompt), its
     // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn.
     if png && let Ok(old) = std::fs::read(path) {
-        out = png_with_chunks(&out, &old);
+        out = png_with_chunks(&out, &old, quarter);
     }
     if let Some(xmp) = &xmp {
         out = match png {
@@ -192,15 +201,14 @@ fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
 /// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header:
 /// text, physical size, time and colour space. Not the profile, EXIF or XMP, which are written
 /// anew, nor what depends on how the pixels are stored (palette, transparency, bit depth).
-fn png_with_chunks(new: &[u8], old: &[u8]) -> Vec<u8> {
+fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
     const KEPT: [&[u8; 4]; 8] = [
         b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB",
     ];
     let (end, mut kept) = (33, Vec::new());
-    // Turned a quarter: width and height swapped in the header, and so in pHYs, the pixels per
-    // unit across and down (a fax-like scan of 204×98 dpi would print stretched else).
-    let size = |png: &[u8]| Some((png.get(16..20)?.to_vec(), png.get(20..24)?.to_vec()));
-    let swapped = matches!((size(old), size(new)), (Some((ow, oh)), Some((nw, nh))) if ow != oh && ow == nh && oh == nw);
+    // Turned a quarter: pHYs, the pixels per unit across and down, swapped too (a fax-like scan
+    // of 204×98 dpi would print stretched else), also for a square picture.
+    let swapped = quarter;
     let mut at = 8;
     while let Some(len) = old.get(at..at + 4) {
         let len = u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize;
@@ -376,7 +384,7 @@ mod tests {
         old.extend(chunk(b"zTXt", b"Raw profile type exif\0\0x"));
         old.extend(chunk(b"tEXt", b"Raw profile type xmp\0x"));
         old.extend(&new[new.len() - 12..]);
-        let out = super::png_with_chunks(&new, &old);
+        let out = super::png_with_chunks(&new, &old, false);
         let has = |name: &[u8]| out.windows(4).any(|w| w == name);
         assert!(has(b"pHYs") && has(b"tEXt"));
         assert!(!out.windows(16).any(|w| w == b"Raw profile type"));
@@ -395,12 +403,12 @@ mod tests {
         let mut old = wide[..33].to_vec();
         old.extend(chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
         old.extend(&wide[33..]);
-        let out = super::png_with_chunks(&tall, &old);
+        let out = super::png_with_chunks(&tall, &old, true);
         let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
         assert_eq!(&out[at + 4..at + 13], &[0, 0, 0, 98, 0, 0, 0, 204, 1]);
         image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
         for broken in crate::broken(&old) {
-            super::png_with_chunks(&new, &broken);
+            super::png_with_chunks(&new, &broken, true);
         }
     }
 
