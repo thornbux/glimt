@@ -442,6 +442,8 @@ config! {
     print_caption: bool = true,
     /// Images on each page: 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
     print_per_page: usize = 1,
+    /// Around the printed page, in millimetres (0 to 50).
+    print_margin: u32 = 10,
 }
 
 impl Config {
@@ -458,6 +460,7 @@ impl Config {
         if !print::PER_PAGE.iter().any(|p| p.0 == c.print_per_page) {
             c.print_per_page = 1;
         }
+        c.print_margin = c.print_margin.min(50);
         c.animation_mb = c.animation_mb.clamp(8, 1024);
         c.ui_scale = c.ui_scale.clamp(50, 300);
         c.histogram = c.histogram.min(2);

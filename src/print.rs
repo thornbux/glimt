@@ -505,6 +505,9 @@ impl crate::App {
                             }
                         });
                     ui.end_row();
+                    ui.label(tr("Margin (mm):"));
+                    ui.add(egui::DragValue::new(&mut c.print_margin).range(0..=50));
+                    ui.end_row();
                     if !c.print_printer.is_empty() {
                         ui.label(tr("Copies:"));
                         ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
@@ -536,6 +539,7 @@ impl crate::App {
                     paths: dialog.paths,
                     layout: print::Layout {
                         orientation: print::Orientation::from(&c.print_orientation),
+                        margin: c.print_margin as f32 * print::MM,
                         ..print::Layout::new(paper, c.print_per_page)
                     },
                     caption: c.print_caption,
@@ -662,6 +666,17 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// The margin around the page: none puts the image at the paper's edge, 20 mm in from it.
+    #[test]
+    fn keeps_the_margin() {
+        use super::{Layout, MM, PAPERS, place};
+        let a4 = PAPERS[0].1;
+        let at = |mm: f32| place(&Layout { margin: mm * MM, ..Layout::new(a4, 1) }, &[[100, 100]], false).cells[0].clip;
+        assert_eq!(at(0.0)[0], 0.0);
+        assert!((at(20.0)[0] - 20.0 * MM).abs() < 0.01);
+        assert!((at(20.0)[2] - (a4[0] - 40.0 * MM)).abs() < 0.01);
+    }
+
     /// The paper turned by the setting: a sheet turned to landscape turns its grid too; by
     /// the image, a wide one alone goes landscape and a sheet stays portrait.
     #[test]

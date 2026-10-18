@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A margin of one's own around the printed page, 0 to 50 mm, instead of always 10 mm.
 - Printing turns the paper by the image as before, or always portrait or landscape; a contact
   sheet on landscape paper turns its grid with it.
 - Printing on A3, A5, Legal and photo paper of 10 × 15 and 13 × 18 cm, beside A4 and Letter.

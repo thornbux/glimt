@@ -1849,3 +1849,7 @@ msgstr "Stående"
 #: src/print.rs
 msgid "Landscape"
 msgstr "Liggende"
+
+#: src/print.rs
+msgid "Margin (mm):"
+msgstr "Marg (mm):"
