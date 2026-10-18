@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Keywords, a comment and alt text are saved in the background, not in the window's thread: a
+  sidecar on a slow or stalled share no longer freezes the window when a field is left or the next
+  image shown.
 - Rename Many keeps the letters of names that are not UTF-8 (Latin-1 from an old camera or a
   Windows zip) where the pattern has *, instead of turning them into "�" for good.
 - A collection's file is no longer written again when a move or rename leaves its images as they

@@ -4402,7 +4402,9 @@ impl App {
     }
 
     /// Save the keywords, comment, alt text and extended description being edited, if they
-    /// changed.
+    /// changed: in the thread that writes Glimt's own files, which closing waits for, not in the
+    /// window's, as a sidecar on a slow share would hold the window up for its read, write and
+    /// sync. The fields show what was saved at once; a failure is told.
     fn save_meta(&mut self) {
         let Some(edit) = &mut self.meta else { return };
         let access = meta::Access {
@@ -4413,15 +4415,15 @@ impl App {
         if (edit.alt != edit.access.alt || edit.extended != edit.access.extended)
             && access != edit.access
         {
-            match meta::write_access(&edit.path, &access) {
-                Ok(()) => {
-                    (edit.alt, edit.extended) = (access.alt.clone(), access.extended.clone());
-                    edit.access = access;
+            (edit.alt, edit.extended) = (access.alt.clone(), access.extended.clone());
+            edit.access = access.clone();
+            let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
+            config::write_later(move || {
+                if let Err(e) = meta::write_access(&path, &access) {
+                    let _ = tx.send(format!("Could not save the alt text: {e}"));
                 }
-                Err(e) => self.notice = Some(format!("Could not save the alt text: {e}")),
-            }
+            });
         }
-        let Some(edit) = &mut self.meta else { return };
         // Fields as they were shown are no change, also when splitting them again at commas
         // would read them differently ("Smith, John" as one keyword, a comment's last newline).
         if edit.keywords == edit.saved.keywords_text() && edit.comment == edit.saved.comment {
@@ -4431,17 +4433,23 @@ impl App {
         let keywords = (edit.keywords != edit.saved.keywords_text())
             .then(|| Meta::parse_keywords(&edit.keywords));
         let comment = (edit.comment != edit.saved.comment).then(|| edit.comment.trim().to_owned());
-        match meta::write_changed(&edit.path, keywords, comment) {
-            Ok(meta) => {
-                edit.keywords = meta.keywords_text();
-                edit.comment = meta.comment.clone();
-                edit.saved = meta;
-                // "exif:" searches find keywords and comments too: read again when next used.
-                if let Some(name) = self.files.get(self.cur) {
-                    self.exif_stale.insert(name.clone());
-                }
+        if let Some(k) = &keywords {
+            edit.saved.keywords = k.clone();
+        }
+        if let Some(c) = &comment {
+            edit.saved.comment = c.clone();
+        }
+        edit.keywords = edit.saved.keywords_text();
+        edit.comment = edit.saved.comment.clone();
+        let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
+        config::write_later(move || {
+            if let Err(e) = meta::write_changed(&path, keywords, comment) {
+                let _ = tx.send(format!("Could not save the keywords: {e}"));
             }
-            Err(e) => self.notice = Some(format!("Could not save the keywords: {e}")),
+        });
+        // "exif:" searches find keywords and comments too: read again when next used.
+        if let Some(name) = self.files.get(self.cur) {
+            self.exif_stale.insert(name.clone());
         }
     }
 
