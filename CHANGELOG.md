@@ -24,6 +24,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   sheet on landscape paper turns its grid with it.
 - Printing on A3, A5, Legal and photo paper of 10 × 15 and 13 × 18 cm, beside A4 and Letter.
 
+### Changed
+
+- The About page links to glimt.pario.no and to Glimt's MIT License.
+
 ## [0.37.2] - 2026-10-18
 
 ### Fixed

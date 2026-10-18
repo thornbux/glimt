@@ -985,11 +985,11 @@ const CREDITS: &[(&str, &str, &str)] = &[
 ];
 
 fn about(ui: &mut egui::Ui) {
-    // The logo as tall as the four lines beside it, so the two line up.
+    // The logo as tall as the five lines beside it, so the two line up.
     ui.horizontal(|ui| {
         if let Some(logo) = logo(ui.ctx()) {
-            let tall = 4.0 * ui.text_style_height(&egui::TextStyle::Body)
-                + 3.0 * ui.spacing().item_spacing.y;
+            let tall = 5.0 * ui.text_style_height(&egui::TextStyle::Body)
+                + 4.0 * ui.spacing().item_spacing.y;
             ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(tall, tall)));
         }
         ui.vertical(|ui| {
@@ -997,6 +997,20 @@ fn about(ui: &mut egui::Ui) {
             ui.label("A fast, memory-frugal image viewer for Linux.");
             ui.label("Glimt is Norwegian for \"glimpse\": a quick look.");
             ui.weak("Copyright © 2026 Hans-Henry Jakobsen");
+            // Opened by the desktop's browser (gio, xdg-open), as Show on OpenStreetMap.
+            ui.horizontal(|ui| {
+                for (text, url) in [
+                    ("glimt.pario.no", "https://glimt.pario.no"),
+                    (
+                        "MIT License",
+                        "https://github.com/thornbux/glimt/blob/main/LICENSE",
+                    ),
+                ] {
+                    if ui.link(text).on_hover_text(url).clicked() {
+                        crate::external::open_url(url);
+                    }
+                }
+            });
         });
     });
     ui.add_space(8.0);
