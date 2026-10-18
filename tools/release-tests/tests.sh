@@ -2364,8 +2364,8 @@ for s in range(10):
     quit
     slowest=$(grep -o 'slowest frame: [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
     note "new: slowest frame $slowest ms, 500,000 selected"
-    expect "no frame over 250 ms with 500,000 files selected" \
-        "$([ "${slowest:-9999}" -le 250 ] && echo yes)" yes
+    expect "no frame over 100 ms with 500,000 files selected" \
+        "$([ "${slowest:-9999}" -le 100 ] && echo yes)" yes
 
     echo "-- sorting 3,000 JPEGs of about 1 MB by EXIF date"
     e=/tmp/exif-dates
