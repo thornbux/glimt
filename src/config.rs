@@ -454,6 +454,8 @@ config! {
     /// Text at the top and the bottom of every printed page; %page% and %pages% number it.
     print_header: String = String::new(),
     print_footer: String = String::new(),
+    /// On both sides of the paper, turned on the long edge, where the printer can.
+    print_two_sided: bool = false,
 }
 
 impl Config {

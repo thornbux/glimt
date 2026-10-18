@@ -1881,3 +1881,7 @@ msgstr "Øverst på hver side:"
 #: src/print.rs
 msgid "Bottom of each page:"
 msgstr "Nederst på hver side:"
+
+#: src/print.rs
+msgid "Both sides of the paper"
+msgstr "Begge sider av arket"

@@ -423,16 +423,29 @@ pub fn printers() -> (Vec<String>, Option<String>) {
     (names, default)
 }
 
+/// `lp`'s options: the printer, copies, title, and both sides of the paper if asked; CUPS
+/// prints one side on a printer that cannot do both.
+fn lp_args(printer: &str, copies: u32, two_sided: bool, title: &str) -> Vec<String> {
+    let mut args: Vec<String> = ["-d", printer, "-n", &copies.to_string(), "-t", title]
+        .map(str::to_owned)
+        .into();
+    if two_sided {
+        args.extend(["-o".to_owned(), "sides=two-sided-long-edge".to_owned()]);
+    }
+    args
+}
+
 /// Send the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
 /// left behind (and the Flatpak's private /tmp does not matter).
 pub fn send(
     printer: &str,
     copies: u32,
+    two_sided: bool,
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> Result<(), String> {
     let mut child = crate::external::command("lp")
-        .args(["-d", printer, "-n", &copies.to_string(), "-t", title])
+        .args(lp_args(printer, copies, two_sided, title))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -547,6 +560,9 @@ impl crate::App {
                         ui.label(tr("Copies:"));
                         ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
                         ui.end_row();
+                        ui.label("");
+                        ui.checkbox(&mut c.print_two_sided, tr("Both sides of the paper"));
+                        ui.end_row();
                     }
                 });
                 ui.horizontal(|ui| {
@@ -610,6 +626,7 @@ impl crate::App {
                         ..print::Layout::new(paper, c.print_per_page)
                     },
                     caption: c.print_caption.then(|| c.print_template.clone()),
+                    two_sided: c.print_two_sided,
                     rotate: c.exif_rotate,
                     copies: dialog.copies,
                 };
@@ -687,9 +704,11 @@ impl crate::App {
             let total = job.paths.len().div_ceil(job.layout.per_page.max(1));
             let title = format!("Glimt: {}", count(job.paths.len(), "image"));
             let done = match &to {
-                PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
-                    print::pdf(pages, &job.layout, total, w)
-                }),
+                PrintTo::Printer(printer) => {
+                    print::send(printer, job.copies, job.two_sided, &title, |w| {
+                        print::pdf(pages, &job.layout, total, w)
+                    })
+                }
                 // Beside it first: the file chosen is replaced only by a whole PDF, after every
                 // image was read (one of them may be the file chosen).
                 PrintTo::File(file) => {
@@ -736,6 +755,15 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// Both sides asked of lp only when chosen.
+    #[test]
+    fn asks_for_both_sides() {
+        assert!(!super::lp_args("p", 1, false, "t").contains(&"-o".to_owned()));
+        let both = super::lp_args("p", 2, true, "t");
+        assert_eq!(both[both.len() - 2..], ["-o", "sides=two-sided-long-edge"]);
+        assert_eq!(both[..4], ["-d", "p", "-n", "2"]);
+    }
+
     /// Text on every page, with its numbers, and room made for it: the image moves down from
     /// the top line.
     #[test]

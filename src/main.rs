@@ -591,6 +591,8 @@ struct PrintJob {
     layout: print::Layout,
     /// The template of the text under each image, if there is one.
     caption: Option<String>,
+    /// On both sides of the paper (a printer, not a PDF).
+    two_sided: bool,
     rotate: bool,
     copies: u32,
 }

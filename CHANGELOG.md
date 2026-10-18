@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Printing on both sides of the paper, on a printer that can.
 - Text at the top and the bottom of every printed page, with %page% and %pages% for the page
   numbers, as Geeqie's page text.
 - The text under each printed image comes from a template, as the full screen info's: the file
