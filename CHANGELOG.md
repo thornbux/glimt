@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Printing when no image can be read (HEIC without ffmpeg, say) says so, and sends nothing to the
+  printer nor puts an empty PDF in place of the file chosen.
 - A thumbnail that failed because the file could not be read for a moment (a share or a stick
   away) is tried again later, instead of the file being marked as having none until it changes.
 - ffprobe, which reads how a HEIC or AVIF photo is tiled, is stopped after 30 seconds as ffmpeg

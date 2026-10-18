@@ -1949,6 +1949,24 @@ for v in new old; do
 done
 as_version new
 
+echo "-- printing to a PDF when no image can be read: the file chosen is left as it was"
+d=/tmp/print-none
+for v in new old; do
+    as_version $v
+    rm -rf $d && mkdir -p $d
+    echo "not a picture" >$d/a.jpg
+    echo "keep" >$d/out.pdf
+    config
+    start $d/a.jpg
+    sleep 2
+    answer $d/out.pdf; key ctrl+p; sleep 1; key Return; sleep 4
+    quit
+    got=$(cat $d/out.pdf | head -c 4)
+    if [ $v = new ]; then expect "out.pdf untouched" "$got" "keep"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- browsing past images writes nothing: a keyword with a comma, a comment with a newline"
 d=/tmp/browse
 mkdir -p $d

@@ -422,6 +422,15 @@ impl crate::App {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 Some((img.ok()?, job.caption.then(|| name.into_owned())))
             });
+            // Not one image could be read (HEIC without ffmpeg, say): nothing is sent to the
+            // printer, and the file chosen is not replaced by an empty PDF.
+            let mut pages = pages.peekable();
+            if pages.peek().is_none() {
+                let _ = tx.send("No image could be read: nothing printed".into());
+                busy.fetch_sub(1, Ordering::Relaxed);
+                ctx.request_repaint();
+                return;
+            }
             // Written as it is made, so only one page is in memory, not the whole PDF.
             let title = format!("Glimt: {}", count(job.paths.len(), "image"));
             let done = match &to {
