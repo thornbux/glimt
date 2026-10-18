@@ -425,21 +425,44 @@ pub static ADOBE_RGB: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(||
         .unwrap_or_default()
 });
 
-/// `img` through the colour transform `t`.
+/// `img` through the colour transform `t`, a megabyte at a time through one small buffer: a
+/// full-size photo for printing or saving does not need a second copy of itself.
 pub fn transformed(
     t: &moxcms::Transform8BitExecutor,
     img: image::DynamicImage,
 ) -> image::DynamicImage {
+    const PART: usize = 1 << 20; // whole RGBA pixels
     let mut rgba = img.into_rgba8();
-    let mut out = vec![0; rgba.len()];
-    if t.transform(&rgba, &mut out).is_ok() {
-        rgba.copy_from_slice(&out);
+    let mut out = vec![0; PART.min(rgba.len())];
+    for part in rgba.chunks_mut(PART) {
+        let out = &mut out[..part.len()];
+        if t.transform(part, out).is_ok() {
+            part.copy_from_slice(out);
+        }
     }
     rgba.into()
 }
 
 #[cfg(test)]
 mod tests {
+    /// A photo larger than one part comes out as through one whole buffer.
+    #[test]
+    fn transforms_in_parts() {
+        use moxcms::{ColorProfile, Layout, TransformOptions};
+        let (srgb, p3) = (ColorProfile::new_srgb(), ColorProfile::new_display_p3());
+        let options = TransformOptions::default();
+        let t = srgb
+            .create_transform_8bit(Layout::Rgba, &p3, Layout::Rgba, options)
+            .unwrap();
+        let img = image::RgbaImage::from_fn(700, 700, |x, y| {
+            image::Rgba([(x % 256) as u8, (y % 256) as u8, 200, 255])
+        });
+        let mut whole = vec![0; img.len()];
+        t.transform(&img, &mut whole).unwrap();
+        let parts = super::transformed(&*t, img.into()).into_rgba8();
+        assert_eq!(parts.as_raw(), &whole);
+    }
+
     /// Greyscale keeps white white, inverted turns red cyan, more contrast spreads from the
     /// middle; alpha stays.
     #[test]

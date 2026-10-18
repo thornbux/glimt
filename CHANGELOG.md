@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Colour management changes an image a megabyte at a time: a large photo printed, exported or
+  saved with its own profile no longer needs a second full-size copy.
 - An image turned by its EXIF orientation is shrunk to the view first and then turned, not turned
   whole: a 100 MP PNG turned by EXIF no longer needs a second full-size buffer for a moment.
 
