@@ -18,6 +18,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Files still being deleted when their folder is left and opened again no longer stay in its list
+  once they are gone, also with auto refresh off.
 - New Folder in a collection, or with several folders shown together, says it needs a folder
   shown, instead of trying to make the folder in /.
 - The place [n/m] the status bar tells for an image in another pane is worked out again after a

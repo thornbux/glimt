@@ -184,9 +184,13 @@ impl crate::App {
             }
             // By the name the list has, with its folders in the list with subfolders and in a
             // collection.
+            // One of the folder shown that it did not hold back: it was left and opened again
+            // meanwhile, and its listing may still have files that are gone now.
+            let mut unknown = false;
             for rel in paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok()) {
-                self.deleting.remove(rel.as_os_str());
+                unknown |= !self.deleting.remove(rel.as_os_str());
             }
+            self.relist |= unknown;
             // A collection is read again from its own list, which they left when the delete
             // began: those still there (it failed, or Stop came first) go back into it.
             if failed && self.collection.is_some() {
