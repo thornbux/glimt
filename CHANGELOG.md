@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The AppStream file names each release and its date, so software centres show Glimt's version;
+  the release workflow checks it is there, and publishes only a tag that is on main.
+
 ### Changed
 
 - RAW thumbnails read the first 8 MB of the file, where cameras put the preview, and only read the

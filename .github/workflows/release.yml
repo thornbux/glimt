@@ -34,6 +34,8 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
+          # The history of main too, to see that the tag is on it.
+          fetch-depth: 0
       - name: Version from the tag
         # A tag without the version in Cargo.toml would publish packages named for one version
         # holding another, and one without a CHANGELOG section empty release notes.
@@ -47,6 +49,12 @@ jobs:
             { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
           grep -q "\"Glimt $VERSION\"" docs/glimt.1 ||
             { echo "::error::docs/glimt.1 is not at version $VERSION"; exit 1; }
+          # Software centres show the version and its date from here.
+          grep -q "<release version=\"$VERSION\"" assets/io.github.thornbux.Glimt.metainfo.xml ||
+            { echo "::error::the metainfo file has no release $VERSION"; exit 1; }
+          # Only what is on main is published: not a tag on a branch never merged.
+          git merge-base --is-ancestor HEAD origin/main ||
+            { echo "::error::$TAG is not on main"; exit 1; }
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: System libraries for the window (Wayland, X11, OpenGL)
