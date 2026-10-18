@@ -332,7 +332,7 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Panels",
-        "T shows thumbnails (Small, Medium or Big in Preferences), Ctrl+I shows the file list \
+        "T shows thumbnails (Small, Medium or Large in Preferences), Ctrl+I shows the file list \
          as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → \
          Include Subfolders lists the images of every folder below (File → Open Folder \
          Recursive… opens a folder with it on), View → Show Hidden Files lists files and \

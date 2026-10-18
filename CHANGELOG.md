@@ -18,6 +18,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The Help Manual names the thumbnail sizes as Preferences does: Small, Medium or Large.
 - Files still being deleted when their folder is left and opened again no longer stay in its list
   once they are gone, also with auto refresh off.
 - New Folder in a collection, or with several folders shown together, says it needs a folder
