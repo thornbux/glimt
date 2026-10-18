@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A collection renamed or moved to the trash in another window, or by another program, is not made
+  again under its old name when this window changes it: Glimt says it is gone.
 - A sidecar, collection or settings file written again keeps its permissions: one made private
   (0600) no longer becomes readable by others after a keyword edit.
 - Saving settings keeps the settings file's comments, blank lines and order, so notes written in

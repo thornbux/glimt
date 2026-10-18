@@ -2289,7 +2289,14 @@ impl App {
         // One that cannot be read is not written over: what it holds would be lost.
         let on_disk = match collections::load(&file) {
             Ok(paths) => paths,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            // Renamed or moved to the trash in another window since it was opened here: not
+            // made again under its old name.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return self.notice = Some(format!(
+                    "The collection {} is gone (renamed or removed in another window): not saved",
+                    file.display()
+                ));
+            }
             Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
         };
         // Shuffled for a slideshow: saved in its own order, not the random one.
