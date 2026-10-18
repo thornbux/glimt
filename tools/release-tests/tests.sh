@@ -310,10 +310,14 @@ for v in new old; do
     start $d/show.gqv
     sleep 2
     key End; key shift+Delete; sleep 3     # ro/b.jpg cannot be deleted
+    # One that can go: the check above cannot pass by nothing happening.
+    key Home; key shift+Delete; sleep 2
     quit
     chmod 755 $d/ro
     got=$(grep -c 'ro/b.jpg' $d/show.gqv)
-    if [ $v = new ]; then expect "b.jpg still in the collection" "$got" 1
+    if [ $v = new ]; then
+        expect "b.jpg still in the collection" "$got" 1
+        expect "a.jpg deleted" "$([ -e $d/a.jpg ] || echo gone)" gone
     else note "old: b.jpg lines in the collection: $got"; fi
 done
 as_version new
@@ -1570,6 +1574,17 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Faster without a lock: the delay saved (so the two checks below test something)"
+d=/tmp/faster-saved
+mkdir -p $d
+for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+config delay=5
+start $d
+sleep 2
+key ctrl+equal; sleep 1
+quit
+expect "the delay changed" "$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)" 0
+
 echo "-- a kiosk: a visitor's keys change no saved setting"
 for v in new old; do
     as_version $v
@@ -1599,6 +1614,7 @@ for v in new old; do
     sleep 2
     key ctrl+n; sleep 3                   # a new window: Faster pressed there
     other=$(xdotool search --name Glimt 2>/dev/null | grep -vx "$WIN" | tail -1)
+    [ $v = new ] && expect "a second window opened" "$([ -n "$other" ] && echo yes)" yes
     xdotool windowfocus $other key ctrl+equal 2>/dev/null; sleep 1
     $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
