@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Two Glimt windows from different builds (an AppImage and a distribution's package) wait for each
+  other's sidecar writes too: the lock is chosen by a fixed hash of the path, not Rust's own,
+  which may differ between Rust releases.
 - A sidecar on a share that stopped answering no longer holds up the sidecar writes of other
   images in the window, nor through them the window itself (since 0.37.1).
 - Closing Glimt no longer waits for a plugin's program to end, such as an editor opened from Glimt

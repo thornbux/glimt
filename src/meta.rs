@@ -254,18 +254,23 @@ fn held(path: &Path) -> (Option<std::fs::File>, Option<std::sync::MutexGuard<'st
 }
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
-    use std::hash::{Hash, Hasher};
     use std::os::unix::fs::DirBuilderExt;
-    // The same keys in every process, so every window picks the same file for a sidecar.
-    let mut hash = std::collections::hash_map::DefaultHasher::new();
-    side.hash(&mut hash);
     let _ = std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir);
-    let file = std::fs::File::create(dir.join(format!("{}", hash.finish() % 64))).ok()?;
+    let file = std::fs::File::create(dir.join(lock_slot(side).to_string())).ok()?;
     file.lock().ok()?;
     Some(file)
+}
+
+/// Which of the 64 lock files a sidecar has: FNV-1a of its path's bytes, the same in every
+/// Glimt, also one built with another Rust, whose own hasher may differ.
+fn lock_slot(side: &Path) -> u64 {
+    use std::os::unix::ffi::OsStrExt;
+    let fnv = (side.as_os_str().as_bytes().iter())
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+    fnv % 64
 }
 
 /// Change the sidecar of `path` with `change`, or a new, empty one unless `only_if_there`: then
@@ -611,6 +616,14 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// The lock file of a sidecar is the same in every Glimt: FNV-1a, as known for these.
+    #[test]
+    fn lock_slots_stay() {
+        use std::path::Path;
+        assert_eq!(super::lock_slot(Path::new("")), 0xcbf2_9ce4_8422_2325 % 64);
+        assert_eq!(super::lock_slot(Path::new("a")), 0xaf63_dc4c_8601_ec8c % 64);
+    }
+
     /// The lock of a sidecar holds off another holder of it, as another window would be, until
     /// it is let go.
     #[test]
