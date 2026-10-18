@@ -981,9 +981,12 @@ struct App {
     /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
     /// standard error that the release tests read.
     started: Option<Instant>,
-    /// The longest frame after the first image, for the "slowest frame: N ms" line at exit that
-    /// the release tests read: work that grows with the list shows there.
-    slowest: std::time::Duration,
+    /// How many frames after the first image took each number of milliseconds of the window
+    /// thread's processor time (the last: that
+    /// many or more), for the "frames:" line at exit that the release
+    /// tests read: work that grows with the list makes every frame slow, while the slowest alone
+    /// varies with one-off work such as Select All.
+    frame_ms: [u32; 256],
 
     // ---- The view: zoom, panes, the window ----
     /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
@@ -1726,7 +1729,7 @@ impl App {
             zoom: None,
             pan_offset: egui::Vec2::ZERO,
             started: Some(Instant::now()),
-            slowest: std::time::Duration::ZERO,
+            frame_ms: [0; 256],
             file_dialog: None,
             hide_file_list: false,
             focus_search: false,
@@ -7878,14 +7881,21 @@ impl eframe::App for App {
         }
         self.inhibit(false);
         config::flush();
-        eprintln!("slowest frame: {} ms", self.slowest.as_millis());
+        let at = |share| frame_at(&self.frame_ms, share);
+        eprintln!(
+            "frames: median {} ms, 90% within {} ms, slowest {} ms",
+            at(0.5),
+            at(0.9),
+            at(1.0)
+        );
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let start = Instant::now();
+        let start = thread_cpu_us();
         self.frame_ui(ui);
         if self.started.is_none() {
-            self.slowest = self.slowest.max(start.elapsed());
+            let ms = thread_cpu_us().saturating_sub(start) / 1000;
+            self.frame_ms[(ms as usize).min(255)] += 1;
         }
     }
 }
@@ -8265,8 +8275,51 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
     lines.collect::<Vec<_>>().join("\n")
 }
 
+#[repr(C)]
+struct Timespec {
+    sec: i64,
+    nsec: i64,
+}
+
+unsafe extern "C" {
+    fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
+}
+
+/// The processor time this thread has used, in microseconds: a frame's own work, which other
+/// threads busy at the same moment (summing the sizes of 500,000 files) do not add to.
+fn thread_cpu_us() -> u64 {
+    const CLOCK_THREAD_CPUTIME_ID: i32 = 3;
+    let mut t = Timespec { sec: 0, nsec: 0 };
+    // SAFETY: `t` is a valid timespec for the call to fill.
+    unsafe { clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    t.sec as u64 * 1_000_000 + t.nsec as u64 / 1000
+}
+
+/// The milliseconds that `share` of the frames counted by milliseconds took at most; 0 for none.
+fn frame_at(frame_ms: &[u32], share: f64) -> usize {
+    let total: u32 = frame_ms.iter().sum();
+    let mut seen = 0;
+    (frame_ms.iter().position(|&n| {
+        seen += n;
+        total > 0 && seen as f64 >= share * total as f64
+    }))
+    .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
+    /// The median, 90 % and the slowest frame from the counts by milliseconds.
+    #[test]
+    fn frame_shares() {
+        let mut ms = [0; 256];
+        assert_eq!(super::frame_at(&ms, 0.5), 0);
+        ms[2] = 5;
+        ms[3] = 4;
+        ms[90] = 1;
+        let at = |share| super::frame_at(&ms, share);
+        assert_eq!((at(0.5), at(0.9), at(1.0)), (2, 3, 90));
+    }
+
     /// The busy pointer goes when its work ends, also by a panic.
     #[test]
     fn busy_ends_with_a_panic() {

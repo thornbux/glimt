@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Glimt prints its median frame time at exit beside the slowest, and the release tests check the
+  median: the slowest alone varied from 20 to 64 ms between two runs of the same build, with
+  Select All on 500,000 files.
+
 ## [0.37.0] - 2026-10-18
 
 ### Fixed

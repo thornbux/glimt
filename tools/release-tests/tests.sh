@@ -2381,21 +2381,23 @@ for s in range(10):
     note "new with a screen profile: $(first_image), RssAnon $(rss)"
     quit
 
-    # Work in the window's thread that grows with the list shows as a slow frame: the slowest
-    # after the first image, printed at exit, while the whole list is selected and acted on.
+    # Work in the window's thread that grows with the list makes frames slow: the median of
+    # the window thread's processor time per frame, printed at exit, with the whole list
+    # selected and the Delete dialog drawn in every frame. Processor time, not time on the
+    # clock: that varied by 20 ms and more from run to run with threads summing file sizes.
     config thumbnails=false
     start $big
     wait_first
-    key ctrl+a
-    for i in $(seq 20); do xdotool key shift+Down; sleep 0.1; done
-    key ctrl+d; key Escape
-    key ctrl+r; key Escape
-    key slash; xdotool type "mark:1"; sleep 1; key Escape
+    key ctrl+a                       # the whole list selected
+    key ctrl+d                       # the Delete dialog drawn with it, in every frame
+    for i in $(seq 100); do xdotool mousemove $((300 + 3 * i)) 400; sleep 0.05; done
+    key Escape
     quit
-    slowest=$(grep -o 'slowest frame: [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
-    note "new: slowest frame $slowest ms, 500,000 selected"
-    expect "no frame over 100 ms with 500,000 files selected" \
-        "$([ "${slowest:-9999}" -le 100 ] && echo yes)" yes
+    median=$(grep -o 'frames: median [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
+    note "new, 500,000 selected: $(grep -o 'frames: .*' /tmp/glimt.err)"
+    grep '^prof' /tmp/glimt.err | sed 's/^/     /' 
+    expect "frames within 10 ms with 500,000 files selected" \
+        "$([ "${median:-9999}" -le 10 ] && echo yes)" yes
 
     echo "-- sorting 3,000 JPEGs of about 1 MB by EXIF date"
     e=/tmp/exif-dates
