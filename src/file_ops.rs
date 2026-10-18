@@ -221,8 +221,11 @@ impl crate::App {
             .map(|rel| rel.as_os_str().to_owned())
             .collect();
         if !back.is_empty() {
+            let paths: Vec<PathBuf> = back.iter().map(|rel| self.dir.join(rel)).collect();
             self.files.extend(back);
-            self.save_collection();
+            self.edit_collection(|all| {
+                collections::add(all, &paths);
+            });
         }
     }
 
@@ -239,7 +242,13 @@ impl crate::App {
                 self.files[i] = rel.as_os_str().to_owned();
             }
         }
-        self.save_collection();
+        self.edit_collection(|all| {
+            for p in all {
+                if let Some(to) = moved.get(p.as_path()) {
+                    *p = to.to_path_buf();
+                }
+            }
+        });
     }
 
     /// Copy or move `paths` into `dest` in the background. Existing files are never
@@ -405,7 +414,13 @@ impl crate::App {
                         self.files[i] = rel.as_os_str().to_owned();
                     }
                 }
-                self.save_collection();
+                self.edit_collection(|all| {
+                    for p in all {
+                        if let Some(to) = new.get(p) {
+                            *p = to.to_path_buf();
+                        }
+                    }
+                });
             }
             return self.list(ctx);
         }
@@ -517,18 +532,20 @@ impl crate::App {
             *file = new.join(rest);
         }
         if self.collection.is_some() {
-            let mut moved = false;
             for i in 0..self.files.len() {
                 if let Ok(rest) = self.path(i).strip_prefix(&old)
                     && let Ok(rel) = new.join(rest).strip_prefix(&self.dir)
                 {
                     self.files[i] = rel.as_os_str().to_owned();
-                    moved = true;
                 }
             }
-            if moved {
-                self.save_collection();
-            }
+            self.edit_collection(|all| {
+                for p in all {
+                    if let Ok(rest) = p.strip_prefix(&old) {
+                        *p = new.join(rest);
+                    }
+                }
+            });
         }
         match self.dir.strip_prefix(&old) {
             Ok(rest) => {

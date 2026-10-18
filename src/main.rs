@@ -881,7 +881,6 @@ struct App {
     collection: Option<PathBuf>,
     /// The collection's paths as last read or written here; what is on disk beyond them was
     /// added elsewhere and is kept when this window saves.
-    collection_read: HashSet<PathBuf>,
     /// The collection's next listing is sorted (Sort menu), and saved in that order.
     sort_collection: bool,
     /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
@@ -1642,7 +1641,6 @@ impl App {
             capturing: None,
             recursive: false,
             collection: None,
-            collection_read: HashSet::new(),
             folders: Vec::new(),
             together: None,
             sort_collection: false,
@@ -1893,7 +1891,6 @@ impl App {
         // No folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = root.to_path_buf();
-        self.collection_read = paths.into_iter().collect();
         self.collection = Some(file);
         self.folders.clear();
         let first = files.first().cloned();
@@ -2136,12 +2133,6 @@ impl App {
         } else {
             files
         };
-        // A collection's entries that are not there (a drive not plugged in) are not listed; not
-        // counted as read here either, saving keeps them as they are in the file.
-        if self.collection.is_some() {
-            let listed: HashSet<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
-            self.collection_read.retain(|p| listed.contains(p));
-        }
         // Nothing changed (most refreshes, after Glimt's own writes beside the files): the list,
         // the selection and the search stay as they are.
         if files == self.files && !self.sort_collection {
@@ -2163,7 +2154,7 @@ impl App {
                 .collect();
         }
         if std::mem::take(&mut self.sort_collection) {
-            self.save_collection();
+            self.save_collection_order();
         }
     }
 
@@ -2249,6 +2240,11 @@ impl App {
         } else {
             self.leave_image(ctx);
         }
+        // Out of the collection's file too; only for a collection, not for a large folder.
+        let gone: HashSet<PathBuf> = match self.collection {
+            Some(_) => removed.iter().map(|&i| self.path(i)).collect(),
+            None => HashSet::new(),
+        };
         let mut idx = 0;
         self.files.retain(|_| {
             idx += 1;
@@ -2264,7 +2260,9 @@ impl App {
         self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.decodes_pending.clear();
-        self.save_collection();
+        if !gone.is_empty() {
+            self.edit_collection(|all| all.retain(|p| !gone.contains(p)));
+        }
         // A collection being read meanwhile would bring the removed back: read it again.
         if self.collection.is_some() && self.listing_rx.is_some() {
             self.list(ctx);
@@ -2301,41 +2299,36 @@ impl App {
 
     // ---- Collections ----
 
-    /// Write the open collection with the list as it is now.
-    fn save_collection(&mut self) {
+    /// Make `change` to the open collection's file as it is now, with what other windows changed.
+    fn edit_collection(&mut self, change: impl FnOnce(&mut Vec<PathBuf>)) {
         let Some(file) = &self.collection else { return };
         // A plain list is the user's own: shown, never written.
         if collections::is_list(file) {
             return;
         }
-        let mut ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
-        // Another window adding to it must not fall between reading and writing.
         // shortcut: read and written in the UI thread, small text files; move to
         // config::write_later if collections of hundreds of thousands are edited.
-        let file = file.clone();
-        let _held = config::file_lock(&file);
-        // One that cannot be read is not written over: what it holds would be lost.
-        let on_disk = match collections::load(&file) {
-            Ok(paths) => paths,
+        match collections::edit(file, false, change) {
+            Ok(()) => {}
             // Renamed or moved to the trash in another window since it was opened here: not
             // made again under its old name.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return self.notice = Some(format!(
+                self.notice = Some(format!(
                     "The collection {} is gone (renamed or removed in another window): not saved",
                     file.display()
-                ));
+                ))
             }
-            Err(e) => return self.notice = Some(format!("Could not read the collection: {e}")),
-        };
-        // Shuffled for a slideshow: saved in its own order, not the random one.
-        if self.shuffled {
-            ours = collections::in_saved_order(&on_disk, ours);
-        }
-        let paths = collections::merged(ours, &self.collection_read, on_disk);
-        match collections::save(&file, &paths) {
-            Ok(()) => self.collection_read = paths.into_iter().collect(),
             Err(e) => self.notice = Some(format!("Could not save the collection: {e}")),
         }
+    }
+
+    /// The collection's file put in the order of the list, unless shuffled for a slideshow.
+    fn save_collection_order(&mut self) {
+        if self.shuffled {
+            return;
+        }
+        let ours: Vec<PathBuf> = (0..self.files.len()).map(|i| self.path(i)).collect();
+        self.edit_collection(|all| collections::reorder(all, &ours));
     }
 
     /// Move the selected images (or the shown one) of the open collection one place earlier or
@@ -2372,7 +2365,7 @@ impl App {
                 .map(|(i, _)| i)
                 .collect();
         }
-        self.save_collection();
+        self.save_collection_order();
     }
 
     /// The open collection's file to the trash, through gio in the background; the images stay,
@@ -6563,10 +6556,13 @@ impl App {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
             // The list keeps its folder and mode; the shown entry takes the new name.
             (Ok(()), _) => {
+                let old = self.path(self.cur);
                 if let Ok(rel) = target.strip_prefix(&self.dir) {
                     self.files[self.cur] = rel.as_os_str().to_owned();
                 }
-                self.save_collection();
+                self.edit_collection(|all| {
+                    (all.iter_mut().filter(|p| **p == old)).for_each(|p| *p = target.clone())
+                });
                 self.title(ctx);
                 self.list(ctx);
             }

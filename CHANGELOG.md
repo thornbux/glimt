@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A window writes only its own change to a collection's file (images taken out, renamed, added or
+  put in order), never its whole list, so what other windows changed meanwhile always stays.
 - Glimt prints its slowest frame at exit, beside the first image's time, and the release tests
   check it with 500,000 files selected, renamed, deleted and searched.
 

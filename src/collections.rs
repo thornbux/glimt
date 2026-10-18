@@ -150,59 +150,58 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
     crate::config::replace_file(file, to_text(paths))
 }
 
-/// What a window writes for a collection it shows as `ours` and read as `read`, while the file
-/// now holds `on_disk`: its own list without what was taken out there since, then what was added
-/// there since (by another window, or Add to Collection), which would be lost otherwise.
-pub fn merged(
-    mut ours: Vec<PathBuf>,
-    read: &std::collections::HashSet<PathBuf>,
-    on_disk: Vec<PathBuf>,
-) -> Vec<PathBuf> {
-    // Also when the file is empty now: another window took out all of it. (A file that is gone
-    // is not saved at all.)
-    let there: std::collections::HashSet<&PathBuf> = on_disk.iter().collect();
-    ours.retain(|p| !read.contains(p) || there.contains(p));
-    let mut have: std::collections::HashSet<PathBuf> = ours.iter().cloned().collect();
-    for path in on_disk {
-        if !read.contains(&path) && have.insert(path.clone()) {
-            ours.push(path);
-        }
-    }
-    ours
+/// Make `change` to the collection in `file` as it is on disk now, under its lock: each window
+/// writes only its own change (images taken out, renamed, put in order), never its whole list,
+/// so what other windows changed meanwhile stays. With `new` a file not there yet starts empty;
+/// else that is an error, so a collection renamed or trashed elsewhere is not made again. One
+/// that cannot be read is never written over: what it holds would be lost.
+pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
+    let _held = crate::config::file_lock(file);
+    let mut all = match load(file) {
+        Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        loaded => loaded?,
+    };
+    change(&mut all);
+    save(file, &all)
+}
+
+/// Add `paths` to `all`, leaving out those it has; how many were added.
+pub fn add(all: &mut Vec<PathBuf>, paths: &[PathBuf]) -> usize {
+    // A set, as Select All in a large folder adds hundreds of thousands at once.
+    let mut have: HashSet<PathBuf> = all.iter().cloned().collect();
+    let before = all.len();
+    all.extend(paths.iter().filter(|p| have.insert((*p).clone())).cloned());
+    all.len() - before
+}
+
+/// `all` in the order of `ours`, a window's list put in order; those it lacks (added elsewhere
+/// since) after them, and those only in `ours` (taken out elsewhere) left out.
+pub fn reorder(all: &mut Vec<PathBuf>, ours: &[PathBuf]) {
+    let there: HashSet<&PathBuf> = all.iter().collect();
+    let placed: HashSet<&PathBuf> = ours.iter().collect();
+    let mut ordered: Vec<PathBuf> = ours.iter().filter(|p| there.contains(p)).cloned().collect();
+    ordered.extend(all.iter().filter(|p| !placed.contains(p)).cloned());
+    *all = ordered;
 }
 
 /// `files` in the order of `saved`, a collection's file: shuffled ones put back, those it lacks
 /// (added since) after them, in the order they had.
 pub fn in_saved_order(saved: &[PathBuf], files: Vec<PathBuf>) -> Vec<PathBuf> {
-    let have: std::collections::HashSet<&PathBuf> = files.iter().collect();
+    let have: HashSet<&PathBuf> = files.iter().collect();
     let mut ordered: Vec<PathBuf> = (saved.iter())
         .filter(|p| have.contains(p))
         .cloned()
         .collect();
-    let placed: std::collections::HashSet<PathBuf> = ordered.iter().cloned().collect();
+    let placed: HashSet<PathBuf> = ordered.iter().cloned().collect();
     ordered.extend(files.into_iter().filter(|p| !placed.contains(p)));
     ordered
 }
 
 /// Add `paths` to the collection in `file` (made if new), leaving out those it has.
 pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
-    let _held = crate::config::file_lock(file);
-    // Only a collection that is not there yet starts empty: one that cannot be read would be
-    // written over.
-    let mut all = match load(file) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        loaded => loaded?,
-    };
-    let before = all.len();
-    // A set, as Select All in a large folder adds hundreds of thousands at once.
-    let mut have: std::collections::HashSet<PathBuf> = all.iter().cloned().collect();
-    for path in paths {
-        if have.insert(path.clone()) {
-            all.push(path.clone());
-        }
-    }
-    save(file, &all)?;
-    Ok(all.len() - before)
+    let mut added = 0;
+    edit(file, true, |all| added = add(all, paths))?;
+    Ok(added)
 }
 
 /// Geeqie's format: comment lines start with #, a path is in double quotes.
@@ -278,10 +277,19 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// A window's order: images only in the file (added elsewhere) go last, those taken out
+    /// elsewhere stay out.
+    #[test]
+    fn reorders_what_is_there() {
+        let p = |names: &[&str]| -> Vec<PathBuf> { names.iter().map(PathBuf::from).collect() };
+        let mut all = p(&["/a", "/b", "/c", "/new"]);
+        super::reorder(&mut all, &p(&["/c", "/gone", "/a", "/b"]));
+        assert_eq!(all, p(&["/c", "/a", "/b", "/new"]));
+    }
+
     /// Shuffled files back in the saved order; one added since goes last.
     #[test]
     fn puts_back_the_saved_order() {
-        use std::path::PathBuf;
         let p = |names: &[&str]| -> Vec<PathBuf> { names.iter().map(PathBuf::from).collect() };
         let saved = p(&["/a", "/b", "/c", "/gone"]);
         assert_eq!(
@@ -378,24 +386,25 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// A window's save keeps its own removals, and what others added or removed meanwhile.
+    /// Two windows' changes to one collection both stay: one takes an image out, the other
+    /// renames another; a gone collection is not made again.
     #[test]
-    fn merges_with_what_others_added() {
+    fn keeps_what_other_windows_changed() {
         let p = |s: &str| PathBuf::from(s);
-        let read = [p("/a"), p("/b"), p("/c")].into_iter().collect();
-        // This window removed /b; another added /d; /c is in both.
-        let ours = vec![p("/a"), p("/c")];
-        let on_disk = vec![p("/a"), p("/b"), p("/c"), p("/d")];
-        assert_eq!(
-            super::merged(ours, &read, on_disk),
-            [p("/a"), p("/c"), p("/d")]
-        );
-        // Another window took /a out; this one still shows it, and does not bring it back.
-        let ours = vec![p("/a"), p("/c")];
-        let on_disk = vec![p("/b"), p("/c")];
-        assert_eq!(super::merged(ours, &read, on_disk), [p("/c")]);
-        // Another window took them all out: none comes back.
-        assert!(super::merged(vec![p("/a"), p("/c")], &read, Vec::new()).is_empty());
+        let dir = std::env::temp_dir().join(format!("glimt-test-edits-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("c.gqv");
+        super::save(&file, &[p("/a"), p("/b"), p("/c")]).unwrap();
+        super::edit(&file, false, |all| all.retain(|x| x != &p("/a"))).unwrap();
+        super::edit(&file, false, |all| {
+            (all.iter_mut().filter(|x| **x == p("/c"))).for_each(|x| *x = p("/d"))
+        })
+        .unwrap();
+        assert_eq!(super::load(&file).unwrap(), [p("/b"), p("/d")]);
+        let gone = dir.join("gone.gqv");
+        assert!(super::edit(&gone, false, |all| all.clear()).is_err());
+        assert!(!gone.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Collection files broken in thousands of ways: read without a panic.
