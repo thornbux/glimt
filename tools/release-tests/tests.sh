@@ -257,17 +257,22 @@ for v in new old; do
     d=/tmp/turn-gone-$v
     mkdir -p $d
     convert -size 200x200 xc:red -size 200x200 xc:blue +append -depth 8 $d/a.png
-    cp $d/a.png $d/b.png
+    # b.png green and yellow: shown unturned after a.png goes, its left half green at 400 410.
+    convert -size 200x200 xc:lime -size 200x200 xc:yellow +append -depth 8 $d/b.png
     config save_orientation=true auto_refresh=true
     start $d/a.png
     sleep 2
     key bracketright                 # turned, not saved yet
     rm $d/a.png; sleep 3             # gone, and the folder read again
+    shot turn-gone-$v
     key space; sleep 2               # moving on saves a turn, if one is kept
     quit
     got="$(identify -format '%wx%h' $d/b.png)"
-    if [ $v = new ]; then expect "b.png as it was" "$got" "400x200"
-    else note "old: b.png $got"; fi
+    shown=$(colour turn-gone-$v 400 410)
+    if [ $v = new ]; then
+        expect "b.png as it was" "$got" "400x200"
+        expect "b.png shown unturned" "$shown" green
+    else note "old: b.png $got, shown $shown"; fi
 done
 as_version new
 
