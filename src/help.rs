@@ -979,7 +979,8 @@ fn about(ui: &mut egui::Ui) {
     // The logo as tall as the four lines beside it, so the two line up.
     ui.horizontal(|ui| {
         if let Some(logo) = logo(ui.ctx()) {
-            let tall = 4.0 * ui.text_style_height(&egui::TextStyle::Body) + 3.0 * ui.spacing().item_spacing.y;
+            let tall = 4.0 * ui.text_style_height(&egui::TextStyle::Body)
+                + 3.0 * ui.spacing().item_spacing.y;
             ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(tall, tall)));
         }
         ui.vertical(|ui| {
