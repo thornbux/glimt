@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Printing can fill each box with its image, cut to the box, for even contact sheets and
+  borderless photo prints.
 - One image a page prints at a size of one's own, 10 to 100 % of the room it has, centred, as
   Geeqie's Image size.
 - A margin of one's own around the printed page, 0 to 50 mm, instead of always 10 mm.

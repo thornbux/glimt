@@ -1857,3 +1857,7 @@ msgstr "Marg (mm):"
 #: src/print.rs
 msgid "Image size (%):"
 msgstr "Bildestørrelse (%):"
+
+#: src/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Fyll hver rute, og beskjær bildet etter den"

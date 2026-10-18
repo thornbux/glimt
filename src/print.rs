@@ -520,6 +520,10 @@ impl crate::App {
                     }
                 });
                 ui.checkbox(&mut c.print_caption, tr("File name under each image"));
+                ui.checkbox(
+                    &mut c.print_fill,
+                    tr("Fill each box, cutting the image to it"),
+                );
                 ui.horizontal(|ui| {
                     let label = if c.print_printer.is_empty() {
                         tr("Save PDF… (Enter)")
@@ -546,6 +550,7 @@ impl crate::App {
                         orientation: print::Orientation::from(&c.print_orientation),
                         margin: c.print_margin as f32 * print::MM,
                         scale: c.print_scale as f32 / 100.0,
+                        fill: c.print_fill,
                         ..print::Layout::new(paper, c.print_per_page)
                     },
                     caption: c.print_caption,
@@ -672,6 +677,42 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// Filling its box, a wide image is as high as the box and wider, cut to it in the PDF;
+    /// fitted, it lies within it.
+    #[test]
+    fn fills_the_box() {
+        use super::{Layout, PAPERS, place};
+        let a4 = PAPERS[0].1;
+        let cell = |fill| {
+            place(
+                &Layout {
+                    fill,
+                    ..Layout::new(a4, 4)
+                },
+                &[[300, 100]],
+                false,
+            )
+            .cells
+            .remove(0)
+        };
+        let (fit, fill) = (cell(false), cell(true));
+        assert!(fit.image[2] <= fit.clip[2] + 0.01 && fit.image[3] < fit.clip[3]);
+        assert!((fill.image[3] - fill.clip[3]).abs() < 0.01 && fill.image[2] > fill.clip[2]);
+        let mut pdf = Vec::new();
+        let img = image::DynamicImage::new_rgb8(30, 10);
+        super::pdf(
+            [(img, None)].into_iter(),
+            &Layout {
+                fill: true,
+                ..Layout::new(a4, 4)
+            },
+            1,
+            &mut pdf,
+        )
+        .unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains(" re W n "));
+    }
+
     /// One image a page at half size: half as wide, in the middle of the page; a sheet keeps
     /// its images whole.
     #[test]
@@ -679,10 +720,30 @@ mod tests {
         use super::{Layout, PAPERS, place};
         let a4 = PAPERS[0].1;
         let full = place(&Layout::new(a4, 1), &[[100, 100]], false).cells[0].image;
-        let half = place(&Layout { scale: 0.5, ..Layout::new(a4, 1) }, &[[100, 100]], false).cells[0].image;
+        let half = place(
+            &Layout {
+                scale: 0.5,
+                ..Layout::new(a4, 1)
+            },
+            &[[100, 100]],
+            false,
+        )
+        .cells[0]
+            .image;
         assert!((half[2] - full[2] / 2.0).abs() < 0.01);
         assert!((half[0] + half[2] / 2.0 - a4[0] / 2.0).abs() < 0.01);
-        let sheet = |scale| place(&Layout { scale, ..Layout::new(a4, 4) }, &[[100, 100]], false).cells[0].image[2];
+        let sheet = |scale| {
+            place(
+                &Layout {
+                    scale,
+                    ..Layout::new(a4, 4)
+                },
+                &[[100, 100]],
+                false,
+            )
+            .cells[0]
+                .image[2]
+        };
         assert_eq!(sheet(0.5), sheet(1.0));
     }
 
@@ -691,7 +752,18 @@ mod tests {
     fn keeps_the_margin() {
         use super::{Layout, MM, PAPERS, place};
         let a4 = PAPERS[0].1;
-        let at = |mm: f32| place(&Layout { margin: mm * MM, ..Layout::new(a4, 1) }, &[[100, 100]], false).cells[0].clip;
+        let at = |mm: f32| {
+            place(
+                &Layout {
+                    margin: mm * MM,
+                    ..Layout::new(a4, 1)
+                },
+                &[[100, 100]],
+                false,
+            )
+            .cells[0]
+                .clip
+        };
         assert_eq!(at(0.0)[0], 0.0);
         assert!((at(20.0)[0] - 20.0 * MM).abs() < 0.01);
         assert!((at(20.0)[2] - (a4[0] - 40.0 * MM)).abs() < 0.01);

@@ -446,6 +446,8 @@ config! {
     print_margin: u32 = 10,
     /// One image a page: its size in per cent of the room it has (10 to 100).
     print_scale: u32 = 100,
+    /// Each image fills its box, cut to it, instead of fitting in it.
+    print_fill: bool = false,
 }
 
 impl Config {
