@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving settings keeps the settings file's comments, blank lines and order, so notes written in
+  it by hand are no longer lost at the first change in a menu.
+
 ## [0.35.0] - 2026-10-18
 
 ### Changed
