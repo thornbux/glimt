@@ -518,6 +518,9 @@ impl Start {
                                 .into(),
                         );
                     }
+                    if !remote::name_fits(name) {
+                        return Err(format!("--name {name} is too long for remote control here"));
+                    }
                     start.name = Some(name.to_owned());
                     args.remove(0);
                 }

@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A --name too long for the socket's path (in a Flatpak from about 47 characters) is refused at
+  the start with a message that says so, and a socket that cannot be made tells why, instead of
+  saying a Glimt of that name runs.
 - Find Duplicates by checksum compares the files of a group byte by byte before it offers them for
   the trash, instead of trusting a 64-bit hash.
 - A plugin's command passes %% as %, as the desktop file specification says, instead of leaving it

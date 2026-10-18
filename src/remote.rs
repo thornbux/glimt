@@ -100,6 +100,12 @@ pub fn valid_name(name: &str) -> bool {
     name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit()) && name.len() <= 64
 }
 
+/// Whether the socket of `--name name` fits in the 107 bytes a socket's path may have here: in
+/// a Flatpak its folder alone takes some 60.
+pub fn name_fits(name: &str) -> bool {
+    socket(name).is_none_or(|p| p.as_os_str().len() <= 107)
+}
+
 /// One of `COMMANDS`, with a path where it takes one and none where it does not.
 pub fn known(words: &[String]) -> bool {
     let takes_path = |c: &str| c.contains(' ');
@@ -280,12 +286,15 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             .create(dir);
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     }
-    let Some(listener) = claim(&path) else {
-        eprintln!(
-            "A Glimt named {} is running already: --remote goes to that one",
-            socket_id()
-        );
-        return;
+    let listener = match claim(&path) {
+        Ok(listener) => listener,
+        Err(None) => {
+            return eprintln!(
+                "A Glimt named {} is running already: --remote goes to that one",
+                socket_id()
+            );
+        }
+        Err(Some(e)) => return eprintln!("No remote control: {}: {e}", path.display()),
     };
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
     mark_focused();
@@ -323,21 +332,26 @@ static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 
 /// The socket at `path` for this Glimt: one left by a Glimt that did not close is replaced, but
 /// not one that a running Glimt (of the same `--name`) answers on.
-fn claim(path: &std::path::Path) -> Option<UnixListener> {
+/// `Err(None)` when a running Glimt answers on it; `Err(Some(why))` when it cannot be made.
+fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>> {
     // Bound first, which fails if the socket is there: two Glimt of one name started at once
     // cannot both find it free and then remove each other's.
-    if let Ok(listener) = UnixListener::bind(path) {
-        return Some(listener);
+    let first = match UnixListener::bind(path) {
+        Ok(listener) => return Ok(listener),
+        Err(e) => e,
+    };
+    if first.kind() != std::io::ErrorKind::AddrInUse {
+        return Err(Some(first));
     }
     // One at a time from here: another Glimt of this name could take the left socket over
     // between our check and our remove, and lose its new one to us.
-    let lock = std::fs::File::create(path.with_extension("lock")).ok()?;
-    lock.lock().ok()?;
+    let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
+    lock.lock().map_err(Some)?;
     if UnixStream::connect(path).is_ok() {
-        return None;
+        return Err(None);
     }
     let _ = std::fs::remove_file(path);
-    UnixListener::bind(path).ok()
+    UnixListener::bind(path).map_err(Some)
 }
 
 /// This Glimt got the focus: `--remote` goes to it from now on.
@@ -376,13 +390,13 @@ mod tests {
     fn claims_only_a_left_socket() {
         let path = std::env::temp_dir().join(format!("glimt-claim-{}.sock", std::process::id()));
         let first = super::claim(&path).unwrap();
-        assert!(super::claim(&path).is_none());
+        assert!(super::claim(&path).is_err_and(|e| e.is_none()));
         drop(first);
         // A process another test starts holds a copy of the socket until it runs its program,
         // so it can answer a moment longer.
         let taken = (0..50).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(20));
-            super::claim(&path).is_some()
+            super::claim(&path).is_ok()
         });
         assert!(taken);
         std::fs::remove_file(path.with_extension("lock")).unwrap();
