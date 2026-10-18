@@ -116,26 +116,35 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
         crate::remote::instance_id(),
         std::thread::current().id()
     ));
-    let out = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&tmp)?;
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(out), img.width(), img.height());
+    // Encoded in memory first: the encoder writes its last chunk when it is dropped, where a
+    // full disk would go unnoticed and a cut-off PNG land in the cache other programs share.
+    let mut png = Vec::new();
+    let mut enc = png::Encoder::new(&mut png, img.width(), img.height());
     enc.set_color(png::ColorType::Rgba);
     enc.set_depth(png::BitDepth::Eight);
-    let written = (|| {
+    let encoded = (|| {
         enc.add_text_chunk("Thumb::URI".into(), uri.into())?;
         enc.add_text_chunk("Thumb::MTime".into(), mtime.to_string())?;
         enc.add_text_chunk("Software".into(), "Glimt".into())?;
-        enc.write_header()?.write_image_data(img.as_raw())
+        let mut writer = enc.write_header()?;
+        writer.write_image_data(img.as_raw())?;
+        writer.finish()
     })();
+    let written = encoded.map_err(std::io::Error::other).and_then(|()| {
+        use std::io::Write;
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        out.write_all(&png)
+    });
     match written {
         Ok(()) => std::fs::rename(&tmp, file),
         Err(e) => {
             let _ = std::fs::remove_file(&tmp);
-            Err(std::io::Error::other(e))
+            Err(e)
         }
     }
 }

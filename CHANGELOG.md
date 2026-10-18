@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A thumbnail is written whole or not at all: on a full disk a cut-off PNG could land in the
+  thumbnail cache other programs share.
 - Folders added to the sort manager in two windows at the same moment both stay: its file is
   locked while it is read and written, as the keyword tree's.
 - Keywords, a comment and alt text are saved in the background, not in the window's thread: a
