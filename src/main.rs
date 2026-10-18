@@ -909,6 +909,10 @@ struct App {
     together: Option<Vec<PathBuf>>,
     /// Folder listing in the background: (subfolders, images).
     listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    /// The subfolders of a folder listed with its tree, sent at once: the tree may take long.
+    subdirs_rx: Option<mpsc::Receiver<Vec<PathBuf>>>,
+    /// Set to stop the listing of the tree before, when another one starts.
+    listing_stop: Arc<AtomicBool>,
     /// The folder changed while a listing was running; list again when it is done.
     relist: bool,
     /// Generation of the folder watcher; opening another folder ends the old thread.
@@ -1754,6 +1758,8 @@ impl App {
             paused: false,
             back: Vec::new(),
             forward: Vec::new(),
+            subdirs_rx: None,
+            listing_stop: Arc::default(),
             listing_rx: None,
             image_id: None,
             focus_by_keys: false,
@@ -2025,6 +2031,12 @@ impl App {
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.sort_collection;
         let folders = self.folders.clone();
+        // The listing before stops, if it is still reading a tree.
+        self.listing_stop.store(true, Ordering::Relaxed);
+        self.listing_stop = Arc::default();
+        let stop = self.listing_stop.clone();
+        let (subdirs_tx, subdirs_rx) = mpsc::channel();
+        self.subdirs_rx = Some(subdirs_rx);
         std::thread::spawn(move || {
             // Several folders: their images, each folder (with its subfolders) after the other.
             if !folders.is_empty() {
@@ -2036,7 +2048,7 @@ impl App {
                 };
                 let mut files: Vec<OsString> = (folders.iter())
                     .flat_map(|d| match recursive {
-                        true => rel(d, list_tree(d, types).1),
+                        true => rel(d, list_tree(d, types, &stop, |_| {}).1),
                         false => rel(d, list_folder(d, types).1),
                     })
                     .collect();
@@ -2072,11 +2084,20 @@ impl App {
                 }
                 return;
             }
-            // The folder read once, also with the folders below it.
+            // The folder read once, also with the folders below it. Its own subfolders show at
+            // once: a large tree takes long to read whole.
             let (dirs, mut files) = match recursive {
-                true => list_tree(&list_dir, types),
+                true => list_tree(&list_dir, types, &stop, |dirs| {
+                    if subdirs_tx.send(dirs.to_vec()).is_ok() {
+                        ctx2.request_repaint();
+                    }
+                }),
                 false => list_folder(&list_dir, types),
             };
+            // Stopped: another folder is listed now.
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
             sort_files(&list_dir, &mut files, by, ascending, case);
             if shuffled {
                 shuffle(&mut files);
@@ -2140,10 +2161,15 @@ impl App {
 
     /// Take the folder listing if it is ready, waiting up to `wait`.
     fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
+        if let Some(Ok(dirs)) = self.subdirs_rx.as_ref().map(mpsc::Receiver::try_recv) {
+            self.subdirs = dirs;
+            self.subdirs_rx = None;
+        }
         let Some(Ok((dirs, files))) = self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait))
         else {
             return;
         };
+        self.subdirs_rx = None;
         self.listing_rx = None;
         // Several folders shown together are listed as "/" with no subfolders: not the tree's.
         if self.collection.is_none() && self.folders.is_empty() {

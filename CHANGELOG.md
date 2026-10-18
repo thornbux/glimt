@@ -14,6 +14,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - glimt --remote subfolders on|off turns Include Subfolders on or off.
 
+### Fixed
+
+- With Include Subfolders on, a folder's own subfolders show at once, before its whole tree is
+  read; and opening another folder meanwhile stops reading the tree, which went on in the
+  background until its end.
+
 ## [0.37.2] - 2026-10-18
 
 ### Fixed

@@ -164,20 +164,32 @@ pub fn walk(
 }
 
 /// The folders in `dir`, as `list_folder` gives them, and the images in it and every folder
-/// below it, as paths relative to `dir`: `dir` read once.
-pub fn list_tree(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
-    let mut top = Vec::new();
+/// below it, as paths relative to `dir`: `dir` read once. `top` gets `dir`'s own folders as soon
+/// as they are read, before the folders below: a large tree takes long to read whole. Cut short
+/// when `stop` is set: another folder was opened, and the tree would be read for nothing.
+pub fn list_tree(
+    dir: &Path,
+    types: Types,
+    stop: &std::sync::atomic::AtomicBool,
+    top: impl FnOnce(&[PathBuf]),
+) -> (Vec<PathBuf>, Vec<OsString>) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (mut own, mut top) = (Vec::new(), Some(top));
     let mut out: Vec<OsString> = walk(dir, types)
+        .take_while(|_| !stop.load(Relaxed))
         .flat_map(|(rel, dirs, files)| {
             if rel.as_os_str().is_empty() {
-                top = dirs;
+                if let Some(top) = top.take() {
+                    top(&dirs);
+                }
+                own = dirs;
             }
             files.into_iter().map(move |f| rel.join(f).into_os_string())
         })
         .collect();
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
-    (top, out)
+    (own, out)
 }
 
 /// Whether a folder entry is a file and whether a folder, from the entry's own type (no `stat`),
@@ -400,6 +412,40 @@ pub fn shuffle<T>(v: &mut [T]) {
 
 #[cfg(test)]
 mod tests {
+    /// A tree being read stops when told, and tells its top folder's folders first.
+    #[test]
+    fn tree_listing_stops() {
+        use std::sync::atomic::AtomicBool;
+        let dir = std::env::temp_dir().join(format!("glimt-test-tree-stop-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("sub/a.jpg"), "x").unwrap();
+        let types = super::Types {
+            images: true,
+            raw: true,
+            videos: true,
+            hidden: false,
+        };
+        assert_eq!(
+            super::list_tree(&dir, types, &AtomicBool::new(false), |_| {})
+                .1
+                .len(),
+            1
+        );
+        let stopped = super::list_tree(&dir, types, &AtomicBool::new(true), |_| {});
+        assert_eq!(stopped, (Vec::new(), Vec::new()));
+        // The top folder's own folders are told before any folder below is read: stopped
+        // there, nothing of sub is listed.
+        let stop = AtomicBool::new(false);
+        let mut told = Vec::new();
+        let (_, files) = super::list_tree(&dir, types, &stop, |dirs| {
+            told = dirs.to_vec();
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+        assert_eq!(told, [dir.join("sub")]);
+        assert!(files.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Images are files, or links to files: a folder named like an image is a folder, and a
     /// pipe or a link to a device is left out.
     #[test]

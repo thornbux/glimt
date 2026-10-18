@@ -1106,7 +1106,9 @@ mod tests {
                     raw: true,
                     videos: true,
                     hidden: false
-                }
+                },
+                &Default::default(),
+                |_| {}
             ),
             (
                 vec![dir.join("sub")],
