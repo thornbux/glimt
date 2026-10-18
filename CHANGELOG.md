@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Putting the old names back after a Rename Many cut short between the two halves of one rename
+  now works, instead of leaving a photo under a hidden name and asking again at every start.
 - Rename Folder while a collection is shown takes the collection's images in that folder along to
   the new name, in the collection's file too.
 - A collection that another window emptied stays empty when this window saves it, instead of

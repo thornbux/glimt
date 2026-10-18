@@ -121,6 +121,15 @@ pub fn settle(
         return (0, 0);
     };
     let (mut renamed, mut left) = (0, 0);
+    // Put back: the step cut short between its link and its unlink, the first not counted, has
+    // its new name taken away first, so the steps before it can be undone.
+    if undo
+        && let Some((a, b)) = done.and_then(|d| moves.get(d))
+        && same_file(a, b)
+        && std::fs::remove_file(b).is_ok()
+    {
+        renamed += 1;
+    }
     let (before, after) = match done {
         Some(done) => moves.split_at(done.min(moves.len())),
         None => (moves, moves),
@@ -224,6 +233,16 @@ mod tests {
         assert!(!p(".tmp-0").exists());
         std::fs::rename(p("a.jpg"), p(".tmp-1")).unwrap();
         std::fs::rename(p("b.jpg"), p(".tmp-0")).unwrap();
+        // The same, put back: the new name of the half-done step goes, then the two before.
+        std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
+        std::fs::copy(&path, plans.join("linked")).unwrap();
+        assert_eq!(
+            super::settle(&plans.join("linked"), &read, Some(2), true),
+            (3, 0)
+        );
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
+        std::fs::rename(p("a.jpg"), p(".tmp-0")).unwrap();
+        std::fs::rename(p("b.jpg"), p(".tmp-1")).unwrap();
         // While another window puts it right, this one does nothing.
         let other = std::fs::File::open(&path).unwrap();
         other.lock().unwrap();
