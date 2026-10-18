@@ -1848,6 +1848,50 @@ quit
 expect "a box sets the keyword and its tree path" "$on" 2
 expect "a box clears them again" "$off" 0
 
+echo "-- two windows writing one sidecar at once: each waits for the other, both changes kept"
+for v in new old; do
+    as_version $v
+    d=/tmp/sidecar-two-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.jpg
+    printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
+    config exif_panel=true xmp_stars=true
+    # Every sidecar lock held from outside, as by another window in the middle of its write.
+    rm -f /tmp/locks-held
+    python3 -c "
+import fcntl, os, time
+d = os.environ['XDG_RUNTIME_DIR'] + '/glimt/sidecar-locks'
+os.makedirs(d, mode=0o700, exist_ok=True)
+held = [open(f'{d}/{i}', 'w') for i in range(64)]
+for f in held:
+    fcntl.flock(f, fcntl.LOCK_EX)
+open('/tmp/locks-held', 'w').close()
+time.sleep(20)" &
+    locker=$!
+    for i in $(seq 50); do [ -e /tmp/locks-held ] && break; sleep 0.1; done
+    start $d/a.jpg
+    first=$GPID first_win=$WIN
+    sleep 2
+    start $d/a.jpg                   # the second window, on top
+    sleep 2
+    for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
+    sleep 1
+    click 1056 420 2                 # the second window: the Animals keyword
+    WIN=$first_win; key alt+3; sleep 2   # the first window: three stars
+    during=$(cat $d/a.jpg.xmp 2>/dev/null | wc -c)
+    wait $locker
+    sleep 3
+    quit
+    kill $first 2>/dev/null; wait $first 2>/dev/null
+    stars=$(grep -c 'Rating="3"\|Rating>3<' $d/a.jpg.xmp 2>/dev/null)
+    animals=$(grep -c '<rdf:li>Animals</rdf:li>' $d/a.jpg.xmp 2>/dev/null)
+    if [ $v = new ]; then
+        expect "nothing written while another holds the sidecar's lock" "$during" 0
+        expect "the stars and the keyword both in the sidecar" "$stars $animals" "1 2"
+    else note "old: $during bytes written meanwhile; stars ${stars:-0}, keyword ${animals:-0}"; fi
+done
+as_version new
+
 echo "-- the keyword tree: removing an inner level takes the levels below it"
 d=/tmp/keywords-remove
 mkdir -p $d
