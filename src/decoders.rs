@@ -73,7 +73,8 @@ pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     if crate::files::built_in_format(path) {
         return None;
     }
-    let name = path.file_name()?.to_str()?.to_lowercase();
+    // Lossy: a name in another encoding (a Latin-1 "røntgen.dcm") still has its ending.
+    let name = path.file_name()?.to_string_lossy().to_lowercase();
     all().iter().find(|d| d.takes(&name))
 }
 

@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file whose name is not UTF-8 (a Latin-1 "røntgen.dcm") is listed and shown by its decoder
+  plugin, instead of being left out.
 - Turning a JPEG changes the orientation in its XMP too, which Lightroom and digiKam write beside
   the EXIF's, so programs that read the XMP first no longer show it the old way.
 
