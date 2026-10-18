@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Folders added to the sort manager in two windows at the same moment both stay: its file is
+  locked while it is read and written, as the keyword tree's.
 - Keywords, a comment and alt text are saved in the background, not in the window's thread: a
   sidecar on a slow or stalled share no longer freezes the window when a field is left or the next
   image shown.

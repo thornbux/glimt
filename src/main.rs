@@ -3998,6 +3998,8 @@ impl App {
             return self.notice =
                 Some("Could not save the sort manager's folders: no home folder".into());
         };
+        // Another window's read and write must not fall between ours, or its folder is lost.
+        let _held = config::file_lock(&path);
         // One that is there but cannot be read is not written over: its folders would be lost.
         let on_disk = match std::fs::read(&path) {
             Ok(text) => sort_folders_from(&text),
