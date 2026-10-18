@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-19
+
 ### Added
 
 - The interface in Norwegian bokmål (src/no_nb.po), chosen by the system's language (LANG) or in
@@ -1502,7 +1504,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.37.2...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.0...HEAD
+[0.38.0]: https://github.com/thornbux/glimt/compare/v0.37.2...v0.38.0
 [0.37.2]: https://github.com/thornbux/glimt/compare/v0.37.1...v0.37.2
 [0.37.1]: https://github.com/thornbux/glimt/compare/v0.37.0...v0.37.1
 [0.37.0]: https://github.com/thornbux/glimt/compare/v0.36.1...v0.37.0
