@@ -552,7 +552,7 @@ impl crate::App {
             self.visit(ctx, parent.to_path_buf());
         }
         let deleted_tx = self.deleted_tx.clone();
-        self.background(ctx, move || {
+        self.background(ctx, true, move || {
             let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
                 Ok(o) if o.status.success() => None,
                 Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
@@ -690,16 +690,17 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
 
 impl crate::App {
     /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
-    /// told in the window.
+    /// told in the window. Work that `writes` files (the trash, renames, collections) is waited
+    /// for at closing.
     pub(crate) fn background(
         &self,
         ctx: &egui::Context,
+        writes: bool,
         work: impl FnOnce() -> Option<String> + Send + 'static,
     ) {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        // Each of them changes files (the trash, renames, plugins, collections): closing waits.
-        let writing = Working::new(&self.writing);
+        let writing = writes.then(|| Working::new(&self.writing));
         std::thread::spawn(move || {
             let _writing = writing;
             if let Some(text) = work() {
@@ -778,7 +779,7 @@ impl crate::App {
         let rotate = self.config.exif_rotate;
         // A job, so closing waits for it (or stops it between frames), as for copies.
         let job = self.start_job("Exporting", 1);
-        self.background(ctx, move || {
+        self.background(ctx, true, move || {
             let stem = path
                 .file_stem()
                 .unwrap_or_default()
@@ -833,7 +834,7 @@ impl crate::App {
     pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
         // A job, so closing waits for the copy to be whole.
         let job = self.start_job("Backing up", 1);
-        self.background(ctx, move || {
+        self.background(ctx, true, move || {
             let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
             drop(job);
             Some(done)

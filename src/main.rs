@@ -2399,7 +2399,7 @@ impl App {
         let Some(file) = self.collection.clone() else {
             return;
         };
-        self.background(ctx, move || {
+        self.background(ctx, true, move || {
             let name = file
                 .file_stem()
                 .unwrap_or_default()
@@ -6630,7 +6630,7 @@ impl App {
         });
         let Some(undo) = choice else { return };
         let plans = std::mem::take(&mut self.cut_short);
-        self.background(ctx, move || {
+        self.background(ctx, true, move || {
             let (mut renamed, mut left) = (0, 0);
             for (plan, moves, done) in &plans {
                 let (r, l) = journal::settle(plan, moves, *done, undo);
@@ -7370,7 +7370,8 @@ impl App {
             let plugin = self.plugins[k].clone();
             let dir = self.dir.clone();
             let (saved, deleted) = (self.saved_tx.clone(), self.deleted_tx.clone());
-            self.background(ui.ctx(), move || {
+            // Not waited for at closing: a plugin may be an editor that stays open for long.
+            self.background(ui.ctx(), false, move || {
                 let result = plugin.run(&files, &dir);
                 for f in files {
                     let _ = saved.send((f, Ok(())));

@@ -507,7 +507,7 @@ impl crate::App {
             },
         );
         // The collections: one of the same name gets the images it lacks, nothing is lost.
-        self.background(ctx, move || {
+        self.background(ctx, true, move || {
             let dir = collections::dir();
             if let Some(dir) = &dir {
                 let _ = std::fs::create_dir_all(dir);
