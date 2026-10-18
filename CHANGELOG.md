@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-10-18
+
 ### Changed
 
 - Glimt prints the median, 90 % and slowest of its frames at exit, in the window thread's
@@ -1420,7 +1422,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.37.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.37.1...HEAD
+[0.37.1]: https://github.com/thornbux/glimt/compare/v0.37.0...v0.37.1
 [0.37.0]: https://github.com/thornbux/glimt/compare/v0.36.1...v0.37.0
 [0.36.1]: https://github.com/thornbux/glimt/compare/v0.36.0...v0.36.1
 [0.36.0]: https://github.com/thornbux/glimt/compare/v0.35.0...v0.36.0
