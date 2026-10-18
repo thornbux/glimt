@@ -436,6 +436,9 @@ config! {
     /// Print dialog: the printer chosen last (empty: a PDF file), the paper and file names.
     print_printer: String = String::new(),
     print_paper: String = String::from("A4"),
+    /// Which way the paper is turned: "auto" (a wide image alone on its page goes landscape),
+    /// "portrait" or "landscape".
+    print_orientation: String = String::from("auto"),
     print_caption: bool = true,
     /// Images on each page: 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
     print_per_page: usize = 1,

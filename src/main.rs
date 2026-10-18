@@ -588,9 +588,7 @@ enum Pick {
 /// Images to print, and how.
 struct PrintJob {
     paths: Vec<PathBuf>,
-    paper: [f32; 2],
-    /// Images on each page (print::PER_PAGE).
-    per_page: usize,
+    layout: print::Layout,
     caption: bool,
     rotate: bool,
     copies: u32,

@@ -1833,3 +1833,19 @@ msgid "step"
 msgid_plural "steps"
 msgstr[0] "steg"
 msgstr[1] "steg"
+
+#: src/print.rs
+msgid "Orientation:"
+msgstr "Retning:"
+
+#: src/print.rs
+msgid "Automatic"
+msgstr "Automatisk"
+
+#: src/print.rs
+msgid "Portrait"
+msgstr "Stående"
+
+#: src/print.rs
+msgid "Landscape"
+msgstr "Liggende"

@@ -17,12 +17,14 @@ pub const PAPERS: [(&str, [f32; 2]); 7] = [
     ("13 × 18 cm", [368.5, 510.24]),
 ];
 
-/// Margin around the image, 10 mm.
-const MARGIN: f32 = 28.35;
-/// Room for the caption below the image.
+/// Room for the caption below the image, at 9 points.
 const CAPTION: f32 = 18.0;
+/// Room for a line of page text at the top or bottom.
+const PAGE_TEXT: f32 = 16.0;
 /// Pixels per inch printed; more only makes the PDF larger.
 const PPI: f32 = 300.0;
+/// Points in a millimetre.
+pub const MM: f32 = 72.0 / 25.4;
 
 /// Images per page, and their grid on a portrait page as [columns, rows].
 pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
@@ -42,26 +44,191 @@ fn grid(per_page: usize) -> [usize; 2] {
         .map_or([1, 1], |p| p.1)
 }
 
-/// The longest side in pixels an image needs on `paper` with `per_page` on each page.
-pub fn max_pixels(paper: [f32; 2], per_page: usize) -> u32 {
-    let [cols, rows] = grid(per_page);
-    let cell =
-        ((paper[0] - 2.0 * MARGIN) / cols as f32).max((paper[1] - 2.0 * MARGIN) / rows as f32);
-    let long = if per_page == 1 {
-        paper[0].max(paper[1]) - 2.0 * MARGIN
-    } else {
-        cell
-    };
-    (long / 72.0 * PPI) as u32
+/// Which way the paper is turned: by the image (one wide image a page goes landscape, a sheet
+/// stays portrait), or always one way.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Orientation {
+    Auto,
+    Portrait,
+    Landscape,
 }
 
-/// A PDF with the images on pages of `paper`, `per_page` on each in a grid (one: as large as
-/// fits, turned to landscape for a wide image), each with its caption below it if there is one,
-/// written to `out` as it is made: only one page of images is ever in memory.
+impl Orientation {
+    /// From the setting: "portrait", "landscape", else by the image.
+    pub fn from(setting: &str) -> Self {
+        match setting {
+            "portrait" => Self::Portrait,
+            "landscape" => Self::Landscape,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// How the images go on the pages.
+#[derive(Clone, Debug)]
+pub struct Layout {
+    /// The paper in points, portrait.
+    pub paper: [f32; 2],
+    /// Images on each page (`PER_PAGE`).
+    pub per_page: usize,
+    pub orientation: Orientation,
+    /// Around the page, in points.
+    pub margin: f32,
+    /// Of the room it has, for one image a page: 1 fills it, 0.5 half as wide and high.
+    pub scale: f32,
+    /// Each image fills its box, cut to it, instead of fitting in it.
+    pub fill: bool,
+    /// Text at the top and bottom of every page; %page% and %pages% are its numbers.
+    pub header: String,
+    pub footer: String,
+}
+
+impl Layout {
+    /// One image a page on `paper`, as large as fits within 10 mm.
+    pub fn new(paper: [f32; 2], per_page: usize) -> Self {
+        Layout {
+            paper,
+            per_page,
+            orientation: Orientation::Auto,
+            margin: 10.0 * MM,
+            scale: 1.0,
+            fill: false,
+            header: String::new(),
+            footer: String::new(),
+        }
+    }
+}
+
+/// One page as laid out, in PDF's points from the bottom left: its size, the size of its
+/// captions' type, and each image's place.
+#[derive(Debug)]
+pub struct Page {
+    pub size: [f32; 2],
+    pub type_size: f32,
+    pub cells: Vec<Cell>,
+}
+
+/// Where one image goes: drawn at `image` ([x, y, w, h]), cut to `clip`, its caption on the
+/// line at `caption` ([x, baseline, width]).
+#[derive(Debug)]
+pub struct Cell {
+    pub image: [f32; 4],
+    pub clip: [f32; 4],
+    pub caption: [f32; 3],
+}
+
+/// The page for images of `sizes` (pixels), with room for captions if `captions`.
+pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
+    let one = layout.per_page == 1;
+    let wide = sizes.first().is_some_and(|s| s[0] > s[1]);
+    let landscape = match layout.orientation {
+        Orientation::Portrait => false,
+        Orientation::Landscape => true,
+        Orientation::Auto => one && wide,
+    };
+    let [pw, ph] = match landscape {
+        true => [layout.paper[1], layout.paper[0]],
+        false => layout.paper,
+    };
+    let [cols, rows] = match (landscape, grid(layout.per_page)) {
+        (true, [c, r]) => [r, c],
+        (false, g) => g,
+    };
+    // Smaller type, and a gap between the images, on a sheet of several.
+    let (size, gap) = if one { (9.0, 0.0) } else { (7.0, 8.0) };
+    let m = layout.margin.clamp(0.0, pw.min(ph) / 3.0);
+    let room = |text: &str| if text.is_empty() { 0.0 } else { PAGE_TEXT };
+    let (top, bottom) = (ph - m - room(&layout.header), m + room(&layout.footer));
+    let (cw, ch) = ((pw - 2.0 * m) / cols as f32, (top - bottom) / rows as f32);
+    let below = if captions { CAPTION * size / 9.0 } else { 0.0 };
+    let scale = if one {
+        layout.scale.clamp(0.1, 1.0)
+    } else {
+        1.0
+    };
+    let cells = (sizes.iter().enumerate())
+        .map(|(k, &[w, h])| {
+            let (cx, cy) = (m + (k % cols) as f32 * cw, top - (k / cols + 1) as f32 * ch);
+            let (bw, bh) = ((cw - gap) * scale, ((ch - gap - below) * scale).max(1.0));
+            let (bx, by) = (
+                cx + (cw - bw) / 2.0,
+                cy + gap / 2.0 + below + (ch - gap - below - bh) / 2.0,
+            );
+            let (w, h) = (w.max(1) as f32, h.max(1) as f32);
+            let s = match layout.fill {
+                true => (bw / w).max(bh / h),
+                false => (bw / w).min(bh / h),
+            };
+            let (dw, dh) = (w * s, h * s);
+            let (x, y) = (bx + (bw - dw) / 2.0, by + (bh - dh) / 2.0);
+            Cell {
+                image: [x, y, dw, dh],
+                clip: [bx, by, bw, bh],
+                caption: [cx, y.max(by) - size - 4.0, cw - gap],
+            }
+        })
+        .collect();
+    Page {
+        size: [pw, ph],
+        type_size: size,
+        cells,
+    }
+}
+
+/// The longest side in pixels an image needs on a page of `layout`.
+pub fn max_pixels(layout: &Layout) -> u32 {
+    let [pw, ph] = layout.paper;
+    let [cols, rows] = grid(layout.per_page);
+    let m = layout.margin;
+    let long = match layout.per_page {
+        // Turned to landscape, or cut to fill: its long side may span the paper's.
+        1 => pw.max(ph) - 2.0 * m,
+        _ => ((pw - 2.0 * m) / cols as f32).max((ph - 2.0 * m) / rows as f32),
+    };
+    // An image cut to fill its box is drawn larger than the box.
+    let fill = if layout.fill { 2.0 } else { 1.0 };
+    (long / 72.0 * PPI * fill) as u32
+}
+
+/// A caption cut to `width` points of `size` type, with ... at the end: Helvetica is about
+/// half as wide as high.
+fn fitted(text: &str, width: f32, size: f32) -> String {
+    let fits = (width / (size * 0.5)) as usize;
+    match text.chars().count() > fits {
+        true => {
+            text.chars()
+                .take(fits.saturating_sub(3))
+                .collect::<String>()
+                + "..."
+        }
+        false => text.to_owned(),
+    }
+}
+
+/// `text` centred on the line at `x`, `y` and `width`, as PDF text drawing.
+fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
+    let text = fitted(text, width, size);
+    let tw = text.chars().count() as f32 * size * 0.5;
+    let tx = (x + (width - tw) / 2.0).max(x);
+    format!(
+        "BT /F {size} Tf {tx:.2} {y:.2} Td ({}) Tj ET",
+        pdf_text(&text)
+    )
+}
+
+/// A page text with its numbers filled in.
+fn page_text(text: &str, page: usize, pages: usize) -> String {
+    text.replace("%page%", &page.to_string())
+        .replace("%pages%", &pages.to_string())
+}
+
+/// A PDF of `pages` pages with the images laid out by `layout`, each with its caption below
+/// it if there is one, written to `out` as it is made: only one page of images is ever in
+/// memory.
 pub fn pdf(
-    pages: impl Iterator<Item = (image::DynamicImage, Option<String>)>,
-    paper: [f32; 2],
-    per_page: usize,
+    images: impl Iterator<Item = (image::DynamicImage, Option<String>)>,
+    layout: &Layout,
+    pages: usize,
     out: impl Write,
 ) -> std::io::Result<()> {
     let mut pdf = Pdf {
@@ -77,74 +244,45 @@ pub fn pdf(
         3,
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
     )?;
-    let ([cols, rows], mut pages) = (grid(per_page), pages.into_iter());
+    let ([cols, rows], mut images) = (grid(layout.per_page), images.into_iter());
     let (mut kids, mut next) = (Vec::new(), 4);
     loop {
-        let images: Vec<_> = pages.by_ref().take(cols * rows).collect();
-        let Some(first) = images.first() else { break };
-        let wide = first.0.width() > first.0.height();
-        let [pw, ph] = if images.len() == 1 && cols * rows == 1 && wide {
-            [paper[1], paper[0]]
-        } else {
-            paper
-        };
-        // Smaller type, and a gap between the images, on a sheet of several.
-        let (size, gap) = if cols * rows == 1 {
-            (9.0, 0.0)
-        } else {
-            (7.0, 8.0)
-        };
-        let (cw, ch) = (
-            (pw - 2.0 * MARGIN) / cols as f32,
-            (ph - 2.0 * MARGIN) / rows as f32,
-        );
+        let on_page: Vec<_> = images.by_ref().take(cols * rows).collect();
+        if on_page.is_empty() {
+            break;
+        }
+        let sizes: Vec<[u32; 2]> = on_page
+            .iter()
+            .map(|i| [i.0.width(), i.0.height()])
+            .collect();
+        let captions = on_page.iter().any(|i| i.1.is_some());
+        let placed = place(layout, &sizes, captions);
+        let [pw, ph] = placed.size;
         let (page, contents) = (next, next + 1);
         next += 2;
         let (mut draw, mut names) = (Vec::new(), Vec::new());
-        for (k, (img, caption)) in images.iter().enumerate() {
-            // The cell, from the top left; PDF counts y from the bottom.
-            let (cx, cy) = (
-                MARGIN + (k % cols) as f32 * cw,
-                ph - MARGIN - (k / cols + 1) as f32 * ch,
-            );
-            let below = if caption.is_some() {
-                CAPTION * size / 9.0
-            } else {
-                0.0
-            };
-            let (bw, bh) = (cw - gap, ch - gap - below);
-            let (w, h) = (img.width() as f32, img.height() as f32);
-            let scale = (bw / w).min(bh / h);
-            let (dw, dh) = (w * scale, h * scale);
-            let (x, y) = (
-                cx + (cw - dw) / 2.0,
-                cy + gap / 2.0 + below + (bh - dh) / 2.0,
-            );
+        for (k, (cell, (_, caption))) in placed.cells.iter().zip(&on_page).enumerate() {
+            let [x, y, dw, dh] = cell.image;
+            let [cx, cy, cw, ch] = cell.clip;
+            // Cut to its box when it fills it; a box is as large as the image else.
             draw.push(format!(
-                "q {dw:.2} 0 0 {dh:.2} {x:.2} {y:.2} cm /Im{k} Do Q"
+                "q {cx:.2} {cy:.2} {cw:.2} {ch:.2} re W n {dw:.2} 0 0 {dh:.2} {x:.2} {y:.2} cm /Im{k} Do Q"
             ));
             if let Some(text) = caption {
-                // Centred by an estimate: Helvetica is about half as wide as high. A name too
-                // long for its cell is cut, with ... at the end.
-                let fits = ((cw - gap) / (size * 0.5)) as usize;
-                let text = match text.chars().count() > fits {
-                    true => {
-                        text.chars()
-                            .take(fits.saturating_sub(3))
-                            .collect::<String>()
-                            + "..."
-                    }
-                    false => text.clone(),
-                };
-                let tw = text.chars().count() as f32 * size * 0.5;
-                let tx = (cx + (cw - tw) / 2.0).max(cx);
-                draw.push(format!(
-                    "BT /F {size} Tf {tx:.2} {:.2} Td ({}) Tj ET",
-                    y - size - 4.0,
-                    pdf_text(&text)
+                draw.push(centred(text, placed.type_size, cell.caption));
+            }
+            names.push(format!("/Im{k} {} 0 R", next + k));
+        }
+        let number = kids.len() + 1;
+        let m = layout.margin.clamp(0.0, pw.min(ph) / 3.0);
+        for (text, y) in [(&layout.header, ph - m - 11.0), (&layout.footer, m + 3.0)] {
+            if !text.is_empty() {
+                draw.push(centred(
+                    &page_text(text, number, pages),
+                    9.0,
+                    [m, y, pw - 2.0 * m],
                 ));
             }
-            names.push(format!("/Im{k} {nextk} 0 R", nextk = next + k));
         }
         kids.push(format!("{page} 0 R"));
         pdf.object(
@@ -161,7 +299,7 @@ pub fn pdf(
         stream.extend(draw.as_bytes());
         stream.extend(b"\nendstream");
         pdf.object(contents, &stream)?;
-        for (img, _) in images {
+        for (img, _) in on_page {
             pdf.object(next, &image_object(img))?;
             next += 1;
         }
@@ -333,6 +471,27 @@ impl crate::App {
                             }
                         });
                     ui.end_row();
+                    ui.label(tr("Orientation:"));
+                    let turns = [
+                        ("auto", tr("Automatic")),
+                        ("portrait", tr("Portrait")),
+                        ("landscape", tr("Landscape")),
+                    ];
+                    let shown = (turns.iter())
+                        .find(|t| t.0 == c.print_orientation)
+                        .map_or(turns[0].1, |t| t.1);
+                    egui::ComboBox::from_id_salt("orientation")
+                        .selected_text(shown)
+                        .show_ui(ui, |ui| {
+                            for (key, label) in turns {
+                                ui.selectable_value(
+                                    &mut c.print_orientation,
+                                    key.to_owned(),
+                                    label,
+                                );
+                            }
+                        });
+                    ui.end_row();
                     ui.label(tr("Images per page:"));
                     egui::ComboBox::from_id_salt("per page")
                         .selected_text(c.print_per_page.to_string())
@@ -375,8 +534,10 @@ impl crate::App {
                     .1;
                 let job = PrintJob {
                     paths: dialog.paths,
-                    paper,
-                    per_page: c.print_per_page,
+                    layout: print::Layout {
+                        orientation: print::Orientation::from(&c.print_orientation),
+                        ..print::Layout::new(paper, c.print_per_page)
+                    },
                     caption: c.print_caption,
                     rotate: c.exif_rotate,
                     copies: dialog.copies,
@@ -415,7 +576,7 @@ impl crate::App {
         let writing = Working::new(&self.writing);
         std::thread::spawn(move || {
             let _writing = writing;
-            let max = print::max_pixels(job.paper, job.per_page);
+            let max = print::max_pixels(&job.layout);
             let failed = std::cell::Cell::new(0);
             let pages = job.paths.iter().filter_map(|path| {
                 // As for the viewer: a broken file that makes a decoder panic is a page short,
@@ -447,10 +608,13 @@ impl crate::App {
                 return;
             }
             // Written as it is made, so only one page is in memory, not the whole PDF.
+            // shortcut: the pages counted from the files, for %pages%; one that cannot be read
+            // makes the count one too high at the end of a sheet. Read them all first to know.
+            let total = job.paths.len().div_ceil(job.layout.per_page.max(1));
             let title = format!("Glimt: {}", count(job.paths.len(), "image"));
             let done = match &to {
                 PrintTo::Printer(printer) => print::send(printer, job.copies, &title, |w| {
-                    print::pdf(pages, job.paper, job.per_page, w)
+                    print::pdf(pages, &job.layout, total, w)
                 }),
                 // Beside it first: the file chosen is replaced only by a whole PDF, after every
                 // image was read (one of them may be the file chosen).
@@ -459,7 +623,7 @@ impl crate::App {
                     let written = std::fs::File::create(&tmp)
                         .and_then(|f| {
                             let mut out = std::io::BufWriter::new(f);
-                            print::pdf(pages, job.paper, job.per_page, &mut out)?;
+                            print::pdf(pages, &job.layout, total, &mut out)?;
                             out.into_inner().map_err(|e| e.into_error())?.sync_all()
                         })
                         .and_then(|_| std::fs::rename(&tmp, file));
@@ -471,7 +635,7 @@ impl crate::App {
             };
             // Images, and the pages they fill: a contact sheet holds several on each.
             let n = job.paths.len() - failed.get();
-            let what = match job.per_page {
+            let what = match job.layout.per_page {
                 1 => count(n, "page"),
                 per => tf!(
                     "{images} on {pages}",
@@ -498,15 +662,43 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// The paper turned by the setting: a sheet turned to landscape turns its grid too; by
+    /// the image, a wide one alone goes landscape and a sheet stays portrait.
+    #[test]
+    fn turns_the_paper() {
+        use super::{Layout, Orientation, PAPERS, place};
+        let a4 = PAPERS[0].1;
+        let wide = [[60, 40]; 6];
+        let auto = |per| place(&Layout::new(a4, per), &wide[..per], false);
+        assert_eq!(auto(1).size, [a4[1], a4[0]]);
+        assert_eq!(auto(6).size, a4);
+        let landscape = Layout {
+            orientation: Orientation::Landscape,
+            ..Layout::new(a4, 6)
+        };
+        let page = place(&landscape, &wide, false);
+        assert_eq!(page.size, [a4[1], a4[0]]);
+        // Three across and two down on the wide page.
+        let xs: std::collections::BTreeSet<i32> =
+            page.cells.iter().map(|c| c.clip[0] as i32).collect();
+        assert_eq!(xs.len(), 3);
+        let portrait = Layout {
+            orientation: Orientation::Portrait,
+            ..Layout::new(a4, 1)
+        };
+        assert_eq!(place(&portrait, &wide[..1], false).size, a4);
+    }
+
     #[test]
     fn writes_a_pdf() {
         let wide = image::DynamicImage::new_rgba8(40, 20);
         let tall = image::DynamicImage::new_rgb8(20, 40);
         let mut pdf = Vec::new();
+        let layout = super::Layout::new(super::PAPERS[0].1, 1);
         super::pdf(
             [(wide, Some("Ålesund (1).jpg".into())), (tall, None)].into_iter(),
-            super::PAPERS[0].1,
-            1,
+            &layout,
+            2,
             &mut pdf,
         )
         .unwrap();
@@ -535,7 +727,13 @@ mod tests {
             (img.into(), Some(format!("img{k}.jpg")))
         });
         let mut pdf = Vec::new();
-        super::pdf(pages, super::PAPERS[0].1, 4, &mut pdf).unwrap();
+        super::pdf(
+            pages,
+            &super::Layout::new(super::PAPERS[0].1, 4),
+            2,
+            &mut pdf,
+        )
+        .unwrap();
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.contains("/Count 2"));
         assert_eq!(text.matches("/Subtype /Image").count(), 5);

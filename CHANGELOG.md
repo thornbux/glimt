@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Printing turns the paper by the image as before, or always portrait or landscape; a contact
+  sheet on landscape paper turns its grid with it.
 - Printing on A3, A5, Legal and photo paper of 10 × 15 and 13 × 18 cm, beside A4 and Letter.
 
 ## [0.37.2] - 2026-10-18
