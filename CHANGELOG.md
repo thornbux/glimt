@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A plugin's command passes %% as %, as the desktop file specification says, instead of leaving it
+  out.
 - A collection renamed or moved to the trash in another window, or by another program, is not made
   again under its old name when this window changes it: Glimt says it is gone.
 - A sidecar, collection or settings file written again keeps its permissions: one made private

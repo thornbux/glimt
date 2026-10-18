@@ -87,12 +87,27 @@ pub fn words(exec: &str) -> Vec<String> {
     out
 }
 
+/// The command line of `words` (a desktop file's Exec) for `files`: %f, %u, %F and %U are the
+/// files, %% is a %, and other field codes (%i, %c, %k) are left out, as the specification says.
+fn arguments(words: &[String], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
+    let mut args = Vec::new();
+    for w in words {
+        match w.as_str() {
+            "%f" | "%u" | "%F" | "%U" => {
+                args.extend(files.iter().map(|f| f.as_os_str().to_owned()))
+            }
+            code if code.len() == 2 && code.starts_with('%') && code != "%%" => {}
+            _ => args.push(w.replace("%%", "%").into()),
+        }
+    }
+    args
+}
+
 impl Plugin {
     /// Run the plugin on `files` and wait for it: once for each file with %f or %u, once for all
     /// with %F or %U, and once in `folder` without any. The error output if it failed.
     pub fn run(&self, files: &[PathBuf], folder: &Path) -> Result<(), String> {
         let words = words(&self.exec);
-        let codes = |w: &String| matches!(w.as_str(), "%f" | "%u" | "%F" | "%U");
         let each = words.iter().any(|w| w == "%f" || w == "%u");
         let runs: Vec<&[PathBuf]> = if each {
             files.chunks(1).collect()
@@ -100,15 +115,7 @@ impl Plugin {
             vec![files]
         };
         for run in runs {
-            let mut args = Vec::new();
-            for w in &words {
-                if codes(w) {
-                    args.extend(run.iter().map(|f| f.as_os_str().to_owned()));
-                } else if !(w.starts_with('%') && w.len() == 2) {
-                    // Other field codes (%i, %c, %k) are left out, as the specification says.
-                    args.push(w.replace("%%", "%").into());
-                }
-            }
+            let args = arguments(&words, run);
             let Some(program) = args.first().cloned() else {
                 return Err("no command".into());
             };
@@ -134,6 +141,20 @@ impl Plugin {
 
 #[cfg(test)]
 mod tests {
+    /// The files where %F stands, %% as a %, other field codes left out.
+    #[test]
+    fn builds_the_command_line() {
+        let words: Vec<String> = ["printf", "%%", "%i", "100%%", "%F"]
+            .map(String::from)
+            .into();
+        let files = [
+            std::path::PathBuf::from("/a.jpg"),
+            std::path::PathBuf::from("/b c.jpg"),
+        ];
+        let args = super::arguments(&words, &files);
+        assert_eq!(args, ["printf", "%", "100%", "/a.jpg", "/b c.jpg"]);
+    }
+
     use super::*;
 
     #[test]
