@@ -2382,6 +2382,24 @@ for v in new old; do
     else note "old: memory grew $grow MB"; fi
 done
 
+echo "-- printing a contact sheet on landscape paper, with image and page text from templates"
+d=/tmp/print-sheet
+mkdir -p $d
+for c in red lime blue yellow cyan; do convert -size 600x400 xc:$c $d/$c.jpg; done
+as_version new
+pdf=/tmp/print-sheet.pdf
+config print_per_page=4 print_orientation=landscape "print_template=%name% (%position%)" \
+    "print_footer=Page %page% of %pages%" print_header=Summer
+start $d
+answer $pdf; key ctrl+a; key ctrl+p; sleep 2; key Return
+for i in $(seq 60); do [ -s $pdf ] && sleep 1 && break; sleep 1; done
+quit
+expect "two pages" "$(pdfinfo $pdf 2>/dev/null | awk '/^Pages/ {print $2}')" 2
+expect "landscape paper" "$(pdfinfo $pdf 2>/dev/null | awk '/^Page size/ {print ($3 > $5) ? "landscape" : "portrait"}')" landscape
+text=$(pdftotext $pdf - 2>/dev/null | tr '\n' ' ')
+expect "page numbers, header and image text" \
+    "$(echo "$text" | grep -c 'Page 2 of 2').$(echo "$text" | grep -c 'Summer').$(echo "$text" | grep -c 'yellow.jpg (5/5)')" "1.1.1"
+
 echo "-- closed while printing to a file: Glimt ends once the PDF is whole"
 print_pictures
 for v in new old; do
