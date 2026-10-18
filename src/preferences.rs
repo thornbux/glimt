@@ -588,6 +588,22 @@ impl crate::App {
                         mac_cmd: false,
                         ..mods
                     };
+                    // Said when another action has the key: the new one takes it, and the other
+                    // no longer answers to it.
+                    let taken: Vec<&str> = (shortcuts().iter())
+                        .filter(|s| s.0 != action && s.1 == mods && s.2 == key)
+                        .map(|s| s.0.label())
+                        .collect();
+                    if !taken.is_empty() {
+                        let keys = ui
+                            .ctx()
+                            .format_shortcut(&egui::KeyboardShortcut::new(mods, key));
+                        self.notice = Some(format!(
+                            "{keys} was the key of {} too: now of {} only",
+                            taken.join(", "),
+                            action.label()
+                        ));
+                    }
                     self.config.keys.0.retain(|k| k.0 != action);
                     self.config.keys.0.push((action, mods, key));
                     self.config.save();
