@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The Bio-Formats decoder example cleans up its temporary folder and stops bfconvert when Glimt
+  stops it after 30 seconds, instead of leaving them in /tmp.
 - Find Duplicates by checksum counts its byte-by-byte check in the progress and stops it on
   Cancel, instead of sitting at 100 % while it reads every duplicate again.
 - A key given to an action is taken from the action that had it, as the notice says: from another

@@ -14,6 +14,7 @@ the PATH, or GLIMT_BFTOOLS set to the folder that holds it.
 import glob
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,9 @@ def bfconvert():
 
 
 def main(path):
+    # Glimt stops a decoder that takes too long with TERM: as an exit, so the folder below is
+    # removed and bfconvert stopped, not left in /tmp.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
     with tempfile.TemporaryDirectory(prefix="glimt-bioformats-") as out:
         made = subprocess.run(
             [bfconvert(), "-no-upgrade", "-nolookup", "-series", "0", "-timepoint", "0",
