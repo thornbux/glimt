@@ -151,7 +151,7 @@ impl Decoder {
 
 unsafe extern "C" {
     #[link_name = "kill"]
-    fn libc_kill(pid: i32, signal: i32) -> i32;
+    pub(crate) fn libc_kill(pid: i32, signal: i32) -> i32;
 }
 
 #[cfg(test)]

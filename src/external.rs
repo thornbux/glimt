@@ -39,13 +39,31 @@ fn fit(max: Option<[u32; 2]>) -> Option<String> {
 /// put together with xstack, cut to the image size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
 pub fn heif(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
-    let probe = command("ffprobe")
+    use std::process::Stdio;
+    let mut child = stoppable_command("ffprobe")
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .args(FILES_ONLY)
         .arg(path)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
-    match heif_filter(&String::from_utf8_lossy(&probe.stdout)) {
+    // Stopped after 30 s, as ffmpeg is by its -timelimit: a file that keeps it busy for good
+    // would hold the decoder thread with it.
+    let (id, (done, timer)) = (child.id(), std::sync::mpsc::channel::<()>());
+    std::thread::spawn(move || {
+        if timer
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .is_err()
+        {
+            // SAFETY: kill has no preconditions; the process is ours, not yet waited for.
+            unsafe { crate::decoders::libc_kill(id as i32, 9) };
+        }
+    });
+    let (probe, _, _) = output_of(&mut child, 1 << 20, |c| drop(c.kill()));
+    let _ = done.send(());
+    match heif_filter(&String::from_utf8_lossy(&probe.unwrap_or_default())) {
         Some(filter) => {
             let filter = match fit(max) {
                 Some(scale) => filter.replace("[out]", &format!(",{scale}[out]")),

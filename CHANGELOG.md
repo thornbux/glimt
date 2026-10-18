@@ -16,6 +16,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- ffprobe, which reads how a HEIC or AVIF photo is tiled, is stopped after 30 seconds as ffmpeg
+  is: a file that kept it busy would hold the decoding with it.
 - A file whose name is not UTF-8 (a Latin-1 "røntgen.dcm") is listed and shown by its decoder
   plugin, instead of being left out.
 - Turning a JPEG changes the orientation in its XMP too, which Lightroom and digiKam write beside
