@@ -6,8 +6,16 @@
 use crate::*;
 use std::io::Write;
 
-/// Paper sizes in points (1/72 inch), portrait.
-pub const PAPERS: [(&str, [f32; 2]); 2] = [("A4", [595.28, 841.89]), ("Letter", [612.0, 792.0])];
+/// Paper sizes in points (1/72 inch), portrait: office papers, and photo papers in cm.
+pub const PAPERS: [(&str, [f32; 2]); 7] = [
+    ("A4", [595.28, 841.89]),
+    ("Letter", [612.0, 792.0]),
+    ("A3", [841.89, 1190.55]),
+    ("A5", [419.53, 595.28]),
+    ("Legal", [612.0, 1008.0]),
+    ("10 × 15 cm", [283.46, 425.2]),
+    ("13 × 18 cm", [368.5, 510.24]),
+];
 
 /// Margin around the image, 10 mm.
 const MARGIN: f32 = 28.35;
