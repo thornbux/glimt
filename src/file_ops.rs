@@ -15,38 +15,50 @@ impl crate::App {
         } else {
             self.config.confirm_delete
         } {
-            self.asked_for = self.asked_now();
+            self.ask_about_targets();
             self.confirm_delete = Some(trash);
         } else {
-            self.delete_targets_now(ctx, trash);
+            self.delete_now(ctx, trash, self.targets());
         }
     }
 
-    /// The list, the shown image and the selection now: their numbers, and their names hashed,
-    /// which stay when a refresh reads the list again with other numbers.
-    pub(crate) fn asked_now(&self) -> (usize, usize, u64) {
+    /// Where the list is: another folder or collection opened may hold files of the same names.
+    fn list_place(&self) -> u64 {
         use std::hash::{Hash, Hasher};
-        let mut names = std::collections::hash_map::DefaultHasher::new();
-        // The folder too: another one opened meanwhile may hold files of the same names.
-        (&self.dir, &self.folders, &self.collection).hash(&mut names);
-        self.files.get(self.cur).hash(&mut names);
-        for &i in &self.selected {
-            self.files.get(i).hash(&mut names);
-        }
-        (self.files_gen, self.cur, names.finish())
+        let mut place = std::collections::hash_map::DefaultHasher::new();
+        (&self.dir, &self.folders, &self.collection).hash(&mut place);
+        place.finish()
     }
 
-    /// The files a dialog asked about are still those it acts on; else a notice. The same
-    /// numbers, or the same names: a folder another program writes to is read again every
-    /// second, and that alone must not undo a confirmed delete.
-    pub(crate) fn still_asked(&mut self) -> bool {
-        let (asked, now) = (self.asked_for, self.asked_now());
-        let same = (asked.0, asked.1) == (now.0, now.1) || asked.2 == now.2;
-        if !same {
+    /// A dialog about the targets opens: their names are kept, as a folder another program writes
+    /// to is read again every second and gives them other places in the list.
+    pub(crate) fn ask_about_targets(&mut self) {
+        let names = self
+            .targets()
+            .iter()
+            .map(|&i| self.files[i].clone())
+            .collect();
+        self.asked_for = (self.list_place(), names);
+    }
+
+    /// The places now of the files the dialog asked about, those still in the list; `None`, with
+    /// a notice, when none is, or another folder or collection is shown.
+    pub(crate) fn asked_targets(&mut self) -> Option<Vec<usize>> {
+        let (place, names) = std::mem::take(&mut self.asked_for);
+        let names: HashSet<OsString> = names.into_iter().collect();
+        let found: Vec<usize> = match place == self.list_place() {
+            true => (self.files.iter().enumerate())
+                .filter(|(_, f)| names.contains(*f))
+                .map(|(i, _)| i)
+                .collect(),
+            false => Vec::new(),
+        };
+        if found.is_empty() {
             self.notice =
-                Some("The list changed while the dialog was open: nothing was done".into());
+                Some("The files asked about are no longer in the list: nothing was done".into());
+            return None;
         }
-        same
+        Some(found)
     }
 
     /// No file of `paths` is being saved turned; else a notice. Deleted, moved or renamed
@@ -78,10 +90,9 @@ impl crate::App {
         job
     }
 
-    /// Delete the selected files (or the shown one) in the background, to the trash or for good,
+    /// Delete the files at `targets` in the background, to the trash or for good,
     /// as a job with progress and Stop; the list follows when `receive_deleted` hears back.
-    pub(crate) fn delete_targets_now(&mut self, ctx: &egui::Context, trash: bool) {
-        let targets = self.targets();
+    pub(crate) fn delete_now(&mut self, ctx: &egui::Context, trash: bool, targets: Vec<usize>) {
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         if !self.none_saving(&paths) {
             return;

@@ -17,6 +17,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Delete, Rename and Rename Many act on the files they asked about, found by name wherever the
+  list put them meanwhile (another image shown by --remote, the folder read again), instead of
+  doing nothing when the list changed; nothing is done only when another folder is shown or the
+  files are gone.
 - A window writes only its own change to a collection's file (images taken out, renamed, added or
   put in order), never its whole list, so what other windows changed meanwhile always stays.
 - Glimt prints its slowest frame at exit, beside the first image's time, and the release tests

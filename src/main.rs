@@ -1170,9 +1170,9 @@ struct App {
     /// have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
-    /// When Rename or a delete was asked (`asked_now`): the answer acts only if the list and the
-    /// shown image are still the same, or the same files by name after the list was read again.
-    asked_for: (usize, usize, u64),
+    /// The files Rename or a delete asked about, by their names in the list, and where the list
+    /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
+    asked_for: (u64, Vec<OsString>),
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     sort_folders: Vec<PathBuf>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
@@ -1649,7 +1649,7 @@ impl App {
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             files_gen: 0,
-            asked_for: (0, 0, 0),
+            asked_for: (0, Vec::new()),
             grid_cols: 1,
             compare: false,
             panes: Vec::new(),
@@ -5526,7 +5526,7 @@ impl App {
                 self.notice = Some("Rename Many is still renaming".into());
             }
             Action::Rename if self.targets().len() > 1 => {
-                self.asked_for = self.asked_now();
+                self.ask_about_targets();
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
@@ -5541,8 +5541,8 @@ impl App {
                     .get(self.cur)
                     .and_then(|f| Path::new(f).file_name())
                 {
-                    self.asked_for = self.asked_now();
                     self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
+                    self.ask_about_targets();
                 }
             }
             // A separate process: windows share nothing but the config file.
@@ -6530,8 +6530,15 @@ impl App {
         if let Prompt::RenameFolder = prompt {
             return self.rename_folder(ctx, text);
         }
-        if matches!(prompt, Prompt::Rename | Prompt::RenameMany) && !self.still_asked() {
-            return;
+        if matches!(prompt, Prompt::Rename | Prompt::RenameMany) {
+            let Some(found) = self.asked_targets() else {
+                return;
+            };
+            match prompt {
+                Prompt::Rename if found[0] != self.cur => self.go(ctx, found[0]),
+                Prompt::Rename => {}
+                _ => self.selected = found.into_iter().collect(),
+            }
         }
         if matches!(prompt, Prompt::Rename)
             && !self.files.is_empty()
@@ -6731,8 +6738,8 @@ impl App {
             });
             if delete {
                 self.confirm_delete = None;
-                if self.still_asked() {
-                    self.delete_targets_now(ctx, trash);
+                if let Some(targets) = self.asked_targets() {
+                    self.delete_now(ctx, trash, targets);
                 }
             } else if modal.should_close() {
                 self.confirm_delete = None;

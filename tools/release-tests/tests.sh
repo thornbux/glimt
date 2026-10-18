@@ -736,7 +736,7 @@ for v in new old; do
 done
 as_version new
 
-echo "-- Rename answered after --remote next: nothing renamed, not the next image"
+echo "-- Rename answered after --remote next: the file asked about renamed, not the next image"
 for v in new old; do
     as_version $v
     d=/tmp/rename-next-$v
@@ -752,7 +752,7 @@ for v in new old; do
     key Return
     quit
     got="$(ls $d | tr '\n' ' ')"
-    if [ $v = new ]; then expect "every name kept" "$got" "a.png b.png c.png "
+    if [ $v = new ]; then expect "a.png renamed, the others kept" "$got" "b.png c.png x "
     else note "old: $got"; fi
 done
 as_version new
