@@ -10,7 +10,7 @@ new=${1:-HEAD}
 work=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-screenshots
 rm -rf "$work"
 mkdir -p "$work/new" "$work/out"
-git archive "$new" | tar -x -C "$work/new"
+git archive "$new" | tar -xm -C "$work/new"
 cp tools/release-tests/tests.sh tools/screenshots/shots.sh "$work/"
 docker run --rm --shm-size=1g -e SHOTS=1 -v "$work:/t" \
     -v glimt-target:/work-target -v glimt-cargo:/usr/local/cargo/registry \

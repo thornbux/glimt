@@ -2385,6 +2385,7 @@ for s in range(10):
     # the window thread's processor time per frame, printed at exit, with the whole list
     # selected and the Delete dialog drawn in every frame. Processor time, not time on the
     # clock: that varied by 20 ms and more from run to run with threads summing file sizes.
+    # 0 ms here; a build that made a path of each selected file in every frame took 22 ms.
     config thumbnails=false
     start $big
     wait_first
@@ -2395,7 +2396,6 @@ for s in range(10):
     quit
     median=$(grep -o 'frames: median [0-9]*' /tmp/glimt.err | grep -o '[0-9]*$')
     note "new, 500,000 selected: $(grep -o 'frames: .*' /tmp/glimt.err)"
-    grep '^prof' /tmp/glimt.err | sed 's/^/     /' 
     expect "frames within 10 ms with 500,000 files selected" \
         "$([ "${median:-9999}" -le 10 ] && echo yes)" yes
 

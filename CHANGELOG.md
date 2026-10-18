@@ -7,9 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Glimt prints its median frame time at exit beside the slowest, and the release tests check the
-  median: the slowest alone varied from 20 to 64 ms between two runs of the same build, with
-  Select All on 500,000 files.
+- Glimt prints the median, 90 % and slowest of its frames at exit, in the window thread's
+  processor time, and the release tests check the median with 500,000 files selected and the
+  Delete dialog open: the slowest frame on the clock varied from 20 to 64 ms between two runs of
+  the same build, as it counts other threads' work too.
 
 ## [0.37.0] - 2026-10-18
 

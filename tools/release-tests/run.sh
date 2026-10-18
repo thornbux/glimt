@@ -17,8 +17,8 @@ old=${2:-$(git describe --tags --abbrev=0 "$new^")}
 work=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-release-tests
 rm -rf "$work"
 mkdir -p "$work/new" "$work/old" "$work/out"
-git archive "$new" | tar -x -C "$work/new"
-git archive "$old" | tar -x -C "$work/old"
+git archive "$new" | tar -xm -C "$work/new"
+git archive "$old" | tar -xm -C "$work/old"
 cp tools/release-tests/tests.sh tools/release-tests/samples.txt "$work/"
 samples=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-samples
 mkdir -p "$samples"
