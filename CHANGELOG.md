@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A turned image that another program removes or renames no longer passes its turn, or its zoom,
+  to the image shown in its place, where moving on wrote the turn into that file.
+
 ## [0.36.0] - 2026-10-18
 
 ### Added

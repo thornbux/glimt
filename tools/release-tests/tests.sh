@@ -251,6 +251,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a turned image removed by another program: its turn goes to no other image"
+for v in new old; do
+    as_version $v
+    d=/tmp/turn-gone-$v
+    mkdir -p $d
+    convert -size 200x200 xc:red -size 200x200 xc:blue +append -depth 8 $d/a.png
+    cp $d/a.png $d/b.png
+    config save_orientation=true auto_refresh=true
+    start $d/a.png
+    sleep 2
+    key bracketright                 # turned, not saved yet
+    rm $d/a.png; sleep 3             # gone, and the folder read again
+    key space; sleep 2               # moving on saves a turn, if one is kept
+    quit
+    got="$(identify -format '%wx%h' $d/b.png)"
+    if [ $v = new ]; then expect "b.png as it was" "$got" "400x200"
+    else note "old: b.png $got"; fi
+done
+as_version new
+
 echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
 mkdir -p $d/sub/deep && cd $d

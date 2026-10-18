@@ -2153,7 +2153,10 @@ impl App {
         files: Vec<OsString>,
         shown: Option<OsString>,
     ) {
-        let still = shown.is_some() && self.files.get(self.cur) == shown.as_ref();
+        // Shown now and in the new list too: not when another program removed or renamed it,
+        // whose turn not saved would else go to the image shown in its place.
+        let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f == p));
+        let still = found.is_some() && self.files.get(self.cur) == shown.as_ref();
         // The shown file's decodes still being made: kept, so it is not decoded twice. Not
         // those of a later page, as the file is shown again from its first.
         let jobs: Vec<_> = ([false, true].into_iter())
@@ -2177,9 +2180,7 @@ impl App {
         self.dragging = None;
         self.decodes_pending.clear();
         self.decode_errors.clear();
-        let cur = shown
-            .and_then(|p| self.files.iter().position(|f| *f == p))
-            .unwrap_or(0);
+        let cur = found.unwrap_or(0);
         // One pass over the list for a handful of textures.
         let mut kept = Vec::new();
         for (i, name) in self.files.iter().enumerate() {
