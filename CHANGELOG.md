@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The Print dialog shows the first page as it will print: the images, their text and the page
+  text, laid out as the PDF is.
 - Printing on both sides of the paper, on a printer that can.
 - Text at the top and the bottom of every printed page, with %page% and %pages% for the page
   numbers, as Geeqie's page text.

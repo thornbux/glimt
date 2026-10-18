@@ -1885,3 +1885,7 @@ msgstr "Nederst på hver side:"
 #: src/print.rs
 msgid "Both sides of the paper"
 msgstr "Begge sider av arket"
+
+#: src/print.rs
+msgid "Print the image"
+msgstr "Skriv ut bildet"

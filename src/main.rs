@@ -610,6 +610,12 @@ struct PrintDialog {
     printers: Option<Vec<String>>,
     printers_rx: mpsc::Receiver<(Vec<String>, Option<String>)>,
     copies: u32,
+    /// The first page's images, small, for the preview, as they come from the background.
+    previews: Vec<Option<egui::TextureHandle>>,
+    preview_rx: mpsc::Receiver<(usize, egui::ColorImage)>,
+    /// Their texts from the template they were made of; being made again after it changed.
+    captions: Option<(String, Vec<String>)>,
+    captions_rx: Option<mpsc::Receiver<(String, Vec<String>)>>,
 }
 
 /// What the one-line text dialog is asking for.
