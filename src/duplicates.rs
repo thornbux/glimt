@@ -73,8 +73,19 @@ pub fn find(
             let sums = parallel(&candidates, p, checksum);
             // The hash only finds them: the files of a group are compared byte by byte, as two
             // that differ could share a 64-bit hash, and these are offered for the trash.
-            (groups(candidates, sums).into_iter())
-                .flat_map(same_contents)
+            // A second reading of each file: counted in the progress, and stopped by Cancel.
+            let found = groups(candidates, sums);
+            p.total
+                .store(found.iter().map(Vec::len).sum(), Ordering::Relaxed);
+            p.done.store(0, Ordering::Relaxed);
+            (found.into_iter())
+                .take_while(|_| !p.cancel.load(Ordering::Relaxed))
+                .flat_map(|group| {
+                    let n = group.len();
+                    let alike = same_contents(group);
+                    p.done.fetch_add(n, Ordering::Relaxed);
+                    alike
+                })
                 .collect()
         }
         By::Dimensions => {

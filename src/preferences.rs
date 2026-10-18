@@ -604,7 +604,11 @@ impl crate::App {
                             action.label()
                         ));
                     }
-                    self.config.keys.0.retain(|k| k.0 != action);
+                    // The action's own key before, and another action's own key of this one.
+                    self.config
+                        .keys
+                        .0
+                        .retain(|k| k.0 != action && (k.1, k.2) != (mods, key));
                     self.config.keys.0.push((action, mods, key));
                     self.config.save();
                     if let Ok(mut own) = OWN_KEYS.write() {

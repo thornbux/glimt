@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The release workflow also checks the build without optional features, as people building from
+  source get it, before it publishes.
+
 ### Security
 
 - A file written again gets its permissions before its contents, so a private photo or sidecar is
@@ -39,6 +44,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A PNG saved turned leaves out ImageMagick's copies of its EXIF and XMP ("Raw profile type"
   text), which still held the old orientation, so Geeqie and digiKam no longer turn it a second
   time.
+- The man page says --name takes at most 64 bytes, and fewer in a Flatpak.
+- The Bio-Formats decoder example cleans up its temporary folder and stops bfconvert when Glimt
+  stops it after 30 seconds, instead of leaving them in /tmp.
+- Find Duplicates by checksum counts its byte-by-byte check in the progress and stops it on
+  Cancel, instead of sitting at 100 % while it reads every duplicate again.
+- A key given to an action is taken from the action that had it, as the notice says: from another
+  action's own key too, and a default key taken so no longer shows for that action in the menus
+  and the Keyboard Map.
 
 ## [0.36.0] - 2026-10-18
 
