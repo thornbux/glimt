@@ -13,6 +13,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
   saved with its own profile no longer needs a second full-size copy.
 - An image turned by its EXIF orientation is shrunk to the view first and then turned, not turned
   whole: a 100 MP PNG turned by EXIF no longer needs a second full-size buffer for a moment.
+- Giving an action a key another action has says so: the new one takes it, and the other no longer
+  answers to it.
+- The Keyboard Map takes the list of keys once per frame, not twice for each key on it.
+- The list of keys in use is made again only when an own key changes, not sorted many times in
+  every frame.
+- The size of a selection is worked out without making the selected files' paths in the window's
+  thread, and Select All shows the folder's size, summed already.
+- A mark: or stars: search, and Select by Mark, go from the marked files to the list instead of
+  making a path for every file: in a folder of 500,000 each key press no longer costs tens of
+  milliseconds.
 
 ### Fixed
 
@@ -39,6 +49,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (0600) no longer becomes readable by others after a keyword edit.
 - Saving settings keeps the settings file's comments, blank lines and order, so notes written in
   it by hand are no longer lost at the first change in a menu.
+- The Help Manual names the thumbnail sizes as Preferences does: Small, Medium or Large.
+- Files still being deleted when their folder is left and opened again no longer stay in its list
+  once they are gone, also with auto refresh off.
+- New Folder in a collection, or with several folders shown together, says it needs a folder
+  shown, instead of trying to make the folder in /.
+- The place [n/m] the status bar tells for an image in another pane is worked out again after a
+  new search, which may have as many matches as the one before.
 
 ## [0.35.0] - 2026-10-18
 

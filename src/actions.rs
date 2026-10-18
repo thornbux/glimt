@@ -487,14 +487,28 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
+/// A shortcut: the action, and the modifiers and key that run it.
+pub type Shortcut = (Action, egui::Modifiers, egui::Key);
+
 /// The shortcuts in use: the user's own, and the defaults of the other actions. Those with
-/// more modifiers come first, as egui ignores an extra Shift or Alt when matching.
-pub fn shortcuts() -> Vec<(Action, egui::Modifiers, egui::Key)> {
+/// more modifiers come first, as egui ignores an extra Shift or Alt when matching. Made again
+/// only when the own keys change: it is asked for many times in every frame.
+pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
+    type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
+    static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
     let own = OWN_KEYS.read().map(|o| o.clone()).unwrap_or_default();
+    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((from, all)) = made.as_ref()
+        && *from == own
+    {
+        return all.clone();
+    }
     let mut all = own.clone();
     all.extend(SHORTCUTS.iter().filter(|s| !own.iter().any(|o| o.0 == s.0)));
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
+    let all: std::sync::Arc<[Shortcut]> = all.into();
+    *made = Some((own, all.clone()));
     all
 }
 
@@ -548,7 +562,7 @@ impl std::fmt::Display for Keys {
 
 /// The first shortcut of an action, as shown in menus ("Ctrl+K").
 pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
-    let (_, mods, key) = shortcuts().into_iter().find(|s| s.0 == action)?;
+    let (_, mods, key) = shortcuts().iter().copied().find(|s| s.0 == action)?;
     Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
 

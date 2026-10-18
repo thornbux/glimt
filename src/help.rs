@@ -332,7 +332,7 @@ const MANUAL: &[(&str, &str)] = &[
     ),
     (
         "Panels",
-        "T shows thumbnails (Small, Medium or Big in Preferences), Ctrl+I shows the file list \
+        "T shows thumbnails (Small, Medium or Large in Preferences), Ctrl+I shows the file list \
          as a grid of icons (↑ and ↓ move a row), Ctrl+T shows the folders as a tree, View → \
          Include Subfolders lists the images of every folder below (File → Open Folder \
          Recursive… opens a folder with it on), View → Show Hidden Files lists files and \
@@ -697,7 +697,7 @@ const MOUSE: &[(&str, &str)] = &[
 fn shortcuts(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
-    for (action, mods, key) in all_shortcuts() {
+    for &(action, mods, key) in all_shortcuts().iter() {
         if action == Action::Play && !cfg!(feature = "video") {
             continue;
         }
@@ -832,11 +832,13 @@ fn keymap(ui: &mut egui::Ui) {
     let unit = 34.0;
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(unit * 19.5, unit * 6.6), egui::Sense::hover());
+    // Once for the map, not twice for each of its keys.
+    let all = all_shortcuts();
     let draw = |ui: &mut egui::Ui, label: &str, key: Option<Key>, at: egui::Rect| {
         let actions: Vec<String> = key
             .map(|k| {
-                all_shortcuts()
-                    .into_iter()
+                all.iter()
+                    .copied()
                     .filter(|s| s.2 == k && (s.0 != Action::Play || cfg!(feature = "video")))
                     .map(|(a, m, k)| {
                         let keys = ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k));
@@ -845,11 +847,8 @@ fn keymap(ui: &mut egui::Ui) {
                     .collect()
             })
             .unwrap_or_default();
-        let plain = key.is_some_and(|k| {
-            all_shortcuts()
-                .iter()
-                .any(|s| s.2 == k && s.1 == egui::Modifiers::NONE)
-        });
+        let plain =
+            key.is_some_and(|k| all.iter().any(|s| s.2 == k && s.1 == egui::Modifiers::NONE));
         let v = ui.visuals();
         let fill = if plain {
             v.selection.bg_fill

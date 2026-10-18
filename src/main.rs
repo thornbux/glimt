@@ -2658,10 +2658,21 @@ impl App {
         if self.selected.is_empty() {
             return;
         }
-        let paths: Vec<PathBuf> = self.selected.iter().map(|&i| self.path(i)).collect();
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
+        // All of them (Select All in a folder of 500,000): the folder's size, summed already.
+        if self.selected.len() == self.files.len() && self.size_rx.is_none() {
+            self.selected_size = Some(self.total_size);
+            self.selected_rx = None;
+            return;
+        }
+        // The paths made in the thread: only the names are copied here.
+        let names: Vec<OsString> = self
+            .selected
+            .iter()
+            .map(|&i| self.files[i].clone())
+            .collect();
+        let (dir, (tx, rx), ctx) = (self.dir.clone(), mpsc::channel(), ctx.clone());
         std::thread::spawn(move || {
+            let paths: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
             // The receiver is gone if the selection changed again; then the answer is dropped.
             if tx.send(total_size(&paths)).is_ok() {
                 ctx.request_repaint();
@@ -4483,6 +4494,8 @@ impl App {
         let query = self.search.trim().to_owned();
         let query = query.as_str();
         self.match_rows.set(Default::default());
+        // A place "[n/m]" told for another pane: another search may have as many matches.
+        self.status_place = None;
         self.search_error = None;
         self.matches = self.search_matches(ctx, query);
         // Size of the matches in the background; a new search drops the receiver, which
@@ -4684,11 +4697,22 @@ impl App {
                 stars >= n
             }
         };
+        let names = self.marked_names(hit);
         Some(
             (0..self.files.len())
-                .filter(|&i| hit(self.marks.get(&self.path(i))))
+                .filter(|&i| names.contains(self.files[i].as_os_str()))
                 .collect(),
         )
+    }
+
+    /// The names in the list of the files whose (marks, stars) `hit` takes: from the marked
+    /// files, a few thousand at most, not a path made for each of 500,000 at every key press.
+    #[cfg(feature = "marks")]
+    fn marked_names(&self, hit: impl Fn((u8, u8)) -> bool) -> HashSet<&std::ffi::OsStr> {
+        (self.marks.marked())
+            .filter(|&(_, v)| hit(v))
+            .filter_map(|(p, _)| Some(p.strip_prefix(&self.dir).ok()?.as_os_str()))
+            .collect()
     }
 
     #[cfg(not(feature = "marks"))]
@@ -5447,6 +5471,12 @@ impl App {
                 *flag = !*flag;
                 c.save();
             }
+            // A collection, or several folders shown together, is no folder to make one in: it
+            // would be made in /.
+            Action::NewFolder if self.collection.is_some() || !self.folders.is_empty() => {
+                self.notice =
+                    Some("New Folder makes a folder in the folder shown: open one".into());
+            }
             Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Print if !self.files.is_empty() => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
@@ -5587,9 +5617,11 @@ impl App {
         self.marks.refresh();
         if kind == 's' {
             let bit = 1 << (n - 1);
-            self.selected = (self.shown_files().into_iter())
-                .filter(|&i| self.marks.get(&self.path(i)).0 & bit != 0)
+            let names = self.marked_names(|(bits, _)| bits & bit != 0);
+            let picked = (self.shown_files().into_iter())
+                .filter(|&i| names.contains(self.files[i].as_os_str()))
                 .collect();
+            self.selected = picked;
             self.anchor = None;
             self.selection_changed(ctx);
             return;

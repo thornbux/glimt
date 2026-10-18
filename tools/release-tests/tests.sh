@@ -1500,6 +1500,19 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Select by mark: the files with mark 1 selected"
+d=/tmp/select-mark
+mkdir -p $d
+for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
+config
+start $d/a.png
+sleep 2
+key space; key 1; key space; key 1          # mark 1 on b and c
+key ctrl+1; sleep 1                          # Select by Mark 1
+got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
+quit
+expect "b and c selected" "$got" "b.png c.png "
+
 echo "-- Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
 for v in new old; do
     as_version $v
