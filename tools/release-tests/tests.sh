@@ -347,6 +347,36 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a delete that fails while the same collection is opened again: the image comes back"
+for v in new old; do
+    as_version $v
+    d=/tmp/reopen-delete-$v
+    mkdir -p $d
+    convert -size 300x200 xc:blue $d/a.jpg
+    convert -size 300x200 xc:red $d/b.jpg
+    printf '#GQview collection\n"%s/a.jpg"\n"%s/b.jpg"\n' $d $d >$d/show.gqv
+    # A stand-in gio whose trash fails after 4 seconds: time to open the collection again.
+    printf '#!/bin/sh\nsleep 4\necho "trash refused" >&2\nexit 1\n' >/tmp/stub/gio
+    chmod +x /tmp/stub/gio
+    config auto_refresh=false confirm_trash=false
+    start $d/show.gqv
+    sleep 2
+    key ctrl+d                       # a.jpg to the trash, out of the collection meanwhile
+    $BIN --remote open $d/show.gqv >/dev/null 2>&1
+    sleep 1
+    during=$(grep -c 'a.jpg' $d/show.gqv)
+    sleep 6
+    quit
+    rm /tmp/stub/gio
+    got=$(grep -c 'a.jpg' $d/show.gqv)
+    if [ $v = new ]; then
+        # Out while the delete ran: the check after cannot pass by nothing happening.
+        expect "a.jpg out of the collection while it is deleted" "$during" 0
+        expect "a.jpg back in the collection after the delete failed" "$got" 1
+    else note "old: a.jpg lines during $during, after $got"; fi
+done
+as_version new
+
 echo "-- a file of the same name opened in another folder: not at the zoom of the one before"
 for v in new old; do
     as_version $v
