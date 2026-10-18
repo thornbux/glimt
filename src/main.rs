@@ -2648,10 +2648,21 @@ impl App {
         if self.selected.is_empty() {
             return;
         }
-        let paths: Vec<PathBuf> = self.selected.iter().map(|&i| self.path(i)).collect();
-        let (tx, rx) = mpsc::channel();
-        let ctx = ctx.clone();
+        // All of them (Select All in a folder of 500,000): the folder's size, summed already.
+        if self.selected.len() == self.files.len() && self.size_rx.is_none() {
+            self.selected_size = Some(self.total_size);
+            self.selected_rx = None;
+            return;
+        }
+        // The paths made in the thread: only the names are copied here.
+        let names: Vec<OsString> = self
+            .selected
+            .iter()
+            .map(|&i| self.files[i].clone())
+            .collect();
+        let (dir, (tx, rx), ctx) = (self.dir.clone(), mpsc::channel(), ctx.clone());
         std::thread::spawn(move || {
+            let paths: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
             // The receiver is gone if the selection changed again; then the answer is dropped.
             if tx.send(total_size(&paths)).is_ok() {
                 ctx.request_repaint();

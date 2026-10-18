@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The size of a selection is worked out without making the selected files' paths in the window's
+  thread, and Select All shows the folder's size, summed already.
 - A mark: or stars: search, and Select by Mark, go from the marked files to the list instead of
   making a path for every file: in a folder of 500,000 each key press no longer costs tens of
   milliseconds.
