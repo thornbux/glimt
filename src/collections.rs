@@ -158,12 +158,10 @@ pub fn merged(
     read: &std::collections::HashSet<PathBuf>,
     on_disk: Vec<PathBuf>,
 ) -> Vec<PathBuf> {
-    // Not when the file is gone or empty (moved to the trash, renamed): what this window shows
-    // is then all there is of it.
-    if !on_disk.is_empty() {
-        let there: std::collections::HashSet<&PathBuf> = on_disk.iter().collect();
-        ours.retain(|p| !read.contains(p) || there.contains(p));
-    }
+    // Also when the file is empty now: another window took out all of it. (A file that is gone
+    // is not saved at all.)
+    let there: std::collections::HashSet<&PathBuf> = on_disk.iter().collect();
+    ours.retain(|p| !read.contains(p) || there.contains(p));
     let mut have: std::collections::HashSet<PathBuf> = ours.iter().cloned().collect();
     for path in on_disk {
         if !read.contains(&path) && have.insert(path.clone()) {
@@ -396,6 +394,8 @@ mod tests {
         let ours = vec![p("/a"), p("/c")];
         let on_disk = vec![p("/b"), p("/c")];
         assert_eq!(super::merged(ours, &read, on_disk), [p("/c")]);
+        // Another window took them all out: none comes back.
+        assert!(super::merged(vec![p("/a"), p("/c")], &read, Vec::new()).is_empty());
     }
 
     /// Collection files broken in thousands of ways: read without a panic.
