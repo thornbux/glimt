@@ -313,7 +313,7 @@ impl crate::App {
     pub(crate) fn read_lightroom(&mut self, ctx: &egui::Context, file: PathBuf) {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             let _ = tx.send(read(&file));
             drop(pointer);

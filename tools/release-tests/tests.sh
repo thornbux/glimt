@@ -2275,6 +2275,28 @@ for v in new old; do
     else note "old: memory grew $grow MB"; fi
 done
 
+echo "-- closed while printing to a file: Glimt ends once the PDF is whole"
+for v in new old; do
+    as_version $v
+    pdf=/tmp/print-closed-$v.pdf
+    config thumbnails=false
+    start $src
+    sleep 2
+    answer $pdf; key ctrl+a; key ctrl+p; sleep 1; key Return
+    sleep 1
+    $BIN --remote-all quit >/dev/null 2>&1
+    for i in $(seq 300); do kill -0 $GPID 2>/dev/null || break; sleep 1; done
+    kill $GPID 2>/dev/null
+    pages=$(pdfinfo $pdf 2>/dev/null | awk '/^Pages/ {print $2}')
+    left=$(ls /tmp | grep -c 'glimt-tmp')
+    if [ $v = new ]; then
+        expect "the PDF whole, 80 pages" "$pages" "80"
+        expect "no temporary file left" "$left" 0
+    else note "old: pages '$pages', temporary files $left"; fi
+    rm -f /tmp/*.glimt-tmp
+done
+as_version new
+
 echo "-- screen profile: Adobe RGB, so sRGB red is shown less red"
 as_version new
 adobe=/usr/share/color/icc/colord/AdobeRGB1998.icc

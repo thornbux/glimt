@@ -12,6 +12,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Delete dialog open: the slowest frame on the clock varied from 20 to 64 ms between two runs of
   the same build, as it counts other threads' work too.
 
+### Fixed
+
+- Closing Glimt while it prints to a PDF, moves files or a folder to the trash, puts a cut-short
+  Rename Many right, runs a plugin or imports Lightroom collections waits for that to end, as it
+  does for copies and moves, instead of ending it halfway.
+
 ## [0.37.0] - 2026-10-18
 
 ### Fixed

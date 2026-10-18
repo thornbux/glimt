@@ -182,7 +182,7 @@ impl crate::App {
             let (tx, rx) = mpsc::channel();
             let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
             let (ctx, made) = (ctx.clone(), self.files_gen);
-            let pointer = Busy::new(&self.busy);
+            let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 let _ = tx.send((timeline(&dir, &files, exif), made));
                 drop(pointer);

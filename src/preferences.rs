@@ -457,7 +457,7 @@ impl crate::App {
             .clicked()
         {
             let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-            let pointer = Busy::new(&self.busy);
+            let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 let (removed, seen) = thumbs::clean();
                 let _ = tx.send(format!(

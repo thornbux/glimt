@@ -843,18 +843,19 @@ impl Slot {
     }
 }
 
-/// One piece of background work, for the busy pointer: counted while held, and no longer when
-/// dropped, also as its thread panics, which a count by hand would leave on for good.
-struct Busy(Arc<AtomicUsize>);
+/// One piece of background work, for the busy pointer (`busy`) or for closing (`writing`):
+/// counted while held, and no longer when dropped, also as its thread panics, which a count by
+/// hand would leave on for good.
+struct Working(Arc<AtomicUsize>);
 
-impl Busy {
+impl Working {
     fn new(count: &Arc<AtomicUsize>) -> Self {
         count.fetch_add(1, Ordering::Relaxed);
-        Busy(count.clone())
+        Working(count.clone())
     }
 }
 
-impl Drop for Busy {
+impl Drop for Working {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::Relaxed);
     }
@@ -1154,6 +1155,9 @@ struct App {
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
+    /// Background work writing, moving or deleting files that has no job in the status bar
+    /// (`background`, printing to a file): closing waits for it too.
+    writing: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     file_jobs: Vec<Arc<Job>>,
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
@@ -1792,6 +1796,7 @@ impl App {
             saved_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
+            writing: Arc::new(AtomicUsize::new(0)),
             file_jobs: Vec::new(),
             closing: 0,
             search: String::new(),
@@ -4680,7 +4685,7 @@ impl App {
             let (tx, rx) = mpsc::channel();
             let names: Vec<OsString> = self.exif_stale.drain().collect();
             let (dir, ctx) = (self.dir.clone(), ctx.clone());
-            let pointer = Busy::new(&self.busy);
+            let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 let _ = tx.send(search::exif_index(&dir, &names));
                 drop(pointer);
@@ -4693,7 +4698,7 @@ impl App {
                 self.exif_stale.clear();
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
-                let pointer = Busy::new(&self.busy);
+                let pointer = Working::new(&self.busy);
                 std::thread::spawn(move || {
                     let _ = tx.send(search::exif_index(&dir, &files));
                     drop(pointer);
@@ -4879,7 +4884,7 @@ impl App {
                 check.working.clone(),
                 check.stop.clone(),
             );
-            let pointer = Busy::new(&self.busy);
+            let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
                     let Some((name, path)) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
@@ -5725,7 +5730,7 @@ impl App {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.clip_rx = Some(clip_rx);
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
@@ -8325,7 +8330,7 @@ mod tests {
     fn busy_ends_with_a_panic() {
         use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering};
         let count = Arc::new(AtomicUsize::new(0));
-        let pointer = super::Busy::new(&count);
+        let pointer = super::Working::new(&count);
         assert_eq!(count.load(Ordering::Relaxed), 1);
         let _ = std::thread::spawn(move || {
             let _pointer = pointer;

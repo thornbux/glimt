@@ -72,9 +72,12 @@ impl crate::App {
     }
 
     /// Files still being written: copies, moves, deletes, sidecars (`jobs`), a Rename Many, a
-    /// turned image being saved. Closing waits for them.
+    /// turned image being saved, and the rest that holds `writing`. Closing waits for them.
     pub(crate) fn work_left(&self) -> bool {
-        !self.file_jobs.is_empty() || self.renaming.is_some() || !self.saving.is_empty()
+        !self.file_jobs.is_empty()
+            || self.renaming.is_some()
+            || !self.saving.is_empty()
+            || self.writing.load(Ordering::Relaxed) > 0
     }
 
     /// A file operation on `total` files, shown in the status bar until its thread drops it.
@@ -103,7 +106,7 @@ impl crate::App {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
         let job = self.start_job("Deleting", paths.len());
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
@@ -295,7 +298,7 @@ impl crate::App {
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
         let job = self.start_job(if keep { "Copying" } else { "Moving" }, paths.len());
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             if !keep && same_dir {
                 let _ = freed_tx.send(total_size(&paths));
@@ -378,7 +381,7 @@ impl crate::App {
         };
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             let _ = tx.send(rename_files(from, to));
             drop(pointer);
@@ -454,7 +457,7 @@ impl crate::App {
         let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
         let ctx = ctx.clone();
         self.saving.insert(path.clone());
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             let result = survive(|| match jpeg {
                 true => exif::write_orientation(&path, turns, mirrored),
@@ -690,8 +693,11 @@ impl crate::App {
         work: impl FnOnce() -> Option<String> + Send + 'static,
     ) {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
+        // Each of them changes files (the trash, renames, plugins, collections): closing waits.
+        let writing = Working::new(&self.writing);
         std::thread::spawn(move || {
+            let _writing = writing;
             if let Some(text) = work() {
                 let _ = tx.send(text);
             }
@@ -727,7 +733,7 @@ impl crate::App {
         });
         let job = self.start_job(doing, paths.len());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let pointer = Busy::new(&self.busy);
+        let pointer = Working::new(&self.busy);
         let work: Work = Box::new(move || {
             // A file that makes the writing panic ends this job, not the count or the busy
             // pointer.
