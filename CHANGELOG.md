@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file of the same name opened in another folder opens fitted, not at the zoom and place of the
+  image shown before.
 - A turned image that another program removes or renames no longer passes its turn, or its zoom,
   to the image shown in its place, where moving on wrote the turn into that file.
 

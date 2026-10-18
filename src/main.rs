@@ -1830,6 +1830,11 @@ impl App {
             .map(OsString::from);
         self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
         self.forget_old_list();
+        // Another folder: its file of the same name is another image, which opens as one, not
+        // at the zoom and place of the image before.
+        if dir != self.dir {
+            self.files.clear();
+        }
         self.recursive = self.config.show_subfolders;
         self.dir = dir.clone();
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);

@@ -338,6 +338,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a file of the same name opened in another folder: not at the zoom of the one before"
+for v in new old; do
+    as_version $v
+    d=/tmp/same-name-$v
+    mkdir -p $d/one $d/two
+    convert -size 400x300 xc:blue -fill red -draw 'rectangle 100,75 300,225' $d/one/a.png
+    cp $d/one/a.png $d/two/a.png
+    config
+    start $d/one/a.png
+    sleep 2
+    key equal; key equal; sleep 1
+    $BIN --remote open $d/two/a.png >/dev/null 2>&1; sleep 2
+    shot same-name-$v
+    quit
+    got=$(colour same-name-$v 400 410)
+    if [ $v = new ]; then expect "fitted, not zoomed" "$got" blue
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- the folder read again while zoomed in: the zoom stays"
 for v in new old; do
     as_version $v
