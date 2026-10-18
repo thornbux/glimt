@@ -179,6 +179,12 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(stubborn.run(&file, Duration::from_millis(300)).is_err());
         assert!(start.elapsed() < Duration::from_secs(5));
+        // One that leaves a helper holding its errors open: stopped too, not waited for.
+        let left = "Name=Left\nExtensions=xyz\nExec=sh -c \"sleep 30 >/dev/null & exit 0\" %f";
+        let left = super::parse(left, &dir).unwrap();
+        let start = std::time::Instant::now();
+        assert!(left.run(&file, Duration::from_millis(300)).is_err());
+        assert!(start.elapsed() < Duration::from_secs(5));
         assert!(super::parse("Name=No file\nExtensions=xyz\nExec=cat", &dir).is_none());
         assert!(super::parse("Name=No ext\nExec=cat %f", Path::new("/")).is_none());
         std::fs::remove_dir_all(dir).unwrap();

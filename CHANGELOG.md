@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A decoder program that leaves a helper running with its error output open is stopped after its
+  time limit too, instead of holding a decoding thread for good (since 0.37.0).
 - A turn not saved yet is saved into its file under the new name after Rename, Rename Many or
   Rename Folder, instead of being dropped (since 0.37.0).
 - The turn and mirror keys in an empty folder no longer end Glimt (since 0.37.0).

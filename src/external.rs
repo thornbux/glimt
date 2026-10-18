@@ -170,8 +170,9 @@ pub fn output_of(
         unsafe { libc_kill(group, 9) };
     }
     let ok = child.wait().is_ok_and(|s| s.success());
-    let _ = done.send(());
+    // Only once its errors are read to their end: a helper it left behind may hold them open.
     let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
+    let _ = done.send(());
     ((!large).then_some(out), err, ok)
 }
 
