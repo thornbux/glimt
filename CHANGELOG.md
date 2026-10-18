@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A sidecar on a share that stopped answering no longer holds up the sidecar writes of other
+  images in the window, nor through them the window itself (since 0.37.1).
 - Closing Glimt no longer waits for a plugin's program to end, such as an editor opened from Glimt
   (since 0.37.1).
 - A decoder program that leaves a helper running with its error output open is stopped after its

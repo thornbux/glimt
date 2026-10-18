@@ -240,14 +240,17 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 /// Held while the sidecar of `path` is read and written again, by this window's threads and by
 /// every other Glimt window: keywords added in the background, stars saved and a comment edited
 /// in another window meanwhile each keep what the others wrote. A lock file in Glimt's runtime
-/// folder, one of 64 chosen by the sidecar's path, not one beside it in the user's folder; the
-/// lock within this Glimt alone where there is no runtime folder.
-fn held(path: &Path) -> (std::sync::MutexGuard<'static, ()>, Option<std::fs::File>) {
+/// folder, one of 64 chosen by the sidecar's path, not one beside it in the user's folder; two
+/// threads of one Glimt wait for each other on it too. Where there is no runtime folder, a lock
+/// within this Glimt alone; not both, so a sidecar on a share that stopped answering holds up
+/// only the sidecars of its own lock file, not every write of the window.
+fn held(path: &Path) -> (Option<std::fs::File>, Option<std::sync::MutexGuard<'static, ()>>) {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let ours = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let side = sidecar(path);
-    let file = crate::remote::dir().and_then(|d| lock_file(&d.join("sidecar-locks"), &side));
-    (ours, file)
+    match crate::remote::dir().and_then(|d| lock_file(&d.join("sidecar-locks"), &side)) {
+        Some(file) => (Some(file), None),
+        None => (None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))),
+    }
 }
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
