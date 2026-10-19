@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The exif: index and the Pan view's days stop being read when the folder is left or the window
+  closed, instead of reading every file to the end for no one and keeping the busy pointer on.
 - A move within a file system is one step that never replaces a file (renameat2 with
   RENAME_NOREPLACE), so a crash or a forced close in the middle no longer leaves the photo under
   two names; file systems without it keep the way of before.

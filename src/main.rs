@@ -156,7 +156,7 @@ fn thumb_threads(decoders: usize) -> usize {
     }
 }
 
-/// The pan view's window (Ctrl+J).
+/// The pan view's window (Ctrl+J). Closed, the days being made for it are not read on.
 #[derive(Default)]
 struct Pan {
     /// Days from the EXIF dates instead of the file dates.
@@ -164,6 +164,8 @@ struct Pan {
     /// The days, and the version of the file list they are for (`App::files_gen`).
     days: Option<(Vec<pan::Day>, usize)>,
     days_rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize)>>,
+    /// Set when the days being made are no longer wanted: the thread stops reading.
+    days_stop: Arc<AtomicBool>,
     /// The rows for this many columns, and their height.
     rows: Vec<(f32, pan::Row)>,
     columns: usize,
@@ -173,6 +175,12 @@ struct Pan {
     calendar: bool,
     months: Vec<pan::Month>,
     jump: Option<usize>,
+}
+
+impl Drop for Pan {
+    fn drop(&mut self) {
+        self.days_stop.store(true, Ordering::Relaxed);
+    }
 }
 
 /// What a delete, move, copy or plugin reports, in one message: the files it was asked to
@@ -1254,6 +1262,8 @@ struct App {
     /// at the next "exif:" search.
     exif_stale: HashSet<OsString>,
     exif_index_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
+    /// Set when the index being read is no longer wanted (another folder): the thread stops.
+    exif_index_stop: Arc<AtomicBool>,
     #[cfg(feature = "marks")]
     marks: marks::Marks,
 
@@ -1962,6 +1972,7 @@ impl App {
             exif_index: None,
             exif_stale: HashSet::new(),
             exif_index_rx: None,
+            exif_index_stop: Arc::default(),
             anchor: None,
             orient: (0, false),
             turned: PathBuf::new(),
@@ -2045,6 +2056,8 @@ impl App {
         self.exif_index = None;
         self.exif_stale.clear();
         self.exif_index_rx = None;
+        // Its reading of every file ends: no one waits for it now.
+        self.exif_index_stop.store(true, Ordering::Relaxed);
     }
 
     /// Show the collection in `file` as the list.
@@ -4957,8 +4970,10 @@ impl App {
             let names: Vec<OsString> = self.exif_stale.drain().collect();
             let (dir, ctx) = (self.dir.clone(), ctx.clone());
             let pointer = Working::new(&self.busy);
+            self.exif_index_stop = Arc::default();
+            let stop = self.exif_index_stop.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(search::exif_index(&dir, &names));
+                let _ = tx.send(search::exif_index(&dir, &names, &stop));
                 drop(pointer);
                 ctx.request_repaint();
             });
@@ -4970,8 +4985,10 @@ impl App {
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.files.clone(), ctx.clone());
                 let pointer = Working::new(&self.busy);
+                self.exif_index_stop = Arc::default();
+                let stop = self.exif_index_stop.clone();
                 std::thread::spawn(move || {
-                    let _ = tx.send(search::exif_index(&dir, &files));
+                    let _ = tx.send(search::exif_index(&dir, &files, &stop));
                     drop(pointer);
                     ctx.request_repaint();
                 });

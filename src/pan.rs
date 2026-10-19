@@ -10,16 +10,16 @@ use std::path::Path;
 pub type Day = (String, Vec<usize>);
 
 /// The images of `files` in `dir` by day, read on all cores.
-pub fn timeline(dir: &Path, files: &[OsString], exif: bool) -> Vec<Day> {
+pub fn timeline(dir: &Path, files: &[OsString], exif: bool, stop: &AtomicBool) -> Vec<Day> {
     if exif {
         // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
         // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
-        let dates = each(dir, files, |p| {
+        let dates = each(dir, files, stop, |p| {
             crate::exif::date(p, false).filter(|d| ymd(d).is_some())
         });
         return by_day(dates, |d| d.get(..10).unwrap_or(d).replace(':', "-"));
     }
-    let times = each(dir, files, |p| {
+    let times = each(dir, files, stop, |p| {
         use std::os::unix::fs::MetadataExt;
         p.metadata().ok().map(|m| m.mtime())
     });
@@ -43,12 +43,18 @@ pub fn timeline(dir: &Path, files: &[OsString], exif: bool) -> Vec<Day> {
 fn each<T: Send>(
     dir: &Path,
     files: &[OsString],
+    stop: &AtomicBool,
     f: impl Fn(&Path) -> Option<T> + Sync,
 ) -> Vec<Option<T>> {
     crate::in_parts(files, crate::small_alloc_threads(), |part, _| {
         let mut path = dir.to_path_buf();
         let mut out = Vec::with_capacity(part.len());
         for name in part {
+            // Left (the window closed, another folder): nothing more is read for no one.
+            if stop.load(Ordering::Relaxed) {
+                out.push(None);
+                continue;
+            }
             path.push(name);
             // A file that breaks its reader has no date: a whole part lost would give the
             // files after it the dates of others.
@@ -190,8 +196,10 @@ impl crate::App {
             let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
             let (ctx, made) = (ctx.clone(), self.files_gen);
             let pointer = Working::new(&self.busy);
+            pan.days_stop = Arc::default();
+            let stop = pan.days_stop.clone();
             std::thread::spawn(move || {
-                let _ = tx.send((timeline(&dir, &files, exif), made));
+                let _ = tx.send((timeline(&dir, &files, exif, &stop), made));
                 drop(pointer);
                 ctx.request_repaint();
             });
@@ -216,6 +224,7 @@ impl crate::App {
                     if ui.checkbox(&mut pan.exif, tr("EXIF date")).changed() {
                         pan.days = None;
                         pan.days_rx = None;
+                        pan.days_stop.store(true, Ordering::Relaxed);
                     }
                     // Days of an older list are not shown while new ones are made: they point
                     // at other images now.
@@ -448,14 +457,34 @@ impl crate::App {
 mod tests {
     use super::*;
 
+    /// Stopped, nothing more is read: every file after gets no value.
+    #[test]
+    fn each_stops_when_told() {
+        let files: Vec<OsString> = (0..4).map(|i| i.to_string().into()).collect();
+        let stop = AtomicBool::new(false);
+        let count = AtomicUsize::new(0);
+        let got = each(Path::new("/"), &files, &stop, |_| {
+            // The first file read sets the flag: the rest are left.
+            stop.store(true, Ordering::Relaxed);
+            Some(count.fetch_add(1, Ordering::Relaxed))
+        });
+        assert_eq!(got.len(), 4);
+        assert!(got.iter().filter(|g| g.is_some()).count() <= crate::small_alloc_threads());
+    }
+
     /// A file whose reader panics gets no value; the others keep their own.
     #[test]
     fn each_keeps_places_past_a_panic() {
         let files: Vec<OsString> = (0..9).map(|i| i.to_string().into()).collect();
-        let got = each(Path::new("/"), &files, |p| match p.ends_with("4") {
-            true => panic!("broken file"),
-            false => Some(p.to_path_buf()),
-        });
+        let got = each(
+            Path::new("/"),
+            &files,
+            &AtomicBool::new(false),
+            |p| match p.ends_with("4") {
+                true => panic!("broken file"),
+                false => Some(p.to_path_buf()),
+            },
+        );
         assert_eq!(got.len(), 9);
         assert_eq!(got[4], None);
         assert_eq!(got[5].as_deref(), Some(Path::new("/5")));
@@ -475,7 +504,7 @@ mod tests {
             let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(time);
             f.set_modified(t).unwrap();
         }
-        let days = timeline(&dir, &names, false);
+        let days = timeline(&dir, &names, false, &AtomicBool::new(false));
         // b is years older; a and c on one day, in time order; the missing file last.
         let lists: Vec<&[usize]> = days.iter().map(|d| d.1.as_slice()).collect();
         assert_eq!(lists, [&[1][..], &[0, 2], &[3]]);

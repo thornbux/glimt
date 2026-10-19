@@ -215,18 +215,26 @@ fn in_parallel(
 }
 
 /// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
-pub fn exif_index(dir: &Path, files: &[OsString]) -> HashMap<OsString, String> {
+pub fn exif_index(
+    dir: &Path,
+    files: &[OsString],
+    stop: &std::sync::atomic::AtomicBool,
+) -> HashMap<OsString, String> {
     let index = crate::in_parts(files, small_alloc_threads(), |part, _| {
-        (part.iter())
-            .map(|name| {
-                let path = dir.join(name);
-                let rows = exif::read(&path);
-                let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-                let meta = meta::read(&path).text();
-                text.push(&meta);
-                (name.clone(), text.join(" ").to_lowercase())
-            })
-            .collect()
+        let mut out = Vec::with_capacity(part.len());
+        for name in part {
+            // Left: the folder is gone from the window, and no one waits for this.
+            if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let path = dir.join(name);
+            let rows = exif::read(&path);
+            let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+            let meta = meta::read(&path).text();
+            text.push(&meta);
+            out.push((name.clone(), text.join(" ").to_lowercase()));
+        }
+        out
     });
     index.into_iter().collect()
 }
