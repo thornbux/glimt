@@ -396,9 +396,14 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
 /// The names and desktop files of the applications `ids`, found by `sh`: on the host in a
 /// Flatpak, where the desktop files are and where `gio launch` runs, not in the sandbox.
 fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> {
-    // The "applications" folder of each XDG data folder, the first one with the file.
+    // The "applications" folder of each XDG data folder, the first one with the file. In a
+    // Flatpak the host gets the sandbox's variables (its data folder, /app/share): the host's
+    // own folders then, with those Flatpak exports installed programs to.
     // Split at the colons as a variable's value: dash does not split at one written between two.
     const FIND: &str = r#"dirs="${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    if [ -n "$FLATPAK_ID" ]; then
+        dirs="$HOME/.local/share:/usr/local/share:/usr/share:/var/lib/flatpak/exports/share:$HOME/.local/share/flatpak/exports/share"
+    fi
     for id in "$@"; do
         IFS=:
         for d in $dirs; do
@@ -483,7 +488,8 @@ mod tests {
         std::fs::write(dir.join("b/applications/y.desktop"), "Name=Why\n").unwrap();
         let mut sh = std::process::Command::new("sh");
         sh.env("XDG_DATA_HOME", dir.join("a"))
-            .env("XDG_DATA_DIRS", dir.join("b"));
+            .env("XDG_DATA_DIRS", dir.join("b"))
+            .env_remove("FLATPAK_ID");
         let found = super::named(sh, &["x.desktop", "y.desktop", "none.desktop"]);
         assert_eq!(
             found,
@@ -491,6 +497,27 @@ mod tests {
                 ("Ex".to_owned(), dir.join("a/applications/x.desktop")),
                 ("Why".to_owned(), dir.join("b/applications/y.desktop"))
             ]
+        );
+        // As in a Flatpak: the sandbox's variables are passed on, so the host's folders are
+        // looked in instead, among them the one of a user's own programs.
+        std::fs::create_dir_all(dir.join("home/.local/share/applications")).unwrap();
+        std::fs::write(
+            dir.join("home/.local/share/applications/z.desktop"),
+            "Name=Zed\n",
+        )
+        .unwrap();
+        let mut sh = std::process::Command::new("sh");
+        sh.env("XDG_DATA_HOME", dir.join("a"))
+            .env("XDG_DATA_DIRS", dir.join("b"))
+            .env("HOME", dir.join("home"))
+            .env("FLATPAK_ID", "io.github.thornbux.Glimt");
+        let found = super::named(sh, &["x.desktop", "z.desktop"]);
+        assert_eq!(
+            found,
+            [(
+                "Zed".to_owned(),
+                dir.join("home/.local/share/applications/z.desktop")
+            )]
         );
         std::fs::remove_dir_all(dir).unwrap();
     }
