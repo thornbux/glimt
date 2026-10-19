@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.38.2] - 2026-10-19
+
 ### Fixed
 
 - In the Pan view, an image whose camera left its EXIF date blank is under No date, instead of a
@@ -1573,7 +1575,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.2...HEAD
+[0.38.2]: https://github.com/thornbux/glimt/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/thornbux/glimt/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/thornbux/glimt/compare/v0.37.2...v0.38.0
 [0.37.2]: https://github.com/thornbux/glimt/compare/v0.37.1...v0.37.2
