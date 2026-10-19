@@ -247,6 +247,14 @@ pub fn client(
         }
         command = format!("select {}", sent.join("\0"));
     }
+    // A name that is not UTF-8 cannot go in the text sent; made lossy, it would name no file.
+    if words.first().is_some_and(|w| w == "open") && paths.iter().any(|p| p.to_str().is_none()) {
+        eprintln!(
+            "glimt: cannot send {:?}: not UTF-8",
+            paths.first().unwrap_or(&"".into())
+        );
+        std::process::exit(2);
+    }
     // The running Glimt has another working folder: send the full path.
     if let Some(path) = command.strip_prefix("open ") {
         let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
