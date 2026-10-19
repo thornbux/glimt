@@ -102,31 +102,37 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
             free(&file).then_some(())?;
             let mut bytes = Vec::new();
             file.read_to_end(&mut bytes).ok()?;
-            let mut parts: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
-            let counted = parts.first() == Some(&COUNTED);
-            if counted {
-                parts.remove(0);
-            }
-            // After the paths, each ending in a NUL, a NUL for each rename done.
-            let done = parts
-                .iter()
-                .filter(|p| p.is_empty())
-                .count()
-                .saturating_sub(1);
-            let paths: Vec<PathBuf> = (parts.iter())
-                .filter(|p| !p.is_empty())
-                .map(|p| PathBuf::from(OsStr::from_bytes(p)))
-                .collect();
-            // Made a moment ago and not yet locked or written: not one left by a crash.
-            if paths.is_empty() {
-                return None;
-            }
-            let moves = (paths.as_chunks::<2>().0.iter()).map(|[a, b]| (a.clone(), b.clone()));
-            let moves: Moves = moves.collect();
-            let done = counted.then(|| done.min(moves.len()));
+            let (moves, done) = parse(&bytes)?;
             Some((e.path(), moves, done))
         })
         .collect()
+}
+
+/// A plan's renames and how many were done; `None` for one with no paths.
+fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
+    let mut parts: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
+    let counted = parts.first() == Some(&COUNTED);
+    if counted {
+        parts.remove(0);
+    }
+    // After the paths, each ending in a NUL, a NUL for each rename done.
+    let done = parts
+        .iter()
+        .filter(|p| p.is_empty())
+        .count()
+        .saturating_sub(1);
+    let paths: Vec<PathBuf> = (parts.iter())
+        .filter(|p| !p.is_empty())
+        .map(|p| PathBuf::from(OsStr::from_bytes(p)))
+        .collect();
+    // Made a moment ago and not yet locked or written: not one left by a crash.
+    if paths.is_empty() {
+        return None;
+    }
+    let moves = (paths.as_chunks::<2>().0.iter()).map(|[a, b]| (a.clone(), b.clone()));
+    let moves: Moves = moves.collect();
+    let done = counted.then(|| done.min(moves.len()));
+    Some((moves, done))
 }
 
 /// Put the old names back, or finish the renames: the `done` steps undone, or the rest done, each
@@ -317,6 +323,17 @@ mod tests {
     /// step, for a swap, a cycle of three, a shift and plain new names: put back gives every
     /// old name, finished every new one, no hidden name is left, and a second settle does
     /// nothing.
+    /// Damaged plans are read without a panic, and never count more steps done than they have.
+    #[test]
+    fn survives_broken_plans() {
+        let seed = b"counted\0/p/a\0/p/.t-0\0/p/b\0/p/.t-1\0/p/.t-0\0/p/b\0\0\0";
+        for bytes in crate::broken(seed) {
+            if let Some((moves, Some(done))) = super::parse(&bytes) {
+                assert!(done <= moves.len());
+            }
+        }
+    }
+
     /// A plan kept when its renames could not be undone is there at the next start, with the
     /// steps it had done.
     #[test]
