@@ -576,6 +576,36 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// The names in keys= of the settings file are frozen since 1.0: an action or a key name
+    /// changed would take every user's own keys away. src/keys-1.0.txt holds the names of 1.0;
+    /// new ones are added there, never one taken out or changed.
+    #[test]
+    fn names_of_1_0_are_kept() {
+        let now: std::collections::HashSet<String> = (super::SHORTCUTS.iter())
+            .flat_map(|(a, _, k)| [format!("{a:?}"), k.name().to_owned()])
+            .collect();
+        let frozen: Vec<&str> = (include_str!("keys-1.0.txt").lines())
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .collect();
+        let mut sorted: Vec<&String> = now.iter().collect();
+        sorted.sort();
+        assert!(
+            !frozen.is_empty(),
+            "the names now:\n{}",
+            sorted
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        for name in frozen {
+            assert!(
+                now.contains(name),
+                "{name} is gone: it is in users' keys= since 1.0"
+            );
+        }
+    }
+
     /// Own keys survive the config file, and replace the defaults of their action.
     #[test]
     fn own_keys() {

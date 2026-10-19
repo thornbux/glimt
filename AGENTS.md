@@ -27,6 +27,16 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 - New user-visible features are described in `src/help.rs` (manual, shortcuts, keyboard map)
   and, where relevant, in `README.md`.
 
+## Frozen in 1.x
+
+What README's "What 1.x promises" lists stays as it is until a 2.0: the command-line options,
+the `--remote` commands with their answers and exit codes, the settings file's keys and values
+(a list of choices grows at its end only, `config::NAMED`), the files Glimt owns, and the
+desktop file formats of plugins and decoders. Add; never take away or change a meaning. A
+setting that goes out of use keeps being read and ignored. Never rename an `Action` variant or
+rely on a changed key name: they are the `keys=` format, pinned by `src/keys-1.0.txt` and its
+test; new ones go at the end of that file.
+
 ## Language
 
 English for everything in the repository: UI text, identifiers, comments, commit messages and

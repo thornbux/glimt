@@ -611,6 +611,21 @@ contrast and screen profile over D-Bus. Plugins and decoder plugins are programs
 Glimt starts with the files you chose; Glimt sends their files nowhere. Remote commands reach
 only your own Glimt windows on this computer, through a private socket.
 
+## What 1.x promises
+
+From 1.0 until a 2.0 these stay as they are, and a change to any of them is a bug to report:
+
+- the command-line options, and the `--remote` commands with their answers and exit codes;
+- the settings file: its keys and their values. A later version may add keys and values; the
+  file of an earlier version is read, and keys it does not know are kept;
+- the files Glimt makes and reads: collections (`.gqv`, as Geeqie's), marks, the keyword tree,
+  themes, and the `.xmp` sidecars;
+- the desktop files of plugins and decoders, and what a decoder is given and must give back;
+- the keys, as Geeqie's, and the names in `keys=` of the settings file.
+
+The table of differences in Help (F1) lists where Glimt deliberately differs from Geeqie; those
+are not bugs.
+
 ## Files
 
 | What | Where |
