@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename refuses a new name whose sidecar is left over from another file, as Rename Many does,
+  instead of giving the renamed photo that file's keywords and stars.
 - A sidecar moved along with its image to another drive is on disk there before the original goes,
   as the image is, so a stick pulled out or a power cut no longer loses its keywords.
 - Rename Many that cannot put every name back after a failure (a share that stopped answering)

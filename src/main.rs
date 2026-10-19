@@ -6721,17 +6721,19 @@ impl App {
             }
             Prompt::Rename if self.files.is_empty() => return,
             Prompt::Rename if target == self.path(self.cur) => return,
-            // rename() would silently replace an existing file.
-            Prompt::Rename if target.exists() => Err(std::io::ErrorKind::AlreadyExists.into()),
             Prompt::RenameMany => return self.rename_many(ctx, text),
             Prompt::NewCollection
             | Prompt::RenameCollection
             | Prompt::SaveTheme
             | Prompt::RenameFolder => return,
-            Prompt::Rename => std::fs::rename(self.path(self.cur), &target).inspect(|_| {
-                meta::follow(&self.path(self.cur), &target, false);
-                self.paths_moved(vec![(self.path(self.cur), target.clone())], false);
-            }),
+            // As Rename Many does it: never over a file or another file's sidecar there.
+            Prompt::Rename => {
+                file_ops::rename_files(vec![self.path(self.cur)], vec![target.clone()])
+                    .map_err(std::io::Error::other)
+                    .inspect(|_| {
+                        self.paths_moved(vec![(self.path(self.cur), target.clone())], false);
+                    })
+            }
         };
         match (result, prompt) {
             (Ok(()), Prompt::NewFolder) => self.list(ctx),
