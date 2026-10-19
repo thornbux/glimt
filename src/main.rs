@@ -5385,17 +5385,26 @@ impl App {
         }
     }
 
-    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random, fullscreen,
-    /// subfolders on|off, quit, or open PATH.
+    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random and
+    /// fullscreen (each with on or off, or without to go to the other), subfolders on|off, quit,
+    /// or open PATH.
     fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let action = match command.trim() {
             "next" => Some(Action::Next),
             "prev" => Some(Action::Prev),
             "first" => Some(Action::First),
             "last" => Some(Action::Last),
-            "slideshow" => Some(Action::Slideshow),
+            // With on or off, a state a script can count on: nothing when it is so already.
+            "slideshow on" if self.slideshow.is_some() => None,
+            "slideshow off" if self.slideshow.is_none() => None,
+            "slideshow" | "slideshow on" | "slideshow off" => Some(Action::Slideshow),
             "random" => Some(Action::RandomOrder),
-            "fullscreen" => Some(Action::FullScreen),
+            "random on" => return self.set_random_order(ctx, true),
+            "random off" => return self.set_random_order(ctx, false),
+            "fullscreen on" if fullscreen => None,
+            "fullscreen off" if !fullscreen => None,
+            "fullscreen" | "fullscreen on" | "fullscreen off" => Some(Action::FullScreen),
             "quit" => {
                 // The only way out of a kiosk.
                 self.kiosk_quit = true;

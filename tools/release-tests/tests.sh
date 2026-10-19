@@ -678,6 +678,24 @@ quit" >/dev/null 2>&1; refused=$?
 done
 as_version new
 
+echo "-- --remote slideshow on twice keeps it running, off twice keeps it stopped: a state, not a toggle"
+d=/tmp/remote-on-off
+mkdir -p $d
+# Five images: the first slide comes at once, then one a second, so 2.5 s in it is on c or d.
+for f in a b c d e; do convert -size 64x64 xc:red $d/$f.png; done
+config delay=1
+start $d/a.png; sleep 2
+$BIN --remote slideshow on >/dev/null 2>&1; $BIN --remote slideshow on >/dev/null 2>&1; sleep 2.5
+moved=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+$BIN --remote slideshow off >/dev/null 2>&1; $BIN --remote slideshow off >/dev/null 2>&1; sleep 0.5
+was=$($BIN --remote current 2>/dev/null | tr -d '\0'); sleep 2.5
+still=$($BIN --remote current 2>/dev/null | tr -d '\0')
+$BIN --remote random on >/dev/null 2>&1; $BIN --remote random on >/dev/null 2>&1; sleep 1
+quit
+expect "on twice: running, past a.png" "$([ "$moved" != a.png ] && echo moved)" moved
+expect "off twice: stopped, the image stays" "$([ "$was" = "$still" ] && echo stays)" stays
+expect "random on twice: on" "$(grep -c '^random=true$' $XDG_CONFIG_HOME/glimt/config)" 1
+
 echo "-- --remote select while Preferences is open: answered at once"
 for v in new old; do
     as_version $v

@@ -98,6 +98,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   an image being saved turned waits, as Delete does, and its own report no longer ends that save's
   guard.
 
+### Added
+
+- glimt --remote slideshow, random and fullscreen take on or off, so a script sets a state instead
+  of flipping whatever the window was in; without the word they go to the other, as before.
+
 ## [0.38.3] - 2026-10-19
 
 ### Fixed

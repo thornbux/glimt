@@ -17,9 +17,18 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("prev", "Show the previous image"),
     ("first", "Show the first image"),
     ("last", "Show the last image"),
-    ("slideshow", "Start or stop the slideshow"),
-    ("random", "Turn random order on or off"),
-    ("fullscreen", "Enter or leave full screen"),
+    (
+        "slideshow [on|off]",
+        "Start or stop the slideshow; without the word, the other of the two",
+    ),
+    (
+        "random [on|off]",
+        "Random order on or off; without the word, the other",
+    ),
+    (
+        "fullscreen [on|off]",
+        "Enter or leave full screen; without the word, the other",
+    ),
     (
         "subfolders on|off",
         "Include the images of the subfolders in the list, or not (View → Include Subfolders)",
@@ -112,7 +121,7 @@ pub fn name_fits(name: &str) -> bool {
 }
 
 /// One of `COMMANDS`, with a path where it takes one and none where it does not: `open` takes
-/// one path, `select` any number of files.
+/// one path, `select` any number of files, and a choice in brackets ([on|off]) may be left out.
 pub fn known(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
@@ -120,9 +129,12 @@ pub fn known(words: &[String]) -> bool {
             return false;
         }
         match parts.next() {
-            // A choice of words ("on|off") takes one of them, alone.
+            // A choice of words ("on|off") takes one of them, alone; in brackets, or none.
             Some(choices) if choices.contains('|') => {
-                words.len() == 2 && choices.split('|').any(|w| w == words[1])
+                let optional = choices.starts_with('[');
+                let choices = choices.trim_matches(|c| c == '[' || c == ']');
+                (optional && words.len() == 1)
+                    || (words.len() == 2 && choices.split('|').any(|w| w == words[1]))
             }
             Some(many) if many.ends_with('…') => words.len() >= 2,
             Some(_) => words.len() == 2,
@@ -432,6 +444,8 @@ mod tests {
         assert!(super::known(&words("subfolders on")));
         assert!(!super::known(&words("subfolders")));
         assert!(super::known(&words("subfolders off")));
+        assert!(super::known(&words("slideshow")) && super::known(&words("slideshow off")));
+        assert!(!super::known(&words("slideshow yes")) && !super::known(&words("random on off")));
         assert!(
             !super::known(&words("subfolders yes")) && !super::known(&words("subfolders on off"))
         );
