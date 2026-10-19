@@ -3550,15 +3550,24 @@ impl App {
         };
         let m = self.matches.as_deref();
         let row = m.map_or(Some(from), |m| self.row_of(m, from));
-        let round_over = round_ends(row, delta, m.map_or(self.files.len(), <[usize]>::len));
+        let shown = m.map_or(self.files.len(), <[usize]>::len);
+        let round_over = round_ends(row, delta, shown);
         let delay = std::time::Duration::from_secs(self.config.delay);
         let left = delay.saturating_sub(last.elapsed());
         if !left.is_zero() {
             ctx.request_repaint_after(left);
         } else if round_over && !self.config.slideshow_repeat {
             self.stop_slideshow(ctx);
-        } else if self.shuffled && round_over && self.files.len() > 2 {
-            // New round: shuffle again instead of repeating the same order.
+        } else if self.shuffled
+            && round_over
+            && row.is_some()
+            && self.files.len() > 2
+            && !round_ends(Some(0), delta, shown)
+        {
+            // New round: shuffle again instead of repeating the same order. Not when a search
+            // hides the shown image, nor when it shows no more images than one step: the
+            // shuffled list starts with the shown image, so the round would be over again and
+            // shuffled on every frame; the slideshow goes on as in order instead.
             self.shuffle_list(ctx, true);
         } else if !self.decodes_pending.contains_key(&(next, false)) {
             let before = self.shown_textures();
