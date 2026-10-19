@@ -1137,6 +1137,7 @@ for v in new old; do
     if [ $v = new ]; then expect "n59 and n58 shown in pan view" "$got" "red green"
     else note "old: $got"; fi
 done
+as_version new
 
 echo "-- Escape closes the pan view"
 d=/tmp/pan-escape
@@ -1986,7 +1987,7 @@ start $d/a.png; sleep 2
 click 20 11; click 87 228; sleep 2                     # File → Open With Default App
 click 20 11; xdotool mousemove 49 252; sleep 3         # File → Open With: the list, from gio
 shot open-with
-click 268 252; sleep 2                                 # Stamp
+click 310 252; sleep 2                                 # Stamp, right of its icon
 quit
 rm -f /tmp/stub/gio $XDG_DATA_HOME/applications/stamp.desktop
 expect "gio open, then gio launch of the chosen application" "$(cat $d/ran 2>/dev/null | tr '\n' ' ')" \
