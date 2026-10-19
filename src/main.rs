@@ -137,6 +137,28 @@ fn in_parts<T: Sync, R: Send>(
     })
 }
 
+/// What a background thread's receiver has: nothing yet, its answer, or the thread gone without
+/// one (it panicked). Taken, the receiver is dropped, so nothing waits for it for ever.
+enum Took<T> {
+    Nothing,
+    Answer(T),
+    Gone,
+}
+
+fn took<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Took<T> {
+    match rx.as_ref().map(mpsc::Receiver::try_recv) {
+        None | Some(Err(mpsc::TryRecvError::Empty)) => Took::Nothing,
+        Some(Ok(answer)) => {
+            *rx = None;
+            Took::Answer(answer)
+        }
+        Some(Err(mpsc::TryRecvError::Disconnected)) => {
+            *rx = None;
+            Took::Gone
+        }
+    }
+}
+
 /// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
 /// pan view.
 fn background_threads() -> usize {
@@ -4846,19 +4868,22 @@ impl App {
 
     /// The exif: search index once it is read, and the search again with it.
     fn receive_exif_index(&mut self, ctx: &egui::Context) {
-        if let Some(index) = self
-            .exif_index_rx
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.exif_index_rx = None;
-            // The files read again go into the index there is; else this is the whole index.
-            match &mut self.exif_index {
-                Some(old) => old.extend(index),
-                None => self.exif_index = Some(index),
+        let index = match took(&mut self.exif_index_rx) {
+            Took::Nothing => return,
+            Took::Answer(index) => index,
+            // Without any index the search would start reading again at once: an empty one,
+            // and the user told.
+            Took::Gone => {
+                self.stopped(tr("The EXIF index"));
+                HashMap::new()
             }
-            self.update_search(ctx);
+        };
+        // The files read again go into the index there is; else this is the whole index.
+        match &mut self.exif_index {
+            Some(old) => old.extend(index),
+            None => self.exif_index = Some(index),
         }
+        self.update_search(ctx);
     }
 
     /// The files a search finds: one term as it always was (fuzzy names best first), or terms
@@ -6156,26 +6181,35 @@ impl App {
         if self.relist && self.listing_rx.is_none() {
             self.list(ctx);
         }
-        if let Some(Ok(read)) = self.lightroom_rx.as_ref().map(|rx| rx.try_recv()) {
-            self.lightroom_rx = None;
-            match read {
-                Ok(catalog) => {
-                    let now = lightroom::roots_now(&catalog);
-                    self.lightroom = Some(lightroom::Import {
-                        catalog,
-                        now,
-                        plan: None,
-                    });
-                }
-                Err(e) => self.notice = Some(e),
+        match took(&mut self.lightroom_rx) {
+            Took::Nothing => {}
+            Took::Gone => self.stopped(tr("Reading the Lightroom catalog")),
+            Took::Answer(Ok(catalog)) => {
+                let now = lightroom::roots_now(&catalog);
+                self.lightroom = Some(lightroom::Import {
+                    catalog,
+                    now,
+                    plan: None,
+                });
             }
+            Took::Answer(Err(e)) => self.notice = Some(e),
         }
-        if let Some(Ok(result)) = self.renaming.as_ref().map(|r| r.0.try_recv()) {
-            let (_, job) = self.renaming.take().unwrap();
-            self.renamed(ctx, job, result);
+        match self.renaming.as_ref().map(|r| r.0.try_recv()) {
+            Some(Ok(result)) => {
+                let (_, job) = self.renaming.take().unwrap();
+                self.renamed(ctx, job, result);
+            }
+            // Gone without a word: not waited for at closing, Rename Many not refused for ever.
+            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+                self.renaming = None;
+                self.stopped(tr("Rename Many"));
+            }
+            _ => {}
         }
-        if let Some(Ok(found)) = self.cut_short_rx.as_ref().map(|rx| rx.try_recv()) {
-            (self.cut_short, self.cut_short_rx) = (found, None);
+        match took(&mut self.cut_short_rx) {
+            Took::Answer(found) => self.cut_short = found,
+            Took::Gone => self.stopped(tr("Looking for renames cut short")),
+            Took::Nothing => {}
         }
         while let Ok(msg) = self.notices_rx.try_recv() {
             self.notice = Some(msg);
@@ -6188,10 +6222,20 @@ impl App {
         self.receive_picked(ctx);
     }
 
+    /// A background thread ended without its answer (it panicked on something): told, so the
+    /// user knows why `what` did not come, instead of a pointer or a dialog waiting for ever.
+    fn stopped(&mut self, what: &str) {
+        self.notice = Some(tf!("{what} stopped unexpectedly", what));
+    }
+
     /// A share mounted, or why not: its folder opens, or the error or a login is asked for.
     fn receive_mount(&mut self, ctx: &egui::Context) {
-        if let Some(done) = self.mounting_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.mounting_rx = None;
+        let done = match took(&mut self.mounting_rx) {
+            Took::Nothing => return,
+            Took::Gone => return self.stopped(tr("Connecting")),
+            Took::Answer(done) => done,
+        };
+        {
             // "Connecting to …" goes: the folder, the error or the login takes its place.
             self.notice = None;
             match done {
@@ -8828,6 +8872,24 @@ mod tests {
         assert_eq!(next_slide(at, Some(1), true, false, true), Slide::Hold);
         assert_eq!(next_row(None, 1, 3, true), Some(0));
         assert_eq!(next_row(Some(2), 1, 3, false), Some(2));
+    }
+
+    /// A thread's answer is taken once; a thread gone without one is told once, then nothing
+    /// waits for it.
+    #[test]
+    fn a_thread_gone_is_noticed_once() {
+        use super::Took;
+        let (tx, rx) = std::sync::mpsc::channel::<u8>();
+        let mut rx = Some(rx);
+        assert!(matches!(super::took(&mut rx), Took::Nothing));
+        tx.send(7).unwrap();
+        assert!(matches!(super::took(&mut rx), Took::Answer(7)));
+        assert!(rx.is_none());
+        let (tx, rx) = std::sync::mpsc::channel::<u8>();
+        let mut rx = Some(rx);
+        drop(tx);
+        assert!(matches!(super::took(&mut rx), Took::Gone));
+        assert!(matches!(super::took(&mut rx), Took::Nothing));
     }
 
     #[test]

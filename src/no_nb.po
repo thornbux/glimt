@@ -2045,3 +2045,31 @@ msgstr "søn"
 #: src/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Skriver fortsatt nøkkelord: prøv igjen om et øyeblikk"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} stoppet uventet"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Tilkobling"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Lesing av Lightroom-katalogen"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Leting etter avbrutte omdøpinger"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "EXIF-indeksen"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Panoramavisningens dager"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Gi mange nye navn"

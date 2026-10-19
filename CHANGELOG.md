@@ -22,6 +22,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A background thread that ends without its answer (it broke on a file) is told once, and nothing
+  waits for it any more: Rename Many is not refused for the rest of the session, closing does not
+  wait for ever, the Pan view, Find Duplicates and the exif: search do not stay at Comparing or
+  Calculating. Find Duplicates leaves out only the file that broke its reader, not the whole share
+  of the list that worker had.
 - The exif: index and the Pan view's days stop being read when the folder is left or the window
   closed, instead of reading every file to the end for no one and keeping the busy pointer on.
 - A move within a file system is one step that never replaces a file (renameat2 with

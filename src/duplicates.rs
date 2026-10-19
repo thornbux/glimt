@@ -101,11 +101,7 @@ pub fn find(
         }
         By::Similar(percent) => {
             let signatures = parallel(&paths, p, |path| {
-                // A decoder panicking on a broken file would end this worker and drop its share
-                // of the files from the comparison.
-                let thumb =
-                    crate::decode::survive(|| crate::thumbs::thumbnail(path, rotate, save, false))
-                        .ok()?;
+                let thumb = crate::thumbs::thumbnail(path, rotate, save, false).ok()?;
                 Some(signature(&thumb))
             });
             similar(paths, signatures, percent, p)
@@ -169,7 +165,11 @@ fn parallel<T: Send>(
                         if i >= paths.len() || p.cancel.load(Ordering::Relaxed) {
                             return out;
                         }
-                        out.push((i, f(&paths[i])));
+                        // A file that breaks its reader is left out alone, not the worker's
+                        // whole share of the list with it.
+                        let found =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&paths[i])));
+                        out.push((i, found.ok().flatten()));
                         p.done.fetch_add(1, Ordering::Relaxed);
                     }
                 })
@@ -328,16 +328,22 @@ impl crate::App {
         let Some(mut dups) = self.dups.take() else {
             return;
         };
-        if let Some(Ok(groups)) = dups.groups_rx.as_ref().map(|rx| rx.try_recv()) {
-            dups.groups_rx = None;
-            // Stopped: no result, not "0 groups" as if every image had been compared.
-            if dups.progress.cancel.load(Ordering::Relaxed) {
+        match took(&mut dups.groups_rx) {
+            Took::Nothing => {}
+            Took::Gone => {
                 dups.searched = 0;
+                self.stopped(tr("Find Duplicates"));
             }
-            dups.groups = groups;
-            dups.sizes.clear();
-            dups.checked.clear();
-            dups.remove(&HashSet::new());
+            Took::Answer(groups) => {
+                // Stopped: no result, not "0 groups" as if every image had been compared.
+                if dups.progress.cancel.load(Ordering::Relaxed) {
+                    dups.searched = 0;
+                }
+                dups.groups = groups;
+                dups.sizes.clear();
+                dups.checked.clear();
+                dups.remove(&HashSet::new());
+            }
         }
         let (mut open, mut start, mut trash, mut show) = (true, false, false, None);
         egui::Window::new(tr("Find Duplicates"))
@@ -503,6 +509,21 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// One file that breaks its reader is left out alone; every other file keeps its result,
+    /// and the count of files done still reaches the total.
+    #[test]
+    fn a_broken_file_costs_only_itself() {
+        let paths: Vec<std::path::PathBuf> = (0..40).map(|i| format!("/p/{i}").into()).collect();
+        let p = super::Progress::default();
+        let got = super::parallel(&paths, &p, |path| match path.ends_with("7") {
+            true => panic!("a reader that breaks"),
+            false => Some(1),
+        });
+        assert_eq!(got.len(), 40);
+        assert_eq!(got.iter().filter(|g| g.is_none()).count(), 1);
+        assert!(got[7].is_none() && got[8].is_some());
+    }
+
     /// Files of one hash are grouped only when their bytes are the same.
     #[test]
     fn compares_the_bytes() {

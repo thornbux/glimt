@@ -206,11 +206,19 @@ impl crate::App {
             pan.days_rx = Some(rx);
         }
         // Days for a list that changed meanwhile are taken as old, and made again.
-        if let Some(days) = pan.days_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            pan.months = months(&days.0);
-            pan.days = Some(days);
-            pan.days_rx = None;
-            pan.columns = 0;
+        match took(&mut pan.days_rx) {
+            Took::Nothing => {}
+            Took::Answer(days) => {
+                pan.months = months(&days.0);
+                pan.days = Some(days);
+                pan.columns = 0;
+            }
+            // No days, for this list, so they are not made again at once; the user told.
+            Took::Gone => {
+                pan.days = Some((Vec::new(), self.files_gen));
+                pan.months = Vec::new();
+                self.stopped(tr("The Pan view's days"));
+            }
         }
         let (mut open, mut show, mut close) = (true, None, false);
         egui::Window::new(tr("Pan View"))
