@@ -296,9 +296,10 @@ fn update(
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
-    // The image moved or renamed while this waited: no sidecar of its old name.
+    // The image moved, renamed or deleted while this waited: no sidecar of its old name, and
+    // not counted as done.
     if std::fs::symlink_metadata(path).is_err() {
-        return Ok(());
+        return Err("the image was moved, renamed or deleted meanwhile".into());
     }
     let side = sidecar(path);
     let old = match std::fs::read_to_string(&side) {
@@ -719,7 +720,7 @@ mod tests {
     fn no_sidecar_for_an_image_gone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
         let file = dir.join("trip").join("a.jpg");
-        assert!(write_changed(&file, Some(vec!["x".into()]), None).is_ok());
+        assert!(write_changed(&file, Some(vec!["x".into()]), None).is_err());
         assert!(!dir.exists());
     }
 

@@ -2041,3 +2041,7 @@ msgstr "lør"
 #: src/pan.rs
 msgid "Sun"
 msgstr "søn"
+
+#: src/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Skriver fortsatt nøkkelord: prøv igjen om et øyeblikk"

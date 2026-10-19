@@ -62,14 +62,19 @@ impl crate::App {
         Some(found)
     }
 
-    /// No file of `paths`, or in a folder of them, is being saved turned; else a notice. Deleted, moved or renamed
-    /// meanwhile, a PNG or WebP would come back when its save puts it under its name again.
+    /// No file of `paths`, or in a folder of them, is being saved turned, and no keywords are
+    /// being written; else a notice. Deleted, moved or renamed meanwhile, a PNG or WebP would
+    /// come back when its save puts it under its name again, and a sidecar written file by file
+    /// would miss the files moved before their turn.
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
         let saving = (self.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
+        let writing = self.file_jobs.iter().any(|j| j.sidecars);
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
+        } else if writing {
+            self.notice = Some(tr("Still writing keywords: try again in a moment").into());
         }
-        !saving
+        !saving && !writing
     }
 
     /// Whether files are still being written (`config::WRITING`): file jobs, a turned image, a
@@ -80,6 +85,11 @@ impl crate::App {
 
     /// A file operation on `total` files, shown in the status bar until its thread drops it.
     pub(crate) fn start_job(&mut self, doing: &'static str, total: usize) -> Arc<Job> {
+        self.start_job_of(doing, total, false)
+    }
+
+    /// `start_job`, of the files' `sidecars` or of the files themselves.
+    fn start_job_of(&mut self, doing: &'static str, total: usize, sidecars: bool) -> Arc<Job> {
         let job = Arc::new(Job {
             doing,
             total,
@@ -87,6 +97,7 @@ impl crate::App {
             stop: Default::default(),
             started: Instant::now(),
             _writing: Working::new(&config::WRITING),
+            sidecars,
         });
         self.file_jobs.push(job.clone());
         job
@@ -822,7 +833,7 @@ impl crate::App {
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         use config::Work;
-        let job = self.start_job(doing, paths.len());
+        let job = self.start_job_of(doing, paths.len(), true);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let work: Work = Box::new(move || {

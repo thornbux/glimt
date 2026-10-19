@@ -200,6 +200,8 @@ struct Job {
     started: Instant,
     /// Every job writes files: closing waits for it, as long as its thread holds the job.
     _writing: Working,
+    /// Writes the sidecars of its files: they must not be moved, renamed or deleted meanwhile.
+    sidecars: bool,
 }
 
 impl Job {
