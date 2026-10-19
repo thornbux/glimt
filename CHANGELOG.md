@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Full screen in the Flatpak, on a host where no screen saver inhibitor runs, stays smooth,
+  instead of trying again on every frame and drawing about five frames a second (since 0.38.2).
 - New Collection works on a new install again, where the collections folder is not there yet,
   instead of saying the collection could not be saved (since 0.38.2).
 

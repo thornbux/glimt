@@ -1052,6 +1052,8 @@ struct App {
     window_state: WindowState,
     /// The screen saver inhibitor running while in full screen.
     inhibitor: Option<std::process::Child>,
+    /// Whether it was asked for: tried once, not on every frame where none could be started.
+    inhibit_on: bool,
     /// Since when the pointer has been away from an open menu of the menu bar.
     menu_away: Option<Instant>,
     /// Window → Projector: a second window with only the image, following this one.
@@ -1823,6 +1825,7 @@ impl App {
             path_text: String::new(),
             window_state: WindowState::default(),
             inhibitor: None,
+            inhibit_on: false,
             details: HashMap::new(),
             deleting: HashSet::new(),
             deleted_tx,
@@ -6365,12 +6368,15 @@ impl App {
     /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
     /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
     fn inhibit(&mut self, on: bool) {
-        if on == self.inhibitor.is_some() {
+        if on == self.inhibit_on {
             return;
         }
+        self.inhibit_on = on;
         if let Some(mut child) = self.inhibitor.take() {
             let _ = child.kill();
             std::thread::spawn(move || child.wait());
+        }
+        if !on {
             return;
         }
         let commands: [&[&str]; 2] = [
@@ -6401,8 +6407,8 @@ impl App {
                 .ok()?;
             // In a Flatpak, flatpak-spawn starts even when the host lacks the program, and ends
             // at once; a working inhibitor waits on its `cat`.
-            // shortcut: 100 ms in the window thread, once when full screen starts in a Flatpak;
-            // a thread of its own if that is ever felt.
+            // shortcut: up to 200 ms in the window thread, once when full screen starts in a
+            // Flatpak; a thread of its own if that is ever felt.
             if flatpak {
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 if let Ok(Some(_)) = child.try_wait() {
