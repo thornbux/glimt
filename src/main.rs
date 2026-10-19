@@ -2171,7 +2171,7 @@ impl App {
         let (list_dir, ctx2, types) = (self.dir.clone(), ctx.clone(), self.types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
-        let (recursive, shuffled) = (self.recursive, self.whole_shuffle);
+        let (recursive, shuffled) = (self.recursive, self.shuffled && self.whole_shuffle);
         let collection = self.collection.is_some().then(|| self.files.clone());
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.sort_collection;
@@ -2374,7 +2374,10 @@ impl App {
         }
         // A refresh during random order keeps the order, so Previous still goes back
         // through the images that were shown; a list shuffled whole in the thread stays as it is.
-        let files = if whole && self.shuffled && !std::mem::take(&mut self.whole_shuffle) {
+        // The flag is for this listing, taken whether or not the order is still random: left,
+        // it would shuffle every later listing.
+        let fresh = whole && std::mem::take(&mut self.whole_shuffle);
+        let files = if whole && self.shuffled && !fresh {
             merge_shuffled(&self.files, files)
         } else {
             files

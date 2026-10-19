@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A slideshow of the subfolders in random order stopped before its listing arrived no longer
+  leaves the folder in random order, shuffled again at every refresh.
 - In the Flatpak, whether a program is on the host is asked of the shell once (host_has) and
   remembered: the file dialogs, Open, the screen saver inhibitor and the Lightroom import decide
   their fallbacks the same way, and the release tests run them as a Flatpak.
