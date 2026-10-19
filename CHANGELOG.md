@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With Auto Rotate off, thumbnails are made as the image is stored, also in a folder seen before,
+  instead of taken upright from the shared cache.
 - In the Flatpak, a host without zenity falls back to kdialog for the file dialogs, opening with
   the default program falls back to xdg-open, and the screen saver is kept off by systemd-inhibit
   where gnome-session-inhibit is missing; a host with neither file dialog says so instead of doing

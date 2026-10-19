@@ -40,7 +40,11 @@ fn thumbnail_in(
     let uri = format!("file://{}", uri_path(path));
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
     let failed = cache.as_ref().map(|c| cache_file(c, FAILED, &uri));
-    if let (Some(file), Some(failed), Some(mtime)) = (&file, &failed, mtime) {
+    // The shared cache holds thumbnails turned upright, so with Auto Rotate off it is not read:
+    // the list would show turned what the image shows as stored.
+    // shortcut: every thumbnail made again with Auto Rotate off; reading the cache for images
+    // without an EXIF turn would need each format's orientation, if that is ever slow.
+    if rotate && let (Some(file), Some(failed), Some(mtime)) = (&file, &failed, mtime) {
         if let Some(img) = read_cached(file, mtime) {
             return Ok(img);
         }
