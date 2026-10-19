@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Keywords, comments and stars still waiting to be written when their folder is renamed no longer
+  make a folder of the old name again, full of sidecars of nothing.
 - A link planted beside a collection or a photo in a shared folder, where Glimt puts its lock or
   temporary file, no longer empties the file it points to.
 - Marks and stars of files moved to another folder go along with them also when the move's two

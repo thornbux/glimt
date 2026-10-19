@@ -296,6 +296,10 @@ fn update(
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
+    // The image moved or renamed while this waited: no sidecar of its old name.
+    if std::fs::symlink_metadata(path).is_err() {
+        return Ok(());
+    }
     let side = sidecar(path);
     let old = match std::fs::read_to_string(&side) {
         Ok(text) => text,
@@ -689,6 +693,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-bad-xmp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
         std::fs::write(sidecar(&file), b"\xff\xfe not UTF-8").unwrap();
         let meta = Meta {
             keywords: vec!["x".into()],
@@ -707,6 +712,16 @@ mod tests {
             b"\xff\xfe not UTF-8"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An image renamed with its folder while its keywords waited: no folder of the old name
+    /// made again, with a sidecar of nothing in it.
+    #[test]
+    fn no_sidecar_for_an_image_gone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
+        let file = dir.join("trip").join("a.jpg");
+        assert!(write_changed(&file, Some(vec!["x".into()]), None).is_ok());
+        assert!(!dir.exists());
     }
 
     /// exiftool's layout, a Description for each namespace: "dc" declared on the second one is
@@ -734,6 +749,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-tag-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
         let paths = |file: &Path| {
             items(
                 &std::fs::read_to_string(sidecar(file)).unwrap(),
@@ -933,6 +949,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-lock-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.png");
+        std::fs::write(&path, b"").unwrap();
         std::thread::scope(|s| {
             for k in 0..8 {
                 let path = &path;
@@ -963,6 +980,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-keep-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
         std::fs::write(
             sidecar(&file),
             r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -988,6 +1006,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-edit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
+        std::fs::write(&file, b"").unwrap();
         write_changed(&file, Some(vec!["a".into()]), None).unwrap();
         tag_file(&file, "b", true).unwrap();
         let meta = write_changed(&file, None, Some("c".into())).unwrap();
@@ -1040,6 +1059,7 @@ mod tests {
         follow(&b, &c, true);
         assert_eq!(read(&c), meta);
         // A sidecar at the target is another file's: it is kept, not replaced.
+        std::fs::write(&a, b"").unwrap();
         let other = Meta {
             keywords: vec!["other".into()],
             comment: String::new(),

@@ -4140,6 +4140,7 @@ impl App {
             }
         };
         let dirs = config::sort_folders_changed(on_disk, add, remove);
+        let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
         match config::replace_file(&path, config::sort_folders_text(&dirs)) {
             Ok(()) => self.sort_folders = dirs,
             Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),

@@ -735,8 +735,9 @@ pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()>
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let tmp = tmp_path(path);
     // On disk before the rename: after a crash the old file or the new one, never an empty one.
-    let result = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
-        .and_then(|_| new_beside(&tmp, path))
+    // No folder made: a sidecar or a collection whose folder was renamed meanwhile is not
+    // written into a new one of the old name.
+    let result = new_beside(&tmp, path)
         .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
@@ -762,7 +763,12 @@ pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     // Made new, never opened: a link left or planted at `tmp` would be followed and the file
     // it points to emptied.
     let _ = std::fs::remove_file(tmp);
-    let new = || std::fs::OpenOptions::new().write(true).create_new(true).clone();
+    let new = || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .clone()
+    };
     let Ok(old) = std::fs::metadata(path) else {
         return new().open(tmp);
     };
@@ -773,6 +779,7 @@ pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
 
 /// `replace_file`, with a failure on stderr: for files Glimt keeps for itself.
 pub fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) {
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     if let Err(e) = replace_file(path, bytes) {
         save_failed(format!("Could not save {}: {e}", path.display()));
     }
