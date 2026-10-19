@@ -179,6 +179,9 @@ best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -l
 # Never yes without a value of the new version: both missing would compare as equal.
 within() { [ "${1:-999999}" != 999999 ] && [ $(( $1 * 2 )) -le $(( ${2:-0} * 3 + ${3:-0} * 2 )) ] && echo yes; }
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
+# The control of a check that expects nothing to change: that the keys reach the window at all.
+# Full screen (f) fills the virtual screen; a key lost on the way leaves the window as it was.
+keys_arrive() { key f; sleep 1; xdotool getwindowgeometry $WIN 2>/dev/null | grep -q "1600x1000" && echo yes; key f; }
 # Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
 cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
 busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
@@ -313,10 +316,13 @@ for v in new old; do
     mkdir -p $d
     config
     start $d
+    arrived=$(keys_arrive)
     key bracketright; key bracketleft; key shift+m
     alive=$(kill -0 $GPID 2>/dev/null && echo runs || echo ended)
     quit
-    if [ $v = new ]; then expect "Glimt still runs" "$alive" runs
+    if [ $v = new ]; then
+        expect "the keys reach the window (the control)" "$arrived" yes
+        expect "Glimt still runs" "$alive" runs
     else note "old: $alive"; fi
 done
 as_version new
@@ -1615,10 +1621,13 @@ for v in new old; do
     config
     start $d/empty.gqv
     sleep 2
+    arrived=$(keys_arrive)
     key ctrl+shift+Up; key ctrl+shift+End; sleep 1
     running=$(kill -0 $GPID 2>/dev/null && echo running || echo crashed)
     quit
-    if [ $v = new ]; then expect "Glimt still runs" "$running" running
+    if [ $v = new ]; then
+        expect "the keys reach the window (the control)" "$arrived" yes
+        expect "Glimt still runs" "$running" running
     else note "old: $running"; fi
 done
 as_version new
@@ -2286,9 +2295,11 @@ config
 start $d
 sleep 4
 shot kinds
+arrived=$(keys_arrive)
 alive=$(kill -0 $GPID 2>/dev/null && echo yes || echo no)
 mb=$(awk '/RssAnon/ {print int($2 / 1024)}' /proc/$GPID/status 2>/dev/null)
 quit
+expect "the keys reach the window (the control)" "$arrived" yes
 expect "Glimt still runs" "$alive" yes
 if [ "${mb:-9999}" -lt 400 ]; then pass "memory stays small: $mb MB"; else fail "memory: ${mb:-?} MB"; fi
 
