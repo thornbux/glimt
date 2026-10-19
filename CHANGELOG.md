@@ -15,6 +15,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename, Rename Many, Copy and Move refuse a new name whose sidecar is another file's also when
+  the file has no sidecar of its own, so a photo never shows a stranger's keywords; one rule for
+  all four. A sidecar that cannot go with its copied or moved photo is told, instead of left
+  behind in silence.
 - A turned image whose save lands after the file was deleted, moved or renamed is not made again
   under its old name, whatever operation moved it: the save is refused and told. A plugin run on
   an image being saved turned waits, as Delete does, and its own report no longer ends that save's

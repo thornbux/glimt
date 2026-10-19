@@ -323,21 +323,20 @@ impl crate::App {
                     break;
                 }
                 let target = dest.join(path.file_name().unwrap_or_default());
-                // A sidecar at the new name belongs to another file: refused, as Rename does,
-                // so the photo neither gets that file's keywords nor leaves its own behind. Named
-                // only when the photo itself is not what is in the way.
-                let side = meta::sidecar(&target);
-                let taken = !target.exists() && meta::sidecar(path).exists() && side.exists();
-                let result = match taken {
-                    true => Err((side, std::io::ErrorKind::AlreadyExists.into())),
-                    false => put_file(path, &target, keep).map_err(|e| (target.clone(), e)),
+                let mut failed = |at: &Path, e: std::io::Error| {
+                    errors.push(format!("{display}: {e}", display = at.display()));
                 };
-                match result {
-                    Ok(()) => {
-                        meta::follow(path, &target, keep);
-                        put.push((path.clone(), target));
+                // The file, then its sidecar, which is told by its own name when it fails: the
+                // photo went, its keywords did not.
+                if let Some(at) = taken(&target, &HashSet::new()) {
+                    failed(&at, std::io::ErrorKind::AlreadyExists.into());
+                } else if let Err(e) = put_file(path, &target, keep) {
+                    failed(&target, e);
+                } else {
+                    if let Err(e) = meta::follow(path, &target, keep) {
+                        failed(&meta::sidecar(&target), e);
                     }
-                    Err((at, e)) => errors.push(format!("{display}: {e}", display = at.display())),
+                    put.push((path.clone(), target));
                 }
                 job.did(1);
             }
@@ -672,6 +671,16 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
     }
 }
 
+/// The name in the way of a file going to `to`, if any: `to` itself, or a sidecar at the new
+/// name that is another file's, whether or not the file has one of its own (the photo would
+/// show that file's keywords and stars, and leave its own behind). `ours` are the operation's
+/// own names, which a swap reuses. The one rule for Copy, Move, Rename and Rename Many.
+pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
+    [to.to_path_buf(), meta::sidecar(to)]
+        .into_iter()
+        .find(|p| p.exists() && !ours.contains(p))
+}
+
 /// Rename `from` to `to` with their sidecars, all or none: refused when a new name is another
 /// file's, through temporary names when names swap, with the plan on disk while it runs, and
 /// undone on a failure. Never replaces a file, also one another program makes meanwhile.
@@ -686,12 +695,11 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
         from.push(f);
         to.push(t);
     }
-    // Checked with the sidecars too: one at a new name belongs to another file.
     let sources: HashSet<&PathBuf> = from.iter().collect();
-    if let Some(taken) = to.iter().find(|t| t.exists() && !sources.contains(t)) {
+    if let Some(at) = to.iter().find_map(|t| taken(t, &sources)) {
         return Err(tf!(
             "{name} exists already; nothing renamed",
-            name = taken.display()
+            name = at.display()
         ));
     }
     let swap = to.iter().any(|t| sources.contains(t));
@@ -989,7 +997,7 @@ mod tests {
     }
 
     /// Rename Many swaps names with their sidecars, and refuses, renaming nothing, when a new
-    /// name's sidecar is another file's.
+    /// name's sidecar is another file's, also for a file without a sidecar of its own.
     #[test]
     fn renames_many_all_or_none() {
         let dir = std::env::temp_dir().join(format!("glimt-test-many-{}", std::process::id()));
@@ -1006,6 +1014,19 @@ mod tests {
         );
         std::fs::write(p("c.jpg.xmp"), "c's").unwrap();
         assert!(super::rename_files(vec![p("b.jpg")], vec![p("c.jpg")]).is_err());
+        // Also for a file without a sidecar of its own: it would show c's keywords.
+        std::fs::write(p("d.jpg"), "d").unwrap();
+        assert!(super::rename_files(vec![p("d.jpg")], vec![p("c.jpg")]).is_err());
+        assert!(p("d.jpg").exists() && !p("c.jpg").exists());
+        // The one rule, by name: the file in the way first, else the stranger's sidecar, and
+        // the operation's own names never.
+        let ours: std::collections::HashSet<&std::path::PathBuf> = Default::default();
+        assert_eq!(super::taken(&p("c.jpg"), &ours), Some(p("c.jpg.xmp")));
+        assert_eq!(super::taken(&p("b.jpg"), &ours), Some(p("b.jpg")));
+        assert_eq!(super::taken(&p("z.jpg"), &ours), None);
+        let (b, bx) = (p("b.jpg"), p("b.jpg.xmp"));
+        let ours = std::collections::HashSet::from([&b, &bx]);
+        assert_eq!(super::taken(&p("b.jpg"), &ours), None);
         assert_eq!(
             (read("b.jpg"), read("c.jpg.xmp")),
             ("a".into(), "c's".into())

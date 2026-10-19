@@ -322,13 +322,17 @@ fn update(
 }
 
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
-pub fn follow(from: &Path, to: &Path, copy: bool) {
+pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     let (side, to) = (sidecar(from), sidecar(to));
+    if !side.exists() {
+        return Ok(());
+    }
     // As the file went: on disk before the original goes, never over one there, which belongs
     // to another file or is a copy kept on purpose. One that cannot be moved (someone else's in
     // a shared folder) is copied, so the keywords go with the photo.
-    if side.exists() && crate::file_ops::put_file(&side, &to, copy).is_err() && !copy {
-        let _ = crate::file_ops::put_file(&side, &to, true);
+    match crate::file_ops::put_file(&side, &to, copy) {
+        Err(_) if !copy => crate::file_ops::put_file(&side, &to, true),
+        done => done,
     }
 }
 
@@ -1048,10 +1052,10 @@ mod tests {
         write_changed(&a, Some(meta.keywords.clone()), Some(meta.comment.clone())).unwrap();
         assert_eq!(read(&a), meta);
         std::fs::rename(&a, &b).unwrap();
-        follow(&a, &b, false);
+        follow(&a, &b, false).unwrap();
         assert_eq!(read(&b), meta);
         std::fs::copy(&b, &c).unwrap();
-        follow(&b, &c, true);
+        follow(&b, &c, true).unwrap();
         assert_eq!(read(&c), meta);
         // A sidecar at the target is another file's: it is kept, not replaced.
         std::fs::write(&a, b"").unwrap();
@@ -1065,7 +1069,7 @@ mod tests {
             Some(other.comment.clone()),
         )
         .unwrap();
-        follow(&b, &a, true);
+        assert!(follow(&b, &a, true).is_err());
         assert_eq!(read(&a), other);
         std::fs::remove_dir_all(&dir).unwrap();
     }

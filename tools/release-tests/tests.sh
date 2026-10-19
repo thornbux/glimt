@@ -2157,12 +2157,16 @@ for v in new old; do
     convert -size 64x64 xc:red $d/src/a.jpg
     echo mine >$d/src/a.jpg.xmp
     echo orphan >$d/to/a.jpg.xmp
+    # c.jpg has no sidecar; the orphan c.jpg.xmp in "to" would become its keywords.
+    convert -size 64x64 xc:red $d/src/c.jpg
+    echo orphan >$d/to/c.jpg.xmp
     config
     start $d/src/a.jpg; sleep 2
+    key ctrl+a
     answer $d/to
     key ctrl+m; sleep 2
     quit
-    side="$(ls $d/src | tr '\n' ' ')$(cat $d/to/a.jpg.xmp)"
+    side="$(ls $d/src | tr '\n' ' ')$(cat $d/to/a.jpg.xmp) $(ls $d/to | tr '\n' ' ')"
     # A folder the file cannot be taken out of: linked to the other, then not unlinked.
     convert -size 64x64 xc:red $d/ro/b.jpg
     chmod 555 $d/ro
@@ -2173,7 +2177,7 @@ for v in new old; do
     chmod 755 $d/ro
     kept="$(ls $d/ro) $(ls $d/to2 | wc -l)"
     if [ $v = new ]; then
-        expect "the photo and its sidecar stay, the other file's sidecar as it was" "$side" "a.jpg a.jpg.xmp orphan"
+        expect "the photos and the sidecar stay, the other files' sidecars as they were" "$side" "a.jpg a.jpg.xmp c.jpg orphan a.jpg.xmp c.jpg.xmp "
         expect "the file still in its read-only folder, no second name in the other" "$kept" "b.jpg 0"
     else note "old: $side; $kept"; fi
 done
