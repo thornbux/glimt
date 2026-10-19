@@ -386,6 +386,37 @@ for v in new old; do
 done
 as_version new
 
+echo "-- no busy loop: zoomed panes, a random slideshow behind a search"
+# Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
+# The slideshow changes its image every second, which costs some; the old loop costs thousands.
+cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
+busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
+d=/tmp/busy
+mkdir -p $d/panes $d/show
+for i in 1 2 3 4; do convert -size 3000x2000 xc: +noise Random -quality 85 $d/panes/$i.jpg; done
+for i in 1 2 3 4 5 6; do convert -size 64x64 xc:red $d/show/alpha$i.png; done
+convert -size 64x64 xc:blue $d/show/omega.png
+for v in new old; do
+    as_version $v
+    config layout=2x2
+    start $d/panes/1.jpg; sleep 3
+    key z; sleep 3
+    panes=$(busy)
+    quit
+    # No fade: it draws every frame for its 400 ms, which is wanted, not a busy loop.
+    config random=true slideshow_repeat=true delay=1 fade=0
+    start --slideshow $d/show; sleep 2
+    key slash; xdotool type omega; sleep 2
+    slideshow=$(busy)
+    quit
+    if [ $v = new ]; then
+        expect "zoomed panes: Glimt at rest" "$([ $panes -lt 60 ] && echo yes)" yes
+        expect "a random slideshow behind a search: Glimt at rest" "$([ $slideshow -lt 300 ] && echo yes)" yes
+    fi
+    note "$v: ticks in 3 s: zoomed panes $panes, slideshow $slideshow"
+done
+as_version new
+
 echo "-- a delete that fails in a subfolder: the file comes back"
 for v in new old; do
     as_version $v
