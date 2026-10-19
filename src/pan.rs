@@ -13,7 +13,10 @@ pub type Day = (String, Vec<usize>);
 pub fn timeline(dir: &Path, files: &[OsString], exif: bool) -> Vec<Day> {
     if exif {
         // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
-        let dates = each(dir, files, |p| crate::exif::date(p, false));
+        // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
+        let dates = each(dir, files, |p| {
+            crate::exif::date(p, false).filter(|d| ymd(d).is_some())
+        });
         return by_day(dates, |d| d.get(..10).unwrap_or(d).replace(':', "-"));
     }
     let times = each(dir, files, |p| {
@@ -114,21 +117,25 @@ impl Month {
     }
 }
 
+/// The year, month and day of a date "2024-05-06" or EXIF's "2024:05:06 07:08:09"; `None` for
+/// one that is no day, such as the 0000:00:00 of a camera with its clock never set.
+fn ymd(date: &str) -> Option<(i32, u32, u32)> {
+    let mut parts = date.get(..10)?.split(['-', ':']).map(str::parse::<u32>);
+    let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    let ok = (1..=12).contains(&m) && y < 10_000 && (1..=days_in_month(y as i32, m)).contains(&day);
+    ok.then_some((y as i32, m, day))
+}
+
 /// The months of `days` that have images, oldest first; "No date" has none.
 pub fn months(days: &[Day]) -> Vec<Month> {
     let mut out: Vec<Month> = Vec::new();
     for (d, (date, _)) in days.iter().enumerate() {
-        let mut parts = date.splitn(3, '-').map(str::parse::<u32>);
-        let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (parts.next(), parts.next(), parts.next())
-        else {
+        let Some((y, m, day)) = ymd(date) else {
             continue;
         };
-        // A camera with its clock never set writes 0000:00:00; such a day is in no month.
-        if !(1..=12).contains(&m) || y >= 10_000 || !(1..=days_in_month(y as i32, m)).contains(&day)
-        {
-            continue;
-        }
-        let y = y as i32;
         match out.last_mut() {
             Some(last) if (last.year, last.month) == (y, m) => last.images.push((day, d)),
             _ => out.push(Month {
@@ -478,6 +485,16 @@ mod tests {
         assert_eq!(rows[4], (240.0, Row::Cells(1, 1)));
         assert_eq!(height, 3.0 * 20.0 + 4.0 * 100.0);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Days in either form; the blank date and the never set clock are none.
+    #[test]
+    fn reads_days() {
+        assert_eq!(ymd("2024:05:06 07:08:09"), Some((2024, 5, 6)));
+        assert_eq!(ymd("2024-02-29"), Some((2024, 2, 29)));
+        assert_eq!(ymd("    :  :     :  :  "), None);
+        assert_eq!(ymd("0000:00:00 00:00:00"), None);
+        assert_eq!(ymd("No date"), None);
     }
 
     /// Months with their weekdays and leap years; days in two months, and one without a date.
