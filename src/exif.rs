@@ -421,10 +421,7 @@ fn segment<'a>(data: &'a [u8], &(_, start, len): &(u8, usize, usize)) -> &'a [u8
 /// of the folder. `Some(None)` if it has none; `None` if it is no JPEG or that part is not enough
 /// to tell, so the decoder reads the whole file after all.
 pub fn jpeg_app1(path: &Path, prefix: &[u8]) -> Option<Option<Vec<u8>>> {
-    use std::io::Read;
-    let mut head = Vec::new();
-    let file = std::fs::File::open(path).ok()?;
-    file.take(1 << 18).read_to_end(&mut head).ok()?;
+    let head = crate::decode::read_head(path, 1 << 18).ok()?;
     if !head.starts_with(&[0xff, 0xd8]) {
         return None;
     }
@@ -516,18 +513,12 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
     // From the first MB, where it usually is, before the whole file; a MB of it at most.
     if crate::external::is_heif(path) {
-        use std::io::Read;
         let find = |data: &[u8]| {
             let at = (data.windows(8))
                 .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
             Some(data[at..data.len().min(at + (1 << 20))].to_vec())
         };
-        let mut head = Vec::new();
-        std::fs::File::open(path)
-            .ok()?
-            .take(1 << 20)
-            .read_to_end(&mut head)
-            .ok()?;
+        let head = crate::decode::read_head(path, 1 << 20).ok()?;
         // Found too near the head's end, it may be cut short (EXIF blocks reach 64 KB).
         let whole = head.len() < 1 << 20;
         let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);

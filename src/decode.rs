@@ -472,7 +472,7 @@ pub fn scaled_jpeg(
 }
 
 /// The first `max` bytes of `path`.
-fn read_head(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_head(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let mut head = Vec::new();
     std::fs::File::open(path)?
@@ -697,8 +697,7 @@ pub fn check(path: &Path) -> Result<(), String> {
 // data's start in blocks if motion photos of hundreds of MB make it slow.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    let scan = crate::exif::jpeg_scan_start(&data).unwrap_or(data.len());
-    Ok(data[scan..].windows(2).any(|w| w == [0xff, 0xd9]))
+    Ok(crate::raw::whole_jpeg(&data))
 }
 
 /// `work`, or an error if it panics: a decoder crashing on a broken file must not end the

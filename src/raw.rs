@@ -41,10 +41,7 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
 /// The EXIF block: the file itself if it is TIFF-based (its header is enough), else the one
 /// in the preview JPEG.
 pub fn exif(path: &Path) -> Option<Vec<u8>> {
-    use std::io::Read;
-    let mut head = Vec::new();
-    let file = std::fs::File::open(path).ok()?;
-    file.take(1 << 20).read_to_end(&mut head).ok()?;
+    let head = crate::decode::read_head(path, 1 << 20).ok()?;
     if matches!(head.get(..2), Some(b"II" | b"MM")) {
         return Some(head);
     }
