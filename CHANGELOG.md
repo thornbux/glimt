@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An image turned a quarter by hand in Fit, Fit Width or Fit Height is decoded once at the size
+  shown, instead of too small first and then again.
 - Zooming in a layout of several panes decodes each pane's image at full size once, instead of
   again and again on every frame with the panes never sharp.
 

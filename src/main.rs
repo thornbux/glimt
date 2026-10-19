@@ -7815,6 +7815,13 @@ impl App {
             (2, _) => [long, h],
             _ => [w.max(h); 2],
         };
+        // Turned a quarter by hand, the image's width is shown up the screen: the box it is
+        // shrunk into turns with it (Fill worked out the turned size above). Else a portrait
+        // turned to fit a wide view came too small, and was decoded again.
+        let view = match quarter && mode != 3 {
+            true => [view[1], view[0]],
+            false => view,
+        };
         let [pw, ph] = self.projector_size;
         self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
         long
