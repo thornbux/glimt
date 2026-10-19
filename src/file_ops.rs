@@ -327,9 +327,11 @@ impl crate::App {
                 }
                 let target = dest.join(path.file_name().unwrap_or_default());
                 // A sidecar at the new name belongs to another file: refused, as Rename does,
-                // so the photo neither gets that file's keywords nor leaves its own behind.
+                // so the photo neither gets that file's keywords nor leaves its own behind. Named
+                // only when the photo itself is not what is in the way.
                 let side = meta::sidecar(&target);
-                let result = match meta::sidecar(path).exists() && side.exists() {
+                let taken = !target.exists() && meta::sidecar(path).exists() && side.exists();
+                let result = match taken {
                     true => Err((side, std::io::ErrorKind::AlreadyExists.into())),
                     false => put_file(path, &target, keep).map_err(|e| (target.clone(), e)),
                 };
