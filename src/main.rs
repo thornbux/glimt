@@ -175,9 +175,19 @@ struct Pan {
     jump: Option<usize>,
 }
 
-/// Files a delete or a move was asked for, those that are gone now (found out in its thread,
-/// not one `stat` each in the window's), and whether to read the folder again.
-type Deleted = (Vec<PathBuf>, Vec<PathBuf>, bool);
+/// What a delete, move, copy or plugin reports, in one message: the files it was asked to
+/// delete or move, those gone now (found out in its thread, not one `stat` each in the
+/// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
+/// whose marks follow before the gone ones are forgotten. One message, so nothing depends on
+/// the order two would arrive in.
+#[derive(Default)]
+struct Deleted {
+    paths: Vec<PathBuf>,
+    gone: Vec<PathBuf>,
+    failed: bool,
+    moved: Vec<(PathBuf, PathBuf)>,
+    copied: bool,
+}
 
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
 /// import), for the status bar: how far it is, and a Stop that takes effect between files.
@@ -1195,14 +1205,10 @@ struct App {
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
-    /// Deletes and moves done, and whether to read the folder again: one failed, so the files
-    /// may still be there, or files were moved or copied into the list. A plugin and Move Folder
-    /// to Trash send it too, only for the list to be read again.
+    /// What deletes, moves and copies report (`Deleted`). A plugin and Move Folder to Trash
+    /// send it too, only for the list to be read again.
     deleted_tx: mpsc::Sender<Deleted>,
     deleted_rx: mpsc::Receiver<Deleted>,
-    /// Files copied or moved, (from, to), and whether copied: their marks follow.
-    put_tx: mpsc::Sender<(Vec<(PathBuf, PathBuf)>, bool)>,
-    put_rx: mpsc::Receiver<(Vec<(PathBuf, PathBuf)>, bool)>,
     /// Those still being saved.
     saving: HashSet<PathBuf>,
     /// PNG and WebP files saved turned in the background; a plugin sends its files too, as it may
@@ -1669,7 +1675,6 @@ impl App {
         }
         let (freed_tx, freed_rx) = mpsc::channel();
         let (deleted_tx, deleted_rx) = mpsc::channel();
-        let (put_tx, put_rx) = mpsc::channel();
         let (saved_tx, saved_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
         let (edited_tx, edited_rx) = mpsc::channel();
@@ -1837,8 +1842,6 @@ impl App {
             deleting: HashSet::new(),
             deleted_tx,
             deleted_rx,
-            put_tx,
-            put_rx,
             saved_tx,
             saved_rx,
             edited_tx,
@@ -7607,7 +7610,10 @@ impl App {
                 for f in files {
                     let _ = edited.send(f);
                 }
-                let _ = deleted.send((Vec::new(), Vec::new(), true));
+                let _ = deleted.send(Deleted {
+                    failed: true,
+                    ..Default::default()
+                });
                 result.err().map(|e| format!("{}: {e}", plugin.name))
             });
         });

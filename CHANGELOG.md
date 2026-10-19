@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A move or copy reports its moved files and the gone ones in one message, so their marks follow
+  before the gone ones are forgotten whatever the timing; nothing depends on two messages' order
+  any more.
 - A rename step is done, undone and put right after a crash by one and the same code
   (journal::step), so a case fixed for one of them holds for the others.
 - Closing waits for everything being written through one count held by every writer (file jobs, a

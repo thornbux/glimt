@@ -169,7 +169,12 @@ impl crate::App {
                 }
             }
             // Those not reached after Stop are still there, as after a failure.
-            let _ = deleted_tx.send((paths, gone, !errors.is_empty() || job.stopped()));
+            let _ = deleted_tx.send(Deleted {
+                paths,
+                gone,
+                failed: !errors.is_empty() || job.stopped(),
+                ..Default::default()
+            });
             drop(job);
             drop(pointer);
             ctx.request_repaint();
@@ -179,15 +184,16 @@ impl crate::App {
     /// What deletes and moves report: files moved (their marks go along), and files gone, which
     /// leave the list, the marks and Find Duplicates; or the folder read again after a failure.
     pub(crate) fn receive_deleted(&mut self) {
-        // Moved before their sources are taken for deleted ones: the marks go along first. The
-        // reports are collected first: a worker sends a move before its report, so every report
-        // here has its moves here too, even when both came between the two collects.
-        let reports: Vec<Deleted> = self.deleted_rx.try_iter().collect();
-        let moves: Vec<(Vec<(PathBuf, PathBuf)>, bool)> = self.put_rx.try_iter().collect();
-        for (pairs, keep) in moves {
-            self.paths_moved(pairs, keep);
-        }
-        for (paths, gone, failed) in reports {
+        for Deleted {
+            paths,
+            gone,
+            failed,
+            moved,
+            copied,
+        } in self.deleted_rx.try_iter().collect::<Vec<_>>()
+        {
+            // Moved before their sources are taken for deleted ones: the marks go along first.
+            self.paths_moved(moved, copied);
             // Deleted: their marks go, so that a new file of the same name does not get them.
             #[cfg(feature = "marks")]
             self.marks.forget(&gone);
@@ -219,7 +225,7 @@ impl crate::App {
             }
             // The files that are still there come back into the list. A listing that started
             // before the files went still has them: the folder is read again after it.
-            self.relist |= failed || self.listing_rx.is_some();
+            self.relist |= failed || (!paths.is_empty() && self.listing_rx.is_some());
         }
     }
 
@@ -307,7 +313,7 @@ impl crate::App {
             self.remove_indices(ctx, &gone);
         }
         let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
-        let (deleted_tx, put_tx) = (self.deleted_tx.clone(), self.put_tx.clone());
+        let deleted_tx = self.deleted_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
@@ -344,8 +350,6 @@ impl crate::App {
                 true => Vec::new(),
                 false => put.iter().map(|(from, _)| from.clone()).collect(),
             };
-            // Before the deleted ones below, whose marks would go otherwise.
-            let _ = put_tx.send((put, keep));
             if let Some(first) = errors.first() {
                 let verb = tr(if keep { "Copy" } else { "Move" });
                 let _ = tx.send(tf!(
@@ -364,11 +368,15 @@ impl crate::App {
                 let _ = tx.send(text);
             }
             // Moved: out of `deleting`; read the folder again for files that joined it, or that
-            // failed to go or were not reached after Stop.
-            if listed || !keep {
-                let relist = listed || !errors.is_empty() || job.stopped();
-                let _ = deleted_tx.send((if keep { Vec::new() } else { paths }, gone, relist));
-            }
+            // failed to go or were not reached after Stop. A copy elsewhere changes the list not.
+            let relist = (listed || !keep) && (listed || !errors.is_empty() || job.stopped());
+            let _ = deleted_tx.send(Deleted {
+                paths: if keep { Vec::new() } else { paths },
+                gone,
+                failed: relist,
+                moved: put,
+                copied: keep,
+            });
             drop(job);
             drop(pointer);
             ctx.request_repaint();
@@ -590,7 +598,12 @@ impl crate::App {
             } else {
                 Vec::new()
             };
-            let _ = deleted_tx.send((vec![dir], gone, error.is_some()));
+            let _ = deleted_tx.send(Deleted {
+                paths: vec![dir],
+                gone,
+                failed: error.is_some(),
+                ..Default::default()
+            });
             error.map(|e| tf!("Could not move the folder to the trash: {e}", e))
         });
     }
