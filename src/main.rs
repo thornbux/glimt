@@ -6021,8 +6021,6 @@ impl App {
                 self.title(ctx);
             }
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
-            // Escape closes the pan view when it is open, and nothing else then.
-            Action::Escape if self.pan_window.is_some() => self.pan_window = None,
             Action::Escape => {
                 self.help = None;
                 if self.slideshow.is_some() {
@@ -6476,6 +6474,14 @@ impl App {
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
+        // Escape closes the pan view: read first, before a text field with the focus or the
+        // shortcuts could take the key, and nothing else is done with it then.
+        if self.pan_window.is_some()
+            && !self.dialog_open()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.pan_window = None;
+        }
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).
         let typing = ctx

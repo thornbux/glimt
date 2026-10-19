@@ -270,10 +270,7 @@ impl crate::App {
             }
             self.stopped(tr("The Pan view's days"));
         }
-        // Escape closes the view also while a cell of it has the keyboard focus, when the key
-        // reaches no action (Action::Escape closes it otherwise).
-        let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape)) && !self.dialog_open();
-        let (mut open, mut show, mut close) = (!esc, None, false);
+        let (mut open, mut show, mut close) = (true, None, false);
         egui::Window::new(tr("Pan View"))
             .open(&mut open)
             .default_size([900.0, 640.0])

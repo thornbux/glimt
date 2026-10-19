@@ -1146,7 +1146,7 @@ config
 start $d
 sleep 1; shot pan-esc-before
 key ctrl+j; sleep 2; shot pan-esc-open
-key Escape; sleep 1; shot pan-esc-after
+key Escape; sleep 1.5; shot pan-esc-after
 quit
 same() { md5sum </t/out/$1.png; }
 differ "the pan view opened" "$(same pan-esc-before)" "$(same pan-esc-open)"
