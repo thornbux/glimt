@@ -1,4 +1,4 @@
-# Glimt - an image viewer
+# Glimt – an image viewer
 
 [![CI](https://github.com/thornbux/glimt/actions/workflows/ci.yml/badge.svg)](https://github.com/thornbux/glimt/actions/workflows/ci.yml)
 
