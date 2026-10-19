@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- In the Flatpak, Open With lists the programs installed as Flatpaks and the user's own, not only
+  the distribution's: the host's programs get the host's data folders, not the sandbox's.
+
 ## [0.38.3] - 2026-10-19
 
 ### Fixed

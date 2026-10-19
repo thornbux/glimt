@@ -396,14 +396,9 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
 /// The names and desktop files of the applications `ids`, found by `sh`: on the host in a
 /// Flatpak, where the desktop files are and where `gio launch` runs, not in the sandbox.
 fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> {
-    // The "applications" folder of each XDG data folder, the first one with the file. In a
-    // Flatpak the host gets the sandbox's variables (its data folder, /app/share): the host's
-    // own folders then, with those Flatpak exports installed programs to.
+    // The "applications" folder of each XDG data folder, the first one with the file.
     // Split at the colons as a variable's value: dash does not split at one written between two.
     const FIND: &str = r#"dirs="${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-    if [ -n "$FLATPAK_ID" ]; then
-        dirs="$HOME/.local/share:/usr/local/share:/usr/share:/var/lib/flatpak/exports/share:$HOME/.local/share/flatpak/exports/share"
-    fi
     for id in "$@"; do
         IFS=:
         for d in $dirs; do
@@ -467,8 +462,23 @@ fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
         return std::process::Command::new(program);
     }
     let mut cmd = std::process::Command::new("flatpak-spawn");
-    cmd.arg("--host").args(flags).arg(program);
+    let home = std::env::var("HOME").unwrap_or_default();
+    (cmd.arg("--host").args(flags))
+        .args(host_data_dirs(&home))
+        .arg(program);
     cmd
+}
+
+/// flatpak-spawn passes the sandbox's variables on to the host: its data folder, /app/share.
+/// The host's own data folders instead, with those Flatpak exports installed programs to, so
+/// that gio lists them for Open With and `named` finds their desktop files.
+fn host_data_dirs(home: &str) -> [String; 2] {
+    [
+        format!("--env=XDG_DATA_HOME={home}/.local/share"),
+        format!(
+            "--env=XDG_DATA_DIRS=/usr/local/share:/usr/share:/var/lib/flatpak/exports/share:{home}/.local/share/flatpak/exports/share"
+        ),
+    ]
 }
 
 #[cfg(test)]
@@ -488,8 +498,7 @@ mod tests {
         std::fs::write(dir.join("b/applications/y.desktop"), "Name=Why\n").unwrap();
         let mut sh = std::process::Command::new("sh");
         sh.env("XDG_DATA_HOME", dir.join("a"))
-            .env("XDG_DATA_DIRS", dir.join("b"))
-            .env_remove("FLATPAK_ID");
+            .env("XDG_DATA_DIRS", dir.join("b"));
         let found = super::named(sh, &["x.desktop", "y.desktop", "none.desktop"]);
         assert_eq!(
             found,
@@ -498,28 +507,16 @@ mod tests {
                 ("Why".to_owned(), dir.join("b/applications/y.desktop"))
             ]
         );
-        // As in a Flatpak: the sandbox's variables are passed on, so the host's folders are
-        // looked in instead, among them the one of a user's own programs.
-        std::fs::create_dir_all(dir.join("home/.local/share/applications")).unwrap();
-        std::fs::write(
-            dir.join("home/.local/share/applications/z.desktop"),
-            "Name=Zed\n",
-        )
-        .unwrap();
-        let mut sh = std::process::Command::new("sh");
-        sh.env("XDG_DATA_HOME", dir.join("a"))
-            .env("XDG_DATA_DIRS", dir.join("b"))
-            .env("HOME", dir.join("home"))
-            .env("FLATPAK_ID", "io.github.thornbux.Glimt");
-        let found = super::named(sh, &["x.desktop", "z.desktop"]);
-        assert_eq!(
-            found,
-            [(
-                "Zed".to_owned(),
-                dir.join("home/.local/share/applications/z.desktop")
-            )]
-        );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// In a Flatpak the host's programs get the host's data folders, not the sandbox's.
+    #[test]
+    fn host_gets_its_own_data_dirs() {
+        let [home, dirs] = super::host_data_dirs("/home/me");
+        assert_eq!(home, "--env=XDG_DATA_HOME=/home/me/.local/share");
+        assert!(dirs.starts_with("--env=XDG_DATA_DIRS=/usr/local/share:/usr/share:"));
+        assert!(dirs.ends_with(":/home/me/.local/share/flatpak/exports/share"));
     }
 
     /// A program's errors: kept to their last part, however much it writes, and told even in
