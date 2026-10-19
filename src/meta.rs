@@ -324,17 +324,11 @@ fn update(
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
 pub fn follow(from: &Path, to: &Path, copy: bool) {
     let (side, to) = (sidecar(from), sidecar(to));
-    // One there already belongs to another file, or is a copy kept on purpose: never replaced.
-    if !side.exists() || to.exists() {
-        return;
+    // As the file went: on disk before the original goes, never over one there, which belongs
+    // to another file or is a copy kept on purpose.
+    if side.exists() {
+        let _ = crate::file_ops::put_file(&side, &to, copy);
     }
-    let copied = || std::fs::copy(&side, &to).map(drop);
-    let _ = if copy {
-        copied()
-    } else {
-        // To another file system as the file went: copied, then removed.
-        std::fs::rename(&side, &to).or_else(|_| copied().and_then(|_| std::fs::remove_file(&side)))
-    };
 }
 
 fn parse(xmp: &str) -> Meta {
