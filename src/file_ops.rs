@@ -181,12 +181,14 @@ impl crate::App {
     /// What deletes and moves report: files moved (their marks go along), and files gone, which
     /// leave the list, the marks and Find Duplicates; or the folder read again after a failure.
     pub(crate) fn receive_deleted(&mut self) {
-        // Moved before their sources are taken for deleted ones: the marks go along first.
+        // Moved before their sources are taken for deleted ones: the marks go along first. The
+        // reports are collected first: a worker sends a move before its report, so every report
+        // here has its moves here too, even when both came between the two collects.
+        let reports: Vec<Deleted> = self.deleted_rx.try_iter().collect();
         let moves: Vec<(Vec<(PathBuf, PathBuf)>, bool)> = self.put_rx.try_iter().collect();
         for (pairs, keep) in moves {
             self.paths_moved(pairs, keep);
         }
-        let reports: Vec<Deleted> = self.deleted_rx.try_iter().collect();
         for (paths, gone, failed) in reports {
             // Deleted: their marks go, so that a new file of the same name does not get them.
             #[cfg(feature = "marks")]

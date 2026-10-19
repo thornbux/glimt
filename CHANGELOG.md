@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Marks and stars of files moved to another folder go along with them also when the move's two
+  reports arrive between two frames, instead of now and then being forgotten.
 - A slideshow in random order goes on when a search hides the shown image or shows only one,
   instead of shuffling the whole list on every frame and standing still.
 - An image turned a quarter by hand in Fit, Fit Width or Fit Height is decoded once at the size
