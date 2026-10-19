@@ -617,11 +617,55 @@ impl crate::App {
     }
 }
 
+/// Give `from` the name `to` in one step, never over a file there, also one another window
+/// puts there in the same moment: renameat2 with RENAME_NOREPLACE (Linux 3.15; glibc 2.28, the
+/// release's baseline). `Unsupported` where the file system has no such flag (FAT, some
+/// shares, old kernels): the caller falls back to looking first.
+pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    unsafe extern "C" {
+        fn renameat2(
+            olddirfd: std::ffi::c_int,
+            oldpath: *const std::ffi::c_char,
+            newdirfd: std::ffi::c_int,
+            newpath: *const std::ffi::c_char,
+            flags: std::ffi::c_uint,
+        ) -> std::ffi::c_int;
+    }
+    const AT_FDCWD: std::ffi::c_int = -100;
+    const RENAME_NOREPLACE: std::ffi::c_uint = 1;
+    let (from, to) = (
+        std::ffi::CString::new(from.as_os_str().as_bytes())?,
+        std::ffi::CString::new(to.as_os_str().as_bytes())?,
+    );
+    // SAFETY: two valid C strings for the call's duration; renameat2 reads them and touches
+    // nothing else of ours.
+    let r = unsafe {
+        renameat2(
+            AT_FDCWD,
+            from.as_ptr(),
+            AT_FDCWD,
+            to.as_ptr(),
+            RENAME_NOREPLACE,
+        )
+    };
+    if r == 0 {
+        return Ok(());
+    }
+    let e = std::io::Error::last_os_error();
+    // EINVAL and ENOSYS: the flag or the call is not there; ENOTSUP: not on this file system.
+    match e.raw_os_error() {
+        Some(22 | 38 | 95) => Err(std::io::ErrorKind::Unsupported.into()),
+        _ => Err(e),
+    }
+}
+
 /// Copy (`keep`) or move `from` to `to`, never over a file there, also one another window put
-/// there a moment ago: a copy creates its file new, a move links and then unlinks. Where links
-/// cannot be made (FAT, some network shares), a move is a rename after looking first.
+/// there a moment ago: a copy creates its file new, a move is one `rename_noreplace`. Where
+/// that is not to be had, a move links and then unlinks, or, where links cannot be made (FAT,
+/// some network shares), is a rename after looking first.
 pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
-    use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
+    use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
     use std::os::unix::fs::OpenOptionsExt;
     let copy = || -> std::io::Result<()> {
         if to.exists() {
@@ -649,14 +693,16 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
                 out.set_modified(meta.modified()?)?;
                 out.sync_all()
             })
-            // A link never replaces a file; FAT sticks have none, and get a rename.
-            // shortcut: a file of that name made between the check and the rename is replaced;
-            // use renameat2's RENAME_NOREPLACE if another program ever writes there meanwhile.
-            .and_then(|_| match std::fs::hard_link(&part, to) {
-                Ok(()) => Ok(()),
-                Err(e) if e.kind() == AlreadyExists => Err(e),
-                Err(_) if to.exists() => Err(AlreadyExists.into()),
-                Err(_) => std::fs::rename(&part, to),
+            // In one step, never over a file; without the flag, a link never replaces one, and
+            // FAT sticks, which have none, get a rename after looking first.
+            .and_then(|_| match rename_noreplace(&part, to) {
+                Err(e) if e.kind() == Unsupported => match std::fs::hard_link(&part, to) {
+                    Ok(()) => Ok(()),
+                    Err(e) if e.kind() == AlreadyExists => Err(e),
+                    Err(_) if to.exists() => Err(AlreadyExists.into()),
+                    Err(_) => std::fs::rename(&part, to),
+                },
+                done => done,
             });
         let _ = std::fs::remove_file(&part);
         copied
@@ -675,12 +721,17 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         }
         _ => Ok(()),
     };
-    match std::fs::hard_link(from, to) {
-        Ok(()) => unlink(),
-        Err(e) if e.kind() == AlreadyExists => Err(e),
+    match rename_noreplace(from, to) {
         Err(e) if e.kind() == CrossesDevices => copy().and_then(|_| unlink()),
-        Err(_) if to.exists() => Err(AlreadyExists.into()),
-        Err(_) => std::fs::rename(from, to),
+        // Without the flag: linked, then unlinked, which a crash between leaves as two names.
+        Err(e) if e.kind() == Unsupported => match std::fs::hard_link(from, to) {
+            Ok(()) => unlink(),
+            Err(e) if e.kind() == AlreadyExists => Err(e),
+            Err(e) if e.kind() == CrossesDevices => copy().and_then(|_| unlink()),
+            Err(_) if to.exists() => Err(AlreadyExists.into()),
+            Err(_) => std::fs::rename(from, to),
+        },
+        done => done,
     }
 }
 
@@ -977,6 +1028,25 @@ mod tests {
 
     /// Copying and moving never replace a file at the destination, and move or copy otherwise;
     /// a copy leaves no half file behind.
+    /// One step: the new name taken by nothing else, or refused; a source that is not there
+    /// is told so.
+    #[test]
+    fn renames_in_one_step_never_over_a_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-noreplace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b, c) = (dir.join("a"), dir.join("b"), dir.join("c"));
+        std::fs::write(&a, "a").unwrap();
+        std::fs::write(&b, "b").unwrap();
+        let taken = super::rename_noreplace(&a, &b).unwrap_err();
+        assert_eq!(taken.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "b");
+        super::rename_noreplace(&a, &c).unwrap();
+        assert!(!a.exists() && c.exists());
+        let gone = super::rename_noreplace(&a, &dir.join("d")).unwrap_err();
+        assert_eq!(gone.kind(), std::io::ErrorKind::NotFound);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn puts_files_without_overwriting() {
         let dir = std::env::temp_dir().join(format!("glimt-test-put-{}", std::process::id()));

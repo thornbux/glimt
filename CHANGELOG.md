@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A move within a file system is one step that never replaces a file (renameat2 with
+  RENAME_NOREPLACE), so a crash or a forced close in the middle no longer leaves the photo under
+  two names; file systems without it keep the way of before.
 - Renaming one file runs in the background, as Rename Many does, so a share that stalls no longer
   holds the window; one path for both.
 - A collection's file loses an image only once it is really deleted, in one place for Delete and
