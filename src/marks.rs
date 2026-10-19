@@ -300,6 +300,15 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A damaged marks file is read as far as it goes, never a panic.
+    #[test]
+    fn survives_broken_marks() {
+        let seed = b"3\t4\t/a/b c.jpg\n0\t0\t/d.png\n255\t9\tbroken\n";
+        for bytes in crate::broken(seed) {
+            let _ = super::parse(&bytes);
+        }
+    }
+
     #[test]
     fn toggles_rates_and_reads_lines() {
         use std::path::PathBuf;

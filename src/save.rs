@@ -334,6 +334,28 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
+    /// A damaged PNG or WebP given a chunk: refused or carried on as far as it goes, no panic.
+    #[test]
+    fn survives_broken_files_given_a_chunk() {
+        let mut png = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        for bytes in crate::broken(&png) {
+            let _ = super::png_with_xmp(&bytes, b"<x:xmpmeta/>");
+        }
+        let mut webp = Vec::new();
+        image::RgbImage::new(4, 2)
+            .write_to(
+                &mut std::io::Cursor::new(&mut webp),
+                image::ImageFormat::WebP,
+            )
+            .unwrap();
+        for bytes in crate::broken(&webp) {
+            let _ = super::webp_with_chunk(&bytes, b"EXIF", b"Exif", 4, 2);
+        }
+    }
+
     /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored;
     /// broken ones are survived.
     #[test]

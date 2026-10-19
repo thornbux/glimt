@@ -225,22 +225,27 @@ pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
 /// The frames of a GIF, an animated WebP or an animated PNG (APNG), decoded as they are taken,
 /// and its size; `None` for any other file, a still WebP or PNG among them.
 fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> {
-    use image::AnimationDecoder;
+    use image::{AnimationDecoder, ImageDecoder};
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    // The decoders' own limit on what they allocate (512 MB, as `MAX_DECODE`): a damaged frame
+    // header claiming gigabytes is an error, not a failed allocation that ends Glimt.
+    let limits = image::Limits::default();
     Some(match ext.as_str() {
         "gif" => {
-            let dec = image::codecs::gif::GifDecoder::new(file).ok()?;
+            let mut dec = image::codecs::gif::GifDecoder::new(file).ok()?;
+            dec.set_limits(limits).ok()?;
             let size = dec.dimensions();
             (dec.into_frames(), size)
         }
         "webp" => {
-            let dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
+            let mut dec = image::codecs::webp::WebPDecoder::new(file).ok()?;
+            dec.set_limits(limits).ok()?;
             let size = dec.dimensions();
             (dec.has_animation().then(|| dec.into_frames())?, size)
         }
         "png" | "apng" => {
-            let dec = image::codecs::png::PngDecoder::new(file).ok()?;
+            let dec = image::codecs::png::PngDecoder::with_limits(file, limits).ok()?;
             let size = dec.dimensions();
             if !dec.is_apng().ok()? {
                 return None;
@@ -778,6 +783,63 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    /// A damaged JPEG is refused or shown as far as it goes, never a panic.
+    #[test]
+    fn survives_broken_jpegs() {
+        let mut jpeg = Vec::new();
+        image::RgbImage::new(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        for bytes in crate::broken(&jpeg) {
+            let _ = super::scaled(&bytes, [8, 8], true, None);
+        }
+    }
+
+    /// A damaged TIFF is refused or shown as far as it goes, never a panic.
+    #[test]
+    fn survives_broken_tiffs() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-btiff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut tiff = Vec::new();
+        image::RgbImage::new(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut tiff),
+                image::ImageFormat::Tiff,
+            )
+            .unwrap();
+        let file = dir.join("a.tif");
+        for bytes in crate::broken(&tiff) {
+            std::fs::write(&file, &bytes).unwrap();
+            let _ = super::tiff_pages(&file);
+            let _ = super::tiff_page(&file, 0);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A damaged GIF is refused or shown as far as it goes, never a panic.
+    #[test]
+    fn survives_broken_gifs() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-bgif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut gif = Vec::new();
+        {
+            let mut enc = image::codecs::gif::GifEncoder::new(&mut gif);
+            for k in 0..2u8 {
+                let frame = image::RgbaImage::from_pixel(4, 4, image::Rgba([k * 100, 0, 0, 255]));
+                enc.encode_frame(image::Frame::new(frame)).unwrap();
+            }
+        }
+        let file = dir.join("a.gif");
+        for bytes in crate::broken(&gif) {
+            std::fs::write(&file, &bytes).unwrap();
+            let _ = super::animation(&file, [8, 8]);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// One small decode for thumbnails and prints: within the box, the profile along, and the
     /// size as the image stands upright, before it was shrunk.
     #[test]

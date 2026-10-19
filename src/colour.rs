@@ -445,6 +445,15 @@ pub fn transformed(
 
 #[cfg(test)]
 mod tests {
+    /// A damaged colour profile in a photo gives the photo as it is, never a panic.
+    #[test]
+    fn survives_broken_profiles() {
+        let img = image::DynamicImage::new_rgb8(2, 2);
+        for bytes in crate::broken(&super::ADOBE_RGB) {
+            let _ = super::convert(img.clone(), Some(&bytes), false, true);
+        }
+    }
+
     /// A photo larger than one part comes out as through one whole buffer.
     #[test]
     fn transforms_in_parts() {

@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A damaged GIF, animated WebP or APNG whose frame header claims gigabytes is refused, instead of
+  a failed allocation ending Glimt at once; damaged JPEG, TIFF, PNG, WebP, HEIC, colour profile
+  and marks files are fed to their readers in every test run too.
 - Renaming a collection waits for an edit of it under way in another window, so the edit lands in
   the renamed file instead of in a new file of the old name.
 - glimt --remote select or current sent while the window is still reading a large folder, or has a

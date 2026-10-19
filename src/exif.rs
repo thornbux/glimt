@@ -777,6 +777,20 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
 
 #[cfg(test)]
 mod tests {
+    /// A damaged HEIC's EXIF block is found or not, never a panic.
+    #[test]
+    fn survives_broken_heif_heads() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-heif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.heic");
+        let seed = b"\0\0\0\x18ftypheic\0\0\0\0mif1heic\0\0\0\x10Exif\0\0MM\0*\0\0\0\x08\0\0";
+        for bytes in crate::broken(seed) {
+            std::fs::write(&file, &bytes).unwrap();
+            let _ = super::raw(&file);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     use super::*;
 
     #[test]
