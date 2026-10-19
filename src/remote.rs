@@ -111,17 +111,22 @@ pub fn name_fits(name: &str) -> bool {
     socket(name).is_none_or(|p| p.as_os_str().len() <= 107)
 }
 
-/// One of `COMMANDS`, with a path where it takes one and none where it does not.
+/// One of `COMMANDS`, with a path where it takes one and none where it does not: `open` takes
+/// one path, `select` any number of files.
 pub fn known(words: &[String]) -> bool {
-    let takes_path = |c: &str| c.contains(' ');
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
-        let same =
-            parts.next() == words.first().map(String::as_str) && takes_path(c) == (words.len() > 1);
-        // A choice of words ("on|off") takes one of them, alone.
-        match parts.next().filter(|a| a.contains('|')) {
-            Some(choices) => same && words.len() == 2 && choices.split('|').any(|w| w == words[1]),
-            None => same,
+        if parts.next() != words.first().map(String::as_str) {
+            return false;
+        }
+        match parts.next() {
+            // A choice of words ("on|off") takes one of them, alone.
+            Some(choices) if choices.contains('|') => {
+                words.len() == 2 && choices.split('|').any(|w| w == words[1])
+            }
+            Some(many) if many.ends_with('…') => words.len() >= 2,
+            Some(_) => words.len() == 2,
+            None => words.len() == 1,
         }
     })
 }
@@ -215,7 +220,7 @@ pub fn client(
     to_all: bool,
 ) -> Option<PathBuf> {
     if !known(words) {
-        eprintln!("glimt: no such command; glimt --help lists them");
+        eprintln!("glimt: no such command, or not with these arguments; glimt --help lists them");
         std::process::exit(2);
     }
     let mut command = words.join(" ");
@@ -412,7 +417,10 @@ mod tests {
     fn knows_its_commands() {
         let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
         assert!(super::known(&words("next")));
-        assert!(super::known(&words("open /a b.jpg")));
+        assert!(super::known(&["open".into(), "/a b.jpg".into()]));
+        // Two words are two paths, not one with a space: the shell joins no words.
+        assert!(!super::known(&words("open /a.jpg /b.jpg")));
+        assert!(super::known(&words("select /a.jpg /b.jpg")));
         assert!(!super::known(&words("nxet")));
         assert!(!super::known(&words("open")));
         assert!(!super::known(&words("next 2")));

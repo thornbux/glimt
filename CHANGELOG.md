@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- glimt --remote open takes one path: two words are refused as two paths (exit 2), instead of
+  being joined into the name of a file that is not there.
 - A PDF printed to a file and a new thumbnail are written like every other file Glimt writes:
   never through a link planted at the temporary file's name, and a PDF that was a link stays one.
 - Mounting a share that never answers (a NAS asleep, a VPN down) gives up after a minute and says
