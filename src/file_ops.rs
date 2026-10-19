@@ -347,12 +347,11 @@ impl crate::App {
                     first
                 ));
             } else if let Some(text) = job.report(|| {
-                let verb = if keep { "copied" } else { "moved" };
-                format!(
-                    "{} {verb} to {}",
-                    count(paths.len(), "file"),
-                    dest.display()
-                )
+                let (files, folder) = (count(paths.len(), "file"), dest.display());
+                match keep {
+                    true => tf!("{files} copied to {folder}", files, folder),
+                    false => tf!("{files} moved to {folder}", files, folder),
+                }
             }) {
                 let _ = tx.send(text);
             }
@@ -579,7 +578,7 @@ impl crate::App {
                 Vec::new()
             };
             let _ = deleted_tx.send((vec![dir], gone, error.is_some()));
-            error.map(|e| format!("Could not move the folder to the trash: {e}"))
+            error.map(|e| tf!("Could not move the folder to the trash: {e}", e))
         });
     }
 

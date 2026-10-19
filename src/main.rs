@@ -1292,7 +1292,7 @@ fn drain(rx: &mut Option<mpsc::Receiver<u64>>, total: &mut u64) {
 
 /// A size for the status bar, or "calculating…" while it is summed (`None`).
 fn size_text(bytes: Option<u64>) -> String {
-    bytes.map_or("calculating…".to_owned(), human_size)
+    bytes.map_or(tr("calculating…").to_owned(), human_size)
 }
 
 /// Sum of the file sizes (one stat per file); unreadable files are not counted.
@@ -2518,7 +2518,7 @@ impl App {
             Some(
                 match command("gio").arg("trash").arg("--").arg(&file).output() {
                     Ok(out) if out.status.success() => {
-                        format!("Collection {name} moved to the trash")
+                        tf!("Collection {name} moved to the trash", name)
                     }
                     Ok(out) => tf!(
                         "Could not trash {name}: {err}",
@@ -4659,7 +4659,7 @@ impl App {
             }
         });
         if let Some(e) = &self.search_error {
-            ui.colored_label(ui.visuals().error_fg_color, format!("Not a pattern: {e}"));
+            ui.colored_label(ui.visuals().error_fg_color, tf!("Not a pattern: {e}", e));
         }
     }
 
@@ -6135,21 +6135,21 @@ impl App {
         let several = matches!(purpose, Pick::Folders);
         let ctx = ctx.clone();
         let title = match purpose {
-            Pick::Open if folder => "Open Folder",
-            Pick::Open => "Open File",
-            Pick::Folders => "Open Folders (Ctrl+click for several)",
-            Pick::Recursive => "Open Folder with Its Subfolders",
-            Pick::Collection => "Open Collection",
-            Pick::CopyTo(_) => "Copy to Folder",
-            Pick::MoveTo(_) => "Move to Folder",
-            Pick::SavePdf(_) => "Save as PDF",
-            Pick::SortFolder => "Add to the Sort Manager",
-            Pick::ScreenProfile => "Screen Profile",
-            Pick::InputProfile => "Profile of Images Without One",
-            Pick::Lightroom => "Import Lightroom Catalog",
-            Pick::BackUp => "Back Up Glimt's Data To",
-            Pick::SaveFrame(..) => "Save This Frame as PNG",
-            Pick::ExportFrames(_) => "Export Every Frame To",
+            Pick::Open if folder => tr("Open Folder"),
+            Pick::Open => tr("Open File"),
+            Pick::Folders => tr("Open Folders (Ctrl+click for several)"),
+            Pick::Recursive => tr("Open Folder with Its Subfolders"),
+            Pick::Collection => tr("Open Collection"),
+            Pick::CopyTo(_) => tr("Copy to Folder"),
+            Pick::MoveTo(_) => tr("Move to Folder"),
+            Pick::SavePdf(_) => tr("Save as PDF"),
+            Pick::SortFolder => tr("Add to the Sort Manager"),
+            Pick::ScreenProfile => tr("Screen Profile"),
+            Pick::InputProfile => tr("Profile of Images Without One"),
+            Pick::Lightroom => tr("Import Lightroom Catalog"),
+            Pick::BackUp => tr("Back Up Glimt's Data To"),
+            Pick::SaveFrame(..) => tr("Save This Frame as PNG"),
+            Pick::ExportFrames(_) => tr("Export Every Frame To"),
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -6654,7 +6654,7 @@ impl App {
                     .open(&f);
                 let mut file = new.map_err(|e| match e.kind() {
                     std::io::ErrorKind::AlreadyExists => {
-                        format!("{text} exists already: choose another name")
+                        tf!("{text} exists already: choose another name", text)
                     }
                     _ => e.to_string(),
                 })?;
@@ -6666,7 +6666,10 @@ impl App {
                 Ok(f) => {
                     self.config.theme = text.to_owned();
                     self.config.save();
-                    format!("Saved as {}: edit it, then choose it again", f.display())
+                    tf!(
+                        "Saved as {file}: edit it, then choose it again",
+                        file = f.display()
+                    )
                 }
                 Err(e) => tf!("Could not save the theme: {e}", e),
             });
@@ -6771,16 +6774,16 @@ impl App {
                 let (r, l) = journal::settle(plan, moves, *done, undo);
                 (renamed, left) = (renamed + r, left + l);
             }
-            let what = if undo {
-                "given their old names back"
-            } else {
-                "renamed"
+            let files = count(renamed, "file");
+            let mut msg = match undo {
+                true => tf!("{files} given their old names back", files),
+                false => tf!("{files} renamed", files),
             };
-            let mut msg = format!("{} {what}", count(renamed, "file"));
             if left > 0 {
-                msg += &format!(
-                    "; {} could not be, asked again at the next start",
-                    count(left, "file")
+                let files = count(left, "file");
+                msg += &tf!(
+                    "; {files} could not be, asked again at the next start",
+                    files
                 );
             }
             Some(msg)
@@ -6938,10 +6941,11 @@ impl App {
                     // A search shows the matches: count and size of what the list shows.
                     Some(found) => {
                         let size = size_text(self.match_rx.is_none().then_some(self.match_size));
-                        format!(
-                            "{} of {} ({size})",
-                            thousands(found.len()),
-                            count(n, "image")
+                        tf!(
+                            "{found} of {images} ({size})",
+                            found = thousands(found.len()),
+                            images = count(n, "image"),
+                            size
                         )
                     }
                     None => format!("{count} ({size})", count = count(n, "image")),
@@ -6949,7 +6953,7 @@ impl App {
                 if !self.selected.is_empty() {
                     let m = thousands(self.selected.len());
                     let size = size_text(self.selected_size);
-                    left += &format!(", {m} selected ({size})");
+                    left += &tf!(", {m} selected ({size})", m, size);
                 }
                 self.sort_menu(ctx, ui);
                 self.types_menu(ctx, ui);
@@ -6996,7 +7000,7 @@ impl App {
                     } else {
                         self.place_of(idx)
                     };
-                    let bytes = format!("{} bytes", thousands(bytes as usize));
+                    let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
                     match self.slots.get(&idx) {
                         Some(slot) => {
                             let [w, h] = slot.orig;
@@ -7005,9 +7009,9 @@ impl App {
                                 ui.separator();
                             }
                             let page = if slot.pages > 1 && idx == self.cur {
-                                format!(" page {}/{}", self.page + 1, slot.pages)
+                                tf!(" page {n}/{pages}", n = self.page + 1, pages = slot.pages)
                             } else if let Some(k) = self.frame.filter(|_| idx == self.cur) {
-                                format!(" frame {}/{}", k + 1, slot.anim.len())
+                                tf!(" frame {n}/{frames}", n = k + 1, frames = slot.anim.len())
                             } else {
                                 String::new()
                             };

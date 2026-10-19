@@ -620,7 +620,7 @@ impl crate::App {
                     preview(ui, &dialog, c);
                     egui::Grid::new("print fields").show(ui, |ui| {
                             ui.label(tr("Printer:"));
-                            let shown = |p: &str| if p.is_empty() { "PDF file" } else { p }.to_owned();
+                            let shown = |p: &str| if p.is_empty() { tr("PDF file") } else { p }.to_owned();
                             egui::ComboBox::from_id_salt("printer")
                                 .selected_text(shown(&c.print_printer))
                                 .show_ui(ui, |ui| {

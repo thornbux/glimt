@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Sentences of the Norwegian interface that were half English ("3 filer copied to …", the status
+  bar's "selected" and "bytes", the file dialogs' titles) are Norwegian throughout.
 - Images printed on small photo paper with a wide margin are decoded for the room they get, not
   for less (since 0.38.0).
 - Landscape pages printed on both sides turn on the short edge, so the backs are the right way up

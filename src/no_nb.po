@@ -1885,3 +1885,127 @@ msgstr "Begge sider av arket"
 #: src/print.rs
 msgid "Print the image"
 msgstr "Skriv ut bildet"
+
+#: src/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} kopiert til {folder}"
+
+#: src/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} flyttet til {folder}"
+
+#: src/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Kunne ikke flytte mappen til papirkurven: {e}"
+
+#: src/print.rs
+msgid "calculating…"
+msgstr "regner ut …"
+
+#: src/print.rs
+msgid "Open Folder"
+msgstr "Åpne mappe"
+
+#: src/print.rs
+msgid "Open File"
+msgstr "Åpne fil"
+
+#: src/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Åpne mapper (Ctrl+klikk for flere)"
+
+#: src/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Åpne mappe med undermapper"
+
+#: src/print.rs
+msgid "Open Collection"
+msgstr "Åpne samling"
+
+#: src/print.rs
+msgid "Copy to Folder"
+msgstr "Kopier til mappe"
+
+#: src/print.rs
+msgid "Move to Folder"
+msgstr "Flytt til mappe"
+
+#: src/print.rs
+msgid "Save as PDF"
+msgstr "Lagre som PDF"
+
+#: src/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Legg til i sorteringsbehandleren"
+
+#: src/print.rs
+msgid "Screen Profile"
+msgstr "Skjermprofil"
+
+#: src/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profil for bilder uten profil"
+
+#: src/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Importer Lightroom-katalog"
+
+#: src/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Sikkerhetskopier Glimts data til"
+
+#: src/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Lagre denne ruten som PNG"
+
+#: src/print.rs
+msgid "Export Every Frame To"
+msgstr "Eksporter alle rutene til"
+
+#: src/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Samlingen {name} er flyttet til papirkurven"
+
+#: src/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Ikke et mønster: {e}"
+
+#: src/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} finnes allerede: velg et annet navn"
+
+#: src/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Lagret som {file}: rediger den, og velg den igjen"
+
+#: src/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} har fått tilbake de gamle navnene"
+
+#: src/print.rs
+msgid "{files} renamed"
+msgstr "{files} omdøpt"
+
+#: src/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} kunne ikke, spørres igjen ved neste oppstart"
+
+#: src/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} av {images} ({size})"
+
+#: src/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} valgt ({size})"
+
+#: src/print.rs
+msgid "{n} bytes"
+msgstr "{n} byte"
+
+#: src/print.rs
+msgid " page {n}/{pages}"
+msgstr " side {n}/{pages}"
+
+#: src/print.rs
+msgid " frame {n}/{frames}"
+msgstr " rute {n}/{frames}"
