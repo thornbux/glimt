@@ -2106,6 +2106,8 @@ impl App {
         }
         self.leave_image(ctx);
         self.collection = None;
+        // As a folder opened: with the subfolders when the menu says so, whatever was shown.
+        self.recursive = self.config.show_subfolders;
         self.forget_old_list();
         // No one folder to watch: stop the watcher of the last one.
         self.watching.fetch_add(1, Ordering::Relaxed);
@@ -2413,6 +2415,7 @@ impl App {
                 .filter(|(_, f)| picked.contains(*f))
                 .map(|(i, _)| i)
                 .collect();
+            self.selection_changed(ctx);
         }
         if whole && std::mem::take(&mut self.sort_collection) {
             self.save_collection_order();
@@ -2451,6 +2454,7 @@ impl App {
         self.details.clear();
         self.anchor = None;
         self.selected.clear();
+        self.selection_changed(ctx);
         // A rectangle or a collection drag holds places in the old list, now other files'.
         self.rubber_band = None;
         self.dragging = None;
@@ -2514,6 +2518,8 @@ impl App {
         self.files_gen += 1;
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
+        // The panes' places are other files' now: filled again from the list as it is.
+        self.panes.clear();
         self.selected.clear();
         self.anchor = None;
         self.rubber_band = None;
@@ -2625,6 +2631,7 @@ impl App {
                 .filter(|(_, f)| names.contains(*f))
                 .map(|(i, _)| i)
                 .collect();
+            self.selection_changed(ctx);
         }
         self.save_collection_order();
     }
@@ -2783,6 +2790,9 @@ impl App {
         let notice = if saved { self.notice.take() } else { None };
         self.cur = idx.min(self.files.len() - 1);
         self.notice = notice;
+        // A failure of before (a share away for a moment) is tried again now that the image is
+        // shown again, not kept for the rest of the session.
+        self.decode_errors.remove(&self.cur);
         // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
         if !self.config.keep_zoom {
             self.zoom = None;
@@ -4707,14 +4717,16 @@ impl App {
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
         let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
+        let edited = path.clone();
         file_ops::write_sidecar(move || {
             if let Err(e) = meta::write_changed(&path, keywords, comment) {
                 let _ = tx.send(tf!("Could not save the keywords: {e}", e));
             }
         });
-        // "exif:" searches find keywords and comments too: read again when next used.
-        if let Some(name) = self.files.get(self.cur) {
-            self.exif_stale.insert(name.clone());
+        // "exif:" searches find keywords and comments too: the edited file, which may not be
+        // the shown one any more, is read again when next used.
+        if let Ok(name) = edited.strip_prefix(&self.dir) {
+            self.exif_stale.insert(name.as_os_str().to_owned());
         }
     }
 

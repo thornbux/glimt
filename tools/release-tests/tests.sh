@@ -321,6 +321,25 @@ for v in new old; do
 done
 as_version new
 
+echo "-- an image that could not be read, put right by another program: read again when shown again"
+d=/tmp/retry
+mkdir -p $d
+echo "not a picture" >$d/a.png
+convert -size 600x400 xc:red $d/b.png
+for v in new old; do
+    as_version $v
+    # No refresh of the folder, which would read everything again: the image itself must be.
+    config auto_refresh=false
+    start $d/a.png; sleep 2
+    convert -size 600x400 xc:lime $d/a.png
+    key Right; sleep 1; key Left; sleep 2
+    shot retry-$v
+    quit
+    if [ $v = new ]; then expect "the image read again, not the old failure kept" "$(colour retry-$v 760 400)" green
+    else note "old: $(colour retry-$v 760 400)"; fi
+done
+as_version new
+
 echo "-- a turned image removed by another program: its turn goes to no other image"
 for v in new old; do
     as_version $v

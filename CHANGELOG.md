@@ -22,6 +22,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An image that could not be read (a share away for a moment) is read again when it is shown
+  again, instead of the failure being kept for the session; the keywords edited mark their own
+  file for the exif: search, not the one shown; panes are filled again after a delete; the
+  selection's size follows a refresh; Open Folders includes the subfolders as the menu says, also
+  after a collection.
 - Copy, Move, Rename, Delete and the folder operations wait while keywords are being written to
   the files, as they wait for a turned image being saved, so a batch of keywords no longer misses
   the files moved before their turn; a file moved meanwhile counts as failed, not done.
