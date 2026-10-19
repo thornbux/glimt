@@ -180,8 +180,14 @@ best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -l
 within() { [ "${1:-999999}" != 999999 ] && [ $(( $1 * 2 )) -le $(( ${2:-0} * 3 + ${3:-0} * 2 )) ] && echo yes; }
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
 # The control of a check that expects nothing to change: that the keys reach the window at all.
-# Full screen (f) fills the virtual screen; a key lost on the way leaves the window as it was.
-keys_arrive() { key f; sleep 1; xdotool getwindowgeometry $WIN 2>/dev/null | grep -q "1600x1000" && echo yes; key f; }
+# t turns the thumbnails off, which is saved to the settings file; a key lost on the way leaves
+# it as it was. (Full screen would not do: Xvfb has no window manager to resize the window.)
+keys_arrive() {
+    local before; before=$(md5sum <$XDG_CONFIG_HOME/glimt/config 2>/dev/null)
+    key t; sleep 1
+    [ "$(md5sum <$XDG_CONFIG_HOME/glimt/config 2>/dev/null)" != "$before" ] && echo yes
+    key t; sleep 0.5
+}
 # Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
 cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
 busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
