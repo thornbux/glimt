@@ -710,15 +710,13 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
     // On disk while the renames run: a crash halfway is put right at the next start.
     let mut plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
-        if let Err(e) = put_file(a, b, false) {
+        if let Err(e) = journal::step(a, b) {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
-            // Undone, so that no file is left under a hidden temporary name.
-            let mut stuck = 0;
-            for (a, b) in moves[..k].iter().rev() {
-                stuck += usize::from(std::fs::rename(b, a).is_err());
-            }
+            // Undone, so that no file is left under a hidden temporary name: the same steps
+            // the next start would take.
+            let (_, stuck) = journal::undo(&moves, k);
             let (f, t) = (name(&from[j]), name(&to[j]));
             // Not all put back (a share that stopped answering): the plan stays, and the next
             // start offers to put the files right.

@@ -140,61 +140,79 @@ fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
     Some((moves, done))
 }
 
-/// Put the old names back, or finish the renames: the `done` steps undone, or the rest done, each
-/// whose target name is free; for a plan that did not count them, every step, by the names
-/// alone. (renamed, left); the plan goes when nothing is left, else it is asked about again at
-/// the next start.
+/// One step of a plan, `a` to `b`: never over another file (`put_file`). A step cut short
+/// between its link and its unlink, both names the file, is finished by taking the old one
+/// away. The one way a step is done, whether as Rename Many runs, is undone, or is put right
+/// at the next start.
+pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
+    if same_file(a, b) {
+        return std::fs::remove_file(a);
+    }
+    crate::file_ops::put_file(a, b, false)
+}
+
+/// The first `done` steps of `moves` undone, last first; (renamed, left). A name no longer
+/// there is nothing of ours to put back, and is left out of both.
+pub fn undo(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
+    let back = moves[..done.min(moves.len())].iter().rev();
+    steps(back.map(|(a, b)| (b.as_path(), a.as_path())))
+}
+
+/// The steps of `moves` after the first `done` done; (renamed, left).
+pub fn finish(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
+    let rest = moves[done.min(moves.len())..].iter();
+    steps(rest.map(|(a, b)| (a.as_path(), b.as_path())))
+}
+
+fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize) {
+    let (mut renamed, mut left) = (0, 0);
+    for (a, b) in steps {
+        if !a.exists() {
+            continue;
+        }
+        match step(a, b) {
+            Ok(()) => renamed += 1,
+            Err(_) => left += 1,
+        }
+    }
+    (renamed, left)
+}
+
+/// Put the old names back, or finish the renames: the `done` steps undone, or the rest done; for
+/// a plan that did not count them, every step, by the names alone. (renamed, left); the plan
+/// goes when nothing is left, else it is asked about again at the next start.
 pub fn settle(
     plan: &Path,
     moves: &[(PathBuf, PathBuf)],
     done: Option<usize>,
-    undo: bool,
+    undo_them: bool,
 ) -> (usize, usize) {
     // One window at a time, and only while the plan is there: a second window that asked about
     // it too would do the same steps again, on files already put right.
     let Some(_held) = File::open(plan).ok().filter(free) else {
         return (0, 0);
     };
-    let (mut renamed, mut left) = (0, 0);
+    let mut first = 0;
     // Put back: the step cut short between its link and its unlink, the first not counted, has
     // its new name taken away first, so the steps before it can be undone.
-    if undo
+    if undo_them
         && let Some((a, b)) = done.and_then(|d| moves.get(d))
         && same_file(a, b)
         && std::fs::remove_file(b).is_ok()
     {
-        renamed += 1;
+        first = 1;
     }
-    let (before, after) = match done {
-        Some(done) => moves.split_at(done.min(moves.len())),
-        None => (moves, moves),
+    let (renamed, left) = match (undo_them, done) {
+        (true, Some(done)) => undo(moves, done),
+        (false, Some(done)) => finish(moves, done),
+        // Not counted: every step, by the names alone.
+        (true, None) => undo(moves, moves.len()),
+        (false, None) => finish(moves, 0),
     };
-    let steps: Vec<(&PathBuf, &PathBuf)> = match undo {
-        true => before.iter().rev().map(|(a, b)| (b, a)).collect(),
-        false => after.iter().map(|(a, b)| (a, b)).collect(),
-    };
-    for (a, b) in steps {
-        if !a.exists() {
-            continue;
-        }
-        // Cut short between the link and the unlink of a move: both names are the file, and
-        // only the old one is to go.
-        if same_file(a, b) {
-            match std::fs::remove_file(a) {
-                Ok(()) => renamed += 1,
-                Err(_) => left += 1,
-            }
-            continue;
-        }
-        match !b.exists() && std::fs::rename(a, b).is_ok() {
-            true => renamed += 1,
-            false => left += 1,
-        }
-    }
     if left == 0 {
         let _ = std::fs::remove_file(plan);
     }
-    (renamed, left)
+    (renamed + first, left)
 }
 
 /// Whether `a` and `b` are names of the same file.
@@ -350,6 +368,31 @@ mod tests {
         plan.keep();
         let left = super::interrupted(&dir);
         assert_eq!((left.len(), left[0].2), (1, Some(1)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The failing path and the recovery share one undo: two steps of a swap done, undone last
+    /// first; one of them put back by hand already is left out, not counted as stuck.
+    #[test]
+    fn undoes_the_steps_done() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-undo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = |n: &str| dir.join(n);
+        std::fs::write(p("a"), "a").unwrap();
+        std::fs::write(p("b"), "b").unwrap();
+        let moves = vec![(p("a"), p(".t0")), (p("b"), p(".t1")), (p(".t0"), p("b"))];
+        assert_eq!(super::finish(&moves, 0), (3, 0));
+        assert!(!p("a").exists() && p(".t1").exists());
+        assert_eq!(std::fs::read_to_string(p("b")).unwrap(), "a");
+        assert_eq!(super::undo(&moves, 3), (3, 0));
+        assert_eq!(std::fs::read_to_string(p("a")).unwrap(), "a");
+        assert_eq!(std::fs::read_to_string(p("b")).unwrap(), "b");
+        // Two done, one of them put back by hand: only the other is undone.
+        std::fs::rename(p("a"), p(".t0")).unwrap();
+        std::fs::rename(p("b"), p(".t1")).unwrap();
+        std::fs::rename(p(".t1"), p("b")).unwrap();
+        assert_eq!(super::undo(&moves, 2), (1, 0));
+        assert!(p("a").exists() && p("b").exists() && !p(".t0").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
