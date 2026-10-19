@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Ctrl+Shift+C copies the image to the clipboard, as the menu says, instead of opening Copy to
+  Folder.
 - A slideshow in a layout that changes one image at a time goes on with Fade off, or in power
   saving, instead of standing still once its images are loaded.
 - A slideshow in random order in a layout that changes one image at a time goes on into a new

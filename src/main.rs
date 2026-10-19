@@ -4,7 +4,7 @@
 //! is decoded only when the user zooms past what that covers. Only a small window around
 //! the current image is kept in memory.
 
-use actions::{Action, CTRL, OWN_KEYS, SHORTCUTS, shortcut_text, shortcuts};
+use actions::{Action, CTRL, CTRL_SHIFT, OWN_KEYS, SHORTCUTS, shortcut_text, shortcuts};
 use colour::{
     COLOR_MANAGEMENT, FILTERS, INPUT_PROFILES, INTENTS, SCREEN_WAIT, SCREEN_WAIT_MS, VIEW_FILTER,
     colour_source, read_desktop_screen, set_colour, set_input, set_intent, set_screen,
@@ -5344,9 +5344,11 @@ impl App {
             let copies = i.events.len();
             i.events.retain(|e| !matches!(e, egui::Event::Copy));
             if i.events.len() < copies {
-                // Whatever has Ctrl+C: Copy, unless the user gave the key to another action.
+                // Whatever has Ctrl+C: Copy, unless the user gave the key to another action. Ctrl+
+                // Shift+C comes as the same event: Copy Image to Clipboard.
+                let held = if i.modifiers.shift { CTRL_SHIFT } else { CTRL };
                 return (all.iter())
-                    .find(|s| actions::same_keys(s, &(s.0, CTRL, egui::Key::C)))
+                    .find(|s| actions::same_keys(s, &(s.0, held, egui::Key::C)))
                     .map(|s| s.0);
             }
             all.iter()
@@ -8587,6 +8589,27 @@ mod tests {
         assert!(super::fits_texture([6000, 4000], 0.5, 16384));
         // A panorama shown 20,000 pixels wide does not.
         assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
+    }
+
+    /// egui-winit sends Ctrl+C, with or without Shift, as a Copy event: Copy to a folder, or
+    /// with Shift the image to the clipboard.
+    #[test]
+    fn copy_event_with_shift_copies_the_image() {
+        use eframe::egui;
+        let pressed = |shift| {
+            let ctx = egui::Context::default();
+            let modifiers = egui::Modifiers {
+                shift,
+                ..super::CTRL
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Copy],
+                ..Default::default()
+            });
+            super::App::shortcut(&ctx, true, false)
+        };
+        assert_eq!(pressed(false), Some(super::Action::Copy));
+        assert_eq!(pressed(true), Some(super::Action::CopyImage));
     }
 
     #[test]
