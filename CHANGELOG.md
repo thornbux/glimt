@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A move whose source cannot be removed (someone else's file in a shared folder) leaves no second
+  name behind in the folder it went to.
 - Open With finds the applications installed on the system also in the Flatpak, where it said none
   were found, and no longer lists the Flatpak Glimt itself.
 - A RAW photo whose preview is less than twice the view's size (a 24 MP camera on a 4K screen) is
