@@ -730,15 +730,38 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 /// This Glimt's name is in it (in a Flatpak more than the process ID, which windows can share),
 /// so concurrent sessions never write to the same temporary file.
 pub fn replace_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    replace(path, bytes, false)
+}
+
+/// `replace_file` for a file of the user's that must still be there: a turned image, whose
+/// save takes a while. Deleted, moved or renamed meanwhile, it is not made again under its old
+/// name by the save landing late; the save is refused instead. The one place this holds for
+/// every operation, whether or not it asked `none_saving` first.
+pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    replace(path, bytes, true)
+}
+
+fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
     use std::io::Write;
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let tmp = tmp_path(path);
+    let there = || match !existing || std::fs::symlink_metadata(path).is_ok() {
+        true => Ok(()),
+        false => Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "the file was moved, renamed or deleted meanwhile",
+        )),
+    };
     // On disk before the rename: after a crash the old file or the new one, never an empty one.
     // No folder made: a sidecar or a collection whose folder was renamed meanwhile is not
     // written into a new one of the old name.
-    let result = new_beside(&tmp, path)
+    // shortcut: `there` is looked at just before the rename, not in the same step; a file that
+    // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
+    let result = there()
+        .and_then(|_| new_beside(&tmp, path))
         .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
+        .and_then(|_| there())
         .and_then(|_| std::fs::rename(&tmp, path));
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
@@ -1007,6 +1030,27 @@ mod tests {
         assert!(super::WRITING.load(Relaxed) >= before + 1);
         super::flush();
         assert_eq!(super::WRITING.load(Relaxed), before);
+    }
+
+    /// A file deleted (or moved) while its new version was being made is not made again under
+    /// its old name; one still there is replaced as usual.
+    #[test]
+    fn a_late_save_lands_only_where_the_file_still_is() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-late-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        std::fs::write(&file, "old").unwrap();
+        assert!(super::replace_existing(&file, "new").is_ok());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        std::fs::remove_file(&file).unwrap();
+        let late = super::replace_existing(&file, "late");
+        assert_eq!(late.unwrap_err().kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            0,
+            "nothing made, no tmp left"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

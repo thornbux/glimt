@@ -246,7 +246,8 @@ pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), S
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    crate::config::replace_file(path, oriented(data, turns, mirrored)?).map_err(|e| e.to_string())
+    crate::config::replace_existing(path, oriented(data, turns, mirrored)?)
+        .map_err(|e| e.to_string())
 }
 
 /// The JPEG `data` with the view's rotation as its EXIF orientation, as `write_orientation`

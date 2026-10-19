@@ -11,6 +11,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   turned image, a print, keywords, the settings), instead of a list of counters a new writer had
   to be added to; a third close ends at once without waiting for anything.
 
+### Fixed
+
+- A turned image whose save lands after the file was deleted, moved or renamed is not made again
+  under its old name, whatever operation moved it: the save is refused and told. A plugin run on
+  an image being saved turned waits, as Delete does, and its own report no longer ends that save's
+  guard.
+
 ## [0.38.3] - 2026-10-19
 
 ### Fixed

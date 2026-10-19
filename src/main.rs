@@ -1209,6 +1209,10 @@ struct App {
     /// have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
+    /// Files a plugin may have edited: shown again. Not `saved_tx`, whose report ends the
+    /// guard of a turned image being saved.
+    edited_tx: mpsc::Sender<PathBuf>,
+    edited_rx: mpsc::Receiver<PathBuf>,
     /// The files Rename or a delete asked about, by their names in the list, and where the list
     /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
     asked_for: (u64, Vec<OsString>),
@@ -1668,6 +1672,7 @@ impl App {
         let (put_tx, put_rx) = mpsc::channel();
         let (saved_tx, saved_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
+        let (edited_tx, edited_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
             mounting_rx: None,
@@ -1836,6 +1841,8 @@ impl App {
             put_rx,
             saved_tx,
             saved_rx,
+            edited_tx,
+            edited_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
             file_jobs: Vec::new(),
@@ -5985,6 +5992,9 @@ impl App {
         } else if self.closing > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        while let Ok(path) = self.edited_rx.try_recv() {
+            self.saved(&path);
+        }
         while let Ok((path, result)) = self.saved_rx.try_recv() {
             self.saving.remove(&path);
             match result {
@@ -7584,14 +7594,18 @@ impl App {
                 return;
             };
             let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+            // A turned image still being saved would be written over the plugin's edit.
+            if !self.none_saving(&files) {
+                return;
+            }
             let plugin = self.plugins[k].clone();
             let dir = self.dir.clone();
-            let (saved, deleted) = (self.saved_tx.clone(), self.deleted_tx.clone());
+            let (edited, deleted) = (self.edited_tx.clone(), self.deleted_tx.clone());
             // Not waited for at closing: a plugin may be an editor that stays open for long.
             self.background(ui.ctx(), false, move || {
                 let result = plugin.run(&files, &dir);
                 for f in files {
-                    let _ = saved.send((f, Ok(())));
+                    let _ = edited.send(f);
                 }
                 let _ = deleted.send((Vec::new(), Vec::new(), true));
                 result.err().map(|e| format!("{}: {e}", plugin.name))

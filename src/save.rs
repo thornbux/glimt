@@ -98,8 +98,9 @@ pub fn save_rotated(
                 Some(xmp) => webp_with_chunk(&webp, b"XMP ", xmp, img.width(), img.height()),
                 None => Ok(webp),
             });
-        return made
-            .and_then(|webp| crate::config::replace_file(path, webp).map_err(|e| e.to_string()));
+        return made.and_then(|webp| {
+            crate::config::replace_existing(path, webp).map_err(|e| e.to_string())
+        });
     }
     // Encoded in memory first: an encoder that owns its file flushes it on drop, where a full
     // disk would go unnoticed and a cut-off file replace the photo.
@@ -142,7 +143,7 @@ pub fn save_rotated(
             false => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
         };
     }
-    crate::config::replace_file(path, out).map_err(|e| e.to_string())
+    crate::config::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
