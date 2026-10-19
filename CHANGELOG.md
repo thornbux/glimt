@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A folder is not renamed or moved to the trash while a turned image in it is being saved, which
+  left a hidden temporary file as large as the image behind.
 - A move whose source cannot be removed (someone else's file in a shared folder) leaves no second
   name behind in the folder it went to.
 - Open With finds the applications installed on the system also in the Flatpak, where it said none

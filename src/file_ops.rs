@@ -62,10 +62,10 @@ impl crate::App {
         Some(found)
     }
 
-    /// No file of `paths` is being saved turned; else a notice. Deleted, moved or renamed
+    /// No file of `paths`, or in a folder of them, is being saved turned; else a notice. Deleted, moved or renamed
     /// meanwhile, a PNG or WebP would come back when its save puts it under its name again.
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
-        let saving = paths.iter().any(|p| self.saving.contains(p));
+        let saving = (self.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
         }
@@ -523,7 +523,7 @@ impl crate::App {
             return;
         };
         let new = old.with_file_name(name);
-        if new == old {
+        if new == old || !self.none_saving(std::slice::from_ref(&old)) {
             return;
         }
         // rename() would replace an empty folder of that name.
@@ -566,6 +566,9 @@ impl crate::App {
         let Some(dir) = self.folder_target.take() else {
             return;
         };
+        if !self.none_saving(std::slice::from_ref(&dir)) {
+            return;
+        }
         self.forget_folder(&dir);
         self.subdirs.retain(|d| *d != dir);
         if self.dir.starts_with(&dir)
