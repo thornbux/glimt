@@ -425,14 +425,23 @@ pub fn printers() -> (Vec<String>, Option<String>) {
 
 /// `lp`'s options: the printer, copies, title, and both sides of the paper if asked; CUPS
 /// prints one side on a printer that cannot do both.
-fn lp_args(printer: &str, copies: u32, two_sided: bool, title: &str) -> Vec<String> {
+fn lp_args(printer: &str, copies: u32, sides: Option<&str>, title: &str) -> Vec<String> {
     let mut args: Vec<String> = ["-d", printer, "-n", &copies.to_string(), "-t", title]
         .map(str::to_owned)
         .into();
-    if two_sided {
-        args.extend(["-o".to_owned(), "sides=two-sided-long-edge".to_owned()]);
+    if let Some(sides) = sides {
+        args.extend(["-o".to_owned(), format!("sides={sides}")]);
     }
     args
+}
+
+/// CUPS's way of printing on both sides for `layout`: turned on the long edge for portrait
+/// pages, on the short edge for landscape ones, so the back is the right way up.
+pub fn sides(layout: &Layout) -> &'static str {
+    match layout.orientation {
+        Orientation::Landscape => "two-sided-short-edge",
+        _ => "two-sided-long-edge",
+    }
 }
 
 /// Send the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
@@ -440,12 +449,12 @@ fn lp_args(printer: &str, copies: u32, two_sided: bool, title: &str) -> Vec<Stri
 pub fn send(
     printer: &str,
     copies: u32,
-    two_sided: bool,
+    sides: Option<&str>,
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> Result<(), String> {
     let mut child = crate::external::command("lp")
-        .args(lp_args(printer, copies, two_sided, title))
+        .args(lp_args(printer, copies, sides, title))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -859,7 +868,8 @@ impl crate::App {
             let title = format!("Glimt: {}", count(job.paths.len(), "image"));
             let done = match &to {
                 PrintTo::Printer(printer) => {
-                    print::send(printer, job.copies, job.two_sided, &title, |w| {
+                    let sides = job.two_sided.then(|| print::sides(&job.layout));
+                    print::send(printer, job.copies, sides, &title, |w| {
                         print::pdf(pages, &job.layout, total, w)
                     })
                 }
@@ -912,10 +922,18 @@ mod tests {
     /// Both sides asked of lp only when chosen.
     #[test]
     fn asks_for_both_sides() {
-        assert!(!super::lp_args("p", 1, false, "t").contains(&"-o".to_owned()));
-        let both = super::lp_args("p", 2, true, "t");
+        use super::{Layout, Orientation, PAPERS, lp_args, sides};
+        assert!(!lp_args("p", 1, None, "t").contains(&"-o".to_owned()));
+        let both = lp_args("p", 2, Some("two-sided-long-edge"), "t");
         assert_eq!(both[both.len() - 2..], ["-o", "sides=two-sided-long-edge"]);
         assert_eq!(both[..4], ["-d", "p", "-n", "2"]);
+        // Landscape pages turn on the short edge.
+        let wide = Layout {
+            orientation: Orientation::Landscape,
+            ..Layout::new(PAPERS[0].1, 1)
+        };
+        assert_eq!(sides(&wide), "two-sided-short-edge");
+        assert_eq!(sides(&Layout::new(PAPERS[0].1, 1)), "two-sided-long-edge");
     }
 
     /// Text on every page, with its numbers, and room made for it: the image moves down from
