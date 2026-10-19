@@ -753,15 +753,20 @@ done
 as_version new
 
 echo "-- thumbnails with Auto Rotate off"
+# Its own pictures: run.sh may run this section in a part without the ones before it.
+d=/tmp/thumbs
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+convert -size 300x200 xc:lime $d/b.jpg
 rm -rf $XDG_CACHE_HOME/thumbnails
 config exif_rotate=false
-start /tmp/subfolders
+start $d
 sleep 3
 quit
 expect "none saved to the shared cache" "$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)" "0"
 # With it on they are saved: the check above cannot pass by no thumbnails being made.
 config exif_rotate=true
-start /tmp/subfolders
+start $d
 sleep 3
 quit
 n=$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)
@@ -2522,6 +2527,9 @@ r=$(red screen-AdobeRGB1998 760 400)
 expect "a file that is no profile: red as it is" "$(red screen-junk 760 400)" "255"
 
 echo "-- the desktop's screen profile: a stand-in gdbus answers for colord with Adobe RGB"
+d=/tmp/desktop-profile
+mkdir -p $d
+convert -size 600x400 xc:red $d/red.png
 cat >/tmp/stub/gdbus <<STUB
 #!/bin/sh
 case "\$*" in
