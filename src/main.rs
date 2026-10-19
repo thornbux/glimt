@@ -1671,7 +1671,7 @@ fn spawn_thumbnailers(
                     let (rotate, save) =
                         (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
                     let large = LARGE_THUMBS.load(Ordering::Relaxed);
-                    survive(|| thumbs::thumbnail(&path, rotate, save, large))
+                    thumbs::thumbnail(&path, rotate, save, large)
                         .ok()
                         // sRGB in the shared cache; to the screen only to be shown.
                         .map(|img| color_image(srgb_to_display(img.into())))

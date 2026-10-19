@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file whose decoder crashes gets its failure mark in the thumbnail cache like any other,
+  instead of being decoded again on every visit.
 - A background thread that ends without its answer (it broke on a file) is told once, and nothing
   waits for it any more: Rename Many is not refused for the rest of the session, closing does not
   wait for ever, the Pan view, Find Duplicates and the exif: search do not stay at Comparing or

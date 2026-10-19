@@ -53,14 +53,18 @@ fn thumbnail_in(
             return Err("no thumbnail could be made before".into());
         }
     }
-    // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38.
-    let made = match crate::decode::scaled_jpeg(path, [size, size], rotate) {
-        Some((img, icc, _)) => Ok((img, icc)),
-        None => crate::decode::load_for(path, rotate, Some([size, size])),
-    }
-    .and_then(|(img, icc)| {
-        let img = crate::decode::shrink(img, [size, size])?;
-        Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
+    // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38. A decoder that
+    // panics on the file fails here, inside, so the failure is marked like any other and the
+    // file is not decoded again at every visit.
+    let made = crate::decode::survive(|| {
+        match crate::decode::scaled_jpeg(path, [size, size], rotate) {
+            Some((img, icc, _)) => Ok((img, icc)),
+            None => crate::decode::load_for(path, rotate, Some([size, size])),
+        }
+        .and_then(|(img, icc)| {
+            let img = crate::decode::shrink(img, [size, size])?;
+            Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
+        })
     });
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
     // one not turned upright by EXIF (Auto Rotate off) is not shared; the failure mark, Glimt's
