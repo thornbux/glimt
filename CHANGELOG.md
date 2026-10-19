@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- In the Flatpak, the projector window has Glimt's icon and stays with Glimt in the dock, instead
+  of an entry of its own with a generic icon.
 - Plugins and decoders whose desktop file starts with a comment are found, instead of silently
   left out.
 - Putting a cut-short Rename Many right no longer now and then does nothing, when Glimt started

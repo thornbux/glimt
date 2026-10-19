@@ -678,6 +678,12 @@ fn scroll_menu<R>(
     }
 }
 
+/// The windows' app ID, the desktop file's name, so the desktop shows its icon for them:
+/// glimt.desktop, or in a Flatpak io.github.thornbux.Glimt.desktop (FLATPAK_ID).
+fn app_id() -> String {
+    std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
+}
+
 /// Where the popup IDs of the menu bar's menus are kept, for `scroll_menu` and `close_menus`.
 const BAR_MENUS: &str = "menu bar menus";
 
@@ -3313,7 +3319,7 @@ impl App {
         let id = egui::ViewportId::from_hash_of("glimt projector");
         let builder = egui::ViewportBuilder::default()
             .with_title("Glimt Projector")
-            .with_app_id("glimt")
+            .with_app_id(app_id())
             .with_inner_size([960.0, 600.0]);
         let mut act = None;
         let closed = ctx.show_viewport_immediate(id, builder, |ui, _| {
@@ -8388,12 +8394,9 @@ fn main() -> eframe::Result {
             None => return Ok(()),
         }
     }
-    // The app ID matches the desktop file, so the desktop shows its icon for the window:
-    // glimt.desktop, or in a Flatpak io.github.thornbux.Glimt.desktop (FLATPAK_ID).
-    let app_id = std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into());
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Glimt")
-        .with_app_id(app_id)
+        .with_app_id(app_id())
         .with_inner_size([1280.0, 800.0]);
     if let Ok(icon) = image::load_from_memory(LOGO) {
         let icon = icon.into_rgba8();
