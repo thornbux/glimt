@@ -2067,7 +2067,8 @@ impl App {
         self.part_rx = Some(part_rx);
         // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
         // its whole list on screen until the new one is read, instead of shrinking and growing.
-        let parts = std::mem::take(&mut self.list_parts);
+        // Nor in random order: a list in name order would take the shuffled one's place.
+        let parts = std::mem::take(&mut self.list_parts) && !self.shuffled;
         self.went_to = None;
         std::thread::spawn(move || {
             // Several folders: their images, each folder (with its subfolders) after the other.

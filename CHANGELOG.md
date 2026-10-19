@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Turning Include Subfolders on during a slideshow in random order keeps it random: the images
+  found so far came in name order and took the shuffled list's place (since 0.38.0).
 - The images of a tree found so far wait one at a time for the window: a window not drawn while a
   large tree was read could gather a copy of the list for every quarter second.
 - With Include Subfolders on, a tree is read in name order and opens on its first image, also in
