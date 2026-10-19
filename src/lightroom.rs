@@ -48,6 +48,9 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if file.with_extension("lrcat.lock").exists() {
         return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
+    if !crate::external::host_has("sqlite3") {
+        return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
+    }
     let out = crate::external::command("sqlite3")
         .args([
             "-readonly",
@@ -64,9 +67,6 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         .map_err(|e| format!("{NEEDS}: {e}"))?;
     if !out.status.success() {
         let why = String::from_utf8_lossy(&out.stderr);
-        if crate::external::missing(out.status.code(), &why) {
-            return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
-        }
         return Err(tf!(
             "Not a Lightroom Classic catalog Glimt can read: {why}",
             why = why.trim()
@@ -604,18 +604,6 @@ mod tests {
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.
-    #[test]
-    fn tells_sqlite3_missing() {
-        let spawn = "Portal call failed: Failed to start command: Failed to execute child \
-                     process \u{201c}sqlite3\u{201d} (No such file or directory)";
-        assert!(crate::external::missing(Some(255), spawn));
-        assert!(crate::external::missing(Some(127), ""));
-        assert!(!crate::external::missing(
-            Some(1),
-            "Error: file is not a database"
-        ));
-    }
-
     /// sqlite3 output broken in thousands of ways: read without a panic or an endless loop.
     #[test]
     fn survives_broken_output() {

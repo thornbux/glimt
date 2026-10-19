@@ -179,6 +179,9 @@ best() { eval "best_seen=\${$1:-}"; { [ -z "$best_seen" ] || [ "${2:-999999}" -l
 # Never yes without a value of the new version: both missing would compare as equal.
 within() { [ "${1:-999999}" != 999999 ] && [ $(( $1 * 2 )) -le $(( ${2:-0} * 3 + ${3:-0} * 2 )) ] && echo yes; }
 hwm() { awk '/VmHWM/ {print $2}' /proc/$GPID/status; }
+# Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
+cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
+busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
 
 cd /tmp
 
@@ -388,10 +391,7 @@ done
 as_version new
 
 echo "-- no busy loop: zoomed panes, a random slideshow behind a search or in panes one at a time"
-# Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
 # The slideshow changes its image every second, which costs some; the old loop costs thousands.
-cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
-busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
 d=/tmp/busy
 mkdir -p $d/panes $d/show
 for i in 1 2 3 4; do convert -size 3000x2000 xc: +noise Random -quality 85 $d/panes/$i.jpg; done
@@ -2702,6 +2702,40 @@ for s in range(10):
     as_version new
     expect "sorted within 1.5 times the last release's time" "$(within $exif_ms_new $exif_ms_old 100)" yes
 fi
+
+echo "-- as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host"
+# A stand-in flatpak-spawn runs the host command here, as the real one does on the host, its
+# flags (--host, --env=…) dropped; Glimt takes itself for a Flatpak from FLATPAK_ID. So the
+# one place that asks what the host has (host_has) and every fallback it decides run here.
+cat >/tmp/stub/flatpak-spawn <<'STUB'
+#!/bin/sh
+while [ "${1#-}" != "$1" ]; do shift; done
+exec "$@"
+STUB
+chmod +x /tmp/stub/flatpak-spawn
+d=/tmp/flatpak
+mkdir -p $d/kde
+convert -size 64x64 xc:red $d/a.jpg
+convert -size 64x64 xc:blue $d/kde/k.jpg
+# No zenity on the host, kdialog there: the collection dialog (o) goes through kdialog, and its
+# answer, a folder, is opened.
+rm -f /tmp/stub/zenity
+printf '#!/bin/sh\necho "%s"\n' $d/kde >/tmp/stub/kdialog; chmod +x /tmp/stub/kdialog
+# The host's screen saver inhibitor: found, and started once for full screen.
+printf '#!/bin/sh\ntouch %s/inhibited\nexec cat\n' $d >/tmp/stub/gnome-session-inhibit
+chmod +x /tmp/stub/gnome-session-inhibit
+export FLATPAK_ID=io.github.thornbux.Glimt
+config
+start $d/a.jpg; sleep 2
+key o; sleep 3
+opened=$($BIN --remote current | tr -d '\0')
+key f; sleep 2
+ticks=$(busy)
+quit
+unset FLATPAK_ID
+rm -f /tmp/stub/kdialog /tmp/stub/gnome-session-inhibit /tmp/stub/flatpak-spawn
+expect "no zenity on the host: kdialog's answer opened" "$opened" "$d/kde/k.jpg"
+expect "the host's inhibitor started, and full screen at rest" "$([ -e $d/inhibited ] && [ $ticks -lt 60 ] && echo yes)" yes
 
 echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"
 echo "   focused one, --remote-all next to both, --remote-all quit)"

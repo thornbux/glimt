@@ -6322,19 +6322,12 @@ impl App {
                 cmd.arg("--title").arg(title).arg(mode).arg(&start);
                 cmd.output()
             };
-            let output = zenity();
-            let output = if external::absent(&output) {
-                kdialog()
-            } else {
-                output
+            let output = match (external::host_has("zenity"), external::host_has("kdialog")) {
+                (true, _) => zenity(),
+                (false, true) => kdialog(),
+                (false, false) => Err(std::io::ErrorKind::NotFound.into()),
             };
             let picked = match output {
-                // Not there in a Flatpak: flatpak-spawn ran, and says so.
-                Ok(_) if external::absent(&output) => {
-                    let e = tr("not found");
-                    let _ = notices.send(tf!("No file dialog (install zenity or kdialog): {e}", e));
-                    None
-                }
                 Err(e) => {
                     let _ = notices.send(tf!("No file dialog (install zenity or kdialog): {e}", e));
                     None
@@ -6517,26 +6510,16 @@ impl App {
                 "cat",
             ],
         ];
-        let flatpak = std::env::var_os("FLATPAK_ID").is_some();
-        self.inhibitor = commands.iter().find_map(|c| {
-            let mut child = command(c[0])
+        // The first that is there, on the host in a Flatpak.
+        let found = commands.iter().find(|c| external::host_has(c[0]));
+        self.inhibitor = found.and_then(|c| {
+            command(c[0])
                 .args(&c[1..])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()
-                .ok()?;
-            // In a Flatpak, flatpak-spawn starts even when the host lacks the program, and ends
-            // at once; a working inhibitor waits on its `cat`.
-            // shortcut: up to 200 ms in the window thread, once when full screen starts in a
-            // Flatpak; a thread of its own if that is ever felt.
-            if flatpak {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                if let Ok(Some(_)) = child.try_wait() {
-                    return None;
-                }
-            }
-            Some(child)
+                .ok()
         });
     }
 
@@ -7771,19 +7754,10 @@ impl App {
                 out.map_err(|e| format!("{cmd}: {e}"))
             };
             let out = if words.is_empty() {
-                // gio is part of glib; xdg-open covers systems without it, also on the host of a
-                // Flatpak, where gio's absence comes back as flatpak-spawn's failure.
-                match run("gio", &["open".into()]) {
-                    Ok(o)
-                        if external::missing(
-                            o.status.code(),
-                            &String::from_utf8_lossy(&o.stderr),
-                        ) =>
-                    {
-                        run("xdg-open", &[])
-                    }
-                    Err(_) => run("xdg-open", &[]),
-                    gio => gio,
+                // gio is part of glib; xdg-open covers systems without it.
+                match external::host_has("gio") {
+                    true => run("gio", &["open".into()]),
+                    false => run("xdg-open", &[]),
                 }
             } else {
                 let cmd = words.remove(0);

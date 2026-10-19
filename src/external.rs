@@ -448,18 +448,23 @@ pub fn stoppable_command(program: &str) -> std::process::Command {
     host_command(program, &["--watch-bus"])
 }
 
-/// Whether a program `command` ran was not there: exit 127 from a shell, or in a Flatpak,
-/// where flatpak-spawn itself always starts, its message that the host has no such program.
-pub fn missing(code: Option<i32>, stderr: &str) -> bool {
-    code == Some(127) || stderr.contains("Failed to execute child process")
-}
-
-/// `missing` for the whole result of running it: also not found outside a Flatpak.
-pub fn absent(out: &std::io::Result<std::process::Output>) -> bool {
-    match out {
-        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-        Ok(o) => missing(o.status.code(), &String::from_utf8_lossy(&o.stderr)),
+/// Whether `program` is there to run: on the host in a Flatpak, where flatpak-spawn starts
+/// even for one the host lacks and fails only afterwards. Asked of the shell once for each
+/// program and remembered. The one way every fallback decides: zenity or kdialog, gio or
+/// xdg-open, which screen saver inhibitor, sqlite3.
+pub fn host_has(program: &str) -> bool {
+    static KNOWN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
+        std::sync::OnceLock::new();
+    let known = KNOWN.get_or_init(Default::default);
+    if let Some(&has) = known.lock().unwrap().get(program) {
+        return has;
     }
+    let has = command("sh")
+        .args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program])
+        .status()
+        .is_ok_and(|s| s.success());
+    known.lock().unwrap().insert(program.to_owned(), has);
+    has
 }
 
 fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
@@ -473,6 +478,14 @@ fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
 
 #[cfg(test)]
 mod tests {
+    /// A program is there or not, and the shell is asked once.
+    #[test]
+    fn knows_what_the_host_has() {
+        assert!(super::host_has("sh"));
+        assert!(!super::host_has("no-such-program-glimt"));
+        assert!(!super::host_has("no-such-program-glimt"));
+    }
+
     /// Desktop files found in the first data folder that has them, with their names.
     #[test]
     fn names_applications() {

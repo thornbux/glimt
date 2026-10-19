@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- In the Flatpak, whether a program is on the host is asked of the shell once (host_has) and
+  remembered: the file dialogs, Open, the screen saver inhibitor and the Lightroom import decide
+  their fallbacks the same way, and the release tests run them as a Flatpak.
 - A slideshow asks for its next frame itself, whatever it did in this one, so no layout, order or
   search can leave it standing still; its moves are one decision, tested over every combination.
 - Rename, Rename Many, Copy and Move refuse a new name whose sidecar is another file's also when

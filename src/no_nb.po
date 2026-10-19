@@ -2014,10 +2014,6 @@ msgstr " rute {n}/{frames}"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunne ikke gi {f} navnet {t}: {e}; ikke alle navn kunne settes tilbake, Glimt tilbyr å rette dem ved neste oppstart"
 
-#: src/main.rs
-msgid "not found"
-msgstr "ikke funnet"
-
 #: src/pan.rs
 msgid "Mon"
 msgstr "man"
