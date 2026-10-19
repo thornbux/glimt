@@ -117,6 +117,10 @@ python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt 
 - **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
   into `main` when a release is made, so that a release gathers several changes.
 - **One feature or fix per commit.** Formatting-only changes in a commit of their own.
+- **A fix lands with its check in the same commit:** a unit test, or for the window code a
+  section in `tools/release-tests/tests.sh` that fails on the release before it. A fix without
+  one is not finished; 0.37–0.38 showed that a fix nobody checked is the next release's
+  regression.
 - Use `--release` for tests too; a separate debug build doubles the space in `target/`.
 - A release: the version in `Cargo.toml` and in the header of `docs/glimt.1`, a section in
   `CHANGELOG.md`, a `<release>` line in `assets/io.github.thornbux.Glimt.metainfo.xml`, and a
@@ -126,7 +130,9 @@ python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt 
 
 ## Before a release
 
-Run `tools/release-tests/run.sh` on the release branch. It builds the branch and the last
+Run `tools/release-tests/run.sh` on the release branch, on the very commit that gets the tag:
+a change after the run means a new run, and a release the same day as the last one gets the
+whole suite too, never a patch release on trust. The run builds the branch and the last
 release with every feature in Docker (`rust:1`) and runs `tools/release-tests/tests.sh` there:
 a virtual X display, an ordinary user, a separate `HOME` and XDG folders, generated pictures,
 and a script named `zenity` early in `PATH` that answers for the file dialog. The checks run in
