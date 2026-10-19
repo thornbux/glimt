@@ -51,7 +51,10 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if !crate::external::host_has("sqlite3") {
         return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
     }
-    let out = crate::external::command("sqlite3")
+    // As every external program: its output read beside its errors, and ended after the usual
+    // limit, so a catalog on a share that stalls does not hold the import for ever.
+    use std::os::unix::process::CommandExt;
+    let mut child = crate::external::stoppable_command("sqlite3")
         .args([
             "-readonly",
             "-batch",
@@ -63,16 +66,21 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         ])
         .arg(file)
         .arg(QUERY)
-        .output()
+        .process_group(0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("{NEEDS}: {e}"))?;
-    if !out.status.success() {
-        let why = String::from_utf8_lossy(&out.stderr);
+    let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
+    let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
+    if !ok {
         return Err(tf!(
             "Not a Lightroom Classic catalog Glimt can read: {why}",
             why = why.trim()
         ));
     }
-    Ok(parse(&out.stdout))
+    Ok(parse(&out))
 }
 
 const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";

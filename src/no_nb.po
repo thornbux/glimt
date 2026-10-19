@@ -2073,3 +2073,11 @@ msgstr "Panoramavisningens dager"
 #: src/main.rs
 msgid "Rename Many"
 msgstr "Gi mange nye navn"
+
+#: src/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Ikke noe svar fra tjeneren på et minutt"
+
+#: src/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Katalogen er for stor til å lese"

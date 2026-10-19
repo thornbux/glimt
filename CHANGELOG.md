@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Mounting a share that never answers (a NAS asleep, a VPN down) gives up after a minute and says
+  so, and reading a Lightroom catalog has the usual time limit, instead of Connecting… and the
+  busy pointer for ever.
 - A damaged GIF, animated WebP or APNG whose frame header claims gigabytes is refused, instead of
   a failed allocation ending Glimt at once; damaged JPEG, TIFF, PNG, WebP, HEIC, colour profile
   and marks files are fed to their readers in every test run too.

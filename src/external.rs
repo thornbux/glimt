@@ -277,6 +277,20 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| Some(format!("Could not run gio: {e}")))?;
+    // A server that never answers (a NAS asleep, a VPN down): gio is ended after a minute and
+    // the mount told as failed, instead of "Connecting…" and the busy pointer for ever.
+    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+    let (pid, gave_up) = (child.id(), std::sync::Arc::new(AtomicBool::new(false)));
+    let (ended, watch) = (std::sync::Arc::new(AtomicBool::new(false)), gave_up.clone());
+    let done = ended.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(LIMIT * 2);
+        if !done.load(Relaxed) {
+            watch.store(true, Relaxed);
+            // SAFETY: a plain signal to the process gio was started as; nothing of ours is touched.
+            unsafe { crate::decoders::libc_kill(pid as i32, 9) };
+        }
+    });
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     // Prompts end in ": " without a newline, the next one printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
@@ -316,6 +330,12 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         answered = text.len();
     }
     let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
+    ended.store(true, Relaxed);
+    if gave_up.load(Relaxed) {
+        return Err(Some(
+            crate::lang::tr("No answer from the server in a minute").into(),
+        ));
+    }
     local().ok_or_else(|| {
         let err = String::from_utf8_lossy(&out.stderr);
         // "gio: smb://server/share/: Failed to mount …": the reason only.
