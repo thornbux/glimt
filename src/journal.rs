@@ -82,13 +82,24 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     Some(Journal { path, file })
 }
 
+/// Whether `file` can be locked: tried for a moment, as a program another thread starts holds a
+/// copy of the descriptor, and its lock, until it runs.
+fn free(file: &File) -> bool {
+    (0..10).any(|k| {
+        if k > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        file.try_lock().is_ok()
+    })
+}
+
 /// The plans in `dir` of renames that were cut short: those no running window holds locked.
 pub fn interrupted(dir: &Path) -> Vec<CutShort> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     entries
         .filter_map(|e| {
             let mut file = File::open(e.path()).ok()?;
-            file.try_lock().ok()?;
+            free(&file).then_some(())?;
             let mut bytes = Vec::new();
             file.read_to_end(&mut bytes).ok()?;
             let mut parts: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
@@ -130,7 +141,7 @@ pub fn settle(
 ) -> (usize, usize) {
     // One window at a time, and only while the plan is there: a second window that asked about
     // it too would do the same steps again, on files already put right.
-    let Some(_held) = File::open(plan).ok().filter(|f| f.try_lock().is_ok()) else {
+    let Some(_held) = File::open(plan).ok().filter(free) else {
         return (0, 0);
     };
     let (mut renamed, mut left) = (0, 0);

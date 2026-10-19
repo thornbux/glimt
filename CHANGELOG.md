@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Putting a cut-short Rename Many right no longer now and then does nothing, when Glimt started
+  another program at that moment.
 - With Auto Rotate off, thumbnails are made as the image is stored, also in a folder seen before,
   instead of taken upright from the shared cache.
 - In the Flatpak, a host without zenity falls back to kdialog for the file dialogs, opening with
