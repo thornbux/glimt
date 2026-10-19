@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- New Collection works on a new install again, where the collections folder is not there yet,
+  instead of saying the collection could not be saved (since 0.38.2).
+
 ## [0.38.2] - 2026-10-19
 
 ### Fixed

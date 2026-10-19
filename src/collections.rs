@@ -205,6 +205,10 @@ pub fn in_saved_order(saved: &[PathBuf], files: Vec<PathBuf>) -> Vec<PathBuf> {
 
 /// Add `paths` to the collection in `file` (made if new), leaving out those it has.
 pub fn append(file: &Path, paths: &[PathBuf]) -> std::io::Result<usize> {
+    // The first collection of a new install: its folder is not there yet.
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
     let mut added = 0;
     edit(file, true, |all| added = add(all, paths))?;
     Ok(added)
@@ -376,9 +380,9 @@ mod tests {
         let geeqie =
             b"#GQview collection\n#geometry: 0 0 400 300\n\"/p/1.jpg\"\n\"rel.jpg\"\n\"/p/1.jpg\"\n#end\n";
         assert_eq!(super::parse(geeqie), [PathBuf::from("/p/1.jpg")]);
-        // Added to: a new one is made, one that cannot be read is left as it is.
+        // Added to: a new one is made, also in a folder not there yet (a new install), and one
+        // that cannot be read is left as it is.
         let dir = std::env::temp_dir().join(format!("glimt-test-gqv-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.gqv");
         assert_eq!(super::append(&file, &paths).unwrap(), 2);
         assert_eq!(super::append(&file, &paths[..1]).unwrap(), 0);
