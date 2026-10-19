@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- glimt --remote select or current sent while the window is still reading a large folder, or has a
+  dialog open, comes back as no answer (exit 1) once the time is up, never as an empty answer with
+  exit 0 that a script takes for every file selected; and one client waiting holds up no other.
 - The print dialog's preview shows a photo with its own colour profile in the print's colours, as
   the page will have them. One small decode for thumbnails, the preview and the print, where there
   were three.

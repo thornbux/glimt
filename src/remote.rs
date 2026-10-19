@@ -326,29 +326,37 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
     mark_focused();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            let _ = stream.set_read_timeout(Some(WAIT));
-            let mut out = stream.try_clone().ok();
-            for line in std::io::BufReader::new(stream)
-                .lines()
-                .map_while(Result::ok)
-            {
-                let (reply, answer) = match is_query(&line) {
-                    true => {
-                        let (reply, answer) = mpsc::channel();
-                        (Some(reply), Some(answer))
-                    }
-                    false => (None, None),
-                };
-                if tx.send((line, reply)).is_err() {
-                    return;
-                }
-                ctx.request_repaint();
-                if let (Some(answer), Some(out)) = (answer, out.as_mut())
-                    && let Ok(bytes) = answer.recv_timeout(WAIT)
+            // Each client in a thread of its own: one waiting for the window (a folder of
+            // 500,000 files still being read, a dialog open) holds up no other. The window's
+            // answer is waited for as long as it takes; the client has the one time limit, so
+            // there is one outcome when it runs out: "no answer", exit 1, never an empty
+            // answer taken for "all found".
+            let (tx, ctx) = (tx.clone(), ctx.clone());
+            std::thread::spawn(move || {
+                let _ = stream.set_read_timeout(Some(WAIT));
+                let mut out = stream.try_clone().ok();
+                for line in std::io::BufReader::new(stream)
+                    .lines()
+                    .map_while(Result::ok)
                 {
-                    let _ = out.write_all(&bytes);
+                    let (reply, answer) = match is_query(&line) {
+                        true => {
+                            let (reply, answer) = mpsc::channel();
+                            (Some(reply), Some(answer))
+                        }
+                        false => (None, None),
+                    };
+                    if tx.send((line, reply)).is_err() {
+                        return;
+                    }
+                    ctx.request_repaint();
+                    if let (Some(answer), Some(out)) = (answer, out.as_mut())
+                        && let Ok(bytes) = answer.recv()
+                    {
+                        let _ = out.write_all(&bytes);
+                    }
                 }
-            }
+            });
         }
     });
 }
