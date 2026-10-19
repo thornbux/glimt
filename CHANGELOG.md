@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.38.4] - 2026-10-20
+
 ### Added
 
 - An icon before every item of the menus and submenus, from the Phosphor set the toolbar uses.
@@ -1720,7 +1722,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.3...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.4...HEAD
+[0.38.4]: https://github.com/thornbux/glimt/compare/v0.38.3...v0.38.4
 [0.38.3]: https://github.com/thornbux/glimt/compare/v0.38.2...v0.38.3
 [0.38.2]: https://github.com/thornbux/glimt/compare/v0.38.1...v0.38.2
 [0.38.1]: https://github.com/thornbux/glimt/compare/v0.38.0...v0.38.1
