@@ -204,6 +204,29 @@ pub fn max_pixels(layout: &Layout) -> u32 {
     (long / 72.0 * PPI * fill) as u32
 }
 
+/// The size of the image at `path` as printed, turned upright if `rotate`: of a JPEG or RAW its
+/// preview's (decoded at 1/8), else the header's with its EXIF turn.
+fn upright_size(path: &Path, rotate: bool) -> Option<[usize; 2]> {
+    use image::ImageDecoder;
+    use image::metadata::Orientation as O;
+    if let Some((_, _, size)) = decode::scaled_jpeg(path, [1, 1], rotate) {
+        return Some(size);
+    }
+    let mut dec = (image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?)
+    .into_decoder()
+    .ok()?;
+    let (w, h) = dec.dimensions();
+    let turned = matches!(
+        dec.orientation(),
+        Ok(O::Rotate90 | O::Rotate270 | O::Rotate90FlipH | O::Rotate270FlipH)
+    );
+    let [w, h] = [w as usize, h as usize];
+    Some(if rotate && turned { [h, w] } else { [w, h] })
+}
+
 /// The text under the image at `path`, `k`th of `n`, from `template`: the full screen info's
 /// fields, read from the file here as the print job runs, in one line. `size`, the decoded one
 /// upright, where known: the file's header says how it is stored (and of a RAW, its thumbnail).
@@ -823,14 +846,23 @@ impl crate::App {
             return;
         }
         let (tx, rx) = mpsc::channel();
-        let (template, ctx) = (template.clone(), ctx.clone());
+        let (template, ctx, rotate) = (template.clone(), ctx.clone(), self.config.exif_rotate);
         let (first, n): (Vec<PathBuf>, usize) = (
             dialog.paths.iter().take(PREVIEWED).cloned().collect(),
             dialog.paths.len(),
         );
         std::thread::spawn(move || {
+            let sized = template.contains("%dimensions%");
             let texts = (first.iter().enumerate())
-                .map(|(k, p)| caption(&template, p, k, n, None))
+                .map(|(k, p)| {
+                    caption(
+                        &template,
+                        p,
+                        k,
+                        n,
+                        sized.then(|| upright_size(p, rotate)).flatten(),
+                    )
+                })
                 .collect();
             let _ = tx.send((template, texts));
             ctx.request_repaint();
@@ -1022,6 +1054,14 @@ mod tests {
         let turned = super::caption("%dimensions%", &file, 0, 1, Some([20, 30]));
         assert_eq!(turned, "20 × 30");
         std::fs::remove_file(file).unwrap();
+        // The preview's size: a JPEG turned a quarter by EXIF stands up with Auto Rotate on.
+        let jpeg =
+            std::env::temp_dir().join(format!("glimt-test-upright-{}.jpg", std::process::id()));
+        image::RgbImage::new(40, 20).save(&jpeg).unwrap();
+        crate::exif::write_orientation(&jpeg, 1, false).unwrap();
+        assert_eq!(super::upright_size(&jpeg, true), Some([20, 40]));
+        assert_eq!(super::upright_size(&jpeg, false), Some([40, 20]));
+        std::fs::remove_file(jpeg).unwrap();
     }
 
     /// Filling its box, a wide image is as high as the box and wider, cut to it in the PDF;
