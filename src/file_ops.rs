@@ -72,14 +72,10 @@ impl crate::App {
         !saving
     }
 
-    /// Files still being written: copies, moves, deletes, sidecars (`jobs`), a Rename Many, a
-    /// turned image being saved, and the rest that holds `writing`. Closing waits for them.
+    /// Whether files are still being written (`config::WRITING`): file jobs, a turned image, a
+    /// print, keywords, the settings. Closing waits for them.
     pub(crate) fn work_left(&self) -> bool {
-        !self.file_jobs.is_empty()
-            || self.renaming.is_some()
-            || !self.saving.is_empty()
-            || self.writing.load(Ordering::Relaxed) > 0
-            || self.sidecars_writing.load(Ordering::Relaxed) > 0
+        config::WRITING.load(Ordering::Relaxed) > 0
     }
 
     /// A file operation on `total` files, shown in the status bar until its thread drops it.
@@ -90,6 +86,7 @@ impl crate::App {
             done: AtomicUsize::new(0),
             stop: Default::default(),
             started: Instant::now(),
+            _writing: Working::new(&config::WRITING),
         });
         self.file_jobs.push(job.clone());
         job
@@ -486,7 +483,9 @@ impl crate::App {
         let ctx = ctx.clone();
         self.saving.insert(path.clone());
         let pointer = Working::new(&self.busy);
+        let writing = Working::new(&config::WRITING);
         std::thread::spawn(move || {
+            let _writing = writing;
             let result = survive(|| match jpeg {
                 true => exif::write_orientation(&path, turns, mirrored),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
@@ -758,9 +757,9 @@ fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
 }
 
 /// One sidecar change of the keyword fields, through the sidecar thread after the ones before
-/// it; counted in `sidecars_writing`, which closing waits for.
-pub(crate) fn write_sidecar(writing: &Arc<AtomicUsize>, write: impl FnOnce() + Send + 'static) {
-    let writing = Working::new(writing);
+/// it; closing waits for it.
+pub(crate) fn write_sidecar(write: impl FnOnce() + Send + 'static) {
+    let writing = Working::new(&config::WRITING);
     let _ = sidecar_writer().send(Box::new(move || {
         write();
         drop(writing);
@@ -779,7 +778,7 @@ impl crate::App {
     ) {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        let writing = writes.then(|| Working::new(&self.writing));
+        let writing = writes.then(|| Working::new(&config::WRITING));
         std::thread::spawn(move || {
             let _writing = writing;
             if let Some(text) = work() {
@@ -794,7 +793,7 @@ impl crate::App {
     /// keywords, stars and Lightroom import (`sidecar_writer`), so changes to one file land in the
     /// order they were made and never cross. The status bar counts them; `report` words the end from how many
     /// failed. A thread of its own, not `config::write_later`'s: settings saved meanwhile must
-    /// not wait behind 3,000 sidecars, and `flush` at exit waits only for Glimt's own files.
+    /// not wait behind 3,000 sidecars.
     pub(crate) fn write_sidecars(
         &mut self,
         ctx: &egui::Context,

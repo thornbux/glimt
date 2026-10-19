@@ -621,22 +621,22 @@ pub fn locked() -> bool {
 /// The settings as this window last read or wrote them.
 static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-/// Writes of Glimt's own files waiting in their thread.
-static WRITES_WAITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Everything being written for the user, counted by a `Working` held while it runs: the
+/// settings and marks (`write_later`), sidecars, file jobs, a turned image, a print. The one
+/// count closing waits for, so that no writer can be forgotten.
+pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
+    std::sync::LazyLock::new(Default::default);
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
-    use std::sync::atomic::Ordering::Relaxed;
     static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
-    WRITES_WAITING.fetch_add(1, Relaxed);
+    // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
+    let writing = crate::Working::new(&WRITING);
     let counted = move || {
-        // Counted down also when it panics: Glimt would wait for it at exit.
+        let _writing = writing;
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
-        WRITES_WAITING.fetch_sub(1, Relaxed);
     };
-    if WRITER.get_or_init(serial).send(Box::new(counted)).is_err() {
-        WRITES_WAITING.fetch_sub(1, Relaxed);
-    }
+    let _ = WRITER.get_or_init(serial).send(Box::new(counted));
 }
 
 /// Work for a `serial` thread.
@@ -654,11 +654,11 @@ pub fn serial() -> std::sync::mpsc::Sender<Work> {
     works
 }
 
-/// Wait for the writes asked for, a few seconds at most, before Glimt ends: the last change of
-/// a setting must not be lost with the thread.
+/// Wait for everything being written, a few seconds at most, before Glimt ends: the last
+/// change of a setting or a keyword must not be lost with its thread.
 pub fn flush() {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while WRITES_WAITING.load(std::sync::atomic::Ordering::Relaxed) > 0
+    while WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0
         && std::time::Instant::now() < until
     {
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -994,6 +994,19 @@ mod tests {
             super::sort_folders_from(b"/a b\n/caf\xe9\n\n"),
             [std::path::PathBuf::from("/a b"), latin.into()]
         );
+    }
+
+    /// A write asked for is counted until its thread has done it, and `flush` waits for it;
+    /// one that panics is counted down too.
+    #[test]
+    fn counts_writes_until_done() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let before = super::WRITING.load(Relaxed);
+        super::write_later(|| std::thread::sleep(std::time::Duration::from_millis(50)));
+        super::write_later(|| panic!("a writer that breaks"));
+        assert!(super::WRITING.load(Relaxed) >= before + 1);
+        super::flush();
+        assert_eq!(super::WRITING.load(Relaxed), before);
     }
 
     #[test]

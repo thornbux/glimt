@@ -188,6 +188,8 @@ struct Job {
     done: AtomicUsize,
     stop: std::sync::atomic::AtomicBool,
     started: Instant,
+    /// Every job writes files: closing waits for it, as long as its thread holds the job.
+    _writing: Working,
 }
 
 impl Job {
@@ -866,9 +868,9 @@ impl Slot {
 /// Glimt's logo, 256 pixels square: the window's icon, and on the About page.
 const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
 
-/// One piece of background work, for the busy pointer (`busy`) or for closing (`writing`):
-/// counted while held, and no longer when dropped, also as its thread panics, which a count by
-/// hand would leave on for good.
+/// One piece of background work, for the busy pointer (`busy`) or for closing
+/// (`config::WRITING`): counted while held, and no longer when dropped, also as its thread
+/// panics, which a count by hand would leave on for good.
 struct Working(Arc<AtomicUsize>);
 
 impl Working {
@@ -1188,11 +1190,6 @@ struct App {
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
-    /// Background work writing, moving or deleting files that has no job in the status bar
-    /// (`background`, printing to a file): closing waits for it too.
-    writing: Arc<AtomicUsize>,
-    /// Keyword, comment and alt text edits on the sidecar thread, which closing waits for too.
-    sidecars_writing: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     file_jobs: Vec<Arc<Job>>,
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
@@ -1841,8 +1838,6 @@ impl App {
             saved_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
-            writing: Arc::new(AtomicUsize::new(0)),
-            sidecars_writing: Arc::new(AtomicUsize::new(0)),
             file_jobs: Vec::new(),
             closing: 0,
             search: String::new(),
@@ -4591,7 +4586,7 @@ impl App {
             (edit.alt, edit.extended) = (access.alt.clone(), access.extended.clone());
             edit.access = access.clone();
             let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
-            file_ops::write_sidecar(&self.sidecars_writing, move || {
+            file_ops::write_sidecar(move || {
                 if let Err(e) = meta::write_access(&path, &access) {
                     let _ = tx.send(tf!("Could not save the alt text: {e}", e));
                 }
@@ -4615,7 +4610,7 @@ impl App {
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
         let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
-        file_ops::write_sidecar(&self.sidecars_writing, move || {
+        file_ops::write_sidecar(move || {
             if let Err(e) = meta::write_changed(&path, keywords, comment) {
                 let _ = tx.send(tf!("Could not save the keywords: {e}", e));
             }
@@ -8135,13 +8130,10 @@ impl eframe::App for App {
             None => {}
         }
         self.inhibit(false);
-        config::flush();
-        // The keywords queued above or at the first close, also when a third close went on
-        // without waiting: as long as Glimt's own files. Not the trash or a print, which the
-        // third close ends at once.
-        let until = Instant::now() + std::time::Duration::from_secs(5);
-        while self.sidecars_writing.load(Ordering::Relaxed) > 0 && Instant::now() < until {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+        // The state above, the settings, and the keywords queued at the first close: waited for,
+        // a few seconds at most. Not after a third close, which ends at once whatever runs.
+        if self.closing < 2 {
+            config::flush();
         }
         let at = |share| frame_at(&self.frame_ms, share);
         eprintln!(

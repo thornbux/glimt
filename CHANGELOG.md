@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Closing waits for everything being written through one count held by every writer (file jobs, a
+  turned image, a print, keywords, the settings), instead of a list of counters a new writer had
+  to be added to; a third close ends at once without waiting for anything.
+
 ## [0.38.3] - 2026-10-19
 
 ### Fixed

@@ -861,7 +861,7 @@ impl crate::App {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         // A PDF half made would be lost, its temporary file left beside the one chosen.
-        let writing = Working::new(&self.writing);
+        let writing = Working::new(&config::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
             let max = print::max_pixels(&job.layout);
