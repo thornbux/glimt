@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Zooming in a layout of several panes decodes each pane's image at full size once, instead of
+  again and again on every frame with the panes never sharp.
+
 ## [0.38.1] - 2026-10-19
 
 ### Fixed

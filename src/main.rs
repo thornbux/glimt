@@ -2943,7 +2943,12 @@ impl App {
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.cur { self.page } else { 0 }
                 && self.keep.lock().unwrap().contains(&idx)
-                && (!full || idx == self.cur || Some(idx) == self.compare_other());
+                // Full resolution for each image on screen: the shown one, the compared one and
+                // the panes of a layout, zoomed together.
+                && (!full
+                    || idx == self.cur
+                    || Some(idx) == self.compare_other()
+                    || self.panes.contains(&idx));
             match d.result {
                 Some(Ok((frames, orig, hist, pages))) if wanted => {
                     // A screen-size version must not replace a full-resolution one already loaded.
