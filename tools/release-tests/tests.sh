@@ -386,7 +386,7 @@ for v in new old; do
 done
 as_version new
 
-echo "-- no busy loop: zoomed panes, a random slideshow behind a search"
+echo "-- no busy loop: zoomed panes, a random slideshow behind a search or in panes one at a time"
 # Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
 # The slideshow changes its image every second, which costs some; the old loop costs thousands.
 cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
@@ -409,11 +409,17 @@ for v in new old; do
     key slash; xdotool type omega; sleep 2
     slideshow=$(busy)
     quit
+    # Four panes, one image at a time: a new round shuffles once, then goes on.
+    config random=true slideshow_repeat=true delay=1 fade=0 layout=2x2 layout_turns=2x2
+    start --slideshow $d/show; sleep 4
+    turns=$(busy)
+    quit
     if [ $v = new ]; then
         expect "zoomed panes: Glimt at rest" "$([ $panes -lt 60 ] && echo yes)" yes
         expect "a random slideshow behind a search: Glimt at rest" "$([ $slideshow -lt 300 ] && echo yes)" yes
+        expect "a random slideshow in four panes, one at a time: Glimt at rest" "$([ $turns -lt 300 ] && echo yes)" yes
     fi
-    note "$v: ticks in 3 s: zoomed panes $panes, slideshow $slideshow"
+    note "$v: ticks in 3 s: zoomed panes $panes, slideshow $slideshow, panes one at a time $turns"
 done
 as_version new
 

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A slideshow in random order in a layout that changes one image at a time goes on into a new
+  round, instead of shuffling the whole list on every frame and standing still.
 - Full screen in the Flatpak, on a host where no screen saver inhibitor runs, stays smooth,
   instead of trying again on every frame and drawing about five frames a second (since 0.38.2).
 - New Collection works on a new install again, where the collections folder is not there yet,

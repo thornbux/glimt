@@ -3493,6 +3493,9 @@ impl App {
         let shown = files[self.cur].clone();
         files.swap(0, self.cur);
         shuffle(&mut files[1..]);
+        // New panes from the new order: kept, a slideshow one image at a time would still stand
+        // at the end of the round and shuffle again on every frame.
+        self.panes.clear();
         self.replace_files(ctx, files, Some(shown));
     }
 
