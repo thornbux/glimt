@@ -113,6 +113,10 @@ pub struct Page {
     pub size: [f32; 2],
     pub type_size: f32,
     pub cells: Vec<Cell>,
+    /// The lines of the page text at the top and the bottom ([x, baseline, width]), in the
+    /// room left for them.
+    pub header: [f32; 3],
+    pub footer: [f32; 3],
 }
 
 /// Where one image goes: drawn at `image` ([x, y, w, h]), cut to `clip`, its caption on the
@@ -179,6 +183,8 @@ pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
         size: [pw, ph],
         type_size: size,
         cells,
+        header: [m, ph - m - 11.0, pw - 2.0 * m],
+        footer: [m, m + 3.0, pw - 2.0 * m],
     }
 }
 
@@ -312,14 +318,12 @@ pub fn pdf(
             names.push(format!("/Im{k} {} 0 R", next + k));
         }
         let number = kids.len() + 1;
-        let m = layout.margin_on([pw, ph]);
-        for (text, y) in [(&layout.header, ph - m - 11.0), (&layout.footer, m + 3.0)] {
+        for (text, line) in [
+            (&layout.header, placed.header),
+            (&layout.footer, placed.footer),
+        ] {
             if !text.is_empty() {
-                draw.push(centred(
-                    &page_text(text, number, pages),
-                    9.0,
-                    [m, y, pw - 2.0 * m],
-                ));
+                draw.push(centred(&page_text(text, number, pages), 9.0, line));
             }
         }
         kids.push(format!("{page} 0 R"));
@@ -569,10 +573,9 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
         }
     }
     let pages = dialog.paths.len().div_ceil(layout.per_page.max(1));
-    let m = layout.margin_on([pw, ph]);
-    for (line, y) in [(&layout.header, ph - m - 11.0), (&layout.footer, m + 3.0)] {
+    for (line, at) in [(&layout.header, page.header), (&layout.footer, page.footer)] {
         if !line.is_empty() {
-            text(&page_text(line, 1, pages), 9.0, [m, y, pw - 2.0 * m]);
+            text(&page_text(line, 1, pages), 9.0, at);
         }
     }
 }
