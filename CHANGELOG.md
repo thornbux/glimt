@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A RAW photo whose preview is less than twice the view's size (a 24 MP camera on a 4K screen) is
+  read only as far as its preview, not whole.
 - The images after one turned a quarter by hand are decoded at their size at once, not too small
   first, and a turned photo on the projector is sharp.
 - Keywords, comments and alt text are written through the same thread as stars and tags, in the

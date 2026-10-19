@@ -454,10 +454,16 @@ pub fn scaled_jpeg(
         // 50 MB RAW files on a share is not read whole for its thumbnails.
         let head = read_head(path, 8 << 20).ok()?;
         let covers = |p: &[u8]| raw::jpeg_size(p).is_some_and(|(w, h)| w >= max[0] || h >= max[1]);
-        if let Some(p) = raw::preview(&head).filter(|p| covers(p) && raw::whole_jpeg(p))
-            && let Some(shown) = scaled(p, max, rotate, exif::orientation(&head))
-        {
-            return Some((shown.0, None, shown.2));
+        if raw::preview(&head).is_some_and(|p| covers(p) && raw::whole_jpeg(p)) {
+            if let Some(shown) = from(&head) {
+                return Some(shown);
+            }
+            // Not at a fraction (shown larger than half the preview): decoded whole from the
+            // head, which holds all of it, not from the whole file read after all.
+            if let Ok(img) = raw::load_data(&head, rotate) {
+                let orig = [img.width() as usize, img.height() as usize];
+                return Some((img, None, orig));
+            }
         }
         let data = read_limited(path).ok()?;
         // Not at a fraction (shown larger than half the preview): decoded whole from what was
