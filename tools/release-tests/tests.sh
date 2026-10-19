@@ -394,7 +394,7 @@ busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
 d=/tmp/busy
 mkdir -p $d/panes $d/show
 for i in 1 2 3 4; do convert -size 3000x2000 xc: +noise Random -quality 85 $d/panes/$i.jpg; done
-for i in 1 2 3 4 5 6; do convert -size 64x64 xc:red $d/show/alpha$i.png; done
+for i in 1 2 3 4 5 6; do convert -size 64x64 xc:"rgb($((i * 40)),0,0)" $d/show/alpha$i.png; done
 convert -size 64x64 xc:blue $d/show/omega.png
 for v in new old; do
     as_version $v
@@ -409,17 +409,21 @@ for v in new old; do
     key slash; xdotool type omega; sleep 2
     slideshow=$(busy)
     quit
-    # Four panes, one image at a time: a new round shuffles once, then goes on.
+    # Four panes, one image at a time, no fade: a new round shuffles once, then goes on.
     config random=true slideshow_repeat=true delay=1 fade=0 layout=2x2 layout_turns=2x2
     start --slideshow $d/show; sleep 4
+    shot turns-a-$v
     turns=$(busy)
+    shot turns-b-$v
     quit
+    moved=$(for s in a b; do convert /t/out/turns-$s-$v.png -crop 1300x900+260+40 rgb:- | md5sum; done | uniq | wc -l)
     if [ $v = new ]; then
         expect "zoomed panes: Glimt at rest" "$([ $panes -lt 60 ] && echo yes)" yes
         expect "a random slideshow behind a search: Glimt at rest" "$([ $slideshow -lt 300 ] && echo yes)" yes
         expect "a random slideshow in four panes, one at a time: Glimt at rest" "$([ $turns -lt 300 ] && echo yes)" yes
+        expect "... and its panes still change" "$moved" 2
     fi
-    note "$v: ticks in 3 s: zoomed panes $panes, slideshow $slideshow, panes one at a time $turns"
+    note "$v: ticks in 3 s: zoomed panes $panes, slideshow $slideshow, panes one at a time $turns (moved: $moved)"
 done
 as_version new
 

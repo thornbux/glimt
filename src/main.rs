@@ -3594,6 +3594,9 @@ impl App {
                 (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
             }
             self.slideshow = Some(Instant::now());
+            // The next slide's frame: a pane changed with no fade and nothing to decode asks for
+            // none, and the slideshow would stand still.
+            ctx.request_repaint_after(delay);
         }
     }
 

@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A slideshow in a layout that changes one image at a time goes on with Fade off, or in power
+  saving, instead of standing still once its images are loaded.
 - A slideshow in random order in a layout that changes one image at a time goes on into a new
   round, instead of shuffling the whole list on every frame and standing still.
 - Full screen in the Flatpak, on a host where no screen saver inhibitor runs, stays smooth,
