@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Exposure times from 0.3 to 0.8 s show as such in the EXIF panel and overlay, instead of 1/3 s,
+  1/2 s or 1/1 s.
 - A copy of a private photo is not readable by others while it is written; it gets the photo's
   permissions once whole.
 - In the Flatpak, the projector window has Glimt's icon and stays with Glimt in the dock, instead

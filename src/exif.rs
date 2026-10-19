@@ -21,6 +21,16 @@ const SLONG: u16 = 9;
 const SRATIONAL: u16 = 10;
 
 /// The entry for `tag` in `ifd`.
+/// An exposure time as cameras show it: a fraction up to 1/4 s, then seconds with a decimal
+/// (0.4 s, not "1/3 s").
+fn exposure(s: f64) -> String {
+    match s {
+        s if s > 0.0 && s <= 0.25 => format!("1/{} s", (1.0 / s).round()),
+        s if s < 1.0 => format!("{s:.1} s"),
+        s => format!("{s} s"),
+    }
+}
+
 fn find(ifd: &[(u16, Entry)], tag: u16) -> Option<Entry> {
     ifd.iter().find(|e| e.0 == tag).map(|e| e.1)
 }
@@ -720,12 +730,7 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     let taken = find(&exif, 0x9003).or_else(|| find(&ifd0, 0x0132));
     rows.extend(taken.and_then(|e| t.text(e)).map(|d| ("Taken", d)));
     if let Some(s) = find(&exif, 0x829a).and_then(|e| t.ratio(e, 0)) {
-        let text = if s > 0.0 && s < 1.0 {
-            format!("1/{} s", (1.0 / s).round())
-        } else {
-            format!("{s} s")
-        };
-        rows.push(("Exposure", text));
+        rows.push(("Exposure", exposure(s)));
     }
     rows.extend(
         find(&exif, 0x829d)
@@ -772,6 +777,17 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn exposure_times() {
+        assert_eq!(exposure(1.0 / 250.0), "1/250 s");
+        assert_eq!(exposure(0.25), "1/4 s");
+        assert_eq!(exposure(0.4), "0.4 s");
+        assert_eq!(exposure(0.8), "0.8 s");
+        assert_eq!(exposure(2.0), "2 s");
+    }
+
     /// The XMP's orientation upright in both forms; nothing else changed, and broken XMP is
     /// survived.
     #[test]
