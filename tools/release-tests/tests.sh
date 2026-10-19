@@ -19,7 +19,7 @@ if [ "$(id -u)" = 0 ]; then
     echo "-- installing tools"
     # A failed install (an unreachable mirror) stops here: without Xvfb every check would fail.
     apt-get update -qq >/dev/null
-    apt-get install -y -qq xvfb xdotool x11-utils imagemagick libimage-exiftool-perl ffmpeg \
+    apt-get install -y -qq xvfb xdotool x11-utils xclip imagemagick libimage-exiftool-perl ffmpeg \
         poppler-utils libglib2.0-bin colord-data python3 procps libgl1-mesa-dri libegl1 libgl1 \
         libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libxcursor1 \
         libxrandr2 libxi6 libx11-xcb1 sqlite3 python3-nibabel python3-h5py python3-openslide python3-mrcfile python3-astropy python3-pydicom python3-gdcm libgdcm-tools default-jre-headless unzip >/dev/null || { echo "FAIL installing the tools"; exit 1; }
@@ -127,15 +127,20 @@ start() {
     if [ -z "$WIN" ]; then
         if [ "$V" = new ]; then fail "no window: $*"; else note "old: no window: $*"; fi
     fi
+    # The first image, when there is one, before the keys come: under load (six parts at once)
+    # a fixed wait is not enough, and a key before the list is read goes to no image.
+    for i in $(seq 30); do grep -q "first image" /tmp/glimt.err 2>/dev/null && break; sleep 0.1; done
     sleep 1.5
     xdotool windowfocus $WIN 2>/dev/null
     xdotool mousemove 800 400 2>/dev/null
 }
 key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
+# Closing waits for what is being written (a turned image, the settings): so does this, up to
+# ten seconds, before the kill that ends a Glimt that does not listen.
 quit() {
     $BIN --remote-all quit >/dev/null 2>&1
-    sleep 1
+    for i in $(seq 50); do kill -0 $GPID 2>/dev/null || break; sleep 0.2; done
     kill $GPID 2>/dev/null
     wait $GPID 2>/dev/null
 }
@@ -1896,6 +1901,96 @@ answer=$($BIN --remote current 2>/dev/null | tr -d '\0')
 quit
 rm -f /tmp/stub/stamp $XDG_DATA_HOME/glimt/plugins/stamp.desktop
 expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
+
+echo "-- zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -"
+d=/tmp/zoom-keys
+mkdir -p $d
+convert -size 400x300 xc:blue -fill red -draw 'rectangle 100,75 300,225' $d/a.png
+config wheel_zoom=true
+start $d/a.png; sleep 2
+# Fitted, the image is 964 wide from x=278, its red middle from 519. Probes at y=410: x=260
+# (left of the fitted image), 470 (blue when fitted, and with the width filled) and 600 (red
+# when fitted).
+probe() { shot $1; echo "$(colour $1 260 410) $(colour $1 470 410) $(colour $1 600 410)"; }
+key z; z=$(probe zoom-z)                       # 400x300 at the centre: 560-960, red 660-860
+key x; x=$(probe zoom-x)
+key h; h=$(probe zoom-h)                       # 1040 wide from 240, red from 520
+key w; w=$(probe zoom-w)                       # the height: as fitted
+key equal; key equal; in=$(probe zoom-in)      # 1.56 times: red from 383
+key minus; key minus; out=$(probe zoom-out)    # fitted again
+key equal; key equal
+xdotool mousemove 900 410 mousedown 1; sleep 0.3; xdotool mousemove 950 410; sleep 0.3
+xdotool mousemove 1050 410; sleep 0.3; xdotool mouseup 1; sleep 1
+drag=$(probe zoom-drag)                        # 150 to the right: red from 533
+key x; xdotool mousemove 760 410 click 4 click 4; sleep 1
+wheel=$(probe zoom-wheel)                      # two notches in at the centre: about 1.6 times
+quit
+expect "z: the image at its size" "$z" "other other blue"
+expect "x: fitted" "$x" "other blue red"
+expect "h: the width filled" "$h" "blue blue red"
+expect "w: the height, as fitted" "$w" "other blue red"
+expect "+ twice: zoomed in" "$in" "blue red red"
+expect "- twice: fitted again" "$out" "other blue red"
+expect "dragged to the right: blue where red was" "$drag" "blue blue red"
+expect "the wheel zooms in" "$wheel" "blue red red"
+
+echo "-- Open With: the default application and one from the Open With list, both through gio"
+d=/tmp/open-with
+mkdir -p $d $XDG_DATA_HOME/applications
+convert -size 64x64 xc:red $d/a.png
+printf '[Desktop Entry]\nName=Stamp\nExec=true %%f\n' >$XDG_DATA_HOME/applications/stamp.desktop
+# A stand-in gio: the type and its applications answered, open and launch written down.
+cat >/tmp/stub/gio <<STUB
+#!/bin/sh
+case "\$1" in
+  info) echo "  standard::content-type: image/png" ;;
+  mime) printf 'Registered applications:\n\tstamp.desktop\n' ;;
+  *) echo "\$*" >>$d/ran ;;
+esac
+STUB
+chmod +x /tmp/stub/gio
+config
+start $d/a.png; sleep 2
+click 20 11; click 87 228; sleep 2                     # File → Open With Default App
+click 20 11; xdotool mousemove 49 252; sleep 3         # File → Open With: the list, from gio
+shot open-with
+click 268 252; sleep 2                                 # Stamp
+quit
+rm -f /tmp/stub/gio $XDG_DATA_HOME/applications/stamp.desktop
+expect "gio open, then gio launch of the chosen application" "$(cat $d/ran 2>/dev/null | tr '\n' ' ')" \
+    "open $d/a.png launch $XDG_DATA_HOME/applications/stamp.desktop $d/a.png "
+
+echo "-- the clipboard: Copy Path, Copy Image and Copy Files from the Select menu, read back with xclip"
+d=/tmp/clipboard
+mkdir -p $d
+convert -size 64x48 xc:red $d/a.png
+config
+start $d/a.png; sleep 2
+click 92 11; click 150 120; sleep 1                    # Select → Copy Path to Clipboard
+path=$(xclip -o -selection clipboard 2>/dev/null)
+click 92 11; click 155 168; sleep 3                    # Copy Image to Clipboard
+size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
+click 92 11; click 150 192; sleep 1                    # Copy Files to Clipboard
+files=$(xclip -o -selection clipboard -t text/uri-list 2>/dev/null | tr -d '\r' | grep -c "file://$d/a.png")
+quit
+expect "the path, quoted" "$path" "\"$d/a.png\""
+expect "the image, 64x48 as PNG" "$size" 64x48
+expect "the file as a URI" "$files" 1
+
+echo "-- the interface in Norwegian in a real window: LANG changes the menu bar, the language setting rules"
+d=/tmp/norsk
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+bar() { convert /t/out/$1.png -crop 300x22+0+0 rgb:- | md5sum; }
+config
+start $d/a.png; sleep 2; shot lang-en; quit
+export LANG=nb_NO.UTF-8
+start $d/a.png; sleep 2; shot lang-nb; quit
+config language=en
+start $d/a.png; sleep 2; shot lang-en-set; quit
+unset LANG
+differ "LANG=nb_NO: another menu bar" "$(bar lang-en)" "$(bar lang-nb)"
+expect "language=en: the English menu bar again" "$(bar lang-en-set)" "$(bar lang-en)"
 
 echo "-- --lock-settings, then New Window: the new window is locked too"
 for v in new old; do

@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Release tests of daily use: the zoom and fit keys, the wheel and a drag, Open With (the default
+  application and the list), the clipboard read back, and the Norwegian interface in a real
+  window; closing is waited for instead of a fixed second, and the first image before the keys.
 - A plugin that is an editor no longer keeps the busy pointer on for as long as it stays open: a
   plugin runs without it, as Open With does; its failure is still told.
 - A kiosk always listens for --remote quit, also with remote control turned off in the settings;
