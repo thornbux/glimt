@@ -2149,6 +2149,36 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a move refused where the sidecar's name is another file's, and undone where the source stays"
+for v in new old; do
+    as_version $v
+    d=/tmp/move-safe-$v
+    mkdir -p $d/src $d/to $d/ro $d/to2
+    convert -size 64x64 xc:red $d/src/a.jpg
+    echo mine >$d/src/a.jpg.xmp
+    echo orphan >$d/to/a.jpg.xmp
+    config
+    start $d/src/a.jpg; sleep 2
+    answer $d/to
+    key ctrl+m; sleep 2
+    quit
+    side="$(ls $d/src | tr '\n' ' ')$(cat $d/to/a.jpg.xmp)"
+    # A folder the file cannot be taken out of: linked to the other, then not unlinked.
+    convert -size 64x64 xc:red $d/ro/b.jpg
+    chmod 555 $d/ro
+    start $d/ro/b.jpg; sleep 2
+    answer $d/to2
+    key ctrl+m; sleep 2
+    quit
+    chmod 755 $d/ro
+    kept="$(ls $d/ro) $(ls $d/to2 | wc -l)"
+    if [ $v = new ]; then
+        expect "the photo and its sidecar stay, the other file's sidecar as it was" "$side" "a.jpg a.jpg.xmp orphan"
+        expect "the file still in its read-only folder, no second name in the other" "$kept" "b.jpg 0"
+    else note "old: $side; $kept"; fi
+done
+as_version new
+
 echo "-- a collection renamed by another program while shown: not made again under its old name"
 for v in new old; do
     as_version $v
