@@ -574,6 +574,9 @@ mod tests {
         assert_eq!(super::natural_cmp("img2.jpg", "img10.jpg"), Less);
         assert_eq!(super::natural_cmp("img010", "img10"), Equal);
         assert_eq!(super::natural_cmp("a", "a1"), Less);
+        // Numbers in brackets too, as a browser names downloads: a(2) before a(10) before a(100).
+        assert_eq!(super::natural_cmp("a(2).jpg", "a(10).jpg"), Less);
+        assert_eq!(super::natural_cmp("a(10).jpg", "a(100).jpg"), Less);
         let mut v: Vec<std::ffi::OsString> =
             ["b10", "B2", "a1", "b9"].iter().map(Into::into).collect();
         super::sort_files(
