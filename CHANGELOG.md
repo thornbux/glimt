@@ -102,6 +102,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- An icon before every item of the menus and submenus, from the Phosphor set the toolbar uses.
 - glimt --remote slideshow, random and fullscreen take on or off, so a script sets a state instead
   of flipping whatever the window was in; without the word they go to the other, as before.
 

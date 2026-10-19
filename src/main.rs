@@ -870,19 +870,32 @@ fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Option<Instant>)
     }
 }
 
+/// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
+/// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
+/// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
+fn iconed(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::LayoutJob {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let mut job = egui::text::LayoutJob::default();
+    let format = |color| egui::TextFormat {
+        font_id: font.clone(),
+        color,
+        ..Default::default()
+    };
+    job.append(icon, 0.0, format(ui.visuals().weak_text_color()));
+    job.append(text, 8.0, format(egui::Color32::PLACEHOLDER));
+    job
+}
+
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
 fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
-    menu_button(ui, act, egui::Button::new(action.label()), action);
+    let text = iconed(ui, action.icon(), action.label());
+    menu_button(ui, act, egui::Button::new(text), action);
 }
 
 /// A menu entry with a check mark when `on`.
 fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool, action: Action) {
-    menu_button(
-        ui,
-        act,
-        egui::Button::selectable(on, action.label()),
-        action,
-    );
+    let text = iconed(ui, action.icon(), action.label());
+    menu_button(ui, act, egui::Button::selectable(on, text), action);
 }
 
 fn menu_button(
@@ -2709,29 +2722,37 @@ impl App {
         menu_item(ui, act, Action::OpenCollection);
         menu_item(ui, act, Action::ImportLightroom);
         let mut open = None;
-        scroll_menu(ui, tr("Collections"), |ui| {
-            let all = collections::list();
-            if all.is_empty() {
-                ui.label(tr("No collections yet"));
-            }
-            for (name, file) in all {
-                if ui.button(name).clicked() {
-                    open = Some(file);
-                }
-            }
-        });
-        if !self.files.is_empty() {
-            scroll_menu(ui, tr("Add to Collection"), |ui| {
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::STACK, tr("Collections")),
+            |ui| {
                 let all = collections::list();
                 if all.is_empty() {
                     ui.label(tr("No collections yet"));
                 }
                 for (name, file) in all {
-                    if ui.button(name).clicked() {
-                        self.add_to_collection(&file);
+                    if ui.button(iconed(ui, theme::icon::STACK, &name)).clicked() {
+                        open = Some(file);
                     }
                 }
-            });
+            },
+        );
+        if !self.files.is_empty() {
+            scroll_menu(
+                ui,
+                iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
+                |ui| {
+                    let all = collections::list();
+                    if all.is_empty() {
+                        ui.label(tr("No collections yet"));
+                    }
+                    for (name, file) in all {
+                        if ui.button(iconed(ui, theme::icon::STACK, &name)).clicked() {
+                            self.add_to_collection(&file);
+                        }
+                    }
+                },
+            );
         }
         if let Some(file) = &self.collection {
             menu_item(ui, act, Action::RemoveFromCollection);
@@ -2740,16 +2761,19 @@ impl App {
                 menu_item(ui, act, Action::RenameCollection);
                 menu_item(ui, act, Action::TrashCollection);
             }
-            ui.menu_button(tr("Move in Collection"), |ui| {
-                for action in [
-                    Action::MoveEarlier,
-                    Action::MoveLater,
-                    Action::MoveFirst,
-                    Action::MoveLast,
-                ] {
-                    menu_item(ui, act, action);
-                }
-            });
+            ui.menu_button(
+                iconed(ui, theme::icon::MOVE_IN, tr("Move in Collection")),
+                |ui| {
+                    for action in [
+                        Action::MoveEarlier,
+                        Action::MoveLater,
+                        Action::MoveFirst,
+                        Action::MoveLast,
+                    ] {
+                        menu_item(ui, act, action);
+                    }
+                },
+            );
         }
         if let Some(file) = open {
             self.visit(ui.ctx(), file);
@@ -3268,11 +3292,20 @@ impl App {
 
     /// View → Layout: one image, two or four, and how a slideshow changes them.
     fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        scroll_menu(ui, tr("Layout"), |ui| {
+        scroll_menu(ui, iconed(ui, theme::icon::LAYOUT, tr("Layout")), |ui| {
             menu_item(ui, act, Action::NextLayout);
             ui.separator();
-            for (key, label, _) in LAYOUTS {
-                if ui.radio(self.config.layout == key, tr(label)).clicked() {
+            for (key, label, grid) in LAYOUTS {
+                let icon = match grid {
+                    [1, 1] => theme::icon::SQUARE,
+                    [2, 1] => theme::icon::COLUMNS,
+                    [1, 2] => theme::icon::ROWS,
+                    _ => theme::icon::GRID_FOUR,
+                };
+                if ui
+                    .radio(self.config.layout == key, iconed(ui, icon, tr(label)))
+                    .clicked()
+                {
                     self.set_layout(key);
                 }
             }
@@ -3289,8 +3322,10 @@ impl App {
             ui.weak(tr("Slideshow in this layout:"));
             let turns = self.one_at_a_time();
             let mut chosen = turns;
-            ui.radio_value(&mut chosen, false, tr("All Images Change Together"));
-            ui.radio_value(&mut chosen, true, tr("One Image at a Time"));
+            let together = iconed(ui, theme::icon::TOGETHER, tr("All Images Change Together"));
+            ui.radio_value(&mut chosen, false, together);
+            let one = iconed(ui, theme::icon::CURSOR, tr("One Image at a Time"));
+            ui.radio_value(&mut chosen, true, one);
             if chosen != turns {
                 let layout = self.config.layout.clone();
                 let mut list: Vec<&str> = (self.config.layout_turns.split(','))
@@ -5231,8 +5266,20 @@ impl App {
     /// View → Theme: the themes to choose from, then where to make and find more.
     fn theme_menu(&mut self, ui: &mut egui::Ui) {
         for name in theme::names() {
+            let icon = match name.as_str() {
+                "Dark" => theme::icon::MOON,
+                "Light" => theme::icon::SUN,
+                "Desktop" => theme::icon::MONITOR,
+                "Nord" => theme::icon::SNOWFLAKE,
+                "High Contrast" => theme::icon::HALF,
+                "Contrast" => theme::icon::HALF_TILT,
+                _ => theme::icon::BRUSH,
+            };
             // Chosen again too, so a theme file just edited shows.
-            if ui.radio(self.config.theme == name, &name).clicked() {
+            if ui
+                .radio(self.config.theme == name, iconed(ui, icon, &name))
+                .clicked()
+            {
                 self.config.theme = name;
                 self.config.save();
                 self.apply_theme(ui.ctx());
@@ -6666,53 +6713,61 @@ impl App {
                 });
                 scroll_menu(ui, tr("Edit"), |ui| {
                     #[cfg(feature = "marks")]
-                    scroll_menu(ui, tr("Marks and Stars"), |ui| {
-                        for action in [
-                            Action::Mark1,
-                            Action::Mark2,
-                            Action::Mark3,
-                            Action::Mark4,
-                            Action::Mark5,
-                            Action::Mark6,
-                        ] {
-                            menu_item(ui, act, action);
-                        }
-                        ui.separator();
-                        for action in [
-                            Action::SelectMark1,
-                            Action::SelectMark2,
-                            Action::SelectMark3,
-                            Action::SelectMark4,
-                            Action::SelectMark5,
-                            Action::SelectMark6,
-                        ] {
-                            menu_item(ui, act, action);
-                        }
-                        ui.separator();
-                        for action in [
-                            Action::Rate0,
-                            Action::Rate1,
-                            Action::Rate2,
-                            Action::Rate3,
-                            Action::Rate4,
-                            Action::Rate5,
-                        ] {
-                            menu_item(ui, act, action);
-                        }
-                    });
-                    scroll_menu(ui, tr("Orientation"), |ui| {
-                        for action in [
-                            Action::RotateCw,
-                            Action::RotateCcw,
-                            Action::Rotate180,
-                            Action::Mirror,
-                            Action::Flip,
-                        ] {
-                            menu_item(ui, act, action);
-                        }
-                        ui.separator();
-                        menu_item(ui, act, Action::SaveOrientation);
-                    });
+                    scroll_menu(
+                        ui,
+                        iconed(ui, theme::icon::STAR, tr("Marks and Stars")),
+                        |ui| {
+                            for action in [
+                                Action::Mark1,
+                                Action::Mark2,
+                                Action::Mark3,
+                                Action::Mark4,
+                                Action::Mark5,
+                                Action::Mark6,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                            ui.separator();
+                            for action in [
+                                Action::SelectMark1,
+                                Action::SelectMark2,
+                                Action::SelectMark3,
+                                Action::SelectMark4,
+                                Action::SelectMark5,
+                                Action::SelectMark6,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                            ui.separator();
+                            for action in [
+                                Action::Rate0,
+                                Action::Rate1,
+                                Action::Rate2,
+                                Action::Rate3,
+                                Action::Rate4,
+                                Action::Rate5,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                        },
+                    );
+                    scroll_menu(
+                        ui,
+                        iconed(ui, theme::icon::ORIENTATION, tr("Orientation")),
+                        |ui| {
+                            for action in [
+                                Action::RotateCw,
+                                Action::RotateCcw,
+                                Action::Rotate180,
+                                Action::Mirror,
+                                Action::Flip,
+                            ] {
+                                menu_item(ui, act, action);
+                            }
+                            ui.separator();
+                            menu_item(ui, act, Action::SaveOrientation);
+                        },
+                    );
                     menu_item(ui, act, Action::Keywords);
                     ui.separator();
                     self.plugins_menu(ui);
@@ -6721,18 +6776,27 @@ impl App {
                 });
                 scroll_menu(ui, tr("View"), |ui| {
                     self.layout_menu(ui, act);
-                    scroll_menu(ui, tr("Theme"), |ui| self.theme_menu(ui));
-                    scroll_menu(ui, tr("Colour Management"), |ui| self.colour_settings(ui));
-                    scroll_menu(ui, tr("Filter"), |ui| {
+                    scroll_menu(ui, iconed(ui, theme::icon::PALETTE, tr("Theme")), |ui| {
+                        self.theme_menu(ui)
+                    });
+                    scroll_menu(
+                        ui,
+                        iconed(ui, theme::icon::COLOUR, tr("Colour Management")),
+                        |ui| self.colour_settings(ui),
+                    );
+                    scroll_menu(ui, iconed(ui, theme::icon::FILTER, tr("Filter")), |ui| {
+                        use theme::icon::{CIRCLE, HALF, HALF_TILT, SUN_DIM};
+                        let icons = [CIRCLE, HALF, HALF_TILT, SUN_DIM];
                         for (f, label) in FILTERS.iter().enumerate() {
-                            if ui.radio(self.config.view_filter == f, *label).clicked() {
+                            let text = iconed(ui, icons[f.min(3)], tr(label));
+                            if ui.radio(self.config.view_filter == f, text).clicked() {
                                 self.set_view_filter(f);
                             }
                         }
                         ui.separator();
                         menu_item(ui, act, Action::ViewFilter);
                     });
-                    scroll_menu(ui, tr("Zoom"), |ui| {
+                    scroll_menu(ui, iconed(ui, theme::icon::ZOOM, tr("Zoom")), |ui| {
                         menu_item(ui, act, Action::ZoomIn);
                         menu_item(ui, act, Action::ZoomOut);
                         menu_item(ui, act, Action::Zoom1To1);
@@ -7694,14 +7758,18 @@ impl App {
             menu_item(ui, list_act, action);
         }
         self.open_with_menu(ui);
-        scroll_menu(ui, tr("Add to Collection"), |ui| {
-            for (name, file) in collections::list() {
-                if ui.button(name).clicked() {
-                    self.add_to_collection(&file);
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
+            |ui| {
+                for (name, file) in collections::list() {
+                    if ui.button(iconed(ui, theme::icon::STACK, &name)).clicked() {
+                        self.add_to_collection(&file);
+                    }
                 }
-            }
-            menu_item(ui, list_act, Action::NewCollection);
-        });
+                menu_item(ui, list_act, Action::NewCollection);
+            },
+        );
         if self.collection.is_some() {
             menu_item(ui, list_act, Action::RemoveFromCollection);
         }
@@ -7713,7 +7781,7 @@ impl App {
     /// Edit → Plugins: run one on the selected files, or the shown one, in the background;
     /// they are read again afterwards, as plugins change them.
     fn plugins_menu(&mut self, ui: &mut egui::Ui) {
-        scroll_menu(ui, tr("Plugins"), |ui| {
+        scroll_menu(ui, iconed(ui, theme::icon::PLUGIN, tr("Plugins")), |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             let dir = xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("plugins"));
             if self.plugins.is_empty() {
@@ -7721,13 +7789,20 @@ impl App {
             }
             let mut chosen = None;
             for (k, plugin) in self.plugins.iter().enumerate() {
-                if ui.button(&plugin.name).clicked() {
+                if ui
+                    .button(iconed(ui, theme::icon::PLUGIN, &plugin.name))
+                    .clicked()
+                {
                     chosen = Some(k);
                 }
             }
             ui.separator();
             if ui
-                .button(tr("Open the Plugins Folder"))
+                .button(iconed(
+                    ui,
+                    theme::icon::FOLDER_OPEN,
+                    tr("Open the Plugins Folder"),
+                ))
                 .on_hover_text(tr(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
                 )))
@@ -7778,7 +7853,7 @@ impl App {
             .extension()
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
         let path = self.path(self.cur);
-        scroll_menu(ui, tr("Open With"), |ui| {
+        scroll_menu(ui, iconed(ui, theme::icon::APP, tr("Open With")), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
             for (ext, apps) in self.apps_rx.try_iter() {
@@ -7802,7 +7877,7 @@ impl App {
             }
             let mut chosen = None;
             for (name, desktop) in apps.iter() {
-                if ui.button(name).clicked() {
+                if ui.button(iconed(ui, theme::icon::APP, name)).clicked() {
                     chosen = Some(desktop.clone());
                 }
             }

@@ -20,6 +20,36 @@ pub mod icon {
     pub const SETTINGS: &str = "\u{e270}";
     pub const FOLDER: &str = "\u{e24a}";
     pub const CLOSE: &str = "\u{e4f6}";
+    // The menus: submenu titles and rows that are no Action (those have Action::icon).
+    pub const STACK: &str = "\u{e466}"; // stack
+    pub const PLUGIN: &str = "\u{e596}"; // puzzle-piece
+    pub const APP: &str = "\u{e5da}"; // app-window
+    #[cfg(feature = "marks")]
+    pub const STAR: &str = "\u{e46a}"; // star
+    pub const ORIENTATION: &str = "\u{e094}"; // arrows-clockwise
+    pub const LAYOUT: &str = "\u{e464}"; // squares-four
+    pub const PALETTE: &str = "\u{e6c8}"; // palette
+    pub const COLOUR: &str = "\u{e566}"; // drop-half
+    pub const FILTER: &str = "\u{e434}"; // sliders-horizontal
+    pub const ZOOM: &str = "\u{e310}"; // magnifying-glass-plus
+    pub const MOON: &str = "\u{e330}"; // moon
+    pub const SUN: &str = "\u{e472}"; // sun
+    pub const MONITOR: &str = "\u{e32e}"; // monitor
+    pub const SNOWFLAKE: &str = "\u{e5aa}"; // snowflake
+    pub const HALF: &str = "\u{e18c}"; // circle-half
+    pub const HALF_TILT: &str = "\u{e18e}"; // circle-half-tilt
+    pub const SUN_DIM: &str = "\u{e474}"; // sun-dim
+    pub const BRUSH: &str = "\u{e6f0}"; // paint-brush
+    pub const CIRCLE: &str = "\u{e18a}"; // circle
+    pub const SQUARE: &str = "\u{e45e}"; // square
+    pub const COLUMNS: &str = "\u{e546}"; // columns
+    pub const ROWS: &str = "\u{e5a2}"; // rows
+    pub const GRID_FOUR: &str = "\u{e296}"; // grid-four
+    pub const TOGETHER: &str = "\u{e0a6}"; // arrows-out-simple
+    pub const CURSOR: &str = "\u{e1dc}"; // cursor
+    pub const FOLDER_OPEN: &str = "\u{e256}"; // folder-open
+    pub const MOVE_IN: &str = "\u{e098}"; // arrows-down-up
+    pub const STACK_PLUS: &str = "\u{edf6}"; // stack-plus
 }
 
 /// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then
