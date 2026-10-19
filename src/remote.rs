@@ -115,8 +115,14 @@ pub fn name_fits(name: &str) -> bool {
 pub fn known(words: &[String]) -> bool {
     let takes_path = |c: &str| c.contains(' ');
     (COMMANDS.iter()).any(|(c, _)| {
-        c.split(' ').next() == words.first().map(String::as_str)
-            && takes_path(c) == (words.len() > 1)
+        let mut parts = c.split(' ');
+        let same = parts.next() == words.first().map(String::as_str)
+            && takes_path(c) == (words.len() > 1);
+        // A choice of words ("on|off") takes one of them, alone.
+        match parts.next().filter(|a| a.contains('|')) {
+            Some(choices) => same && words.len() == 2 && choices.split('|').any(|w| w == words[1]),
+            None => same,
+        }
     })
 }
 
@@ -389,6 +395,8 @@ mod tests {
         assert!(!super::known(&words("next 2")));
         assert!(super::known(&words("subfolders on")));
         assert!(!super::known(&words("subfolders")));
+        assert!(super::known(&words("subfolders off")));
+        assert!(!super::known(&words("subfolders yes")) && !super::known(&words("subfolders on off")));
         assert!(!super::known(&[]));
     }
 

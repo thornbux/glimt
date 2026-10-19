@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- glimt --remote subfolders takes only on or off, and tells anything else as an unknown command
+  instead of doing nothing (since 0.38.0).
 - Enter in a text field of the Print dialog (the page text, the template) ends the typing instead
   of printing at once (since 0.38.0).
 - Turning Include Subfolders on during a slideshow in random order keeps it random: the images
