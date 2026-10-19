@@ -40,12 +40,13 @@ fn thumbnail_in(
     let uri = format!("file://{}", uri_path(path));
     let file = cache.as_ref().map(|c| cache_file(c, folder, &uri));
     let failed = cache.as_ref().map(|c| cache_file(c, FAILED, &uri));
-    // The shared cache holds thumbnails turned upright, so with Auto Rotate off it is not read:
-    // the list would show turned what the image shows as stored.
-    // shortcut: every thumbnail made again with Auto Rotate off; reading the cache for images
-    // without an EXIF turn would need each format's orientation, if that is ever slow.
-    if rotate && let (Some(file), Some(failed), Some(mtime)) = (&file, &failed, mtime) {
-        if let Some(img) = read_cached(file, mtime) {
+    if let (Some(file), Some(failed), Some(mtime)) = (&file, &failed, mtime) {
+        // The shared cache holds thumbnails turned upright, so with Auto Rotate off it is not
+        // read: the list would show turned what the image shows as stored. Whether a file can
+        // be read at all does not depend on it.
+        // shortcut: every thumbnail made again with Auto Rotate off; reading the cache for images
+        // without an EXIF turn would need each format's orientation, if that is ever slow.
+        if rotate && let Some(img) = read_cached(file, mtime) {
             return Ok(img);
         }
         if read_cached(failed, mtime).is_some() {
@@ -62,15 +63,16 @@ fn thumbnail_in(
         Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
     });
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
-    // one not turned upright by EXIF (Auto Rotate off) is not shared.
+    // one not turned upright by EXIF (Auto Rotate off) is not shared; the failure mark, Glimt's
+    // own, is.
     if save
-        && rotate
         && let (Some(cache), Some(file), Some(failed), Some(mtime)) =
             (&cache, &file, &failed, mtime)
         && !path.starts_with(cache)
     {
         match &made {
-            Ok(img) => drop(write(file, img, &uri, mtime)),
+            Ok(img) if rotate => drop(write(file, img, &uri, mtime)),
+            Ok(_) => {}
             Err(e) if worth_marking(path, e) => {
                 drop(write(failed, &image::RgbaImage::new(1, 1), &uri, mtime))
             }
@@ -383,7 +385,8 @@ mod tests {
         let broken = dir.join("broken.png");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&broken, b"not a picture").unwrap();
-        let make = || super::thumbnail_in(Some(cache.clone()), &broken, true, true, false);
+        // With Auto Rotate off too: whether a file can be read does not depend on it.
+        let make = || super::thumbnail_in(Some(cache.clone()), &broken, false, true, false);
         assert!(make().unwrap_err() != "no thumbnail could be made before");
         let uri = format!("file://{}", super::uri_path(&broken));
         assert!(super::cache_file(&cache, super::FAILED, &uri).is_file());

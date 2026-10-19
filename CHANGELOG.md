@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With Auto Rotate off, files no thumbnail could be made of are marked and not tried again on
+  every visit, as with it on (since 0.38.2).
 - Ctrl+Shift+C copies the image to the clipboard, as the menu says, instead of opening Copy to
   Folder.
 - A slideshow in a layout that changes one image at a time goes on with Fade off, or in power
