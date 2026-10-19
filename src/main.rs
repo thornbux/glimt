@@ -2505,11 +2505,6 @@ impl App {
         } else {
             self.leave_image(ctx);
         }
-        // Out of the collection's file too; only for a collection, not for a large folder.
-        let gone: HashSet<PathBuf> = match self.collection {
-            Some(_) => removed.iter().map(|&i| self.path(i)).collect(),
-            None => HashSet::new(),
-        };
         let mut idx = 0;
         self.files.retain(|_| {
             idx += 1;
@@ -2527,13 +2522,6 @@ impl App {
         self.update_search(ctx);
         // Jobs in flight have old indices and are rejected by path; refill requests them again.
         self.decodes_pending.clear();
-        if !gone.is_empty() {
-            self.edit_collection(|all| all.retain(|p| !gone.contains(p)));
-        }
-        // A collection being read meanwhile would bring the removed back: read it again.
-        if self.collection.is_some() && self.listing_rx.is_some() {
-            self.list(ctx);
-        }
         // The next remaining file after the shown one (or the last).
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
@@ -5509,6 +5497,9 @@ impl App {
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
             Action::RemoveFromCollection if self.collection.is_some() && !self.files.is_empty() => {
                 let targets = self.targets();
+                // Out of the collection's file here, at once: the files stay where they are.
+                let out: HashSet<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+                self.edit_collection(|all| all.retain(|p| !out.contains(p)));
                 self.remove_indices(ctx, &targets);
             }
             Action::RemoveFromCollection => {}

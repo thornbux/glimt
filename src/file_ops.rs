@@ -115,6 +115,7 @@ impl crate::App {
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
+        let collection = self.collection.clone();
         let job = self.start_job(tr("Deleting"), paths.len());
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
@@ -166,6 +167,9 @@ impl crate::App {
                 let _ = tx.send(text);
             }
             let gone: Vec<PathBuf> = paths.iter().filter(|p| !p.exists()).cloned().collect();
+            if let Err(e) = forget_in_collection(collection.as_deref(), &gone) {
+                let _ = tx.send(e);
+            }
             // Their sidecars go the same way; a new file of the same name must not get their
             // keywords.
             let sides: Vec<PathBuf> = (gone.iter())
@@ -216,46 +220,18 @@ impl crate::App {
             // collection.
             // One of the folder shown that it did not hold back: it was left and opened again
             // meanwhile, and its listing may still have files that are gone now.
-            let (mut unknown, mut held) = (false, Vec::new());
+            let mut unknown = false;
             for p in &paths {
                 let Ok(rel) = p.strip_prefix(&self.dir) else {
                     continue;
                 };
-                match self.deleting.remove(rel.as_os_str()) {
-                    true => held.push(p),
-                    false => unknown = true,
-                }
+                unknown |= !self.deleting.remove(rel.as_os_str());
             }
             self.relist |= unknown;
-            // A collection is read again from its own list, which they left when the delete
-            // began: those still there (it failed, or Stop came first) go back into it. Only
-            // those this list held back: not a folder moved to the trash, nor the images of
-            // another collection opened meanwhile.
-            if failed && self.collection.is_some() {
-                self.restore_to_collection(&held, &gone);
-            }
-            // The files that are still there come back into the list. A listing that started
-            // before the files went still has them: the folder is read again after it.
+            // The files that are still there come back into the list, from its folder or
+            // the collection's file. A listing that started before the files went still has
+            // them: the folder is read again after it.
             self.relist |= failed || (!paths.is_empty() && self.listing_rx.is_some());
-        }
-    }
-
-    /// `paths` that are not `gone` back at the end of the collection, and in its file.
-    fn restore_to_collection(&mut self, paths: &[&PathBuf], gone: &[PathBuf]) {
-        let gone: HashSet<&PathBuf> = gone.iter().collect();
-        let listed: HashSet<&std::ffi::OsStr> = self.files.iter().map(|f| f.as_os_str()).collect();
-        let back: Vec<OsString> = (paths.iter())
-            .filter(|p| !gone.contains(**p))
-            .filter_map(|p| p.strip_prefix(&self.dir).ok())
-            .filter(|rel| !listed.contains(rel.as_os_str()))
-            .map(|rel| rel.as_os_str().to_owned())
-            .collect();
-        if !back.is_empty() {
-            let paths: Vec<PathBuf> = back.iter().map(|rel| self.dir.join(rel)).collect();
-            self.files.extend(back);
-            self.edit_collection(|all| {
-                collections::add(all, &paths);
-            });
         }
     }
 
@@ -597,6 +573,7 @@ impl crate::App {
             self.visit(ctx, parent.to_path_buf());
         }
         let deleted_tx = self.deleted_tx.clone();
+        let collection = self.collection.clone();
         self.background(ctx, true, move || {
             let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
                 Ok(o) if o.status.success() => None,
@@ -609,13 +586,16 @@ impl crate::App {
             } else {
                 Vec::new()
             };
+            let forgotten = forget_in_collection(collection.as_deref(), &gone);
             let _ = deleted_tx.send(Deleted {
                 paths: vec![dir],
                 gone,
                 failed: error.is_some(),
                 ..Default::default()
             });
-            error.map(|e| tf!("Could not move the folder to the trash: {e}", e))
+            error
+                .map(|e| tf!("Could not move the folder to the trash: {e}", e))
+                .or(forgotten.err())
         });
     }
 
@@ -692,6 +672,31 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         Err(e) if e.kind() == CrossesDevices => copy().and_then(|_| unlink()),
         Err(_) if to.exists() => Err(AlreadyExists.into()),
         Err(_) => std::fs::rename(from, to),
+    }
+}
+
+/// Files or folders `gone` for good leave the `collection` shown: only once they are gone, in
+/// the thread that knows, so the file keeps its order and never lacks a file still there. The
+/// one place for Delete and Move Folder to Trash. A plain list is the user's own, never written.
+fn forget_in_collection(collection: Option<&Path>, gone: &[PathBuf]) -> Result<(), String> {
+    let Some(file) = collection.filter(|_| !gone.is_empty()) else {
+        return Ok(());
+    };
+    if collections::is_list(file) {
+        return Ok(());
+    }
+    let edit = collections::edit(file, false, |all| {
+        all.retain(|p| !gone.iter().any(|g| p == g || p.starts_with(g)));
+    });
+    match edit {
+        Ok(()) => Ok(()),
+        // Renamed or moved to the trash in another window since it was opened: not made again
+        // under its old name.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(tf!(
+            "The collection {file} is gone (renamed or removed in another window): not saved",
+            file = file.display()
+        )),
+        Err(e) => Err(tf!("Could not save the collection: {e}", e)),
     }
 }
 

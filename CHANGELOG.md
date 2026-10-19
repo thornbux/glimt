@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A collection's file loses an image only once it is really deleted, in one place for Delete and
+  Move Folder to Trash alike: a delete that fails or is stopped leaves the collection as it was,
+  in its order, instead of taking the images out first and putting them back at the end.
 - An image that could not be read (a share away for a moment) is read again when it is shown
   again, instead of the failure being kept for the session; the keywords edited mark their own
   file for the exif: search, not the one shown; panes are filled again after a delete; the

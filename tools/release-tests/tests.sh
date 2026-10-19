@@ -513,19 +513,22 @@ for v in new old; do
     config auto_refresh=false confirm_trash=false
     start $d/show.gqv
     sleep 2
-    key ctrl+d                       # a.jpg to the trash, out of the collection meanwhile
+    key ctrl+d                       # a.jpg to the trash: out of the list meanwhile
     $BIN --remote open $d/show.gqv >/dev/null 2>&1
     sleep 1
+    shown=$($BIN --remote current | tr -d '\0')
     during=$(grep -c 'a.jpg' $d/show.gqv)
     sleep 6
     quit
     rm /tmp/stub/gio
     got=$(grep -c 'a.jpg' $d/show.gqv)
     if [ $v = new ]; then
-        # Out while the delete ran: the check after cannot pass by nothing happening.
-        expect "a.jpg out of the collection while it is deleted" "$during" 0
-        expect "a.jpg back in the collection after the delete failed" "$got" 1
-    else note "old: a.jpg lines during $during, after $got"; fi
+        # Held out of the list opened again while the delete runs (the control: the delete
+        # was under way), but in the collection's file until it is really gone.
+        expect "a.jpg held out of the collection opened again while it is deleted" "$shown" "$d/b.jpg"
+        expect "a.jpg in the collection's file while the delete runs" "$during" 1
+        expect "a.jpg in the collection after the delete failed" "$got" 1
+    else note "old: shown $shown, a.jpg lines during $during, after $got"; fi
 done
 as_version new
 
