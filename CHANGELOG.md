@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Glimt is offered under Open With for Panasonic's older .raw files too, which it reads.
 - The Pan view's calendar shows the weekdays in Norwegian too in the Norwegian interface.
 - glimt --remote open with a file name that is not UTF-8 says it cannot send it, instead of
   opening a name with a replacement character that is no file.
