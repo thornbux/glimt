@@ -67,6 +67,9 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
 /// Give the collection in `file` the name `name`, in the same folder; the new file.
 pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     let name = valid(name)?;
+    // Under the collection's lock, as every edit of it: another window's edit lands before or
+    // after the rename, never in between, where it would make the old name again.
+    let _held = crate::config::file_lock(file);
     let new = file.with_file_name(format!("{name}.gqv"));
     if new.exists() {
         return Err(tf!("There is a collection called \"{name}\" already", name));
@@ -343,6 +346,28 @@ mod tests {
         for bytes in crate::broken(seed) {
             super::parse_list(&bytes, std::path::Path::new("/"));
         }
+    }
+
+    /// A rename waits for an edit under way in another window, so the edit lands in the file
+    /// before the rename, not in a new file of the old name.
+    #[test]
+    fn rename_waits_for_an_edit() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-rename-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("trip.gqv");
+        std::fs::write(&file, "#GQview collection\n\"/a.jpg\"\n").unwrap();
+        let held = crate::config::file_lock(&file).unwrap();
+        let renaming = {
+            let file = file.clone();
+            std::thread::spawn(move || super::rename(&file, "trip 2024"))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(file.exists(), "renamed while the edit held the lock");
+        drop(held);
+        let new = renaming.join().unwrap().unwrap();
+        assert!(!file.exists() && new.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Renamed in its own folder, never over another collection or to a name that is no file.

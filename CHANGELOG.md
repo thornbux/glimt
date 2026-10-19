@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Renaming a collection waits for an edit of it under way in another window, so the edit lands in
+  the renamed file instead of in a new file of the old name.
 - glimt --remote select or current sent while the window is still reading a large folder, or has a
   dialog open, comes back as no answer (exit 1) once the time is up, never as an empty answer with
   exit 0 that a script takes for every file selected; and one client waiting holds up no other.
