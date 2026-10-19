@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The images of a tree found so far wait one at a time for the window: a window not drawn while a
+  large tree was read could gather a copy of the list for every quarter second.
 - With Include Subfolders on, a tree is read in name order and opens on its first image, also in
   another sort order, instead of on an image of its last subfolder (since 0.38.0); its first
   images show as soon as they are found, also inside one large subfolder.

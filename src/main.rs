@@ -2061,7 +2061,9 @@ impl App {
         let stop = self.listing_stop.clone();
         let (subdirs_tx, subdirs_rx) = mpsc::channel();
         self.subdirs_rx = Some(subdirs_rx);
-        let (part_tx, part_rx) = mpsc::channel();
+        // Room for one: a window not drawn (minimized, on another workspace) takes none, and a
+        // copy of the whole list so far each time would pile up.
+        let (part_tx, part_rx) = mpsc::sync_channel(1);
         self.part_rx = Some(part_rx);
         // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
         // its whole list on screen until the new one is read, instead of shrinking and growing.
@@ -2138,7 +2140,8 @@ impl App {
                         }
                         let mut part = so_far.to_vec();
                         part.sort_unstable();
-                        if part_tx.send(part).is_ok() {
+                        // Full: the one before is not taken yet; this one is left out.
+                        if part_tx.try_send(part).is_ok() {
                             ctx2.request_repaint();
                         }
                         sent = Some(Instant::now());
