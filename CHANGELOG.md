@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Rename Many whose plan could not be written (a full disk) leaves no half plan behind, which
+  the next start would offer to finish and so undo the renames.
 - With Auto Rotate off, files no thumbnail could be made of are marked and not tried again on
   every visit, as with it on (since 0.38.2).
 - Ctrl+Shift+C copies the image to the clipboard, as the menu says, instead of opening Copy to

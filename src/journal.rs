@@ -65,12 +65,15 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let path = dir.join(format!("{}-{nanos}", crate::remote::instance_id()));
-    let mut file = std::fs::OpenOptions::new()
+    let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)
         .ok()?;
-    file.try_lock().ok()?;
+    // Removed when dropped, also when what follows fails (a full disk): a plan left half written
+    // would be offered at the next start, and finishing it would undo renames done without it.
+    let mut plan = Journal { path, file };
+    plan.file.try_lock().ok()?;
     let mut bytes = [COUNTED, b"\0"].concat();
     for (a, b) in moves {
         for p in [a, b] {
@@ -78,8 +81,10 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
             bytes.push(0);
         }
     }
-    file.write_all(&bytes).and_then(|_| file.sync_all()).ok()?;
-    Some(Journal { path, file })
+    (plan.file.write_all(&bytes))
+        .and_then(|_| plan.file.sync_all())
+        .ok()?;
+    Some(plan)
 }
 
 /// Whether `file` can be locked: tried for a moment, as a program another thread starts holds a
