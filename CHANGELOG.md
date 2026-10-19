@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An icon before every item of the menus and submenus, from the Phosphor set the toolbar uses.
+- glimt --remote slideshow, random and fullscreen take on or off, so a script sets a state instead
+  of flipping whatever the window was in; without the word they go to the other, as before.
+
 ### Changed
 
 - The settings that are one of a few are written by name (fit_mode=width, fade=long,
@@ -99,12 +105,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   under its old name, whatever operation moved it: the save is refused and told. A plugin run on
   an image being saved turned waits, as Delete does, and its own report no longer ends that save's
   guard.
-
-### Added
-
-- An icon before every item of the menus and submenus, from the Phosphor set the toolbar uses.
-- glimt --remote slideshow, random and fullscreen take on or off, so a script sets a state instead
-  of flipping whatever the window was in; without the word they go to the other, as before.
+- In the Flatpak, Open With lists the programs installed as Flatpaks and the user's own, not only
+  the distribution's: the host's programs get the host's data folders, not the sandbox's.
 
 ## [0.38.3] - 2026-10-19
 
