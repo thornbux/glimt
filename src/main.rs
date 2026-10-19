@@ -4571,7 +4571,7 @@ impl App {
             (edit.alt, edit.extended) = (access.alt.clone(), access.extended.clone());
             edit.access = access.clone();
             let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
-            config::write_later(move || {
+            file_ops::write_sidecar(&self.writing, move || {
                 if let Err(e) = meta::write_access(&path, &access) {
                     let _ = tx.send(tf!("Could not save the alt text: {e}", e));
                 }
@@ -4595,7 +4595,7 @@ impl App {
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
         let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
-        config::write_later(move || {
+        file_ops::write_sidecar(&self.writing, move || {
             if let Err(e) = meta::write_changed(&path, keywords, comment) {
                 let _ = tx.send(tf!("Could not save the keywords: {e}", e));
             }
@@ -6330,6 +6330,10 @@ impl App {
             if ctx.input(|i| i.viewport().fullscreen) == Some(false) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             }
+        }
+        // Keywords typed and not yet saved: written now, so closing waits for them.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.save_meta();
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.

@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Keywords, comments and alt text are written through the same thread as stars and tags, in the
+  order they were made, and closing waits for them; a share that stopped answering no longer holds
+  up the saving of settings and stars.
 - Move and Copy refuse a photo whose sidecar name in the folder is taken by another file's, as
   Rename does, instead of giving the photo that file's keywords and stars and leaving its own
   behind.

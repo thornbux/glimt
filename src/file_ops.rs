@@ -733,6 +733,23 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
 
 // ---- Work in the background: sidecars, frames, the backup and other jobs ----
 
+/// The thread for this window's sidecar writes: keywords, comments, stars and imports land in
+/// the order they were made.
+fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
+    static WRITER: std::sync::OnceLock<mpsc::Sender<config::Work>> = std::sync::OnceLock::new();
+    WRITER.get_or_init(config::serial)
+}
+
+/// One sidecar change of the keyword fields, through the sidecar thread after the ones before
+/// it; counted in `writing`, which closing waits for.
+pub(crate) fn write_sidecar(writing: &Arc<AtomicUsize>, write: impl FnOnce() + Send + 'static) {
+    let writing = Working::new(writing);
+    let _ = sidecar_writer().send(Box::new(move || {
+        write();
+        drop(writing);
+    }));
+}
+
 impl crate::App {
     /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
     /// told in the window. Work that `writes` files (the trash, renames, collections) is waited
@@ -757,8 +774,8 @@ impl crate::App {
     }
 
     /// Write the sidecars of `paths` in the background, through one thread for this window's
-    /// keywords, stars and Lightroom import, so changes to one file land in the order they were
-    /// made and never cross. The status bar counts them; `report` words the end from how many
+    /// keywords, stars and Lightroom import (`sidecar_writer`), so changes to one file land in the
+    /// order they were made and never cross. The status bar counts them; `report` words the end from how many
     /// failed. A thread of its own, not `config::write_later`'s: settings saved meanwhile must
     /// not wait behind 3,000 sidecars, and `flush` at exit waits only for Glimt's own files.
     pub(crate) fn write_sidecars(
@@ -770,8 +787,6 @@ impl crate::App {
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         use config::Work;
-        static WRITER: std::sync::OnceLock<mpsc::Sender<Work>> = std::sync::OnceLock::new();
-        let writer = WRITER.get_or_init(config::serial);
         let job = self.start_job(doing, paths.len());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
@@ -800,7 +815,7 @@ impl crate::App {
             ctx.request_repaint();
         });
         // Not sent: the work is dropped, and the busy pointer with it.
-        let _ = writer.send(work);
+        let _ = sidecar_writer().send(work);
     }
 
     /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
