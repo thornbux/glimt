@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Save Orientation with Auto Rotate off writes the turn on the pixels as the view showed them,
+  instead of on the file's EXIF orientation, which turned the photo wrong for every viewer that
+  reads it.
 - A slideshow of the subfolders in random order stopped before its listing arrived no longer
   leaves the folder in random order, shuffled again at every refresh.
 - In the Flatpak, whether a program is on the host is asked of the shell once (host_has) and

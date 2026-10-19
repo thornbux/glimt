@@ -241,18 +241,25 @@ pub fn turned(o: u8, turns: u8, mirrored: bool) -> u8 {
 
 /// Save the view's rotation in a JPEG as its EXIF orientation: the two bytes of the field if
 /// there is one, or a small EXIF block if the file has none. The pixels are not touched, and the
-/// file is replaced in one step (a new file renamed over it), keeping its permissions.
-pub fn write_orientation(path: &Path, turns: u8, mirrored: bool) -> Result<(), String> {
+/// file is replaced in one step (a new file renamed over it), keeping its permissions. The
+/// view's turns are on what it showed: the file's orientation when Auto Rotate was on
+/// (`rotate`), else the pixels as stored.
+pub fn write_orientation(
+    path: &Path,
+    turns: u8,
+    mirrored: bool,
+    rotate: bool,
+) -> Result<(), String> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    crate::config::replace_existing(path, oriented(data, turns, mirrored)?)
+    crate::config::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
         .map_err(|e| e.to_string())
 }
 
 /// The JPEG `data` with the view's rotation as its EXIF orientation, as `write_orientation`
 /// writes it.
-fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, String> {
+fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool, rotate: bool) -> Result<Vec<u8>, String> {
     if !data.starts_with(&[0xff, 0xd8]) {
         return Err("only JPEG files can store the orientation".into());
     }
@@ -273,7 +280,8 @@ fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool) -> Result<Vec<u8>, Str
                     // Read first, which keeps the write inside the block: an entry at its very end
                     // has no room for its value.
                     let old = t.u16(e.at).ok_or("cut off")?;
-                    new = turned(old as u8, turns, mirrored) as u16;
+                    let shown = if rotate { old as u8 } else { 1 };
+                    new = turned(shown, turns, mirrored) as u16;
                     // Offsets count from the TIFF header, which ends the block as `t.data` does.
                     let at = start + len - t.data.len() + e.at;
                     let bytes = if little {
@@ -805,6 +813,31 @@ mod tests {
         }
     }
 
+    /// With Auto Rotate off the view showed the pixels as stored: a quarter turn saved on a
+    /// photo stored at 6 is 6, as the user saw it upright; with Auto Rotate on it is 3.
+    #[test]
+    fn saves_the_turn_on_what_was_shown() {
+        use image::metadata::Orientation as O;
+        let file =
+            std::env::temp_dir().join(format!("glimt-test-shown-{}.jpg", std::process::id()));
+        image::RgbImage::new(4, 2).save(&file).unwrap();
+        let stored = || {
+            use image::ImageDecoder;
+            let mut d = image::ImageReader::open(&file)
+                .unwrap()
+                .into_decoder()
+                .unwrap();
+            d.orientation().unwrap()
+        };
+        super::write_orientation(&file, 1, false, true).unwrap();
+        assert_eq!(stored(), O::Rotate90);
+        super::write_orientation(&file, 1, false, false).unwrap();
+        assert_eq!(stored(), O::Rotate90);
+        super::write_orientation(&file, 1, false, true).unwrap();
+        assert_eq!(stored(), O::Rotate180);
+        std::fs::remove_file(file).unwrap();
+    }
+
     #[test]
     fn turns_orientations() {
         use super::turned;
@@ -911,7 +944,7 @@ mod tests {
         jpeg.extend(app1);
         jpeg.extend(&base[2..]);
         std::fs::write(&file, &jpeg).unwrap();
-        assert!(super::write_orientation(&file, 1, false).is_err());
+        assert!(super::write_orientation(&file, 1, false, true).is_err());
         assert_eq!(std::fs::read(&file).unwrap(), jpeg);
         // An entry at the very end of the block, with no room for its value; and IFD0 past the
         // block. Both refused, the file as it was.
@@ -924,7 +957,7 @@ mod tests {
             jpeg.extend(app1);
             jpeg.extend(&base[2..]);
             std::fs::write(&file, &jpeg).unwrap();
-            assert!(super::write_orientation(&file, 1, false).is_err());
+            assert!(super::write_orientation(&file, 1, false, true).is_err());
             assert_eq!(std::fs::read(&file).unwrap(), jpeg);
         }
         std::fs::remove_dir_all(dir).unwrap();
@@ -937,14 +970,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.jpg");
         image::RgbImage::new(4, 2).save(&file).unwrap();
-        super::write_orientation(&file, 1, false).unwrap();
+        super::write_orientation(&file, 1, false, true).unwrap();
         let o = |f: &std::path::Path| {
             use image::ImageDecoder;
             let mut d = image::ImageReader::open(f).unwrap().into_decoder().unwrap();
             d.orientation().unwrap()
         };
         assert_eq!(o(&file), image::metadata::Orientation::Rotate90);
-        super::write_orientation(&file, 1, false).unwrap();
+        super::write_orientation(&file, 1, false, true).unwrap();
         assert_eq!(o(&file), image::metadata::Orientation::Rotate180);
         assert_eq!(image::open(&file).unwrap().width(), 4);
         // EXIF with other fields but no orientation: the field is added, the rest kept.
@@ -962,7 +995,7 @@ mod tests {
         jpeg.extend(app1);
         jpeg.extend(&base[2..]);
         std::fs::write(&file, &jpeg).unwrap();
-        super::write_orientation(&file, 3, false).unwrap();
+        super::write_orientation(&file, 3, false, true).unwrap();
         assert_eq!(o(&file), image::metadata::Orientation::Rotate270);
         let rows = super::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
@@ -974,14 +1007,14 @@ mod tests {
         jpeg.extend(&base[2..]);
         let with_xmp = dir.join("xmp.jpg");
         std::fs::write(&with_xmp, &jpeg).unwrap();
-        super::write_orientation(&with_xmp, 1, false).unwrap();
+        super::write_orientation(&with_xmp, 1, false, true).unwrap();
         let text = std::fs::read(&with_xmp).unwrap();
         let want = b"tiff:Orientation=\"6\"";
         assert!(text.windows(want.len()).any(|w| w == want));
         // Through a symlink: the file it points to is turned, and the link stays a link.
         let link = dir.join("link.jpg");
         std::os::unix::fs::symlink(&file, &link).unwrap();
-        super::write_orientation(&link, 1, false).unwrap();
+        super::write_orientation(&link, 1, false, true).unwrap();
         assert!(link.is_symlink());
         assert_eq!(o(&file), image::metadata::Orientation::NoTransforms);
         std::fs::remove_dir_all(dir).unwrap();
@@ -1086,12 +1119,12 @@ mod tests {
         with_exif.extend([0xff, 0xe1, 0, mm.len() as u8 + 2]);
         with_exif.extend(mm);
         with_exif.extend(&jpeg[2..]);
-        assert!(super::oriented(with_exif.clone(), 1, false).is_ok());
+        assert!(super::oriented(with_exif.clone(), 1, false, true).is_ok());
         for data in crate::broken(&jpeg).chain(crate::broken(&with_exif)) {
             if let Some((segments, _)) = super::jpeg_segments(&data) {
                 segments.iter().for_each(|s| drop(super::segment(&data, s)));
             }
-            let _ = super::oriented(data, 1, false);
+            let _ = super::oriented(data, 1, false, true);
         }
     }
 }

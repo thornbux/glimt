@@ -494,7 +494,7 @@ impl crate::App {
         std::thread::spawn(move || {
             let _writing = writing;
             let result = survive(|| match jpeg {
-                true => exif::write_orientation(&path, turns, mirrored),
+                true => exif::write_orientation(&path, turns, mirrored, rotate),
                 false => save_rotated(&path, rotate, turns, mirrored, quality),
             });
             if jpeg && result.is_ok() && !rotate {

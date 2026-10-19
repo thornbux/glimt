@@ -876,7 +876,7 @@ mod tests {
         });
         img.save(&file).unwrap();
         // A quarter turn clockwise (EXIF orientation 6): the left half ends up on top.
-        crate::exif::write_orientation(&file, 1, false).unwrap();
+        crate::exif::write_orientation(&file, 1, false, true).unwrap();
         let (img, _, orig) = super::scaled_jpeg(&file, [60, 100], true).unwrap();
         assert_eq!(orig, [200, 400]);
         assert_eq!((img.width(), img.height()), (50, 100));
