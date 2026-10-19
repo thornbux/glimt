@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Plugins and decoders whose desktop file starts with a comment are found, instead of silently
+  left out.
 - Putting a cut-short Rename Many right no longer now and then does nothing, when Glimt started
   another program at that moment.
 - With Auto Rotate off, thumbnails are made as the image is stored, also in a folder seen before,

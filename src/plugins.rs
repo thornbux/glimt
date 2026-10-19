@@ -46,7 +46,14 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
 /// The values of a desktop file's first group (its [Desktop Entry] or [Glimt Decoder], not its
 /// actions), by key.
 pub fn values<'a>(text: &'a str) -> impl Fn(&str) -> Option<&'a str> + 'a {
-    let entry = text.split("\n[").next().unwrap_or_default();
+    // Comments and blank lines may come before its header.
+    let mut rest = text;
+    while let Some(line) = rest.lines().next()
+        && (line.trim().is_empty() || line.starts_with('#'))
+    {
+        rest = rest.split_once('\n').map_or("", |(_, r)| r);
+    }
+    let entry = rest.split("\n[").next().unwrap_or_default();
     move |key| {
         (entry.lines())
             .find_map(|l| l.strip_prefix(key)?.trim_start().strip_prefix('='))
@@ -170,6 +177,9 @@ mod tests {
         let plugin = parse(text, &dir).unwrap();
         assert_eq!(plugin.name, "Mark");
         assert!(parse("[Desktop Entry]\nName=A\nExec=a\nNoDisplay=true\n", &dir).is_none());
+        // Written by hand, with a comment first.
+        let commented = parse("# mine\n\n[Desktop Entry]\nName=C\nExec=c\n", &dir);
+        assert_eq!(commented.unwrap().name, "C");
         // Once for each file, in the folder given.
         let files = [dir.join("a b.jpg"), dir.join("c.jpg")];
         plugin.run(&files, &dir).unwrap();
