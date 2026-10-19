@@ -1738,9 +1738,6 @@ impl App {
         let full_ok = Arc::new(AtomicUsize::new(1));
         let (mut config, problems) = Config::load_checked();
         lang::set(&config.language);
-        // Include Subfolders starts off each time: kept on, every start in a large tree read all
-        // of it before its folders showed.
-        config.show_subfolders = false;
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();

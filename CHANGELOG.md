@@ -26,6 +26,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Include Subfolders is kept across starts, as the other View toggles are, now that a large tree
+  shows its top folders at once; since 0.38.0 the saved setting was turned off at every start.
 - Release tests of daily use: the zoom and fit keys, the wheel and a drag, Open With (the default
   application and the list), the clipboard read back, and the Norwegian interface in a real
   window; closing is waited for instead of a fixed second, and the first image before the keys.

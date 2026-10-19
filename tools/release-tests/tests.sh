@@ -403,7 +403,7 @@ expect "files on disk" "$(cd $d && find . -name '*.jpg' | sort | tr '\n' ' ')" \
 # a.jpg, c.jpg, sub/a.jpg, sub/d.jpg, sub/deep/b.jpg
 expect "the list follows" "$(rows subfolders 5)" "red blue red yellow green"
 
-echo "-- Include Subfolders saved on: off at the next start, on again by --remote subfolders on"
+echo "-- Include Subfolders saved on: on at the next start, off again by --remote subfolders off"
 for v in new old; do
     as_version $v
     d=/tmp/subfolders-start-$v
@@ -415,14 +415,14 @@ for v in new old; do
     sleep 2
     key ctrl+a
     listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
-    $BIN --remote subfolders on >/dev/null 2>&1; sleep 2
+    $BIN --remote subfolders off >/dev/null 2>&1; sleep 2
     key ctrl+a
-    all=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
+    own=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
     quit
     if [ $v = new ]; then
-        expect "off at the start: the folder's own two" "$listed" 2
-        expect "on by --remote: all five" "$all" 5
-    else note "old: $listed at the start, $all after"; fi
+        expect "on at the start: all five" "$listed" 5
+        expect "off by --remote: the folder's own two" "$own" 2
+    else note "old: $listed, then $own"; fi
 done
 as_version new
 
