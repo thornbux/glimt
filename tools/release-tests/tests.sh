@@ -2106,7 +2106,9 @@ expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.j
 expect "the image's keyword in its sidecar, with its place in the tree" \
     "$(grep -c '<rdf:li>Oslo</rdf:li>\|<rdf:li>Places|Oslo</rdf:li>' $d/photos/2024/b.jpg.xmp)" 2
 
-echo "-- a plain list (.m3u) is never renamed or trashed, also by keys of one's own"
+echo "-- a plain list (.m3u) is never renamed or trashed from the menu"
+# Rename and Move Collection to Trash have no key, and Preferences offers none for them (they are
+# not in SHORTCUTS): the menu is the only way to them.
 for v in new old; do
     as_version $v
     # In the home folder, where gio has a trash.
