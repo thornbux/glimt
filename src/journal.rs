@@ -40,6 +40,15 @@ impl Journal {
     }
 }
 
+impl Journal {
+    /// Left on disk: the renames could not all be undone, so the next start offers to put the
+    /// files right. Its lock goes with this Glimt.
+    pub fn keep(mut self) {
+        // An empty path: the remove in `drop` finds nothing.
+        self.path = PathBuf::new();
+    }
+}
+
 impl Drop for Journal {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
@@ -297,6 +306,20 @@ mod tests {
     /// step, for a swap, a cycle of three, a shift and plain new names: put back gives every
     /// old name, finished every new one, no hidden name is left, and a second settle does
     /// nothing.
+    /// A plan kept when its renames could not be undone is there at the next start, with the
+    /// steps it had done.
+    #[test]
+    fn a_kept_plan_stays() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-kept-{}", std::process::id()));
+        let moves = vec![(dir.join("a"), dir.join("b"))];
+        let mut plan = super::begin(&dir, &moves).unwrap();
+        plan.done();
+        plan.keep();
+        let left = super::interrupted(&dir);
+        assert_eq!((left.len(), left[0].2), (1, Some(1)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn settles_every_cut() {
         let dir = std::env::temp_dir().join(format!("glimt-test-cuts-{}", std::process::id()));

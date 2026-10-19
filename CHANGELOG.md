@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename Many that cannot put every name back after a failure (a share that stopped answering)
+  keeps its plan and says so, so the next start offers to put the files right, instead of saying
+  nothing was renamed.
 - Keywords, comments and stars still waiting to be written when their folder is renamed no longer
   make a folder of the old name again, full of sidecars of nothing.
 - A link planted beside a collection or a photo in a shared folder, where Glimt puts its lock or

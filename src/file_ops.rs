@@ -688,10 +688,24 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
             // Undone, so that no file is left under a hidden temporary name.
+            let mut stuck = 0;
             for (a, b) in moves[..k].iter().rev() {
-                let _ = std::fs::rename(b, a);
+                stuck += usize::from(std::fs::rename(b, a).is_err());
             }
             let (f, t) = (name(&from[j]), name(&to[j]));
+            // Not all put back (a share that stopped answering): the plan stays, and the next
+            // start offers to put the files right.
+            if stuck > 0 {
+                if let Some(plan) = plan.take() {
+                    plan.keep();
+                }
+                return Err(tf!(
+                    "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
+                    f,
+                    t,
+                    e
+                ));
+            }
             return Err(tf!(
                 "Could not rename {f} to {t}: {e}; nothing renamed",
                 f,
