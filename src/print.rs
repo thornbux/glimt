@@ -99,6 +99,13 @@ impl Layout {
     }
 }
 
+impl Layout {
+    /// The margin on paper of `size`: at most a third of its short side, so there is room left.
+    fn margin_on(&self, [w, h]: [f32; 2]) -> f32 {
+        self.margin.clamp(0.0, w.min(h) / 3.0)
+    }
+}
+
 /// One page as laid out, in PDF's points from the bottom left: its size, the size of its
 /// captions' type, and each image's place.
 #[derive(Debug)]
@@ -136,7 +143,7 @@ pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
     };
     // Smaller type, and a gap between the images, on a sheet of several.
     let (size, gap) = if one { (9.0, 0.0) } else { (7.0, 8.0) };
-    let m = layout.margin.clamp(0.0, pw.min(ph) / 3.0);
+    let m = layout.margin_on([pw, ph]);
     let room = |text: &str| if text.is_empty() { 0.0 } else { PAGE_TEXT };
     let (top, bottom) = (ph - m - room(&layout.header), m + room(&layout.footer));
     let (cw, ch) = ((pw - 2.0 * m) / cols as f32, (top - bottom) / rows as f32);
@@ -179,7 +186,8 @@ pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
 pub fn max_pixels(layout: &Layout) -> u32 {
     let [pw, ph] = layout.paper;
     let [cols, rows] = grid(layout.per_page);
-    let m = layout.margin;
+    // As `place` has it: on small photo paper a wide margin is less than asked.
+    let m = layout.margin_on([pw, ph]);
     let long = match layout.per_page {
         // Turned to landscape, or cut to fill: its long side may span the paper's.
         1 => pw.max(ph) - 2.0 * m,
@@ -304,7 +312,7 @@ pub fn pdf(
             names.push(format!("/Im{k} {} 0 R", next + k));
         }
         let number = kids.len() + 1;
-        let m = layout.margin.clamp(0.0, pw.min(ph) / 3.0);
+        let m = layout.margin_on([pw, ph]);
         for (text, y) in [(&layout.header, ph - m - 11.0), (&layout.footer, m + 3.0)] {
             if !text.is_empty() {
                 draw.push(centred(
@@ -561,7 +569,7 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
         }
     }
     let pages = dialog.paths.len().div_ceil(layout.per_page.max(1));
-    let m = layout.margin.clamp(0.0, pw.min(ph) / 3.0);
+    let m = layout.margin_on([pw, ph]);
     for (line, y) in [(&layout.header, ph - m - 11.0), (&layout.footer, m + 3.0)] {
         if !line.is_empty() {
             text(&page_text(line, 1, pages), 9.0, [m, y, pw - 2.0 * m]);
@@ -919,6 +927,23 @@ impl crate::App {
 
 #[cfg(test)]
 mod tests {
+    /// A margin wider than a third of small paper is held there, and images are decoded for
+    /// the room that leaves, not for less.
+    #[test]
+    fn decodes_for_the_room_left() {
+        use super::{Layout, MM, PAPERS, max_pixels};
+        let photo = PAPERS.iter().find(|p| p.0.starts_with("10")).unwrap().1;
+        let wide = Layout {
+            margin: 50.0 * MM,
+            ..Layout::new(photo, 1)
+        };
+        let third = Layout {
+            margin: photo[0] / 3.0,
+            ..Layout::new(photo, 1)
+        };
+        assert_eq!(max_pixels(&wide), max_pixels(&third));
+    }
+
     /// Both sides asked of lp only when chosen.
     #[test]
     fn asks_for_both_sides() {

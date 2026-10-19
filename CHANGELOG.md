@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Images printed on small photo paper with a wide margin are decoded for the room they get, not
+  for less (since 0.38.0).
 - Landscape pages printed on both sides turn on the short edge, so the backs are the right way up
   (since 0.38.0).
 - glimt --remote subfolders takes only on or off, and tells anything else as an unknown command
