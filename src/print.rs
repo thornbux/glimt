@@ -585,6 +585,9 @@ impl crate::App {
             }
             self.ask_captions(ctx, &mut dialog);
             let mut go = false;
+            // Enter in a text field (the page text, the template) ends the typing, not the dialog:
+            // it would send the job to the printer with every copy.
+            let typing = ctx.memory(|m| m.focused().is_some());
             let modal = egui::Modal::new(egui::Id::new("print")).show(ctx, |ui| {
                 let n = dialog.paths.len();
                 ui.strong(match n {
@@ -712,8 +715,8 @@ impl crate::App {
                     } else {
                         tr("Print (Enter)")
                     };
-                    go =
-                        ui.button(label).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let enter = !typing && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    go = ui.button(label).clicked() || enter;
                     if ui.button(tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }

@@ -2425,6 +2425,30 @@ text=$(pdftotext $pdf - 2>/dev/null | tr '\n' ' ')
 expect "page numbers, header and image text" \
     "$(echo "$text" | grep -c 'Page 2 of 2').$(echo "$text" | grep -c 'Summer').$(echo "$text" | grep -c 'yellow.jpg (5/5)')" "1.1.1"
 
+echo "-- Enter in the print dialog's page text ends the typing, not the dialog"
+for v in new old; do
+    as_version $v
+    d=/tmp/print-enter-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.jpg
+    pdf=/tmp/print-enter-$v.pdf
+    config
+    start $d
+    answer $pdf; key ctrl+p; sleep 2
+    click 600 495 0.5                # Top of each page
+    xdotool type Summer; key Return; sleep 3
+    typed=$([ -s $pdf ] && echo printed || echo kept)
+    # The dialog still prints: Enter again, with no field being typed in.
+    key Return; sleep 3
+    then=$([ -s $pdf ] && echo printed || echo kept)
+    quit
+    if [ $v = new ]; then
+        expect "Enter in the page text: nothing printed" "$typed" kept
+        expect "Enter again: printed" "$then" printed
+    else note "old: $typed, then $then"; fi
+done
+as_version new
+
 echo "-- closed while printing to a file: Glimt ends once the PDF is whole"
 print_pictures
 for v in new old; do

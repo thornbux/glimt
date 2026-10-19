@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Enter in a text field of the Print dialog (the page text, the template) ends the typing instead
+  of printing at once (since 0.38.0).
 - Turning Include Subfolders on during a slideshow in random order keeps it random: the images
   found so far came in name order and took the shuffled list's place (since 0.38.0).
 - The images of a tree found so far wait one at a time for the window: a window not drawn while a
