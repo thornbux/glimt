@@ -248,11 +248,18 @@ pub fn client(
         command = format!("select {}", sent.join("\0"));
     }
     // A name that is not UTF-8 cannot go in the text sent; made lossy, it would name no file.
-    if words.first().is_some_and(|w| w == "open") && paths.iter().any(|p| p.to_str().is_none()) {
-        eprintln!(
-            "glimt: cannot send {:?}: not UTF-8",
-            paths.first().unwrap_or(&"".into())
-        );
+    // With no Glimt to send it to, this one opens it, by its own name.
+    if words.first().is_some_and(|w| w == "open")
+        && let Some(path) = paths.iter().find(|p| p.to_str().is_none())
+    {
+        let running = match name {
+            Some(name) => socket(name).is_some_and(|p| UnixStream::connect(p).is_ok()),
+            None => !live().is_empty(),
+        };
+        if !running {
+            return Some(path.into());
+        }
+        eprintln!("glimt: cannot send {path:?}: not UTF-8");
         std::process::exit(2);
     }
     // The running Glimt has another working folder: send the full path.

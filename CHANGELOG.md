@@ -9,8 +9,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Glimt is offered under Open With for Panasonic's older .raw files too, which it reads.
 - The Pan view's calendar shows the weekdays in Norwegian too in the Norwegian interface.
-- glimt --remote open with a file name that is not UTF-8 says it cannot send it, instead of
-  opening a name with a replacement character that is no file.
+- glimt --remote open with a file name that is not UTF-8 opens it when no Glimt is running, and
+  else says it cannot send it, instead of opening a name with a replacement character that is
+  no file.
 - %dimensions% in printed captions is the size shown, upright, also for a portrait turned by EXIF
   and for RAW files, instead of the stored size or a RAW's thumbnail.
 - A folder is not renamed or moved to the trash while a turned image in it is being saved, which
