@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The settings that are one of a few are written by name (fit_mode=width, fade=long,
+  histogram=rgb, thumb_size=large, toolbar_icons=large, view_filter=inverted, cpu_use=full), so
+  that a longer list in a later version cannot change what a saved number means; the numbers of
+  before are still read.
 - The size an image is decoded to goes with its decode job (the view's box, turned with the shown
   image when that is turned by hand, at least the projector's), instead of one shared box set in
   one frame and read in the next; neighbours of a turned image are decoded at their own size at

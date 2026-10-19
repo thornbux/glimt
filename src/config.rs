@@ -229,6 +229,38 @@ impl std::fmt::Display for Rgb {
     }
 }
 
+/// Settings that are one of a few: written by name since 1.0 (fit_mode=width), read by name
+/// or by the number of before (fit_mode=1). A list grows at its end only, so the numbers keep
+/// their meaning.
+const NAMED: [(&str, &[&str]); 7] = [
+    ("fade", &["off", "short", "long"]),
+    ("fit_mode", &["whole", "width", "height", "fill"]),
+    ("histogram", &["off", "rgb", "brightness"]),
+    ("thumb_size", &["small", "medium", "large"]),
+    ("toolbar_icons", &["small", "medium", "large"]),
+    (
+        "view_filter",
+        &["none", "greyscale", "inverted", "contrast"],
+    ),
+    ("cpu_use", &["saving", "balanced", "full"]),
+];
+
+/// `value` of `key` as the code holds it: a name's place in its list, else as given.
+fn by_number(key: &str, value: &str) -> String {
+    let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
+    let place = names.and_then(|names| names.iter().position(|n| n.eq_ignore_ascii_case(value)));
+    place.map_or_else(|| value.to_owned(), |k| k.to_string())
+}
+
+/// `value` of `key` as the file holds it: the name of a numbered choice.
+fn by_name(key: &str, value: String) -> String {
+    let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
+    match names.zip(value.parse::<usize>().ok()) {
+        Some((names, k)) if k < names.len() => names[k].to_owned(),
+        _ => value,
+    }
+}
+
 /// The config struct, its defaults, and reading and writing it, from one list; the field
 /// name is the key in the file.
 macro_rules! config {
@@ -251,6 +283,8 @@ macro_rules! config {
             // String's parse cannot fail, so its `if let` is irrefutable.
             #[allow(irrefutable_let_patterns)]
             pub fn set(&mut self, key: &str, value: &str) -> Option<bool> {
+                let value = by_number(key, value);
+                let value = value.as_str();
                 match key {
                     $(stringify!($name) => {
                         if let Ok(v) = value.parse() {
@@ -265,7 +299,11 @@ macro_rules! config {
 
             pub fn to_text(&self) -> String {
                 let mut text = String::new();
-                $(text += &format!("{}={}\n", stringify!($name), self.$name);)*
+                $(text += &format!(
+                    "{}={}\n",
+                    stringify!($name),
+                    by_name(stringify!($name), self.$name.to_string())
+                );)*
                 text
             }
         }
@@ -292,7 +330,7 @@ config! {
     enlarge: bool = true,
     /// A slideshow starts again from the first image after the last; off, it stops there.
     slideshow_repeat: bool = true,
-    /// The slideshow fades from one image to the next: 0 off, 1 short, 2 long (FADES).
+    /// The slideshow fades from one image to the next: off, short or long (FADES; an index here).
     fade: usize = 1,
     /// Several images at once (View → Layout): "1", "2x1", "1x2" or "2x2" (columns × rows).
     layout: String = String::from("1"),
@@ -339,8 +377,8 @@ config! {
     webp_quality: u8 = 90,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
-    /// How an image that is not zoomed fills the view: 0 whole, 1 the width, 2 the height,
-    /// 3 the whole view (cut at the sides). FITS.
+    /// How an image that is not zoomed fills the view: whole, width, height or fill (the whole
+    /// view, cut at the sides); an index here, FITS.
     fit_mode: u8 = 0,
     /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
     wheel_zoom: bool = true,
@@ -363,7 +401,7 @@ config! {
     low_memory: bool = true,
     /// Images decoded at once, at most the number of cores; read at startup.
     decode_threads: usize = 4,
-    /// CPU use: 0 power saving, 1 balanced, 2 full (CPU_LEVELS).
+    /// CPU use: saving, balanced or full (CPU_LEVELS; an index here).
     cpu_use: usize = 1,
     /// Frames of an animation kept, in MB.
     animation_mb: usize = 128,
@@ -388,9 +426,9 @@ config! {
     sort: Sort = Sort::Name,
     sort_ascending: bool = true,
     sort_case: bool = true,
-    /// Toolbar icon size: 0 small, 1 medium, 2 large.
+    /// Toolbar icon size: small, medium or large (an index here).
     toolbar_icons: usize = 0,
-    /// View → Filter: an index into colour::FILTERS (greyscale, inverted, more contrast).
+    /// View → Filter: none, greyscale, inverted or contrast (an index into colour::FILTERS).
     view_filter: usize = 0,
     /// File name search above the file list.
     search_bar: bool = true,
@@ -399,12 +437,12 @@ config! {
     osd: bool = true,
     /// What the full screen info shows (OSD_TEMPLATE).
     osd_template: String = OSD_TEMPLATE.to_owned(),
-    /// Histogram in the corner of the image (K): 0 off, 1 RGB, 2 brightness.
+    /// Histogram in the corner of the image (K): off, rgb or brightness (an index here).
     histogram: u8 = 0,
     /// Logarithmic histogram (J), which shows the small counts better.
     histogram_log: bool = false,
-    /// Thumbnail size: 0 small (96×72), 1 medium (128×96), 2 large (192×144, from the
-    /// freedesktop "large" cache).
+    /// Thumbnail size: small (96×72), medium (128×96) or large (192×144, from the freedesktop
+    /// "large" cache); an index here.
     thumb_size: u8 = 0,
     /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
     icons: bool = false,
@@ -1178,6 +1216,23 @@ mod tests {
         );
         assert_eq!(super::parse_last_dir("last_dir=\n"), None);
         assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
+        // The choices by name, or by the number of before 1.0; written by name.
+        let c = Config::parse("fit_mode=width\nfade=2\nview_filter=Inverted\ncpu_use=9");
+        assert_eq!((c.fit_mode, c.fade, c.view_filter, c.cpu_use), (1, 2, 2, 2));
+        let text = c.to_text();
+        for line in [
+            "fit_mode=width\n",
+            "fade=long\n",
+            "view_filter=inverted\n",
+            "cpu_use=full\n",
+        ] {
+            assert!(text.contains(line), "{text}");
+        }
+        let (_, problems) = Config::check("fade=9\nfit_mode=wide");
+        assert!(problems[0].contains("long is used") && problems[1].contains("not a value"));
+        for (k, (name, _, _)) in super::FADES.iter().enumerate() {
+            assert_eq!(super::NAMED[0].1[k], *name);
+        }
     }
 
     /// Config and window state files broken in thousands of ways: read without a panic.

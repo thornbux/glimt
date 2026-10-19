@@ -2057,7 +2057,7 @@ for v in new old; do
     key shift+g; sleep 2
     shot filter-invert-$v
     quit
-    [ $v = new ] && kept=$(grep -c '^view_filter=2$' $XDG_CONFIG_HOME/glimt/config)
+    [ $v = new ] && kept=$(grep -c '^view_filter=inverted$' $XDG_CONFIG_HOME/glimt/config)
 done
 as_version new
 # Red through Rec. 709 greyscale is 53 53 53; inverted it is cyan.
