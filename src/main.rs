@@ -2694,6 +2694,12 @@ impl App {
         if self.config.save_orientation && self.orient != (0, false) {
             self.save_orientation(ctx);
         }
+        // The decode box turned back with it, before the next image and its neighbours are
+        // asked for: the image area sets it only in the next frame.
+        if self.orient.0 % 2 == 1 && self.config.fit_mode != 3 {
+            let box_ = &mut self.limits.lock().unwrap()[0];
+            *box_ = [box_[1], box_[0]];
+        }
         self.orient = (0, false);
     }
 
@@ -7890,7 +7896,11 @@ impl App {
             true => [view[1], view[0]],
             false => view,
         };
-        let [pw, ph] = self.projector_size;
+        // The projector shows it turned too.
+        let [pw, ph] = match quarter {
+            true => [self.projector_size[1], self.projector_size[0]],
+            false => self.projector_size,
+        };
         self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
         long
     }

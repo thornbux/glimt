@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The images after one turned a quarter by hand are decoded at their size at once, not too small
+  first, and a turned photo on the projector is sharp.
 - Keywords, comments and alt text are written through the same thread as stars and tags, in the
   order they were made, and closing waits for them; a share that stopped answering no longer holds
   up the saving of settings and stars.
