@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A plugin that is an editor no longer keeps the busy pointer on for as long as it stays open: a
+  plugin runs without it, as Open With does; its failure is still told.
 - A kiosk always listens for --remote quit, also with remote control turned off in the settings;
   where it cannot (no $XDG_RUNTIME_DIR), it says so and Ctrl+Q closes it, instead of a kiosk
   nothing but kill ends.

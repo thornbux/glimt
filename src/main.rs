@@ -7739,8 +7739,10 @@ impl App {
             let plugin = self.plugins[k].clone();
             let dir = self.dir.clone();
             let (edited, deleted) = (self.edited_tx.clone(), self.deleted_tx.clone());
-            // Not waited for at closing: a plugin may be an editor that stays open for long.
-            self.background(ui.ctx(), false, move || {
+            let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
+            // A plugin may be an editor that stays open for hours: not waited for at closing,
+            // and no busy pointer meanwhile, as for Open With.
+            std::thread::spawn(move || {
                 let result = plugin.run(&files, &dir);
                 for f in files {
                     let _ = edited.send(f);
@@ -7749,7 +7751,10 @@ impl App {
                     failed: true,
                     ..Default::default()
                 });
-                result.err().map(|e| format!("{}: {e}", plugin.name))
+                if let Err(e) = result {
+                    let _ = tx.send(format!("{}: {e}", plugin.name));
+                }
+                ctx.request_repaint();
             });
         });
     }

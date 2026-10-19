@@ -1879,6 +1879,24 @@ left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 quit
 expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
 
+echo "-- Edit → Plugins from the menu: the plugin runs on the shown file, Glimt answering meanwhile"
+d=/tmp/plugin-menu
+mkdir -p $d $XDG_DATA_HOME/glimt/plugins
+convert -size 64x64 xc:red $d/a.png
+# The plugin stays, as an editor would.
+printf '#!/bin/sh\necho "$@" >>%s/ran\nsleep 20\n' $d >/tmp/stub/stamp; chmod +x /tmp/stub/stamp
+printf '[Desktop Entry]\nName=Stamp\nExec=stamp %%f\n' >$XDG_DATA_HOME/glimt/plugins/stamp.desktop
+config
+start $d/a.png; sleep 2
+click 134 11; xdotool mousemove 152 120; sleep 1       # Edit → Plugins
+shot plugins-menu
+click 370 120; sleep 2                                 # Stamp, the first plugin
+ran=$(cat $d/ran 2>/dev/null)
+answer=$($BIN --remote current 2>/dev/null | tr -d '\0')
+quit
+rm -f /tmp/stub/stamp $XDG_DATA_HOME/glimt/plugins/stamp.desktop
+expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
+
 echo "-- --lock-settings, then New Window: the new window is locked too"
 for v in new old; do
     as_version $v
