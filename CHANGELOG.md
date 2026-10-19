@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With Include Subfolders on, a tree is read in name order and opens on its first image, also in
+  another sort order, instead of on an image of its last subfolder (since 0.38.0); its first
+  images show as soon as they are found, also inside one large subfolder.
+
 ## [0.38.0] - 2026-10-19
 
 ### Added

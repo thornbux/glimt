@@ -926,6 +926,8 @@ struct App {
     part_rx: Option<mpsc::Receiver<Vec<OsString>>>,
     /// The next listing shows a tree's images as they are found (a folder opened).
     list_parts: bool,
+    /// The image the first part of a tree went to by itself: the whole list goes to its first.
+    went_to: Option<OsString>,
     /// Set to stop the listing of the tree before, when another one starts.
     listing_stop: Arc<AtomicBool>,
     /// The folder changed while a listing was running; list again when it is done.
@@ -1777,6 +1779,7 @@ impl App {
             subdirs_rx: None,
             part_rx: None,
             list_parts: false,
+            went_to: None,
             listing_stop: Arc::default(),
             listing_rx: None,
             image_id: None,
@@ -2063,6 +2066,7 @@ impl App {
         // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
         // its whole list on screen until the new one is read, instead of shrinking and growing.
         let parts = std::mem::take(&mut self.list_parts);
+        self.went_to = None;
         std::thread::spawn(move || {
             // Several folders: their images, each folder (with its subfolders) after the other.
             if !folders.is_empty() {
@@ -2114,7 +2118,8 @@ impl App {
             // once: a large tree takes long to read whole.
             // Its images too, a folder of it at a time, in name order (the sort asked for comes
             // with the whole tree): at most four times a second, as each is a copy of the list.
-            let mut sent = Instant::now();
+            // The first images at once; after them, at most four times a second.
+            let mut sent: Option<Instant> = None;
             let (dirs, mut files) = match recursive {
                 true => list_tree(
                     &list_dir,
@@ -2126,10 +2131,9 @@ impl App {
                         }
                     },
                     |so_far| {
-                        if !parts
-                            || shuffled
-                            || sent.elapsed() < std::time::Duration::from_millis(250)
-                        {
+                        let soon = sent
+                            .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250));
+                        if !parts || shuffled || soon {
                             return;
                         }
                         let mut part = so_far.to_vec();
@@ -2137,7 +2141,7 @@ impl App {
                         if part_tx.send(part).is_ok() {
                             ctx2.request_repaint();
                         }
-                        sent = Instant::now();
+                        sent = Some(Instant::now());
                     },
                 ),
                 false => list_folder(&list_dir, types),
@@ -2255,12 +2259,22 @@ impl App {
             self.details.clear();
             return;
         }
-        let shown = self.files.get(self.cur).cloned();
+        // The image Glimt went to itself, in the name order of a tree's first images: the whole
+        // list, in the order asked for, starts at its first image instead, unless another one
+        // was chosen meanwhile.
+        let mut shown = self.files.get(self.cur).cloned();
+        if whole && shown.is_some() && std::mem::take(&mut self.went_to) == shown {
+            shown = None;
+        }
+        let first = self.files.is_empty() && !whole;
         // A refresh keeps the selection: Delete or Move after it still acts on what was picked.
         let picked: HashSet<OsString> = (self.selected.iter())
             .filter_map(|&i| self.files.get(i).cloned())
             .collect();
         self.replace_files(ctx, files, shown);
+        if first {
+            self.went_to = self.files.get(self.cur).cloned();
+        }
         if !picked.is_empty() {
             self.selected = (self.files.iter().enumerate())
                 .filter(|(_, f)| picked.contains(*f))

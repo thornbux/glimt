@@ -153,8 +153,10 @@ pub fn walk(
                 continue;
             }
             let (dirs, files) = list_folder(&full, types);
+            // Last in, first out: pushed backwards, the folders are read in name order.
             todo.extend(
                 dirs.iter()
+                    .rev()
                     .filter_map(|d| d.file_name())
                     .map(|n| rel.join(n)),
             );
@@ -164,10 +166,10 @@ pub fn walk(
 }
 
 /// The folders in `dir`, as `list_folder` gives them, and the images in it and every folder
-/// below it, as paths relative to `dir`: `dir` read once. `top` gets `dir`'s own folders as soon
-/// as they are read, and `part` the images found so far each time one of them is read with all
-/// below it: a large tree takes long to read whole. Cut short when `stop` is set: another
-/// folder was opened, and the tree would be read for nothing.
+/// below it, as paths relative to `dir`, in name order: `dir` read once. `top` gets `dir`'s own
+/// folders as soon as they are read, and `part` the images found so far after each folder that
+/// had some, to show them as the tree is read: a large tree takes long to read whole. Cut short
+/// when `stop` is set: another folder was opened, and the tree would be read for nothing.
 pub fn list_tree(
     dir: &Path,
     types: Types,
@@ -177,9 +179,6 @@ pub fn list_tree(
 ) -> (Vec<PathBuf>, Vec<OsString>) {
     use std::sync::atomic::Ordering::Relaxed;
     let (mut own, mut top, mut out) = (Vec::new(), Some(top), Vec::new());
-    // The top folder's folder being read: one is done when the next one's turn comes, as the
-    // walk reads a folder with all below it before the next.
-    let mut current: Option<OsString> = None;
     for (rel, dirs, files) in walk(dir, types).take_while(|_| !stop.load(Relaxed)) {
         if rel.as_os_str().is_empty() {
             if let Some(top) = top.take() {
@@ -187,14 +186,10 @@ pub fn list_tree(
             }
             own = dirs;
         }
-        let first = rel.components().next().map(|c| c.as_os_str().to_owned());
-        if first.is_some() && first != current {
-            if current.is_some() {
-                part(&out);
-            }
-            current = first;
+        if !files.is_empty() {
+            out.extend(files.into_iter().map(|f| rel.join(f).into_os_string()));
+            part(&out);
         }
-        out.extend(files.into_iter().map(|f| rel.join(f).into_os_string()));
     }
     // In name order, as list_folder gives a single folder; sort_files builds on that.
     out.sort_unstable();
@@ -421,8 +416,8 @@ pub fn shuffle<T>(v: &mut [T]) {
 
 #[cfg(test)]
 mod tests {
-    /// The images of a tree told a top folder's folder at a time: after the first one with all
-    /// below it, its images; at the end all of them.
+    /// The images of a tree told after each folder with images, read in name order: the
+    /// first told are a's own, before any of b.
     #[test]
     fn tree_told_a_folder_at_a_time() {
         use std::sync::atomic::AtomicBool;
@@ -443,22 +438,22 @@ mod tests {
             videos: true,
             hidden: false,
         };
-        let mut parts = Vec::new();
+        let mut parts: Vec<Vec<std::ffi::OsString>> = Vec::new();
         let (_, all) = super::list_tree(
             &dir,
             types,
             &AtomicBool::new(false),
             |_| {},
-            |p| parts.push(p.len()),
+            |p| parts.push(p.to_vec()),
         );
         assert_eq!(all.len(), 4);
-        // Three folders: told after each of the first two, growing; the last is the whole list.
-        assert_eq!(parts.len(), 2);
-        assert!(parts[0] >= 1 && parts[1] > parts[0] && parts[1] < 4);
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0], [std::ffi::OsString::from("a/2.jpg")]);
+        assert_eq!(parts[1].last().unwrap(), "a/deep/1.jpg");
+        assert_eq!(parts[2].last().unwrap(), "b/3.jpg");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A tree being read stops when told, and tells its top folder's folders first.
     #[test]
     fn tree_listing_stops() {
         use std::sync::atomic::AtomicBool;
