@@ -79,6 +79,7 @@ impl crate::App {
             || self.renaming.is_some()
             || !self.saving.is_empty()
             || self.writing.load(Ordering::Relaxed) > 0
+            || self.sidecars_writing.load(Ordering::Relaxed) > 0
     }
 
     /// A file operation on `total` files, shown in the status bar until its thread drops it.
@@ -755,7 +756,7 @@ fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
 }
 
 /// One sidecar change of the keyword fields, through the sidecar thread after the ones before
-/// it; counted in `writing`, which closing waits for.
+/// it; counted in `sidecars_writing`, which closing waits for.
 pub(crate) fn write_sidecar(writing: &Arc<AtomicUsize>, write: impl FnOnce() + Send + 'static) {
     let writing = Working::new(writing);
     let _ = sidecar_writer().send(Box::new(move || {
