@@ -670,7 +670,11 @@ pub fn flush() {
 /// its own, hidden beside it, as `path` is renamed over.
 pub fn file_lock(path: &Path) -> Option<std::fs::File> {
     let name = path.file_name()?.to_string_lossy();
-    let lock = std::fs::File::create(path.with_file_name(format!(".{name}.lock"))).ok()?;
+    // Never truncated: a lock file that is a link planted in a shared folder must not empty
+    // the file it points to.
+    let lock = (std::fs::OpenOptions::new().create(true).append(true))
+        .open(path.with_file_name(format!(".{name}.lock")))
+        .ok()?;
     lock.lock().ok()?;
     Some(lock)
 }
@@ -755,15 +759,14 @@ pub fn tmp_path(path: &Path) -> PathBuf {
 /// those before a byte is written: no one else can open it meanwhile. A new file as usual.
 pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+    // Made new, never opened: a link left or planted at `tmp` would be followed and the file
+    // it points to emptied.
+    let _ = std::fs::remove_file(tmp);
+    let new = || std::fs::OpenOptions::new().write(true).create_new(true).clone();
     let Ok(old) = std::fs::metadata(path) else {
-        return std::fs::File::create(tmp);
+        return new().open(tmp);
     };
-    let file = (std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true))
-    .mode(0o600)
-    .open(tmp)?;
+    let file = new().mode(0o600).open(tmp)?;
     file.set_permissions(old.permissions())?;
     Ok(file)
 }
@@ -998,6 +1001,24 @@ mod tests {
             1,
             "no .tmp files left"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Links planted where the lock and the temporary file go empty nothing they point to.
+    #[test]
+    fn planted_links_empty_nothing() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("glimt-test-planted-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (victim, photo) = (dir.join("victim"), dir.join("trip.gqv"));
+        std::fs::write(&victim, "keep").unwrap();
+        std::fs::write(&photo, "old").unwrap();
+        symlink(&victim, dir.join(".trip.gqv.lock")).unwrap();
+        drop(super::file_lock(&photo));
+        let tmp = super::tmp_path(&photo);
+        symlink(&victim, &tmp).unwrap();
+        drop(super::new_beside(&tmp, &photo).unwrap());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

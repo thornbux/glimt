@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A link planted beside a collection or a photo in a shared folder, where Glimt puts its lock or
+  temporary file, no longer empties the file it points to.
 - Marks and stars of files moved to another folder go along with them also when the move's two
   reports arrive between two frames, instead of now and then being forgotten.
 - A slideshow in random order goes on when a search hides the shown image or shows only one,
