@@ -455,6 +455,75 @@ fn fits_texture(orig: [usize; 2], scale: f32, long: u32) -> bool {
     orig.iter().all(|&side| side as f32 * scale < long as f32)
 }
 
+/// The row `delta` on from `row` of `n` rows, wrapping round or stopping at the ends; from
+/// before the first row (`None`, the shown file hidden by a search) the step counts from there.
+fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -> Option<usize> {
+    if n == 0 {
+        return None;
+    }
+    let (row, n) = (row.map_or(-1, |r| r as isize), n as isize);
+    let r = match wrap {
+        true => (row + delta).rem_euclid(n),
+        false => (row + delta).clamp(0, n - 1),
+    };
+    Some(r as usize)
+}
+
+/// What a slideshow does once its delay is up.
+#[derive(Debug, PartialEq)]
+enum Slide {
+    /// The round is over and it does not repeat.
+    Stop,
+    /// A new round of a random order: the list shuffled again.
+    Shuffle,
+    /// The next image, or the next set.
+    Step(usize),
+    /// The next image is still being decoded: looked at again soon.
+    Hold,
+}
+
+/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
+/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
+#[derive(Clone, Copy)]
+struct Place {
+    row: Option<usize>,
+    delta: usize,
+    shown: usize,
+    len: usize,
+}
+
+/// The slideshow's move from `at`, to `next` if there is one; repeating or not, in a `shuffled`
+/// order, with `next` `pending` (still being decoded) or not.
+fn next_slide(
+    at: Place,
+    next: Option<usize>,
+    repeat: bool,
+    shuffled: bool,
+    pending: bool,
+) -> Slide {
+    let Place {
+        row,
+        delta,
+        shown,
+        len,
+    } = at;
+    let round_over = round_ends(row, delta, shown);
+    let Some(next) = next else { return Slide::Hold };
+    if round_over && !repeat {
+        return Slide::Stop;
+    }
+    // A new round shuffles again instead of repeating the same order. Not when a search hides
+    // the shown image, nor when it shows no more images than one step: the shuffled list starts
+    // with the shown image, so the round would be over again, and shuffled on every frame.
+    if shuffled && round_over && row.is_some() && len > 2 && !round_ends(Some(0), delta, shown) {
+        return Slide::Shuffle;
+    }
+    match pending {
+        true => Slide::Hold,
+        false => Slide::Step(next),
+    }
+}
+
 /// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
 /// also when the shown file is not in the list (hidden by a search). Several panes step by
 /// their number, so the round may end past the last row, not on the first.
@@ -2750,20 +2819,12 @@ impl App {
     /// As `step`, from file `from`.
     fn step_from(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
         let m = self.matches.as_deref();
-        let n = m.map_or(self.files.len(), <[usize]>::len) as isize;
-        if n == 0 {
-            return None;
-        }
+        let n = m.map_or(self.files.len(), <[usize]>::len);
         let row = match m {
             Some(m) => self.row_of(m, from),
             None => Some(from),
-        }
-        .map_or(-1, |r| r as isize);
-        let r = if wrap {
-            (row + delta).rem_euclid(n)
-        } else {
-            (row + delta).clamp(0, n - 1)
-        } as usize;
+        };
+        let r = next_row(row, delta, n, wrap)?;
         Some(m.map_or(r, |m| m[r]))
     }
 
@@ -3599,46 +3660,50 @@ impl App {
             _ if turns => (self.last_slide, 1),
             _ => (self.cur, n),
         };
-        let Some(next) = self.step_from(from, delta as isize, true) else {
+        let delay = std::time::Duration::from_secs(self.config.delay);
+        let left = delay.saturating_sub(last.elapsed());
+        // The slideshow owns its clock: the next frame is asked for here, whatever this one
+        // does, so that no move below can leave it standing still; held for a decode, it looks
+        // again soon.
+        ctx.request_repaint_after(left.max(std::time::Duration::from_millis(50)));
+        if !left.is_zero() {
             return;
-        };
+        }
+        let next = self.step_from(from, delta as isize, true);
         let m = self.matches.as_deref();
         let row = m.map_or(Some(from), |m| self.row_of(m, from));
         let shown = m.map_or(self.files.len(), <[usize]>::len);
-        let round_over = round_ends(row, delta, shown);
-        let delay = std::time::Duration::from_secs(self.config.delay);
-        let left = delay.saturating_sub(last.elapsed());
-        if !left.is_zero() {
-            ctx.request_repaint_after(left);
-        } else if round_over && !self.config.slideshow_repeat {
-            self.stop_slideshow(ctx);
-        } else if self.shuffled
-            && round_over
-            && row.is_some()
-            && self.files.len() > 2
-            && !round_ends(Some(0), delta, shown)
-        {
-            // New round: shuffle again instead of repeating the same order. Not when a search
-            // hides the shown image, nor when it shows no more images than one step: the
-            // shuffled list starts with the shown image, so the round would be over again and
-            // shuffled on every frame; the slideshow goes on as in order instead.
-            self.shuffle_list(ctx, true);
-        } else if !self.decodes_pending.contains_key(&(next, false)) {
-            let before = self.shown_textures();
-            if turns && self.next_pane > 0 {
-                self.panes[self.next_pane - 1] = next;
-                self.refill();
-            } else {
-                self.go(ctx, next);
+        let pending = next.is_some_and(|next| self.decodes_pending.contains_key(&(next, false)));
+        let at = Place {
+            row,
+            delta,
+            shown,
+            len: self.files.len(),
+        };
+        match next_slide(
+            at,
+            next,
+            self.config.slideshow_repeat,
+            self.shuffled,
+            pending,
+        ) {
+            Slide::Stop => self.stop_slideshow(ctx),
+            Slide::Shuffle => self.shuffle_list(ctx, true),
+            Slide::Hold => {}
+            Slide::Step(next) => {
+                let before = self.shown_textures();
+                if turns && self.next_pane > 0 {
+                    self.panes[self.next_pane - 1] = next;
+                    self.refill();
+                } else {
+                    self.go(ctx, next);
+                }
+                self.fade = before.map(|b| (Instant::now(), b));
+                if turns {
+                    (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
+                }
+                self.slideshow = Some(Instant::now());
             }
-            self.fade = before.map(|b| (Instant::now(), b));
-            if turns {
-                (self.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
-            }
-            self.slideshow = Some(Instant::now());
-            // The next slide's frame: a pane changed with no fade and nothing to decode asks for
-            // none, and the slideshow would stand still.
-            ctx.request_repaint_after(delay);
         }
     }
 
@@ -8692,6 +8757,82 @@ mod tests {
         assert_eq!(with_projector, [1080, 1920]);
         let neighbour = super::decode_box([800, 600], [800, 600], false, false, true, [1920, 1080]);
         assert_eq!(neighbour, [1920, 1080]);
+    }
+
+    /// A slideshow goes on, tick after tick, whatever the layout, order and search: the image
+    /// shown is another one after every step, a round of a random order shuffles once and goes
+    /// on, a search that hides the image or shows one image never holds it, and without repeat
+    /// it stops at the end of the round and not before.
+    #[test]
+    fn slideshow_advances_on_every_tick() {
+        use super::{Place, Slide, next_row, next_slide};
+        // (files, rows shown by a search or all, step: the panes changed at once)
+        let cases: Vec<(usize, Option<Vec<usize>>, usize)> = vec![
+            (3, None, 1),
+            (7, None, 1),
+            (7, None, 4),
+            (3, None, 4),
+            (7, Some(vec![1, 3, 5]), 1),
+            (7, Some(vec![1, 3, 5]), 4),
+            (7, Some(vec![6]), 1),
+            (7, Some(vec![]), 1),
+        ];
+        for (len, matches, delta) in cases {
+            for (repeat, shuffled) in [(true, false), (true, true), (false, false)] {
+                let m = matches.as_deref();
+                let shown = m.map_or(len, <[usize]>::len);
+                let (mut from, mut steps, mut shuffles, mut stopped) = (0usize, 0, 0, false);
+                for _ in 0..30 {
+                    let row = m.map_or(Some(from), |m| m.iter().position(|&i| i == from));
+                    let next =
+                        next_row(row, delta as isize, shown, true).map(|r| m.map_or(r, |m| m[r]));
+                    let case = format!(
+                        "{len} files, {m:?} shown, step {delta}, repeat {repeat}, shuffled {shuffled}, from {from}"
+                    );
+                    let at = Place {
+                        row,
+                        delta,
+                        shown,
+                        len,
+                    };
+                    match next_slide(at, next, repeat, shuffled, false) {
+                        Slide::Hold => assert_eq!(shown, 0, "held: {case}"),
+                        Slide::Stop => {
+                            assert!(!repeat, "stopped: {case}");
+                            stopped = true;
+                            break;
+                        }
+                        Slide::Shuffle => {
+                            shuffles += 1;
+                            assert!(shuffles == 1 || steps > 0, "shuffled again at once: {case}");
+                            // As shuffle_list: the shown image first in the new order.
+                            (from, steps) = (0, 0);
+                        }
+                        Slide::Step(next) => {
+                            assert!(
+                                next < len && (next != from || shown == 1),
+                                "no advance: {case}"
+                            );
+                            from = next;
+                            steps += 1;
+                        }
+                    }
+                }
+                if !repeat && shown > 0 {
+                    assert!(stopped, "never stopped: {len} files, {m:?}, step {delta}");
+                }
+            }
+        }
+        // Held only while the next image is still being decoded.
+        let at = Place {
+            row: Some(0),
+            delta: 1,
+            shown: 3,
+            len: 3,
+        };
+        assert_eq!(next_slide(at, Some(1), true, false, true), Slide::Hold);
+        assert_eq!(next_row(None, 1, 3, true), Some(0));
+        assert_eq!(next_row(Some(2), 1, 3, false), Some(2));
     }
 
     #[test]

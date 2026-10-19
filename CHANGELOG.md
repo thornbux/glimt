@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A slideshow asks for its next frame itself, whatever it did in this one, so no layout, order or
+  search can leave it standing still; its moves are one decision, tested over every combination.
 - Rename, Rename Many, Copy and Move refuse a new name whose sidecar is another file's also when
   the file has no sidecar of its own, so a photo never shows a stranger's keywords; one rule for
   all four. A sidecar that cannot go with its copied or moved photo is told, instead of left
