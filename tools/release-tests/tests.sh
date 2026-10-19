@@ -1138,6 +1138,20 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
+echo "-- Escape closes the pan view"
+d=/tmp/pan-escape
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+config
+start $d
+sleep 1; shot pan-esc-before
+key ctrl+j; sleep 2; shot pan-esc-open
+key Escape; sleep 1; shot pan-esc-after
+quit
+same() { md5sum </t/out/$1.png; }
+differ "the pan view opened" "$(same pan-esc-before)" "$(same pan-esc-open)"
+expect "closed by Escape" "$(same pan-esc-after)" "$(same pan-esc-before)"
+
 echo "-- a video that is a playlist: ffmpeg opens no file it names"
 for v in new old; do
     as_version $v

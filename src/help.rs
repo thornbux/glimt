@@ -234,8 +234,9 @@ const MANUAL: &[(&str, &str)] = &[
         "Pan view",
         "Ctrl+J (View → Pan View) shows the images of the list as a timeline, as Geeqie's pan \
          view does: thumbnails under a heading for each day, oldest first, by the file date or, \
-         with EXIF date ticked, the date the photo was taken. A click shows the image, a double \
-         click also closes the view. Calendar shows the months that have images, a week to a \
+         with EXIF date ticked, the date the photo was taken; a large folder shows the days read \
+         so far while the rest is read. A click shows the image, a double click also closes the \
+         view, as Escape does. Calendar shows the months that have images, a week to a \
          row, each day with its first image and how many it has; a click on a day shows it in \
          the timeline. With Include Subfolders it covers the whole tree.",
     ),

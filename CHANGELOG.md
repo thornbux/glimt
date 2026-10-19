@@ -26,6 +26,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The Pan view shows the days read so far while a large folder is still being read, every half
+  second, instead of nothing until every date is known; Escape closes it.
 - Include Subfolders is kept across starts, as the other View toggles are, now that a large tree
   shows its top folders at once; since 0.38.0 the saved setting was turned off at every start.
 - Release tests of daily use: the zoom and fit keys, the wheel and a drag, Open With (the default

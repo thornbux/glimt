@@ -185,7 +185,8 @@ struct Pan {
     exif: bool,
     /// The days, and the version of the file list they are for (`App::files_gen`).
     days: Option<(Vec<pan::Day>, usize)>,
-    days_rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize)>>,
+    /// The days so far, the list version they are for, and whether they are all of them.
+    days_rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize, bool)>>,
     /// Set when the days being made are no longer wanted: the thread stops reading.
     days_stop: Arc<AtomicBool>,
     /// The rows for this many columns, and their height.
@@ -5973,6 +5974,8 @@ impl App {
                 self.title(ctx);
             }
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
+            // Escape closes the pan view when it is open, and nothing else then.
+            Action::Escape if self.pan_window.is_some() => self.pan_window = None,
             Action::Escape => {
                 self.help = None;
                 if self.slideshow.is_some() {

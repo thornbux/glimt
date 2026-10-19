@@ -9,23 +9,30 @@ use std::path::Path;
 /// A day ("2024-05-06", or "No date") and the list indices of its images, in time order.
 pub type Day = (String, Vec<usize>);
 
-/// The images of `files` in `dir` by day, read on all cores.
-pub fn timeline(dir: &Path, files: &[OsString], exif: bool, stop: &AtomicBool) -> Vec<Day> {
+/// The images of `files` in `dir` by day, read on all cores. `found` gets the days so far every
+/// half second and all of them at the end (`true`), so a large folder shows what is read while
+/// the rest is.
+pub fn timeline(
+    dir: &Path,
+    files: &[OsString],
+    exif: bool,
+    stop: &AtomicBool,
+    found: impl FnMut(Vec<Day>, bool),
+) {
     if exif {
         // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
         // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
-        let dates = each(dir, files, stop, |p| {
-            crate::exif::date(p, false).filter(|d| ymd(d).is_some())
-        });
-        return by_day(dates, |d| d.get(..10).unwrap_or(d).replace(':', "-"));
+        let date = |p: &Path| crate::exif::date(p, false).filter(|d| ymd(d).is_some());
+        let day = |d: &String| d.get(..10).unwrap_or(d).replace(':', "-");
+        return as_read(dir, files, stop, found, date, day);
     }
-    let times = each(dir, files, stop, |p| {
+    let time = |p: &Path| {
         use std::os::unix::fs::MetadataExt;
         p.metadata().ok().map(|m| m.mtime())
-    });
+    };
     // The local date once for each quarter of an hour, where every time zone changes.
     let mut last = (i64::MIN, String::new());
-    by_day(times, |&t| {
+    let day = move |&t: &i64| {
         if t.div_euclid(900) != last.0 {
             let local = crate::local_time(t);
             last = (
@@ -34,7 +41,34 @@ pub fn timeline(dir: &Path, files: &[OsString], exif: bool, stop: &AtomicBool) -
             );
         }
         last.1.clone()
-    })
+    };
+    as_read(dir, files, stop, found, time, day);
+}
+
+/// `key` of every file, a few thousand at a time on all cores, and the days of those read so
+/// far to `found` every half second; the last call has them all.
+fn as_read<K: Ord + Clone + Send>(
+    dir: &Path,
+    files: &[OsString],
+    stop: &AtomicBool,
+    mut found: impl FnMut(Vec<Day>, bool),
+    key: impl Fn(&Path) -> Option<K> + Sync,
+    mut day: impl FnMut(&K) -> String,
+) {
+    let mut keys = Vec::with_capacity(files.len());
+    let mut sent = Instant::now();
+    let mut chunks = files.chunks(4096);
+    loop {
+        keys.extend(each(dir, chunks.next().unwrap_or(&[]), stop, &key));
+        let done = keys.len() == files.len();
+        if done || sent.elapsed() >= std::time::Duration::from_millis(500) {
+            found(by_day(keys.clone(), &mut day), done);
+            sent = Instant::now();
+        }
+        if done {
+            return;
+        }
+    }
 }
 
 /// `f` of the path of every file, in parallel. Each thread reuses one path: Glimt's allocator
@@ -199,28 +233,47 @@ impl crate::App {
             pan.days_stop = Arc::default();
             let stop = pan.days_stop.clone();
             std::thread::spawn(move || {
-                let _ = tx.send((timeline(&dir, &files, exif, &stop), made));
+                timeline(&dir, &files, exif, &stop, |days, done| {
+                    let _ = tx.send((days, made, done));
+                    ctx.request_repaint();
+                });
                 drop(pointer);
-                ctx.request_repaint();
             });
             pan.days_rx = Some(rx);
         }
-        // Days for a list that changed meanwhile are taken as old, and made again.
-        match took(&mut pan.days_rx) {
-            Took::Nothing => {}
-            Took::Answer(days) => {
-                pan.months = months(&days.0);
-                pan.days = Some(days);
-                pan.columns = 0;
-            }
-            // No days, for this list, so they are not made again at once; the user told.
-            Took::Gone => {
-                pan.days = Some((Vec::new(), self.files_gen));
-                pan.months = Vec::new();
-                self.stopped(tr("The Pan view's days"));
+        // The days so far, the last ones sent; days for a list that changed meanwhile are taken
+        // as old, and made again.
+        let mut gone = false;
+        while let Some(rx) = &pan.days_rx {
+            match rx.try_recv() {
+                Ok((days, made, done)) => {
+                    pan.months = months(&days);
+                    pan.days = Some((days, made));
+                    pan.columns = 0;
+                    if done {
+                        pan.days_rx = None;
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    pan.days_rx = None;
+                    gone = true;
+                }
             }
         }
-        let (mut open, mut show, mut close) = (true, None, false);
+        // The thread broke: what it had found stays, or no days for this list, so they are not
+        // made again at once; the user told.
+        if gone {
+            if pan.days.as_ref().is_none_or(|d| d.1 != self.files_gen) {
+                pan.days = Some((Vec::new(), self.files_gen));
+                pan.months = Vec::new();
+            }
+            self.stopped(tr("The Pan view's days"));
+        }
+        // Escape closes the view also while a cell of it has the keyboard focus, when the key
+        // reaches no action (Action::Escape closes it otherwise).
+        let esc = ctx.input(|i| i.key_pressed(egui::Key::Escape)) && !self.dialog_open();
+        let (mut open, mut show, mut close) = (!esc, None, false);
         egui::Window::new(tr("Pan View"))
             .open(&mut open)
             .default_size([900.0, 640.0])
@@ -248,6 +301,10 @@ impl crate::App {
                         }
                         None => ui.spinner(),
                     };
+                    // Still being read: the days shown are those read so far.
+                    if pan.days.is_some() && pan.days_rx.is_some() {
+                        ui.spinner();
+                    }
                 });
                 ui.separator();
                 let Some((days, _)) = pan.days.as_ref().filter(|d| d.1 == self.files_gen) else {
@@ -512,7 +569,19 @@ mod tests {
             let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(time);
             f.set_modified(t).unwrap();
         }
-        let days = timeline(&dir, &names, false, &AtomicBool::new(false));
+        let mut sent = Vec::new();
+        timeline(&dir, &names, false, &AtomicBool::new(false), |d, done| {
+            sent.push((d, done))
+        });
+        // One call with them all; an empty list gets its call too, so the view never waits.
+        assert_eq!(sent.len(), 1);
+        let (days, done) = sent.pop().unwrap();
+        assert!(done);
+        let mut empty = Vec::new();
+        timeline(&dir, &[], false, &AtomicBool::new(false), |d, done| {
+            empty.push((d, done))
+        });
+        assert_eq!(empty, [(Vec::new(), true)]);
         // b is years older; a and c on one day, in time order; the missing file last.
         let lists: Vec<&[usize]> = days.iter().map(|d| d.1.as_slice()).collect();
         assert_eq!(lists, [&[1][..], &[0, 2], &[3]]);
