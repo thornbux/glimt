@@ -651,8 +651,16 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         return copy();
     }
     // The source that cannot be removed (a shared folder with the sticky bit, someone else's
-    // file): the new name goes again, a move is all or nothing.
-    let unlink = || std::fs::remove_file(from).inspect_err(|_| drop(std::fs::remove_file(to)));
+    // file): the new name goes again, a move is all or nothing. One gone meanwhile (deleted or
+    // moved in another window) is done: the new name may be the only one left.
+    let unlink = || match std::fs::remove_file(from) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(to);
+            Err(e)
+        }
+        ok => ok,
+    };
     match std::fs::hard_link(from, to) {
         Ok(()) => unlink(),
         Err(e) if e.kind() == AlreadyExists => Err(e),
