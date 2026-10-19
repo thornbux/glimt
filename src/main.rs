@@ -4564,8 +4564,8 @@ impl App {
     }
 
     /// Save the keywords, comment, alt text and extended description being edited, if they
-    /// changed: in the thread that writes Glimt's own files, which closing waits for, not in the
-    /// window's, as a sidecar on a slow share would hold the window up for its read, write and
+    /// changed: in the thread that writes this window's sidecars, which closing waits for, not
+    /// in the window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
     fn save_meta(&mut self) {
         let Some(edit) = &mut self.meta else { return };
@@ -8125,6 +8125,12 @@ impl eframe::App for App {
         }
         self.inhibit(false);
         config::flush();
+        // The keywords queued above or at the first close, also when a third close went on
+        // without waiting: as long as Glimt's own files.
+        let until = Instant::now() + std::time::Duration::from_secs(5);
+        while self.writing.load(Ordering::Relaxed) > 0 && Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         let at = |share| frame_at(&self.frame_ms, share);
         eprintln!(
             "frames: median {} ms, 90% within {} ms, slowest {} ms",
