@@ -116,8 +116,10 @@ impl Marks {
     }
 }
 
-/// Changes sent to the writer and not yet in the file.
-static WRITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Changes sent to the writer and not yet in the file, each counted by a `Working` held until
+/// it is written, also when the write panics.
+static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
+    std::sync::LazyLock::new(Default::default);
 
 /// What a window did, applied to the file as it is then.
 enum Edit {
@@ -197,15 +199,14 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 /// if hundreds of thousands are marked.
 #[cfg(not(test))]
 fn save(edit: Edit) {
-    use std::sync::atomic::Ordering::Relaxed;
     // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
     // a mark set, or moved with its file, just before closing is not lost.
-    WRITING.fetch_add(1, Relaxed);
+    let writing = crate::Working::new(&WRITING);
     crate::config::write_later(move || {
+        let _writing = writing;
         if let Some(file) = file() {
             write(&file, &[edit]);
         }
-        WRITING.fetch_sub(1, Relaxed);
     });
 }
 

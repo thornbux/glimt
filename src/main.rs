@@ -5142,7 +5142,7 @@ impl App {
         let next = Arc::new(AtomicUsize::new(0));
         let check = Check {
             done: Arc::default(),
-            working: Arc::new(AtomicUsize::new(threads)),
+            working: Arc::default(),
             stop: Arc::default(),
             total: files.len(),
             found_rx: found,
@@ -5150,11 +5150,9 @@ impl App {
         };
         for _ in 0..threads {
             let (files, tx, next, ctx) = (files.clone(), tx.clone(), next.clone(), ctx.clone());
-            let (done, working, stop) = (
-                check.done.clone(),
-                check.working.clone(),
-                check.stop.clone(),
-            );
+            let (done, stop) = (check.done.clone(), check.stop.clone());
+            // Counted down when the thread ends, also by a panic, as every count of work is.
+            let working = Working::new(&check.working);
             let pointer = Working::new(&self.busy);
             std::thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
@@ -5166,7 +5164,7 @@ impl App {
                     }
                     done.fetch_add(1, Ordering::Relaxed);
                 }
-                working.fetch_sub(1, Ordering::Relaxed);
+                drop(working);
                 drop(pointer);
                 ctx.request_repaint();
             });
