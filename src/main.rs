@@ -894,7 +894,11 @@ fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
 
 /// A menu entry with a check mark when `on`.
 fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool, action: Action) {
-    let text = iconed(ui, action.icon(), action.label());
+    let mut text = iconed(ui, action.icon(), action.label());
+    // On the accent colour of a row that is on, the weak grey would hardly show.
+    if on {
+        text.sections[0].format.color = egui::Color32::PLACEHOLDER;
+    }
     menu_button(ui, act, egui::Button::selectable(on, text), action);
 }
 
@@ -6831,12 +6835,13 @@ impl App {
                     menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
                     menu_item(ui, act, Action::Refresh);
                     ui.separator();
-                    let label = if self.slideshow.is_some() {
-                        tr("Stop Slideshow")
+                    let (icon, label) = if self.slideshow.is_some() {
+                        (theme::icon::STOP, tr("Stop Slideshow"))
                     } else {
-                        tr("Start Slideshow")
+                        (theme::icon::PLAY, tr("Start Slideshow"))
                     };
-                    menu_button(ui, act, egui::Button::new(label), Action::Slideshow);
+                    let text = iconed(ui, icon, label);
+                    menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
                     menu_toggle(ui, act, self.paused, Action::Pause);
                     menu_item(ui, act, Action::Faster);
                     menu_item(ui, act, Action::Slower);
