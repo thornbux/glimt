@@ -325,12 +325,19 @@ impl crate::App {
                     break;
                 }
                 let target = dest.join(path.file_name().unwrap_or_default());
-                match put_file(path, &target, keep) {
+                // A sidecar at the new name belongs to another file: refused, as Rename does,
+                // so the photo neither gets that file's keywords nor leaves its own behind.
+                let side = meta::sidecar(&target);
+                let result = match meta::sidecar(path).exists() && side.exists() {
+                    true => Err((side, std::io::ErrorKind::AlreadyExists.into())),
+                    false => put_file(path, &target, keep).map_err(|e| (target.clone(), e)),
+                };
+                match result {
                     Ok(()) => {
                         meta::follow(path, &target, keep);
                         put.push((path.clone(), target));
                     }
-                    Err(e) => errors.push(format!("{display}: {e}", display = target.display())),
+                    Err((at, e)) => errors.push(format!("{display}: {e}", display = at.display())),
                 }
                 job.did(1);
             }
