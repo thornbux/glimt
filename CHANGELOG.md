@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The size an image is decoded to goes with its decode job (the view's box, turned with the shown
+  image when that is turned by hand, at least the projector's), instead of one shared box set in
+  one frame and read in the next; neighbours of a turned image are decoded at their own size at
+  once.
 - A move or copy reports its moved files and the gone ones in one message, so their marks follow
   before the gone ones are forgotten whatever the timing; nothing depends on two messages' order
   any more.

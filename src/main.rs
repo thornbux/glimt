@@ -462,6 +462,33 @@ fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
     row.is_none_or(|r| r + delta >= len)
 }
 
+/// The box an image is decoded into: the `view` box for the shown image, turned with it when
+/// it is turned a quarter by hand (`quarter`; Fill's view has the turn in it already); for a
+/// neighbour the same box, unturned, or in Fill the longer side's square, as its shape is not
+/// known before it is decoded (shown larger, it is decoded again); and at least the projector's
+/// size, turned with the shown image too.
+fn decode_box(
+    view: [u32; 2],
+    area: [u32; 2],
+    fill: bool,
+    shown: bool,
+    quarter: bool,
+    projector: [u32; 2],
+) -> [u32; 2] {
+    let [w, h] = match (fill, shown) {
+        (true, false) => [area[0].max(area[1]); 2],
+        _ => view,
+    };
+    let turned = quarter && shown;
+    let [w, h] = if turned && !fill { [h, w] } else { [w, h] };
+    let [pw, ph] = if turned {
+        [projector[1], projector[0]]
+    } else {
+        projector
+    };
+    [w.max(pw), h.max(ph)]
+}
+
 /// A small map of the panes in the status bar, with the one it tells about filled in.
 fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
     let cell = egui::vec2(9.0, 7.0);
@@ -1000,8 +1027,13 @@ struct App {
     preload: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
     rotate: Arc<AtomicBool>,
-    /// Max decode size in physical pixels: [image area in the window, max texture side].
-    limits: Arc<Mutex<[[u32; 2]; 2]>>,
+    /// The view's box for the shown image, unturned, as `decode_size` works it out each frame
+    /// (per fit mode; in Fill from the image's own shape), and the view's size: what the decoders
+    /// shrink into, through `decode_box` for each job.
+    view_box: [u32; 2],
+    view_area: [u32; 2],
+    /// The longest side a texture may have.
+    max_side: u32,
     /// To the decode workers.
     decode_jobs: mpsc::Sender<DecodeJob>,
     decoded_rx: mpsc::Receiver<Decoded>,
@@ -1422,7 +1454,9 @@ fn count(n: usize, noun: &'static str) -> String {
 type FileRow = (usize, Option<usize>);
 
 /// (index, full resolution, path, page, the job's number in `pending`).
-type DecodeJob = (usize, bool, PathBuf, usize, u64);
+/// Index, full resolution, path, page, job number, and the box to shrink into (sent with the
+/// job, so a decode is at the size asked for when it was asked, whatever the view did since).
+type DecodeJob = (usize, bool, PathBuf, usize, u64, [u32; 2]);
 
 /// The decode workers: `workers` threads that take jobs and send back what they decoded,
 /// skipping images the list has moved past (`keep`).
@@ -1432,24 +1466,22 @@ fn spawn_decoders(
     keep: &Arc<Mutex<Vec<usize>>>,
     full_ok: &Arc<AtomicUsize>,
     rotate: &Arc<AtomicBool>,
-    limits: &Arc<Mutex<[[u32; 2]; 2]>>,
 ) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
     let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
     let (done_tx, done) = mpsc::channel();
     let job_rx = Arc::new(Mutex::new(job_rx));
     for _ in 0..workers {
-        let (keep, full_ok, rotate, limits, job_rx, done_tx, ctx) = (
+        let (keep, full_ok, rotate, job_rx, done_tx, ctx) = (
             keep.clone(),
             full_ok.clone(),
             rotate.clone(),
-            limits.clone(),
             job_rx.clone(),
             done_tx.clone(),
             ctx.clone(),
         );
         std::thread::spawn(move || {
             loop {
-                let Ok((idx, full, path, page, job)) = job_rx.lock().unwrap().recv() else {
+                let Ok((idx, full, path, page, job, max)) = job_rx.lock().unwrap().recv() else {
                     return;
                 };
                 // Cancellation: skip images the user has already moved past.
@@ -1468,7 +1500,6 @@ fn spawn_decoders(
                     });
                     continue;
                 }
-                let max = limits.lock().unwrap()[full as usize];
                 let rotated = rotate.load(Ordering::Relaxed);
                 // The histogram here too, so the UI thread never walks the pixels.
                 let result = Some(survive(|| decode(&path, max, rotated, page)).map(
@@ -1642,11 +1673,10 @@ impl App {
             .unwrap_or_else(|| ".".into());
         let preload = Arc::new(AtomicUsize::new(config.preload));
         let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
-        let limits = Arc::new(Mutex::new([[1920, 1080], [8192, 8192]]));
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
         set_cpu_use(config.cpu_use);
         let workers = cores().min(config.decode_threads);
-        let (jobs, done) = spawn_decoders(&cc.egui_ctx, workers, &keep, &full_ok, &rotate, &limits);
+        let (jobs, done) = spawn_decoders(&cc.egui_ctx, workers, &keep, &full_ok, &rotate);
         // Thumbnails have their own workers, so scrolling the list never delays the shown image.
         let thumb_view: ThumbView = Arc::default();
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
@@ -1766,7 +1796,9 @@ impl App {
             slideshow: None,
             slideshow_at_start: start.slideshow,
             shuffled: false,
-            limits,
+            view_box: [1920, 1080],
+            view_area: [1920, 1080],
+            max_side: 8192,
             decode_jobs: jobs,
             page: 0,
             frame: None,
@@ -2705,20 +2737,6 @@ impl App {
         if self.config.save_orientation && self.orient != (0, false) {
             self.save_orientation(ctx);
         }
-        // The decode box turned back with it, before the next image and its neighbours are
-        // asked for: the image area sets it only in the next frame.
-        // In Fill only the projector's part was turned: made at least the projector's size,
-        // never too small; the next frame sets it from the view again.
-        if self.orient.0 % 2 == 1 {
-            let box_ = &mut self.limits.lock().unwrap()[0];
-            *box_ = match self.config.fit_mode {
-                3 => [
-                    box_[0].max(self.projector_size[0]),
-                    box_[1].max(self.projector_size[1]),
-                ],
-                _ => [box_[1], box_[0]],
-            };
-        }
         self.orient = (0, false);
     }
 
@@ -2915,7 +2933,11 @@ impl App {
                 .insert((idx, full), (self.decodes_sent, path.clone()));
             // The neighbours are preloaded at their first page.
             let page = if idx == self.cur { self.page } else { 0 };
-            let _ = (self.decode_jobs).send((idx, full, path, page, self.decodes_sent));
+            let max = match full {
+                true => [self.max_side; 2],
+                false => self.decode_box(idx),
+            };
+            let _ = (self.decode_jobs).send((idx, full, path, page, self.decodes_sent, max));
         }
     }
 
@@ -3369,14 +3391,9 @@ impl App {
                 let ppp = pctx.pixels_per_point();
                 let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 if size != self.projector_size {
-                    self.projector_size = size;
-                    // Before the decodes are asked for: the image area sets it next frame.
-                    let grown = {
-                        let limits = &mut self.limits.lock().unwrap()[0];
-                        let grown = size[0] > limits[0] || size[1] > limits[1];
-                        *limits = [limits[0].max(size[0]), limits[1].max(size[1])];
-                        grown
-                    };
+                    let old = std::mem::replace(&mut self.projector_size, size);
+                    let had = [self.view_box[0].max(old[0]), self.view_box[1].max(old[1])];
+                    let grown = size[0] > had[0] || size[1] > had[1];
                     // Only then: a projector smaller than the view shows the images it has, and
                     // dragging its edge decodes nothing again.
                     if grown {
@@ -5980,8 +5997,7 @@ impl App {
                 self.use_screen();
             }
         }
-        let max_side = ctx.input(|i| i.max_texture_side) as u32;
-        self.limits.lock().unwrap()[1] = [max_side, max_side];
+        self.max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.receive_decoded(ctx);
         self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
@@ -7889,8 +7905,8 @@ impl App {
         }
     }
 
-    /// The size the shown image and its neighbours are decoded to, set as the decoders' limit
-    /// (also the projector's size); returns the longest side a texture may have.
+    /// The view's box the shown image is decoded into (`view_box`), from the fit mode and, in
+    /// Fill, the image's shape; returns the longest side a texture may have.
     fn decode_size(&mut self, area: egui::Rect, ppp: f32, max_fit: f32) -> u32 {
         // The image area, not the whole screen: a small window on a 4K screen needs a fraction
         // of the memory (3840×2160 is 33 MB per image).
@@ -7903,7 +7919,7 @@ impl App {
         // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
         // its size at its scale once that is known (also while it is decoded again, from
         // the image drawn), else the longer side.
-        let long = self.limits.lock().unwrap()[1][0];
+        let long = self.max_side;
         let orig =
             (self.slots.get(&self.cur).map(|s| s.orig)).or(self.last_drawn.as_ref().map(|d| d.1));
         let view = match (mode, orig) {
@@ -7918,20 +7934,20 @@ impl App {
             (2, _) => [long, h],
             _ => [w.max(h); 2],
         };
-        // Turned a quarter by hand, the image's width is shown up the screen: the box it is
-        // shrunk into turns with it (Fill worked out the turned size above). Else a portrait
-        // turned to fit a wide view came too small, and was decoded again.
-        let view = match quarter && mode != 3 {
-            true => [view[1], view[0]],
-            false => view,
-        };
-        // The projector shows it turned too.
-        let [pw, ph] = match quarter {
-            true => [self.projector_size[1], self.projector_size[0]],
-            false => self.projector_size,
-        };
-        self.limits.lock().unwrap()[0] = [view[0].max(pw), view[1].max(ph)];
+        (self.view_box, self.view_area) = (view, [w, h]);
         long
+    }
+
+    /// The box file `idx` is shrunk into for the view and the projector, as `decode_box`.
+    fn decode_box(&self, idx: usize) -> [u32; 2] {
+        decode_box(
+            self.view_box,
+            self.view_area,
+            self.config.fit_mode == 3,
+            idx == self.cur,
+            self.orient.0 % 2 == 1,
+            self.projector_size,
+        )
     }
 
     /// The shown image in `area` at `scale`, turned as the view is, fading from the one before
@@ -8657,6 +8673,25 @@ mod tests {
         };
         assert_eq!(pressed(false), Some(super::Action::Copy));
         assert_eq!(pressed(true), Some(super::Action::CopyImage));
+    }
+
+    /// The box turns with the shown image only, Fill has the turn in its view already, a Fill
+    /// neighbour gets the longer side's square, and the projector counts, turned with the image.
+    #[test]
+    fn decode_box_turns_with_the_shown_image_only() {
+        let b = |shown, quarter, fill| {
+            super::decode_box([1920, 1080], [1920, 1080], fill, shown, quarter, [0, 0])
+        };
+        assert_eq!(b(true, false, false), [1920, 1080]);
+        assert_eq!(b(true, true, false), [1080, 1920]);
+        assert_eq!(b(false, true, false), [1920, 1080]);
+        assert_eq!(b(false, false, true), [1920, 1920]);
+        assert_eq!(b(true, true, true), [1920, 1080]);
+        let with_projector =
+            super::decode_box([800, 600], [800, 600], false, true, true, [1920, 1080]);
+        assert_eq!(with_projector, [1080, 1920]);
+        let neighbour = super::decode_box([800, 600], [800, 600], false, false, true, [1920, 1080]);
+        assert_eq!(neighbour, [1920, 1080]);
     }
 
     #[test]
