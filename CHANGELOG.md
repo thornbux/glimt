@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A PDF printed to a file and a new thumbnail are written like every other file Glimt writes:
+  never through a link planted at the temporary file's name, and a PDF that was a link stays one.
 - Mounting a share that never answers (a NAS asleep, a VPN down) gives up after a minute and says
   so, and reading a Lightroom catalog has the usual time limit, instead of Connecting… and the
   busy pointer for ever.

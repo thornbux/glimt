@@ -902,8 +902,11 @@ impl crate::App {
                 // Beside it first: the file chosen is replaced only by a whole PDF, after every
                 // image was read (one of them may be the file chosen).
                 PrintTo::File(file) => {
+                    // Through a link, the file it points to, and never a temporary file opened
+                    // through one planted at its name: as every file Glimt writes (`new_beside`).
+                    let file = &std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
                     let tmp = crate::config::tmp_path(file);
-                    let written = std::fs::File::create(&tmp)
+                    let written = crate::config::new_beside(&tmp, file)
                         .and_then(|f| {
                             let mut out = std::io::BufWriter::new(f);
                             print::pdf(pages, &job.layout, total, &mut out)?;

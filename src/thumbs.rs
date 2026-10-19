@@ -136,10 +136,12 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     })();
     let written = encoded.map_err(std::io::Error::other).and_then(|()| {
         use std::io::Write;
+        // Made new, never opened through a link planted at its name; private, as the shared
+        // cache's spec asks.
+        let _ = std::fs::remove_file(&tmp);
         let mut out = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&tmp)?;
         out.write_all(&png)
@@ -349,6 +351,25 @@ mod tests {
         // 56 and 64 bytes: the padding spills into an extra block.
         assert_eq!(hex(&[b'a'; 56]), "3b0c8ac703f828b04c6c197006d17218");
         assert_eq!(hex(&[b'a'; 64]), "014842d480b571495a4a0363793f7367");
+    }
+
+    /// A link planted where the thumbnail's temporary file goes empties nothing it points to.
+    #[test]
+    fn a_planted_link_at_the_temporary_name_is_not_followed() {
+        let dir = std::env::temp_dir().join(format!("glimt-thumbs-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, victim) = (dir.join("abc.png"), dir.join("victim"));
+        std::fs::write(&victim, "keep").unwrap();
+        let tmp = file.with_extension(format!(
+            "{}.{:?}.tmp",
+            crate::remote::instance_id(),
+            std::thread::current().id()
+        ));
+        std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+        super::write(&file, &image::RgbaImage::new(2, 2), "file:///a.jpg", 7).unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(file.is_file() && !tmp.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
