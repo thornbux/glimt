@@ -15,7 +15,7 @@ use config::{
     keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
     write_atomic, xdg_dir,
 };
-use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load, shrink, survive};
+use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load, survive};
 use eframe::egui;
 use external::{Login, Mounted, apps_for, command, gio_mount, is_video, open_url};
 use files::{

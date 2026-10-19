@@ -57,14 +57,8 @@ fn thumbnail_in(
     // panics on the file fails here, inside, so the failure is marked like any other and the
     // file is not decoded again at every visit.
     let made = crate::decode::survive(|| {
-        match crate::decode::scaled_jpeg(path, [size, size], rotate) {
-            Some((img, icc, _)) => Ok((img, icc)),
-            None => crate::decode::load_for(path, rotate, Some([size, size])),
-        }
-        .and_then(|(img, icc)| {
-            let img = crate::decode::shrink(img, [size, size])?;
-            Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
-        })
+        let (img, icc, _) = crate::decode::small(path, [size, size], rotate)?;
+        Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
     });
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
     // one not turned upright by EXIF (Auto Rotate off) is not shared; the failure mark, Glimt's

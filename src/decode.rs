@@ -336,6 +336,25 @@ pub fn each_frame(
     Ok(done)
 }
 
+/// An image, its ICC profile if it has one, and its size upright before any shrinking.
+pub type Small = (image::DynamicImage, Option<Vec<u8>>, [usize; 2]);
+
+/// An image no larger than `max`, with its ICC profile and its size upright before it was
+/// shrunk: a JPEG at a fraction while decoding, else the whole image (HEIC, AVIF and video
+/// frames at `max` from ffmpeg) shrunk after. The one way for thumbnails, the print and its
+/// preview; the view (`decode`) has its own, shrinking before it turns.
+pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> {
+    let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
+        Some(found) => found,
+        None => {
+            let (img, icc) = load_for(path, rotate, Some(max))?;
+            let size = [img.width() as usize, img.height() as usize];
+            (img, icc, size)
+        }
+    };
+    Ok((shrink(img, max)?, icc, size))
+}
+
 /// The whole image (a preview frame for videos), turned upright by EXIF if `rotate`, and its
 /// ICC profile if it has one.
 pub fn load_icc(
@@ -759,6 +778,24 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    /// One small decode for thumbnails and prints: within the box, the profile along, and the
+    /// size as the image stands upright, before it was shrunk.
+    #[test]
+    fn small_decodes_within_the_box() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-small-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.png");
+        image::RgbImage::new(400, 300).save(&png).unwrap();
+        let (img, icc, size) = super::small(&png, [100, 100], true).unwrap();
+        assert!(img.width() <= 100 && img.height() <= 100 && icc.is_none());
+        assert_eq!(size, [400, 300]);
+        let jpeg = dir.join("b.jpg");
+        image::RgbImage::new(40, 20).save(&jpeg).unwrap();
+        crate::exif::write_orientation(&jpeg, 1, false, true).unwrap();
+        let (img, _, size) = super::small(&jpeg, [100, 100], true).unwrap();
+        assert_eq!((img.width(), img.height(), size), (20, 40, [20, 40]));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A photo turned by EXIF is shown turned, at its turned size, when it is shrunk before the
     /// turn: the left of the stored pixels at the top for orientation 6.

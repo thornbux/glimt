@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The print dialog's preview shows a photo with its own colour profile in the print's colours, as
+  the page will have them. One small decode for thumbnails, the preview and the print, where there
+  were three.
 - A file whose decoder crashes gets its failure mark in the thumbnail cache like any other,
   instead of being decoded again on every visit.
 - A background thread that ends without its answer (it broke on a file) is told once, and nothing

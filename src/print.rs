@@ -796,16 +796,10 @@ impl crate::App {
         });
         std::thread::spawn(move || {
             for (k, path) in first.iter().enumerate() {
+                // In the colours of the print: a photo with its own profile looks as on paper.
                 let small = survive(|| {
-                    let (img, size) = match decode::scaled_jpeg(path, [PREVIEW_PX; 2], rotate) {
-                        Some((img, _, size)) => (img, size),
-                        None => {
-                            let img = decode::load_icc(path, rotate)?.0;
-                            let size = [img.width() as usize, img.height() as usize];
-                            (img, size)
-                        }
-                    };
-                    Ok((shrink(img, [PREVIEW_PX; 2])?, size))
+                    let (img, icc, size) = decode::small(path, [PREVIEW_PX; 2], rotate)?;
+                    Ok((crate::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 // Gone with the dialog: the rest are not decoded.
                 if let Ok((img, size)) = small
@@ -873,15 +867,7 @@ impl crate::App {
                 // need two full-size buffers else. A JPEG decoded at a fraction when that is
                 // enough.
                 let img = survive(|| {
-                    let (img, icc, size) = match decode::scaled_jpeg(path, [max, max], job.rotate) {
-                        Some((img, icc, size)) => (img, icc, size),
-                        None => {
-                            let (img, icc) = decode::load_icc(path, job.rotate)?;
-                            let size = [img.width() as usize, img.height() as usize];
-                            (img, icc, size)
-                        }
-                    };
-                    let img = shrink(img, [max, max])?;
+                    let (img, icc, size) = decode::small(path, [max, max], job.rotate)?;
                     Ok((crate::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 failed.set(failed.get() + img.is_err() as usize);
