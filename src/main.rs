@@ -610,9 +610,12 @@ struct PrintDialog {
     printers: Option<Vec<String>>,
     printers_rx: mpsc::Receiver<(Vec<String>, Option<String>)>,
     copies: u32,
-    /// The first page's images, small, for the preview, as they come from the background.
+    /// The first page's images, small, for the preview, as they come from the background, with
+    /// their sizes upright as printed (for %dimensions%); `decoded` once all have come.
     previews: Vec<Option<egui::TextureHandle>>,
-    preview_rx: mpsc::Receiver<(usize, egui::ColorImage)>,
+    sizes: Vec<Option<[usize; 2]>>,
+    preview_rx: mpsc::Receiver<(usize, [usize; 2], egui::ColorImage)>,
+    decoded: bool,
     /// Their texts from the template they were made of; being made again after it changed.
     captions: Option<(String, Vec<String>)>,
     captions_rx: Option<mpsc::Receiver<(String, Vec<String>)>>,

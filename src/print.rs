@@ -204,29 +204,6 @@ pub fn max_pixels(layout: &Layout) -> u32 {
     (long / 72.0 * PPI * fill) as u32
 }
 
-/// The size of the image at `path` as printed, turned upright if `rotate`: of a JPEG or RAW its
-/// preview's (decoded at 1/8), else the header's with its EXIF turn.
-fn upright_size(path: &Path, rotate: bool) -> Option<[usize; 2]> {
-    use image::ImageDecoder;
-    use image::metadata::Orientation as O;
-    if let Some((_, _, size)) = decode::scaled_jpeg(path, [1, 1], rotate) {
-        return Some(size);
-    }
-    let mut dec = (image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?)
-    .into_decoder()
-    .ok()?;
-    let (w, h) = dec.dimensions();
-    let turned = matches!(
-        dec.orientation(),
-        Ok(O::Rotate90 | O::Rotate270 | O::Rotate90FlipH | O::Rotate270FlipH)
-    );
-    let [w, h] = [w as usize, h as usize];
-    Some(if rotate && turned { [h, w] } else { [w, h] })
-}
-
 /// The text under the image at `path`, `k`th of `n`, from `template`: the full screen info's
 /// fields, read from the file here as the print job runs, in one line. `size`, the decoded one
 /// upright, where known: the file's header says how it is stored (and of a RAW, its thumbnail).
@@ -625,10 +602,19 @@ impl crate::App {
                 }
                 dialog.printers = Some(names);
             }
-            for (k, pixels) in dialog.preview_rx.try_iter() {
-                let texture =
-                    ctx.load_texture(format!("print preview {k}"), pixels, Default::default());
-                dialog.previews[k] = Some(texture);
+            loop {
+                match dialog.preview_rx.try_recv() {
+                    Ok((k, size, pixels)) => {
+                        let texture = ctx.load_texture(
+                            format!("print preview {k}"),
+                            pixels,
+                            Default::default(),
+                        );
+                        (dialog.previews[k], dialog.sizes[k]) = (Some(texture), Some(size));
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => break dialog.decoded = true,
+                    Err(mpsc::TryRecvError::Empty) => break,
+                }
             }
             if let Some(Ok(made)) = dialog.captions_rx.as_ref().map(mpsc::Receiver::try_recv) {
                 dialog.captions = Some(made);
@@ -810,15 +796,20 @@ impl crate::App {
         });
         std::thread::spawn(move || {
             for (k, path) in first.iter().enumerate() {
-                let small = survive(
-                    || match decode::scaled_jpeg(path, [PREVIEW_PX; 2], rotate) {
-                        Some((img, _, _)) => shrink(img, [PREVIEW_PX; 2]),
-                        None => shrink(decode::load_icc(path, rotate)?.0, [PREVIEW_PX; 2]),
-                    },
-                );
+                let small = survive(|| {
+                    let (img, size) = match decode::scaled_jpeg(path, [PREVIEW_PX; 2], rotate) {
+                        Some((img, _, size)) => (img, size),
+                        None => {
+                            let img = decode::load_icc(path, rotate)?.0;
+                            let size = [img.width() as usize, img.height() as usize];
+                            (img, size)
+                        }
+                    };
+                    Ok((shrink(img, [PREVIEW_PX; 2])?, size))
+                });
                 // Gone with the dialog: the rest are not decoded.
-                if let Ok(img) = small
-                    && shown_tx.send((k, decode::color_image(img))).is_err()
+                if let Ok((img, size)) = small
+                    && shown_tx.send((k, size, decode::color_image(img))).is_err()
                 {
                     break;
                 }
@@ -827,6 +818,8 @@ impl crate::App {
         });
         self.print_window = Some(PrintDialog {
             previews: vec![None; paths.len().min(PREVIEWED)],
+            sizes: vec![None; paths.len().min(PREVIEWED)],
+            decoded: false,
             paths,
             printers: None,
             printers_rx: rx,
@@ -842,27 +835,20 @@ impl crate::App {
     fn ask_captions(&self, ctx: &egui::Context, dialog: &mut PrintDialog) {
         let template = &self.config.print_template;
         let current = dialog.captions.as_ref().is_some_and(|c| &c.0 == template);
-        if !self.config.print_caption || current || dialog.captions_rx.is_some() {
+        // %dimensions% from the decoded sizes: made once the previews have them.
+        let waiting = template.contains("%dimensions%") && !dialog.decoded;
+        if !self.config.print_caption || current || waiting || dialog.captions_rx.is_some() {
             return;
         }
         let (tx, rx) = mpsc::channel();
-        let (template, ctx, rotate) = (template.clone(), ctx.clone(), self.config.exif_rotate);
+        let (template, ctx, sizes) = (template.clone(), ctx.clone(), dialog.sizes.clone());
         let (first, n): (Vec<PathBuf>, usize) = (
             dialog.paths.iter().take(PREVIEWED).cloned().collect(),
             dialog.paths.len(),
         );
         std::thread::spawn(move || {
-            let sized = template.contains("%dimensions%");
             let texts = (first.iter().enumerate())
-                .map(|(k, p)| {
-                    caption(
-                        &template,
-                        p,
-                        k,
-                        n,
-                        sized.then(|| upright_size(p, rotate)).flatten(),
-                    )
-                })
+                .map(|(k, p)| caption(&template, p, k, n, sizes[k]))
                 .collect();
             let _ = tx.send((template, texts));
             ctx.request_repaint();
@@ -1054,14 +1040,6 @@ mod tests {
         let turned = super::caption("%dimensions%", &file, 0, 1, Some([20, 30]));
         assert_eq!(turned, "20 × 30");
         std::fs::remove_file(file).unwrap();
-        // The preview's size: a JPEG turned a quarter by EXIF stands up with Auto Rotate on.
-        let jpeg =
-            std::env::temp_dir().join(format!("glimt-test-upright-{}.jpg", std::process::id()));
-        image::RgbImage::new(40, 20).save(&jpeg).unwrap();
-        crate::exif::write_orientation(&jpeg, 1, false).unwrap();
-        assert_eq!(super::upright_size(&jpeg, true), Some([20, 40]));
-        assert_eq!(super::upright_size(&jpeg, false), Some([40, 20]));
-        std::fs::remove_file(jpeg).unwrap();
     }
 
     /// Filling its box, a wide image is as high as the box and wider, cut to it in the PDF;
