@@ -330,6 +330,10 @@ impl crate::App {
         };
         if let Some(Ok(groups)) = dups.groups_rx.as_ref().map(|rx| rx.try_recv()) {
             dups.groups_rx = None;
+            // Stopped: no result, not "0 groups" as if every image had been compared.
+            if dups.progress.cancel.load(Ordering::Relaxed) {
+                dups.searched = 0;
+            }
             dups.groups = groups;
             dups.sizes.clear();
             dups.checked.clear();
