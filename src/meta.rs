@@ -325,9 +325,10 @@ fn update(
 pub fn follow(from: &Path, to: &Path, copy: bool) {
     let (side, to) = (sidecar(from), sidecar(to));
     // As the file went: on disk before the original goes, never over one there, which belongs
-    // to another file or is a copy kept on purpose.
-    if side.exists() {
-        let _ = crate::file_ops::put_file(&side, &to, copy);
+    // to another file or is a copy kept on purpose. One that cannot be moved (someone else's in
+    // a shared folder) is copied, so the keywords go with the photo.
+    if side.exists() && crate::file_ops::put_file(&side, &to, copy).is_err() && !copy {
+        let _ = crate::file_ops::put_file(&side, &to, true);
     }
 }
 
