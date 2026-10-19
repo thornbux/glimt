@@ -2017,3 +2017,31 @@ msgstr "Kunne ikke gi {f} navnet {t}: {e}; ikke alle navn kunne settes tilbake, 
 #: src/main.rs
 msgid "not found"
 msgstr "ikke funnet"
+
+#: src/pan.rs
+msgid "Mon"
+msgstr "man"
+
+#: src/pan.rs
+msgid "Tue"
+msgstr "tir"
+
+#: src/pan.rs
+msgid "Wed"
+msgstr "ons"
+
+#: src/pan.rs
+msgid "Thu"
+msgstr "tor"
+
+#: src/pan.rs
+msgid "Fri"
+msgstr "fre"
+
+#: src/pan.rs
+msgid "Sat"
+msgstr "lør"
+
+#: src/pan.rs
+msgid "Sun"
+msgstr "søn"

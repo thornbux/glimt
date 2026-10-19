@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The Pan view's calendar shows the weekdays in Norwegian too in the Norwegian interface.
 - glimt --remote open with a file name that is not UTF-8 says it cannot send it, instead of
   opening a name with a replacement character that is no file.
 - %dimensions% in printed captions is the size shown, upright, also for a portrait turned by EXIF

@@ -375,7 +375,7 @@ impl crate::App {
                         ui.painter().text(
                             top + egui::vec2((k as f32 + 0.5) * w, y0 + title + names - 4.0),
                             egui::Align2::CENTER_BOTTOM,
-                            *day,
+                            tr(day),
                             font.clone(),
                             weak,
                         );
