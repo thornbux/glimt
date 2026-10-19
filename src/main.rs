@@ -6870,13 +6870,11 @@ impl App {
             | Prompt::RenameCollection
             | Prompt::SaveTheme
             | Prompt::RenameFolder => return,
-            // As Rename Many does it: never over a file or another file's sidecar there.
+            // As Rename Many: in its thread, never over a file or another file's sidecar
+            // there; `renamed` puts the list right.
             Prompt::Rename => {
-                file_ops::rename_files(vec![self.path(self.cur)], vec![target.clone()])
-                    .map_err(std::io::Error::other)
-                    .inspect(|_| {
-                        self.paths_moved(vec![(self.path(self.cur), target.clone())], false);
-                    })
+                self.rename_in_background(ctx, vec![self.path(self.cur)], vec![target]);
+                return;
             }
         };
         match (result, prompt) {

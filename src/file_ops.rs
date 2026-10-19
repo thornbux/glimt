@@ -389,8 +389,17 @@ impl crate::App {
             );
             return;
         }
-        // The files are looked at and renamed in the background: thousands, or a network
-        // share, would hold the window.
+        self.rename_in_background(ctx, from, to);
+    }
+
+    /// Rename `from` to `to`, one file or many, in the background: thousands, or a network
+    /// share that stalls, would hold the window. `renamed` takes the result.
+    pub(crate) fn rename_in_background(
+        &mut self,
+        ctx: &egui::Context,
+        from: Vec<PathBuf>,
+        to: Vec<PathBuf>,
+    ) {
         let shown = from.iter().position(|f| *f == self.path(self.cur));
         let job = RenameJob {
             files_gen: self.files_gen,

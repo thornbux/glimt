@@ -22,6 +22,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Renaming one file runs in the background, as Rename Many does, so a share that stalls no longer
+  holds the window; one path for both.
 - A collection's file loses an image only once it is really deleted, in one place for Delete and
   Move Folder to Trash alike: a delete that fails or is stopped leaves the collection as it was,
   in its order, instead of taking the images out first and putting them back at the end.
