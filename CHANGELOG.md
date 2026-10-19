@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Open With finds the applications installed on the system also in the Flatpak, where it said none
+  were found, and no longer lists the Flatpak Glimt itself.
 - A RAW photo whose preview is less than twice the view's size (a 24 MP camera on a 4K screen) is
   read only as far as its preview, not whole.
 - The images after one turned a quarter by hand are decoded at their size at once, not too small

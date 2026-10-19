@@ -388,24 +388,35 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
         .skip(1)
         .take_while(|l| l.starts_with('\t'))
         .map(str::trim)
-        .filter(|id| *id != "glimt.desktop");
-    // Desktop files live in the "applications" folder of the XDG data folders.
-    let home = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
-    let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
-    let dirs: Vec<PathBuf> = home
-        .into_iter()
-        .chain(dirs.split(':').map(PathBuf::from))
-        .map(|d| d.join("applications"))
-        .collect();
-    ids.filter_map(|id| {
-        let file = dirs.iter().map(|d| d.join(id)).find(|f| f.is_file())?;
-        let text = std::fs::read_to_string(&file).ok()?;
-        let name = text.lines().find_map(|l| l.strip_prefix("Name="))?;
-        Some((name.to_owned(), file))
-    })
-    .collect()
+        // Glimt itself, as a package or as the Flatpak.
+        .filter(|id| !matches!(*id, "glimt.desktop" | "io.github.thornbux.Glimt.desktop"));
+    named(command("sh"), &ids.collect::<Vec<_>>())
+}
+
+/// The names and desktop files of the applications `ids`, found by `sh`: on the host in a
+/// Flatpak, where the desktop files are and where `gio launch` runs, not in the sandbox.
+fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> {
+    // The "applications" folder of each XDG data folder, the first one with the file.
+    // Split at the colons as a variable's value: dash does not split at one written between two.
+    const FIND: &str = r#"dirs="${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+    for id in "$@"; do
+        IFS=:
+        for d in $dirs; do
+            f="$d/applications/$id"
+            if [ -f "$f" ]; then
+                n=$(grep -m1 '^Name=' "$f")
+                printf '%s\t%s\n' "${n#Name=}" "$f"
+                break
+            fi
+        done
+    done"#;
+    let out = sh.arg("-c").arg(FIND).arg("sh").args(ids).output();
+    let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    (text.unwrap_or_default().lines())
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(name, _)| !name.is_empty())
+        .map(|(name, file)| (name.to_owned(), PathBuf::from(file)))
+        .collect()
 }
 
 /// Open `url` in the default browser, in the background.
@@ -457,6 +468,33 @@ fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
 
 #[cfg(test)]
 mod tests {
+    /// Desktop files found in the first data folder that has them, with their names.
+    #[test]
+    fn names_applications() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-apps-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a/applications")).unwrap();
+        std::fs::create_dir_all(dir.join("b/applications")).unwrap();
+        std::fs::write(
+            dir.join("a/applications/x.desktop"),
+            "[Desktop Entry]\nName=Ex\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b/applications/x.desktop"), "Name=Other\n").unwrap();
+        std::fs::write(dir.join("b/applications/y.desktop"), "Name=Why\n").unwrap();
+        let mut sh = std::process::Command::new("sh");
+        sh.env("XDG_DATA_HOME", dir.join("a"))
+            .env("XDG_DATA_DIRS", dir.join("b"));
+        let found = super::named(sh, &["x.desktop", "y.desktop", "none.desktop"]);
+        assert_eq!(
+            found,
+            [
+                ("Ex".to_owned(), dir.join("a/applications/x.desktop")),
+                ("Why".to_owned(), dir.join("b/applications/y.desktop"))
+            ]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A program's errors: kept to their last part, however much it writes, and told even in
     /// another encoding.
     #[test]
