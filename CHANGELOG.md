@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- %dimensions% in printed captions is the size shown, upright, also for a portrait turned by EXIF
+  and for RAW files, instead of the stored size or a RAW's thumbnail.
 - A folder is not renamed or moved to the trash while a turned image in it is being saved, which
   left a hidden temporary file as large as the image behind.
 - A move whose source cannot be removed (someone else's file in a shared folder) leaves no second

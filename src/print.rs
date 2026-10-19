@@ -205,15 +205,23 @@ pub fn max_pixels(layout: &Layout) -> u32 {
 }
 
 /// The text under the image at `path`, `k`th of `n`, from `template`: the full screen info's
-/// fields, read from the file here as the print job runs, in one line.
-pub fn caption(template: &str, path: &Path, k: usize, n: usize) -> String {
+/// fields, read from the file here as the print job runs, in one line. `size`, the decoded one
+/// upright, where known: the file's header says how it is stored (and of a RAW, its thumbnail).
+pub fn caption(
+    template: &str,
+    path: &Path,
+    k: usize,
+    n: usize,
+    size: Option<[usize; 2]>,
+) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
     let text = crate::fill_template(template, |field| match field {
         "name" => name.to_string(),
         "path" => path.display().to_string(),
         "position" => format!("{}/{n}", k + 1),
-        "dimensions" => image::image_dimensions(path)
+        "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
+            .or_else(|| image::image_dimensions(path).ok())
             .map(|(w, h)| format!("{w} × {h}"))
             .unwrap_or_default(),
         "File size" => std::fs::metadata(path)
@@ -822,7 +830,7 @@ impl crate::App {
         );
         std::thread::spawn(move || {
             let texts = (first.iter().enumerate())
-                .map(|(k, p)| caption(&template, p, k, n))
+                .map(|(k, p)| caption(&template, p, k, n, None))
                 .collect();
             let _ = tx.send((template, texts));
             ctx.request_repaint();
@@ -847,21 +855,24 @@ impl crate::App {
                 // need two full-size buffers else. A JPEG decoded at a fraction when that is
                 // enough.
                 let img = survive(|| {
-                    let (img, icc) = match decode::scaled_jpeg(path, [max, max], job.rotate) {
-                        Some((img, icc, _)) => (img, icc),
-                        None => decode::load_icc(path, job.rotate)?,
+                    let (img, icc, size) = match decode::scaled_jpeg(path, [max, max], job.rotate) {
+                        Some((img, icc, size)) => (img, icc, size),
+                        None => {
+                            let (img, icc) = decode::load_icc(path, job.rotate)?;
+                            let size = [img.width() as usize, img.height() as usize];
+                            (img, icc, size)
+                        }
                     };
-                    Ok(crate::colour::to_srgb(
-                        shrink(img, [max, max])?,
-                        icc.as_deref(),
-                    ))
+                    let img = shrink(img, [max, max])?;
+                    Ok((crate::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 failed.set(failed.get() + img.is_err() as usize);
+                let (img, size) = img.ok()?;
                 let text = job
                     .caption
                     .as_deref()
-                    .map(|t| print::caption(t, path, k, job.paths.len()));
-                Some((img.ok()?, text))
+                    .map(|t| print::caption(t, path, k, job.paths.len(), Some(size)));
+                Some((img, text))
             });
             // Not one image could be read (HEIC without ffmpeg, say): nothing is sent to the
             // printer, and the file chosen is not replaced by an empty PDF.
@@ -999,8 +1010,17 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-caption-{}.png", std::process::id()));
         image::RgbImage::new(30, 20).save(&file).unwrap();
         let name = file.file_name().unwrap().to_string_lossy().into_owned();
-        let text = super::caption("%name% (%position%)|%dimensions%|ISO %ISO%", &file, 2, 9);
+        let text = super::caption(
+            "%name% (%position%)|%dimensions%|ISO %ISO%",
+            &file,
+            2,
+            9,
+            None,
+        );
         assert_eq!(text, format!("{name} (3/9) · 30 × 20"));
+        // The size decoded, upright, where known: not the stored one of the header.
+        let turned = super::caption("%dimensions%", &file, 0, 1, Some([20, 30]));
+        assert_eq!(turned, "20 × 30");
         std::fs::remove_file(file).unwrap();
     }
 
