@@ -2122,7 +2122,7 @@ impl App {
             // Its images too, a folder of it at a time, in name order (the sort asked for comes
             // with the whole tree): at most four times a second, as each is a copy of the list.
             // The first images at once; after them, at most four times a second.
-            let mut sent: Option<Instant> = None;
+            let mut sent: Option<(Instant, std::time::Duration)> = None;
             let (dirs, mut files) = match recursive {
                 true => list_tree(
                     &list_dir,
@@ -2134,18 +2134,21 @@ impl App {
                         }
                     },
                     |so_far| {
-                        let soon = sent
-                            .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250));
+                        // The next one after four times as long as this one took, a quarter second
+                        // at least: copying a long list must not slow the reading down.
+                        let soon = sent.is_some_and(|(t, wait)| t.elapsed() < wait);
                         if !parts || shuffled || soon {
                             return;
                         }
+                        let began = Instant::now();
                         let mut part = so_far.to_vec();
                         part.sort_unstable();
                         // Full: the one before is not taken yet; this one is left out.
                         if part_tx.try_send(part).is_ok() {
                             ctx2.request_repaint();
                         }
-                        sent = Some(Instant::now());
+                        let wait = (began.elapsed() * 4).max(std::time::Duration::from_millis(250));
+                        sent = Some((Instant::now(), wait));
                     },
                 ),
                 false => list_folder(&list_dir, types),

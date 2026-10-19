@@ -15,6 +15,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   another sort order, instead of on an image of its last subfolder (since 0.38.0); its first
   images show as soon as they are found, also inside one large subfolder.
 
+### Changed
+
+- The images of a large tree found so far come less often as the list grows, never taking more
+  than a fifth of the reading's time to copy.
+
 ## [0.38.0] - 2026-10-19
 
 ### Added
