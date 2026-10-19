@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A kiosk always listens for --remote quit, also with remote control turned off in the settings;
+  where it cannot (no $XDG_RUNTIME_DIR), it says so and Ctrl+Q closes it, instead of a kiosk
+  nothing but kill ends.
 - glimt --remote open takes one path: two words are refused as two paths (exit 2), instead of
   being joined into the name of a file that is not there.
 - A PDF printed to a file and a new thumbnail are written like every other file Glimt writes:

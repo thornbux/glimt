@@ -75,7 +75,9 @@ Only
 .B glimt \-\-remote quit
 (or
 .BR \-\-remote\-all )
-ends it. The desktop's own keys (switching windows, logging out) still work; to keep them
+ends it; where remote control cannot work, without
+.BR $XDG_RUNTIME_DIR ,
+Ctrl+Q does. The desktop's own keys (switching windows, logging out) still work; to keep them
 away, run Glimt as the only program of a kiosk session, for example
 .B cage \-\- glimt \-\-kiosk \-\-slideshow
 .I ~/Pictures

@@ -422,7 +422,8 @@ const MANUAL: &[(&str, &str)] = &[
          slideshow reaches only the left one. glimt --kiosk is for a picture screen: full \
          screen with only the image, browsing and the slideshow but nothing that changes \
          files, and no way out but glimt --remote quit (in a kiosk session such as cage or \
-         GNOME Kiosk, the desktop's keys are gone too). glimt --lock-settings, or a file \
+         GNOME Kiosk, the desktop's keys are gone too); where remote control cannot work, \
+         without $XDG_RUNTIME_DIR, Ctrl+Q closes it. glimt --lock-settings, or a file \
          /etc/glimt/lock-settings put there by the administrator, is for a shared computer: \
          Preferences do not open, and what is changed in the menus lasts only until Glimt \
          closes. glimt --check-config tells what is wrong in the settings file, line by line; \

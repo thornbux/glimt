@@ -1802,8 +1802,9 @@ impl App {
         let (tree_tx, tree_rx) = mpsc::channel();
         let (apps_tx, apps_rx) = mpsc::channel();
         let (remote_tx, remote_rx) = mpsc::channel();
-        // A name is only of use with remote control, so it listens anyway.
-        if config.remote_control || remote::given_name().is_some() {
+        // A name is only of use with remote control, so it listens anyway; a kiosk too, as
+        // --remote quit is its way out.
+        if config.remote_control || remote::given_name().is_some() || start.kiosk {
             remote::listen(remote_tx, cc.egui_ctx.clone());
         }
         let (freed_tx, freed_rx) = mpsc::channel();
@@ -5517,6 +5518,11 @@ impl App {
 
     /// Do `action`, from a menu, a key, a toolbar button or `--remote`: one arm each.
     fn run(&mut self, ctx: &egui::Context, action: Action) {
+        // Without remote control (no $XDG_RUNTIME_DIR, the socket not made) --remote quit
+        // cannot come to a kiosk, so Ctrl+Q is its way out then, rather than none.
+        if self.kiosk && action == Action::Quit && !remote::listening() {
+            self.kiosk_quit = true;
+        }
         // A kiosk shows and browses; it does not change files, settings or the window.
         if self.kiosk && !KIOSK_ACTIONS.contains(&action) && !self.kiosk_quit {
             return;

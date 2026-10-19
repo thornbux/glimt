@@ -305,7 +305,7 @@ pub fn client(
 /// a query.
 pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
     let Some(path) = socket(socket_id()) else {
-        return;
+        return eprintln!("No remote control: $XDG_RUNTIME_DIR is not set");
     };
     // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
     {
@@ -364,6 +364,11 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             });
         }
     });
+}
+
+/// Whether this Glimt listens for --remote commands.
+pub fn listening() -> bool {
+    LISTENING.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// This Glimt listens on its socket, so it removes it when it closes.

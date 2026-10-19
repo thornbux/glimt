@@ -1853,6 +1853,32 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a kiosk without a runtime folder: told, and Ctrl+Q is its way out; with one, Ctrl+Q is refused"
+d=/tmp/kiosk-way-out
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+config
+runtime=$XDG_RUNTIME_DIR
+unset XDG_RUNTIME_DIR
+start --kiosk $d
+sleep 2
+key ctrl+q; sleep 2
+ended=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
+told=$(grep -c 'XDG_RUNTIME_DIR' /tmp/glimt.err)
+quit
+export XDG_RUNTIME_DIR=$runtime
+expect "told, and ended by Ctrl+Q" "$told $ended" "1 ended"
+# With remote control, the kiosk stays, and settings off do not turn it off.
+config remote_control=false
+start --kiosk $d
+sleep 2
+key ctrl+q; sleep 2
+stays=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
+$BIN --remote-all quit >/dev/null 2>&1; sleep 2
+left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
+quit
+expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
+
 echo "-- --lock-settings, then New Window: the new window is locked too"
 for v in new old; do
     as_version $v
