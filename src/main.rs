@@ -2702,9 +2702,17 @@ impl App {
         }
         // The decode box turned back with it, before the next image and its neighbours are
         // asked for: the image area sets it only in the next frame.
-        if self.orient.0 % 2 == 1 && self.config.fit_mode != 3 {
+        // In Fill only the projector's part was turned: made at least the projector's size,
+        // never too small; the next frame sets it from the view again.
+        if self.orient.0 % 2 == 1 {
             let box_ = &mut self.limits.lock().unwrap()[0];
-            *box_ = [box_[1], box_[0]];
+            *box_ = match self.config.fit_mode {
+                3 => [
+                    box_[0].max(self.projector_size[0]),
+                    box_[1].max(self.projector_size[1]),
+                ],
+                _ => [box_[1], box_[0]],
+            };
         }
         self.orient = (0, false);
     }
