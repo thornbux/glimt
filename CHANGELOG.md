@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A copy of a private photo is not readable by others while it is written; it gets the photo's
+  permissions once whole.
 - In the Flatpak, the projector window has Glimt's icon and stays with Glimt in the dock, instead
   of an entry of its own with a generic icon.
 - Plugins and decoders whose desktop file starts with a comment are found, instead of silently

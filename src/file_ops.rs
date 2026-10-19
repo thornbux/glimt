@@ -598,6 +598,7 @@ impl crate::App {
 /// cannot be made (FAT, some network shares), a move is a rename after looking first.
 pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
+    use std::os::unix::fs::OpenOptionsExt;
     let copy = || -> std::io::Result<()> {
         if to.exists() {
             return Err(AlreadyExists.into());
@@ -607,9 +608,12 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         static COPIES: AtomicUsize = AtomicUsize::new(0);
         let k = COPIES.fetch_add(1, Ordering::Relaxed);
         let part = to.with_file_name(format!(".glimt-copy-{}-{k}", remote::instance_id()));
+        // Private while written: a private photo copied into a shared folder is not readable
+        // there until it gets its own permissions below.
         let mut out = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before a move removes the
         // source: a stick pulled out right after must not lose both.
