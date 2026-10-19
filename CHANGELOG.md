@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- In the Flatpak, a host without zenity falls back to kdialog for the file dialogs, opening with
+  the default program falls back to xdg-open, and the screen saver is kept off by systemd-inhibit
+  where gnome-session-inhibit is missing; a host with neither file dialog says so instead of doing
+  nothing.
 - Rename refuses a new name whose sidecar is left over from another file, as Rename Many does,
   instead of giving the renamed photo that file's keywords and stars.
 - A sidecar moved along with its image to another drive is on disk there before the original goes,

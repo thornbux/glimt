@@ -432,6 +432,20 @@ pub fn stoppable_command(program: &str) -> std::process::Command {
     host_command(program, &["--watch-bus"])
 }
 
+/// Whether a program `command` ran was not there: exit 127 from a shell, or in a Flatpak,
+/// where flatpak-spawn itself always starts, its message that the host has no such program.
+pub fn missing(code: Option<i32>, stderr: &str) -> bool {
+    code == Some(127) || stderr.contains("Failed to execute child process")
+}
+
+/// `missing` for the whole result of running it: also not found outside a Flatpak.
+pub fn absent(out: &std::io::Result<std::process::Output>) -> bool {
+    match out {
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        Ok(o) => missing(o.status.code(), &String::from_utf8_lossy(&o.stderr)),
+    }
+}
+
 fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
     if std::env::var_os("FLATPAK_ID").is_none() {
         return std::process::Command::new(program);

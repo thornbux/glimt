@@ -64,7 +64,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         .map_err(|e| format!("{NEEDS}: {e}"))?;
     if !out.status.success() {
         let why = String::from_utf8_lossy(&out.stderr);
-        if missing(out.status.code(), &why) {
+        if crate::external::missing(out.status.code(), &why) {
             return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
         }
         return Err(tf!(
@@ -76,12 +76,6 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
 }
 
 const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
-
-/// Whether sqlite3 is not there: in a Flatpak, flatpak-spawn starts but cannot run it on the
-/// host, and a shell says 127.
-fn missing(code: Option<i32>, stderr: &str) -> bool {
-    code == Some(127) || stderr.contains("Failed to execute child process")
-}
 
 fn parse(text: &[u8]) -> Catalog {
     let mut c = Catalog::default();
@@ -614,9 +608,12 @@ mod tests {
     fn tells_sqlite3_missing() {
         let spawn = "Portal call failed: Failed to start command: Failed to execute child \
                      process \u{201c}sqlite3\u{201d} (No such file or directory)";
-        assert!(super::missing(Some(255), spawn));
-        assert!(super::missing(Some(127), ""));
-        assert!(!super::missing(Some(1), "Error: file is not a database"));
+        assert!(crate::external::missing(Some(255), spawn));
+        assert!(crate::external::missing(Some(127), ""));
+        assert!(!crate::external::missing(
+            Some(1),
+            "Error: file is not a database"
+        ));
     }
 
     /// sqlite3 output broken in thousands of ways: read without a panic or an endless loop.
