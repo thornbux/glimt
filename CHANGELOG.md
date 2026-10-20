@@ -14,6 +14,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Every receiver of a background thread's answer is a Receiving, whose only ways to read tell once
+  when the thread is gone and forget it, so no new receiver can leave the window waiting for a
+  thread that broke.
 - The manual (Help → Help Manual, and the user guide on the website) is in short paragraphs and
   lists instead of one block of text per chapter; every fact and key as before.
 - The rule that a file which is there but cannot be read is never written over (the settings,

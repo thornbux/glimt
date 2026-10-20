@@ -619,9 +619,8 @@ impl crate::App {
                     Err(mpsc::TryRecvError::Empty) => break,
                 }
             }
-            if let Some(Ok(made)) = dialog.captions_rx.as_ref().map(mpsc::Receiver::try_recv) {
+            if let Took::Answer(made) = dialog.captions_rx.take() {
                 dialog.captions = Some(made);
-                dialog.captions_rx = None;
             }
             self.ask_captions(ctx, &mut dialog);
             let mut go = false;
@@ -823,7 +822,7 @@ impl crate::App {
             copies: 1,
             preview_rx: shown_rx,
             captions: None,
-            captions_rx: None,
+            captions_rx: Receiving::none(),
         });
     }
 
@@ -850,7 +849,7 @@ impl crate::App {
             let _ = tx.send((template, texts));
             ctx.request_repaint();
         });
-        dialog.captions_rx = Some(rx);
+        dialog.captions_rx = Receiving::of(rx);
     }
 
     /// Print `job` in the background.

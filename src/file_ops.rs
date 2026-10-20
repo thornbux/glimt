@@ -418,7 +418,8 @@ impl crate::App {
             drop(pointer);
             ctx.request_repaint();
         });
-        self.renaming = Some((rx, job));
+        self.renaming = Some(job);
+        self.renaming_rx = Receiving::of(rx);
     }
 
     /// Rename Many has run: the list follows, the shown image under its new name.

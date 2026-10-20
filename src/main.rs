@@ -145,16 +145,82 @@ enum Took<T> {
     Gone,
 }
 
-fn took<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Took<T> {
-    match rx.as_ref().map(mpsc::Receiver::try_recv) {
-        None | Some(Err(mpsc::TryRecvError::Empty)) => Took::Nothing,
-        Some(Ok(answer)) => {
-            *rx = None;
-            Took::Answer(answer)
+/// A background thread's receiver, `none` while nothing runs. Its messages come only through
+/// `take`, `next`, `latest` and `wait`, each of which tells once when the thread is gone
+/// (`Took::Gone`) and forgets the receiver then, so no receiver polled by hand can leave the
+/// window waiting for a thread that broke.
+#[derive(Default)]
+struct Receiving<T>(Option<mpsc::Receiver<T>>);
+
+impl<T> Receiving<T> {
+    fn none() -> Self {
+        Receiving(None)
+    }
+
+    fn of(rx: mpsc::Receiver<T>) -> Self {
+        Receiving(Some(rx))
+    }
+
+    fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+
+    fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// Nothing is waited for any more: the thread's answer, if it comes, is dropped.
+    fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    /// The one answer of a thread that sends one: the receiver goes with it.
+    fn take(&mut self) -> Took<T> {
+        let took = self.next();
+        if matches!(took, Took::Answer(_)) {
+            self.0 = None;
         }
-        Some(Err(mpsc::TryRecvError::Disconnected)) => {
-            *rx = None;
-            Took::Gone
+        took
+    }
+
+    /// The next message of a thread that sends several; the receiver stays until `clear`, or
+    /// the thread is gone.
+    fn next(&mut self) -> Took<T> {
+        match self.0.as_ref().map(mpsc::Receiver::try_recv) {
+            None | Some(Err(mpsc::TryRecvError::Empty)) => Took::Nothing,
+            Some(Ok(answer)) => Took::Answer(answer),
+            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+                self.0 = None;
+                Took::Gone
+            }
+        }
+    }
+
+    /// The last of the messages queued, the earlier ones dropped: for a thread that sends the
+    /// state so far again and again. The receiver stays, as `next`.
+    fn latest(&mut self) -> Took<T> {
+        let mut last = Took::Nothing;
+        loop {
+            match self.next() {
+                Took::Answer(a) => last = Took::Answer(a),
+                Took::Gone if matches!(last, Took::Nothing) => return Took::Gone,
+                _ => return last,
+            }
+        }
+    }
+
+    /// As `take`, waiting up to `timeout` for the answer.
+    fn wait(&mut self, timeout: std::time::Duration) -> Took<T> {
+        match self.0.as_ref().map(|rx| rx.recv_timeout(timeout)) {
+            None | Some(Err(mpsc::RecvTimeoutError::Timeout)) => Took::Nothing,
+            Some(Ok(answer)) => {
+                self.0 = None;
+                Took::Answer(answer)
+            }
+            Some(Err(mpsc::RecvTimeoutError::Disconnected)) => {
+                self.0 = None;
+                Took::Gone
+            }
         }
     }
 }
@@ -186,7 +252,7 @@ struct Pan {
     /// The days, and the version of the file list they are for (`App::files_gen`).
     days: Option<(Vec<pan::Day>, usize)>,
     /// The days so far, the list version they are for, and whether they are all of them.
-    days_rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize, bool)>>,
+    days_rx: Receiving<(Vec<pan::Day>, usize, bool)>,
     /// Set when the days being made are no longer wanted: the thread stops reading.
     days_stop: Arc<AtomicBool>,
     /// The list version the days being made are for.
@@ -289,7 +355,7 @@ impl Job {
 struct Dups {
     by: duplicates::By,
     progress: Arc<duplicates::Progress>,
-    groups_rx: Option<mpsc::Receiver<Vec<Vec<PathBuf>>>>,
+    groups_rx: Receiving<Vec<Vec<PathBuf>>>,
     groups: Vec<Vec<PathBuf>>,
     /// (group, file) of each row: the file `usize::MAX` for the group's heading.
     rows: Vec<(usize, usize)>,
@@ -305,7 +371,7 @@ impl Dups {
         Dups {
             by: duplicates::By::Checksum,
             progress: Arc::default(),
-            groups_rx: None,
+            groups_rx: Receiving::none(),
             groups: Vec::new(),
             sizes: HashMap::new(),
             rows: Vec::new(),
@@ -776,7 +842,7 @@ struct PrintDialog {
     decoded: bool,
     /// Their texts from the template they were made of; being made again after it changed.
     captions: Option<(String, Vec<String>)>,
-    captions_rx: Option<mpsc::Receiver<(String, Vec<String>)>>,
+    captions_rx: Receiving<(String, Vec<String>)>,
 }
 
 /// What the one-line text dialog is asking for.
@@ -1065,17 +1131,17 @@ struct App {
     // ---- Settings ----
     /// The desktop's dark style and accent colour, once read from the portal.
     desktop_look: theme::Desktop,
-    desktop_rx: Option<mpsc::Receiver<theme::Desktop>>,
+    desktop_rx: Receiving<theme::Desktop>,
     /// The desktop's screen profile file, once read from colord.
     desktop_screen: Option<String>,
-    desktop_screen_rx: Option<mpsc::Receiver<Option<String>>>,
+    desktop_screen_rx: Receiving<Option<String>>,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
     capturing: Option<Action>,
     config: Config,
 
     // ---- The list: the folder (or collection, or several folders) and its files ----
     /// A network location (smb:// …) being mounted: its local path, or why it failed.
-    mounting_rx: Option<mpsc::Receiver<(Mounted, Login)>>,
+    mounting_rx: Receiving<(Mounted, Login)>,
     /// The login dialog for a network share that needs one.
     login: Option<Login>,
     /// The folder path in the toolbar, as typed.
@@ -1105,11 +1171,11 @@ struct App {
     /// Folders to show together, chosen in a folder's menu; opened after the frame.
     together: Option<Vec<PathBuf>>,
     /// Folder listing in the background: (subfolders, images).
-    listing_rx: Option<mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>>,
+    listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
     /// The subfolders of a folder listed with its tree, sent at once: the tree may take long.
-    subdirs_rx: Option<mpsc::Receiver<Vec<PathBuf>>>,
+    subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
-    part_rx: Option<mpsc::Receiver<Vec<OsString>>>,
+    part_rx: Receiving<Vec<OsString>>,
     /// The next listing shows a tree's images as they are found (a folder opened).
     list_parts: bool,
     /// The image the first part of a tree went to by itself: the whole list goes to its first.
@@ -1150,7 +1216,7 @@ struct App {
     anchor: Option<usize>,
     /// Size of the selected files; computed in the background when the selection changes.
     selected_size: Option<u64>,
-    selected_rx: Option<mpsc::Receiver<u64>>,
+    selected_rx: Receiving<u64>,
     /// When to work out that size: once the selection has stayed the same a moment.
     selected_size_due: Option<Instant>,
 
@@ -1320,7 +1386,7 @@ struct App {
     /// Files whose keywords or comment changed since they were indexed: read again, alone,
     /// at the next "exif:" search.
     exif_stale: HashSet<OsString>,
-    exif_index_rx: Option<mpsc::Receiver<HashMap<OsString, String>>>,
+    exif_index_rx: Receiving<HashMap<OsString, String>>,
     /// Set when the index being read is no longer wanted (another folder): the thread stops.
     exif_index_stop: Arc<AtomicBool>,
     #[cfg(feature = "marks")]
@@ -1341,7 +1407,7 @@ struct App {
     match_size: u64,
     /// Why a re: search pattern is not one, shown under the search field.
     search_error: Option<String>,
-    match_rx: Option<mpsc::Receiver<u64>>,
+    match_rx: Receiving<u64>,
 
     // ---- The status bar ----
     /// Size in bytes of the shown file, for the status bar.
@@ -1357,17 +1423,18 @@ struct App {
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
     /// Partial sums from the background; `None` once all have arrived.
-    size_rx: Option<mpsc::Receiver<u64>>,
+    size_rx: Receiving<u64>,
     /// Bytes freed by deletions in the background.
     freed_tx: mpsc::Sender<u64>,
     freed_rx: mpsc::Receiver<u64>,
 
     // ---- File operations in the background ----
     /// A Rename Many running in the background.
-    renaming: Option<(mpsc::Receiver<Result<(), String>>, RenameJob)>,
+    renaming: Option<RenameJob>,
+    renaming_rx: Receiving<Result<(), String>>,
     /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
     /// right; read in the background.
-    cut_short_rx: Option<mpsc::Receiver<Vec<journal::CutShort>>>,
+    cut_short_rx: Receiving<Vec<journal::CutShort>>,
     cut_short: Vec<journal::CutShort>,
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
@@ -1399,7 +1466,7 @@ struct App {
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
-    clip_rx: Option<mpsc::Receiver<egui::ColorImage>>,
+    clip_rx: Receiving<egui::ColorImage>,
 
     // ---- Dialogs, windows and messages ----
     /// "Open With" applications by file extension, found once per extension.
@@ -1425,10 +1492,11 @@ struct App {
     print_window: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
-    lightroom_rx: Option<mpsc::Receiver<Result<lightroom::Catalog, String>>>,
+    lightroom_rx: Receiving<Result<lightroom::Catalog, String>>,
     lightroom: Option<lightroom::Import>,
     /// Answer from an open file dialog (zenity or kdialog).
-    file_dialog: Option<(Pick, mpsc::Receiver<Option<PathBuf>>)>,
+    file_dialog: Option<Pick>,
+    file_dialog_rx: Receiving<Option<PathBuf>>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
     /// The Find Duplicates window, while open.
@@ -1472,13 +1540,9 @@ fn send_sizes(sizes: impl Iterator<Item = u64>, tx: mpsc::Sender<u64>, ctx: &egu
 }
 
 /// Add the partial sums from `send_sizes` that have arrived; `rx` becomes `None` when done.
-fn drain(rx: &mut Option<mpsc::Receiver<u64>>, total: &mut u64) {
-    loop {
-        match rx.as_ref().map(mpsc::Receiver::try_recv) {
-            Some(Ok(sum)) => *total += sum,
-            Some(Err(mpsc::TryRecvError::Disconnected)) => *rx = None,
-            _ => return,
-        }
+fn drain(rx: &mut Receiving<u64>, total: &mut u64) {
+    while let Took::Answer(sum) = rx.next() {
+        *total += sum;
     }
 }
 
@@ -1848,12 +1912,12 @@ impl App {
         let (edited_tx, edited_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
-            mounting_rx: None,
+            mounting_rx: Receiving::none(),
             login: None,
             print_window: None,
-            lightroom_rx: None,
+            lightroom_rx: Receiving::none(),
             lightroom: None,
-            cut_short_rx: Some({
+            cut_short_rx: Receiving::of({
                 let (tx, rx) = mpsc::channel();
                 std::thread::spawn(move || {
                     let _ =
@@ -1863,6 +1927,7 @@ impl App {
             }),
             cut_short: Vec::new(),
             renaming: None,
+            renaming_rx: Receiving::none(),
             keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
                 .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
             new_keyword: String::new(),
@@ -1893,7 +1958,7 @@ impl App {
             tree_tx,
             tree_rx,
             tree_shown: PathBuf::new(),
-            clip_rx: None,
+            clip_rx: Receiving::none(),
             clipboard: None,
             remote_rx,
             ctx: cc.egui_ctx.clone(),
@@ -1901,9 +1966,11 @@ impl App {
             apps: HashMap::new(),
             apps_tx,
             desktop_look: Default::default(),
-            desktop_rx: Some(desktop_rx),
+            desktop_rx: Receiving::of(desktop_rx),
             desktop_screen: None,
-            desktop_screen_rx: (config.desktop_profile).then(|| read_desktop_screen(&cc.egui_ctx)),
+            desktop_screen_rx: Receiving(
+                (config.desktop_profile).then(|| read_desktop_screen(&cc.egui_ctx)),
+            ),
             plugins: plugins::find(),
             apps_rx,
             row_step: 1,
@@ -1952,6 +2019,7 @@ impl App {
             started: Some(Instant::now()),
             frame_ms: [0; 256],
             file_dialog: None,
+            file_dialog_rx: Receiving::none(),
             hide_file_list: false,
             focus_search: false,
             kiosk: start.kiosk,
@@ -1967,21 +2035,21 @@ impl App {
             paused: false,
             back: Vec::new(),
             forward: Vec::new(),
-            subdirs_rx: None,
-            part_rx: None,
+            subdirs_rx: Receiving::none(),
+            part_rx: Receiving::none(),
             list_parts: false,
             went_to: None,
             listing_stop: Arc::default(),
-            listing_rx: None,
+            listing_rx: Receiving::none(),
             image_id: None,
             focus_by_keys: false,
             waiting_select: None,
             total_size: 0,
-            size_rx: None,
+            size_rx: Receiving::none(),
             freed_tx,
             freed_rx,
             selected_size: None,
-            selected_rx: None,
+            selected_rx: Receiving::none(),
             selected_size_due: None,
             scroll_to_cur: true,
             thumbs: HashMap::new(),
@@ -2026,10 +2094,10 @@ impl App {
             match_rows: Default::default(),
             match_size: 0,
             search_error: None,
-            match_rx: None,
+            match_rx: Receiving::none(),
             exif_index: None,
             exif_stale: HashSet::new(),
-            exif_index_rx: None,
+            exif_index_rx: Receiving::none(),
             exif_index_stop: Arc::default(),
             anchor: None,
             orient: (0, false),
@@ -2118,7 +2186,7 @@ impl App {
         self.thumbs_pending.clear();
         self.exif_index = None;
         self.exif_stale.clear();
-        self.exif_index_rx = None;
+        self.exif_index_rx = Receiving::none();
         // Its reading of every file ends: no one waits for it now.
         self.exif_index_stop.store(true, Ordering::Relaxed);
     }
@@ -2236,7 +2304,7 @@ impl App {
             let _ = tx.send((result, login));
             ctx.request_repaint();
         });
-        self.mounting_rx = Some(rx);
+        self.mounting_rx = Receiving::of(rx);
     }
 
     /// Read the folder (and then the sizes) in the background; `receive_listing` merges it in.
@@ -2257,11 +2325,11 @@ impl App {
         self.listing_stop = Arc::default();
         let stop = self.listing_stop.clone();
         let (subdirs_tx, subdirs_rx) = mpsc::channel();
-        self.subdirs_rx = Some(subdirs_rx);
+        self.subdirs_rx = Receiving::of(subdirs_rx);
         // Room for one: a window not drawn (minimized, on another workspace) takes none, and a
         // copy of the whole list so far each time would pile up.
         let (part_tx, part_rx) = mpsc::sync_channel(1);
-        self.part_rx = Some(part_rx);
+        self.part_rx = Receiving::of(part_rx);
         // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
         // its whole list on screen until the new one is read, instead of shrinking and growing.
         // Nor in random order: a list in name order would take the shuffled one's place.
@@ -2383,8 +2451,8 @@ impl App {
             let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
             send_sizes(sizes, size_tx, &ctx2);
         });
-        self.listing_rx = Some(rx);
-        self.size_rx = Some(size_rx);
+        self.listing_rx = Receiving::of(rx);
+        self.size_rx = Receiving::of(size_rx);
         self.total_size = 0;
         self.relist = false;
     }
@@ -2418,26 +2486,26 @@ impl App {
     /// Take the folder listing if it is ready, waiting up to `wait`.
     fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
         // A thread that broke leaves no folders, and nothing waiting for it.
-        if let Took::Answer(dirs) = took(&mut self.subdirs_rx) {
+        if let Took::Answer(dirs) = self.subdirs_rx.take() {
             self.subdirs = dirs;
         }
         // The tree's images so far: only the last that came, one list a frame at most.
-        if let Some(part) = self.part_rx.as_ref().and_then(|rx| rx.try_iter().last()) {
+        if let Took::Answer(part) = self.part_rx.latest() {
             self.take_files(ctx, part, false);
         }
-        let (dirs, files) = match self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait)) {
-            Some(Ok(listed)) => listed,
+        let (dirs, files) = match self.listing_rx.wait(wait) {
+            Took::Answer(listed) => listed,
             // The listing thread broke: told once, and nothing (the busy pointer, a parked
             // --remote select, auto refresh) waits for it any more.
-            Some(Err(mpsc::RecvTimeoutError::Disconnected)) => {
-                (self.listing_rx, self.subdirs_rx, self.part_rx) = (None, None, None);
+            Took::Gone => {
+                self.subdirs_rx.clear();
+                self.part_rx.clear();
                 return self.stopped(tr("Reading the folder"));
             }
-            _ => return,
+            Took::Nothing => return,
         };
-        self.subdirs_rx = None;
-        self.part_rx = None;
-        self.listing_rx = None;
+        self.subdirs_rx.clear();
+        self.part_rx.clear();
         // Several folders shown together are listed as "/" with no subfolders: not the tree's.
         if self.collection.is_none() && self.folders.is_empty() {
             self.tree.insert(self.dir.clone(), Some(dirs.clone()));
@@ -3008,7 +3076,7 @@ impl App {
             self.refill();
         }
         self.selected_size = None;
-        self.selected_rx = None;
+        self.selected_rx = Receiving::none();
         // Not at once: Shift+↓ held in a selection of 500,000 changes it every frame, and each
         // time a path for every file would be made here.
         let wait = std::time::Duration::from_millis(200);
@@ -3031,7 +3099,7 @@ impl App {
         // All of them (Select All in a folder of 500,000): the folder's size, summed already.
         if self.selected.len() == self.files.len() && self.size_rx.is_none() {
             self.selected_size = Some(self.total_size);
-            self.selected_rx = None;
+            self.selected_rx = Receiving::none();
             return;
         }
         // The paths made in the thread: only the names are copied here.
@@ -3048,7 +3116,7 @@ impl App {
                 ctx.request_repaint();
             }
         });
-        self.selected_rx = Some(rx);
+        self.selected_rx = Receiving::of(rx);
     }
 
     fn receive_sizes(&mut self) {
@@ -3057,7 +3125,7 @@ impl App {
             // fine for a status bar figure.
             self.total_size = self.total_size.saturating_sub(freed);
         }
-        match took(&mut self.selected_rx) {
+        match self.selected_rx.take() {
             Took::Answer(size) => self.selected_size = Some(size),
             // The summing thread broke: no size, instead of "calculating…" for good.
             Took::Gone => self.selected_size = Some(0),
@@ -4956,7 +5024,7 @@ impl App {
         // Size of the matches in the background; a new search drops the receiver, which
         // stops the old sum.
         self.match_size = 0;
-        self.match_rx = None;
+        self.match_rx = Receiving::none();
         let Some(m) = &self.matches else { return };
         let names: Vec<OsString> = m.iter().map(|&i| self.files[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
@@ -4967,12 +5035,12 @@ impl App {
                 .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
             send_sizes(sizes, tx, &ctx);
         });
-        self.match_rx = Some(rx);
+        self.match_rx = Receiving::of(rx);
     }
 
     /// The exif: search index once it is read, and the search again with it.
     fn receive_exif_index(&mut self, ctx: &egui::Context) {
-        let index = match took(&mut self.exif_index_rx) {
+        let index = match self.exif_index_rx.take() {
             Took::Nothing => return,
             Took::Answer(index) => index,
             // Without any index the search would start reading again at once: an empty one,
@@ -5106,7 +5174,7 @@ impl App {
                 drop(pointer);
                 ctx.request_repaint();
             });
-            self.exif_index_rx = Some(rx);
+            self.exif_index_rx = Receiving::of(rx);
         }
         let Some(index) = &self.exif_index else {
             if self.exif_index_rx.is_none() {
@@ -5121,7 +5189,7 @@ impl App {
                     drop(pointer);
                     ctx.request_repaint();
                 });
-                self.exif_index_rx = Some(rx);
+                self.exif_index_rx = Receiving::of(rx);
             }
             return Vec::new();
         };
@@ -5426,7 +5494,7 @@ impl App {
         self.config.desktop_profile = on;
         self.config.save();
         if on && self.desktop_screen.is_none() {
-            self.desktop_screen_rx = Some(read_desktop_screen(ctx));
+            self.desktop_screen_rx = Receiving::of(read_desktop_screen(ctx));
         }
         self.use_screen();
     }
@@ -6181,7 +6249,7 @@ impl App {
         let (path, rotate) = (self.path(self.cur), self.config.exif_rotate);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
-        self.clip_rx = Some(clip_rx);
+        self.clip_rx = Receiving::of(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
@@ -6226,13 +6294,11 @@ impl App {
         if let Some(error) = config::take_save_error() {
             self.notice = Some(error);
         }
-        if let Some(look) = self.desktop_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+        if let Took::Answer(look) = self.desktop_rx.take() {
             self.desktop_look = look;
-            self.desktop_rx = None;
             self.apply_theme(ctx);
         }
-        if let Some(path) = (self.desktop_screen_rx.as_ref()).and_then(|rx| rx.try_recv().ok()) {
-            self.desktop_screen_rx = None;
+        if let Took::Answer(path) = self.desktop_screen_rx.take() {
             self.desktop_screen = path;
             if self.desktop_screen.is_some() {
                 self.use_screen();
@@ -6278,8 +6344,7 @@ impl App {
         }
         self.has_focus = focus;
         self.receive_remote(ctx);
-        if let Some(img) = self.clip_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.clip_rx = None;
+        if let Took::Answer(img) = self.clip_rx.take() {
             ctx.copy_image(img);
         }
         // A file or folder dropped on the window opens there, as File → Open would.
@@ -6309,7 +6374,7 @@ impl App {
         if self.relist && self.listing_rx.is_none() {
             self.list(ctx);
         }
-        match took(&mut self.lightroom_rx) {
+        match self.lightroom_rx.take() {
             Took::Nothing => {}
             Took::Gone => self.stopped(tr("Reading the Lightroom catalog")),
             Took::Answer(Ok(catalog)) => {
@@ -6322,19 +6387,20 @@ impl App {
             }
             Took::Answer(Err(e)) => self.notice = Some(e),
         }
-        match self.renaming.as_ref().map(|r| r.0.try_recv()) {
-            Some(Ok(result)) => {
-                let (_, job) = self.renaming.take().unwrap();
-                self.renamed(ctx, job, result);
+        match self.renaming_rx.take() {
+            Took::Answer(result) => {
+                if let Some(job) = self.renaming.take() {
+                    self.renamed(ctx, job, result);
+                }
             }
             // Gone without a word: not waited for at closing, Rename Many not refused for ever.
-            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+            Took::Gone => {
                 self.renaming = None;
                 self.stopped(tr("Rename Many"));
             }
-            _ => {}
+            Took::Nothing => {}
         }
-        match took(&mut self.cut_short_rx) {
+        match self.cut_short_rx.take() {
             Took::Answer(found) => self.cut_short = found,
             Took::Gone => self.stopped(tr("Looking for renames cut short")),
             Took::Nothing => {}
@@ -6358,7 +6424,7 @@ impl App {
 
     /// A share mounted, or why not: its folder opens, or the error or a login is asked for.
     fn receive_mount(&mut self, ctx: &egui::Context) {
-        let done = match took(&mut self.mounting_rx) {
+        let done = match self.mounting_rx.take() {
             Took::Nothing => return,
             Took::Gone => return self.stopped(tr("Connecting")),
             Took::Answer(done) => done,
@@ -6384,13 +6450,16 @@ impl App {
 
     /// The file dialog's answer, for what it was opened for.
     fn receive_picked(&mut self, ctx: &egui::Context) {
-        let answer = self.file_dialog.as_ref().map(|(_, rx)| rx.try_recv());
-        // A dialog whose thread ended without an answer is over too: the next may open.
-        if let Some(Err(mpsc::TryRecvError::Disconnected)) = answer {
-            self.file_dialog = None;
-        }
-        if let Some(Ok(picked)) = answer {
-            let (purpose, _) = self.file_dialog.take().unwrap();
+        let picked = match self.file_dialog_rx.take() {
+            Took::Answer(picked) => picked,
+            // A dialog whose thread ended without an answer is over too: the next may open.
+            Took::Gone => return self.file_dialog = None,
+            Took::Nothing => return,
+        };
+        {
+            let Some(purpose) = self.file_dialog.take() else {
+                return;
+            };
             match (purpose, picked) {
                 (_, None) => {}
                 (Pick::Open | Pick::Collection, Some(path)) => self.visit(ctx, path),
@@ -6537,7 +6606,8 @@ impl App {
             let _ = tx.send(picked);
             ctx.request_repaint();
         });
-        self.file_dialog = Some((purpose, rx));
+        self.file_dialog = Some(purpose);
+        self.file_dialog_rx = Receiving::of(rx);
     }
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
@@ -7814,7 +7884,7 @@ impl App {
             } else {
                 self.selected.clear();
                 self.selected_size = None;
-                self.selected_rx = None;
+                self.selected_rx = Receiving::none();
                 self.anchor = None;
                 go_to = Some(i);
             }
@@ -9078,16 +9148,24 @@ mod tests {
     fn a_thread_gone_is_noticed_once() {
         use super::Took;
         let (tx, rx) = std::sync::mpsc::channel::<u8>();
-        let mut rx = Some(rx);
-        assert!(matches!(super::took(&mut rx), Took::Nothing));
+        let mut rx = super::Receiving::of(rx);
+        assert!(matches!(rx.take(), Took::Nothing));
         tx.send(7).unwrap();
-        assert!(matches!(super::took(&mut rx), Took::Answer(7)));
+        assert!(matches!(rx.take(), Took::Answer(7)));
         assert!(rx.is_none());
         let (tx, rx) = std::sync::mpsc::channel::<u8>();
-        let mut rx = Some(rx);
+        let mut rx = super::Receiving::of(rx);
         drop(tx);
-        assert!(matches!(super::took(&mut rx), Took::Gone));
-        assert!(matches!(super::took(&mut rx), Took::Nothing));
+        assert!(matches!(rx.take(), Took::Gone));
+        assert!(matches!(rx.take(), Took::Nothing));
+        // A stream: the latest of what is queued, the receiver kept until the thread is gone.
+        let (tx, rx) = std::sync::mpsc::channel::<u8>();
+        let mut rx = super::Receiving::of(rx);
+        tx.send(1).unwrap();
+        tx.send(2).unwrap();
+        assert!(matches!(rx.latest(), Took::Answer(2)) && rx.is_some());
+        drop(tx);
+        assert!(matches!(rx.latest(), Took::Gone) && rx.is_none());
     }
 
     #[test]

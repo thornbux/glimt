@@ -328,7 +328,7 @@ impl crate::App {
         let Some(mut dups) = self.dups.take() else {
             return;
         };
-        match took(&mut dups.groups_rx) {
+        match dups.groups_rx.take() {
             Took::Nothing => {}
             Took::Gone => {
                 dups.searched = 0;
@@ -472,7 +472,7 @@ impl crate::App {
             let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
             dups.searched = paths.len();
             dups.progress = progress.clone();
-            dups.groups_rx = Some(tx.1);
+            dups.groups_rx = Receiving::of(tx.1);
             let sender = tx.0;
             std::thread::spawn(move || {
                 let _ = sender.send(find(paths, by, rotate, save, &progress));

@@ -321,7 +321,7 @@ impl crate::App {
             drop(pointer);
             ctx.request_repaint();
         });
-        self.lightroom_rx = Some(rx);
+        self.lightroom_rx = Receiving::of(rx);
     }
 
     /// File → Import Lightroom Catalog: where the catalog's root folders are now; then what the

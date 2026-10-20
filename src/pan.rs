@@ -229,7 +229,7 @@ impl crate::App {
         // instead of after every old file is read.
         if pan.days_rx.is_some() && pan.days_for != self.files_gen {
             pan.days_stop.store(true, Ordering::Relaxed);
-            pan.days_rx = None;
+            pan.days_rx.clear();
         }
         if stale && pan.days_rx.is_none() {
             let (tx, rx) = mpsc::channel();
@@ -246,25 +246,25 @@ impl crate::App {
                 });
                 drop(pointer);
             });
-            pan.days_rx = Some(rx);
+            pan.days_rx = Receiving::of(rx);
         }
         // The days so far, the last ones sent; days for a list that changed meanwhile are taken
         // as old, and made again.
         let mut gone = false;
-        while let Some(rx) = &pan.days_rx {
-            match rx.try_recv() {
-                Ok((days, made, done)) => {
+        loop {
+            match pan.days_rx.next() {
+                Took::Answer((days, made, done)) => {
                     pan.months = months(&days);
                     pan.days = Some((days, made));
                     pan.columns = 0;
                     if done {
-                        pan.days_rx = None;
+                        pan.days_rx.clear();
                     }
                 }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    pan.days_rx = None;
+                Took::Nothing => break,
+                Took::Gone => {
                     gone = true;
+                    break;
                 }
             }
         }
@@ -288,7 +288,7 @@ impl crate::App {
                     ui.separator();
                     if ui.checkbox(&mut pan.exif, tr("EXIF date")).changed() {
                         pan.days = None;
-                        pan.days_rx = None;
+                        pan.days_rx.clear();
                         pan.days_stop.store(true, Ordering::Relaxed);
                     }
                     // Days of an older list are not shown while new ones are made: they point
