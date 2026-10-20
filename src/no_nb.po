@@ -2105,3 +2105,43 @@ msgstr "Ikke noe svar fra utskriftstjeneren på to minutter"
 #: src/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Kunne ikke døpe om {f} til {t}: {e}; ikke alle navn kunne settes tilbake, og ingen plan kunne lagres: filene med .glimt-rename-*-navn ved siden av er deres"
+
+#: src/preferences.rs
+msgid "Look"
+msgstr "Utseende"
+
+#: src/preferences.rs
+msgid "Keyboard"
+msgstr "Tastatur"
+
+#: src/preferences.rs
+msgid "Image"
+msgstr "Bilde"
+
+#: src/preferences.rs
+msgid "Slideshow"
+msgstr "Lysbildeserie"
+
+#: src/preferences.rs
+msgid "File list"
+msgstr "Filliste"
+
+#: src/preferences.rs
+msgid "Memory and CPU"
+msgstr "Minne og prosessor"
+
+#: src/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/preferences.rs
+msgid "Start and system"
+msgstr "Oppstart og system"
+
+#: src/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Forhåndsvisning trenger ffmpeg"
+
+#: src/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S starter og stopper, R tilfeldig rekkefølge, Ctrl+= raskere, Ctrl+- saktere"

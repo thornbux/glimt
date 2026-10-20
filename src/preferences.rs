@@ -29,6 +29,7 @@ impl crate::App {
                     // Plain settings set `changed`; the config is saved once at the end.
                     let mut changed = false;
                     // The look first, where it is found (also under View → Theme).
+                    section(ui, theme::icon::PALETTE, tr("Look"));
                     ui.horizontal(|ui| {
                         let mut chosen = false;
                         egui::ComboBox::from_id_salt("theme")
@@ -106,36 +107,38 @@ impl crate::App {
                         changed = true;
                         self.apply_theme(ui.ctx());
                     }
-                    ui.separator();
-                    changed |= self.memory_settings(ui);
-                    self.cpu_settings(ui);
-                    ui.separator();
-                    changed |= self.slideshow_settings(ui, ctx);
-                    ui.separator();
-                    changed |= self.image_settings(ui);
-                    ui.separator();
-                    changed |= self.search_settings(ui, ctx);
-                    ui.separator();
-                    changed |= self.list_settings(ui, ctx);
-                    ui.separator();
-                    self.colour_settings(ui);
-                    ui.separator();
-                    changed |= self.cache_settings(ui, ctx);
-                    ui.separator();
-                    changed |= self.panel_settings(ui, ctx);
-                    ui.separator();
-                    changed |= self.window_settings(ui, ctx);
-                    ui.separator();
+                    changed |= self.background_setting(ui);
+                    changed |= self.bar_settings(ui, ctx);
+                    section(ui, theme::icon::KEYBOARD, tr("Keyboard"));
                     egui::CollapsingHeader::new(tr("Keyboard shortcuts")).show(ui, |ui| {
                         self.key_settings(ui);
                     });
-                    ui.separator();
+                    section(ui, theme::icon::IMAGE, tr("Image"));
+                    changed |= self.image_settings(ui);
+                    changed |= self.histogram_settings(ui);
+                    changed |= self.info_settings(ui);
+                    section(ui, theme::icon::PLAY, tr("Slideshow"));
+                    changed |= self.slideshow_settings(ui, ctx);
+                    section(ui, theme::icon::LIST, tr("File list"));
+                    changed |= self.list_settings(ui, ctx);
+                    changed |= self.exif_panel_setting(ui);
+                    changed |= self.search_settings(ui, ctx);
+                    changed |= self.refresh_setting(ui);
+                    changed |= self.cache_settings(ui, ctx);
+                    section(ui, theme::icon::TRASH, tr("Deleting"));
                     changed |= self.delete_settings(ui);
+                    section(ui, theme::icon::COLOUR, tr("Colour management"));
+                    self.colour_settings(ui);
+                    section(ui, theme::icon::CPU, tr("Memory and CPU"));
+                    changed |= self.memory_settings(ui);
+                    self.cpu_settings(ui);
                     #[cfg(feature = "video")]
                     {
-                        ui.separator();
+                        section(ui, theme::icon::FILM, tr("Video"));
                         changed |= self.video_settings(ui, ctx);
                     }
+                    section(ui, theme::icon::DESKTOP, tr("Start and system"));
+                    changed |= self.window_settings(ui, ctx);
                     // Saved once a slider is let go, not in every frame it is dragged.
                     self.preferences_unsaved |= changed;
                     if self.preferences_unsaved && !ctx.input(|i| i.pointer.any_down()) {
@@ -150,8 +153,8 @@ impl crate::App {
     /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.
     pub(crate) fn slideshow_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
-        ui.label(tr(
-            "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):",
+        ui.weak(tr(
+            "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
         ));
         let delay =
             egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY).text(tr("seconds per image"));
@@ -206,16 +209,6 @@ impl crate::App {
         let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
             .text(tr("quality when a lossy WebP is saved again"));
         changed |= ui.add(quality).changed();
-        ui.horizontal(|ui| {
-            changed |= ui
-                .color_edit_button_srgb(&mut self.config.background.0)
-                .changed();
-            ui.label(tr("Background behind the image"));
-            if self.config.background.0 != [0, 0, 0] && ui.small_button(tr("Black")).clicked() {
-                self.config.background.0 = [0, 0, 0];
-                changed = true;
-            }
-        });
         let c = &mut self.config;
         changed |= ui
             .checkbox(&mut c.enlarge, tr("Enlarge small images to fit the window"))
@@ -231,6 +224,41 @@ impl crate::App {
                 &mut c.wheel_zoom,
                 tr("Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"),
             )
+            .changed();
+        changed
+    }
+
+    /// Preferences → Look: the colour behind the image.
+    fn background_setting(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            changed |= ui
+                .color_edit_button_srgb(&mut self.config.background.0)
+                .changed();
+            ui.label(tr("Background behind the image"));
+            if self.config.background.0 != [0, 0, 0] && ui.small_button(tr("Black")).clicked() {
+                self.config.background.0 = [0, 0, 0];
+                changed = true;
+            }
+        });
+        changed
+    }
+
+    /// Preferences → Image: the histogram and animations.
+    fn histogram_settings(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        let c = &mut self.config;
+        ui.horizontal(|ui| {
+            ui.label(tr("Histogram (K):"));
+            for (n, name) in [(0, tr("Off")), (1, "RGB"), (2, tr("Brightness"))] {
+                changed |= ui.radio_value(&mut c.histogram, n, name).changed();
+            }
+            changed |= ui
+                .checkbox(&mut c.histogram_log, tr("Logarithmic (J)"))
+                .changed();
+        });
+        changed |= ui
+            .checkbox(&mut c.animate, tr("Play animated GIF and WebP (A)"))
             .changed();
         changed
     }
@@ -293,9 +321,9 @@ impl crate::App {
         {
             self.set_subfolders(ctx, sub);
         }
-        let c = &mut self.config;
         #[cfg(feature = "marks")]
         {
+            let c = &mut self.config;
             changed |= ui
                 .checkbox(
                     &mut c.show_marks,
@@ -309,18 +337,6 @@ impl crate::App {
                 )
                 .changed();
         }
-        ui.horizontal(|ui| {
-            ui.label(tr("Histogram (K):"));
-            for (n, name) in [(0, tr("Off")), (1, "RGB"), (2, tr("Brightness"))] {
-                changed |= ui.radio_value(&mut c.histogram, n, name).changed();
-            }
-            changed |= ui
-                .checkbox(&mut c.histogram_log, tr("Logarithmic (J)"))
-                .changed();
-        });
-        changed |= ui
-            .checkbox(&mut c.animate, tr("Play animated GIF and WebP (A)"))
-            .changed();
         changed
     }
 
@@ -512,7 +528,7 @@ impl crate::App {
     }
 
     /// Preferences: the toolbar, folder path, search field, EXIF panel and full-screen info.
-    pub(crate) fn panel_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+    pub(crate) fn bar_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
         changed |= ui
@@ -542,9 +558,19 @@ impl crate::App {
                     .changed();
             }
         });
-        let c = &mut self.config;
+        changed
+    }
+
+    /// Preferences → File list: the EXIF panel.
+    fn exif_panel_setting(&mut self, ui: &mut egui::Ui) -> bool {
         let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
-        changed |= ui.checkbox(&mut c.exif_panel, exif).changed();
+        ui.checkbox(&mut self.config.exif_panel, exif).changed()
+    }
+
+    /// Preferences → Image: the full screen info and its template.
+    fn info_settings(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        let c = &mut self.config;
         let osd = tr("Show image info in full screen (I)");
         changed |= ui.checkbox(&mut c.osd, osd).changed();
         ui.label(tr("Image info template:"));
@@ -576,12 +602,6 @@ impl crate::App {
         let mut changed = false;
         let c = &mut self.config;
         changed |= ui
-            .checkbox(
-                &mut c.auto_refresh,
-                tr("Refresh the folder when files change"),
-            )
-            .changed();
-        changed |= ui
             .checkbox(&mut c.remember_dir, tr("Start in the last used folder"))
             .changed();
         let window = tr("Remember the window size and position");
@@ -596,6 +616,13 @@ impl crate::App {
             self.title(ctx);
         }
         changed
+    }
+
+    /// Preferences → File list: the folder read again when its files change.
+    fn refresh_setting(&mut self, ui: &mut egui::Ui) -> bool {
+        let refresh = tr("Refresh the folder when files change");
+        ui.checkbox(&mut self.config.auto_refresh, refresh)
+            .changed()
     }
 
     /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
@@ -707,7 +734,6 @@ impl crate::App {
     /// Preferences: confirmations, the Delete key and the trash.
     pub(crate) fn delete_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
-        ui.label(tr("Delete behaviour:"));
         let c = &mut self.config;
         changed |= ui
             .checkbox(&mut c.confirm_delete, tr("Confirm permanent file delete"))
@@ -732,8 +758,7 @@ impl crate::App {
     pub(crate) fn video_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
-        ui.separator();
-        ui.label(tr("Video (needs ffmpeg for previews):"));
+        ui.weak(tr("Previews need ffmpeg"));
         if ui
             .checkbox(&mut c.videos, tr("Show videos in the file list"))
             .changed()
@@ -750,4 +775,15 @@ impl crate::App {
         });
         changed
     }
+}
+
+/// A section of Preferences: its icon in the accent colour and its title, over a line.
+fn section(ui: &mut egui::Ui, icon: &str, title: &str) {
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let accent = ui.visuals().selection.bg_fill;
+        ui.label(egui::RichText::new(icon).size(18.0).color(accent));
+        ui.strong(title);
+    });
+    ui.separator();
 }

@@ -65,6 +65,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Preferences is in ten sections, each with a heading and an icon: Look, Keyboard, Image,
+  Slideshow, File list, Deleting, Colour management, Memory and CPU, Video, Start and system; the
+  settings are grouped by what they are about instead of one long list.
 - A plugin's edits and a repair's renames ask for the folder to be read again by name (relist) in
   the one report every file operation sends, instead of posing as a failed delete.
 - What holds places in the file list is let go in one place (list_changed) when the list is read

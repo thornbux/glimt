@@ -115,7 +115,7 @@ const MANUAL: &[(&str, &str)] = &[
          inverts the selection. Copy, Move, Rename and Delete act on the selected files, \
          otherwise on the shown image; right-click a file for a menu with them. Delete moves \
          files to the trash and Shift+Delete deletes them for good; both ask first, as set \
-         under Delete behaviour in Preferences, which can also turn the Delete key off or use \
+         under Deleting in Preferences, which can also turn the Delete key off or use \
          no trash at all. While files are copied, moved, deleted or given keywords, the \
          status bar counts them (Copying 120 of 3,000…), and Stop ends it after the file at \
          hand (to the trash: after the 100 at hand); one that took long says when it is done. A copy is written under a hidden name \

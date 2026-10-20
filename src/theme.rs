@@ -49,6 +49,15 @@ pub mod icon {
     pub const CURSOR: &str = "\u{e1dc}"; // cursor
     pub const FOLDER_OPEN: &str = "\u{e256}"; // folder-open
     pub const MOVE_IN: &str = "\u{e098}"; // arrows-down-up
+    // Preferences' sections.
+    pub const KEYBOARD: &str = "\u{e2d8}"; // keyboard
+    pub const IMAGE: &str = "\u{e2ca}"; // image
+    pub const LIST: &str = "\u{e2f2}"; // list-bullets
+    pub const TRASH: &str = "\u{e4a6}"; // trash
+    pub const CPU: &str = "\u{e610}"; // cpu
+    #[cfg(feature = "video")]
+    pub const FILM: &str = "\u{e792}"; // film-strip
+    pub const DESKTOP: &str = "\u{e560}"; // desktop
     pub const STACK_PLUS: &str = "\u{edf6}"; // stack-plus
 }
 
