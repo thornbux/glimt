@@ -7814,9 +7814,9 @@ impl App {
                     theme::icon::FOLDER_OPEN,
                     tr("Open the Plugins Folder"),
                 ))
-                .on_hover_text(tr(tr(
+                .on_hover_text(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
-                )))
+                ))
                 .clicked()
                 && let Some(dir) = dir
             {

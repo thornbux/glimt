@@ -150,9 +150,9 @@ impl crate::App {
     /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.
     pub(crate) fn slideshow_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
-        ui.label(tr(tr(
+        ui.label(tr(
             "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):",
-        )));
+        ));
         let delay =
             egui::Slider::new(&mut self.config.delay, 1..=MAX_DELAY).text(tr("seconds per image"));
         if ui.add(delay).changed() {
@@ -490,9 +490,9 @@ impl crate::App {
         // Geeqie's cache maintenance: thumbnails of files that are gone.
         if ui
             .button(tr("Remove thumbnails of deleted files"))
-            .on_hover_text(tr(tr(
+            .on_hover_text(tr(
                 "In ~/.cache/thumbnails; kept for disks that are not plugged in",
-            )))
+            ))
             .clicked()
         {
             let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
