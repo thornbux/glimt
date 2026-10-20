@@ -532,12 +532,8 @@ impl crate::App {
         if new == old || !self.none_saving(std::slice::from_ref(&old)) {
             return;
         }
-        // rename() would replace an empty folder of that name.
-        let result = match new.exists() {
-            true => Err(std::io::ErrorKind::AlreadyExists.into()),
-            false => std::fs::rename(&old, &new),
-        };
-        if let Err(e) = result {
+        // Never over an empty folder of that name, also one made since the look.
+        if let Err(e) = rename_never_over(&old, &new) {
             self.notice = Some(format!("{display}: {e}", display = new.display()));
             return;
         }
@@ -622,6 +618,20 @@ impl crate::App {
 /// puts there in the same moment: renameat2 with RENAME_NOREPLACE (Linux 3.15; glibc 2.28, the
 /// release's baseline). `Unsupported` where the file system has no such flag (FAT, some
 /// shares, old kernels): the caller falls back to looking first.
+/// Rename `from` to `to`, never over a file or folder there: in one step where the file system
+/// can (RENAME_NOREPLACE), else after looking first. The one way to rename a folder, a
+/// collection or a new file's temporary, where a plain rename would replace an empty folder or
+/// a file another window made meanwhile.
+pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
+    match rename_noreplace(from, to) {
+        Err(e) if e.kind() == std::io::ErrorKind::Unsupported => match to.exists() {
+            true => Err(std::io::ErrorKind::AlreadyExists.into()),
+            false => std::fs::rename(from, to),
+        },
+        done => done,
+    }
+}
+
 pub(crate) fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     unsafe extern "C" {

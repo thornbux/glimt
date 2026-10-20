@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Renaming a folder or a collection, and a new collection's file, never land over one of that name
+  made by another window or program between the look and the rename (RENAME_NOREPLACE, as a moved
+  file); one rule for all three.
 - A file that breaks the EXIF reader costs only itself in the exif: index, instead of its whole
   share of the folder (1/N of the files) silently left out of every exif: search.
 - Check Images and sorting RAW files by EXIF date read a file through the usual size limit, so a

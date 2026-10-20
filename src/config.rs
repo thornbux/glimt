@@ -814,6 +814,20 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
     result
 }
 
+/// A file that is not there yet, written whole beside it and given its name in one step, never
+/// over one another window made meanwhile (a collection of the same name): `AlreadyExists` then.
+pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    let tmp = tmp_path(path);
+    let result = new_beside(&tmp, path)
+        .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
+        .and_then(|_| crate::file_ops::rename_never_over(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
 /// Where a new version of `path` is written before it is renamed over it: its whole name, this
 /// Glimt's instance ID and ".glimt-tmp", so that "a.png" and "a.webp", saved at the same time,
 /// or one file saved by two windows at once, never share one.
@@ -1226,6 +1240,12 @@ mod tests {
         // A byte that is not UTF-8 costs neither the load nor the next save.
         let dir = std::env::temp_dir().join(format!("glimt-lossy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        // A new file never lands over one made meanwhile.
+        let file = dir.join("new.gqv");
+        super::create_file(&file, "first").unwrap();
+        assert!(super::create_file(&file, "second").is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "first");
+        assert!(!super::tmp_path(&file).exists());
         let file = dir.join("config");
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
         let text = super::read_lossy(&file).unwrap();

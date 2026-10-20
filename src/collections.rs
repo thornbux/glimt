@@ -71,11 +71,15 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     // after the rename, never in between, where it would make the old name again.
     let _held = crate::config::file_lock(file);
     let new = file.with_file_name(format!("{name}.gqv"));
-    if new.exists() {
-        return Err(tf!("There is a collection called \"{name}\" already", name));
+    // Never over one of that name, also one another window makes between the look and the
+    // rename.
+    match crate::file_ops::rename_never_over(file, &new) {
+        Ok(()) => Ok(new),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(tf!("There is a collection called \"{name}\" already", name))
+        }
+        Err(e) => Err(format!("Could not rename the collection: {e}")),
     }
-    std::fs::rename(file, &new).map_err(|e| format!("Could not rename the collection: {e}"))?;
-    Ok(new)
 }
 
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
@@ -161,9 +165,9 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
 /// that cannot be read is never written over: what it holds would be lost.
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     let _held = crate::config::file_lock(file);
-    let mut all = match load(file) {
-        Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        loaded => loaded?,
+    let (mut all, was_new) = match load(file) {
+        Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
+        loaded => (loaded?, false),
     };
     let before = all.clone();
     change(&mut all);
@@ -171,7 +175,11 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     if all == before {
         return Ok(());
     }
-    save(file, &all)
+    // A new one never lands over a collection another window made meanwhile.
+    match was_new {
+        true => crate::config::create_file(file, to_text(&all)),
+        false => save(file, &all),
+    }
 }
 
 /// Add `paths` to `all`, leaving out those it has; how many were added.
