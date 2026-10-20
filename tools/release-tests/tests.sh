@@ -1218,6 +1218,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a video opened with videos off, then Open Several Folders: the folders list no videos"
+for v in new old; do
+    as_version $v
+    d=/tmp/opened-type-$v
+    mkdir -p $d/one $d/two
+    ffmpeg -v error -f lavfi -i color=c=blue:s=320x240:d=1 -pix_fmt yuv420p $d/v.mp4
+    cp $d/v.mp4 $d/one/w.mp4
+    convert -size 64x64 xc:red $d/one/a.png
+    convert -size 64x64 xc:red $d/two/b.png
+    printf '#!/bin/sh\nprintf "%%s\\n%%s\\n" %s %s\n' $d/one $d/two >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
+    config videos=false
+    start $d/v.mp4; sleep 2
+    click 20 11; click 88 108; sleep 3              # File → Open Several Folders…
+    key ctrl+a
+    listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
+    quit
+    if [ $v = new ]; then expect "the two images only, no video" "$listed" "one/a.png two/b.png "
+    else note "old: $listed"; fi
+done
+as_version new
+
 echo "-- decoder plugins: the examples show a .jp2 through ffmpeg and a .fits through astropy"
 for v in new old; do
     as_version $v

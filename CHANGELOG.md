@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Open Several Folders after a file of a type the Types menu leaves out (a RAW with RAW off, a
+  video with videos off) lists by the menu again, instead of keeping that type listed for the
+  folders too.
 - With --lock-settings (a kiosk, a shared machine) a change to the keyword tree lasts for the
   session only, as the other settings do, instead of being written to the tree file.
 - Renaming a folder or a collection, and a new collection's file, never land over one of that name

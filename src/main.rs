@@ -2080,8 +2080,10 @@ impl App {
             .as_deref()
             .and_then(Path::file_name)
             .map(OsString::from);
-        self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
         self.forget_old_list();
+        // A file of a type the menu does not list (a RAW with RAW off) is listed with the
+        // folder it opens; a folder or several opened later go by the menu again.
+        self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
         // Another folder: its file of the same name is another image, which opens as one, not
         // at the zoom and place of the image before.
         if dir != self.dir {
@@ -2103,6 +2105,7 @@ impl App {
         if let Some(Some(check)) = self.check.take() {
             check.stop.store(true, Ordering::Relaxed);
         }
+        self.opened_type = Types::NONE;
         self.broken_files.clear();
         self.subdirs.clear();
         self.deleting.clear();
