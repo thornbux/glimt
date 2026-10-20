@@ -4718,7 +4718,9 @@ impl App {
     /// the paths below it out: this change alone, on the file as it is now, so what another
     /// window changed meanwhile stays.
     fn change_keyword_tree(&mut self, add: Vec<String>, remove: Option<String>) {
-        let Some(p) = keyword_tree_path() else {
+        // Locked settings (--lock-settings, a kiosk): the tree changes for this session only,
+        // as the other settings do, and the file is not written.
+        let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
             self.keyword_tree = meta::keyword_tree_changed(&self.keyword_tree, add, remove);
             return;
         };

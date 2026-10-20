@@ -2307,6 +2307,28 @@ for v in new old; do
 done
 as_version new
 
+echo "-- the keyword tree under --lock-settings: removed for the session, the file left as it was"
+d=/tmp/keywords-locked
+mkdir -p $d
+convert -size 300x200 xc:red $d/a.jpg
+for v in new old; do
+    as_version $v
+    printf 'Animals\nPlaces|Norway|Oslo\n' >$XDG_CONFIG_HOME/glimt/keywords
+    config exif_panel=true
+    start --lock-settings $d
+    sleep 2
+    for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
+    sleep 1
+    xdotool mousemove 1080 444 click 3 2>/dev/null
+    sleep 1
+    click 1130 460 2
+    quit
+    left=$(tr '\n' ' ' <$XDG_CONFIG_HOME/glimt/keywords | sed 's/ $//')
+    if [ $v = new ]; then expect "the tree file as it was" "$left" "Animals Places|Norway|Oslo"
+    else note "old, left in the tree: $left"; fi
+done
+as_version new
+
 echo "-- a Lightroom catalog: its collection, keyword tree, stars and image keywords imported"
 d=/tmp/lr
 mkdir -p $d/photos/2024

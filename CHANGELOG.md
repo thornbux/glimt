@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With --lock-settings (a kiosk, a shared machine) a change to the keyword tree lasts for the
+  session only, as the other settings do, instead of being written to the tree file.
 - Renaming a folder or a collection, and a new collection's file, never land over one of that name
   made by another window or program between the look and the rename (RENAME_NOREPLACE, as a moved
   file); one rule for all three.
