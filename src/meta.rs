@@ -302,15 +302,15 @@ fn update(
         return Err("the image was moved, renamed or deleted meanwhile".into());
     }
     let side = sidecar(path);
-    let old = match std::fs::read_to_string(&side) {
-        Ok(text) => text,
-        // One that is there but cannot be read (not UTF-8, no permission) is not written over:
-        // it may hold another program's edits.
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            return Err(format!("{}: {e}", side.display()));
+    // One that is there but cannot be read (no permission, not UTF-8) is not written over: it
+    // may hold another program's edits.
+    let old = match crate::config::read_or_none(&side) {
+        Err(e) => return Err(format!("{}: {e}", side.display())),
+        Ok(Some(bytes)) => {
+            String::from_utf8(bytes).map_err(|e| format!("{}: {e}", side.display()))?
         }
-        Err(_) if only_if_there => return Ok(()),
-        Err(_) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
+        Ok(None) if only_if_there => return Ok(()),
+        Ok(None) => "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n\
              <x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n \
              <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  \
              <rdf:Description rdf:about=\"\"/>\n </rdf:RDF>\n</x:xmpmeta>\n\

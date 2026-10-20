@@ -611,9 +611,8 @@ impl Config {
                 let _held = file_lock(&p);
                 // One that is there but cannot be read is not written over: every setting the
                 // user had would be the defaults then.
-                let on_disk = match read_lossy(&p) {
-                    Ok(text) => text,
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                let on_disk = match read_or_none(&p) {
+                    Ok(bytes) => String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned(),
                     Err(e) => {
                         return save_failed(format!(
                             "Settings not saved: {} cannot be read: {e}",
@@ -624,6 +623,18 @@ impl Config {
                 write_atomic(&p, merged(&ours, &before, &on_disk));
             });
         }
+    }
+}
+
+/// A file Glimt is about to write again, as it is: `None` when there is none yet, and an error
+/// when there is one that cannot be read (no permission, a folder), which the caller must not
+/// write over, as everything it holds would be lost. The one rule for the settings, the marks,
+/// the keyword tree, the sort manager's folders and a sidecar.
+pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
     }
 }
 
@@ -1270,6 +1281,10 @@ mod tests {
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
         let text = super::read_lossy(&file).unwrap();
         assert_eq!(Config::parse(&text).delay, 5);
+        // Not there: none; there but unreadable (a folder): an error, never written over.
+        assert_eq!(super::read_or_none(&dir.join("none")).unwrap(), None);
+        assert!(super::read_or_none(&dir).is_err());
+        assert!(super::read_or_none(&file).unwrap().is_some());
         assert!(text.contains('\u{fffd}'));
         std::fs::remove_dir_all(&dir).unwrap();
         // The choices by name, or by the number of before 1.0; written by name.

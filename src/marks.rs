@@ -217,9 +217,8 @@ fn write(file: &Path, changes: &[Edit]) {
     let _locked = crate::config::file_lock(file);
     // A file that is there but cannot be read is not written over with these changes alone:
     // every other mark would be lost.
-    let mut map = match std::fs::read(file) {
-        Ok(text) => parse(&text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+    let mut map = match crate::config::read_or_none(file) {
+        Ok(bytes) => parse(&bytes.unwrap_or_default()),
         Err(e) => {
             return crate::config::save_failed(format!(
                 "Marks and stars not saved: {} cannot be read: {e}",

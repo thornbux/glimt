@@ -4373,9 +4373,8 @@ impl App {
         // Another window's read and write must not fall between ours, or its folder is lost.
         let _held = config::file_lock(&path);
         // One that is there but cannot be read is not written over: its folders would be lost.
-        let on_disk = match std::fs::read(&path) {
-            Ok(text) => sort_folders_from(&text),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        let on_disk = match config::read_or_none(&path) {
+            Ok(bytes) => sort_folders_from(&bytes.unwrap_or_default()),
             Err(e) => {
                 return self.notice =
                     Some(tf!("Could not read the sort manager's folders: {e}", e));
@@ -4737,9 +4736,10 @@ impl App {
         };
         let _held = config::file_lock(&p);
         // One that is there but cannot be read is not written over: its keywords would be lost.
-        let on_disk = match std::fs::read_to_string(&p) {
-            Ok(text) => text.lines().map(str::to_owned).collect(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        let on_disk: Vec<String> = match config::read_or_none(&p) {
+            Ok(bytes) => (String::from_utf8_lossy(&bytes.unwrap_or_default()).lines())
+                .map(str::to_owned)
+                .collect(),
             Err(e) => return self.notice = Some(tf!("Could not read the keyword tree: {e}", e)),
         };
         self.keyword_tree = meta::keyword_tree_changed(&on_disk, add, remove);

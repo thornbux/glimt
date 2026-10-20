@@ -12,6 +12,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - glimt --remote open of a folder or file whose name ends in a space opens it as named, instead of
   a trimmed name that is not there.
 
+### Changed
+
+- The rule that a file which is there but cannot be read is never written over (the settings,
+  marks, the keyword tree, the sort manager's folders, a sidecar) is one function, where each had
+  its own copy.
+
 ## [0.38.5] - 2026-10-20
 
 ### Changed
