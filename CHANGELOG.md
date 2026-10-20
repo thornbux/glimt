@@ -52,6 +52,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A settings file with a byte that is not UTF-8 (a path in another encoding) is saved again like
   any other, instead of every later save being refused with "cannot be read".
 
+### Changed
+
+- What holds places in the file list is let go in one place (list_changed) when the list is read
+  again or files are taken out, the selection is restored by name in one place, the thumbnails'
+  look change in one, and the folder watcher ends with the old list in one, instead of the same
+  lines written by hand in two or three places each.
+
 ## [0.38.4] - 2026-10-20
 
 ### Added

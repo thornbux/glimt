@@ -2106,6 +2106,8 @@ impl App {
             check.stop.store(true, Ordering::Relaxed);
         }
         self.opened_type = Types::NONE;
+        // The old folder's watcher ends; a folder opened next starts its own (watch()).
+        self.watching.fetch_add(1, Ordering::Relaxed);
         self.broken_files.clear();
         self.subdirs.clear();
         self.deleting.clear();
@@ -2142,8 +2144,6 @@ impl App {
         self.forget_old_list();
         self.deleting = deleting;
         self.recursive = false;
-        // No folder to watch: stop the watcher of the last one.
-        self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = root.to_path_buf();
         self.collection = Some(file);
         self.folders.clear();
@@ -2181,8 +2181,6 @@ impl App {
         // As a folder opened: with the subfolders when the menu says so, whatever was shown.
         self.recursive = self.config.show_subfolders;
         self.forget_old_list();
-        // No one folder to watch: stop the watcher of the last one.
-        self.watching.fetch_add(1, Ordering::Relaxed);
         self.dir = PathBuf::from("/");
         self.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
@@ -2488,16 +2486,37 @@ impl App {
         if first {
             self.went_to = self.files.get(self.cur).cloned();
         }
-        if !picked.is_empty() {
-            self.selected = (self.files.iter().enumerate())
-                .filter(|(_, f)| picked.contains(*f))
-                .map(|(i, _)| i)
-                .collect();
-            self.selection_changed(ctx);
-        }
+        self.reselect(ctx, &picked);
         if whole && std::mem::take(&mut self.sort_collection) {
             self.save_collection_order();
         }
+    }
+
+    /// The list is another: what holds places in it is let go, in the one place, for a list
+    /// read again and for files taken out alike. The selection (told to the status bar), the
+    /// anchor, a rectangle or a collection drag, and the decodes in flight, which have old
+    /// places and are rejected by path when they arrive; refill asks for them again.
+    fn list_changed(&mut self, ctx: &egui::Context) {
+        self.files_gen += 1;
+        self.selected.clear();
+        self.selection_changed(ctx);
+        self.anchor = None;
+        self.rubber_band = None;
+        self.dragging = None;
+        self.decodes_pending.clear();
+    }
+
+    /// The selection again by name, after the list was read again or put in another order: a
+    /// Delete or Move after it still acts on what was picked.
+    fn reselect(&mut self, ctx: &egui::Context, names: &HashSet<OsString>) {
+        if names.is_empty() {
+            return;
+        }
+        self.selected = (self.files.iter().enumerate())
+            .filter(|(_, f)| names.contains(*f))
+            .map(|(i, _)| i)
+            .collect();
+        self.selection_changed(ctx);
     }
 
     /// Replace the file list and go to `shown` (otherwise the first image). Textures are kept
@@ -2532,18 +2551,11 @@ impl App {
             .filter_map(|&i| self.files.get(i).cloned())
             .collect();
         self.files = files;
-        self.files_gen += 1;
+        self.list_changed(ctx);
         self.panes = (panes.iter())
             .filter_map(|n| self.files.iter().position(|f| f == n))
             .collect();
         self.details.clear();
-        self.anchor = None;
-        self.selected.clear();
-        self.selection_changed(ctx);
-        // A rectangle or a collection drag holds places in the old list, now other files'.
-        self.rubber_band = None;
-        self.dragging = None;
-        self.decodes_pending.clear();
         self.decode_errors.clear();
         let cur = found.unwrap_or(0);
         // One pass over the list for a handful of textures.
@@ -2595,18 +2607,12 @@ impl App {
             idx += 1;
             removed.binary_search(&(idx - 1)).is_err()
         });
-        self.files_gen += 1;
+        self.list_changed(ctx);
         self.slots = without_indices(std::mem::take(&mut self.slots), removed);
         self.decode_errors = without_indices(std::mem::take(&mut self.decode_errors), removed);
         // The panes' places are other files' now: filled again from the list as it is.
         self.panes.clear();
-        self.selected.clear();
-        self.anchor = None;
-        self.rubber_band = None;
-        self.dragging = None;
         self.update_search(ctx);
-        // Jobs in flight have old indices and are rejected by path; refill requests them again.
-        self.decodes_pending.clear();
         // The next remaining file after the shown one (or the last).
         let cur = self.cur - removed.partition_point(|&r| r < self.cur);
         if self.files.is_empty() {
@@ -2700,11 +2706,7 @@ impl App {
         let selected = !self.selected.is_empty();
         self.replace_files(ctx, files, shown);
         if selected {
-            self.selected = (self.files.iter().enumerate())
-                .filter(|(_, f)| names.contains(*f))
-                .map(|(i, _)| i)
-                .collect();
-            self.selection_changed(ctx);
+            self.reselect(ctx, &names);
         }
         self.save_collection_order();
     }
@@ -3233,8 +3235,7 @@ impl App {
         self.slots.clear();
         self.decodes_pending.clear();
         self.decode_errors.clear();
-        self.thumbs.clear();
-        self.stale_thumbs.extend(self.thumbs_pending.drain());
+        self.thumbs_changed();
         self.last_drawn = None;
         self.refill();
     }
@@ -3850,9 +3851,15 @@ impl App {
     fn sync_thumb_source(&mut self, ppp: f32) {
         let large = self.thumb().x * ppp > 128.0;
         if LARGE_THUMBS.swap(large, Ordering::Relaxed) != large {
-            self.thumbs.clear();
-            self.stale_thumbs.extend(self.thumbs_pending.drain());
+            self.thumbs_changed();
         }
+    }
+
+    /// The thumbnails look otherwise now (their size, source or colours): the made ones go, and
+    /// those being made are marked stale, so the results are made again.
+    fn thumbs_changed(&mut self) {
+        self.thumbs.clear();
+        self.stale_thumbs.extend(self.thumbs_pending.drain());
     }
 
     /// A cell of the icon grid: the thumbnail with its name below.
@@ -3863,8 +3870,7 @@ impl App {
     fn set_thumb_size(&mut self, size: u8) {
         self.config.thumb_size = size;
         self.config.save();
-        self.thumbs.clear();
-        self.stale_thumbs.extend(self.thumbs_pending.drain());
+        self.thumbs_changed();
         self.scroll_to_cur = true;
     }
 
