@@ -83,6 +83,9 @@ config print_per_page=4
 start $P/Summer/fjord_sunrise.jpg
 sleep 3
 cshot main
+# The View menu open: the icons before every item, and the submenus.
+click 173 11; sleep 1; cshot view-menu; click 173 11; sleep 1   # closed by a second click
+key ctrl+o; sleep 2; cshot preferences; key Escape; sleep 1
 key ctrl+i; sleep 2; cshot icon-grid; key ctrl+i
 key ctrl+t; sleep 1; cshot folder-tree; key ctrl+t
 key e; sleep 2; cshot compare; key e
