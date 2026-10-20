@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Rename Many that could not put every name back and could keep no plan for the next start (no
+  state folder, a full disk) says where the files are, instead of promising a repair that cannot
+  come.
 - The orientations that turn an image a quarter, the test for a JPEG by name and which files
   another program reads are each written once, where they were in three, five and two places that
   had to change together.

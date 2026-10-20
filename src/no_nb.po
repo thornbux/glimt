@@ -2101,3 +2101,7 @@ msgstr "Lesing av mappa"
 #: src/print.rs
 msgid "No answer from the print server in two minutes"
 msgstr "Ikke noe svar fra utskriftstjeneren på to minutter"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Kunne ikke døpe om {f} til {t}: {e}; ikke alle navn kunne settes tilbake, og ingen plan kunne lagres: filene med .glimt-rename-*-navn ved siden av er deres"

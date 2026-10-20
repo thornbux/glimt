@@ -836,15 +836,25 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
             // Not all put back (a share that stopped answering): the plan stays, and the next
             // start offers to put the files right.
             if stuck > 0 {
-                if let Some(plan) = plan.take() {
-                    plan.keep();
-                }
-                return Err(tf!(
-                    "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
-                    f,
-                    t,
-                    e
-                ));
+                // With a plan kept, the next start offers the repair; without one (no state
+                // folder, a full disk) the files are told where they are, under hidden names.
+                return Err(match plan.take() {
+                    Some(plan) => {
+                        plan.keep();
+                        tf!(
+                            "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start",
+                            f,
+                            t,
+                            e
+                        )
+                    }
+                    None => tf!(
+                        "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs",
+                        f,
+                        t,
+                        e
+                    ),
+                });
             }
             return Err(tf!(
                 "Could not rename {f} to {t}: {e}; nothing renamed",
