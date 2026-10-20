@@ -718,6 +718,24 @@ expect "on twice: running, past a.png" "$([ "$moved" != a.png ] && echo moved)" 
 expect "off twice: stopped, the image stays" "$([ "$was" = "$still" ] && echo stays)" stays
 expect "random on twice: on" "$(grep -c '^random=true$' $XDG_CONFIG_HOME/glimt/config)" 1
 
+echo "-- --remote open of a folder whose name ends in a space: opened as named"
+for v in new old; do
+    as_version $v
+    d=/tmp/remote-space-$v
+    mkdir -p "$d/sub "
+    convert -size 64x64 xc:red "$d/sub /a.png"
+    convert -size 64x64 xc:blue $d/b.png
+    config
+    start $d
+    sleep 2
+    $BIN --remote open "$d/sub " >/dev/null 2>&1; sleep 2
+    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    quit
+    if [ $v = new ]; then expect "the folder's image shown" "$got" "sub /a.png"
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- --remote select while Preferences is open: answered at once"
 for v in new old; do
     as_version $v

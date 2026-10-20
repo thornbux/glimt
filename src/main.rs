@@ -5530,13 +5530,15 @@ impl App {
             }
             "subfolders on" => return self.set_subfolders(ctx, true),
             "subfolders off" => return self.set_subfolders(ctx, false),
-            other => {
-                if let Some(path) = other.strip_prefix("open ") {
+            other if other.starts_with("open ") => {
+                // The path as it was sent, not trimmed: a folder's name may end in a space.
+                if let Some(path) = command.trim_start().strip_prefix("open ") {
                     self.visit(ctx, PathBuf::from(path));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
                 None
             }
+            _ => None,
         };
         if let Some(action) = action {
             self.run(ctx, action);

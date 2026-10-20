@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- glimt --remote open of a folder or file whose name ends in a space opens it as named, instead of
+  a trimmed name that is not there.
+
 ## [0.38.5] - 2026-10-20
 
 ### Changed

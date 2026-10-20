@@ -208,7 +208,8 @@ Print the paths of the selected files, or of the image shown when none is select
 Select these files of the list (at most 100,000) and show the first; print those that are not
 in it. Sent right after
 .BR open ,
-it waits until the folder is read. It only selects: deleting or moving is left to the user.
+it waits until the folder is read, up to ten seconds; after that nothing is printed and the exit
+status is 1, so a script can try again. It only selects: deleting or moving is left to the user.
 .PP
 .BR current ,
 .B selection
