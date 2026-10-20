@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The orientations that turn an image a quarter, the test for a JPEG by name and which files
+  another program reads are each written once, where they were in three, five and two places that
+  had to change together.
 - A PDF printed to a file and a new thumbnail are written through the one write-beside-and-rename
   every file Glimt writes goes through, instead of two copies of it; a later change to that one
   reaches them too.

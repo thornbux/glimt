@@ -271,9 +271,7 @@ fn worth_marking(path: &Path, error: &str) -> bool {
 
 /// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
 fn needs_program(path: &Path) -> bool {
-    crate::external::is_heif(path)
-        || crate::external::is_video(path)
-        || crate::decoders::for_path(path).is_some()
+    crate::external::ffmpeg_decodes(path) || crate::decoders::for_path(path).is_some()
 }
 
 /// Whether `error` says the program was not found (or may not run), not that the file is bad.

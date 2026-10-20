@@ -40,6 +40,12 @@ pub const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
     &[]
 };
 
+/// A JPEG by its name: the one test, for the scaled decode, Check Images, duplicates, the
+/// orientation field and the EXIF read.
+pub fn is_jpeg(path: &Path) -> bool {
+    has_ext(path, &["jpg", "jpeg"])
+}
+
 pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
     let ext = path.extension().and_then(|e| e.to_str());
     ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))

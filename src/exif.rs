@@ -533,7 +533,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);
         return in_head.or_else(|| find(&std::fs::read(path).ok()?));
     }
-    if crate::files::has_ext(path, &["jpg", "jpeg"])
+    if crate::files::is_jpeg(path)
         && let Some(exif) = jpeg_app1(path, b"Exif\0\0")
     {
         return exif;

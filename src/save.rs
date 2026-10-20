@@ -61,12 +61,7 @@ pub fn save_rotated(
         })
         .unwrap_or_default();
     // Turned a quarter in all: by the view, and by the stored orientation with Auto Rotate.
-    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
-    let stored_quarter = rotate
-        && matches!(
-            stored,
-            Some(Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH)
-        );
+    let stored_quarter = rotate && stored.is_some_and(crate::decode::quarter_turn);
     let quarter = (turns % 2 == 1) != stored_quarter;
     let lossy = !png && webp_lossless(path) == Some(false);
     if let Some(exif) = &mut exif {

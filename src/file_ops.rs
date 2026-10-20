@@ -481,7 +481,7 @@ impl crate::App {
         if self.saving.contains(&path) {
             return;
         }
-        let jpeg = has_ext(&path, &["jpg", "jpeg"]);
+        let jpeg = crate::files::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
         let ctx = ctx.clone();

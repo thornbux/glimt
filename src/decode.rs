@@ -93,13 +93,7 @@ pub fn decode(
             };
             // Shrunk first, then turned: a 100 MP photo with orientation 6 turned whole would
             // need a second 400 MB buffer for a moment.
-            let quarter = matches!(
-                turn,
-                Orientation::Rotate90
-                    | Orientation::Rotate270
-                    | Orientation::Rotate90FlipH
-                    | Orientation::Rotate270FlipH
-            );
+            let quarter = quarter_turn(turn);
             let [w, h] = [img.width() as usize, img.height() as usize];
             let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
             let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
@@ -477,7 +471,7 @@ pub fn scaled_jpeg(
     max: [u32; 2],
     rotate: bool,
 ) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
-    if has_ext(path, &["jpg", "jpeg"]) {
+    if crate::files::is_jpeg(path) {
         return scaled(&read_limited(path).ok()?, max, rotate, None);
     }
     if has_ext(path, raw::EXTS) {
@@ -551,12 +545,11 @@ pub fn scaled(
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let (w, h) = (info.width as f64, info.height as f64);
     // Upright size, which is what has to fit.
-    use image::metadata::Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
-    let turned = matches!(
-        orientation,
-        Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH
-    );
-    let (uw, uh) = if turned { (h, w) } else { (w, h) };
+    let (uw, uh) = if quarter_turn(orientation) {
+        (h, w)
+    } else {
+        (w, h)
+    };
     let scale = (max[0] as f64 / uw).min(max[1] as f64 / uh);
     if scale > 0.5 {
         return None;
@@ -726,7 +719,7 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
 /// it may still decode, grey at the bottom. Why not, if it cannot.
 pub fn check(path: &Path) -> Result<(), String> {
     survive(|| decode(path, [64, 64], false, 0).map(drop))?;
-    if has_ext(path, &["jpg", "jpeg"]) && !jpeg_ends(path)? {
+    if crate::files::is_jpeg(path) && !jpeg_ends(path)? {
         return Err("cut off: the JPEG has no end".into());
     }
     Ok(())
@@ -740,6 +733,13 @@ pub fn check(path: &Path) -> Result<(), String> {
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
     let data = read_limited(path).map_err(|e| e.to_string())?;
     Ok(crate::raw::whole_jpeg(&data))
+}
+
+/// Whether the EXIF orientation turns the image a quarter, so its width and height swap: the
+/// one list of those orientations, for the view, the JPEG scaling and the save.
+pub fn quarter_turn(o: Orientation) -> bool {
+    use Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
+    matches!(o, Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH)
 }
 
 /// `work`, or an error if it panics: a decoder crashing on a broken file must not end the

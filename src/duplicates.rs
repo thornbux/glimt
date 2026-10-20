@@ -85,7 +85,7 @@ pub fn find(
         }
         By::Dimensions => {
             let dims = parallel(&paths, p, |path| {
-                if crate::files::has_ext(path, &["jpg", "jpeg"])
+                if crate::files::is_jpeg(path)
                     && let Some(size) = jpeg_size(path)
                 {
                     return Some(size);
