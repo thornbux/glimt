@@ -579,10 +579,10 @@ impl Config {
 
     /// The settings, and what is wrong in their file: its lines, or that it cannot be read.
     pub fn load_checked() -> (Self, Vec<String>) {
-        let read = config_path().map(std::fs::read);
+        let read = config_path().map(|p| read_lossy(&p));
         let (config, problems) = match read {
             // A byte that is not UTF-8 (a path in another encoding) does not cost the rest.
-            Some(Ok(bytes)) => Self::check(&String::from_utf8_lossy(&bytes)),
+            Some(Ok(text)) => Self::check(&text),
             Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => (
                 Config::default(),
                 vec![format!("cannot be read ({e}); the defaults are used")],
@@ -611,7 +611,7 @@ impl Config {
                 let _held = file_lock(&p);
                 // One that is there but cannot be read is not written over: every setting the
                 // user had would be the defaults then.
-                let on_disk = match std::fs::read_to_string(&p) {
+                let on_disk = match read_lossy(&p) {
                     Ok(text) => text,
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
                     Err(e) => {
@@ -625,6 +625,12 @@ impl Config {
             });
         }
     }
+}
+
+/// A settings file's text, a byte that is not UTF-8 (a path in another encoding) made the
+/// replacement character: read so when loaded, and when saved again, which merges into it.
+fn read_lossy(path: &Path) -> std::io::Result<String> {
+    Ok(String::from_utf8_lossy(&std::fs::read(path)?).into_owned())
 }
 
 /// The value of `key` in key=value lines, as `to_text` writes them.
@@ -1217,6 +1223,15 @@ mod tests {
         );
         assert_eq!(super::parse_last_dir("last_dir=\n"), None);
         assert_eq!(Config::parse("preload=x\nunknown=1"), Config::default());
+        // A byte that is not UTF-8 costs neither the load nor the next save.
+        let dir = std::env::temp_dir().join(format!("glimt-lossy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("config");
+        std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
+        let text = super::read_lossy(&file).unwrap();
+        assert_eq!(Config::parse(&text).delay, 5);
+        assert!(text.contains('\u{fffd}'));
+        std::fs::remove_dir_all(&dir).unwrap();
         // The choices by name, or by the number of before 1.0; written by name.
         let c = Config::parse("fit_mode=width\nfade=2\nview_filter=Inverted\ncpu_use=9");
         assert_eq!((c.fit_mode, c.fade, c.view_filter, c.cpu_use), (1, 2, 2, 2));

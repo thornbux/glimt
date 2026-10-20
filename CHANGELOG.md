@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A settings file with a byte that is not UTF-8 (a path in another encoding) is saved again like
+  any other, instead of every later save being refused with "cannot be read".
+
 ## [0.38.4] - 2026-10-20
 
 ### Added
