@@ -1056,6 +1056,8 @@ impl Drop for Working {
 }
 
 struct App {
+    /// The window's context, for the one caller that gets none: on_exit.
+    ctx: egui::Context,
     // ---- Settings ----
     /// The desktop's dark style and accent colour, once read from the portal.
     desktop_look: theme::Desktop,
@@ -1890,6 +1892,7 @@ impl App {
             clip_rx: None,
             clipboard: None,
             remote_rx,
+            ctx: cc.egui_ctx.clone(),
             has_focus: true,
             apps: HashMap::new(),
             apps_tx,
@@ -3475,7 +3478,7 @@ impl App {
 
     /// Full screen info in the top left corner, from the template in Preferences.
     fn overlay(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
-        self.want_exif();
+        self.want_exif(ui.ctx());
         let path = self.path(self.cur);
         let meta = self
             .meta
@@ -4502,7 +4505,7 @@ impl App {
     // ---- EXIF, keywords, comment and marks ----
 
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
-    fn want_exif(&mut self) {
+    fn want_exif(&mut self, ctx: &egui::Context) {
         let path = self.path(self.cur);
         if self.exif_asked.as_ref() != Some(&path) {
             let _ = self.exif_jobs.send(path.clone());
@@ -4520,7 +4523,7 @@ impl App {
         {
             // Kept while being edited: the reader may answer for the image again.
             if self.meta.as_ref().is_none_or(|m| m.path != path) {
-                self.save_meta();
+                self.save_meta(ctx);
                 self.meta = Some(MetaEdit {
                     path: path.clone(),
                     keywords: meta.keywords_text(),
@@ -4539,7 +4542,7 @@ impl App {
 
     /// File and EXIF details of the shown image, read in the background (Ctrl+K).
     fn exif_panel(&mut self, ui: &mut egui::Ui) {
-        self.want_exif();
+        self.want_exif(ui.ctx());
         egui::Panel::right("exif")
             .resizable(true)
             .default_size(240.0)
@@ -4634,7 +4637,7 @@ impl App {
             .iter()
             .any(egui::Response::lost_focus)
         {
-            self.save_meta();
+            self.save_meta(ui.ctx());
         }
     }
 
@@ -4716,7 +4719,7 @@ impl App {
     /// Set the keyword `tag` (a tree path) on the selected images, or the shown one, or take it
     /// off, in the background; the shown image's keywords show it at once.
     fn tag_files(&mut self, ctx: &egui::Context, tag: String, on: bool) {
-        self.save_meta();
+        self.save_meta(ctx);
         let targets = self.targets();
         if targets.contains(&self.cur)
             && let Some(edit) = &mut self.meta
@@ -4754,7 +4757,7 @@ impl App {
     /// changed: in the thread that writes this window's sidecars, which closing waits for, not
     /// in the window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
-    fn save_meta(&mut self) {
+    fn save_meta(&mut self, ctx: &egui::Context) {
         let Some(edit) = &mut self.meta else { return };
         let access = meta::Access {
             alt: edit.alt.trim().to_owned(),
@@ -4767,12 +4770,22 @@ impl App {
             (edit.alt, edit.extended) = (access.alt.clone(), access.extended.clone());
             edit.access = access.clone();
             let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
-            file_ops::write_sidecar(move || {
-                if let Err(e) = meta::write_access(&path, &access) {
-                    let _ = tx.send(tf!("Could not save the alt text: {e}", e));
-                }
-            });
+            // A sidecar job like the keywords': Move, Rename and Delete wait for it.
+            self.write_sidecars(
+                ctx,
+                tr("Saving the alt text"),
+                vec![path],
+                move |p| match meta::write_access(p, &access) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        let _ = tx.send(tf!("Could not save the alt text: {e}", e));
+                        false
+                    }
+                },
+                |_, _| None,
+            );
         }
+        let Some(edit) = &mut self.meta else { return };
         // Fields as they were shown are no change, also when splitting them again at commas
         // would read them differently ("Smith, John" as one keyword, a comment's last newline).
         if edit.keywords == edit.saved.keywords_text() && edit.comment == edit.saved.comment {
@@ -4792,11 +4805,21 @@ impl App {
         edit.comment = edit.saved.comment.clone();
         let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
         let edited = path.clone();
-        file_ops::write_sidecar(move || {
-            if let Err(e) = meta::write_changed(&path, keywords, comment) {
-                let _ = tx.send(tf!("Could not save the keywords: {e}", e));
-            }
-        });
+        // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
+        // landed, instead of leaving the new keywords behind under the old name.
+        self.write_sidecars(
+            ctx,
+            tr("Saving keywords"),
+            vec![path],
+            move |p| match meta::write_changed(p, keywords.clone(), comment.clone()) {
+                Ok(_) => true,
+                Err(e) => {
+                    let _ = tx.send(tf!("Could not save the keywords: {e}", e));
+                    false
+                }
+            },
+            |_, _| None,
+        );
         // "exif:" searches find keywords and comments too: the edited file, which may not be
         // the shown one any more, is read again when next used.
         if let Ok(name) = edited.strip_prefix(&self.dir) {
@@ -4807,7 +4830,7 @@ impl App {
     /// Add `keywords` to every selected file, in the background.
     fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
         // The shown image's own edit first; it is read again afterwards, with the added ones.
-        self.save_meta();
+        self.save_meta(ctx);
         self.meta = None;
         self.exif_asked = None;
         let targets = self.targets();
@@ -6583,7 +6606,7 @@ impl App {
         }
         // Keywords typed and not yet saved: written now, so closing waits for them.
         if ctx.input(|i| i.viewport().close_requested()) {
-            self.save_meta();
+            self.save_meta(ctx);
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
@@ -7111,7 +7134,7 @@ impl App {
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
     fn exif_fields_window(&mut self, ctx: &egui::Context) {
         if self.exif_window && !self.files.is_empty() {
-            self.want_exif();
+            self.want_exif(ctx);
             let mut open = true;
             let title = format!("EXIF: {}", self.name(self.cur));
             egui::Window::new(title)
@@ -8367,7 +8390,8 @@ impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         remote::stop();
-        self.save_meta();
+        let ctx = self.ctx.clone();
+        self.save_meta(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
@@ -8456,7 +8480,7 @@ impl App {
             self.exif_panel(ui);
         } else {
             // Hidden while a field had the focus: it never lost it.
-            self.save_meta();
+            self.save_meta(ui.ctx());
         }
         self.image_area(ctx, ui, fullscreen, bare);
         if self.projector {

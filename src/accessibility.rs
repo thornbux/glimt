@@ -16,7 +16,7 @@ impl App {
             crate::lang::tr("No images").to_owned()
         } else {
             // Read in the background, as for the EXIF panel: here once for each image.
-            self.want_exif();
+            self.want_exif(ui.ctx());
             let path = self.path(self.cur);
             let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
             // The name the list shows, not the whole path a collection's entry holds.

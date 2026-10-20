@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Keywords, a comment or the alt text typed in the panel are written as a sidecar job like every
+  other sidecar write, so Move, Rename and Delete of that image wait until they have landed,
+  instead of the new keywords being left under the old name while the photo moves without them.
 - Rename and Rename Many run as a job like every other writer: closing waits for them (since
   0.38.2 the window could close in the middle of a batch, and the next start said it was a crash),
   the status bar counts them and Stop puts the names done so far back; and Copy, Move, Delete,

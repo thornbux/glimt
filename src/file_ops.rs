@@ -867,16 +867,6 @@ fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
     WRITER.get_or_init(config::serial)
 }
 
-/// One sidecar change of the keyword fields, through the sidecar thread after the ones before
-/// it; closing waits for it.
-pub(crate) fn write_sidecar(write: impl FnOnce() + Send + 'static) {
-    let writing = Working::new(&config::WRITING);
-    let _ = sidecar_writer().send(Box::new(move || {
-        write();
-        drop(writing);
-    }));
-}
-
 impl crate::App {
     /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
     /// told in the window. Work that `writes` files (the trash, renames, collections) is waited

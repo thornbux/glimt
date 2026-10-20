@@ -2081,3 +2081,15 @@ msgstr "Ikke noe svar fra tjeneren på et minutt"
 #: src/lightroom.rs
 msgid "The catalog is too large to read"
 msgstr "Katalogen er for stor til å lese"
+
+#: src/file_ops.rs
+msgid "stopped"
+msgstr "stoppet"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Lagrer nøkkelord"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Lagrer alt-teksten"
