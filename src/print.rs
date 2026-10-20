@@ -430,13 +430,8 @@ fn pdf_text(text: &str) -> String {
 
 /// The printers CUPS knows, and its default, from `lpstat`.
 pub fn printers() -> (Vec<String>, Option<String>) {
-    let run = |arg: &str| {
-        crate::external::command("lpstat")
-            .arg(arg)
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
-    };
+    // With the usual limit: a CUPS server that does not answer would else hold the dialog.
+    let run = |arg: &str| crate::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
     let names = run("-e").lines().map(str::to_owned).collect();
     // "system default destination: name"
     let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
@@ -473,18 +468,26 @@ pub fn send(
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    let mut child = crate::external::command("lp")
+    use std::os::unix::process::CommandExt;
+    let mut child = crate::external::stoppable_command("lp")
+        .process_group(0)
         .args(lp_args(printer, copies, sides, title))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("lp (from CUPS): {e}"))?;
+    // A CUPS server that does not answer: lp is ended after two minutes and the print told as
+    // failed, instead of the busy pointer for ever.
+    let dog = crate::external::Watchdog::new(child.id(), crate::external::LIMIT * 4);
     let written = match child.stdin.take() {
         Some(input) => write(&mut std::io::BufWriter::new(input)),
         None => Err(std::io::Error::other("no input")),
     };
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if dog.gave_up() {
+        return Err(crate::lang::tr("No answer from the print server in two minutes").into());
+    }
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
     }

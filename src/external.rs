@@ -212,6 +212,63 @@ pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 /// stop both. `child` was started with `stoppable_command` in a process group of its own, which
 /// is stopped after `limit`: TERM first, as in a Flatpak flatpak-spawn passes it on to the
 /// program on the host, which a KILL of the group cannot reach; then KILL what is left.
+/// `program`'s output on `args`, at most `max` bytes, within `LIMIT` and ended if not: the one
+/// way to run a program that answers a question (gio info, gio mime, lpstat), as `output_of`
+/// is for decoders. `None` when it could not run, gave too much, or did not end in time.
+pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -> Option<String> {
+    use std::os::unix::process::CommandExt;
+    let mut child = stoppable_command(program)
+        .process_group(0)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    let (out, _, ok) = output_of(&mut child, max, LIMIT);
+    let out = out.filter(|_| ok)?;
+    Some(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// Ends the process group of `pid` after `limit` unless dropped first (the program ended): for
+/// a program fed on its input or read line by line (gio mount, lp), which `output_of` cannot
+/// run. `gave_up` tells, after the wait, whether it was the dog that ended it.
+pub struct Watchdog {
+    ended: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    gave_up: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Watchdog {
+    pub fn new(pid: u32, limit: std::time::Duration) -> Watchdog {
+        use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+        let dog = Watchdog {
+            ended: std::sync::Arc::new(AtomicBool::new(false)),
+            gave_up: std::sync::Arc::new(AtomicBool::new(false)),
+        };
+        let (ended, gave_up) = (dog.ended.clone(), dog.gave_up.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(limit);
+            if !ended.load(Relaxed) {
+                gave_up.store(true, Relaxed);
+                // SAFETY: a plain signal to the group the program was started as; nothing of
+                // ours is touched.
+                unsafe { crate::decoders::libc_kill(-(pid as i32), 9) };
+            }
+        });
+        dog
+    }
+
+    pub fn gave_up(&self) -> bool {
+        self.gave_up.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl Drop for Watchdog {
+    fn drop(&mut self) {
+        self.ended.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 pub fn output_of(
     child: &mut std::process::Child,
     max: u64,
@@ -335,20 +392,20 @@ pub struct Login {
 /// used without asking.
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
+    // With the usual limit: asked before the mount, this would otherwise wait on a server
+    // that never answers, with no watchdog yet.
     let local = || {
-        let out = command("gio")
-            .args(["info", "-a", "standard::name", uri])
-            .output()
-            .ok()?;
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
+        let out = limited("gio", &["info", "-a", "standard::name", uri], 1 << 16)?;
+        out.lines()
             .find_map(|l| l.strip_prefix("local path: "))
             .map(PathBuf::from)
     };
     if let Some(path) = local() {
         return Ok(path);
     }
-    let mut child = command("gio")
+    use std::os::unix::process::CommandExt;
+    let mut child = stoppable_command("gio")
+        .process_group(0)
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -357,18 +414,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .map_err(|e| Some(format!("Could not run gio: {e}")))?;
     // A server that never answers (a NAS asleep, a VPN down): gio is ended after a minute and
     // the mount told as failed, instead of "Connecting…" and the busy pointer for ever.
-    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-    let (pid, gave_up) = (child.id(), std::sync::Arc::new(AtomicBool::new(false)));
-    let (ended, watch) = (std::sync::Arc::new(AtomicBool::new(false)), gave_up.clone());
-    let done = ended.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(LIMIT * 2);
-        if !done.load(Relaxed) {
-            watch.store(true, Relaxed);
-            // SAFETY: a plain signal to the process gio was started as; nothing of ours is touched.
-            unsafe { crate::decoders::libc_kill(pid as i32, 9) };
-        }
-    });
+    let dog = Watchdog::new(child.id(), LIMIT * 2);
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
     // Prompts end in ": " without a newline, the next one printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
@@ -408,8 +454,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         answered = text.len();
     }
     let out = child.wait_with_output().map_err(|e| Some(e.to_string()))?;
-    ended.store(true, Relaxed);
-    if gave_up.load(Relaxed) {
+    if dog.gave_up() {
         return Err(Some(
             crate::lang::tr("No answer from the server in a minute").into(),
         ));
@@ -460,13 +505,8 @@ fn uri_host(uri: &str) -> &str {
 /// Applications registered for the type of `path` (gio mime), as (name, desktop file), Glimt
 /// itself left out.
 pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
-    let gio = |args: &[&std::ffi::OsStr]| {
-        command("gio")
-            .args(args)
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
-    };
+    // With the usual limit: a file on a share that went away would else hold the menu at "…".
+    let gio = |args: &[&std::ffi::OsStr]| limited("gio", args, 1 << 16).unwrap_or_default();
     let info = gio(&[
         "info".as_ref(),
         "-a".as_ref(),
@@ -586,6 +626,28 @@ fn host_data_dirs(home: &str) -> [String; 2] {
 
 #[cfg(test)]
 mod tests {
+    /// The dog ends a program that does not: sleep 30 is over in a tenth of a second.
+    #[test]
+    fn the_watchdog_ends_a_program_in_time() {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let dog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(100));
+        let start = std::time::Instant::now();
+        assert!(!child.wait().unwrap().success());
+        assert!(dog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
+        // One that ends in time is left alone, and the dog says so.
+        let mut quick = std::process::Command::new("true")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let dog = super::Watchdog::new(quick.id(), std::time::Duration::from_secs(10));
+        assert!(quick.wait().unwrap().success() && !dog.gave_up());
+    }
+
     /// A program is there or not, and the shell is asked once.
     #[test]
     fn knows_what_the_host_has() {

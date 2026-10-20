@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Asking gio for a share's local path before mounting it, the Open With list (gio info and gio
+  mime) and lpstat have the usual time limit, and lp is ended after two minutes without an answer,
+  instead of Connecting…, an Open With list at … or the busy pointer for ever while a server does
+  not answer; the mount's own watchdog is the one every such program uses.
 - A folder listing, the selection's size or the subfolders whose thread broke no longer leave the
   busy pointer, Reading folder…, auto refresh or a waiting --remote select stuck for the window's
   life: told once, and nothing waits; and the Pan view stops reading an old list's days when the

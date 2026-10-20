@@ -2097,3 +2097,7 @@ msgstr "Lagrer alt-teksten"
 #: src/main.rs
 msgid "Reading the folder"
 msgstr "Lesing av mappa"
+
+#: src/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Ikke noe svar fra utskriftstjeneren på to minutter"
