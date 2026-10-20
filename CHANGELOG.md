@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A program installed while Glimt runs (zenity, sqlite3, ffmpeg) is found without a restart: only
+  a program that is there is remembered, one that is not is asked for again.
 - glimt --remote open of a folder or file whose name ends in a space opens it as named, instead of
   a trimmed name that is not there.
 

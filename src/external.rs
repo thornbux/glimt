@@ -582,9 +582,10 @@ pub fn stoppable_command(program: &str) -> std::process::Command {
 }
 
 /// Whether `program` is there to run: on the host in a Flatpak, where flatpak-spawn starts
-/// even for one the host lacks and fails only afterwards. Asked of the shell once for each
-/// program and remembered. The one way every fallback decides: zenity or kdialog, gio or
-/// xdg-open, which screen saver inhibitor, sqlite3.
+/// even for one the host lacks and fails only afterwards. Asked of the shell and remembered
+/// once it is there; one that is not is asked for again, so a program installed while Glimt
+/// runs is found without a restart. The one way every fallback decides: zenity or kdialog, gio
+/// or xdg-open, which screen saver inhibitor, sqlite3.
 pub fn host_has(program: &str) -> bool {
     static KNOWN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
         std::sync::OnceLock::new();
@@ -596,7 +597,9 @@ pub fn host_has(program: &str) -> bool {
         .args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program])
         .status()
         .is_ok_and(|s| s.success());
-    known.lock().unwrap().insert(program.to_owned(), has);
+    if has {
+        known.lock().unwrap().insert(program.to_owned(), true);
+    }
     has
 }
 
@@ -626,6 +629,15 @@ fn host_data_dirs(home: &str) -> [String; 2] {
 
 #[cfg(test)]
 mod tests {
+    /// A program that is there is remembered; one that is not is asked for again, so it is
+    /// found once installed.
+    #[test]
+    fn host_has_remembers_only_what_is_there() {
+        assert!(super::host_has("sh") && super::host_has("sh"));
+        assert!(!super::host_has("glimt-no-such-program-xyz"));
+        assert!(!super::host_has("glimt-no-such-program-xyz"));
+    }
+
     /// The dog ends a program that does not: sleep 30 is over in a tenth of a second.
     #[test]
     fn the_watchdog_ends_a_program_in_time() {
