@@ -202,6 +202,7 @@ impl crate::App {
             failed,
             moved,
             copied,
+            relist,
         } in self.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             // Moved before their sources are taken for deleted ones: the marks go along first.
@@ -228,7 +229,7 @@ impl crate::App {
             // The files that are still there come back into the list, from its folder or
             // the collection's file. A listing that started before the files went still has
             // them: the folder is read again after it.
-            self.relist |= failed || (!paths.is_empty() && self.listing_rx.is_some());
+            self.relist |= failed || relist || (!paths.is_empty() && self.listing_rx.is_some());
         }
     }
 
@@ -357,9 +358,10 @@ impl crate::App {
             let _ = deleted_tx.send(Deleted {
                 paths: if keep { Vec::new() } else { paths },
                 gone,
-                failed: relist,
+                failed: !errors.is_empty() || job.stopped(),
                 moved: put,
                 copied: keep,
+                relist,
             });
             drop(job);
             drop(pointer);

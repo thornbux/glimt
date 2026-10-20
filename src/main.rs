@@ -220,6 +220,8 @@ struct Deleted {
     failed: bool,
     moved: Vec<(PathBuf, PathBuf)>,
     copied: bool,
+    /// The folder is to be read again: a plugin edited files in it, a repair renamed them.
+    relist: bool,
 }
 
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
@@ -7151,7 +7153,7 @@ impl App {
             // One report when the steps are done, which also reads the folder again: read
             // before, the list would show the names of the middle.
             let _ = deleted.send(Deleted {
-                failed: true,
+                relist: true,
                 moved,
                 ..Default::default()
             });
@@ -7915,7 +7917,7 @@ impl App {
                     let _ = edited.send(f);
                 }
                 let _ = deleted.send(Deleted {
-                    failed: true,
+                    relist: true,
                     ..Default::default()
                 });
                 if let Err(e) = result {

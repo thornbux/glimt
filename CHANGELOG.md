@@ -57,6 +57,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A plugin's edits and a repair's renames ask for the folder to be read again by name (relist) in
+  the one report every file operation sends, instead of posing as a failed delete.
 - What holds places in the file list is let go in one place (list_changed) when the list is read
   again or files are taken out, the selection is restored by name in one place, the thumbnails'
   look change in one, and the folder watcher ends with the old list in one, instead of the same
