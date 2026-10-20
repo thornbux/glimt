@@ -2516,8 +2516,15 @@ impl App {
         let mut slots: HashMap<OsString, Slot> = (self.slots.drain())
             .filter_map(|(i, s)| Some((self.files.get(i)?.clone(), s)))
             .collect();
+        // The panes too: their places are other files' in the new list, their files are not.
+        let panes: Vec<OsString> = (self.panes.iter())
+            .filter_map(|&i| self.files.get(i).cloned())
+            .collect();
         self.files = files;
         self.files_gen += 1;
+        self.panes = (panes.iter())
+            .filter_map(|n| self.files.iter().position(|f| f == n))
+            .collect();
         self.details.clear();
         self.anchor = None;
         self.selected.clear();

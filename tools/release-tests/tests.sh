@@ -549,6 +549,28 @@ for v in new old; do
 done
 as_version new
 
+echo "-- a slideshow one pane at a time, the folder read again: the second pane keeps its file"
+for v in new old; do
+    as_version $v
+    d=/tmp/panes-refresh-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.png
+    convert -size 300x200 xc:blue $d/b.png
+    convert -size 300x200 xc:lime $d/c.png
+    config layout=2x1 layout_turns=2x1 delay=60 auto_refresh=true
+    start $d/a.png
+    sleep 2
+    key s; sleep 2                                  # a in the first pane, b in the second
+    convert -size 300x200 xc:yellow $d/aa.png       # another program: now at place 1
+    sleep 3
+    shot panes-refresh-$v
+    quit
+    got=$(colour panes-refresh-$v 1020 410)
+    if [ $v = new ]; then expect "the second pane still shows b.png" "$got" blue
+    else note "old: $got"; fi
+done
+as_version new
+
 echo "-- a file of the same name opened in another folder: not at the zoom of the one before"
 for v in new old; do
     as_version $v

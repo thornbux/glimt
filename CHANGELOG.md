@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A layout's other panes keep their files when the folder is read again (auto refresh, another
+  sort order, a file added), as the shown image does, instead of keeping their places in the list,
+  which are other files' then: a slideshow one pane at a time no longer shows another image in a
+  pane after a refresh.
 - A Rename Many cut short by a crash and finished at the next start tells marks, stars and
   collections about the renames, so they follow the files as after a finished Rename Many; and the
   list is read again when the steps are done, not before.
