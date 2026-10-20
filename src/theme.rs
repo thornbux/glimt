@@ -393,6 +393,20 @@ fn parse_accent(text: &str) -> Option<egui::Color32> {
 
 #[cfg(test)]
 mod tests {
+    /// gdbus's and gsettings' answers broken in thousands of ways: no panic.
+    #[test]
+    fn survives_broken_desktop_answers() {
+        for seed in ["(<uint32 1>,)", "(<(0.93, 0.36, 0.0)>,)", "1.25"] {
+            for bytes in crate::broken(seed.as_bytes()) {
+                let text = String::from_utf8_lossy(&bytes);
+                super::parse_scheme(&text);
+                super::parse_contrast(&text);
+                super::parse_accent(&text);
+                super::parse_scale(&text);
+            }
+        }
+    }
+
     #[test]
     fn reads_the_portal() {
         assert_eq!(super::parse_scheme("(<uint32 1>,)\n"), Some(true));

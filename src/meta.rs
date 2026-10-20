@@ -1096,6 +1096,8 @@ mod tests {
             set(&xmp, &Meta::default(), false);
             parse_access(&xmp);
             set_access(&xmp, &Access::default(), true);
+            set_keywords(&xmp, &meta, true);
+            element(&xmp, "dc:subject");
         }
     }
 

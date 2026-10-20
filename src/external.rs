@@ -776,9 +776,14 @@ mod tests {
             t:tile_vertical_offset=0|t:stream_index=1|t:tile_horizontal_offset=512|\
             t:tile_vertical_offset=0\n";
         for bytes in crate::broken(probe.as_bytes()) {
-            if let Some(filter) = super::heif_filter(&String::from_utf8_lossy(&bytes)) {
+            let text = String::from_utf8_lossy(&bytes);
+            if let Some(filter) = super::heif_filter(&text) {
                 assert!(!filter.contains(';'), "{filter}");
             }
+            super::heif_size(&text);
+        }
+        for bytes in crate::broken(b"width=1920\nheight=1080\nrotation=-90\n") {
+            super::size_in(&String::from_utf8_lossy(&bytes));
         }
     }
 }

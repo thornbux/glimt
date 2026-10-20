@@ -151,6 +151,18 @@ impl Plugin {
 
 #[cfg(test)]
 mod tests {
+    /// A plugin's desktop file broken in thousands of ways: no panic.
+    #[test]
+    fn survives_broken_desktop_files() {
+        let seed = b"[Desktop Entry]\nName=Stamp\nExec=stamp %f \"a b\" %%\nType=Application\n";
+        for bytes in crate::broken(seed) {
+            super::parse(
+                &String::from_utf8_lossy(&bytes),
+                std::path::Path::new("/tmp"),
+            );
+        }
+    }
+
     /// The files where %F stands, %% as a %, other field codes left out.
     #[test]
     fn builds_the_command_line() {

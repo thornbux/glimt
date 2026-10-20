@@ -447,6 +447,13 @@ pub fn transformed(
 mod tests {
     /// A damaged colour profile in a photo gives the photo as it is, never a panic.
     #[test]
+    fn survives_broken_device_lists() {
+        for bytes in crate::broken(b"([objectpath '/a', '/b'],)") {
+            super::first_quoted(&String::from_utf8_lossy(&bytes));
+        }
+    }
+
+    #[test]
     fn survives_broken_profiles() {
         let img = image::DynamicImage::new_rgb8(2, 2);
         for bytes in crate::broken(&super::ADOBE_RGB) {

@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The rating set in a sidecar, the keywords set in one, the info and print template, ffprobe's
+  sizes, the desktop's theme answers, colord's device list and plugin desktop files are fed broken
+  input in every test run, as the other parsers are.
 - A plugin, Open With or Play Video program's output is not kept in memory while it runs (a
   converter writing a 2 GB file to its output would be), only its errors.
 - A Rename Many that could not put every name back and could keep no plan for the next start (no

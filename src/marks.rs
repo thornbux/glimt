@@ -307,6 +307,13 @@ mod tests {
         for bytes in crate::broken(seed) {
             let _ = super::parse(&bytes);
         }
+        // The rating set in a sidecar broken in thousands of ways, as an attribute and an element.
+        let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
+                   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"><xmp:Rating>-1</xmp:Rating>\
+                   </rdf:Description></rdf:RDF></x:xmpmeta>";
+        for bytes in crate::broken(xmp.as_bytes()) {
+            let _ = super::set_rating(&String::from_utf8_lossy(&bytes), 4);
+        }
     }
 
     #[test]

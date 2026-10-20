@@ -8886,6 +8886,15 @@ fn frame_at(frame_ms: &[u32], share: f64) -> usize {
 
 #[cfg(test)]
 mod tests {
+    /// The full screen info's and the print's template broken in thousands of ways: no panic.
+    #[test]
+    fn survives_broken_templates() {
+        let seed = b"%name% | %exif:DateTimeOriginal%\\n[%keywords%] %stars% %%";
+        for bytes in crate::broken(seed) {
+            super::fill_template(&String::from_utf8_lossy(&bytes), |_| "x".into());
+        }
+    }
+
     /// The median, 90 % and the slowest frame from the counts by milliseconds.
     #[test]
     fn frame_shares() {
