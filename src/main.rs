@@ -189,6 +189,8 @@ struct Pan {
     days_rx: Option<mpsc::Receiver<(Vec<pan::Day>, usize, bool)>>,
     /// Set when the days being made are no longer wanted: the thread stops reading.
     days_stop: Arc<AtomicBool>,
+    /// The list version the days being made are for.
+    days_for: usize,
     /// The rows for this many columns, and their height.
     rows: Vec<(f32, pan::Row)>,
     columns: usize,
@@ -2412,17 +2414,23 @@ impl App {
 
     /// Take the folder listing if it is ready, waiting up to `wait`.
     fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
-        if let Some(Ok(dirs)) = self.subdirs_rx.as_ref().map(mpsc::Receiver::try_recv) {
+        // A thread that broke leaves no folders, and nothing waiting for it.
+        if let Took::Answer(dirs) = took(&mut self.subdirs_rx) {
             self.subdirs = dirs;
-            self.subdirs_rx = None;
         }
         // The tree's images so far: only the last that came, one list a frame at most.
         if let Some(part) = self.part_rx.as_ref().and_then(|rx| rx.try_iter().last()) {
             self.take_files(ctx, part, false);
         }
-        let Some(Ok((dirs, files))) = self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait))
-        else {
-            return;
+        let (dirs, files) = match self.listing_rx.as_ref().map(|rx| rx.recv_timeout(wait)) {
+            Some(Ok(listed)) => listed,
+            // The listing thread broke: told once, and nothing (the busy pointer, a parked
+            // --remote select, auto refresh) waits for it any more.
+            Some(Err(mpsc::RecvTimeoutError::Disconnected)) => {
+                (self.listing_rx, self.subdirs_rx, self.part_rx) = (None, None, None);
+                return self.stopped(tr("Reading the folder"));
+            }
+            _ => return,
         };
         self.subdirs_rx = None;
         self.part_rx = None;
@@ -3042,9 +3050,11 @@ impl App {
             // fine for a status bar figure.
             self.total_size = self.total_size.saturating_sub(freed);
         }
-        if let Some(Ok(size)) = self.selected_rx.as_ref().map(mpsc::Receiver::try_recv) {
-            self.selected_size = Some(size);
-            self.selected_rx = None;
+        match took(&mut self.selected_rx) {
+            Took::Answer(size) => self.selected_size = Some(size),
+            // The summing thread broke: no size, instead of "calculating…" for good.
+            Took::Gone => self.selected_size = Some(0),
+            Took::Nothing => {}
         }
         drain(&mut self.match_rx, &mut self.match_size);
         drain(&mut self.size_rx, &mut self.total_size);

@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A folder listing, the selection's size or the subfolders whose thread broke no longer leave the
+  busy pointer, Reading folder…, auto refresh or a waiting --remote select stuck for the window's
+  life: told once, and nothing waits; and the Pan view stops reading an old list's days when the
+  folder or its order changes, instead of starting the new ones only after every old file was
+  read.
 - A layout's other panes keep their files when the folder is read again (auto refresh, another
   sort order, a file added), as the shown image does, instead of keeping their places in the list,
   which are other files' then: a slideshow one pane at a time no longer shows another image in a

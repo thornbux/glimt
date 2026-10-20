@@ -2093,3 +2093,7 @@ msgstr "Lagrer nøkkelord"
 #: src/main.rs
 msgid "Saving the alt text"
 msgstr "Lagrer alt-teksten"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Lesing av mappa"

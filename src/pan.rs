@@ -225,10 +225,17 @@ impl crate::App {
         // The days again when the list changed, also only its order; only the visible rows are
         // drawn.
         let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.files_gen);
+        // Days still being made for a list that changed: stopped, so the new list's start now
+        // instead of after every old file is read.
+        if pan.days_rx.is_some() && pan.days_for != self.files_gen {
+            pan.days_stop.store(true, Ordering::Relaxed);
+            pan.days_rx = None;
+        }
         if stale && pan.days_rx.is_none() {
             let (tx, rx) = mpsc::channel();
             let (dir, files, exif) = (self.dir.clone(), self.files.clone(), pan.exif);
             let (ctx, made) = (ctx.clone(), self.files_gen);
+            pan.days_for = made;
             let pointer = Working::new(&self.busy);
             pan.days_stop = Arc::default();
             let stop = pan.days_stop.clone();
