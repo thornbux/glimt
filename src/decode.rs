@@ -78,10 +78,18 @@ pub fn decode(
     let (img, icc, orig) = match scaled_jpeg(path, max, rotate) {
         Some(scaled) => scaled,
         None => {
-            let (img, icc, turn) = if page > 0 {
-                (tiff_page(path, page)?, None, Orientation::NoTransforms)
+            // HEIC, AVIF and video frames come from ffmpeg no larger than the box, with their
+            // real size from the probe; the others whole, and shrunk here.
+            let to_box = crate::external::ffmpeg_decodes(path).then_some(max);
+            let (img, icc, turn, size) = if page > 0 {
+                (
+                    tiff_page(path, page)?,
+                    None,
+                    Orientation::NoTransforms,
+                    None,
+                )
             } else {
-                load_unturned(path, rotate, None)?
+                load_unturned(path, rotate, to_box)?
             };
             // Shrunk first, then turned: a 100 MP photo with orientation 6 turned whole would
             // need a second 400 MB buffer for a moment.
@@ -93,7 +101,7 @@ pub fn decode(
                     | Orientation::Rotate270FlipH
             );
             let [w, h] = [img.width() as usize, img.height() as usize];
-            let orig = if quarter { [h, w] } else { [w, h] };
+            let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
             let mut img = shrink(img, if quarter { [max[1], max[0]] } else { max })?;
             img.apply_orientation(turn);
             (img, icc, orig)
@@ -352,8 +360,7 @@ pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> 
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
         None => {
-            let (img, icc) = load_for(path, rotate, Some(max))?;
-            let size = [img.width() as usize, img.height() as usize];
+            let (img, icc, size) = load_for(path, rotate, Some(max))?;
             (img, icc, size)
         }
     };
@@ -366,48 +373,53 @@ pub fn load_icc(
     path: &Path,
     rotate: bool,
 ) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    load_for(path, rotate, None)
+    let (img, icc, _) = load_for(path, rotate, None)?;
+    Ok((img, icc))
 }
 
+/// An image as read, its ICC profile, the EXIF turn still to do, and its real size where it
+/// came smaller.
+type Unturned = (
+    image::DynamicImage,
+    Option<Vec<u8>>,
+    Orientation,
+    Option<[usize; 2]>,
+);
+
 /// As `load_icc`, for a thumbnail no larger than `max`: HEIC, AVIF and video frames come so
-/// from ffmpeg, where other formats are shrunk after. Not for the view, which needs the
-/// image's own size.
-pub fn load_for(
-    path: &Path,
-    rotate: bool,
-    max: Option<[u32; 2]>,
-) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    let (mut img, icc, turn) = load_unturned(path, rotate, max)?;
+/// from ffmpeg, where other formats are shrunk after; and the image's real size, upright.
+pub fn load_for(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Small, String> {
+    let (mut img, icc, turn, size) = load_unturned(path, rotate, max)?;
     img.apply_orientation(turn);
-    Ok((img, icc))
+    let size = size.unwrap_or([img.width() as usize, img.height() as usize]);
+    Ok((img, icc, size))
 }
 
 /// As `load_for`, but the EXIF turn the image crate reads is returned, not done: the view
 /// shrinks first and turns the small image, not a copy of the whole one. Other formats come
-/// upright already (their turn is `NoTransforms`).
-fn load_unturned(
-    path: &Path,
-    rotate: bool,
-    max: Option<[u32; 2]>,
-) -> Result<(image::DynamicImage, Option<Vec<u8>>, Orientation), String> {
+/// upright already (their turn is `NoTransforms`). The size is given only where the image
+/// came smaller than it is (ffmpeg's formats at `max`).
+fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unturned, String> {
     let upright = Orientation::NoTransforms;
     // Only ffmpeg's formats and SVG take it; without them it has no use.
     #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
     let _ = max;
     #[cfg(feature = "video")]
     if crate::external::is_video(path) {
-        return Ok((crate::video::preview(path, max)?, None, upright));
+        let (img, size) = crate::video::preview(path, max)?;
+        return Ok((img, None, upright, size));
     }
     if has_ext(path, raw::EXTS) {
-        return Ok((raw::load(path, rotate)?, None, upright));
+        return Ok((raw::load(path, rotate)?, None, upright, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
     if crate::external::is_heif(path) {
-        return Ok((crate::external::heif(path, max)?, None, upright));
+        let (img, size) = crate::external::heif(path, max)?;
+        return Ok((img, None, upright, size));
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::files::SVG_EXTS) {
-        return Ok((svg(path, max)?, None, upright));
+        return Ok((svg(path, max)?, None, upright, None));
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::files::JXL_EXTS) {
@@ -418,10 +430,10 @@ fn load_unturned(
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
-        return Ok((img, icc, upright));
+        return Ok((img, icc, upright, None));
     }
     if let Some(decoder) = crate::decoders::for_path(path) {
-        return Ok((decoder.decode(path)?, None, upright));
+        return Ok((decoder.decode(path)?, None, upright, None));
     }
     let dec = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
@@ -432,7 +444,7 @@ fn load_unturned(
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::files::TIFF_LIKE) => {
             return tiff_page(path, 0)
-                .map(|img| (img, None, upright))
+                .map(|img| (img, None, upright, None))
                 .map_err(|_| e);
         }
         dec => dec?,
@@ -453,7 +465,7 @@ fn load_unturned(
     if has_ext(path, &["hdr"]) {
         img = tone_mapped(img.into_rgb32f());
     }
-    Ok((img, icc, turn))
+    Ok((img, icc, turn, None))
 }
 
 /// A JPEG, or the preview in a RAW file, decoded at 1/2, 1/4 or 1/8 of its size when that still

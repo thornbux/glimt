@@ -10,9 +10,13 @@ pub const EXTS: &[&str] = &[
 ];
 
 /// A frame one second in (the very first one is often black), or the first frame for
-/// shorter videos, no larger than `max` if given. ffmpeg applies the rotation stored in the
-/// video.
-pub fn preview(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
-    use crate::external::ffmpeg_frame;
-    ffmpeg_frame(path, "1", max).or_else(|_| ffmpeg_frame(path, "0", max))
+/// shorter videos, no larger than `max` if given, and then the video's real size. ffmpeg
+/// applies the rotation stored in the video.
+pub fn preview(
+    path: &Path,
+    max: Option<[u32; 2]>,
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
+    use crate::external::{ffmpeg_frame, probe_size};
+    let img = ffmpeg_frame(path, "1", max).or_else(|_| ffmpeg_frame(path, "0", max))?;
+    Ok((img, max.and_then(|_| probe_size(path))))
 }

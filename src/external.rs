@@ -34,11 +34,15 @@ fn fit(max: Option<[u32; 2]>) -> Option<String> {
     ))
 }
 
-/// A HEIC or AVIF photo, no larger than `max` if given. Phones store it as a grid of tiles,
-/// which ffmpeg reads as separate streams with their places in a "Tile Grid" group: they are
-/// put together with xstack, cut to the image size and turned by the stored rotation.
+/// A HEIC or AVIF photo, no larger than `max` if given, and then its real size, upright, from
+/// the probe. Phones store it as a grid of tiles, which ffmpeg reads as separate streams with
+/// their places in a "Tile Grid" group: they are put together with xstack, cut to the image
+/// size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
-pub fn heif(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
+pub fn heif(
+    path: &Path,
+    max: Option<[u32; 2]>,
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
     let mut child = stoppable_command("ffprobe")
@@ -52,16 +56,90 @@ pub fn heif(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, S
         .spawn()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
     let (probe, _, _) = output_of(&mut child, 1 << 20, LIMIT);
-    match heif_filter(&String::from_utf8_lossy(&probe.unwrap_or_default())) {
+    let probe = probe.unwrap_or_default();
+    let probe = String::from_utf8_lossy(&probe);
+    match heif_filter(&probe) {
         Some(filter) => {
             let filter = match fit(max) {
                 Some(scale) => filter.replace("[out]", &format!(",{scale}[out]")),
                 None => filter,
             };
-            ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"])
+            let img = ffmpeg_ppm(path, &[], &["-filter_complex", &filter, "-map", "[out]"])?;
+            Ok((img, max.and_then(|_| heif_size(&probe))))
         }
-        None => ffmpeg_frame(path, "0", max),
+        None => Ok((
+            ffmpeg_frame(path, "0", max)?,
+            max.and_then(|_| probe_size(path)),
+        )),
     }
+}
+
+/// The size of a tiled HEIF, upright: its "Tile Grid" line's width, height and rotation.
+#[cfg(any(feature = "heic", feature = "avif", test))]
+fn heif_size(probe: &str) -> Option<[usize; 2]> {
+    let grid = probe.lines().find(|l| l.contains("type=Tile Grid"))?;
+    let value = |key: &str| {
+        (grid.split('|').filter_map(|f| f.split_once('=')))
+            .find(|f| f.0.ends_with(key))
+            .and_then(|f| f.1.parse::<i64>().ok())
+    };
+    upright(
+        value("tile_grid:width")?,
+        value("tile_grid:height")?,
+        value("rotation"),
+    )
+}
+
+/// The size of the picture in `path`, upright, asked of ffprobe: for a frame decoded no larger
+/// than the view, which still shows and zooms it at its real size.
+#[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
+pub fn probe_size(path: &Path) -> Option<[usize; 2]> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    let mut child = stoppable_command("ffprobe")
+        .process_group(0)
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries"])
+        .arg("stream=width,height:stream_side_data=rotation")
+        .args(["-of", "default=nw=1"])
+        .args(FILES_ONLY)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let (out, _, _) = output_of(&mut child, 1 << 16, LIMIT);
+    size_in(&String::from_utf8_lossy(&out?))
+}
+
+/// The width=, height= and rotation= lines of ffprobe's default output: the size, upright.
+#[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
+fn size_in(text: &str) -> Option<[usize; 2]> {
+    let value = |key: &str| {
+        (text
+            .lines()
+            .find_map(|l| l.trim().strip_prefix(key)?.strip_prefix('=')))
+        .and_then(|v| v.trim().parse::<i64>().ok())
+    };
+    upright(value("width")?, value("height")?, value("rotation"))
+}
+
+/// `w` × `h` as shown: swapped for a quarter turn, none for a size that is no size.
+#[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
+fn upright(w: i64, h: i64, rotation: Option<i64>) -> Option<[usize; 2]> {
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let (w, h) = (w as usize, h as usize);
+    match rotation.unwrap_or(0).rem_euclid(360) {
+        90 | 270 => Some([h, w]),
+        _ => Some([w, h]),
+    }
+}
+
+/// Whether ffmpeg decodes `path` (HEIC, AVIF, a video): to the box, with its size probed.
+pub fn ffmpeg_decodes(path: &Path) -> bool {
+    is_video(path) || is_heif(path)
 }
 
 /// The ffmpeg filter that puts the tiles of the "Tile Grid" in ffprobe's compact output
@@ -606,6 +684,26 @@ mod tests {
         // A value that is not a number is left out, and adds no filter of its own.
         let hostile = probe.replace("t:stream_index=1", "t:stream_index=1];movie=x[a");
         assert!(!super::heif_filter(&hostile).unwrap().contains("movie"));
+    }
+
+    /// The real size of a frame decoded to the box: a tiled HEIF's from its grid line, a
+    /// video's from the stream, both turned upright by the stored rotation.
+    #[test]
+    fn sizes_from_the_probe() {
+        let grid = "stream_group|index=0|type=Tile Grid|c:tile_grid:width=1000|\
+            c:tile_grid:height=500|c:rotation=-90|t:stream_index=0\n";
+        assert_eq!(super::heif_size(grid), Some([500, 1000]));
+        assert_eq!(super::heif_size("stream|index=0\n"), None);
+        assert_eq!(
+            super::size_in("width=1920\nheight=1080\n"),
+            Some([1920, 1080])
+        );
+        assert_eq!(
+            super::size_in("width=1920\nheight=1080\nrotation=-90\n"),
+            Some([1080, 1920])
+        );
+        assert_eq!(super::size_in("width=0\nheight=1080\n"), None);
+        assert_eq!(super::size_in("height=1080\n"), None);
     }
 
     /// ffprobe output broken in thousands of ways: no panic, and only numbers in the filter.

@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- HEIC, AVIF and video frames are decoded no larger than the view (ffmpeg scales them), with the
+  real size from ffprobe for the zoom and the status bar, instead of a whole 48 MP frame for each
+  image shown or preloaded; the print and thumbnails report their real size too.
 - A settings file with a byte that is not UTF-8 (a path in another encoding) is saved again like
   any other, instead of every later save being refused with "cannot be read".
 
