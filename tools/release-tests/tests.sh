@@ -1017,6 +1017,26 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Rename Many, closed at once: the window waits, every file renamed, no plan left"
+for v in new old; do
+    as_version $v
+    d=/tmp/rename-close-$v
+    mkdir -p $d
+    convert -size 64x64 xc:red $d/00000.jpg
+    for i in $(seq -w 1 2999); do ln $d/00000.jpg $d/$i.jpg; done
+    config
+    start $d
+    sleep 2
+    key ctrl+a; key ctrl+r; sleep 1
+    xdotool key Return                 # Rename Many as *_###, in the background
+    $BIN --remote-all quit >/dev/null 2>&1
+    quit
+    got="$(ls $d | grep -c '_[0-9]*\.jpg') $(ls $d | grep -vc '_[0-9]*\.jpg') $(ls $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l | tr -d ' ')"
+    if [ $v = new ]; then expect "3,000 renamed, none left, no plan" "$got" "3000 0 0"
+    else note "old: renamed, not renamed, plans: $got"; fi
+done
+as_version new
+
 echo "-- Rename Many failing halfway: names that swap, and one too long"
 d=/tmp/rename-many
 long=$(printf 'b%.0s' $(seq 251))

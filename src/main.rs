@@ -236,6 +236,19 @@ struct Job {
 }
 
 impl Job {
+    /// A job on `total` files, holding the writing count until it is dropped.
+    fn new(doing: &'static str, total: usize, sidecars: bool) -> Job {
+        Job {
+            doing,
+            total,
+            done: AtomicUsize::new(0),
+            stop: Default::default(),
+            started: Instant::now(),
+            _writing: Working::new(&config::WRITING),
+            sidecars,
+        }
+    }
+
     /// Whether Stop was pressed.
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::Relaxed)
@@ -5913,10 +5926,6 @@ impl App {
             }
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Print => {}
-            // One Rename Many at a time: its result is awaited, and its plan kept for a crash.
-            Action::Rename if self.renaming.is_some() => {
-                self.notice = Some(tr("Rename Many is still renaming").into());
-            }
             Action::Rename if self.targets().len() > 1 => {
                 self.ask_about_targets();
                 self.prompt = Some((Prompt::RenameMany, "*_###".into()));

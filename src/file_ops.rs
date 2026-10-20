@@ -69,12 +69,17 @@ impl crate::App {
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
         let saving = (self.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
         let writing = self.file_jobs.iter().any(|j| j.sidecars);
+        // One Rename Many at a time, and nothing else on files while it runs: a step would
+        // find its file gone, and its undo could not put the others back.
+        let renaming = self.renaming.is_some();
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
         } else if writing {
             self.notice = Some(tr("Still writing keywords: try again in a moment").into());
+        } else if renaming {
+            self.notice = Some(tr("Rename Many is still renaming").into());
         }
-        !saving && !writing
+        !saving && !writing && !renaming
     }
 
     /// Whether files are still being written (`config::WRITING`): file jobs, a turned image, a
@@ -90,15 +95,7 @@ impl crate::App {
 
     /// `start_job`, of the files' `sidecars` or of the files themselves.
     fn start_job_of(&mut self, doing: &'static str, total: usize, sidecars: bool) -> Arc<Job> {
-        let job = Arc::new(Job {
-            doing,
-            total,
-            done: AtomicUsize::new(0),
-            stop: Default::default(),
-            started: Instant::now(),
-            _writing: Working::new(&config::WRITING),
-            sidecars,
-        });
+        let job = Arc::new(Job::new(doing, total, sidecars));
         self.file_jobs.push(job.clone());
         job
     }
@@ -410,8 +407,12 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
+        // A job as every other writer: closing waits for it, the status bar counts it and
+        // its Stop puts the names done so far back.
+        let steps = self.start_job(tr("Renaming"), from.len());
         std::thread::spawn(move || {
-            let _ = tx.send(rename_files(from, to));
+            let _ = tx.send(rename_files(from, to, &steps));
+            drop(steps);
             drop(pointer);
             ctx.request_repaint();
         });
@@ -773,7 +774,7 @@ pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
 /// Rename `from` to `to` with their sidecars, all or none: refused when a new name is another
 /// file's, through temporary names when names swap, with the plan on disk while it runs, and
 /// undone on a failure. Never replaces a file, also one another program makes meanwhile.
-pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), String> {
+pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> Result<(), String> {
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
@@ -807,7 +808,12 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
     // On disk while the renames run: a crash halfway is put right at the next start.
     let mut plan = journal::dir().and_then(|d| journal::begin(&d, &moves));
     for (k, (a, b)) in moves.iter().enumerate() {
-        if let Err(e) = journal::step(a, b) {
+        // Stop: the names done so far go back, by the same steps a failure takes.
+        let step = match job.stopped() {
+            true => Err(std::io::Error::other(tr("stopped"))),
+            false => journal::step(a, b),
+        };
+        if let Err(e) = step {
             // Named by the file and its new name, not a temporary one.
             let j = k % from.len();
             let name = |p: &PathBuf| p.file_name().unwrap_or_default().display().to_string();
@@ -837,6 +843,16 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>) -> Result<(), S
         }
         if let Some(plan) = plan.as_mut() {
             plan.done();
+        }
+        // Counted as a file lands under its name: the later half of a swap's steps, the
+        // sidecars not.
+        let landed = if swap {
+            k.checked_sub(moves.len() / 2)
+        } else {
+            Some(k)
+        };
+        if landed.is_some_and(|n| n < job.total) {
+            job.did(1);
         }
     }
     Ok(())
@@ -1115,16 +1131,27 @@ mod tests {
         for (n, t) in [("a.jpg", "a"), ("b.jpg", "b"), ("a.jpg.xmp", "a's")] {
             std::fs::write(p(n), t).unwrap();
         }
-        super::rename_files(vec![p("a.jpg"), p("b.jpg")], vec![p("b.jpg"), p("a.jpg")]).unwrap();
+        let job = crate::Job::new("Renaming", 2, false);
+        super::rename_files(
+            vec![p("a.jpg"), p("b.jpg")],
+            vec![p("b.jpg"), p("a.jpg")],
+            &job,
+        )
+        .unwrap();
+        assert_eq!(job.done.load(std::sync::atomic::Ordering::Relaxed), 2);
         assert_eq!(
             (read("a.jpg"), read("b.jpg"), read("b.jpg.xmp")),
             ("b".into(), "a".into(), "a's".into())
         );
         std::fs::write(p("c.jpg.xmp"), "c's").unwrap();
-        assert!(super::rename_files(vec![p("b.jpg")], vec![p("c.jpg")]).is_err());
+        assert!(super::rename_files(vec![p("b.jpg")], vec![p("c.jpg")], &job).is_err());
         // Also for a file without a sidecar of its own: it would show c's keywords.
         std::fs::write(p("d.jpg"), "d").unwrap();
-        assert!(super::rename_files(vec![p("d.jpg")], vec![p("c.jpg")]).is_err());
+        assert!(super::rename_files(vec![p("d.jpg")], vec![p("c.jpg")], &job).is_err());
+        // Stopped before the first step: nothing renamed, told as stopped.
+        job.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let stopped = super::rename_files(vec![p("d.jpg")], vec![p("e.jpg")], &job);
+        assert!(stopped.unwrap_err().contains("stopped") && p("d.jpg").exists());
         assert!(p("d.jpg").exists() && !p("c.jpg").exists());
         // The one rule, by name: the file in the way first, else the stranger's sidecar, and
         // the operation's own names never.

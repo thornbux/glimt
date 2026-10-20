@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Rename and Rename Many run as a job like every other writer: closing waits for them (since
+  0.38.2 the window could close in the middle of a batch, and the next start said it was a crash),
+  the status bar counts them and Stop puts the names done so far back; and Copy, Move, Delete,
+  Rename Folder, Move Folder to Trash and plugins wait while a Rename Many runs, as a step would
+  find its file gone and the undo could not put the others back.
 - HEIC, AVIF and video frames are decoded no larger than the view (ffmpeg scales them), with the
   real size from ffprobe for the zoom and the status bar, instead of a whole 48 MP frame for each
   image shown or preloaded; the print and thumbnails report their real size too.
