@@ -5,6 +5,20 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.38.5] - 2026-10-20
+
+### Changed
+
+- Preferences is in ten sections, each with a heading and an icon: Look, Keyboard, Image,
+  Slideshow, File list, Deleting, Colour management, Memory and CPU, Video, Start and system; the
+  settings are grouped by what they are about instead of one long list.
+- A plugin's edits and a repair's renames ask for the folder to be read again by name (relist) in
+  the one report every file operation sends, instead of posing as a failed delete.
+- What holds places in the file list is let go in one place (list_changed) when the list is read
+  again or files are taken out, the selection is restored by name in one place, the thumbnails'
+  look change in one, and the folder watcher ends with the old list in one, instead of the same
+  lines written by hand in two or three places each.
+
 ### Fixed
 
 - The rating set in a sidecar, the keywords set in one, the info and print template, ffprobe's
@@ -63,17 +77,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A settings file with a byte that is not UTF-8 (a path in another encoding) is saved again like
   any other, instead of every later save being refused with "cannot be read".
 
-### Changed
-
-- Preferences is in ten sections, each with a heading and an icon: Look, Keyboard, Image,
-  Slideshow, File list, Deleting, Colour management, Memory and CPU, Video, Start and system; the
-  settings are grouped by what they are about instead of one long list.
-- A plugin's edits and a repair's renames ask for the folder to be read again by name (relist) in
-  the one report every file operation sends, instead of posing as a failed delete.
-- What holds places in the file list is let go in one place (list_changed) when the list is read
-  again or files are taken out, the selection is restored by name in one place, the thumbnails'
-  look change in one, and the folder watcher ends with the old list in one, instead of the same
-  lines written by hand in two or three places each.
 
 ## [0.38.4] - 2026-10-20
 
@@ -1792,7 +1795,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.4...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.5...HEAD
+[0.38.5]: https://github.com/thornbux/glimt/compare/v0.38.4...v0.38.5
 [0.38.4]: https://github.com/thornbux/glimt/compare/v0.38.3...v0.38.4
 [0.38.3]: https://github.com/thornbux/glimt/compare/v0.38.2...v0.38.3
 [0.38.2]: https://github.com/thornbux/glimt/compare/v0.38.1...v0.38.2
