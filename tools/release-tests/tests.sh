@@ -1045,16 +1045,18 @@ for v in new old; do
     d=/tmp/rename-close-$v
     mkdir -p $d
     convert -size 64x64 xc:red $d/00000.jpg
-    for i in $(seq -w 1 2999); do ln $d/00000.jpg $d/$i.jpg; done
+    for i in $(seq -w 1 9999); do ln $d/00000.jpg $d/$i.jpg; done
     config
     start $d
     sleep 2
     key ctrl+a; key ctrl+r; sleep 1
-    xdotool key Return                 # Rename Many as *_###, in the background
+    key Return                         # Rename Many as *_###, in the background
+    # Closed as soon as the first file has its new name: the window must wait for the rest.
+    for i in $(seq 100); do ls $d | grep -q '_[0-9]*\.jpg' && break; sleep 0.1; done
     $BIN --remote-all quit >/dev/null 2>&1
     quit
     got="$(ls $d | grep -c '_[0-9]*\.jpg') $(ls $d | grep -vc '_[0-9]*\.jpg') $(ls $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l | tr -d ' ')"
-    if [ $v = new ]; then expect "3,000 renamed, none left, no plan" "$got" "3000 0 0"
+    if [ $v = new ]; then expect "10,000 renamed, none left, no plan" "$got" "10000 0 0"
     else note "old: renamed, not renamed, plans: $got"; fi
 done
 as_version new
