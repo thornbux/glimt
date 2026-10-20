@@ -2125,6 +2125,126 @@ expect "Mirror: blue top left, green bottom right" "$mirrored" "blue green"
 expect "Flip: green top left, blue bottom right" "$flipped" "green blue"
 expect "Rotate 180: yellow top left, red bottom right" "$turned" "yellow red"
 
+echo "-- Play Video (Enter) runs the player set in Preferences with the file"
+d=/tmp/play-video
+mkdir -p $d
+ffmpeg -v error -f lavfi -i color=c=blue:s=320x240:d=0.2 -pix_fmt yuv420p $d/v.mp4
+printf '#!/bin/sh\necho "$@" >>%s/ran\n' $d >/tmp/stub/player; chmod +x /tmp/stub/player
+config video_player=/tmp/stub/player
+start $d/v.mp4; sleep 2
+key Return; sleep 2
+quit
+rm -f /tmp/stub/player
+expect "the player got the video" "$(cat $d/ran 2>/dev/null)" "$d/v.mp4"
+
+echo "-- Save This Frame and Export Frames of an animation, from the File menu"
+d=/tmp/frames
+mkdir -p $d/out
+convert -size 400x300 xc:red $d/a.png
+convert -size 400x300 xc:blue $d/b.png
+convert -delay 50 $d/a.png $d/b.png $d/anim.gif
+config
+start $d/anim.gif; sleep 2
+answer $d/frame.png
+click 20 11; click 94 324; sleep 3                     # File → Save This Frame…
+answer $d/out
+click 20 11; click 87 348; sleep 3                     # File → Export Frames…
+quit
+expect "the frame saved as PNG, 400x300" "$(identify -format '%wx%h' $d/frame.png 2>/dev/null)" 400x300
+expect "both frames exported into a new folder" "$(find $d/out -name '*.png' | wc -l | tr -d ' ')" 2
+
+echo "-- the histogram (K, J) draws over the image, and goes away again"
+d=/tmp/histogram-keys
+mkdir -p $d
+convert -size 400x300 gradient:red-blue $d/a.png
+config
+start $d/a.png; sleep 2
+area() { shot $1; convert /t/out/$1.png -crop 1000x700+260+60 +repage rgb:- | md5sum; }
+base=$(area hist-off); key k; rgb=$(area hist-rgb); key j; log=$(area hist-log)
+key k; bright=$(area hist-bright); key k; off=$(area hist-off2)
+quit
+differ "K: the RGB histogram shows" "$base" "$rgb"
+differ "J: the logarithmic one differs" "$rgb" "$log"
+differ "K: brightness differs from RGB" "$log" "$bright"
+expect "K: off again, the image as before" "$off" "$base"
+
+echo "-- full screen info (I): shown in full screen, and hidden by I"
+d=/tmp/overlay-key
+mkdir -p $d
+convert -size 400x300 xc:blue $d/a.png
+config
+start $d/a.png; sleep 2
+key f; sleep 2
+corner() { shot $1; convert /t/out/$1.png -crop 500x240+0+0 +repage rgb:- | md5sum; }
+on=$(corner osd-on); key i; off=$(corner osd-off); key i; again=$(corner osd-on2)
+key Escape
+quit
+differ "I hides the info" "$on" "$off"
+expect "I shows it again" "$again" "$on"
+
+echo "-- Compare (E) and the layouts (L, U, Y, Alt+arrow): the next image beside, below, in a pane"
+d=/tmp/layout-keys
+mkdir -p $d
+convert -size 400x300 xc:red $d/a.png
+convert -size 400x300 xc:blue $d/b.png
+config
+start $d/a.png; sleep 2
+# Probes: the left and right halves (y=300), and the top and bottom halves (x=700), where a
+# pane's fitted image lies in each layout; a pane edge is never probed.
+probe() { shot $1; echo "$(colour $1 500 300) $(colour $1 1020 300) $(colour $1 700 230) $(colour $1 700 590)"; }
+key e; sleep 1; compare=$(probe compare-on); key e; sleep 1; alone=$(probe compare-off)
+key l; sleep 1; two=$(probe layout-2x1)
+key l; sleep 1; above=$(probe layout-1x2)
+key l; sleep 1; four=$(probe layout-2x2)
+key y; sleep 1; one=$(probe layout-1)
+key u; sleep 1; up=$(probe layout-u)
+key l; key l; sleep 1                                   # 2x2, then back to 2x1
+key alt+Right; sleep 1                                  # the right pane's image shown
+pane=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+quit
+expect "E: a left, b right" "$compare" "red blue red red"
+expect "E again: a alone" "$alone" "red red red red"
+expect "L: two side by side" "$two" "red blue red red"
+expect "L: two above each other" "$above" "other other red blue"
+expect "L: four, a top left and b top right" "$(echo $four | cut -d' ' -f1-2)" "red blue"
+expect "Y: one image" "$one" "red red red red"
+expect "U: two above each other" "$up" "other other red blue"
+expect "Alt+Right shows the right pane's image" "$pane" "b.png"
+
+echo "-- Preferences → Keyboard shortcuts: Change gives the action the next key"
+d=/tmp/key-capture
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+config
+start $d/a.png; sleep 2
+key ctrl+o; sleep 2
+xdotool mousemove 240 300 click 5 click 5 click 5; sleep 1   # down to the Keyboard section
+click 106 208; sleep 1                                        # Keyboard shortcuts, opened
+shot key-capture-table
+click 499 234; sleep 1; key F9; sleep 1                       # Auto Rotate Using EXIF: Change, F9
+key Escape; sleep 1
+quit
+expect "the own key in the settings" "$(grep -c 'ExifRotate=F9' $XDG_CONFIG_HOME/glimt/config)" 1
+
+echo "-- the Help windows: Help Manual (F1), Keyboard Shortcuts, Keyboard Map and About open"
+d=/tmp/help-windows
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+config
+start $d/a.png; sleep 2
+whole() { shot $1; md5sum </t/out/$1.png; }
+base=$(whole help-none)
+key F1; sleep 2; manual=$(whole help-manual); key Escape; sleep 1
+click 276 11; click 350 60; sleep 2; keys=$(whole help-keys); key Escape; sleep 1
+click 276 11; click 333 84; sleep 2; map=$(whole help-map); key Escape; sleep 1
+click 276 11; click 325 120; sleep 2; about=$(whole help-about)
+quit
+differ "F1 opens the manual" "$base" "$manual"
+differ "Keyboard Shortcuts opens" "$base" "$keys"
+differ "Keyboard Map opens" "$base" "$map"
+differ "About opens" "$base" "$about"
+differ "the four are different windows" "$manual$keys" "$map$about"
+
 echo "-- Open With: the default application and one from the Open With list, both through gio"
 d=/tmp/open-with
 mkdir -p $d $XDG_DATA_HOME/applications
