@@ -688,6 +688,9 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         // disk, Glimt closed, a stick pulled out) never looks like the file.
         static COPIES: AtomicUsize = AtomicUsize::new(0);
         let k = COPIES.fetch_add(1, Ordering::Relaxed);
+        // shortcut: a third close (which waits for nothing) or a stick pulled out leaves the
+        // part under this hidden name, and nothing removes it later; a sweep of
+        // .glimt-copy-* at the next start if those are ever seen in numbers.
         let part = to.with_file_name(format!(".glimt-copy-{}-{k}", remote::instance_id()));
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.

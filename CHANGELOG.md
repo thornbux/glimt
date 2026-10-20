@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A plugin, Open With or Play Video program's output is not kept in memory while it runs (a
+  converter writing a 2 GB file to its output would be), only its errors.
 - A Rename Many that could not put every name back and could keep no plan for the next start (no
   state folder, a full disk) says where the files are, instead of promising a repair that cannot
   come.

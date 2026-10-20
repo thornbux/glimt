@@ -132,9 +132,12 @@ impl Plugin {
             } else {
                 program
             };
+            // Its output is not read: a converter writing the image to stdout would else be
+            // kept whole in memory; its errors are.
             let out = crate::external::command(program.to_string_lossy().as_ref())
                 .args(&args[1..])
                 .current_dir(folder)
+                .stdout(std::process::Stdio::null())
                 .output()
                 .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
             if !out.status.success() {

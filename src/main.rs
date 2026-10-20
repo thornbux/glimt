@@ -7974,6 +7974,7 @@ impl App {
                         .arg("launch")
                         .arg(&desktop)
                         .args(&files)
+                        .stdout(std::process::Stdio::null())
                         .output();
                     match out {
                         Ok(o) if o.status.success() => {}
@@ -7995,7 +7996,12 @@ impl App {
         let mut words = plugins::words(player);
         std::thread::spawn(move || {
             let run = |cmd: &str, args: &[String]| {
-                let out = command(cmd).args(args).arg(&path).output();
+                // Only its errors are read: a program that prints for hours is not kept.
+                let out = command(cmd)
+                    .args(args)
+                    .arg(&path)
+                    .stdout(std::process::Stdio::null())
+                    .output();
                 out.map_err(|e| format!("{cmd}: {e}"))
             };
             let out = if words.is_empty() {
