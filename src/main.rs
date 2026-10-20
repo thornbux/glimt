@@ -7108,12 +7108,25 @@ impl App {
         });
         let Some(undo) = choice else { return };
         let plans = std::mem::take(&mut self.cut_short);
+        let deleted = self.deleted_tx.clone();
         self.background(ctx, true, move || {
             let (mut renamed, mut left) = (0, 0);
+            let mut moved = Vec::new();
             for (plan, moves, done) in &plans {
                 let (r, l) = journal::settle(plan, moves, *done, undo);
                 (renamed, left) = (renamed + r, left + l);
+                // Finished: marks and collections follow the files, as after a Rename Many.
+                if !undo && l == 0 {
+                    moved.extend(journal::pairs(moves));
+                }
             }
+            // One report when the steps are done, which also reads the folder again: read
+            // before, the list would show the names of the middle.
+            let _ = deleted.send(Deleted {
+                failed: true,
+                moved,
+                ..Default::default()
+            });
             let files = count(renamed, "file");
             let mut msg = match undo {
                 true => tf!("{files} given their old names back", files),
@@ -7128,7 +7141,6 @@ impl App {
             }
             Some(msg)
         });
-        self.relist = true;
     }
 
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.

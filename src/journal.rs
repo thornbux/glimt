@@ -178,6 +178,27 @@ fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize
     (renamed, left)
 }
 
+/// The files a plan's `moves` take from their old names to their new ones, (from, to): the
+/// hidden steps of a swap (a → .t0, b → a, .t0 → b) followed to their ends, so marks and
+/// collections can follow the files as after a finished Rename Many.
+pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
+    // A file's own name is never the hidden name an earlier step gave another file; its chain
+    // runs forward through the later steps only, as a swap's steps lead round in a ring.
+    let starts =
+        (moves.iter().enumerate()).filter(|(k, (a, _))| !moves[..*k].iter().any(|(_, b)| b == a));
+    starts
+        .map(|(k, (a, b))| {
+            let (mut at, mut end): (usize, &Path) = (k, b);
+            while let Some((n, (_, next))) =
+                (moves.iter().enumerate()).find(|(n, (from, _))| *n > at && from == end)
+            {
+                (at, end) = (n, next);
+            }
+            (a.clone(), end.to_path_buf())
+        })
+        .collect()
+}
+
 /// Put the old names back, or finish the renames: the `done` steps undone, or the rest done; for
 /// a plan that did not count them, every step, by the names alone. (renamed, left); the plan
 /// goes when nothing is left, else it is asked about again at the next start.
@@ -372,6 +393,23 @@ mod tests {
     }
 
     /// The failing path and the recovery share one undo: two steps of a swap done, undone last
+    /// A swap's steps followed to their ends: a goes to b and b to a; a plain rename is itself.
+    #[test]
+    fn pairs_follow_the_steps() {
+        let p = |n: &str| std::path::PathBuf::from(n);
+        let moves = vec![
+            (p("a"), p(".t0")),
+            (p("b"), p(".t1")),
+            (p(".t0"), p("b")),
+            (p(".t1"), p("a")),
+        ];
+        assert_eq!(
+            super::pairs(&moves),
+            vec![(p("a"), p("b")), (p("b"), p("a"))]
+        );
+        assert_eq!(super::pairs(&[(p("c"), p("d"))]), vec![(p("c"), p("d"))]);
+    }
+
     /// first; one of them put back by hand already is left out, not counted as stuck.
     #[test]
     fn undoes_the_steps_done() {

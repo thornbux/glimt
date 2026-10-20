@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A Rename Many cut short by a crash and finished at the next start tells marks, stars and
+  collections about the renames, so they follow the files as after a finished Rename Many; and the
+  list is read again when the steps are done, not before.
 - Keywords, a comment or the alt text typed in the panel are written as a sidecar job like every
   other sidecar write, so Move, Rename and Delete of that image wait until they have landed,
   instead of the new keywords being left under the old name while the photo moves without them.

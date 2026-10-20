@@ -2612,6 +2612,22 @@ expect "a.jpg (red) and b.jpg back, the plan gone" "$got" "a.jpg b.jpg 1 0"
 # A plan left by a failure here would be put back at every later start.
 rm -rf $XDG_STATE_HOME/glimt/renames
 
+echo "-- Rename Many cut short, finished at the next start: the marks follow the files"
+d=/tmp/cutshort-finish
+mkdir -p $d $XDG_STATE_HOME/glimt/renames
+convert -size 300x200 xc:red $d/a.jpg
+printf '%s\0' $d/a.jpg $d/c.jpg >$XDG_STATE_HOME/glimt/renames/crashed    # a.jpg -> c.jpg, not started
+printf '1\t0\t%s/a.jpg\n' $d >$XDG_STATE_HOME/glimt/marks
+config
+start $d
+sleep 3
+shot cut-short-finish
+click 640 425 3   # Finish the renaming
+quit
+got="$(ls -A $d | tr '\n' ' ')$(grep -c 'c\.jpg' $XDG_STATE_HOME/glimt/marks) $(grep -c 'a\.jpg' $XDG_STATE_HOME/glimt/marks)"
+expect "c.jpg there, its mark on c.jpg, none on a.jpg" "$got" "c.jpg 1 0"
+rm -rf $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/marks
+
 echo "-- size and date columns with thumbnails: the list wide enough for the names"
 d=/tmp/columns
 mkdir -p $d
