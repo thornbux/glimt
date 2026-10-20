@@ -108,7 +108,7 @@ fn read_cached(file: &Path, mtime: u64) -> Option<image::RgbaImage> {
 /// Write a thumbnail as the spec says: PNG with Thumb::URI and Thumb::MTime, mode 600, and
 /// renamed into place so other programs never read a half-written file.
 fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let dir = file.parent().unwrap_or(Path::new("."));
     std::fs::DirBuilder::new()
         .recursive(true)
@@ -134,25 +134,19 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
         writer.write_image_data(img.as_raw())?;
         writer.finish()
     })();
-    let written = encoded.map_err(std::io::Error::other).and_then(|()| {
-        use std::io::Write;
-        // Made new, never opened through a link planted at its name; private, as the shared
-        // cache's spec asks.
-        let _ = std::fs::remove_file(&tmp);
-        let mut out = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        out.write_all(&png)
-    });
-    match written {
-        Ok(()) => std::fs::rename(&tmp, file),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e)
-        }
-    }
+    encoded.map_err(std::io::Error::other)?;
+    // As every file Glimt writes: made new beside it, never through a link planted at its name;
+    // private, as the shared cache's spec asks.
+    crate::config::write_beside(
+        &tmp,
+        file,
+        |out| {
+            use std::io::Write;
+            out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            out.write_all(&png)
+        },
+        |tmp| std::fs::rename(tmp, file),
+    )
 }
 
 /// The shared cache. A Flatpak points XDG_CACHE_HOME to a folder of its own; the shared one is

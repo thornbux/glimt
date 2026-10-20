@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A PDF printed to a file and a new thumbnail are written through the one write-beside-and-rename
+  every file Glimt writes goes through, instead of two copies of it; a later change to that one
+  reaches them too.
 - Open Several Folders after a file of a type the Types menu leaves out (a RAW with RAW off, a
   video with videos off) lists by the menu again, instead of keeping that type listed for the
   folders too.

@@ -788,9 +788,18 @@ pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result
 
 fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
     use std::io::Write;
+    replace_with(path, existing, |f| f.write_all(bytes.as_ref()))
+}
+
+/// `replace`, with the new contents written by `write` (a PDF streamed page by page): the one
+/// way a file is written again, for every writer that cannot hand over its bytes at once.
+pub fn replace_with(
+    path: &Path,
+    existing: bool,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    let tmp = tmp_path(path);
     let there = || match !existing || std::fs::symlink_metadata(path).is_ok() {
         true => Ok(()),
         false => Err(std::io::Error::new(
@@ -798,18 +807,31 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
             "the file was moved, renamed or deleted meanwhile",
         )),
     };
-    // On disk before the rename: after a crash the old file or the new one, never an empty one.
-    // No folder made: a sidecar or a collection whose folder was renamed meanwhile is not
-    // written into a new one of the old name.
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
-    let result = there()
-        .and_then(|_| new_beside(&tmp, path))
-        .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
-        .and_then(|_| there())
-        .and_then(|_| std::fs::rename(&tmp, path));
+    there()?;
+    write_beside(&tmp_path(path), path, write, |tmp| {
+        there().and_then(|_| std::fs::rename(tmp, path))
+    })
+}
+
+/// A file written whole at `tmp` beside `path` (`new_beside`), on disk, and then given its name
+/// by `land`; `tmp` removed when anything fails. On disk before the rename: after a crash the
+/// old file or the new one, never an empty one. No folder made: a sidecar or a collection whose
+/// folder was renamed meanwhile is not written into a new one of the old name. The one
+/// temp-and-rename for every file Glimt writes: settings, sidecars, collections, a PDF, a
+/// thumbnail.
+pub fn write_beside(
+    tmp: &Path,
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    land: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let result = new_beside(tmp, path)
+        .and_then(|mut f| write(&mut f).and_then(|_| f.sync_all()))
+        .and_then(|_| land(tmp));
     if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(tmp);
     }
     result
 }
@@ -818,14 +840,12 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
 /// over one another window made meanwhile (a collection of the same name): `AlreadyExists` then.
 pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
-    let tmp = tmp_path(path);
-    let result = new_beside(&tmp, path)
-        .and_then(|mut f| f.write_all(bytes.as_ref()).and_then(|_| f.sync_all()))
-        .and_then(|_| crate::file_ops::rename_never_over(&tmp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    result
+    write_beside(
+        &tmp_path(path),
+        path,
+        |f| f.write_all(bytes.as_ref()),
+        |tmp| crate::file_ops::rename_never_over(tmp, path),
+    )
 }
 
 /// Where a new version of `path` is written before it is renamed over it: its whole name, this
