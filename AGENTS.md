@@ -186,8 +186,10 @@ By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused 
 that stays when the first one closes.
 
 A fix in the window code that a unit test cannot reach gets a check in `tests.sh`: the steps
-with keys, clicks and `--remote`, and the result read from the files or from a colour in a
-screenshot. Run it against the last release as well, to see that it fails there.
+with keys, `--remote` and clicks by text (`menu File "Open With"`, through the `test-hooks`
+build's `glimt --remote where LABEL`; a widget the tests need gets a `noted(…)` call), and the
+result read from the files or from a colour in a screenshot. Screen coordinates only where a
+click's place is the point. Run it against the last release as well, to see that it fails there.
 
 ## Packages
 

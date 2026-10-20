@@ -283,10 +283,13 @@ impl crate::App {
             .default_size([900.0, 640.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut pan.calendar, false, tr("Timeline"));
-                    ui.selectable_value(&mut pan.calendar, true, tr("Calendar"));
+                    let tab = ui.selectable_value(&mut pan.calendar, false, tr("Timeline"));
+                    crate::noted(&tab, tr("Timeline"));
+                    let tab = ui.selectable_value(&mut pan.calendar, true, tr("Calendar"));
+                    crate::noted(&tab, tr("Calendar"));
                     ui.separator();
-                    if ui.checkbox(&mut pan.exif, tr("EXIF date")).changed() {
+                    let exif = ui.checkbox(&mut pan.exif, tr("EXIF date"));
+                    if crate::noted(&exif, tr("EXIF date")).changed() {
                         pan.days = None;
                         pan.days_rx.clear();
                         pan.days_stop.store(true, Ordering::Relaxed);

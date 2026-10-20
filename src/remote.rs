@@ -50,6 +50,11 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "select PATH…",
         "Select these files of the list and show the first; prints those not in it",
     ),
+    #[cfg(feature = "test-hooks")]
+    (
+        "where LABEL",
+        "Print where the menu item, button or choice with that text is, as x y (the release tests' build only)",
+    ),
 ];
 
 /// At most this many files for `select`: the window finds them in its own thread.
@@ -62,7 +67,9 @@ pub type Reply = mpsc::Sender<Vec<u8>>;
 /// Commands that answer. None of them changes a file: `select` only selects, and what is done
 /// with the selection is the user's to do in the window.
 fn is_query(command: &str) -> bool {
-    matches!(command.trim(), "current" | "selection") || command.starts_with("select ")
+    matches!(command.trim(), "current" | "selection")
+        || command.starts_with("select ")
+        || command.starts_with("where ")
 }
 
 /// How long a command and its answer may take: a client that sends nothing, or a window that

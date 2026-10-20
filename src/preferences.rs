@@ -110,9 +110,11 @@ impl crate::App {
                     changed |= self.background_setting(ui);
                     changed |= self.bar_settings(ui, ctx);
                     section(ui, theme::icon::KEYBOARD, tr("Keyboard"));
-                    egui::CollapsingHeader::new(tr("Keyboard shortcuts")).show(ui, |ui| {
-                        self.key_settings(ui);
-                    });
+                    let keys =
+                        egui::CollapsingHeader::new(tr("Keyboard shortcuts")).show(ui, |ui| {
+                            self.key_settings(ui);
+                        });
+                    crate::noted(&keys.header_response, tr("Keyboard shortcuts"));
                     section(ui, theme::icon::IMAGE, tr("Image"));
                     changed |= self.image_settings(ui);
                     changed |= self.histogram_settings(ui);
@@ -714,7 +716,8 @@ impl crate::App {
                     ui.label(keys.join(", "));
                 }
                 ui.horizontal(|ui| {
-                    if ui.small_button(tr("Change")).clicked() {
+                    let change = ui.small_button(tr("Change"));
+                    if crate::noted(&change, &format!("Change {}", action.label())).clicked() {
                         self.capturing = Some(action);
                     }
                     let own = self.config.keys.0.iter().any(|k| k.0 == action);

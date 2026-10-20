@@ -14,6 +14,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The release tests click menu items, buttons and choices by their text (a test-hooks build's
+  glimt --remote click LABEL), not by screen coordinates, so a change to the look no longer breaks
+  them.
 - The file list and everything indexed into it (the shown image, selection, panes, decoded slots,
   search matches, drags) are one List, made anew when the list is read again: nothing indexed can
   outlive its list, whatever is added later; what follows a file is carried over by name in one

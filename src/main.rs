@@ -137,6 +137,51 @@ fn in_parts<T: Sync, R: Send>(
     })
 }
 
+/// The release tests' hook (`test-hooks`): `glimt --remote where LABEL` tells where the menu
+/// item, button or choice with that text was drawn last frame, so the tests click by text and
+/// need no screen coordinates that every change to the look would move.
+#[cfg(feature = "test-hooks")]
+mod hooks {
+    use eframe::egui;
+    use std::sync::Mutex;
+    static LABELS: Mutex<Vec<(String, egui::Rect)>> = Mutex::new(Vec::new());
+    static LAST: Mutex<Vec<(String, egui::Rect)>> = Mutex::new(Vec::new());
+
+    /// A text drawn this frame, where it was.
+    pub fn note(label: &str, rect: egui::Rect) {
+        LABELS.lock().unwrap().push((label.to_owned(), rect));
+    }
+
+    /// At the start of a frame: last frame's notes are the ones asked about.
+    pub fn begin_frame() {
+        *LAST.lock().unwrap() = std::mem::take(&mut *LABELS.lock().unwrap());
+    }
+
+    /// The answer to `where LABEL`: "x y" of the text's middle, in the window's pixels (the
+    /// tests' window is at the top left, unscaled), or nothing when it was not on the screen.
+    pub fn position(label: &str) -> Vec<u8> {
+        let last = LAST.lock().unwrap();
+        match last.iter().rev().find(|(l, _)| *l == label) {
+            Some((_, rect)) => {
+                format!("{} {}\n", rect.center().x as i32, rect.center().y as i32).into()
+            }
+            None => Vec::new(),
+        }
+    }
+}
+
+/// The text of a widget as the release tests name it: the label without the icon before it.
+fn noted(response: &egui::Response, text: &str) -> egui::Response {
+    #[cfg(feature = "test-hooks")]
+    hooks::note(
+        text.trim_start_matches(|c: char| ('\u{e000}'..='\u{f8ff}').contains(&c) || c == ' '),
+        response.rect,
+    );
+    #[cfg(not(feature = "test-hooks"))]
+    let _ = text;
+    response.clone()
+}
+
 /// What a background thread's receiver has: nothing yet, its answer, or the thread gone without
 /// one (it panicked). Taken, the receiver is dropped, so nothing waits for it for ever.
 enum Took<T> {
@@ -869,6 +914,8 @@ fn scroll_menu<R>(
     title: impl Into<egui::WidgetText>,
     add: impl FnOnce(&mut egui::Ui) -> R,
 ) {
+    let title: egui::WidgetText = title.into();
+    let name = title.text().to_owned();
     let content = |ui: &mut egui::Ui| {
         // From where it opens to the bottom of the window; submenus open further down. egui
         // limits a menu to its size the frame before, which a scroll area could only keep or
@@ -879,14 +926,15 @@ fn scroll_menu<R>(
         egui::ScrollArea::vertical().max_height(max).show(ui, add);
     };
     if egui::containers::menu::is_in_menu(ui) {
-        ui.menu_button(title, content);
+        noted(&ui.menu_button(title, content).response, &name);
         return;
     }
     // A menu of the menu bar. While one of them is open, pointing at another opens that one,
     // as in GNOME and KDE.
-    let response = egui::containers::menu::MenuButton::new(title.into())
+    let response = egui::containers::menu::MenuButton::new(title)
         .ui(ui, content)
         .0;
+    noted(&response, &name);
     let ctx = ui.ctx().clone();
     let id = egui::Popup::default_response_id(&response);
     let others = ctx.data_mut(|d| {
@@ -994,7 +1042,7 @@ fn menu_button(
     if let Some(text) = shortcut_text(ui.ctx(), action) {
         button = button.shortcut_text(text);
     }
-    if ui.add(button).clicked() {
+    if noted(&ui.add(button), action.label()).clicked() {
         *act = Some(action);
     }
 }
@@ -1005,11 +1053,10 @@ fn tool_button(ui: &mut egui::Ui, act: &mut Option<Action>, icon: &str, action: 
         Some(keys) => format!("{label} ({keys})", label = action.label()),
         None => action.label().to_owned(),
     };
-    if ui
+    let response = ui
         .add(egui::Button::selectable(on, icon))
-        .on_hover_text(tip)
-        .clicked()
-    {
+        .on_hover_text(tip);
+    if noted(&response, action.label()).clicked() {
         *act = Some(action);
     }
 }
@@ -2847,7 +2894,7 @@ impl App {
                     ui.label(tr("No collections yet"));
                 }
                 for (name, file) in all {
-                    if ui.button(iconed(ui, theme::icon::STACK, &name)).clicked() {
+                    if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked() {
                         open = Some(file);
                     }
                 }
@@ -2863,7 +2910,8 @@ impl App {
                         ui.label(tr("No collections yet"));
                     }
                     for (name, file) in all {
-                        if ui.button(iconed(ui, theme::icon::STACK, &name)).clicked() {
+                        if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked()
+                        {
                             self.add_to_collection(&file);
                         }
                     }
@@ -3434,10 +3482,8 @@ impl App {
                     [1, 2] => theme::icon::ROWS,
                     _ => theme::icon::GRID_FOUR,
                 };
-                if ui
-                    .radio(self.config.layout == key, iconed(ui, icon, tr(label)))
-                    .clicked()
-                {
+                let radio = ui.radio(self.config.layout == key, iconed(ui, icon, tr(label)));
+                if noted(&radio, tr(label)).clicked() {
                     self.set_layout(key);
                 }
             }
@@ -5452,10 +5498,8 @@ impl App {
                 _ => theme::icon::BRUSH,
             };
             // Chosen again too, so a theme file just edited shows.
-            if ui
-                .radio(self.config.theme == name, iconed(ui, icon, &name))
-                .clicked()
-            {
+            let radio = ui.radio(self.config.theme == name, iconed(ui, icon, &name));
+            if noted(&radio, &name).clicked() {
                 self.config.theme = name;
                 self.config.save();
                 self.apply_theme(ui.ctx());
@@ -5602,6 +5646,10 @@ impl App {
                 }
                 Some(reply) if command.starts_with("select ") => {
                     let _ = reply.send(self.remote_select(ctx, &command));
+                }
+                #[cfg(feature = "test-hooks")]
+                Some(reply) if command.starts_with("where ") => {
+                    let _ = reply.send(hooks::position(command.trim_start_matches("where ")));
                 }
                 Some(reply) => drop(reply.send(self.remote_query(&command))),
                 None => self.remote_command(ctx, &command),
@@ -6986,7 +7034,8 @@ impl App {
                         let icons = [CIRCLE, HALF, HALF_TILT, SUN_DIM];
                         for (f, label) in FILTERS.iter().enumerate() {
                             let text = iconed(ui, icons[f.min(3)], tr(label));
-                            if ui.radio(self.config.view_filter == f, text).clicked() {
+                            let radio = ui.radio(self.config.view_filter == f, text);
+                            if noted(&radio, tr(label)).clicked() {
                                 self.set_view_filter(f);
                             }
                         }
@@ -7251,13 +7300,23 @@ impl App {
                 count(files, "step")
             ));
             ui.horizontal(|ui| {
-                if ui.button(tr("Put the old names back")).clicked() {
+                if noted(
+                    &ui.button(tr("Put the old names back")),
+                    tr("Put the old names back"),
+                )
+                .clicked()
+                {
                     choice = Some(true);
                 }
-                if ui.button(tr("Finish the renaming")).clicked() {
+                if noted(
+                    &ui.button(tr("Finish the renaming")),
+                    tr("Finish the renaming"),
+                )
+                .clicked()
+                {
                     choice = Some(false);
                 }
-                if ui.button(tr("Later")).clicked() {
+                if noted(&ui.button(tr("Later")), tr("Later")).clicked() {
                     choice = None;
                     self.cut_short.clear();
                 }
@@ -7984,7 +8043,7 @@ impl App {
             iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
             |ui| {
                 for (name, file) in collections::list() {
-                    if ui.button(iconed(ui, theme::icon::STACK, &name)).clicked() {
+                    if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked() {
                         self.add_to_collection(&file);
                     }
                 }
@@ -8010,20 +8069,14 @@ impl App {
             }
             let mut chosen = None;
             for (k, plugin) in self.plugins.iter().enumerate() {
-                if ui
-                    .button(iconed(ui, theme::icon::PLUGIN, &plugin.name))
-                    .clicked()
-                {
+                let button = ui.button(iconed(ui, theme::icon::PLUGIN, &plugin.name));
+                if noted(&button, &plugin.name).clicked() {
                     chosen = Some(k);
                 }
             }
             ui.separator();
-            if ui
-                .button(iconed(
-                    ui,
-                    theme::icon::FOLDER_OPEN,
-                    tr("Open the Plugins Folder"),
-                ))
+            let folder = iconed(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"));
+            if noted(&ui.button(folder), tr("Open the Plugins Folder"))
                 .on_hover_text(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
                 ))
@@ -8098,7 +8151,7 @@ impl App {
             }
             let mut chosen = None;
             for (name, desktop) in apps.iter() {
-                if ui.button(iconed(ui, theme::icon::APP, name)).clicked() {
+                if noted(&ui.button(iconed(ui, theme::icon::APP, name)), name).clicked() {
                     chosen = Some(desktop.clone());
                 }
             }
@@ -8624,6 +8677,8 @@ impl eframe::App for App {
 impl App {
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
+        #[cfg(feature = "test-hooks")]
+        hooks::begin_frame();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
         let mut act = self.read_keys(ctx);

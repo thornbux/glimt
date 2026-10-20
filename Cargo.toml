@@ -50,6 +50,9 @@ jxl = ["dep:jxl-oxide"]
 svg = ["dep:resvg", "dep:flate2"]
 # Geeqie's marks 1-6 and 0-5 stars, kept in ~/.local/state/glimt/marks.
 marks = []
+# The release tests only: glimt --remote click LABEL clicks the menu item, button or choice
+# with that text, so the tests need no screen coordinates. Never in a shipped build.
+test-hooks = []
 # Screen readers such as Orca, through AccessKit: the menus, buttons and lists, and the shown
 # image as text (its name, place, stars, keywords and comment).
 accessibility = ["eframe/accesskit"]

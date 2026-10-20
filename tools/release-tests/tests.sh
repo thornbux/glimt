@@ -40,8 +40,10 @@ if [ "$(id -u)" = 0 ]; then
             continue
         fi
         echo "-- building $v"
-        (cd /t/$v && CARGO_TARGET_DIR=/work-target/release-tests-$v \
-            cargo build -q --release --locked --features full) || exit 1
+        # With the click hook of the tests; the last release may be from before it had one.
+        (cd /t/$v && export CARGO_TARGET_DIR=/work-target/release-tests-$v \
+            && { cargo build -q --release --locked --features full,test-hooks 2>/dev/null \
+                 || cargo build -q --release --locked --features full; }) || exit 1
         cp /work-target/release-tests-$v/release/glimt /opt/glimt-$v
         if [ $v = old ] && [ -n "$OLD_COMMIT" ]; then
             # Only the latest: a release a run is past is not needed again.
@@ -135,6 +137,19 @@ start() {
     xdotool mousemove 800 400 2>/dev/null
 }
 key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; sleep 0.6; }
+# A click on each text in turn (a menu, then its item), by the text, not by a place that every
+# change to the look would move: the test-hooks build's `--remote where` says where the text
+# was drawn, and xdotool clicks there. The last release may lack the hook: a note then.
+menu() {
+    for label in "$@"; do
+        at=$($BIN --remote where "$label" 2>/dev/null | tr -d '\0')
+        case $at in
+            [0-9]*) xdotool mousemove ${at% *} ${at#* } click 1 2>/dev/null ;;
+            *) note "$V: $label is not on the screen (or no hook)" ;;
+        esac
+        sleep 0.5
+    done
+}
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
 # Closing waits for what is being written (a turned image, the settings): so does this, up to
 # ten seconds, before the kill that ends a Glimt that does not listen.
@@ -1250,7 +1265,7 @@ for v in new old; do
     printf '#!/bin/sh\nprintf "%%s\\n%%s\\n" %s %s\n' $d/one $d/two >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
     config videos=false
     start $d/v.mp4; sleep 2
-    click 20 11; click 88 108; sleep 3              # File → Open Several Folders…
+    menu File "Open Several Folders…"; sleep 3
     key ctrl+a
     listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
     quit
@@ -2010,9 +2025,9 @@ printf '#!/bin/sh\necho "$@" >>%s/ran\nsleep 20\n' $d >/tmp/stub/stamp; chmod +x
 printf '[Desktop Entry]\nName=Stamp\nExec=stamp %%f\n' >$XDG_DATA_HOME/glimt/plugins/stamp.desktop
 config
 start $d/a.png; sleep 2
-click 134 11; xdotool mousemove 152 120; sleep 1       # Edit → Plugins
+menu Edit Plugins; sleep 1
 shot plugins-menu
-click 370 120; sleep 2                                 # Stamp, the first plugin
+menu Stamp; sleep 2
 ran=$(cat $d/ran 2>/dev/null)
 answer=$($BIN --remote current 2>/dev/null | tr -d '\0')
 quit
@@ -2073,7 +2088,7 @@ convert -size 64x64 xc:yellow $d/start/s.png
 answer $d/tree
 config
 start $d/start; sleep 2
-click 20 11; click 92 84; sleep 3                      # File → Open Folder Recursive…
+menu File "Open Folder Recursive…"; sleep 3
 key ctrl+a
 listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/tree/||" | sort | tr '\n' ' ')
 quit
@@ -2146,9 +2161,9 @@ convert -delay 50 $d/a.png $d/b.png $d/anim.gif
 config
 start $d/anim.gif; sleep 2
 answer $d/frame.png
-click 20 11; click 94 324; sleep 3                     # File → Save This Frame…
+menu File "Save This Frame…"; sleep 3
 answer $d/out
-click 20 11; click 87 348; sleep 3                     # File → Export Frames…
+menu File "Export Frames…"; sleep 3
 quit
 expect "the frame saved as PNG, 400x300" "$(identify -format '%wx%h' $d/frame.png 2>/dev/null)" 400x300
 expect "both frames exported into a new folder" "$(find $d/out -name '*.png' | wc -l | tr -d ' ')" 2
@@ -2219,9 +2234,9 @@ config
 start $d/a.png; sleep 2
 key ctrl+o; sleep 2
 xdotool mousemove 240 300 click 5 click 5 click 5; sleep 1   # down to the Keyboard section
-click 106 208; sleep 1                                        # Keyboard shortcuts, opened
+menu "Keyboard shortcuts"; sleep 1
 shot key-capture-table
-click 499 234; sleep 1; key F9; sleep 1                       # Auto Rotate Using EXIF: Change, F9
+menu "Change Auto Rotate Using EXIF"; key F9; sleep 1
 key Escape; sleep 1
 quit
 expect "the own key in the settings" "$(grep -c 'ExifRotate=F9' $XDG_CONFIG_HOME/glimt/config)" 1
@@ -2235,9 +2250,9 @@ start $d/a.png; sleep 2
 whole() { shot $1; md5sum </t/out/$1.png; }
 base=$(whole help-none)
 key F1; sleep 2; manual=$(whole help-manual); key Escape; sleep 1
-click 276 11; click 350 60; sleep 2; keys=$(whole help-keys); key Escape; sleep 1
-click 276 11; click 333 84; sleep 2; map=$(whole help-map); key Escape; sleep 1
-click 276 11; click 325 120; sleep 2; about=$(whole help-about)
+menu Help "Keyboard Shortcuts"; sleep 2; keys=$(whole help-keys); key Escape; sleep 1
+menu Help "Keyboard Map"; sleep 2; map=$(whole help-map); key Escape; sleep 1
+menu Help "About Glimt"; sleep 2; about=$(whole help-about)
 quit
 differ "F1 opens the manual" "$base" "$manual"
 differ "Keyboard Shortcuts opens" "$base" "$keys"
@@ -2262,10 +2277,10 @@ STUB
 chmod +x /tmp/stub/gio
 config
 start $d/a.png; sleep 2
-click 20 11; click 87 228; sleep 2                     # File → Open With Default App
-click 20 11; xdotool mousemove 49 252; sleep 3         # File → Open With: the list, from gio
+menu File "Open With Default App"; sleep 2
+menu File "Open With"; sleep 3                         # the list, from gio
 shot open-with
-click 310 252; sleep 2                                 # Stamp, right of its icon
+menu Stamp; sleep 2
 quit
 rm -f /tmp/stub/gio $XDG_DATA_HOME/applications/stamp.desktop
 expect "gio open, then gio launch of the chosen application" "$(cat $d/ran 2>/dev/null | tr '\n' ' ')" \
@@ -2277,11 +2292,11 @@ mkdir -p $d
 convert -size 64x48 xc:red $d/a.png
 config
 start $d/a.png; sleep 2
-click 92 11; click 150 120; sleep 1                    # Select → Copy Path to Clipboard
+menu Select "Copy Path to Clipboard"; sleep 1
 path=$(xclip -o -selection clipboard 2>/dev/null)
-click 92 11; click 155 168; sleep 3                    # Copy Image to Clipboard
+menu Select "Copy Image to Clipboard"; sleep 3
 size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
-click 92 11; click 150 192; sleep 1                    # Copy Files to Clipboard
+menu Select "Copy Files to Clipboard"; sleep 1
 files=$(xclip -o -selection clipboard -t text/uri-list 2>/dev/null | tr -d '\r' | grep -c "file://$d/a.png")
 quit
 expect "the path, quoted" "$path" "\"$d/a.png\""
@@ -2881,7 +2896,7 @@ printf '%s\0' $d/a.jpg $d/.glimt-rename-x-0 $d/b.jpg $d/.glimt-rename-x-1 \
 config
 start $d
 sleep 3
-click 444 425 3   # Put the old names back
+menu "Put the old names back"; sleep 3
 shot cut-short
 quit
 # a.jpg was the red one: more than half red, as JPEG rounds.
@@ -2901,7 +2916,7 @@ config
 start $d
 sleep 3
 shot cut-short-finish
-click 640 425 3   # Finish the renaming
+menu "Finish the renaming"; sleep 3
 quit
 got="$(ls -A $d | tr '\n' ' ')$(grep -c 'c\.jpg' $XDG_STATE_HOME/glimt/marks) $(grep -c 'a\.jpg' $XDG_STATE_HOME/glimt/marks)"
 expect "c.jpg there, its mark on c.jpg, none on a.jpg" "$got" "c.jpg 1 0"
@@ -2961,8 +2976,8 @@ config
 start $d/a.jpg
 sleep 2
 key ctrl+j; sleep 2
-click 205 82 2   # EXIF date
-click 140 82 2   # Calendar
+menu "EXIF date"; sleep 2
+menu Calendar; sleep 2
 shot calendar-new
 quit
 # July 2025 starts on a Tuesday: the 16th is the third Wednesday, with the blue picture.
