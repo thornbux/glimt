@@ -2051,6 +2051,80 @@ expect "- twice: fitted again" "$out" "other blue red"
 expect "dragged to the right: blue where red was" "$drag" "blue blue red"
 expect "the wheel zooms in" "$wheel" "blue red red"
 
+echo "-- several folders on the command line: one list, each image with its folder"
+d=/tmp/two-folders
+mkdir -p $d/one $d/two
+convert -size 64x64 xc:red $d/one/a.png
+convert -size 64x64 xc:blue $d/two/b.png
+config
+start $d/one $d/two; sleep 2
+key ctrl+a
+listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
+quit
+expect "both folders' images in one list" "$listed" "one/a.png two/b.png "
+
+echo "-- Open Folder Recursive: the folder with its subfolders, and Include Subfolders on"
+d=/tmp/open-recursive
+mkdir -p $d/tree/sub/deep $d/start
+convert -size 64x64 xc:red $d/tree/a.png
+convert -size 64x64 xc:blue $d/tree/sub/b.png
+convert -size 64x64 xc:lime $d/tree/sub/deep/c.png
+convert -size 64x64 xc:yellow $d/start/s.png
+answer $d/tree
+config
+start $d/start; sleep 2
+click 20 11; click 92 84; sleep 3                      # File → Open Folder Recursive…
+key ctrl+a
+listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/tree/||" | sort | tr '\n' ' ')
+quit
+expect "the tree's three images" "$listed" "a.png sub/b.png sub/deep/c.png "
+expect "Include Subfolders on in the settings" "$(grep -c '^show_subfolders=true$' $XDG_CONFIG_HOME/glimt/config)" 1
+
+echo "-- New Folder (Ctrl+F): made in the folder shown"
+d=/tmp/new-folder
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+config
+start $d; sleep 2
+key ctrl+f; sleep 1; xdotool type holiday; key Return; sleep 1
+quit
+expect "the folder is there" "$([ -d $d/holiday ] && echo yes)" yes
+
+echo "-- Up and Home in the toolbar: the parent folder, then the home folder"
+d=/tmp/up-home
+mkdir -p $d/sub
+convert -size 64x64 xc:red $d/sub/a.png
+convert -size 64x64 xc:blue $d/b.png
+convert -size 64x64 xc:lime $HOME/h.png
+config
+start $d/sub/a.png; sleep 2
+click 99 35 2                                          # Up
+up=$($BIN --remote current 2>/dev/null | tr -d '\0')
+click 137 35 2                                         # Home
+home=$($BIN --remote current 2>/dev/null | tr -d '\0')
+quit
+rm -f $HOME/h.png
+expect "Up shows the parent's image, Home the home folder's" "$up $home" "$d/b.png $HOME/h.png"
+
+echo "-- Mirror, Flip and Rotate 180 as shown: the quarters of the image change places"
+d=/tmp/turns-shown
+mkdir -p $d
+convert -size 200x150 xc:red -size 200x150 xc:blue +append \
+    \( -size 200x150 xc:lime -size 200x150 xc:yellow +append \) -append $d/a.png
+config
+start $d/a.png; sleep 2
+# Fitted, the image spans x 278-1242 and y 50-772: the top left and bottom right quarters.
+corners() { shot $1; echo "$(colour $1 400 150) $(colour $1 1100 650)"; }
+plain=$(corners turns-plain)
+key shift+m; mirrored=$(corners turns-mirror); key shift+m
+key shift+f; flipped=$(corners turns-flip); key shift+f
+key shift+r; turned=$(corners turns-180)
+quit
+expect "as it is: red top left, yellow bottom right" "$plain" "red yellow"
+expect "Mirror: blue top left, green bottom right" "$mirrored" "blue green"
+expect "Flip: green top left, blue bottom right" "$flipped" "green blue"
+expect "Rotate 180: yellow top left, red bottom right" "$turned" "yellow red"
+
 echo "-- Open With: the default application and one from the Open With list, both through gio"
 d=/tmp/open-with
 mkdir -p $d $XDG_DATA_HOME/applications
