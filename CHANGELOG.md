@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Check Images and sorting RAW files by EXIF date read a file through the usual size limit, so a
+  file that claims gigabytes (a sparse or damaged one) is refused instead of read whole.
 - Asking gio for a share's local path before mounting it, the Open With list (gio info and gio
   mime) and lpstat have the usual time limit, and lp is ended after two minutes without an answer,
   instead of Connecting…, an Open With list at … or the busy pointer for ever while a server does

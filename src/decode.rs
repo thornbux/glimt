@@ -738,7 +738,7 @@ pub fn check(path: &Path) -> Result<(), String> {
 // shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
 // data's start in blocks if motion photos of hundreds of MB make it slow.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let data = read_limited(path).map_err(|e| e.to_string())?;
     Ok(crate::raw::whole_jpeg(&data))
 }
 
@@ -1336,6 +1336,12 @@ mod tests {
         let f = std::fs::File::create(&file).unwrap();
         f.set_len(8 << 30).unwrap();
         assert!(super::read_limited(&file).is_err());
+        // Check Images and the EXIF of a RAW read through it too, never the whole 8 GB.
+        assert!(super::jpeg_ends(&file).is_err());
+        let raf = file.with_extension("raf");
+        std::fs::hard_link(&file, &raf).unwrap();
+        assert!(crate::raw::exif(&raf).is_none());
+        std::fs::remove_file(&raf).unwrap();
         f.set_len(10).unwrap();
         assert_eq!(super::read_limited(&file).unwrap().len(), 10);
         std::fs::remove_file(file).unwrap();

@@ -52,7 +52,7 @@ pub fn exif(path: &Path) -> Option<Vec<u8>> {
         let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;
         dec.exif_metadata().ok().flatten()
     };
-    from(&head).or_else(|| from(&std::fs::read(path).ok()?))
+    from(&head).or_else(|| from(&crate::decode::read_limited(path).ok()?))
 }
 
 /// The largest JPEG in `data` that the decoder handles: baseline or progressive. Lossless JPEG
