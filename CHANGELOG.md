@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file that breaks the EXIF reader costs only itself in the exif: index, instead of its whole
+  share of the folder (1/N of the files) silently left out of every exif: search.
 - Check Images and sorting RAW files by EXIF date read a file through the usual size limit, so a
   file that claims gigabytes (a sparse or damaged one) is refused instead of read whole.
 - Asking gio for a share's local path before mounting it, the Open With list (gio info and gio

@@ -228,11 +228,16 @@ pub fn exif_index(
                 break;
             }
             let path = dir.join(name);
-            let rows = exif::read(&path);
-            let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-            let meta = meta::read(&path).text();
-            text.push(&meta);
-            out.push((name.clone(), text.join(" ").to_lowercase()));
+            // A file that breaks its reader has no text; a whole part lost would leave 1/N of
+            // the folder out of every exif: search, in silence.
+            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rows = exif::read(&path);
+                let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
+                let meta = meta::read(&path).text();
+                text.push(&meta);
+                text.join(" ").to_lowercase()
+            }));
+            out.push((name.clone(), text.unwrap_or_default()));
         }
         out
     });
