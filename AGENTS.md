@@ -102,9 +102,15 @@ documentation.
 - **An optional format or plugin:** a Cargo feature in `[features]` (also add it to `full`),
   a module or extension list behind `#[cfg(feature = "...")]`, and its settings shown in
   Preferences only when built in. Never break the default build.
-- **Background work:** spawn a thread, send the result over a channel stored in `App`, poll it
-  in `update`. egui only takes clipboard and other output during a frame, so hand results to the
-  UI thread instead of calling the context from a worker.
+- **Background work:** spawn a thread, send the result over a channel stored in `App` as a
+  `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
+  `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and
+  other output during a frame, so hand results to the UI thread instead of calling the context
+  from a worker.
+- **State indexed into the file list** (a `usize` or a set of them that means "this file")
+  goes into `List`, never into `App`: a new list is a new `List`, so such state cannot outlive
+  the list it was made for. What should follow a file to the new list is carried over by name
+  in `replace_files`.
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it

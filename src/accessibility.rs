@@ -12,16 +12,16 @@ impl App {
     /// the next image.
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_id = Some(response.id);
-        let text = if self.files.is_empty() {
+        let text = if self.list.files.is_empty() {
             crate::lang::tr("No images").to_owned()
         } else {
             // Read in the background, as for the EXIF panel: here once for each image.
             self.want_exif(ui.ctx());
-            let path = self.path(self.cur);
+            let path = self.path(self.list.cur);
             let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
             // The name the list shows, not the whole path a collection's entry holds.
-            let mut text = format!("{}, {place}", self.name(self.cur));
-            if let Some(e) = self.decode_errors.get(&self.cur) {
+            let mut text = format!("{}, {place}", self.name(self.list.cur));
+            if let Some(e) = self.list.decode_errors.get(&self.list.cur) {
                 text += &format!(", could not be shown: {e}");
             }
             #[cfg(feature = "marks")]

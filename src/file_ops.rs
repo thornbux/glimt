@@ -7,7 +7,7 @@ use crate::*;
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
-        if self.files.is_empty() {
+        if self.list.files.is_empty() {
             return;
         }
         if if trash {
@@ -36,7 +36,7 @@ impl crate::App {
         let names = self
             .targets()
             .iter()
-            .map(|&i| self.files[i].clone())
+            .map(|&i| self.list.files[i].clone())
             .collect();
         self.asked_for = (self.list_place(), names);
     }
@@ -47,7 +47,7 @@ impl crate::App {
         let (place, names) = std::mem::take(&mut self.asked_for);
         let names: HashSet<OsString> = names.into_iter().collect();
         let found: Vec<usize> = match place == self.list_place() {
-            true => (self.files.iter().enumerate())
+            true => (self.list.files.iter().enumerate())
                 .filter(|(_, f)| names.contains(*f))
                 .map(|(i, _)| i)
                 .collect(),
@@ -108,7 +108,7 @@ impl crate::App {
             return;
         }
         self.deleting
-            .extend(targets.iter().map(|&i| self.files[i].clone()));
+            .extend(targets.iter().map(|&i| self.list.files[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
@@ -245,11 +245,11 @@ impl crate::App {
         }
         if !copied && self.collection.is_some() {
             let mut any = false;
-            for i in 0..self.files.len() {
+            for i in 0..self.list.files.len() {
                 if let Some(to) = new_place(&self.path(i), &moved)
                     && let Ok(rel) = to.strip_prefix(&self.dir)
                 {
-                    self.files[i] = rel.as_os_str().to_owned();
+                    self.list.files[i] = rel.as_os_str().to_owned();
                     any = true;
                 }
             }
@@ -292,8 +292,8 @@ impl crate::App {
                 .collect();
             // Kept out of a listing that is running, as files being deleted are.
             self.deleting.extend(names.iter().map(|n| n.to_os_string()));
-            let gone: Vec<usize> = (0..self.files.len())
-                .filter(|&i| names.contains(self.files[i].as_os_str()))
+            let gone: Vec<usize> = (0..self.list.files.len())
+                .filter(|&i| names.contains(self.list.files[i].as_os_str()))
                 .collect();
             self.remove_indices(ctx, &gone);
         }
@@ -399,9 +399,9 @@ impl crate::App {
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
     ) {
-        let shown = from.iter().position(|f| *f == self.path(self.cur));
+        let shown = from.iter().position(|f| *f == self.path(self.list.cur));
         let job = RenameJob {
-            files_gen: self.files_gen,
+            files_gen: self.list.version,
             from: from.clone(),
             to: to.clone(),
             shown,
@@ -433,7 +433,7 @@ impl crate::App {
         if let Err(e) = result {
             self.notice = Some(e);
         }
-        self.selected.clear();
+        self.list.selected.clear();
         self.selection_changed(ctx);
         // Found by their old names: the list may have changed while they were renamed. Nothing
         // renamed: the names stay.
@@ -451,7 +451,7 @@ impl crate::App {
             return self.list(ctx);
         }
         // The list changed meanwhile: its numbers are other files' now, so it is read again.
-        if job.files_gen != self.files_gen {
+        if job.files_gen != self.list.version {
             return self.list(ctx);
         }
         // Still the image shown when it began (the user may have moved on meanwhile): it stays
@@ -459,10 +459,10 @@ impl crate::App {
         // again, not opened: the view stays in the folder, subfolders or folders it shows.
         if let Some(k) = job.shown
             && !failed
-            && self.path(self.cur) == job.from[k]
+            && self.path(self.list.cur) == job.from[k]
             && let Ok(rel) = job.to[k].strip_prefix(&self.dir)
         {
-            self.files[self.cur] = rel.as_os_str().to_owned();
+            self.list.files[self.list.cur] = rel.as_os_str().to_owned();
         }
         self.list(ctx)
     }
@@ -472,7 +472,7 @@ impl crate::App {
     /// which takes seconds for a large one. Both read and write the whole file, slow on a share.
     pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
         let (turns, mirrored) = self.orient;
-        if self.files.is_empty() || (turns, mirrored) == (0, false) {
+        if self.list.files.is_empty() || (turns, mirrored) == (0, false) {
             return;
         }
         let path = self.turned.clone();
@@ -509,18 +509,20 @@ impl crate::App {
 
     /// `path` was saved turned: decode it again and make a new thumbnail.
     pub(crate) fn saved(&mut self, path: &Path) {
-        if self.is_file(self.cur, path) {
+        if self.is_file(self.list.cur, path) {
             self.orient = (0, false);
-            self.decodes_pending.retain(|p, _| p.0 != self.cur);
+            self.list
+                .decodes_pending
+                .retain(|p, _| p.0 != self.list.cur);
             self.exif = None;
         }
-        self.slots.retain(|_, s| s.path != path);
+        self.list.slots.retain(|_, s| s.path != path);
         // Its size changed: the status bar and the list read it again.
         self.cur_size = None;
         if let Ok(name) = path.strip_prefix(&self.dir) {
             self.thumbs.remove(name.as_os_str());
             self.thumbs_pending.remove(name.as_os_str());
-            self.details.remove(name.as_os_str());
+            self.list.details.remove(name.as_os_str());
         }
         self.refill();
     }

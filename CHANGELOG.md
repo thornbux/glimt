@@ -14,6 +14,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The file list and everything indexed into it (the shown image, selection, panes, decoded slots,
+  search matches, drags) are one List, made anew when the list is read again: nothing indexed can
+  outlive its list, whatever is added later; what follows a file is carried over by name in one
+  place.
 - Every receiver of a background thread's answer is a Receiving, whose only ways to read tell once
   when the thread is gone and forget it, so no new receiver can leave the window waiting for a
   thread that broke.
