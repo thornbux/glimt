@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-21
+
 ### Fixed
 
 - A program installed while Glimt runs (zenity, sqlite3, ffmpeg) is found without a restart: only
@@ -16,7 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - egui and eframe 0.37 (from 0.36.2), with accesskit 0.25: the same look and keys; the names in
-  keys= are unchanged, as the test pins them.
+  keys= are unchanged, as the test pins them. The arrow after Sort by and All types in the status
+  bar and the arrow keys of the Keyboard Map are from the fonts Glimt ships, as egui no longer
+  bundles the emoji fonts that drew them; a test holds every sign of the UI text to those fonts.
 - The release tests click menu items, buttons and choices by their text (a test-hooks build's
   glimt --remote where LABEL), not by screen coordinates, so a change to the look no longer breaks
   them.
@@ -1823,7 +1827,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.38.5...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.39.0...HEAD
+[0.39.0]: https://github.com/thornbux/glimt/compare/v0.38.5...v0.39.0
 [0.38.5]: https://github.com/thornbux/glimt/compare/v0.38.4...v0.38.5
 [0.38.4]: https://github.com/thornbux/glimt/compare/v0.38.3...v0.38.4
 [0.38.3]: https://github.com/thornbux/glimt/compare/v0.38.2...v0.38.3
