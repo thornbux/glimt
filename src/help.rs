@@ -223,7 +223,8 @@ const MANUAL: &[(&str, &str)] = &[
          - without either it runs once in the folder.\n\n\
          A program next to the desktop file is found there. New plugins show after a restart. The \
          files are given to the program directly, never through a shell.\n\n\
-         examples/plugins in Glimt's source has one that writes a description of each image as its \
+         /usr/share/doc/glimt/examples/plugins (examples/plugins in the tar.gz and the \
+         source) has one that writes a description of each image as its \
          comment and alt text, made by a model on this computer, and one that reads the alt text \
          of the selected images aloud (speech-dispatcher), without a screen reader.",
     ),
@@ -244,7 +245,8 @@ const MANUAL: &[(&str, &str)] = &[
          and an Exec command that writes the image (PNM, PNG …) to its standard output, %f being \
          the file. Such files are then listed and shown as any other, with thumbnails. The command \
          runs without a shell, for 30 seconds at most.\n\n\
-         examples/decoders in Glimt's source has decoders for:\n\n\
+         /usr/share/doc/glimt/examples/decoders (examples/decoders in the tar.gz and the \
+         source) has decoders for:\n\n\
          - JPEG 2000 (ffmpeg)\n\
          - FITS from telescopes (astropy)\n\
          - DICOM from medical and dental imaging, also compressed (pydicom)\n\

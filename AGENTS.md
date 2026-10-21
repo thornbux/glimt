@@ -209,6 +209,14 @@ cargo generate-rpm -o /tmp/pkg/            # cargo install cargo-generate-rpm
 - Dependencies are written by hand (glibc 2.28): `dpkg-shlibdeps` rounds glibc up to 2.34, and
   cargo-generate-rpm's own list has `[WEAK]` symbol versions that dnf cannot resolve. OpenGL
   (EGL) and xkbcommon are named too: the window loads them as it opens, so no tool finds them.
+- `examples/plugins` and `examples/decoders` are installed as examples, not as active plugins:
+  in `/usr/share/doc/glimt/examples/` in the `.deb` and `.rpm` (scripts 755, so they work when
+  copied), and as `examples/` in the tar.gz. Glimt reads `/usr/share/glimt/{plugins,decoders}`,
+  but nothing is put there: each example needs programs the package cannot count on (Ollama,
+  spd-say, exiftool, ImageMagick, Python modules), and would sit in the menu for everyone and
+  fail. A user copies the ones wanted to `~/.local/share/glimt/{plugins,decoders}` (Edit →
+  Plugins → Open the Plugins Folder). Not in the AppImage or Flatpak, as no README is: their
+  files are out of the user's reach. A new example script goes in by the globs already there.
 - A local build links against the build machine's glibc; only the release binary runs on 2.28.
 - Test an `.rpm` without rpm tools in a container, with the storage on `/tmp`:
   `podman --root /tmp/pod --runroot /tmp/podrun --storage-driver vfs run --rm -v /tmp/pkg:/pkg:Z

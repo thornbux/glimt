@@ -384,7 +384,8 @@ aloud through speech-dispatcher (`spd-say`), or their comment, or their name: fo
 see poorly but use no screen reader.
 
 **An example: descriptions from a model on your own computer.**
-[`examples/plugins`](examples/plugins) holds a plugin that asks a vision model running in
+[`examples/plugins`](examples/plugins) (in `/usr/share/doc/glimt/examples` when Glimt is
+installed from the `.deb` or `.rpm`) holds a plugin that asks a vision model running in
 [Ollama](https://ollama.com) for one or two sentences about each selected image and writes them
 as its comment and as its IPTC alt text, in the XMP sidecar: shown in the EXIF panel, the
 comment found by `exif:` searches, and the alt text read first by a screen reader and by web
@@ -490,7 +491,8 @@ Exec=ffmpeg -v error -protocol_whitelist file -format_whitelist j2k_pipe -f j2k_
   everything it started.
 - New decoders are seen after a restart. In a Flatpak they run on the host, as other programs.
 
-[`examples/decoders`](examples/decoders) has these, each tested in Glimt's release tests:
+[`examples/decoders`](examples/decoders) (in `/usr/share/doc/glimt/examples` from the `.deb` or
+`.rpm`) has these, each tested in Glimt's release tests:
 
 | Decoder | Formats | Field | Needs |
 |---|---|---|---|

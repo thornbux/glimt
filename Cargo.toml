@@ -86,6 +86,12 @@ assets = [
     ["assets/fonts/LICENSE-Inter.txt", "usr/share/doc/glimt/", "644"],
     ["assets/fonts/LICENSE-Phosphor.txt", "usr/share/doc/glimt/", "644"],
     ["THIRD-PARTY-LICENSES.txt", "usr/share/doc/glimt/", "644"],
+    # Examples only: the user copies those wanted to ~/.local/share/glimt/{plugins,decoders}.
+    ["examples/plugins/*.desktop", "usr/share/doc/glimt/examples/plugins/", "644"],
+    ["examples/plugins/glimt-*", "usr/share/doc/glimt/examples/plugins/", "755"],
+    ["examples/plugins/test-model.py", "usr/share/doc/glimt/examples/plugins/", "755"],
+    ["examples/decoders/*.desktop", "usr/share/doc/glimt/examples/decoders/", "644"],
+    ["examples/decoders/glimt-*", "usr/share/doc/glimt/examples/decoders/", "755"],
 ]
 
 [package.metadata.generate-rpm]
@@ -107,6 +113,11 @@ assets = [
     { source = "assets/fonts/LICENSE-Inter.txt", dest = "/usr/share/licenses/glimt/LICENSE-Inter.txt", mode = "644" },
     { source = "assets/fonts/LICENSE-Phosphor.txt", dest = "/usr/share/licenses/glimt/LICENSE-Phosphor.txt", mode = "644" },
     { source = "THIRD-PARTY-LICENSES.txt", dest = "/usr/share/licenses/glimt/THIRD-PARTY-LICENSES.txt", mode = "644" },
+    { source = "examples/plugins/*.desktop", dest = "/usr/share/doc/glimt/examples/plugins/", mode = "644", doc = true },
+    { source = "examples/plugins/glimt-*", dest = "/usr/share/doc/glimt/examples/plugins/", mode = "755", doc = true },
+    { source = "examples/plugins/test-model.py", dest = "/usr/share/doc/glimt/examples/plugins/test-model.py", mode = "755", doc = true },
+    { source = "examples/decoders/*.desktop", dest = "/usr/share/doc/glimt/examples/decoders/", mode = "644", doc = true },
+    { source = "examples/decoders/glimt-*", dest = "/usr/share/doc/glimt/examples/decoders/", mode = "755", doc = true },
 ]
 
 # A file, so that Fedora's ffmpeg-free and RPM Fusion's ffmpeg both satisfy it.

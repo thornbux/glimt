@@ -98,6 +98,7 @@ jobs:
              assets/io.github.thornbux.Glimt.metainfo.xml \
              docs/glimt.1 LICENSE README.md CHANGELOG.md assets/fonts/LICENSE-*.txt \
              THIRD-PARTY-LICENSES.txt "$dir/"
+          cp -r examples "$dir/"
           tar czf "$dir.tar.gz" "$dir"
       - name: AppImage
         # The same binary, which loads OpenGL, Wayland and X11 from the system as it starts, so

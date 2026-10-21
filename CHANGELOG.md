@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The .deb and .rpm install the example plugins and decoders in
+  /usr/share/doc/glimt/examples, and the tar.gz has them in examples/, ready to copy to
+  ~/.local/share/glimt/plugins or decoders.
+
 ## [0.39.0] - 2026-10-21
 
 ### Fixed
