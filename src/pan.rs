@@ -485,7 +485,8 @@ impl crate::App {
                             );
                             continue;
                         };
-                        let r = ui.interact(rect, ui.id().with(("day", d)), egui::Sense::click());
+                        let r =
+                            ui.interact(rect, ui.scope_id().with(("day", d)), egui::Sense::click());
                         if r.hovered() {
                             ui.painter().rect_filled(
                                 rect,

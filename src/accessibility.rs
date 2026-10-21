@@ -45,7 +45,7 @@ impl App {
             }
             text
         };
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &text));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &text));
         // A dialog's text field takes the focus when nothing has it: never the image's then.
         if self.dialog_open() {
             response.surrender_focus();

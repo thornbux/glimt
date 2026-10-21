@@ -332,7 +332,7 @@ impl crate::App {
             return;
         };
         let (mut next, mut back, mut go) = (false, false, false);
-        let modal = egui::Modal::new(egui::Id::new("lightroom")).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::unique("lightroom")).show(ctx, |ui| {
             ui.strong(tr("Import from Lightroom"));
             match &mut lr.plan {
                 None => {

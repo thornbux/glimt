@@ -30,7 +30,7 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
     let Some(shown) = *page else { return };
     let mut open = true;
     egui::Window::new(shown.title())
-        .id(egui::Id::new("help"))
+        .id(egui::Id::unique("help"))
         .open(&mut open)
         .collapsible(false)
         .default_height(520.0)
@@ -963,7 +963,7 @@ fn keymap(ui: &mut egui::Ui) {
         );
         if !actions.is_empty() {
             let id = ui
-                .id()
+                .scope_id()
                 .with(("key", label, at.min.x as i32, at.min.y as i32));
             ui.interact(r, id, egui::Sense::hover())
                 .on_hover_text(actions.join("\n"));
@@ -1117,7 +1117,7 @@ fn about(ui: &mut egui::Ui) {
 
 /// Glimt's logo as a texture: made the first time About is shown, then kept in egui's memory.
 fn logo(ctx: &egui::Context) -> Option<egui::TextureHandle> {
-    let id = egui::Id::new("glimt-logo");
+    let id = egui::Id::unique("glimt-logo");
     if let Some(logo) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
         return Some(logo);
     }

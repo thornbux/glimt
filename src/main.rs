@@ -938,7 +938,7 @@ fn scroll_menu<R>(
     let ctx = ui.ctx().clone();
     let id = egui::Popup::default_response_id(&response);
     let others = ctx.data_mut(|d| {
-        let ids = d.get_temp_mut_or_default::<Vec<egui::Id>>(egui::Id::new(BAR_MENUS));
+        let ids = d.get_temp_mut_or_default::<Vec<egui::Id>>(egui::Id::unique(BAR_MENUS));
         if !ids.contains(&id) {
             ids.push(id);
         }
@@ -966,7 +966,8 @@ const BAR_MENUS: &str = "menu bar menus";
 /// open menu for a moment (`away` holds since when). A menu opened from the keyboard stays
 /// while the mouse is still.
 fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Option<Instant>) {
-    let ids: Vec<egui::Id> = ctx.data(|d| d.get_temp(egui::Id::new(BAR_MENUS)).unwrap_or_default());
+    let ids: Vec<egui::Id> =
+        ctx.data(|d| d.get_temp(egui::Id::unique(BAR_MENUS)).unwrap_or_default());
     if !ids.iter().any(|&id| egui::Popup::is_id_open(ctx, id)) {
         *away = None;
         return;
@@ -4189,7 +4190,7 @@ impl App {
         rect: egui::Rect,
         marked: bool,
     ) -> egui::Response {
-        let response = ui.interact(rect, ui.id().with(("cell", i)), egui::Sense::click());
+        let response = ui.interact(rect, ui.scope_id().with(("cell", i)), egui::Sense::click());
         let visuals = ui.visuals();
         if marked || response.hovered() {
             let fill = if marked {
@@ -4325,7 +4326,7 @@ impl App {
                 ui.painter()
                     .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
             }
-            let id = ui.id().with(("strip", i));
+            let id = ui.scope_id().with(("strip", i));
             if ui.interact(frame, id, egui::Sense::click()).clicked() {
                 clicked = Some(i);
             }
@@ -5068,7 +5069,7 @@ impl App {
                 false => "Filter file names by pattern, or exif: camera, date …",
             };
             let edit = egui::TextEdit::singleline(&mut self.search)
-                .id(egui::Id::new("file search"))
+                .id(egui::Id::unique("file search"))
                 .hint_text(hint);
             // Geeqie's file filter has its Case checkbox to the right.
             let geeqie = !self.config.fuzzy_search;
@@ -6783,7 +6784,7 @@ impl App {
             return;
         }
         if let Some(widget) = ctx.read_response(id) {
-            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("focus ring"));
+            let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("focus ring"));
             let accent = ctx.global_style().visuals.selection.bg_fill;
             ctx.layer_painter(layer).rect_stroke(
                 widget.rect.expand(1.0),
@@ -7129,7 +7130,7 @@ impl App {
             let i = self.first_target().1;
             let first = (i < self.list.files.len()).then(|| self.path(i));
             let mut answer = None;
-            let modal = egui::Modal::new(egui::Id::new("prompt")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
                 ui.label(title);
                 let edit = ui.text_edit_singleline(&mut text);
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -7292,7 +7293,7 @@ impl App {
             .and_then(|m| m.0.parent())
             .map_or(String::new(), |p| p.display().to_string());
         let mut choice = None;
-        egui::Modal::new(egui::Id::new("cut short")).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::unique("cut short")).show(ctx, |ui| {
             ui.strong(tr("Rename Many was cut short"));
             ui.label(format!(
                 "A crash or a power cut stopped it in {folder}. Some files may have their new \
@@ -7366,7 +7367,7 @@ impl App {
             let mut open = true;
             let title = format!("EXIF: {}", self.name(self.list.cur));
             egui::Window::new(title)
-                .id(egui::Id::new("exif window"))
+                .id(egui::Id::unique("exif window"))
                 .open(&mut open)
                 .default_size([560.0, 600.0])
                 .vscroll(true)
@@ -7394,7 +7395,7 @@ impl App {
     fn login_dialog(&mut self, ctx: &egui::Context) {
         if let Some(mut login) = self.login.take() {
             let mut connect = false;
-            let modal = egui::Modal::new(egui::Id::new("login")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("login")).show(ctx, |ui| {
                 ui.label(tf!("Log in to {uri}", uri = login.uri));
                 egui::Grid::new("login fields").show(ui, |ui| {
                     // Sized outright: in the grid of a modal, desired_width left them a few
@@ -7439,7 +7440,7 @@ impl App {
                 (many, _) => count(many, "file"),
             };
             let mut delete = false;
-            let modal = egui::Modal::new(egui::Id::new("confirm-delete")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("confirm-delete")).show(ctx, |ui| {
                 if trash {
                     ui.label(tf!("Move {what} to the trash?", what));
                 } else {
@@ -7474,7 +7475,7 @@ impl App {
                 .to_string_lossy()
                 .into_owned();
             let mut trash = false;
-            let modal = egui::Modal::new(egui::Id::new("confirm-folder")).show(ctx, |ui| {
+            let modal = egui::Modal::new(egui::Id::unique("confirm-folder")).show(ctx, |ui| {
                 ui.label(tf!(
                     "Move the folder \"{name}\" and all in it to the trash?",
                     name
@@ -7728,7 +7729,7 @@ impl App {
             // Scroll only when the current image is out of view, and centre it.
             let (top, view) = (row as f32 * pitch, ui.available_height());
             let off = egui::scroll_area::State::load(ctx, ui.make_persistent_id("files"))
-                .map_or(0.0, |s| s.offset.y);
+                .map_or(0.0, |s| s.clamped_offset().y);
             if top < off || top + pitch > off + view {
                 area = area.vertical_scroll_offset((top - view / 2.0).max(0.0));
             }
@@ -8336,7 +8337,7 @@ impl App {
                     shown.push((i, self.paint_pane(ui, *rect, i, self.zoom, Some(k + 1))));
                     // A click makes it the shown image, in the first pane.
                     if ui
-                        .interact(*rect, ui.id().with(("pane", k)), egui::Sense::click())
+                        .interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click())
                         .clicked()
                     {
                         clicked_pane = Some(i);
@@ -8599,7 +8600,7 @@ impl App {
 fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
     let shade = egui::Color32::from_black_alpha(150);
     let button = egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
-    let play = ui.interact(button, ui.id().with("play"), egui::Sense::click());
+    let play = ui.interact(button, ui.scope_id().with("play"), egui::Sense::click());
     let p = ui.painter();
     p.circle_filled(button.center(), 48.0, shade);
     let c = button.center();

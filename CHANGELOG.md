@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- egui and eframe 0.37 (from 0.36.2), with accesskit 0.25: the same look and keys; the names in
+  keys= are unchanged, as the test pins them.
 - The release tests click menu items, buttons and choices by their text (a test-hooks build's
   glimt --remote click LABEL), not by screen coordinates, so a change to the look no longer breaks
   them.

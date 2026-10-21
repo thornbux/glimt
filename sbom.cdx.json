@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:bdc19f47-61d0-587f-bc0d-b361421fdc2d",
+ "serialNumber": "urn:uuid:1e607a73-c038-5aed-acdb-3642a53139fd",
  "version": 1,
  "metadata": {
   "tools": {
@@ -85,20 +85,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit@0.24.1",
+   "bom-ref": "pkg:cargo/accesskit@0.25.1",
    "name": "accesskit",
-   "version": "0.24.1",
+   "version": "0.25.1",
    "description": "UI accessibility infrastructure across platforms",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit@0.24.1",
+   "purl": "pkg:cargo/accesskit@0.25.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "d3b7f7f85a7e5f68090000ed7622545829afd484d210358702ae4cb97dd0c320"
+     "content": "ad442f58ee04714aaa0ba0a2768c1ea1935b29507bb22ddece8cbbc76db02932"
     }
    ],
    "externalReferences": [
@@ -110,20 +110,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_atspi_common@0.18.1",
+   "bom-ref": "pkg:cargo/accesskit_atspi_common@0.21.0",
    "name": "accesskit_atspi_common",
-   "version": "0.18.1",
+   "version": "0.21.0",
    "description": "AccessKit UI accessibility infrastructure: core AT-SPI translation layer",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_atspi_common@0.18.1",
+   "purl": "pkg:cargo/accesskit_atspi_common@0.21.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "1e8c61bee90b42a772d39d06a740207dc71a4e780004ace1db8d99fb1baaa954"
+     "content": "52c182f9c282ac9c5638d876d551d15e5f7d397ec263349a0c6a2b61595dd5e4"
     }
    ],
    "externalReferences": [
@@ -135,20 +135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_consumer@0.36.0",
+   "bom-ref": "pkg:cargo/accesskit_consumer@0.39.1",
    "name": "accesskit_consumer",
-   "version": "0.36.0",
+   "version": "0.39.1",
    "description": "AccessKit consumer library (internal)",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_consumer@0.36.0",
+   "purl": "pkg:cargo/accesskit_consumer@0.39.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "25e0d7e25d06f4dc21d1774d67146e9e80d6789216cbd4d1e88185b0095dba60"
+     "content": "8a45e2bb300bea6d5f33a82c3e051c3ddc6f41c209750f68a0acbe991a284344"
     }
    ],
    "externalReferences": [
@@ -160,20 +160,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_unix@0.21.1",
+   "bom-ref": "pkg:cargo/accesskit_unix@0.24.0",
    "name": "accesskit_unix",
-   "version": "0.21.1",
+   "version": "0.24.0",
    "description": "AccessKit UI accessibility infrastructure: Linux adapter",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_unix@0.21.1",
+   "purl": "pkg:cargo/accesskit_unix@0.24.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "b016ca8db0ea0ea2ceff29a9d6240391492d960716aa471967c00e8cc8cb197c"
+     "content": "202f24df034a7476d07b7f74284de84f6d62aabd858dbe7ee9cad3b7ad6f8f9d"
     }
    ],
    "externalReferences": [
@@ -185,20 +185,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/accesskit_winit@0.32.2",
+   "bom-ref": "pkg:cargo/accesskit_winit@0.34.1",
    "name": "accesskit_winit",
-   "version": "0.32.2",
+   "version": "0.34.1",
    "description": "AccessKit UI accessibility infrastructure: winit adapter",
    "licenses": [
     {
      "expression": "Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/accesskit_winit@0.32.2",
+   "purl": "pkg:cargo/accesskit_winit@0.34.1",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "1fe9a94394896352cc4660ca2288bd4ef883d83238853c038b44070c8f134313"
+     "content": "ee96dd150375c05912d8a473f98c2fb155fb3234fac88292d396548a2460fa77"
     }
    ],
    "externalReferences": [
@@ -1060,31 +1060,6 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/calloop-wayland-source@0.4.1",
-   "name": "calloop-wayland-source",
-   "version": "0.4.1",
-   "description": "A wayland-rs client event source for callloop",
-   "licenses": [
-    {
-     "expression": "MIT"
-    }
-   ],
-   "purl": "pkg:cargo/calloop-wayland-source@0.4.1",
-   "hashes": [
-    {
-     "alg": "SHA-256",
-     "content": "138efcf0940a02ebf0cc8d1eff41a1682a46b431630f4c52450d6265876021fa"
-    }
-   ],
-   "externalReferences": [
-    {
-     "type": "vcs",
-     "url": "https://github.com/smithay/calloop-wayland-source"
-    }
-   ]
-  },
-  {
-   "type": "library",
    "bom-ref": "pkg:cargo/calloop@0.13.0",
    "name": "calloop",
    "version": "0.13.0",
@@ -1099,31 +1074,6 @@
     {
      "alg": "SHA-256",
      "content": "b99da2f8558ca23c71f4fd15dc57c906239752dd27ff3c00a1d56b685b7cbfec"
-    }
-   ],
-   "externalReferences": [
-    {
-     "type": "vcs",
-     "url": "https://github.com/Smithay/calloop"
-    }
-   ]
-  },
-  {
-   "type": "library",
-   "bom-ref": "pkg:cargo/calloop@0.14.5",
-   "name": "calloop",
-   "version": "0.14.5",
-   "description": "A callback-based event loop",
-   "licenses": [
-    {
-     "expression": "MIT"
-    }
-   ],
-   "purl": "pkg:cargo/calloop@0.14.5",
-   "hashes": [
-    {
-     "alg": "SHA-256",
-     "content": "43b32313e937c8721c9d17ee9bf60699a6402b4b7c2cb6ac1bee0ffcaa4b4e5e"
     }
    ],
    "externalReferences": [
@@ -1510,20 +1460,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/ecolor@0.36.2",
+   "bom-ref": "pkg:cargo/ecolor@0.37.0",
    "name": "ecolor",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Color structs and color conversion utilities",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/ecolor@0.36.2",
+   "purl": "pkg:cargo/ecolor@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "0656a7530b9e2841ee7a5f983965bdd9840c32f4012f759cfd44b912cced6b34"
+     "content": "31bcbef0d4263a63eb32c4834e5d711613035ce1333468e107d928923e21e6e2"
     }
    ],
    "externalReferences": [
@@ -1535,20 +1485,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/eframe@0.36.2",
+   "bom-ref": "pkg:cargo/eframe@0.37.0",
    "name": "eframe",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "egui framework - write GUI apps that compiles to web and/or natively",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/eframe@0.36.2",
+   "purl": "pkg:cargo/eframe@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "55ad41fac6e3149abb4866e93df37dbd33baa95db525c3368c944584e95a5dc2"
+     "content": "9c5642501a65ca657d05f00c643a5c14ff2346cb3818032bfe23d58e1f8e5f84"
     }
    ],
    "externalReferences": [
@@ -1560,20 +1510,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/egui-wgpu@0.36.2",
+   "bom-ref": "pkg:cargo/egui-wgpu@0.37.0",
    "name": "egui-wgpu",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Bindings for using egui natively using the wgpu library",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/egui-wgpu@0.36.2",
+   "purl": "pkg:cargo/egui-wgpu@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "5cef1f6d1bba40b09a4d0d62cb822b81030922cfbf65c5373398c3a3caafc5bd"
+     "content": "0309cbe1febed48af5b974e4bcc424b35e9664863a4d402697147b57a488c864"
     }
    ],
    "externalReferences": [
@@ -1585,20 +1535,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/egui-winit@0.36.2",
+   "bom-ref": "pkg:cargo/egui-winit@0.37.0",
    "name": "egui-winit",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Bindings for using egui with winit",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/egui-winit@0.36.2",
+   "purl": "pkg:cargo/egui-winit@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "98466000559d66ba4db786a30448b01483946add4188e7f10f522a27b4fb89cc"
+     "content": "e4e449f4c4a2a60c7ccb4ba7fa4078417bfe1f9ddc03b5e05ce75748e33a70de"
     }
    ],
    "externalReferences": [
@@ -1610,20 +1560,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/egui@0.36.2",
+   "bom-ref": "pkg:cargo/egui@0.37.0",
    "name": "egui",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "An easy-to-use immediate mode GUI that runs on both web and native",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/egui@0.36.2",
+   "purl": "pkg:cargo/egui@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "dc938cc27cd911415e1e4d151bc56ff9df063d8db081374e87aeb805ea74b2ba"
+     "content": "bec9144f49b7a28b5f395d3147e325b4fe3e77ba686eac11d1bdf0a7da3f375f"
     }
    ],
    "externalReferences": [
@@ -1635,20 +1585,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/egui_glow@0.36.2",
+   "bom-ref": "pkg:cargo/egui_glow@0.37.0",
    "name": "egui_glow",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Bindings for using egui natively using the glow library",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/egui_glow@0.36.2",
+   "purl": "pkg:cargo/egui_glow@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "606ed4167daf341e5753d703285c4c1d562324b2c07aa8f405cd7d066fe58f3b"
+     "content": "9275ca5cc35a6b7c94e0e8cedf22542f66cb0cf45ed8ab2657c78ff49fec7268"
     }
    ],
    "externalReferences": [
@@ -1685,20 +1635,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/emath@0.36.2",
+   "bom-ref": "pkg:cargo/emath@0.37.0",
    "name": "emath",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Minimal 2D math library for GUI work",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/emath@0.36.2",
+   "purl": "pkg:cargo/emath@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "52c8d4141cf0f60fb2f7aefaf352d3ffa5171ef0ab09731c64391801e95e48f1"
+     "content": "e73ce90f54750be8672c02be0743fe47530e6f251e066f0ee2869b59eb297af5"
     }
    ],
    "externalReferences": [
@@ -1785,20 +1735,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/epaint@0.36.2",
+   "bom-ref": "pkg:cargo/epaint@0.37.0",
    "name": "epaint",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Minimal 2D graphics library for GUI work",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/epaint@0.36.2",
+   "purl": "pkg:cargo/epaint@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "a0ec0308dc23130fc1a7d4623a8534c2ed069c6dc84e258ee4f3de99615aa1a3"
+     "content": "97bac86ae3dde93fc3951e790951caea739ff39a6c89d909cdaf1d9278dbb1bd"
     }
    ],
    "externalReferences": [
@@ -1810,20 +1760,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/epaint_default_fonts@0.36.2",
+   "bom-ref": "pkg:cargo/epaint_default_fonts@0.37.0",
    "name": "epaint_default_fonts",
-   "version": "0.36.2",
+   "version": "0.37.0",
    "description": "Default fonts for use in epaint / egui",
    "licenses": [
     {
      "expression": "(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0"
     }
    ],
-   "purl": "pkg:cargo/epaint_default_fonts@0.36.2",
+   "purl": "pkg:cargo/epaint_default_fonts@0.37.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "773fa9c96dd0dbef887e39d0ed6177f141cce4d68e6041df77570aa3702dfa13"
+     "content": "cfc1cc505827f4c23eedc297975a0fd038268d41293f389dd8ff3b574aefab19"
     }
    ],
    "externalReferences": [
@@ -2110,6 +2060,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/fixedbitset@0.5.7",
+   "name": "fixedbitset",
+   "version": "0.5.7",
+   "description": "FixedBitSet is a simple bitset collection",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/fixedbitset@0.5.7",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/petgraph/fixedbitset"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/flate2@1.1.10",
    "name": "flate2",
    "version": "1.1.10",
@@ -2155,6 +2130,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/mikedilger/float-cmp"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/foldhash@0.1.5",
+   "name": "foldhash",
+   "version": "0.1.5",
+   "description": "A fast, non-cryptographic, minimally DoS-resistant hashing algorithm.",
+   "licenses": [
+    {
+     "expression": "Zlib"
+    }
+   ],
+   "purl": "pkg:cargo/foldhash@0.1.5",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/orlp/foldhash"
     }
    ]
   },
@@ -2510,20 +2510,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/glifo@0.2.0",
+   "bom-ref": "pkg:cargo/glifo@0.3.0",
    "name": "glifo",
-   "version": "0.2.0",
+   "version": "0.3.0",
    "description": "Glifo provides APIs for efficiently rendering text.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/glifo@0.2.0",
+   "purl": "pkg:cargo/glifo@0.3.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ed4a1bb24121291d27230c1b1b44e07d6a9b28cefdb32fe1581dfb84e14f940a"
+     "content": "282a26c1e23de04bdab3e34a21b6f877a479b96737792516b9b8b8f69b6661be"
     }
    ],
    "externalReferences": [
@@ -2735,20 +2735,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/hashbrown@0.16.1",
+   "bom-ref": "pkg:cargo/hashbrown@0.15.5",
    "name": "hashbrown",
-   "version": "0.16.1",
+   "version": "0.15.5",
    "description": "A Rust port of Google's SwissTable hash map",
    "licenses": [
     {
      "expression": "MIT OR Apache-2.0"
     }
    ],
-   "purl": "pkg:cargo/hashbrown@0.16.1",
+   "purl": "pkg:cargo/hashbrown@0.15.5",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+     "content": "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
     }
    ],
    "externalReferences": [
@@ -3785,6 +3785,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/nom@8.0.0",
+   "name": "nom",
+   "version": "8.0.0",
+   "description": "A byte-oriented, zero-copy, parser combinators library",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/nom@8.0.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-bakery/nom"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/num-traits@0.2.19",
    "name": "num-traits",
    "version": "0.2.19",
@@ -3855,6 +3880,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/danieldg/ordered-stream"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/os_pipe@1.2.3",
+   "name": "os_pipe",
+   "version": "1.2.3",
+   "description": "a cross-platform library for opening OS pipes",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/os_pipe@1.2.3",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/oconnor663/os_pipe.rs"
     }
    ]
   },
@@ -4010,20 +4060,45 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/phf@0.13.1",
+   "bom-ref": "pkg:cargo/petgraph@0.8.3",
+   "name": "petgraph",
+   "version": "0.8.3",
+   "description": "Graph data structure library. Provides graph types and graph algorithms.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/petgraph@0.8.3",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "8701b58ea97060d5e5b155d383a69952a60943f0e6dfe30b04c287beb0b27455"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/petgraph/petgraph"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/phf@0.14.0",
    "name": "phf",
-   "version": "0.13.1",
+   "version": "0.14.0",
    "description": "Runtime support for perfect hash function data structures",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/phf@0.13.1",
+   "purl": "pkg:cargo/phf@0.14.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
+     "content": "010378780309880b08997fae13be7834dba947d36393bd372f2b1556deb2a2f6"
     }
    ],
    "externalReferences": [
@@ -4035,20 +4110,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/phf_generator@0.13.1",
+   "bom-ref": "pkg:cargo/phf_generator@0.14.0",
    "name": "phf_generator",
-   "version": "0.13.1",
+   "version": "0.14.0",
    "description": "PHF generation logic",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/phf_generator@0.13.1",
+   "purl": "pkg:cargo/phf_generator@0.14.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "135ace3a761e564ec88c03a77317a7c6b80bb7f7135ef2544dbe054243b89737"
+     "content": "aeb62e0959d5a1bebc965f4d15d9e2b7cea002b6b0f5ba8cde6cc26738467100"
     }
    ],
    "externalReferences": [
@@ -4060,20 +4135,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/phf_macros@0.13.1",
+   "bom-ref": "pkg:cargo/phf_macros@0.14.0",
    "name": "phf_macros",
-   "version": "0.13.1",
+   "version": "0.14.0",
    "description": "Macros to generate types in the phf crate",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/phf_macros@0.13.1",
+   "purl": "pkg:cargo/phf_macros@0.14.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "812f032b54b1e759ccd5f8b6677695d5268c588701effba24601f6932f8269ef"
+     "content": "5fa8d0ca26d424d27630da600c6624696e7dec8bf7b3b492b383c5dc49e5e085"
     }
    ],
    "externalReferences": [
@@ -4085,20 +4160,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/phf_shared@0.13.1",
+   "bom-ref": "pkg:cargo/phf_shared@0.14.0",
    "name": "phf_shared",
-   "version": "0.13.1",
+   "version": "0.14.0",
    "description": "Support code shared by PHF libraries",
    "licenses": [
     {
      "expression": "MIT"
     }
    ],
-   "purl": "pkg:cargo/phf_shared@0.13.1",
+   "purl": "pkg:cargo/phf_shared@0.14.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
+     "content": "c6fd9027e2d9319be6349febd1db4e8d02aa544921200c9b777720ac34a3aa89"
     }
    ],
    "externalReferences": [
@@ -5285,56 +5360,6 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/smithay-client-toolkit@0.20.0",
-   "name": "smithay-client-toolkit",
-   "version": "0.20.0",
-   "description": "Toolkit for making client wayland applications.",
-   "licenses": [
-    {
-     "expression": "MIT"
-    }
-   ],
-   "purl": "pkg:cargo/smithay-client-toolkit@0.20.0",
-   "hashes": [
-    {
-     "alg": "SHA-256",
-     "content": "0512da38f5e2b31201a93524adb8d3136276fa4fe4aafab4e1f727a82b534cc0"
-    }
-   ],
-   "externalReferences": [
-    {
-     "type": "vcs",
-     "url": "https://github.com/smithay/client-toolkit"
-    }
-   ]
-  },
-  {
-   "type": "library",
-   "bom-ref": "pkg:cargo/smithay-clipboard@0.7.3",
-   "name": "smithay-clipboard",
-   "version": "0.7.3",
-   "description": "Provides access to the wayland clipboard for client applications.",
-   "licenses": [
-    {
-     "expression": "MIT"
-    }
-   ],
-   "purl": "pkg:cargo/smithay-clipboard@0.7.3",
-   "hashes": [
-    {
-     "alg": "SHA-256",
-     "content": "71704c03f739f7745053bde45fa203a46c58d25bc5c4efba1d9a60e9dba81226"
-    }
-   ],
-   "externalReferences": [
-    {
-     "type": "vcs",
-     "url": "https://github.com/smithay/smithay-clipboard"
-    }
-   ]
-  },
-  {
-   "type": "library",
    "bom-ref": "pkg:cargo/smol_str@0.2.2",
    "name": "smol_str",
    "version": "0.2.2",
@@ -5885,6 +5910,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/tree_magic_mini@3.2.2",
+   "name": "tree_magic_mini",
+   "version": "3.2.2",
+   "description": "Determines the MIME type of a file by traversing a filetype tree.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/tree_magic_mini@3.2.2",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "b8765b90061cba6c22b5831f675da109ae5561588290f9fa2317adab2714d5a6"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/mbrubeck/tree_magic/"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/ttf-parser@0.25.1",
    "name": "ttf-parser",
    "version": "0.25.1",
@@ -6005,6 +6055,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/dtolnay/unicode-ident"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/unicode-properties@0.1.4",
+   "name": "unicode-properties",
+   "version": "0.1.4",
+   "description": "Query character Unicode properties according to\nUAX #44 and UTR #51.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/unicode-properties@0.1.4",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7df058c713841ad818f1dc5d3fd88063241cc61f49f5fbea4b951e8cf5a8d71d"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/unicode-rs/unicode-properties"
     }
    ]
   },
@@ -6160,20 +6235,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/vello_common@0.1.0",
+   "bom-ref": "pkg:cargo/vello_common@0.2.0",
    "name": "vello_common",
-   "version": "0.1.0",
+   "version": "0.2.0",
    "description": "Core data structures and utilities shared across the Vello rendering, including geometry processing and tiling logic.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/vello_common@0.1.0",
+   "purl": "pkg:cargo/vello_common@0.2.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "b2e9aed918117e8152c9eddfd8362d73c465c23f26c44786aa331707b8a64fa2"
+     "content": "bbb2141a2bca6e6d598e471fd4d1d7eed8e020aad6a28187edda07f091a325dd"
     }
    ],
    "externalReferences": [
@@ -6185,20 +6260,20 @@
   },
   {
    "type": "library",
-   "bom-ref": "pkg:cargo/vello_cpu@0.1.0",
+   "bom-ref": "pkg:cargo/vello_cpu@0.2.0",
    "name": "vello_cpu",
-   "version": "0.1.0",
+   "version": "0.2.0",
    "description": "A CPU-based renderer for Vello, optimized for SIMD and multithreaded execution.",
    "licenses": [
     {
      "expression": "Apache-2.0 OR MIT"
     }
    ],
-   "purl": "pkg:cargo/vello_cpu@0.1.0",
+   "purl": "pkg:cargo/vello_cpu@0.2.0",
    "hashes": [
     {
      "alg": "SHA-256",
-     "content": "ac7349e1f55f6b801c7c277958df4ea53e7f20f21e8014910ad888b2ecda93ea"
+     "content": "ace506ca414548966fcf3c283be94eb1cad8254de488791ee698bf438b0890a9"
     }
    ],
    "externalReferences": [
@@ -6324,56 +6399,6 @@
     {
      "alg": "SHA-256",
      "content": "4a52d18780be9b1314328a3de5f930b73d2200112e3849ca6cb11822793fb34d"
-    }
-   ],
-   "externalReferences": [
-    {
-     "type": "vcs",
-     "url": "https://github.com/smithay/wayland-rs"
-    }
-   ]
-  },
-  {
-   "type": "library",
-   "bom-ref": "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
-   "name": "wayland-protocols-experimental",
-   "version": "20250721.0.1",
-   "description": "Generated API for experimental wayland protocol extensions",
-   "licenses": [
-    {
-     "expression": "MIT"
-    }
-   ],
-   "purl": "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
-   "hashes": [
-    {
-     "alg": "SHA-256",
-     "content": "40a1f863128dcaaec790d7b4b396cc9b9a7a079e878e18c47e6c2d2c5a8dcbb1"
-    }
-   ],
-   "externalReferences": [
-    {
-     "type": "vcs",
-     "url": "https://github.com/smithay/wayland-rs"
-    }
-   ]
-  },
-  {
-   "type": "library",
-   "bom-ref": "pkg:cargo/wayland-protocols-misc@0.3.12",
-   "name": "wayland-protocols-misc",
-   "version": "0.3.12",
-   "description": "Generated API for misc and deprecated wayland protocol extensions",
-   "licenses": [
-    {
-     "expression": "MIT"
-    }
-   ],
-   "purl": "pkg:cargo/wayland-protocols-misc@0.3.12",
-   "hashes": [
-    {
-     "alg": "SHA-256",
-     "content": "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
     }
    ],
    "externalReferences": [
@@ -6755,6 +6780,31 @@
     {
      "type": "vcs",
      "url": "https://github.com/winnow-rs/winnow"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/wl-clipboard-rs@0.9.4",
+   "name": "wl-clipboard-rs",
+   "version": "0.9.4",
+   "description": "Access to the Wayland clipboard for terminal and other window-less applications.",
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "purl": "pkg:cargo/wl-clipboard-rs@0.9.4",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "4d7888ccd4896447b2d14d3a9350a85df2aeb6f181e2e7a31349d104ac46cac1"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/YaLTeR/wl-clipboard-rs"
     }
    ]
   },
@@ -7347,34 +7397,34 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/accesskit@0.24.1",
+   "ref": "pkg:cargo/accesskit@0.25.1",
    "dependsOn": [
     "pkg:cargo/uuid@1.28.0"
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_atspi_common@0.18.1",
+   "ref": "pkg:cargo/accesskit_atspi_common@0.21.0",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.24.1",
-    "pkg:cargo/accesskit_consumer@0.36.0",
+    "pkg:cargo/accesskit@0.25.1",
+    "pkg:cargo/accesskit_consumer@0.39.1",
     "pkg:cargo/atspi-common@0.13.0",
-    "pkg:cargo/phf@0.13.1",
+    "pkg:cargo/phf@0.14.0",
     "pkg:cargo/serde@1.0.229",
     "pkg:cargo/zvariant@5.15.0"
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_consumer@0.36.0",
+   "ref": "pkg:cargo/accesskit_consumer@0.39.1",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.24.1",
-    "pkg:cargo/hashbrown@0.16.1"
+    "pkg:cargo/accesskit@0.25.1",
+    "pkg:cargo/hashbrown@0.17.1"
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_unix@0.21.1",
+   "ref": "pkg:cargo/accesskit_unix@0.24.0",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.24.1",
-    "pkg:cargo/accesskit_atspi_common@0.18.1",
+    "pkg:cargo/accesskit@0.25.1",
+    "pkg:cargo/accesskit_atspi_common@0.21.0",
     "pkg:cargo/async-channel@2.5.0",
     "pkg:cargo/async-executor@1.14.0",
     "pkg:cargo/async-task@4.7.1",
@@ -7386,10 +7436,10 @@
    ]
   },
   {
-   "ref": "pkg:cargo/accesskit_winit@0.32.2",
+   "ref": "pkg:cargo/accesskit_winit@0.34.1",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.24.1",
-    "pkg:cargo/accesskit_unix@0.21.1",
+    "pkg:cargo/accesskit@0.25.1",
+    "pkg:cargo/accesskit_unix@0.24.0",
     "pkg:cargo/raw-window-handle@0.6.2",
     "pkg:cargo/winit@0.30.13"
    ]
@@ -7431,6 +7481,7 @@
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/parking_lot@0.12.5",
     "pkg:cargo/percent-encoding@2.3.2",
+    "pkg:cargo/wl-clipboard-rs@0.9.4",
     "pkg:cargo/x11rb@0.13.2"
    ]
   },
@@ -7641,15 +7692,6 @@
    ]
   },
   {
-   "ref": "pkg:cargo/calloop-wayland-source@0.4.1",
-   "dependsOn": [
-    "pkg:cargo/calloop@0.14.5",
-    "pkg:cargo/rustix@1.1.5",
-    "pkg:cargo/wayland-backend@0.3.17",
-    "pkg:cargo/wayland-client@0.31.15"
-   ]
-  },
-  {
    "ref": "pkg:cargo/calloop@0.13.0",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
@@ -7658,15 +7700,6 @@
     "pkg:cargo/rustix@0.38.44",
     "pkg:cargo/slab@0.4.12",
     "pkg:cargo/thiserror@1.0.69"
-   ]
-  },
-  {
-   "ref": "pkg:cargo/calloop@0.14.5",
-   "dependsOn": [
-    "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/polling@3.11.0",
-    "pkg:cargo/rustix@1.1.5",
-    "pkg:cargo/tracing@0.1.44"
    ]
   },
   {
@@ -7747,21 +7780,21 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/ecolor@0.36.2",
+   "ref": "pkg:cargo/ecolor@0.37.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/emath@0.36.2"
+    "pkg:cargo/emath@0.37.0"
    ]
   },
   {
-   "ref": "pkg:cargo/eframe@0.36.2",
+   "ref": "pkg:cargo/eframe@0.37.0",
    "dependsOn": [
     "pkg:cargo/ahash@0.8.12",
     "pkg:cargo/document-features@0.2.12",
-    "pkg:cargo/egui-wgpu@0.36.2",
-    "pkg:cargo/egui-winit@0.36.2",
-    "pkg:cargo/egui@0.36.2",
-    "pkg:cargo/egui_glow@0.36.2",
+    "pkg:cargo/egui-wgpu@0.37.0",
+    "pkg:cargo/egui-winit@0.37.0",
+    "pkg:cargo/egui@0.37.0",
+    "pkg:cargo/egui_glow@0.37.0",
     "pkg:cargo/glow@0.17.0",
     "pkg:cargo/glutin-winit@0.5.0",
     "pkg:cargo/glutin@0.32.3",
@@ -7776,13 +7809,13 @@
    ]
   },
   {
-   "ref": "pkg:cargo/egui-wgpu@0.36.2",
+   "ref": "pkg:cargo/egui-wgpu@0.37.0",
    "dependsOn": [
     "pkg:cargo/ahash@0.8.12",
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/document-features@0.2.12",
-    "pkg:cargo/egui@0.36.2",
-    "pkg:cargo/epaint@0.36.2",
+    "pkg:cargo/egui@0.37.0",
+    "pkg:cargo/epaint@0.37.0",
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/thiserror@2.0.21",
@@ -7793,28 +7826,27 @@
    ]
   },
   {
-   "ref": "pkg:cargo/egui-winit@0.36.2",
+   "ref": "pkg:cargo/egui-winit@0.37.0",
    "dependsOn": [
-    "pkg:cargo/accesskit_winit@0.32.2",
+    "pkg:cargo/accesskit_winit@0.34.1",
     "pkg:cargo/arboard@3.6.1",
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/egui@0.36.2",
+    "pkg:cargo/egui@0.37.0",
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
-    "pkg:cargo/smithay-clipboard@0.7.3",
     "pkg:cargo/web-time@1.1.0",
     "pkg:cargo/winit@0.30.13"
    ]
   },
   {
-   "ref": "pkg:cargo/egui@0.36.2",
+   "ref": "pkg:cargo/egui@0.37.0",
    "dependsOn": [
-    "pkg:cargo/accesskit@0.24.1",
+    "pkg:cargo/accesskit@0.25.1",
     "pkg:cargo/ahash@0.8.12",
     "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/emath@0.36.2",
-    "pkg:cargo/epaint@0.36.2",
+    "pkg:cargo/emath@0.37.0",
+    "pkg:cargo/epaint@0.37.0",
     "pkg:cargo/itertools@0.15.0",
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/nohash-hasher@0.2.0",
@@ -7824,10 +7856,10 @@
    ]
   },
   {
-   "ref": "pkg:cargo/egui_glow@0.36.2",
+   "ref": "pkg:cargo/egui_glow@0.37.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/egui@0.36.2",
+    "pkg:cargo/egui@0.37.0",
     "pkg:cargo/glow@0.17.0",
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/profiling@1.0.18",
@@ -7839,7 +7871,7 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/emath@0.36.2",
+   "ref": "pkg:cargo/emath@0.37.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2"
    ]
@@ -7864,13 +7896,13 @@
    ]
   },
   {
-   "ref": "pkg:cargo/epaint@0.36.2",
+   "ref": "pkg:cargo/epaint@0.37.0",
    "dependsOn": [
     "pkg:cargo/ahash@0.8.12",
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/ecolor@0.36.2",
-    "pkg:cargo/emath@0.36.2",
-    "pkg:cargo/epaint_default_fonts@0.36.2",
+    "pkg:cargo/ecolor@0.37.0",
+    "pkg:cargo/emath@0.37.0",
+    "pkg:cargo/epaint_default_fonts@0.37.0",
     "pkg:cargo/font-types@0.12.6",
     "pkg:cargo/harfrust@0.12.0",
     "pkg:cargo/log@0.4.34",
@@ -7881,12 +7913,13 @@
     "pkg:cargo/skrifa@0.44.0",
     "pkg:cargo/smallvec@1.16.3",
     "pkg:cargo/unicode-general-category@1.1.0",
+    "pkg:cargo/unicode-properties@0.1.4",
     "pkg:cargo/unicode-segmentation@1.13.3",
-    "pkg:cargo/vello_cpu@0.1.0"
+    "pkg:cargo/vello_cpu@0.2.0"
    ]
   },
   {
-   "ref": "pkg:cargo/epaint_default_fonts@0.36.2",
+   "ref": "pkg:cargo/epaint_default_fonts@0.37.0",
    "dependsOn": []
   },
   {
@@ -7953,6 +7986,10 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/fixedbitset@0.5.7",
+   "dependsOn": []
+  },
+  {
    "ref": "pkg:cargo/flate2@1.1.10",
    "dependsOn": [
     "pkg:cargo/crc32fast@1.5.2",
@@ -7962,6 +7999,10 @@
   },
   {
    "ref": "pkg:cargo/float-cmp@0.9.0",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/foldhash@0.1.5",
    "dependsOn": []
   },
   {
@@ -8059,7 +8100,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/glifo@0.2.0",
+   "ref": "pkg:cargo/glifo@0.3.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/foldhash@0.2.0",
@@ -8068,14 +8109,14 @@
     "pkg:cargo/peniko@0.6.1",
     "pkg:cargo/skrifa@0.44.0",
     "pkg:cargo/smallvec@1.16.3",
-    "pkg:cargo/vello_common@0.1.0"
+    "pkg:cargo/vello_common@0.2.0"
    ]
   },
   {
    "ref": "pkg:cargo/glimt@0.38.5",
    "dependsOn": [
     "pkg:cargo/arboard@3.6.1",
-    "pkg:cargo/eframe@0.36.2",
+    "pkg:cargo/eframe@0.37.0",
     "pkg:cargo/fast_image_resize@6.1.0",
     "pkg:cargo/flate2@1.1.10",
     "pkg:cargo/image@0.25.10",
@@ -8153,9 +8194,9 @@
    ]
   },
   {
-   "ref": "pkg:cargo/hashbrown@0.16.1",
+   "ref": "pkg:cargo/hashbrown@0.15.5",
    "dependsOn": [
-    "pkg:cargo/foldhash@0.2.0"
+    "pkg:cargo/foldhash@0.1.5"
    ]
   },
   {
@@ -8478,6 +8519,12 @@
    "dependsOn": []
   },
   {
+   "ref": "pkg:cargo/nom@8.0.0",
+   "dependsOn": [
+    "pkg:cargo/memchr@2.8.3"
+   ]
+  },
+  {
    "ref": "pkg:cargo/num-traits@0.2.19",
    "dependsOn": [
     "pkg:cargo/autocfg@1.5.1",
@@ -8493,6 +8540,12 @@
    "dependsOn": [
     "pkg:cargo/futures-core@0.3.34",
     "pkg:cargo/pin-project-lite@0.2.17"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/os_pipe@1.2.3",
+   "dependsOn": [
+    "pkg:cargo/libc@0.2.190"
    ]
   },
   {
@@ -8535,32 +8588,40 @@
    "dependsOn": []
   },
   {
-   "ref": "pkg:cargo/phf@0.13.1",
+   "ref": "pkg:cargo/petgraph@0.8.3",
    "dependsOn": [
-    "pkg:cargo/phf_macros@0.13.1",
-    "pkg:cargo/phf_shared@0.13.1",
+    "pkg:cargo/fixedbitset@0.5.7",
+    "pkg:cargo/hashbrown@0.15.5",
+    "pkg:cargo/indexmap@2.14.2"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/phf@0.14.0",
+   "dependsOn": [
+    "pkg:cargo/phf_macros@0.14.0",
+    "pkg:cargo/phf_shared@0.14.0",
     "pkg:cargo/serde@1.0.229"
    ]
   },
   {
-   "ref": "pkg:cargo/phf_generator@0.13.1",
+   "ref": "pkg:cargo/phf_generator@0.14.0",
    "dependsOn": [
     "pkg:cargo/fastrand@2.5.0",
-    "pkg:cargo/phf_shared@0.13.1"
+    "pkg:cargo/phf_shared@0.14.0"
    ]
   },
   {
-   "ref": "pkg:cargo/phf_macros@0.13.1",
+   "ref": "pkg:cargo/phf_macros@0.14.0",
    "dependsOn": [
-    "pkg:cargo/phf_generator@0.13.1",
-    "pkg:cargo/phf_shared@0.13.1",
+    "pkg:cargo/phf_generator@0.14.0",
+    "pkg:cargo/phf_shared@0.14.0",
     "pkg:cargo/proc-macro2@1.0.107",
     "pkg:cargo/quote@1.0.47",
     "pkg:cargo/syn@2.0.119"
    ]
   },
   {
-   "ref": "pkg:cargo/phf_shared@0.13.1",
+   "ref": "pkg:cargo/phf_shared@0.14.0",
    "dependsOn": [
     "pkg:cargo/siphasher@1.0.4"
    ]
@@ -8862,38 +8923,6 @@
    ]
   },
   {
-   "ref": "pkg:cargo/smithay-client-toolkit@0.20.0",
-   "dependsOn": [
-    "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/calloop-wayland-source@0.4.1",
-    "pkg:cargo/calloop@0.14.5",
-    "pkg:cargo/cursor-icon@1.2.0",
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/log@0.4.34",
-    "pkg:cargo/memmap2@0.9.11",
-    "pkg:cargo/rustix@1.1.5",
-    "pkg:cargo/thiserror@2.0.21",
-    "pkg:cargo/wayland-backend@0.3.17",
-    "pkg:cargo/wayland-client@0.31.15",
-    "pkg:cargo/wayland-csd-frame@0.3.0",
-    "pkg:cargo/wayland-cursor@0.31.14",
-    "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
-    "pkg:cargo/wayland-protocols-misc@0.3.12",
-    "pkg:cargo/wayland-protocols-wlr@0.3.12",
-    "pkg:cargo/wayland-protocols@0.32.13",
-    "pkg:cargo/wayland-scanner@0.31.11",
-    "pkg:cargo/xkeysym@0.2.1"
-   ]
-  },
-  {
-   "ref": "pkg:cargo/smithay-clipboard@0.7.3",
-   "dependsOn": [
-    "pkg:cargo/libc@0.2.190",
-    "pkg:cargo/smithay-client-toolkit@0.20.0",
-    "pkg:cargo/wayland-backend@0.3.17"
-   ]
-  },
-  {
    "ref": "pkg:cargo/smol_str@0.2.2",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229"
@@ -9052,10 +9081,17 @@
   {
    "ref": "pkg:cargo/tracing@0.1.44",
    "dependsOn": [
-    "pkg:cargo/log@0.4.34",
     "pkg:cargo/pin-project-lite@0.2.17",
     "pkg:cargo/tracing-attributes@0.1.31",
     "pkg:cargo/tracing-core@0.1.36"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/tree_magic_mini@3.2.2",
+   "dependsOn": [
+    "pkg:cargo/memchr@2.8.3",
+    "pkg:cargo/nom@8.0.0",
+    "pkg:cargo/petgraph@0.8.3"
    ]
   },
   {
@@ -9078,6 +9114,10 @@
   },
   {
    "ref": "pkg:cargo/unicode-ident@1.0.26",
+   "dependsOn": []
+  },
+  {
+   "ref": "pkg:cargo/unicode-properties@0.1.4",
    "dependsOn": []
   },
   {
@@ -9128,7 +9168,7 @@
    ]
   },
   {
-   "ref": "pkg:cargo/vello_common@0.1.0",
+   "ref": "pkg:cargo/vello_common@0.2.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
     "pkg:cargo/fearless_simd@0.4.1",
@@ -9140,12 +9180,12 @@
    ]
   },
   {
-   "ref": "pkg:cargo/vello_cpu@0.1.0",
+   "ref": "pkg:cargo/vello_cpu@0.2.0",
    "dependsOn": [
     "pkg:cargo/bytemuck@1.25.2",
-    "pkg:cargo/glifo@0.2.0",
+    "pkg:cargo/glifo@0.3.0",
     "pkg:cargo/hashbrown@0.17.1",
-    "pkg:cargo/vello_common@0.1.0"
+    "pkg:cargo/vello_common@0.2.0"
    ]
   },
   {
@@ -9186,26 +9226,6 @@
     "pkg:cargo/rustix@1.1.5",
     "pkg:cargo/wayland-client@0.31.15",
     "pkg:cargo/xcursor@0.3.11"
-   ]
-  },
-  {
-   "ref": "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
-   "dependsOn": [
-    "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/wayland-backend@0.3.17",
-    "pkg:cargo/wayland-client@0.31.15",
-    "pkg:cargo/wayland-protocols@0.32.13",
-    "pkg:cargo/wayland-scanner@0.31.11"
-   ]
-  },
-  {
-   "ref": "pkg:cargo/wayland-protocols-misc@0.3.12",
-   "dependsOn": [
-    "pkg:cargo/bitflags@2.13.2",
-    "pkg:cargo/wayland-backend@0.3.17",
-    "pkg:cargo/wayland-client@0.31.15",
-    "pkg:cargo/wayland-protocols@0.32.13",
-    "pkg:cargo/wayland-scanner@0.31.11"
    ]
   },
   {
@@ -9385,6 +9405,21 @@
    "ref": "pkg:cargo/winnow@1.0.4",
    "dependsOn": [
     "pkg:cargo/memchr@2.8.3"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/wl-clipboard-rs@0.9.4",
+   "dependsOn": [
+    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/os_pipe@1.2.3",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/thiserror@2.0.21",
+    "pkg:cargo/tree_magic_mini@3.2.2",
+    "pkg:cargo/wayland-backend@0.3.17",
+    "pkg:cargo/wayland-client@0.31.15",
+    "pkg:cargo/wayland-protocols-wlr@0.3.12",
+    "pkg:cargo/wayland-protocols@0.32.13"
    ]
   },
   {

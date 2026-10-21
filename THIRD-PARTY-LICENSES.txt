@@ -3,21 +3,21 @@ crates it covers. Glimt's own license is in LICENSE.
 
 Crates that ship no license text, with the license they name:
 
-  accesskit 0.24.1: MIT OR Apache-2.0
-  accesskit_atspi_common 0.18.1: MIT OR Apache-2.0
-  accesskit_consumer 0.36.0: MIT OR Apache-2.0
-  accesskit_unix 0.21.1: MIT OR Apache-2.0
-  accesskit_winit 0.32.2: Apache-2.0
+  accesskit 0.25.1: MIT OR Apache-2.0
+  accesskit_atspi_common 0.21.0: MIT OR Apache-2.0
+  accesskit_consumer 0.39.1: MIT OR Apache-2.0
+  accesskit_unix 0.24.0: MIT OR Apache-2.0
+  accesskit_winit 0.34.1: Apache-2.0
   alloc-stdlib 0.2.4: BSD-3-Clause
-  ecolor 0.36.2: MIT OR Apache-2.0
-  eframe 0.36.2: MIT OR Apache-2.0
-  egui-wgpu 0.36.2: MIT OR Apache-2.0
-  egui-winit 0.36.2: MIT OR Apache-2.0
-  egui 0.36.2: MIT OR Apache-2.0
-  egui_glow 0.36.2: MIT OR Apache-2.0
-  emath 0.36.2: MIT OR Apache-2.0
-  epaint 0.36.2: MIT OR Apache-2.0
-  epaint_default_fonts 0.36.2: (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0
+  ecolor 0.37.0: MIT OR Apache-2.0
+  eframe 0.37.0: MIT OR Apache-2.0
+  egui-wgpu 0.37.0: MIT OR Apache-2.0
+  egui-winit 0.37.0: MIT OR Apache-2.0
+  egui 0.37.0: MIT OR Apache-2.0
+  egui_glow 0.37.0: MIT OR Apache-2.0
+  emath 0.37.0: MIT OR Apache-2.0
+  epaint 0.37.0: MIT OR Apache-2.0
+  epaint_default_fonts 0.37.0: (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0
   gl_generator 0.14.0: Apache-2.0
   khronos_api 3.1.0: Apache-2.0
   profiling 1.0.18: MIT OR Apache-2.0
@@ -42,8 +42,8 @@ pin-project-lite 0.2.17 (LICENSE-APACHE)
 raw-window-handle 0.6.2 (LICENSE-APACHE.md)
 resvg 0.48.1 (LICENSE-APACHE)
 usvg 0.48.1 (LICENSE-APACHE)
-vello_common 0.1.0 (LICENSE-APACHE)
-vello_cpu 0.1.0 (LICENSE-APACHE)
+vello_common 0.2.0 (LICENSE-APACHE)
+vello_cpu 0.2.0 (LICENSE-APACHE)
 wgpu-core-deps-windows-linux-android 30.0.1 (LICENSE.APACHE)
 wgpu-core 30.0.1 (LICENSE.APACHE)
 wgpu-hal 30.0.1 (LICENSE.APACHE)
@@ -572,12 +572,13 @@ event-listener-strategy 0.5.4 (LICENSE-APACHE)
 event-listener 5.4.2 (LICENSE-APACHE)
 fastrand 2.5.0 (LICENSE-APACHE)
 find-msvc-tools 0.1.14 (LICENSE-APACHE)
+fixedbitset 0.5.7 (LICENSE-APACHE)
 flate2 1.1.10 (LICENSE-APACHE)
 futures-lite 2.6.1 (LICENSE-APACHE)
 gethostname 1.1.0 (LICENSE)
 gif 0.14.2 (LICENSE-APACHE)
 glow 0.17.0 (LICENSE-APACHE)
-hashbrown 0.16.1 (LICENSE-APACHE)
+hashbrown 0.15.5 (LICENSE-APACHE)
 hashbrown 0.17.1 (LICENSE-APACHE)
 indexmap 2.14.2 (LICENSE-APACHE)
 itertools 0.15.0 (LICENSE-APACHE)
@@ -594,6 +595,7 @@ parking 2.2.1 (LICENSE-APACHE)
 parking_lot 0.12.5 (LICENSE-APACHE)
 parking_lot_core 0.9.12 (LICENSE-APACHE)
 percent-encoding 2.3.2 (LICENSE-APACHE)
+petgraph 0.8.3 (LICENSE-APACHE)
 piper 0.2.5 (LICENSE-APACHE)
 pkg-config 0.3.34 (LICENSE-APACHE)
 png 0.18.1 (LICENSE-APACHE)
@@ -616,12 +618,14 @@ smol_str 0.2.2 (LICENSE-APACHE)
 svgtypes 0.16.1 (LICENSE-APACHE)
 ttf-parser 0.25.1 (LICENSE-APACHE)
 unicode-bidi 0.3.18 (LICENSE-APACHE)
+unicode-properties 0.1.4 (LICENSE-APACHE)
 unicode-segmentation 1.13.3 (LICENSE-APACHE)
 unicode-vo 0.1.0 (LICENSE-APACHE)
 unicode-width 0.2.2 (LICENSE-APACHE)
 uuid 1.28.0 (LICENSE-APACHE)
 version_check 0.9.5 (LICENSE-APACHE)
 weezl 0.1.12 (LICENSE-APACHE)
+wl-clipboard-rs 0.9.4 (LICENSE-APACHE)
 ------------------------------------------------------------------------------
 
 Apache License
@@ -1473,7 +1477,7 @@ SOFTWARE.
 
 ==============================================================================
 async-trait 0.1.92 (LICENSE-APACHE)
-glifo 0.2.0 (LICENSE-APACHE)
+glifo 0.3.0 (LICENSE-APACHE)
 jxl-bitstream 1.1.0 (LICENSE-APACHE)
 jxl-coding 1.0.1 (LICENSE-APACHE)
 jxl-color 0.11.0 (LICENSE-APACHE)
@@ -2221,7 +2225,6 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 ==============================================================================
 calloop-wayland-source 0.3.0 (LICENSE.txt)
-calloop-wayland-source 0.4.1 (LICENSE.txt)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2023 Kirill Chibisov
@@ -2246,9 +2249,7 @@ THE SOFTWARE.
 
 ==============================================================================
 calloop 0.13.0 (LICENSE.txt)
-calloop 0.14.5 (LICENSE.txt)
 smithay-client-toolkit 0.19.2 (LICENSE.txt)
-smithay-client-toolkit 0.20.0 (LICENSE.txt)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2018 Victor Berger
@@ -3165,6 +3166,7 @@ have been licensed under extremely permissive terms.
 ==============================================================================
 either 1.19.0 (LICENSE-MIT)
 itertools 0.15.0 (LICENSE-MIT)
+petgraph 0.8.3 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright (c) 2015
@@ -3799,6 +3801,36 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
+fixedbitset 0.5.7 (LICENSE-MIT)
+------------------------------------------------------------------------------
+
+Copyright (c) 2015-2017
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+==============================================================================
 flate2 1.1.10 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
@@ -3853,6 +3885,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 
 ==============================================================================
+foldhash 0.1.5 (LICENSE)
 foldhash 0.2.0 (LICENSE)
 ------------------------------------------------------------------------------
 
@@ -4544,7 +4577,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-glifo 0.2.0 (LICENSE-MIT)
+glifo 0.3.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright 2025 the Vello Authors
@@ -4896,7 +4929,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-hashbrown 0.16.1 (LICENSE-MIT)
+hashbrown 0.15.5 (LICENSE-MIT)
 hashbrown 0.17.1 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
@@ -6245,6 +6278,55 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
+nom 8.0.0 (LICENSE)
+------------------------------------------------------------------------------
+
+Copyright (c) 2014-2019 Geoffroy Couprie
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+==============================================================================
+os_pipe 1.2.3 (LICENSE)
+------------------------------------------------------------------------------
+
+The MIT License (MIT)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+==============================================================================
 parking 2.2.1 (LICENSE-THIRD-PARTY)
 ------------------------------------------------------------------------------
 
@@ -6259,10 +6341,10 @@ option. All files in the project carrying such notice may not be
 copied, modified, or distributed except according to those terms.
 
 ==============================================================================
-phf 0.13.1 (LICENSE)
-phf_generator 0.13.1 (LICENSE)
-phf_macros 0.13.1 (LICENSE)
-phf_shared 0.13.1 (LICENSE)
+phf 0.14.0 (LICENSE)
+phf_generator 0.14.0 (LICENSE)
+phf_macros 0.14.0 (LICENSE)
+phf_shared 0.14.0 (LICENSE)
 ------------------------------------------------------------------------------
 
 The MIT License (MIT)
@@ -7224,30 +7306,6 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-smithay-clipboard 0.7.3 (LICENSE)
-------------------------------------------------------------------------------
-
-Copyright (c) 2018 Lucas Timmins & Victor Berger
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
-==============================================================================
 static_assertions 1.1.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
@@ -7661,6 +7719,32 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+==============================================================================
+tree_magic_mini 3.2.2 (LICENSE)
+------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2017 Aaron Hancock
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ==============================================================================
 type-map 0.5.1 (LICENSE-APACHE)
@@ -8158,6 +8242,7 @@ DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 unicode-bidi 0.3.18 (LICENSE-MIT)
+unicode-properties 0.1.4 (LICENSE-MIT)
 unicode-segmentation 1.13.3 (LICENSE-MIT)
 unicode-width 0.2.2 (LICENSE-MIT)
 ------------------------------------------------------------------------------
@@ -8502,8 +8587,8 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-vello_common 0.1.0 (LICENSE-MIT)
-vello_cpu 0.1.0 (LICENSE-MIT)
+vello_common 0.2.0 (LICENSE-MIT)
+vello_cpu 0.2.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright 2020 the Vello Authors
@@ -8560,8 +8645,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 wayland-backend 0.3.17 (LICENSE.txt)
 wayland-client 0.31.15 (LICENSE.txt)
 wayland-cursor 0.31.14 (LICENSE.txt)
-wayland-protocols-experimental 20250721.0.1 (LICENSE.txt)
-wayland-protocols-misc 0.3.12 (LICENSE.txt)
 wayland-protocols-plasma 0.3.12 (LICENSE.txt)
 wayland-protocols-wlr 0.3.12 (LICENSE.txt)
 wayland-protocols 0.32.13 (LICENSE.txt)
@@ -8869,6 +8952,36 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+==============================================================================
+wl-clipboard-rs 0.9.4 (LICENSE-MIT)
+------------------------------------------------------------------------------
+
+Copyright (c) 2019 Ivan Molodetskikh
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
 x11rb-protocol 0.13.2 (LICENSE-MIT)

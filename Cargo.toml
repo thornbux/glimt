@@ -12,7 +12,7 @@ readme = "README.md"
 categories = ["multimedia::images"]
 
 [dependencies]
-eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 fast_image_resize = { version = "6.1.0", default-features = false, features = ["image"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "tiff", "pnm", "bmp", "ico", "qoi", "hdr"] }
 # JPEG decoded at 1/2, 1/4 or 1/8 of its size while decoding, when the window needs no more:
