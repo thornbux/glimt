@@ -48,6 +48,7 @@ pub mod icon {
     pub const TOGETHER: &str = "\u{e0a6}"; // arrows-out-simple
     pub const CURSOR: &str = "\u{e1dc}"; // cursor
     pub const FOLDER_OPEN: &str = "\u{e256}"; // folder-open
+    pub const RECENT: &str = "\u{e1a0}"; // clock-counter-clockwise
     pub const MOVE_IN: &str = "\u{e098}"; // arrows-down-up
     // Preferences' sections.
     pub const KEYBOARD: &str = "\u{e2d8}"; // keyboard

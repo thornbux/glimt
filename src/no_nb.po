@@ -833,6 +833,10 @@ msgid "Check Images"
 msgstr "Sjekk bilder"
 
 #: src/main.rs
+msgid "Clear Recent"
+msgstr "Tøm listen"
+
+#: src/main.rs
 msgid "Collections"
 msgstr "Samlinger"
 
@@ -1077,6 +1081,10 @@ msgid "Not a valid name: \"{text}\""
 msgstr "Ikke et gyldig navn: «{text}»"
 
 #: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Ingenting åpnet ennå"
+
+#: src/main.rs
 msgid "OK (Enter)"
 msgstr "OK (Enter)"
 
@@ -1087,6 +1095,10 @@ msgstr "Ett bilde om gangen"
 #: src/main.rs
 msgid "Only the images of a collection can be moved"
 msgstr "Bare bildene i en samling kan flyttes"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Åpne nylig brukt"
 
 #: src/main.rs
 msgid "Open the Plugins Folder"
@@ -1289,6 +1301,10 @@ msgid "{doing} {done} of {total}…{more}"
 msgstr "{doing} {done} av {total} …{more}"
 
 #: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} finnes ikke lenger"
+
+#: src/main.rs
 msgid "{n} added to the collection \"{name}\""
 msgstr "{n} lagt til i samlingen «{name}»"
 
@@ -1435,6 +1451,10 @@ msgstr "Dekodingstråder og én malloc-arena virker etter omstart."
 #: src/preferences.rs
 msgid "Default"
 msgstr "Standard"
+
+#: src/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Husk nylig brukte mapper (Fil → Åpne nylig brukt)"
 
 #: src/preferences.rs
 msgid "default application"

@@ -150,6 +150,45 @@ pub fn state_path() -> Option<PathBuf> {
     xdg_file("XDG_STATE_HOME", ".local/state", "state")
 }
 
+/// `$XDG_STATE_HOME/glimt/recent`: File → Open Recent's folders and collections, newest first,
+/// one on each line, shared by the windows.
+pub fn recent_path() -> Option<PathBuf> {
+    xdg_file("XDG_STATE_HOME", ".local/state", "recent")
+}
+
+/// How many Open Recent keeps.
+pub const RECENT: usize = 10;
+
+/// The paths of a recent file's text, as bytes: a name need not be UTF-8.
+pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    (text.split(|&b| b == b'\n'))
+        .filter(|l| !l.is_empty())
+        .map(|l| std::ffi::OsStr::from_bytes(l).into())
+        .take(RECENT)
+        .collect()
+}
+
+/// `path` first in `recent`, once, and no more than RECENT; a name with a line break in it
+/// cannot be kept on a line, and is left out.
+pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let fits = !path.as_os_str().as_bytes().contains(&b'\n');
+    (fits.then(|| path.to_path_buf()).into_iter())
+        .chain(recent.iter().filter(|p| *p != path).cloned())
+        .take(RECENT)
+        .collect()
+}
+
+/// The text of a recent file.
+pub fn recent_text(recent: &[PathBuf]) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    recent
+        .iter()
+        .flat_map(|p| [p.as_os_str().as_bytes(), b"\n"].concat())
+        .collect()
+}
+
 pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
     Some(xdg_dir(var, home_fallback, "glimt")?.join(name))
 }
@@ -316,6 +355,8 @@ config! {
     delay: u64 = DEFAULT_DELAY,
     /// Start in the last used folder when no folder is given on the command line.
     remember_dir: bool = false,
+    /// Keep File → Open Recent's list; off, none is written and the one kept is deleted.
+    keep_recent: bool = true,
     /// Deleting moves to the trash (default); otherwise the file is deleted permanently.
     trash: bool = true,
     /// Ask before deleting permanently.
@@ -1313,6 +1354,29 @@ mod tests {
         for (k, (name, _, _)) in super::FADES.iter().enumerate() {
             assert_eq!(super::NAMED[0].1[k], *name);
         }
+    }
+
+    /// Open Recent: the newest first, each once, at most RECENT, and back from its file as it
+    /// was written, also a name that is not UTF-8.
+    #[test]
+    fn keeps_recent_folders() {
+        use std::os::unix::ffi::OsStrExt;
+        let p = |s: &str| std::path::PathBuf::from(s);
+        let latin: std::path::PathBuf = std::ffi::OsStr::from_bytes(b"/caf\xe9").into();
+        let mut recent = Vec::new();
+        for path in ["/a", "/b", "/a"] {
+            recent = super::add_recent(&recent, &p(path));
+        }
+        assert_eq!(recent, [p("/a"), p("/b")]);
+        recent = super::add_recent(&recent, &latin);
+        recent = super::add_recent(&recent, &p("/line\nbreak"));
+        assert_eq!(recent, [latin.clone(), p("/a"), p("/b")]);
+        assert_eq!(super::parse_recent(&super::recent_text(&recent)), recent);
+        for k in 0..20 {
+            recent = super::add_recent(&recent, &p(&format!("/{k}")));
+        }
+        assert_eq!(recent.len(), super::RECENT);
+        assert_eq!(recent[0], p("/19"));
     }
 
     /// Config and window state files broken in thousands of ways: read without a panic.

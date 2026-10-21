@@ -601,11 +601,17 @@ impl crate::App {
     /// Preferences: refreshing, the folder and window at start, remote control, the screen saver
     /// and the window title.
     pub(crate) fn window_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
-        let mut changed = false;
+        let (mut changed, mut clear) = (false, false);
         let c = &mut self.config;
         changed |= ui
             .checkbox(&mut c.remember_dir, tr("Start in the last used folder"))
             .changed();
+        let recent = tr("Keep a list of recent folders (File → Open Recent)");
+        if ui.checkbox(&mut c.keep_recent, recent).changed() {
+            changed = true;
+            // Off: the list kept so far goes too, below, once `c` is done with.
+            clear = !c.keep_recent;
+        }
         let window = tr("Remember the window size and position");
         changed |= ui.checkbox(&mut c.remember_window, window).changed();
         let remote = tr("Listen for glimt --remote commands (after restart)");
@@ -616,6 +622,9 @@ impl crate::App {
         if ui.checkbox(&mut c.app_name_first, order).changed() {
             changed = true;
             self.title(ctx);
+        }
+        if clear {
+            self.clear_recent();
         }
         changed
     }

@@ -1287,6 +1287,8 @@ struct App {
     deleting: HashSet<OsString>,
     /// What Edit → Undo puts back: the last move to the trash, move or rename.
     undo: Option<Undo>,
+    /// File → Open Recent: the folders and collections opened last, newest first.
+    recent: Vec<PathBuf>,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
@@ -1944,6 +1946,17 @@ impl App {
                 })
             })
             .unwrap_or_else(|| ".".into());
+        // No list kept: one of before goes too, also when the setting was changed in the file.
+        let recent = match config::recent_path() {
+            Some(file) if !config.keep_recent => {
+                config::write_later(move || drop(std::fs::remove_file(file)));
+                Vec::new()
+            }
+            Some(file) => {
+                std::fs::read(file).map_or_else(|_| Vec::new(), |t| config::parse_recent(&t))
+            }
+            None => Vec::new(),
+        };
         let preload = Arc::new(AtomicUsize::new(config.preload));
         let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
@@ -2140,6 +2153,7 @@ impl App {
             inhibit_on: false,
             deleting: HashSet::new(),
             undo: None,
+            recent,
             deleted_tx,
             deleted_rx,
             saved_tx,
@@ -2219,11 +2233,78 @@ impl App {
         }
         self.recursive = self.config.show_subfolders;
         self.dir = dir.clone();
+        self.remember_recent(&dir);
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
         self.list_parts = true;
         self.list(ctx);
         self.watch(ctx);
         self.title(ctx);
+    }
+
+    /// `path` first in File → Open Recent, also in the file the other windows read when they
+    /// start; merged with what they wrote meanwhile.
+    fn remember_recent(&mut self, path: &Path) {
+        if !self.config.keep_recent || self.recent.first().is_some_and(|p| p == path) {
+            return;
+        }
+        self.recent = config::add_recent(&self.recent, path);
+        let path = path.to_path_buf();
+        config::write_later(move || {
+            let Some(file) = config::recent_path() else {
+                return;
+            };
+            let on_disk =
+                std::fs::read(&file).map_or_else(|_| Vec::new(), |t| config::parse_recent(&t));
+            write_atomic(
+                &file,
+                config::recent_text(&config::add_recent(&on_disk, &path)),
+            );
+        });
+    }
+
+    /// Open Recent emptied, in its file too.
+    pub(crate) fn clear_recent(&mut self) {
+        self.recent.clear();
+        if let Some(file) = config::recent_path() {
+            config::write_later(move || drop(std::fs::remove_file(file)));
+        }
+    }
+
+    /// File → Open Recent: the folders and collections opened last, and Clear Recent.
+    fn recent_menu(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::RECENT, tr("Open Recent")),
+            |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                if self.recent.is_empty() {
+                    ui.weak(tr("Nothing opened yet"));
+                    return;
+                }
+                let mut chosen = None;
+                for path in &self.recent {
+                    let text = path.display().to_string();
+                    if noted(&ui.button(&text), &text).clicked() {
+                        chosen = Some(path.clone());
+                    }
+                }
+                ui.separator();
+                if noted(&ui.button(tr("Clear Recent")), tr("Clear Recent")).clicked() {
+                    self.clear_recent();
+                }
+                // Gone since (deleted, a stick taken out): said so, and out of the list.
+                if let Some(path) = chosen {
+                    match path.exists() {
+                        true => self.visit(&ctx, path),
+                        false => {
+                            self.notice = Some(tf!("{name} is gone", name = path.display()));
+                            self.recent.retain(|p| *p != path);
+                        }
+                    }
+                }
+            },
+        );
     }
 
     /// What belongs to the list shown before, which a new folder, collection or set of folders
@@ -2273,6 +2354,7 @@ impl App {
         self.deleting = deleting;
         self.recursive = false;
         self.dir = root.to_path_buf();
+        self.remember_recent(&file);
         self.collection = Some(file);
         self.folders.clear();
         let first = files.first().cloned();
@@ -6941,6 +7023,7 @@ impl App {
                     menu_item(ui, act, Action::OpenFolder);
                     menu_item(ui, act, Action::OpenRecursive);
                     menu_item(ui, act, Action::OpenFolders);
+                    self.recent_menu(ui);
                     menu_item(ui, act, Action::NewFolder);
                     menu_item(ui, act, Action::Copy);
                     menu_item(ui, act, Action::Move);

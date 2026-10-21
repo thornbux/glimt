@@ -2801,6 +2801,29 @@ quit
 rm /tmp/stub/gdbus
 expect "the portal's method" "$(grep -c '^org.freedesktop.portal.Wallpaper.SetWallpaperURI$' /tmp/gdbus-args)" 1
 expect "the file as a quoted URI" "$(grep '^"file' /tmp/gdbus-args)" "\"file:///tmp/wall%20paper/a'b.jpg\""
+echo "-- File → Open Recent opens a folder of before, also after a restart"
+for k in 1 2; do mkdir -p /tmp/recent-$k && convert -size 300x200 xc:red /tmp/recent-$k/a$k.jpg; done
+rm -f $XDG_STATE_HOME/glimt/recent
+config
+start /tmp/recent-1
+sleep 2
+$BIN --remote open /tmp/recent-2 >/dev/null 2>&1; sleep 2
+quit
+expect "both kept, the newest first" "$(cat $XDG_STATE_HOME/glimt/recent | tr '\n' ' ')" "/tmp/recent-2 /tmp/recent-1 "
+start /tmp/recent-2
+sleep 2
+menu File "Open Recent" /tmp/recent-1; sleep 2
+shown=$($BIN --remote current | tr -d '\0')
+shot open-recent
+quit
+expect "the folder from the menu" "$shown" "/tmp/recent-1/a1.jpg"
+# Off in Preferences: the list kept so far goes, and none is written.
+config keep_recent=false
+start /tmp/recent-2
+sleep 2
+$BIN --remote open /tmp/recent-1 >/dev/null 2>&1; sleep 2
+quit
+expect "no list with Keep a list of recent folders off" "$(ls $XDG_STATE_HOME/glimt/recent 2>&1 | grep -c 'No such')" 1
 echo "-- / puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d

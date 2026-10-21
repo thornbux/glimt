@@ -145,6 +145,8 @@ const MANUAL: &[(&str, &str)] = &[
          Rename with several files selected asks for a pattern: * is the old name and # a number \
          (### gives 001); existing files are never overwritten. If a crash or a power cut stops it \
          halfway, the next start offers to put the old names back or to finish.\n\n\
+         File → Open Recent has the last ten folders and collections opened, in every window; \
+         Clear Recent there empties it, and Preferences can keep none at all.\n\n\
          File → Open With (also in the right-click menu) opens them in another application, such \
          as GIMP, and Open With Default App in the desktop's own. File → Set as Wallpaper makes \
          the shown image the desktop's background, through the desktop portal (GNOME and KDE), \
@@ -620,6 +622,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Set as Wallpaper",
         "File → Set as Wallpaper, through the desktop portal",
         "A plugin (Edit → Plugins)",
+    ),
+    (
+        "Open Recent",
+        "The last ten folders and collections",
+        "Collections only",
     ),
     (
         "Plugins",

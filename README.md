@@ -87,6 +87,7 @@ The images in the screenshots are generated for the purpose.
 **Finding and organising**
 - Fuzzy search on file names, and search in EXIF, keywords and comments (`exif:canon 2024:05`),
   combined with and, not, or and groups: `sunset ( exif:canon | exif:nikon ) -re:png$`.
+- File → Open Recent: the last ten folders and collections.
 - Sort by name, number, date, EXIF date, size or extension.
 - Marks 1–6 and 0–5 stars, keywords and a comment for each image, and a keyword tree
   (Places → Norway → Oslo) whose levels darktable, digiKam and Lightroom read.

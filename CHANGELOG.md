@@ -15,6 +15,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   taken the name since; one step, in the window that did it.
 - File → Set as Wallpaper: the shown image as the desktop's background, through the desktop
   portal (GNOME and KDE, also from the Flatpak), which keeps a copy of its own.
+- File → Open Recent: the last ten folders and collections opened, shared by the windows, with
+  Clear Recent. Kept in ~/.local/state/glimt/recent; Preferences → Keep a list of recent
+  folders, when off, keeps none and deletes the one there.
 
 ## [0.39.0] - 2026-10-21
 
