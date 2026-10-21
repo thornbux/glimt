@@ -133,6 +133,10 @@ const MANUAL: &[(&str, &str)] = &[
          right-click a file for a menu with them. Delete moves files to the trash and Shift+Delete \
          deletes them for good. Both ask first, as set under Deleting in Preferences, which can \
          also turn the Delete key off or use no trash at all.\n\n\
+         Edit → Undo (Ctrl+Z) puts back what this window did last: files or a folder moved to the \
+         trash come back from it, moved files go back, renamed ones get their old names. Never over \
+         a file that has taken the name since. Their marks and stars, and their place in a \
+         collection, do not come back with them.\n\n\
          While files are copied, moved, deleted or given keywords, the status bar counts them \
          (Copying 120 of 3,000…), and Stop ends it after the file at hand (to the trash: after the \
          100 at hand); one that took long says when it is done. A copy is written under a hidden \
@@ -651,6 +655,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
          mark: and stars:, combined with -, | and ( ); a setting makes it a regular expression \
          always, as Geeqie's, with a Case checkbox beside it",
         "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
+    ),
+    (
+        "Undo (Ctrl+Z)",
+        "The last move to the trash, move or rename in this window",
+        "None",
     ),
     (
         "Folders",

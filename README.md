@@ -188,6 +188,7 @@ folder" in Preferences). These are the keys used most:
 | T, Ctrl+K | Thumbnails in the file list, the EXIF panel |
 | Ctrl+J, D | Pan view by date, Find Duplicates |
 | Ctrl+R, Ctrl+C, Ctrl+M | Rename (several selected: Rename Many), copy, move |
+| Ctrl+Z | Undo the last move to the trash, move or rename |
 | Delete, Shift+Delete | To the trash, delete for good (both ask first) |
 | Ctrl+O, F1 | Preferences, the help (with every key and a keyboard map) |
 

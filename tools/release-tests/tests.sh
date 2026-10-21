@@ -2751,6 +2751,40 @@ quit
 expect "renamed in its folder" "$renamed" "New.gqv "
 expect "the collection in the trash" "$(ls $c; ls $H/.local/share/Trash/files)" "New.gqv"
 expect "its image stays" "$(ls $d)" "a.jpg"
+echo "-- Ctrl+Z: a file back from the trash, a renamed one back to its old name"
+for v in new old; do
+    as_version $v
+    # In the home folder, where gio has a trash.
+    d=$H/undo-$v
+    rm -rf $d $H/.local/share/Trash && mkdir -p $d
+    convert -size 300x200 xc:red $d/a.jpg
+    convert -size 300x200 xc:blue $d/b.jpg
+    config confirm_trash=false
+    start $d/a.jpg
+    sleep 2
+    key ctrl+d; sleep 2              # a.jpg to the trash
+    trashed=$(ls $d | tr '\n' ' ')
+    key ctrl+z; sleep 2
+    back=$(ls $d | tr '\n' ' ')
+    left=$(ls $H/.local/share/Trash/files 2>/dev/null | tr '\n' ' ')
+    key ctrl+r; key ctrl+a; xdotool type c.jpg; key Return; sleep 2
+    renamed=$(ls $d | tr '\n' ' ')
+    key ctrl+z; sleep 2
+    unrenamed=$(ls $d | tr '\n' ' ')
+    key ctrl+z; sleep 1              # nothing left to undo: the old name stays
+    shot undo-$v
+    quit
+    if [ $v = new ]; then
+        expect "a.jpg in the trash (the control)" "$trashed" "b.jpg "
+        expect "Ctrl+Z brings a.jpg back from the trash" "$back" "a.jpg b.jpg "
+        expect "nothing left in the trash" "$left" ""
+        # b.jpg shown since a.jpg went: renamed, it is the one.
+        expect "renamed (the control)" "$renamed" "a.jpg c.jpg "
+        expect "Ctrl+Z gives the old name back, and once only" "$(ls $d | tr '\n' ' ')" "a.jpg b.jpg "
+    else note "old: trashed $trashed, after Ctrl+Z $back; renamed $renamed, after $unrenamed"; fi
+done
+as_version new
+
 echo "-- / puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d

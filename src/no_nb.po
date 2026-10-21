@@ -457,6 +457,10 @@ msgid "Two Above Each Other"
 msgstr "To over hverandre"
 
 #: src/actions.rs
+msgid "Undo"
+msgstr "Angre"
+
+#: src/actions.rs
 msgid "Up"
 msgstr "Opp"
 
@@ -597,6 +601,18 @@ msgid "Exporting"
 msgstr "Eksporterer"
 
 #: src/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Ingenting å angre"
+
+#: src/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Angring mislyktes ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Angring mislyktes: {e}"
+
+#: src/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (fra glib): {e}"
 
@@ -633,6 +649,10 @@ msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Skrivingen av sidefilene stoppet ved en fil som gjorde at den feilet"
 
 #: src/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} hentet tilbake fra papirkurven"
+
+#: src/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} slettet"
 
@@ -641,12 +661,24 @@ msgid "{count} moved to the trash"
 msgstr "{count} flyttet til papirkurven"
 
 #: src/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} flyttet tilbake"
+
+#: src/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} lagret i {folder}"
 
 #: src/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} finnes allerede"
+
+#: src/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} finnes allerede; ingenting er omdøpt"
+
+#: src/file_ops.rs
+msgid "{name} is not in the trash"
+msgstr "{name} er ikke i papirkurven"
 
 #: src/file_ops.rs
 msgid "{verb} failed ({count}): {first}"

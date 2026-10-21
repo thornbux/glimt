@@ -19,6 +19,7 @@ pub enum Action {
     Play,
     Delete,
     DeletePermanently,
+    Undo,
     CloseWindow,
     Quit,
     First,
@@ -200,6 +201,7 @@ impl Action {
             Play => "Play Video",
             Delete => "Delete…",
             DeletePermanently => "Delete Permanently…",
+            Undo => "Undo",
             CloseWindow => "Close Window",
             Quit => "Quit",
             First => "First Image",
@@ -347,6 +349,7 @@ impl Action {
             Play => "\u{e792}",                             // film-strip
             Delete | TrashCollection => "\u{e4a6}",         // trash
             DeletePermanently => "\u{e4f8}",                // x-circle
+            Undo => "\u{e08a}",                             // arrow-u-up-left
             CloseWindow => "\u{e4fa}",                      // x-square
             Quit => "\u{e3da}",                             // power
             First => "\u{e5a4}",                            // skip-back
@@ -504,6 +507,7 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Delete, CTRL, Key::D),
         (NewFolder, CTRL, Key::F),
         (Rename, CTRL, Key::R),
+        (Undo, CTRL, Key::Z),
         // Before Ctrl+C (copy to a folder), which would also match with Shift.
         (CopyImage, CTRL_SHIFT, Key::C),
         (Copy, CTRL, Key::C),

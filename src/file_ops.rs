@@ -180,11 +180,13 @@ impl crate::App {
                     chunk.iter().for_each(|s| drop(std::fs::remove_file(s)));
                 }
             }
+            let undo = (trash && !gone.is_empty()).then(|| Undo::Trash(gone.clone()));
             // Those not reached after Stop are still there, as after a failure.
             let _ = deleted_tx.send(Deleted {
                 paths,
                 gone,
                 failed: !errors.is_empty() || job.stopped(),
+                undo,
                 ..Default::default()
             });
             drop(job);
@@ -203,8 +205,12 @@ impl crate::App {
             moved,
             copied,
             relist,
+            undo,
         } in self.deleted_rx.try_iter().collect::<Vec<_>>()
         {
+            if undo.is_some() {
+                self.undo = undo;
+            }
             // Moved before their sources are taken for deleted ones: the marks go along first.
             self.paths_moved(moved, copied);
             // Deleted: their marks go, so that a new file of the same name does not get them.
@@ -355,6 +361,7 @@ impl crate::App {
             // Moved: out of `deleting`; read the folder again for files that joined it, or that
             // failed to go or were not reached after Stop. A copy elsewhere changes the list not.
             let relist = (listed || !keep) && (listed || !errors.is_empty() || job.stopped());
+            let undo = (!keep && !put.is_empty()).then(|| Undo::Move(put.clone()));
             let _ = deleted_tx.send(Deleted {
                 paths: if keep { Vec::new() } else { paths },
                 gone,
@@ -362,6 +369,7 @@ impl crate::App {
                 moved: put,
                 copied: keep,
                 relist,
+                undo,
             });
             drop(job);
             drop(pointer);
@@ -405,6 +413,7 @@ impl crate::App {
             from: from.clone(),
             to: to.clone(),
             shown,
+            undoing: false,
         };
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
@@ -437,6 +446,10 @@ impl crate::App {
         self.selection_changed(ctx);
         // Found by their old names: the list may have changed while they were renamed. Nothing
         // renamed: the names stay.
+        // Undone, it is not undone again: Ctrl+Z twice does not give the new names back.
+        if !failed && !job.undoing {
+            self.undo = Some(Undo::Rename(job.from.clone(), job.to.clone()));
+        }
         if !failed {
             self.paths_moved(
                 job.from
@@ -598,16 +611,87 @@ impl crate::App {
                 Vec::new()
             };
             let forgotten = forget_in_collection(collection.as_deref(), &gone);
+            let undo = (!gone.is_empty()).then(|| Undo::Trash(gone.clone()));
             let _ = deleted_tx.send(Deleted {
                 paths: vec![dir],
                 gone,
                 failed: error.is_some(),
+                undo,
                 ..Default::default()
             });
             error
                 .map(|e| tf!("Could not move the folder to the trash: {e}", e))
                 .or(forgotten.err())
         });
+    }
+
+    /// Edit → Undo (Ctrl+Z): the last files or folder moved to the trash come back from it, the
+    /// last files moved go back, the last renamed get their old names. Once: what it put back
+    /// is not undone again. Nothing is put over a file that has taken the name meanwhile.
+    pub(crate) fn undo(&mut self, ctx: &egui::Context) {
+        let Some(undo) = self.undo.take() else {
+            self.notice = Some(tr("Nothing to undo").into());
+            return;
+        };
+        let deleted_tx = self.deleted_tx.clone();
+        match undo {
+            Undo::Rename(from, to) => {
+                if self.none_saving(&to) {
+                    self.rename_in_background(ctx, to, from);
+                    if let Some(job) = &mut self.renaming {
+                        job.undoing = true;
+                    }
+                }
+            }
+            Undo::Move(pairs) => self.background(ctx, true, move || {
+                let (mut errors, mut back) = (Vec::new(), Vec::new());
+                for (from, to) in pairs {
+                    let result = match taken(&from, &HashSet::new()) {
+                        Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
+                        None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
+                    };
+                    match result {
+                        Ok(()) => {
+                            if let Err(e) = meta::follow(&to, &from, false) {
+                                errors.push(format!("{}: {e}", meta::sidecar(&from).display()));
+                            }
+                            back.push((to, from));
+                        }
+                        Err((at, e)) => errors.push(format!("{}: {e}", at.display())),
+                    }
+                }
+                let files = count(back.len(), "file");
+                let _ = deleted_tx.send(Deleted {
+                    moved: back,
+                    relist: true,
+                    ..Default::default()
+                });
+                Some(match errors.first() {
+                    Some(first) => tf!(
+                        "Undo failed ({count}): {first}",
+                        count = count(errors.len(), "error"),
+                        first
+                    ),
+                    None => tf!("{files} moved back", files),
+                })
+            }),
+            Undo::Trash(paths) => self.background(ctx, true, move || {
+                let result = restore(&paths);
+                let _ = deleted_tx.send(Deleted {
+                    relist: true,
+                    ..Default::default()
+                });
+                Some(match result {
+                    Ok(()) => tf!(
+                        "{count} back from the trash",
+                        count = count(paths.len(), "file")
+                    ),
+                    Err(e) => tf!("Undo failed: {e}", e),
+                })
+            }),
+        }
+        // A folder that came back shows in the tree again.
+        self.tree.clear();
     }
 
     /// Forget what the folder tree read of `dir` and its parent, so it is read again.
@@ -752,6 +836,111 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         },
         done => done,
     }
+}
+
+/// Put `paths`, moved to the trash by Glimt, back where they were, with their sidecars: each
+/// the one of its name the trash got last. Read from the trash's own folders (files/ and
+/// info/*.trashinfo, as freedesktop.org has it): `gio trash --restore` needs gvfs, which KDE and
+/// containers often lack. Never over a file that has taken the name since.
+fn restore(paths: &[PathBuf]) -> Result<(), String> {
+    let mut trashes: HashMap<PathBuf, Vec<Trashed>> = HashMap::new();
+    let mut found = Vec::new();
+    for path in paths {
+        if path.exists() {
+            return Err(tf!("{name} exists already", name = path.display()));
+        }
+        for (k, p) in [path.clone(), meta::sidecar(path)].into_iter().enumerate() {
+            let mut latest: Option<Trashed> = None;
+            for (dir, top) in trash_dirs(&p) {
+                let all = (trashes.entry(dir.clone())).or_insert_with(|| read_trash(&dir, &top));
+                // The same name trashed twice: the later one, by its date (to the second).
+                for t in all.iter().filter(|t| t.from == p) {
+                    if latest.as_ref().is_none_or(|l| t.date > l.date) {
+                        latest = Some(t.clone());
+                    }
+                }
+            }
+            match latest {
+                Some(t) => found.push(t),
+                // A sidecar is not always there.
+                None if k == 0 => {
+                    return Err(tf!("{name} is not in the trash", name = path.display()));
+                }
+                None => {}
+            }
+        }
+    }
+    for t in found {
+        rename_noreplace(&t.file, &t.from)
+            .map_err(|e| format!("{display}: {e}", display = t.from.display()))?;
+        let _ = std::fs::remove_file(&t.info);
+    }
+    Ok(())
+}
+
+/// A file in a trash folder: where it came from, when (as the trash writes it, which sorts by
+/// time), and its file and its .trashinfo there.
+#[derive(Clone)]
+struct Trashed {
+    from: PathBuf,
+    date: String,
+    file: PathBuf,
+    info: PathBuf,
+}
+
+/// The trash folders a file at `path` may have gone to, each with the folder its relative paths
+/// start from: the home trash, and the two at the top of the file system `path` is on.
+fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
+    use std::os::unix::fs::MetadataExt;
+    // In a Flatpak, gio trash runs on the host, into the host's trash.
+    let home = match std::env::var_os("FLATPAK_ID") {
+        Some(_) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/Trash")),
+        None => config::xdg_dir("XDG_DATA_HOME", ".local/share", "Trash"),
+    };
+    let mut dirs: Vec<(PathBuf, PathBuf)> = home.map(|h| (h, "/".into())).into_iter().collect();
+    // The top of its file system: the last folder up on the same device.
+    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
+    let (Some(mut top), Ok(uid)) = (path.parent(), uid) else {
+        return dirs;
+    };
+    let Some(here) = dev(top) else {
+        return dirs;
+    };
+    while let Some(up) = top.parent().filter(|up| dev(up) == Some(here)) {
+        top = up;
+    }
+    dirs.push((top.join(".Trash").join(uid.to_string()), top.to_path_buf()));
+    dirs.push((top.join(format!(".Trash-{uid}")), top.to_path_buf()));
+    dirs
+}
+
+/// What the trash folder `dir` holds, its relative paths read from `top`.
+fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
+    use std::os::unix::ffi::OsStringExt;
+    let entries = std::fs::read_dir(dir.join("info"))
+        .into_iter()
+        .flatten()
+        .flatten();
+    (entries)
+        .filter_map(|e| {
+            let info = e.path();
+            let name = info
+                .file_name()?
+                .to_str()?
+                .strip_suffix(".trashinfo")?
+                .to_owned();
+            let text = std::fs::read_to_string(&info).ok()?;
+            let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
+            let from = collections::percent_decoded(value("Path=")?.as_bytes());
+            Some(Trashed {
+                from: top.join(OsString::from_vec(from)),
+                date: value("DeletionDate=").unwrap_or_default().to_owned(),
+                file: dir.join("files").join(name),
+                info,
+            })
+        })
+        .collect()
 }
 
 /// Files or folders `gone` for good leave the `collection` shown: only once they are gone, in
@@ -1045,6 +1234,41 @@ impl crate::App {
 #[cfg(test)]
 mod tests {
     /// A moved file, a file in a moved folder, and one not moved; no trailing slash.
+    #[test]
+    fn reads_the_trash() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-trash-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("info")).unwrap();
+        let info = |name: &str, path: &str, date: &str| {
+            let text = format!("[Trash Info]\nPath={path}\nDeletionDate={date}\n");
+            std::fs::write(dir.join("info").join(format!("{name}.trashinfo")), text).unwrap();
+        };
+        info(
+            "bl\u{e5}b\u{e6}r x.jpg",
+            "/p/bl%C3%A5b%C3%A6r%20x.jpg",
+            "2026-10-21T10:00:00",
+        );
+        info("a.jpg", "p/a.jpg", "2026-10-21T11:00:00");
+        std::fs::write(dir.join("info").join("stray"), "").unwrap();
+        let mut all = super::read_trash(&dir, std::path::Path::new("/mnt"));
+        all.sort_by(|a, b| a.date.cmp(&b.date));
+        let got: Vec<_> = all
+            .iter()
+            .map(|t| (t.from.clone(), t.file.clone()))
+            .collect();
+        let file = |n: &str| dir.join("files").join(n);
+        assert_eq!(
+            got,
+            [
+                (
+                    "/p/bl\u{e5}b\u{e6}r x.jpg".into(),
+                    file("bl\u{e5}b\u{e6}r x.jpg")
+                ),
+                ("/mnt/p/a.jpg".into(), file("a.jpg")),
+            ]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn finds_the_new_place() {
         let p = std::path::PathBuf::from;

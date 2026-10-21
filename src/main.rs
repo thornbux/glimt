@@ -333,6 +333,16 @@ struct Deleted {
     copied: bool,
     /// The folder is to be read again: a plugin edited files in it, a repair renamed them.
     relist: bool,
+    /// What Undo puts back, when this was a move to the trash or a move.
+    undo: Option<Undo>,
+}
+
+/// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
+/// moved `(from, to)`, or the last renamed (old names, new names).
+enum Undo {
+    Trash(Vec<PathBuf>),
+    Move(Vec<(PathBuf, PathBuf)>),
+    Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
@@ -823,6 +833,8 @@ struct RenameJob {
     from: Vec<PathBuf>,
     to: Vec<PathBuf>,
     shown: Option<usize>,
+    /// Undo giving the old names back: not itself undone.
+    undoing: bool,
 }
 
 /// What a file dialog (zenity or kdialog) was opened for.
@@ -1273,6 +1285,8 @@ struct App {
     changed_rx: mpsc::Receiver<()>,
     /// Names being deleted in the background; kept out of refreshed listings until done.
     deleting: HashSet<OsString>,
+    /// What Edit → Undo puts back: the last move to the trash, move or rename.
+    undo: Option<Undo>,
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
@@ -2125,6 +2139,7 @@ impl App {
             inhibitor: None,
             inhibit_on: false,
             deleting: HashSet::new(),
+            undo: None,
             deleted_tx,
             deleted_rx,
             saved_tx,
@@ -5897,6 +5912,7 @@ impl App {
             }
             Action::Delete => self.request_delete(ctx, self.config.trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
+            Action::Undo => self.undo(ctx),
             Action::CloseWindow | Action::Quit => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
@@ -6967,6 +6983,8 @@ impl App {
                     menu_item(ui, act, Action::CopyFiles);
                 });
                 scroll_menu(ui, tr("Edit"), |ui| {
+                    menu_item(ui, act, Action::Undo);
+                    ui.separator();
                     #[cfg(feature = "marks")]
                     scroll_menu(
                         ui,
