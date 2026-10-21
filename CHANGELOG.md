@@ -11,13 +11,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   a program that is there is remembered, one that is not is asked for again.
 - glimt --remote open of a folder or file whose name ends in a space opens it as named, instead of
   a trimmed name that is not there.
+- Escape closes the Check Images window, as it closes the pan view; a check still running stops.
 
 ### Changed
 
 - egui and eframe 0.37 (from 0.36.2), with accesskit 0.25: the same look and keys; the names in
   keys= are unchanged, as the test pins them.
 - The release tests click menu items, buttons and choices by their text (a test-hooks build's
-  glimt --remote click LABEL), not by screen coordinates, so a change to the look no longer breaks
+  glimt --remote where LABEL), not by screen coordinates, so a change to the look no longer breaks
   them.
 - The file list and everything indexed into it (the shown image, selection, panes, decoded slots,
   search matches, drags) are one List, made anew when the list is read again: nothing indexed can

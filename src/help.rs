@@ -331,8 +331,8 @@ const MANUAL: &[(&str, &str)] = &[
          - files that are no image under an image's name.\n\n\
          They get an orange mark in the file list too, in the grid of thumbnails as well, until \
          another folder is shown.\n\n\
-         A click on one shows it, Select Them selects them all, to move or delete; Stop ends a \
-         long check. A folder of 100,000 photos takes some minutes.",
+         A click on one shows it, Select Them selects them all, to move or delete; Stop or \
+         Escape ends a long check. A folder of 100,000 photos takes some minutes.",
     ),
     (
         "Finding duplicates",
