@@ -29,7 +29,7 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 
 ## Frozen in 1.x
 
-What README's "What 1.x promises" lists stays as it is until a 2.0: the command-line options,
+These stay as they are until a 2.0: the command-line options,
 the `--remote` commands with their answers and exit codes, the settings file's keys and values
 (a list of choices grows at its end only, `config::NAMED`), the files Glimt owns, and the
 desktop file formats of plugins and decoders. Add; never take away or change a meaning. A
