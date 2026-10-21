@@ -160,6 +160,13 @@ quit() {
     wait $GPID 2>/dev/null
 }
 shot() { import -window root /t/out/$1.png; }
+# Waits for a state instead of a fixed pause, which a loaded machine (six parts at once)
+# outruns: until the command succeeds, up to $2 seconds (10), in steps of 0.1 s; false when
+# the time is up, and the check after it then says what is wrong.
+until_ok() { local n=$(( ${2:-10} * 10 )); until eval "$1" >/dev/null 2>&1; do n=$((n - 1)); [ $n -le 0 ] && return 1; sleep 0.1; done; }
+until_current() { until_ok "[ \"\$($BIN --remote current 2>/dev/null | tr -d '\\0')\" = \"$1\" ]" ${2:-10}; }
+until_file() { until_ok "[ -e \"$1\" ]" ${2:-10}; }
+until_gone() { until_ok "[ ! -e \"$1\" ]" ${2:-10}; }
 # The colour at X,Y of a screenshot: red, green, blue, yellow, magenta, cyan or other.
 colour() {
     pixel $1 $2 $3 | {
@@ -308,7 +315,7 @@ for v in new old; do
     printf '#!/bin/sh\nsleep 3\necho "%s"\n' $d/sub >/tmp/stub/zenity; chmod +x /tmp/stub/zenity
     config auto_refresh=false
     start $d/a.jpg
-    key ctrl+c; key ctrl+m; sleep 5
+    key ctrl+c; key ctrl+m; until_file $d/sub/a.jpg; sleep 1
     quit
     got="$(ls $d | tr '\n' ' ')$(ls $d/sub | tr '\n' ' ')"
     if [ $v = new ]; then expect "a.jpg copied, still in its folder" "$got" "a.jpg sub a.jpg "
@@ -408,9 +415,9 @@ cd /tmp
 config auto_refresh=false
 start $d
 $BIN --remote subfolders on; sleep 2
-answer $d/sub; key ctrl+c; sleep 2
-key space; key space; key space; answer $d; key ctrl+m; sleep 2
-key Home; key space; answer $d/sub/deep; key ctrl+m; sleep 2
+answer $d/sub; key ctrl+c; until_file $d/sub/a.jpg; sleep 1
+key space; key space; key space; answer $d; key ctrl+m; until_file $d/c.jpg; sleep 1
+key Home; key space; answer $d/sub/deep; key ctrl+m; until_file $d/sub/deep/b.jpg; sleep 1
 shot subfolders
 quit
 expect "files on disk" "$(cd $d && find . -name '*.jpg' | sort | tr '\n' ' ')" \
@@ -495,7 +502,7 @@ for v in new old; do
     key space; key shift+Delete; sleep 3
     shot failed-delete-$v
     # A delete that can succeed, so the check above cannot pass by nothing happening.
-    key Home; key shift+Delete; sleep 2
+    key Home; key shift+Delete; until_gone $d/a.jpg; sleep 1
     quit
     chmod 755 $d/sub
     # a.jpg, sub/b.jpg (not deleted), sub/c.jpg
@@ -520,7 +527,7 @@ for v in new old; do
     sleep 2
     key End; key shift+Delete; sleep 3     # ro/b.jpg cannot be deleted
     # One that can go: the check above cannot pass by nothing happening.
-    key Home; key shift+Delete; sleep 2
+    key Home; key shift+Delete; until_gone $d/a.jpg; sleep 1
     quit
     chmod 755 $d/ro
     got=$(grep -c 'ro/b.jpg' $d/show.gqv)
@@ -597,7 +604,7 @@ for v in new old; do
     start $d/one/a.png
     sleep 2
     key equal; key equal; sleep 1
-    $BIN --remote open $d/two/a.png >/dev/null 2>&1; sleep 2
+    $BIN --remote open $d/two/a.png >/dev/null 2>&1; until_current $d/two/a.png
     shot same-name-$v
     quit
     got=$(colour same-name-$v 400 410)
@@ -639,7 +646,7 @@ for v in new old; do
     click 150 337; xdotool keydown ctrl; click 150 419; xdotool keyup ctrl
     cp $d/c.jpg $d/new.jpg; sleep 3
     shot refresh-selection-$v
-    key shift+Delete; sleep 2
+    key shift+Delete; until_gone $d/a.jpg; until_gone $d/b.jpg; sleep 1
     quit
     left=$(ls $d | tr '\n' ' ')
     if [ $v = new ]; then expect "the selected files deleted" "$left" "c.jpg new.jpg "
@@ -743,7 +750,7 @@ for v in new old; do
     config
     start $d
     sleep 2
-    $BIN --remote open "$d/sub " >/dev/null 2>&1; sleep 2
+    $BIN --remote open "$d/sub " >/dev/null 2>&1; until_current "$d/sub /a.png"
     got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
     quit
     if [ $v = new ]; then expect "the folder's image shown" "$got" "sub /a.png"
@@ -909,7 +916,7 @@ for v in new old; do
     key ctrl+a
     xdotool type x
     key Return; sleep 1
-    key Home; key shift+Delete; sleep 2     # b, first after the rename
+    key Home; key shift+Delete; until_gone $d/b.png; sleep 1    # b, first after the rename
     quit
     got="$(sort $XDG_STATE_HOME/glimt/marks | tr '\t\n' '  ')"
     if [ $v = new ]; then expect "the four stars on x, none left for b" "$got" "0 4 $d/x "
@@ -1652,7 +1659,7 @@ for v in new old; do
     config
     start $d/show.gqv
     sleep 2
-    $BIN --remote open $d/y >/dev/null 2>&1; sleep 2
+    $BIN --remote open $d/y >/dev/null 2>&1; until_current $d/y/b.jpg
     click 22 35 2                             # Back, in the toolbar
     key End; sleep 1
     got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
@@ -2665,7 +2672,7 @@ for v in new old; do
     start $d/show.gqv
     sleep 2
     answer $d/to
-    key ctrl+m; sleep 2                  # a, shown, to the folder "to"
+    key ctrl+m; until_file $d/to/a.jpg; sleep 1    # a, shown, to the folder "to"
     quit
     got="$(grep -o '[a-z/-]*/[ab]\.jpg' $d/show.gqv | sed "s|$d/||" | tr '\n' ' ') $(ls $d/to)"
     if [ $v = new ]; then expect "the collection names a where it went" "$got" "to/a.jpg b.jpg  a.jpg"
@@ -2688,7 +2695,7 @@ for v in new old; do
     start $d/src/a.jpg; sleep 2
     key ctrl+a
     answer $d/to
-    key ctrl+m; sleep 2
+    key ctrl+m; until_file $d/to/a.jpg; sleep 1
     quit
     side="$(ls $d/src | tr '\n' ' ')$(cat $d/to/a.jpg.xmp) $(ls $d/to | tr '\n' ' ')"
     # A folder the file cannot be taken out of: linked to the other, then not unlinked.
