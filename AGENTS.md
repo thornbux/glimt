@@ -99,9 +99,10 @@ documentation.
   `Cargo.toml`, the extension in `files::EXTS`, a test in `decode.rs`). Otherwise a decoder
   plugin in `examples/decoders` (`src/decoders.rs`), with a check in `tests.sh`, not code or a
   dependency in Glimt.
-- **An optional format or plugin:** a Cargo feature in `[features]` (also add it to `full`),
-  a module or extension list behind `#[cfg(feature = "...")]`, and its settings shown in
-  Preferences only when built in. Never break the default build.
+- **An optional feature** (chosen when building, not a plugin): a Cargo feature in `[features]`
+  (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its
+  settings shown in Preferences only when built in. Never break the default build. "Plugin"
+  means only the desktop files in Edit → Plugins, and decoder plugins.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and
