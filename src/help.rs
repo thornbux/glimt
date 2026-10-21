@@ -146,7 +146,9 @@ const MANUAL: &[(&str, &str)] = &[
          (### gives 001); existing files are never overwritten. If a crash or a power cut stops it \
          halfway, the next start offers to put the old names back or to finish.\n\n\
          File → Open With (also in the right-click menu) opens them in another application, such \
-         as GIMP, and Open With Default App in the desktop's own. Ctrl+Shift+C copies the image \
+         as GIMP, and Open With Default App in the desktop's own. File → Set as Wallpaper makes \
+         the shown image the desktop's background, through the desktop portal (GNOME and KDE), \
+         which keeps a copy of its own. Ctrl+Shift+C copies the image \
          itself to the clipboard, to paste into other programs. Select → Copy Files to Clipboard \
          copies the files, to paste in a file manager, and Copy Path to Clipboard their paths, \
          quoted for a terminal or unquoted.\n\n\
@@ -613,6 +615,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
          page text from templates, paper, orientation, margins, two-sided; to a CUPS printer or \
          a PDF file; no font choice",
         "GTK print dialog: several images per page, image and page text with a font, page setup",
+    ),
+    (
+        "Set as Wallpaper",
+        "File → Set as Wallpaper, through the desktop portal",
+        "A plugin (Edit → Plugins)",
     ),
     (
         "Plugins",

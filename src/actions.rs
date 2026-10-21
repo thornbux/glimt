@@ -16,6 +16,7 @@ pub enum Action {
     Copy,
     Move,
     OpenWith,
+    SetWallpaper,
     Play,
     Delete,
     DeletePermanently,
@@ -198,6 +199,7 @@ impl Action {
             Copy => "Copy…",
             Move => "Move…",
             OpenWith => "Open With Default App",
+            SetWallpaper => "Set as Wallpaper",
             Play => "Play Video",
             Delete => "Delete…",
             DeletePermanently => "Delete Permanently…",
@@ -346,6 +348,7 @@ impl Action {
             Copy => "\u{e1ca}",                             // copy
             Move | Forward | PaneRight => "\u{e06c}",       // arrow-right
             OpenWith => "\u{e5de}",                         // arrow-square-out
+            SetWallpaper => "\u{e32e}",                     // monitor
             Play => "\u{e792}",                             // film-strip
             Delete | TrashCollection => "\u{e4a6}",         // trash
             DeletePermanently => "\u{e4f8}",                // x-circle

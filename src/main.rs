@@ -5898,6 +5898,15 @@ impl App {
             Action::Copy | Action::Move => {}
             // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.launch(""),
+            Action::SetWallpaper if !self.list.files.is_empty() => {
+                let (path, tx) = (self.path(self.list.cur), self.notices_tx.clone());
+                std::thread::spawn(move || {
+                    if let Err(e) = external::set_wallpaper(&path) {
+                        let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
+                    }
+                });
+            }
+            Action::SetWallpaper => {}
             // Enter: videos play in a player (images have nothing to play).
             Action::Play => {
                 #[cfg(feature = "video")]
@@ -6938,6 +6947,7 @@ impl App {
                     menu_item(ui, act, Action::Rename);
                     menu_item(ui, act, Action::OpenWith);
                     self.open_with_menu(ui);
+                    menu_item(ui, act, Action::SetWallpaper);
                     #[cfg(feature = "video")]
                     menu_item(ui, act, Action::Play);
                     menu_item(ui, act, Action::Print);

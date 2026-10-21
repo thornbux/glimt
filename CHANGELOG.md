@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Edit → Undo (Ctrl+Z): the last files or folder moved to the trash come back from it, the last
   files moved go back, and the last renamed get their old names. Never over a file that has
   taken the name since; one step, in the window that did it.
+- File → Set as Wallpaper: the shown image as the desktop's background, through the desktop
+  portal (GNOME and KDE, also from the Flatpak), which keeps a copy of its own.
 
 ## [0.39.0] - 2026-10-21
 

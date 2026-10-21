@@ -405,6 +405,10 @@ msgid "Select None"
 msgstr "Velg ingen"
 
 #: src/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Bruk som bakgrunnsbilde"
+
+#: src/actions.rs
 msgid "Show EXIF Panel"
 msgstr "Vis EXIF-panelet"
 
@@ -895,6 +899,10 @@ msgstr "Kunne ikke lagre sorteringsbehandlerens mapper: {e}"
 #: src/main.rs
 msgid "Could not save the theme: {e}"
 msgstr "Kunne ikke lagre temaet: {e}"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Kunne ikke bruke som bakgrunnsbilde: {e}"
 
 #: src/main.rs
 msgid "Could not trash {name} (gio is needed): {e}"

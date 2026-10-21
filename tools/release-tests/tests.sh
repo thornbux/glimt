@@ -2785,6 +2785,22 @@ for v in new old; do
 done
 as_version new
 
+echo "-- File → Set as Wallpaper asks the desktop portal, with the file's URI"
+d="/tmp/wall paper"
+mkdir -p "$d"
+convert -size 300x200 xc:red "$d/a'b.jpg"
+# A stand-in gdbus that keeps what it was asked.
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" >/tmp/gdbus-args\n' >/tmp/stub/gdbus
+chmod +x /tmp/stub/gdbus
+rm -f /tmp/gdbus-args
+config
+start "$d/a'b.jpg"
+sleep 2
+menu File "Set as Wallpaper"; sleep 2
+quit
+rm /tmp/stub/gdbus
+expect "the portal's method" "$(grep -c '^org.freedesktop.portal.Wallpaper.SetWallpaperURI$' /tmp/gdbus-args)" 1
+expect "the file as a quoted URI" "$(grep '^"file' /tmp/gdbus-args)" "\"file:///tmp/wall%20paper/a'b.jpg\""
 echo "-- / puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d

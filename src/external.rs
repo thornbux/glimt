@@ -568,6 +568,38 @@ pub fn open_url(url: &str) {
     });
 }
 
+/// File → Set as Wallpaper: `path` as the desktop's background, through the desktop portal,
+/// which GNOME and KDE have, also for a Flatpak. GNOME shows it and asks first; both keep a copy
+/// of their own, so the photo may be moved or deleted later. gdbus comes with gio.
+pub fn set_wallpaper(path: &Path) -> Result<(), String> {
+    // A GVariant string: uri_path leaves no " or \ in it.
+    let uri = format!("\"file://{}\"", crate::thumbs::uri_path(path));
+    let out = command("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+        ])
+        .args([
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+        ])
+        .arg("org.freedesktop.portal.Wallpaper.SetWallpaperURI")
+        .args([
+            "",
+            &uri,
+            "{'show-preview': <true>, 'set-on': <'background'>}",
+        ])
+        .output()
+        .map_err(|e| format!("gdbus: {e}"))?;
+    match out.status.success() {
+        true => Ok(()),
+        false => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
+    }
+}
+
 /// An external program: ffmpeg, gio, zenity, a player. Inside a Flatpak it runs on the host,
 /// which has them, through `flatpak-spawn --host`.
 pub fn command(program: &str) -> std::process::Command {
