@@ -875,6 +875,10 @@ mod tests {
     /// turn: the left of the stored pixels at the top for orientation 6.
     #[test]
     fn shows_turned_photos_shrunk_first() {
+        // Pixel values: no other test may change the colour settings meanwhile.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use image::ImageEncoder;
         let dir = std::env::temp_dir().join(format!("glimt-test-turned-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
