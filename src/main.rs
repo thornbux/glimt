@@ -5360,7 +5360,7 @@ impl App {
                          are no image. They are marked in the list too.",
                         count(self.list.files.len(), "image")
                     ));
-                    start = ui.button(tr("Check")).clicked();
+                    start = noted(&ui.button(tr("Check")), tr("Check")).clicked();
                     return;
                 };
                 let (done, working) = (
@@ -6721,6 +6721,14 @@ impl App {
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
             self.pan_window = None;
+        }
+        // And the Check Images window: a check still running is stopped with it.
+        if self.check.is_some()
+            && !self.dialog_open()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            && let Some(Some(check)) = self.check.take()
+        {
+            check.stop.store(true, Ordering::Relaxed);
         }
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).
@@ -8821,12 +8829,13 @@ impl KeywordNode {
             };
             let mut box_of = |ui: &mut egui::Ui| {
                 let mut on = meta::has_tag(have.0, have.1, &path);
-                let response = ui.checkbox(&mut on, name);
+                let response = noted(&ui.checkbox(&mut on, name), name);
                 if response.changed() {
                     *tick = Some((path.clone(), on));
                 }
                 response.context_menu(|ui| {
-                    if ui.button(tr("Remove from the tree")).clicked() {
+                    let remove = ui.button(tr("Remove from the tree"));
+                    if noted(&remove, tr("Remove from the tree")).clicked() {
                         *drop = Some(path.clone());
                     }
                 });

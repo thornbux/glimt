@@ -1,7 +1,7 @@
 {
  "bomFormat": "CycloneDX",
  "specVersion": "1.5",
- "serialNumber": "urn:uuid:1e607a73-c038-5aed-acdb-3642a53139fd",
+ "serialNumber": "urn:uuid:1a7b259e-a481-5432-8412-b6529333e734",
  "version": 1,
  "metadata": {
   "tools": {
@@ -1060,6 +1060,31 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/calloop-wayland-source@0.4.1",
+   "name": "calloop-wayland-source",
+   "version": "0.4.1",
+   "description": "A wayland-rs client event source for callloop",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/calloop-wayland-source@0.4.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "138efcf0940a02ebf0cc8d1eff41a1682a46b431630f4c52450d6265876021fa"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smithay/calloop-wayland-source"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/calloop@0.13.0",
    "name": "calloop",
    "version": "0.13.0",
@@ -1074,6 +1099,31 @@
     {
      "alg": "SHA-256",
      "content": "b99da2f8558ca23c71f4fd15dc57c906239752dd27ff3c00a1d56b685b7cbfec"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/Smithay/calloop"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/calloop@0.14.5",
+   "name": "calloop",
+   "version": "0.14.5",
+   "description": "A callback-based event loop",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/calloop@0.14.5",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "43b32313e937c8721c9d17ee9bf60699a6402b4b7c2cb6ac1bee0ffcaa4b4e5e"
     }
    ],
    "externalReferences": [
@@ -5360,6 +5410,56 @@
   },
   {
    "type": "library",
+   "bom-ref": "pkg:cargo/smithay-client-toolkit@0.20.0",
+   "name": "smithay-client-toolkit",
+   "version": "0.20.0",
+   "description": "Toolkit for making client wayland applications.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/smithay-client-toolkit@0.20.0",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "0512da38f5e2b31201a93524adb8d3136276fa4fe4aafab4e1f727a82b534cc0"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smithay/client-toolkit"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/smithay-clipboard@0.7.3",
+   "name": "smithay-clipboard",
+   "version": "0.7.3",
+   "description": "Provides access to the wayland clipboard for client applications.",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/smithay-clipboard@0.7.3",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "71704c03f739f7745053bde45fa203a46c58d25bc5c4efba1d9a60e9dba81226"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smithay/smithay-clipboard"
+    }
+   ]
+  },
+  {
+   "type": "library",
    "bom-ref": "pkg:cargo/smol_str@0.2.2",
    "name": "smol_str",
    "version": "0.2.2",
@@ -6399,6 +6499,56 @@
     {
      "alg": "SHA-256",
      "content": "4a52d18780be9b1314328a3de5f930b73d2200112e3849ca6cb11822793fb34d"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smithay/wayland-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
+   "name": "wayland-protocols-experimental",
+   "version": "20250721.0.1",
+   "description": "Generated API for experimental wayland protocol extensions",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "40a1f863128dcaaec790d7b4b396cc9b9a7a079e878e18c47e6c2d2c5a8dcbb1"
+    }
+   ],
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/smithay/wayland-rs"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "pkg:cargo/wayland-protocols-misc@0.3.12",
+   "name": "wayland-protocols-misc",
+   "version": "0.3.12",
+   "description": "Generated API for misc and deprecated wayland protocol extensions",
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "purl": "pkg:cargo/wayland-protocols-misc@0.3.12",
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
     }
    ],
    "externalReferences": [
@@ -7692,6 +7842,15 @@
    ]
   },
   {
+   "ref": "pkg:cargo/calloop-wayland-source@0.4.1",
+   "dependsOn": [
+    "pkg:cargo/calloop@0.14.5",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/wayland-backend@0.3.17",
+    "pkg:cargo/wayland-client@0.31.15"
+   ]
+  },
+  {
    "ref": "pkg:cargo/calloop@0.13.0",
    "dependsOn": [
     "pkg:cargo/bitflags@2.13.2",
@@ -7700,6 +7859,15 @@
     "pkg:cargo/rustix@0.38.44",
     "pkg:cargo/slab@0.4.12",
     "pkg:cargo/thiserror@1.0.69"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/calloop@0.14.5",
+   "dependsOn": [
+    "pkg:cargo/bitflags@2.13.2",
+    "pkg:cargo/polling@3.11.0",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/tracing@0.1.44"
    ]
   },
   {
@@ -7835,6 +8003,7 @@
     "pkg:cargo/log@0.4.34",
     "pkg:cargo/profiling@1.0.18",
     "pkg:cargo/raw-window-handle@0.6.2",
+    "pkg:cargo/smithay-clipboard@0.7.3",
     "pkg:cargo/web-time@1.1.0",
     "pkg:cargo/winit@0.30.13"
    ]
@@ -8923,6 +9092,38 @@
    ]
   },
   {
+   "ref": "pkg:cargo/smithay-client-toolkit@0.20.0",
+   "dependsOn": [
+    "pkg:cargo/bitflags@2.13.2",
+    "pkg:cargo/calloop-wayland-source@0.4.1",
+    "pkg:cargo/calloop@0.14.5",
+    "pkg:cargo/cursor-icon@1.2.0",
+    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/memmap2@0.9.11",
+    "pkg:cargo/rustix@1.1.5",
+    "pkg:cargo/thiserror@2.0.21",
+    "pkg:cargo/wayland-backend@0.3.17",
+    "pkg:cargo/wayland-client@0.31.15",
+    "pkg:cargo/wayland-csd-frame@0.3.0",
+    "pkg:cargo/wayland-cursor@0.31.14",
+    "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
+    "pkg:cargo/wayland-protocols-misc@0.3.12",
+    "pkg:cargo/wayland-protocols-wlr@0.3.12",
+    "pkg:cargo/wayland-protocols@0.32.13",
+    "pkg:cargo/wayland-scanner@0.31.11",
+    "pkg:cargo/xkeysym@0.2.1"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/smithay-clipboard@0.7.3",
+   "dependsOn": [
+    "pkg:cargo/libc@0.2.190",
+    "pkg:cargo/smithay-client-toolkit@0.20.0",
+    "pkg:cargo/wayland-backend@0.3.17"
+   ]
+  },
+  {
    "ref": "pkg:cargo/smol_str@0.2.2",
    "dependsOn": [
     "pkg:cargo/serde@1.0.229"
@@ -9081,6 +9282,7 @@
   {
    "ref": "pkg:cargo/tracing@0.1.44",
    "dependsOn": [
+    "pkg:cargo/log@0.4.34",
     "pkg:cargo/pin-project-lite@0.2.17",
     "pkg:cargo/tracing-attributes@0.1.31",
     "pkg:cargo/tracing-core@0.1.36"
@@ -9226,6 +9428,26 @@
     "pkg:cargo/rustix@1.1.5",
     "pkg:cargo/wayland-client@0.31.15",
     "pkg:cargo/xcursor@0.3.11"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/wayland-protocols-experimental@20250721.0.1",
+   "dependsOn": [
+    "pkg:cargo/bitflags@2.13.2",
+    "pkg:cargo/wayland-backend@0.3.17",
+    "pkg:cargo/wayland-client@0.31.15",
+    "pkg:cargo/wayland-protocols@0.32.13",
+    "pkg:cargo/wayland-scanner@0.31.11"
+   ]
+  },
+  {
+   "ref": "pkg:cargo/wayland-protocols-misc@0.3.12",
+   "dependsOn": [
+    "pkg:cargo/bitflags@2.13.2",
+    "pkg:cargo/wayland-backend@0.3.17",
+    "pkg:cargo/wayland-client@0.31.15",
+    "pkg:cargo/wayland-protocols@0.32.13",
+    "pkg:cargo/wayland-scanner@0.31.11"
    ]
   },
   {

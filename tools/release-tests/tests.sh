@@ -150,6 +150,11 @@ menu() {
         sleep 0.5
     done
 }
+# A right click on the text, as menu() clicks.
+rclick() {
+    at=$($BIN --remote where "$1" 2>/dev/null | tr -d '\0')
+    case $at in [0-9]*) xdotool mousemove ${at% *} ${at#* } click 3 2>/dev/null ;; *) note "$V: $1 is not on the screen" ;; esac
+}
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
 # Closing waits for what is being written (a turned image, the settings): so does this, up to
 # ten seconds, before the kill that ends a Glimt that does not listen.
@@ -1816,23 +1821,21 @@ for v in new old; do
     start $d
     sleep 2
     # File → Check Images…, Check, and the window closed when done to see the list.
-    click 20 10; sleep 1
-    click 66 540; sleep 1
-    click 56 127; sleep 4
+    menu File "Check Images…" Check; sleep 4
     shot check-window-$v
-    click 554 38; sleep 1
+    key Escape; sleep 1
     shot check-list-$v
     quit
     # The warning sign at the right end of a row of the list: orange (red 240), or the row's own
     # dark grey or selection blue.
     marked() { [ $(red check-list-$v 214 $1) -gt 200 ] && echo marked || echo -; }
-    got="$(marked 337) $(marked 419) $(marked 501)"
+    got="$(marked 346) $(marked 428) $(marked 510)"
     if [ $v = new ]; then expect "the cut and the false one marked, the whole one not" "$got" "- marked marked"
     else note "old: $got"; fi
     # The same marks in the grid of thumbnails (Ctrl+I), on each thumbnail's top left.
     if [ $v = new ]; then
         start $d; sleep 2
-        click 20 10; sleep 1; click 66 540; sleep 1; click 56 127; sleep 4; click 554 38; sleep 1
+        menu File "Check Images…" Check; sleep 4; key Escape; sleep 1
         key ctrl+i; sleep 2
         shot check-grid-$v
         quit
@@ -1842,7 +1845,7 @@ for v in new old; do
             set -- $(pixel check-grid-$v $1 $2)
             [ $1 -gt 200 ] && [ $2 -gt 100 ] && [ $2 -lt 180 ] && echo marked || echo -
         }
-        expect "the same marks in the grid" "$(cell 19 313) $(cell 131 313) $(cell 19 417)" "- marked marked"
+        expect "the same marks in the grid" "$(cell 19 322) $(cell 131 322) $(cell 19 426)" "- marked marked"
     fi
 done
 as_version new
@@ -1860,9 +1863,7 @@ for v in new old; do
     config
     start $d/a
     sleep 2
-    click 20 10; sleep 1
-    click 66 540; sleep 1
-    click 56 127; sleep 2
+    menu File "Check Images…" Check; sleep 2
     # The check runs: a's first files, cut, are marked before b opens.
     shot check-switch-a-$v
     $BIN --remote open $d/b >/dev/null 2>&1
@@ -1870,8 +1871,8 @@ for v in new old; do
     shot check-switch-$v
     quit
     marked() { [ $(red $1 214 $2) -gt 200 ] && echo marked || echo -; }
-    before="$(marked check-switch-a-$v 501) $(marked check-switch-a-$v 583)"   # below its window
-    got="$(marked check-switch-$v 337) $(marked check-switch-$v 419) $(marked check-switch-$v 501)"
+    before="$(marked check-switch-a-$v 510) $(marked check-switch-a-$v 592)"   # below its window
+    got="$(marked check-switch-$v 346) $(marked check-switch-$v 428) $(marked check-switch-$v 510)"
     if [ $v = new ]; then
         expect "Check Images marks the cut files of the folder it began in" "$before" "marked marked"
         expect "the new folder's files not marked" "$got" "- - -"
@@ -1923,8 +1924,7 @@ for v in new old; do
     answer $d/to
     start $d
     sleep 2
-    click 20 10; sleep 1
-    click 80 564; sleep 3     # File → Back Up Glimt's Data…
+    menu File "Back Up Glimt's Data…"; sleep 3
     quit
     b=$(ls -d $d/to/glimt-backup-* 2>/dev/null | head -1)
     got="$(cat "$b/config/config" 2>/dev/null | grep -c theme=Light) $(ls "$b/data/collections" 2>/dev/null) $(cut -f2 "$b/state/marks" 2>/dev/null)"
@@ -2486,10 +2486,10 @@ for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
 sleep 1
 shot keywords-before
 # The Animals box: on, then off again.
-click 1056 420 2
+menu Animals; sleep 2
 shot keywords-on
 on=$(cat $d/a.jpg.xmp 2>/dev/null | grep -c '<rdf:li>Animals</rdf:li>')
-click 1056 420 2
+menu Animals; sleep 2
 off=$(cat $d/a.jpg.xmp 2>/dev/null | grep -c '<rdf:li>Animals</rdf:li>')
 quit
 expect "a box sets the keyword and its tree path" "$on" 2
@@ -2523,7 +2523,7 @@ time.sleep(20)" &
     sleep 2
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
     sleep 1
-    click 1056 420 2                 # the second window: the Animals keyword
+    menu Animals; sleep 2            # the second window: the Animals keyword
     WIN=$first_win; key alt+3; sleep 2   # the first window: three stars
     during=$(cat $d/a.jpg.xmp 2>/dev/null | wc -c)
     wait $locker
@@ -2552,10 +2552,9 @@ for v in new old; do
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
     sleep 1
     # Right-click Places, which holds only Norway|Oslo, and Remove from the tree in its menu.
-    xdotool mousemove 1080 444 click 3 2>/dev/null
-    sleep 1
+    rclick Places; sleep 1
     shot keywords-remove-menu-$v
-    click 1130 460 2
+    menu "Remove from the tree"; sleep 2
     shot keywords-remove-$v
     quit
     left=$(tr '\n' ' ' <$XDG_CONFIG_HOME/glimt/keywords | sed 's/ $//')
@@ -2576,9 +2575,8 @@ for v in new old; do
     sleep 2
     for x in $(seq 1100 4 1240); do xdotool mousemove $x 500; done
     sleep 1
-    xdotool mousemove 1080 444 click 3 2>/dev/null
-    sleep 1
-    click 1130 460 2
+    rclick Places; sleep 1
+    menu "Remove from the tree"; sleep 2
     quit
     left=$(tr '\n' ' ' <$XDG_CONFIG_HOME/glimt/keywords | sed 's/ $//')
     if [ $v = new ]; then expect "the tree file as it was" "$left" "Animals Places|Norway|Oslo"
@@ -2620,12 +2618,11 @@ config xmp_stars=true
 start $d/photos/2024
 sleep 2
 answer $d/Catalog.lrcat
-click 20 11
-click 100 444 3   # File → Import Lightroom Catalog…
+menu File "Import Lightroom Catalog…"; sleep 3
 shot lightroom-dialog
-click 382 447 2   # Next
+menu Next; sleep 2
 shot lightroom-plan
-click 421 474 3   # Import, keeping Glimt's stars, with the images' keywords
+menu Import; sleep 3   # keeping Glimt's stars, with the images' keywords
 shot lightroom-done
 quit
 coll="$XDG_DATA_HOME/glimt/collections/Travel - Norway.gqv"
@@ -2745,12 +2742,10 @@ rm -rf $H/.local/share/Trash
 config
 start $c/Old.gqv
 sleep 2
-click 20 11
-click 80 540   # File → Rename Collection…
+menu File "Rename Collection…"
 key ctrl+a; xdotool type New; key Return
 renamed=$(ls $c | tr '\n' ' ')
-click 20 11
-click 93 564 2   # File → Move Collection to Trash
+menu File "Move Collection to Trash"; sleep 2
 shot collection-trashed
 quit
 expect "renamed in its folder" "$renamed" "New.gqv "
@@ -2886,7 +2881,7 @@ search exif:zebra
 shot exif-search-0
 before=$(colour exif-search-0 57 337)
 key ctrl+a; key BackSpace; key Escape; sleep 1
-click 1056 420 2   # the Zebra box, for b.jpg
+menu Zebra; sleep 2   # the Zebra box, for b.jpg
 search exif:zebra
 shot exif-search-1
 quit
