@@ -4561,7 +4561,7 @@ impl App {
             _ => on.join(", "),
         };
         let mut changed = false;
-        ui.menu_button(format!("{title} ⏷"), |ui| {
+        ui.menu_button(format!("{title} {}", theme::icon::CARET_DOWN), |ui| {
             for (label, on) in all {
                 changed |= ui.checkbox(on, label).changed();
             }
@@ -4575,7 +4575,8 @@ impl App {
     /// Geeqie's sort menu in the status bar.
     fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
-        scroll_menu(ui, format!("{} ⏷", self.config.sort.row().2), |ui| {
+        let title = format!("{} {}", self.config.sort.row().2, theme::icon::CARET_DOWN);
+        scroll_menu(ui, title, |ui| {
             for (sort, _, label) in SORTS {
                 if ui
                     .selectable_label(self.config.sort == sort, label)
@@ -5062,7 +5063,7 @@ impl App {
                 self.update_search(ui.ctx());
                 self.scroll_to_cur = true;
             }
-            // A fixed ID: the ✖ button appearing in front of it must not make it a new
+            // A fixed ID: the X button appearing in front of it must not make it a new
             // widget, which would lose the focus after the first letter.
             let hint = match self.config.fuzzy_search {
                 true => "Search file names (3+ letters), re: pattern, or exif: camera, date …",

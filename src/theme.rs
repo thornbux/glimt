@@ -59,6 +59,7 @@ pub mod icon {
     pub const FILM: &str = "\u{e792}"; // film-strip
     pub const DESKTOP: &str = "\u{e560}"; // desktop
     pub const STACK_PLUS: &str = "\u{edf6}"; // stack-plus
+    pub const CARET_DOWN: &str = "\u{e136}"; // caret-down
 }
 
 /// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then
@@ -402,6 +403,61 @@ fn parse_accent(text: &str) -> Option<egui::Color32> {
 
 #[cfg(test)]
 mod tests {
+    /// Every character of the UI text (and the comments, which cost nothing) is in Inter or
+    /// Phosphor, or a Latin letter: egui 0.37 stopped bundling the emoji fonts, and a glyph no
+    /// font has is drawn as nothing, as the U+23F7 triangle after "Sort by name" was.
+    #[test]
+    fn every_glyph_of_the_ui_text_is_in_a_font_glimt_ships() {
+        const SOURCES: &[(&str, &str)] = &[
+            ("accessibility.rs", include_str!("accessibility.rs")),
+            ("actions.rs", include_str!("actions.rs")),
+            ("collections.rs", include_str!("collections.rs")),
+            ("colour.rs", include_str!("colour.rs")),
+            ("config.rs", include_str!("config.rs")),
+            ("decode.rs", include_str!("decode.rs")),
+            ("decoders.rs", include_str!("decoders.rs")),
+            ("duplicates.rs", include_str!("duplicates.rs")),
+            ("exif.rs", include_str!("exif.rs")),
+            ("external.rs", include_str!("external.rs")),
+            ("file_ops.rs", include_str!("file_ops.rs")),
+            ("files.rs", include_str!("files.rs")),
+            ("help.rs", include_str!("help.rs")),
+            ("journal.rs", include_str!("journal.rs")),
+            ("lang.rs", include_str!("lang.rs")),
+            ("lightroom.rs", include_str!("lightroom.rs")),
+            ("main.rs", include_str!("main.rs")),
+            ("marks.rs", include_str!("marks.rs")),
+            ("meta.rs", include_str!("meta.rs")),
+            ("no_nb.po", include_str!("no_nb.po")),
+            ("pan.rs", include_str!("pan.rs")),
+            ("plugins.rs", include_str!("plugins.rs")),
+            ("preferences.rs", include_str!("preferences.rs")),
+            ("print.rs", include_str!("print.rs")),
+            ("raw.rs", include_str!("raw.rs")),
+            ("remote.rs", include_str!("remote.rs")),
+            ("save.rs", include_str!("save.rs")),
+            ("search.rs", include_str!("search.rs")),
+            ("theme.rs", include_str!("theme.rs")),
+            ("thumbs.rs", include_str!("thumbs.rs")),
+            ("video.rs", include_str!("video.rs")),
+        ];
+        // What Inter has, of the signs the texts use; the Phosphor icons are U+E000–F8FF.
+        const IN_INTER: &str = "©«°±·»×–“”…⁴←↑→↓≈★✓⬆";
+        for (name, text) in SOURCES {
+            for c in text.chars() {
+                let fine = c.is_ascii()
+                    || c.is_alphabetic()
+                    || ('\u{e000}'..='\u{f8ff}').contains(&c)
+                    || IN_INTER.contains(c);
+                assert!(
+                    fine,
+                    "{name}: U+{:04X} {c:?} is in no font Glimt ships",
+                    c as u32
+                );
+            }
+        }
+    }
+
     /// gdbus's and gsettings' answers broken in thousands of ways: no panic.
     #[test]
     fn survives_broken_desktop_answers() {
