@@ -588,6 +588,28 @@ fn paint_turned(
         .paint_at(ui, rect);
 }
 
+/// A checkerboard under the image at `rect`, turned as the image is, for one that is
+/// transparent: one quad of a repeating 2×2 texture, 8-point squares at any size.
+fn paint_checker(p: &egui::Painter, rect: egui::Rect, turns: u8, tint: egui::Color32) {
+    let ctx = p.ctx();
+    let id = egui::Id::unique("checkerboard");
+    let tex = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id));
+    let tex = tex.unwrap_or_else(|| {
+        let (a, b) = (egui::Color32::from_gray(102), egui::Color32::from_gray(153));
+        let img = egui::ColorImage::new([2, 2], vec![a, b, b, a]);
+        let tex = ctx.load_texture("checkerboard", img, egui::TextureOptions::NEAREST_REPEAT);
+        ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
+        tex
+    });
+    let size = match turns % 2 {
+        1 => rect.size().yx(),
+        _ => rect.size(),
+    };
+    let rect = egui::Rect::from_center_size(rect.center(), size);
+    let uv = egui::Rect::from_min_size(egui::Pos2::ZERO, size / 16.0);
+    p.image(tex.id(), rect, uv, tint);
+}
+
 /// Faded to `alpha` (0 to 1), as a tint. A fade draws the image before at 1 - t⁴ under the new
 /// one at t: the sum stays near full brightness, where 1 - t would darken the middle.
 fn alpha(a: f32) -> egui::Color32 {
@@ -1141,6 +1163,11 @@ struct Slot {
 }
 
 impl Slot {
+    /// Whether any pixel of the (first) frame is less than opaque.
+    fn transparent(&self) -> bool {
+        self.hist[4][..255].iter().any(|&n| n > 0)
+    }
+
     /// The frame to show `t` after the image was opened; asks for a repaint when the next is due.
     fn frame(&self, t: std::time::Duration, ctx: &egui::Context) -> &egui::TextureHandle {
         let (k, left) = self.frame_at(t);
@@ -3659,6 +3686,9 @@ impl App {
             }
             None => 1.0,
         };
+        if self.config.checkerboard && slot.transparent() {
+            paint_checker(&p, at, 0, alpha(shown));
+        }
         p.image(slot.tex.id(), at, uv, alpha(shown));
         Some(scale)
     }
@@ -3855,6 +3885,9 @@ impl App {
         };
         let rect =
             egui::Rect::from_center_size(area.center() + pan, egui::vec2(w, h) * scale / ppp);
+        if self.config.checkerboard && slot.transparent() {
+            paint_checker(ui.painter(), rect, turns, egui::Color32::WHITE);
+        }
         let tex = self.texture(slot, ui.ctx());
         paint_turned(ui, tex, rect, self.orient, egui::Color32::WHITE);
         // Where the pointer is over the main window's image, to point things out.
@@ -8585,6 +8618,9 @@ impl App {
                 }
                 None => 1.0,
             };
+            if self.config.checkerboard && slot.transparent() {
+                paint_checker(ui.painter(), rect, self.orient.0, alpha(shown));
+            }
             paint_turned(ui, tex, rect, self.orient, alpha(shown));
             ui.set_clip_rect(clip);
             self.last_drawn = Some((slot.tex.clone(), slot.orig));

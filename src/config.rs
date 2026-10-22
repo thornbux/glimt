@@ -490,6 +490,8 @@ config! {
     icons: bool = false,
     /// Colour behind the image (sRGB).
     background: Rgb = Rgb([0, 0, 0]),
+    /// A checkerboard behind transparent images, where the background shows otherwise.
+    checkerboard: bool = false,
     /// Window → Projector: a ring on the projector where the pointer is over the image.
     projector_pointer: bool = true,
     /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows

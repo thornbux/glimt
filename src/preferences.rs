@@ -243,6 +243,12 @@ impl crate::App {
                 changed = true;
             }
         });
+        changed |= ui
+            .checkbox(
+                &mut self.config.checkerboard,
+                tr("Checkerboard behind transparent images"),
+            )
+            .changed();
         changed
     }
 

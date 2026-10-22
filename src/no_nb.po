@@ -1409,6 +1409,10 @@ msgid "Background behind the image"
 msgstr "Bakgrunn bak bildet"
 
 #: src/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Sjakkbrett bak gjennomsiktige bilder"
+
+#: src/preferences.rs
 msgid "Black"
 msgstr "Svart"
 

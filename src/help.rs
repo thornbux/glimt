@@ -93,7 +93,8 @@ const MANUAL: &[(&str, &str)] = &[
          The mouse wheel zooms towards the pointer; with Mouse wheel zooms off in Preferences it \
          browses, and Ctrl+wheel zooms. Preferences also say whether Zoom to Fit enlarges images \
          smaller than the window (on by default), whether the zoom and position are kept when \
-         changing image, and the colour behind the image. A zoomed image larger than the window \
+         changing image, and the colour behind the image, or a checkerboard behind a transparent \
+         one. A zoomed image larger than the window \
          can be dragged or moved with the arrow keys.\n\n\
          - ] and [ rotate the view\n\
          - Shift+R turns it upside down\n\

@@ -2824,6 +2824,42 @@ sleep 2
 $BIN --remote open /tmp/recent-1 >/dev/null 2>&1; sleep 2
 quit
 expect "no list with Keep a list of recent folders off" "$(ls $XDG_STATE_HOME/glimt/recent 2>&1 | grep -c 'No such')" 1
+echo "-- Checkerboard behind transparent images: two greys in turn, off by default"
+d=/tmp/checker
+mkdir -p $d/clear $d/red
+convert -size 300x200 xc:none $d/clear/a.png
+convert -size 300x200 xc:red $d/red/a.png
+# Grey (two of them in squares of 8 points) or black at X,Y.
+checked() {
+    set -- $(pixel $1 $2 $3)
+    if [ $1 -gt 90 ] && [ $1 -lt 165 ] && [ $1 = $2 ] && [ $2 = $3 ]; then echo "grey$1"
+    elif [ $1 -lt 10 ] && [ $2 -lt 10 ] && [ $3 -lt 10 ]; then echo black
+    else echo "$*"; fi
+}
+for v in new old; do
+    as_version $v
+    for c in on off; do
+        [ $c = on ] && config checkerboard=true || config
+        start $d/clear
+        sleep 2
+        shot checker-$c-$v
+        quit
+    done
+done
+as_version new
+config checkerboard=true
+start $d/red
+sleep 2
+shot checker-red
+quit
+a=$(checked checker-on-new 760 412)
+b=$(checked checker-on-new 768 412)
+expect "a grey square" "${a%%[0-9]*}" grey
+differ "the next square another grey" "$a" "$b"
+expect "black without the setting" "$(checked checker-off-new 760 412)" black
+expect "an opaque image as before" "$(colour checker-red 760 412)" red
+note "old: $(checked checker-on-old 760 412) with the setting, as it has none"
+
 echo "-- / puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d

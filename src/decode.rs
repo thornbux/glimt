@@ -30,13 +30,14 @@ pub struct Decoded {
 /// The frames, the original size after EXIF rotation, the histogram and the number of pages.
 pub type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
 
-/// Pixel counts per level of red, green, blue and brightness.
-pub type Hist = [[u32; 256]; 4];
+/// Pixel counts per level of red, green, blue, brightness and alpha.
+pub type Hist = [[u32; 256]; 5];
 
 pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
-    let mut h = Box::new([[0; 256]; 4]);
+    let mut h = Box::new([[0; 256]; 5]);
     for p in &img.pixels {
-        let [r, g, b, _] = p.to_array();
+        let [r, g, b, a] = p.to_array();
+        h[4][a as usize] += 1;
         h[0][r as usize] += 1;
         h[1][g as usize] += 1;
         h[2][b as usize] += 1;
@@ -795,6 +796,16 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    /// The histogram counts alpha too, which tells a transparent image from an opaque one.
+    #[test]
+    fn counts_alpha() {
+        let mut img = eframe::egui::ColorImage::new([2, 1], vec![eframe::egui::Color32::BLACK; 2]);
+        assert_eq!(super::histogram(&img)[4][255], 2);
+        img.pixels[1] = eframe::egui::Color32::TRANSPARENT;
+        let h = super::histogram(&img);
+        assert_eq!((h[4][0], h[4][255]), (1, 1));
+    }
+
     /// A damaged JPEG is refused or shown as far as it goes, never a panic.
     #[test]
     fn survives_broken_jpegs() {

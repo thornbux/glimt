@@ -18,6 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - File → Open Recent: the last ten folders and collections opened, shared by the windows, with
   Clear Recent. Kept in ~/.local/state/glimt/recent; Preferences → Keep a list of recent
   folders, when off, keeps none and deletes the one there.
+- A checkerboard behind transparent images (Preferences → Checkerboard behind transparent
+  images, off by default), so black on transparent is seen on the black background; opaque
+  images look as before.
 
 ## [0.39.0] - 2026-10-21
 

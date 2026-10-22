@@ -76,6 +76,7 @@ The images in the screenshots are generated for the purpose.
 
 **Viewing**
 - Zoom, fit, 1:1, zoom kept between images, full screen, rotate, mirror and flip.
+- A colour of your own behind the image, or a checkerboard behind transparent ones.
 - Layouts with two or four images at once, and Compare (E) side by side at the same zoom.
 - A projector window (Window → Projector) for a second screen: only the image, following
   the main window and its zoom, with a ring where the pointer is.
