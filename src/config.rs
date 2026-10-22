@@ -1113,13 +1113,22 @@ mod tests {
     /// one that panics is counted down too.
     #[test]
     fn counts_writes_until_done() {
-        use std::sync::atomic::Ordering::Relaxed;
-        let before = super::WRITING.load(Relaxed);
-        super::write_later(|| std::thread::sleep(std::time::Duration::from_millis(50)));
+        use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+        // Other tests write at the same time, so the count itself proves little after `flush`:
+        // the work done, and `flush` back long before its 5 s, which it is not while the
+        // writer that panics is still counted.
+        let done = std::sync::Arc::new(AtomicBool::new(false));
+        let d = done.clone();
+        super::write_later(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            d.store(true, Relaxed);
+        });
         super::write_later(|| panic!("a writer that breaks"));
-        assert!(super::WRITING.load(Relaxed) >= before + 1);
+        assert!(super::WRITING.load(Relaxed) >= 1);
+        let t = std::time::Instant::now();
         super::flush();
-        assert_eq!(super::WRITING.load(Relaxed), before);
+        assert!(done.load(Relaxed));
+        assert!(t.elapsed() < std::time::Duration::from_secs(4));
     }
 
     /// A file deleted (or moved) while its new version was being made is not made again under
