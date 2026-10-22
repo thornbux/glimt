@@ -38,6 +38,7 @@ mod actions;
 mod collections;
 mod colour;
 mod config;
+mod crop;
 mod decode;
 mod decoders;
 mod duplicates;
@@ -1600,6 +1601,8 @@ struct App {
     file_dialog_rx: Receiving<Option<PathBuf>>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
+    /// Edit → Crop: the part of the shown image being chosen.
+    crop: Option<crop::Crop>,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
     /// The Check Images window: `None` closed, `Some(None)` open and not started.
@@ -2046,6 +2049,7 @@ impl App {
             sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
+            crop: None,
             asked_for: (0, Vec::new()),
             grid_cols: 1,
             compare: false,
@@ -6132,6 +6136,7 @@ impl App {
             Action::About => self.help = Some(help::Page::About),
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::SaveOrientation => self.save_orientation(ctx),
+            Action::Crop => self.start_crop(),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => {
                 self.config.show_hidden = !self.config.show_hidden;
@@ -6855,6 +6860,14 @@ impl App {
 
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
+        // Choosing a part to crop: Enter saves it, Escape stops; read first, as for the pan view.
+        if self.crop.is_some() && !self.dialog_open() {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                self.crop = None;
+            } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+                self.save_crop(ctx);
+            }
+        }
         // Escape closes the pan view: read first, before a text field with the focus or the
         // shortcuts could take the key, and nothing else is done with it then.
         if self.pan_window.is_some()
@@ -7167,6 +7180,7 @@ impl App {
                             menu_item(ui, act, Action::SaveOrientation);
                         },
                     );
+                    menu_item(ui, act, Action::Crop);
                     menu_item(ui, act, Action::Keywords);
                     ui.separator();
                     self.plugins_menu(ui);
@@ -8439,7 +8453,8 @@ impl App {
                 let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig))
                     .or(self.last_drawn.as_ref().map(|d| d.1));
                 if let Some([w, h]) = orig.map(turned) {
-                    if response.dragged() {
+                    // Choosing a part to crop, a drag draws it instead.
+                    if response.dragged() && self.crop.is_none() {
                         self.pan_offset += response.drag_delta();
                     }
                     let size = egui::vec2(w as f32, h as f32) * scale / ppp;
@@ -8465,6 +8480,18 @@ impl App {
                     self.request(self.list.cur, true);
                 }
                 self.paint_shown(ctx, ui, area, scale, max_fit);
+                if self.crop.is_some() {
+                    let shown = self.list.slots.get(&self.list.cur).map(|s| turned(s.orig));
+                    match shown {
+                        Some([w, h]) => {
+                            let size = egui::vec2(w as f32, h as f32) * scale / ppp;
+                            let at = area.center() + self.pan_offset;
+                            let bounds = egui::Rect::from_center_size(at, size);
+                            self.crop_input(ctx, ui, &response, bounds, [w, h]);
+                        }
+                        None => self.crop = None,
+                    }
+                }
                 // A video: a play button over the preview frame (click or Enter), readable on
                 // any frame, also in the slideshow and full screen.
                 #[cfg(feature = "video")]

@@ -21,6 +21,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A checkerboard behind transparent images (Preferences → Checkerboard behind transparent
   images, off by default), so black on transparent is seen on the black background; opaque
   images look as before.
+- Edit → Crop… (Shift+C): drag over the image to choose a part, and Enter saves it as a new
+  file beside the image (NAME-cropped), as the view shows it; the image itself is never
+  changed. JPEG at the quality set in Preferences (92 by default), PNG and WebP as they were,
+  other formats as PNG, with the EXIF, XMP and sidecar.
 
 ## [0.39.0] - 2026-10-21
 

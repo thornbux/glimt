@@ -20,21 +20,103 @@ pub fn save_rotated(
     mirrored: bool,
     webp_quality: u8,
 ) -> Result<(), String> {
-    use image::ImageEncoder;
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
         return Err("only JPEG, PNG and WebP can store the rotation".into());
     }
-    // Only the first frame would be written back. Asked by what the file is, as it is read below
-    // by its content: an animated GIF named a.png is still animated, a JPEG named so is not.
+    if animated(path)? {
+        return Err("animated images are not turned".into());
+    }
+    let kind = match png {
+        true => Kind::Png,
+        false => Kind::WebP(webp_lossless(path) == Some(false)),
+    };
+    let (exif, xmp, stored_quarter) = upright_metadata(path, rotate)?;
+    let (img, icc) = load_icc(path, rotate)?;
+    let img = turned(img, turns, mirrored);
+    let quarter = (turns % 2 == 1) != stored_quarter;
+    let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
+    crate::config::replace_existing(path, out).map_err(|e| e.to_string())
+}
+
+/// Save the part `[x, y, width, height]` of the image as the view shows it (turned by `turns`
+/// and `mirrored`, and by EXIF with `rotate`) as a new file beside it, "NAME-cropped.EXT" or
+/// "NAME-cropped-2.EXT" …, never over another. In the same format with its profile, EXIF
+/// (upright) and XMP: JPEG at `jpeg_quality`, a lossy WebP through ffmpeg, PNG and lossless
+/// WebP as they were; other formats as PNG. Its sidecar is copied too. Returns the new file.
+#[allow(clippy::too_many_arguments)]
+pub fn save_cropped(
+    path: &Path,
+    rotate: bool,
+    turns: u8,
+    mirrored: bool,
+    [x, y, width, height]: [u32; 4],
+    jpeg_quality: u8,
+    webp_quality: u8,
+) -> Result<std::path::PathBuf, String> {
+    if animated(path)? {
+        return Err("animated images are not cropped".into());
+    }
+    let (kind, ext) = if crate::files::is_jpeg(path) {
+        (Kind::Jpeg(jpeg_quality), None)
+    } else if has_ext(path, &["png"]) {
+        (Kind::Png, None)
+    } else if has_ext(path, &["webp"]) {
+        (Kind::WebP(webp_lossless(path) == Some(false)), None)
+    } else {
+        (Kind::Png, Some("png"))
+    };
+    let (exif, xmp, _) = upright_metadata(path, rotate)?;
+    let (img, icc) = load_icc(path, rotate)?;
+    let img = turned(img, turns, mirrored);
+    if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
+        return Err("the part is outside the image".into());
+    }
+    let img = img.crop_imm(x, y, width, height);
+    // Its PNG chunks hold as they were: a DPI is no different for a part.
+    let out = encode(path, img, icc, exif, xmp, kind, false, webp_quality)?;
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let ext = ext
+        .map(str::to_owned)
+        .unwrap_or_else(|| (path.extension().unwrap_or_default().to_string_lossy()).into_owned());
+    for n in 1.. {
+        let name = match n {
+            1 => format!("{stem}-cropped.{ext}"),
+            _ => format!("{stem}-cropped-{n}.{ext}"),
+        };
+        let new = path.with_file_name(name);
+        match crate::config::create_file(&new, &out) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.to_string()),
+            Ok(()) => {
+                let _ = crate::meta::follow(path, &new, true);
+                return Ok(new);
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// How an image is written: as a PNG, a WebP (lossy or not) or a JPEG of a quality.
+#[derive(Clone, Copy)]
+enum Kind {
+    Png,
+    WebP(bool),
+    Jpeg(u8),
+}
+
+/// Whether `path` is animated: only the first frame would be written back. Asked by what the
+/// file is, as it is read by its content: an animated GIF named a.png is still animated, a
+/// JPEG named so is not.
+fn animated(path: &Path) -> Result<bool, String> {
     let format = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .format();
     let file = || std::fs::File::open(path).map(std::io::BufReader::new);
-    let animated = match format {
+    Ok(match format {
         Some(image::ImageFormat::Gif) => true,
         Some(image::ImageFormat::Png) => (file().ok())
             .and_then(|f| image::codecs::png::PngDecoder::new(f).ok())
@@ -43,13 +125,15 @@ pub fn save_rotated(
             .and_then(|f| image::codecs::webp::WebPDecoder::new(f).ok())
             .is_some_and(|d| d.has_animation()),
         _ => false,
-    };
-    if animated {
-        return Err("animated images are not turned".into());
-    }
-    // The EXIF block (camera, date, place) goes into the new file. The pixels are written as the
-    // view showed them, so its orientation is set upright, also with Auto Rotate off, where the
-    // view did not turn them by it: else other programs would turn them again.
+    })
+}
+
+/// The EXIF block (camera, date, place) and XMP of `path`, for pixels written as the view
+/// showed them: their orientation set upright, also with Auto Rotate off, where the view did
+/// not turn them by it, else other programs would turn them again. And whether the stored
+/// orientation turned the image a quarter, with Auto Rotate.
+type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
+fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
     let (mut exif, mut xmp, stored) = image::ImageReader::open(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
@@ -60,85 +144,130 @@ pub fn save_rotated(
             (exif, d.xmp_metadata().ok().flatten(), stored)
         })
         .unwrap_or_default();
-    // Turned a quarter in all: by the view, and by the stored orientation with Auto Rotate.
-    let stored_quarter = rotate && stored.is_some_and(crate::decode::quarter_turn);
-    let quarter = (turns % 2 == 1) != stored_quarter;
-    let lossy = !png && webp_lossless(path) == Some(false);
     if let Some(exif) = &mut exif {
         exif::set_upright(exif)?;
     }
     if let Some(xmp) = &mut xmp {
         exif::set_xmp_orientation(xmp, 1);
     }
-    let (mut img, icc) = load_icc(path, rotate)?;
-    if mirrored {
-        img = img.fliph();
-    }
-    img = match turns % 4 {
+    let quarter = rotate && stored.is_some_and(crate::decode::quarter_turn);
+    Ok((exif, xmp, quarter))
+}
+
+/// `img` turned as the view: mirrored first, then turned clockwise `turns` quarters.
+fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::DynamicImage {
+    let img = if mirrored { img.fliph() } else { img };
+    match turns % 4 {
         1 => img.rotate90(),
         2 => img.rotate180(),
         3 => img.rotate270(),
         _ => img,
-    };
-    if lossy {
-        // ffmpeg hands the WebP over in memory; with the EXIF block added it replaces the image
-        // through a temporary file of its own, private from the start, not one ffmpeg makes.
-        let img = to_srgb(img, icc.as_deref());
-        let made = lossy_webp(&img, webp_quality)
-            .and_then(|webp| match &exif {
-                Some(exif) => webp_with_chunk(&webp, b"EXIF", exif, img.width(), img.height()),
-                None => Ok(webp),
-            })
-            .and_then(|webp| match &xmp {
-                Some(xmp) => webp_with_chunk(&webp, b"XMP ", xmp, img.width(), img.height()),
-                None => Ok(webp),
-            });
-        return made.and_then(|webp| {
-            crate::config::replace_existing(path, webp).map_err(|e| e.to_string())
-        });
     }
-    // Encoded in memory first: an encoder that owns its file flushes it on drop, where a full
-    // disk would go unnoticed and a cut-off file replace the photo.
-    let mut out = Vec::new();
+}
+
+/// `img` encoded as `kind` with the profile, EXIF and XMP; a PNG keeps the other chunks of
+/// `path` (`quarter`: turned a quarter since). Encoded in memory: an encoder that owns its
+/// file flushes it on drop, where a full disk would go unnoticed and a cut-off file replace
+/// the photo.
+#[allow(clippy::too_many_arguments)]
+fn encode(
+    path: &Path,
+    img: image::DynamicImage,
+    icc: Option<Vec<u8>>,
+    exif: Option<Vec<u8>>,
+    xmp: Option<Vec<u8>>,
+    kind: Kind,
+    quarter: bool,
+    webp_quality: u8,
+) -> Result<Vec<u8>, String> {
+    use image::ImageEncoder;
     let (width, height) = (img.width(), img.height());
-    let written = if png {
-        let mut enc = image::codecs::png::PngEncoder::new(&mut out);
-        if let Some(icc) = icc {
-            let _ = enc.set_icc_profile(icc);
+    if let Kind::WebP(true) = kind {
+        // ffmpeg hands the WebP over in memory, in sRGB as it drops the profile.
+        let img = to_srgb(img, icc.as_deref());
+        let mut webp = lossy_webp(&img, webp_quality)?;
+        if let Some(exif) = &exif {
+            webp = webp_with_chunk(&webp, b"EXIF", exif, width, height)?;
         }
-        match exif.map(|e| enc.set_exif_metadata(e)) {
-            Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
-            _ => img.write_with_encoder(enc),
+        if let Some(xmp) = &xmp {
+            webp = webp_with_chunk(&webp, b"XMP ", xmp, width, height)?;
         }
-    } else {
-        let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
-        if let Some(icc) = icc {
-            let _ = enc.set_icc_profile(icc);
+        return Ok(webp);
+    }
+    let mut out = Vec::new();
+    let written = match kind {
+        Kind::Png => {
+            let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+            if let Some(icc) = icc {
+                let _ = enc.set_icc_profile(icc);
+            }
+            match exif.map(|e| enc.set_exif_metadata(e)) {
+                Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
+                _ => img.write_with_encoder(enc),
+            }
         }
-        // The WebP encoder takes 8-bit RGB or RGBA.
-        let img = if img.color().has_alpha() {
-            image::DynamicImage::from(img.into_rgba8())
-        } else {
-            image::DynamicImage::from(img.into_rgb8())
-        };
-        match exif.map(|e| enc.set_exif_metadata(e)) {
-            Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
-            _ => img.write_with_encoder(enc),
+        Kind::Jpeg(quality) => {
+            let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality);
+            if let Some(icc) = icc {
+                let _ = enc.set_icc_profile(icc);
+            }
+            // JPEG has no alpha, nor more than 8 bits.
+            let img = image::DynamicImage::from(img.into_rgb8());
+            match exif.map(|e| enc.set_exif_metadata(e)) {
+                Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
+                _ => img.write_with_encoder(enc),
+            }
+        }
+        Kind::WebP(_) => {
+            let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+            if let Some(icc) = icc {
+                let _ = enc.set_icc_profile(icc);
+            }
+            // The WebP encoder takes 8-bit RGB or RGBA.
+            let img = if img.color().has_alpha() {
+                image::DynamicImage::from(img.into_rgba8())
+            } else {
+                image::DynamicImage::from(img.into_rgb8())
+            };
+            match exif.map(|e| enc.set_exif_metadata(e)) {
+                Some(Err(e)) => Err(image::ImageError::Unsupported(e)),
+                _ => img.write_with_encoder(enc),
+            }
         }
     };
     written.map_err(|e| e.to_string())?;
     // The rest of what the PNG said of itself: its text (a comment, an AI tool's prompt), its
-    // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn.
-    if png && let Ok(old) = std::fs::read(path) {
+    // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn. Only from a PNG.
+    if let Kind::Png = kind
+        && has_ext(path, &["png"])
+        && let Ok(old) = std::fs::read(path)
+    {
         out = png_with_chunks(&out, &old, quarter);
     }
     if let Some(xmp) = &xmp {
-        out = match png {
-            true => png_with_xmp(&out, xmp)?,
-            false => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
+        out = match kind {
+            Kind::Png => png_with_xmp(&out, xmp)?,
+            Kind::Jpeg(_) => jpeg_with_xmp(&out, xmp)?,
+            Kind::WebP(_) => webp_with_chunk(&out, b"XMP ", xmp, width, height)?,
         };
     }
-    crate::config::replace_existing(path, out).map_err(|e| e.to_string())
+    Ok(out)
+}
+
+/// `jpeg` with `xmp` in an APP1 segment of Adobe's name, right after the start (SOI).
+fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
+    const NAME: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+    let len = 2 + NAME.len() + xmp.len();
+    if !jpeg.starts_with(&[0xFF, 0xD8]) || len > 0xFFFF {
+        return Err("not a JPEG file, or its XMP too long".into());
+    }
+    let mut out = jpeg[..2].to_vec();
+    out.extend([0xFF, 0xE1]);
+    out.extend((len as u16).to_be_bytes());
+    out.extend(NAME);
+    out.extend(xmp);
+    out.extend(&jpeg[2..]);
+    Ok(out)
 }
 
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
@@ -596,6 +725,48 @@ mod tests {
         let mut dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(png)).unwrap();
         assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
         assert_eq!(super::crc32(b"IEND"), 0xae42_6082);
+    }
+
+    /// A part saved as a new JPEG beside the image, as the view shows it, with its XMP; a
+    /// second never over the first, and the image itself untouched.
+    #[test]
+    fn saves_a_cropped_copy() {
+        use image::ImageDecoder;
+        let dir = std::env::temp_dir().join(format!("glimt-crop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.jpg");
+        let (red, blue) = (image::Rgb([255, 0, 0]), image::Rgb([0, 0, 255]));
+        let mut jpeg = Vec::new();
+        image::RgbImage::from_fn(16, 8, |x, _| if x < 8 { red } else { blue })
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let xmp = b"<x:xmpmeta>keywords</x:xmpmeta>";
+        std::fs::write(&file, super::jpeg_with_xmp(&jpeg, xmp).unwrap()).unwrap();
+        let before = std::fs::read(&file).unwrap();
+        let colour = |path: &std::path::Path| {
+            let img = image::open(path).unwrap().into_rgb8();
+            let p = img.get_pixel(img.width() / 2, img.height() / 2).0;
+            (img.dimensions(), p[0] > 200 && p[2] < 60)
+        };
+        // The right half: blue.
+        let new = super::save_cropped(&file, true, 0, false, [8, 0, 8, 8], 92, 90).unwrap();
+        assert_eq!(new, dir.join("a-cropped.jpg"));
+        assert_eq!(colour(&new), ((8, 8), false));
+        let mut dec = image::ImageReader::open(&new)
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
+        // Turned a quarter clockwise, the left (red) half is on top.
+        let new = super::save_cropped(&file, true, 1, false, [0, 0, 8, 8], 92, 90).unwrap();
+        assert_eq!(new, dir.join("a-cropped-2.jpg"));
+        assert_eq!(colour(&new), ((8, 8), true));
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        assert!(super::save_cropped(&file, true, 0, false, [8, 0, 9, 8], 92, 90).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// "a.png" and "a.webp" saved turned at the same time: each keeps its own pixels and format.

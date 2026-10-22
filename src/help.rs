@@ -104,7 +104,12 @@ const MANUAL: &[(&str, &str)] = &[
          Edit → Orientation → Save Orientation to File stores the rotation in a JPEG as its EXIF \
          orientation, without touching the pixels; a setting does it on every change of image. PNG \
          and WebP are turned and saved again with their EXIF data: PNG and lossless WebP without \
-         loss, a lossy WebP as lossy again (through ffmpeg, at the quality set in Preferences).",
+         loss, a lossy WebP as lossy again (through ffmpeg, at the quality set in Preferences).\n\n\
+         Edit → Crop… (Shift+C): drag over the image to choose the part to keep, then Enter (or \
+         Save Copy) saves it as a new file beside the image, NAME-cropped, as the view shows it \
+         (turned, mirrored); Esc cancels. The image itself is never changed. JPEG is saved at the \
+         quality set in Preferences, PNG and WebP as they were, other formats as PNG; EXIF, XMP \
+         and the sidecar go along.",
     ),
     (
         "Slideshow",
@@ -611,6 +616,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
          keywords; kept in the sidecar photo.jpg.xmp; found by exif: searches",
         "Info sidebar with a keyword tree that can also mark images and hide keywords; kept in \
          the image, a sidecar or Geeqie's own folder",
+    ),
+    (
+        "Crop (Shift+C)",
+        "Edit → Crop…: a part dragged over the image is saved as a copy beside it, NAME-cropped",
+        "A plugin on a selection drawn over the image",
     ),
     (
         "Print (Ctrl+P)",

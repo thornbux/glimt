@@ -365,6 +365,10 @@ msgid "Save Orientation to File"
 msgstr "Lagre retningen i filen"
 
 #: src/actions.rs
+msgid "Crop…"
+msgstr "Beskjær …"
+
+#: src/actions.rs
 msgid "Save This Frame…"
 msgstr "Lagre denne ruten …"
 
@@ -495,6 +499,22 @@ msgstr "Ikke et gyldig samlingsnavn: «{name}»"
 #: src/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Det finnes allerede en samling som heter «{name}»"
+
+#: src/crop.rs
+msgid "A video is not cropped"
+msgstr "En video beskjæres ikke"
+
+#: src/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Dra over bildet for å velge delen som skal beholdes"
+
+#: src/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Lagre kopi (Enter)"
+
+#: src/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Kunne ikke beskjære bildet: {e}"
 
 #: src/duplicates.rs
 msgid "Among the {count} in the list, compare by"
@@ -1619,6 +1639,10 @@ msgstr "Profilfil …"
 #: src/preferences.rs
 msgid "quality when a lossy WebP is saved again"
 msgstr "kvalitet når en tapsbefengt WebP lagres på nytt"
+
+#: src/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "kvalitet for en beskåret JPEG (Rediger → Beskjær)"
 
 #: src/preferences.rs
 msgid "Random order"

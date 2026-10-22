@@ -47,6 +47,7 @@ pub enum Action {
     Mirror,
     Flip,
     SaveOrientation,
+    Crop,
     ZoomIn,
     ZoomOut,
     Zoom1To1,
@@ -230,6 +231,7 @@ impl Action {
             Mirror => "Mirror",
             Flip => "Flip",
             SaveOrientation => "Save Orientation to File",
+            Crop => "Crop…",
             ZoomIn => "Zoom In",
             ZoomOut => "Zoom Out",
             Zoom1To1 => "Zoom 1:1",
@@ -377,6 +379,7 @@ impl Action {
             Mirror => "\u{ed6a}",                           // flip-horizontal
             Flip => "\u{ed6c}",                             // flip-vertical
             SaveOrientation => "\u{e248}",                  // floppy-disk
+            Crop => "\u{e1d4}",                             // crop
             ZoomIn => "\u{e310}",                           // magnifying-glass-plus
             ZoomOut => "\u{e30e}",                          // magnifying-glass-minus
             Zoom1To1 => "\u{e626}",                         // frame-corners
@@ -614,6 +617,8 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
         (Escape, NONE, Key::Q),
         (NewWindow, CTRL, Key::N),
         (Print, CTRL, Key::P),
+        // Before C (new collection), which would also match with Shift.
+        (Crop, SHIFT, Key::C),
         (NewCollection, NONE, Key::C),
         (OpenCollection, NONE, Key::O),
         (FindDuplicates, NONE, Key::D),

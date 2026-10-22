@@ -2859,6 +2859,41 @@ differ "the next square another grey" "$a" "$b"
 expect "black without the setting" "$(checked checker-off-new 760 412)" black
 expect "an opaque image as before" "$(colour checker-red 760 412)" red
 note "old: $(checked checker-on-old 760 412) with the setting, as it has none"
+echo "-- Shift+C crops: a part dragged over the image, saved beside it with Enter; Esc saves none"
+for v in new old; do
+    as_version $v
+    d=/tmp/crop-$v
+    mkdir -p $d
+    # Left half red, right half blue.
+    convert -size 150x200 xc:red -size 150x200 xc:blue +append $d/a.png
+    sum=$(md5sum <$d/a.png)
+    config
+    start $d
+    sleep 2
+    # The right half, inside the image (the view fills 1040 wide around x 760).
+    drag() { xdotool mousemove $1 $2 mousedown 1; sleep 0.3; xdotool mousemove $3 $4; sleep 0.3; xdotool mousemove $5 $6; sleep 0.3; xdotool mouseup 1; sleep 0.5; }
+    key shift+c; sleep 0.5
+    drag 800 200 1000 400 1200 600
+    key Escape
+    [ $v = new ] && after_esc=$(ls $d | tr '\n' ' ')
+    key shift+c; sleep 0.5
+    drag 800 200 1000 400 1200 600
+    key Return
+    until_file $d/a-cropped.png 5
+    [ $v = new ] && { files=$(ls $d | tr '\n' ' '); same=$([ "$(md5sum <$d/a.png)" = "$sum" ] && echo yes); }
+    quit
+    [ $v = old ] && note "old: $(ls $d | tr '\n' ' ')"
+done
+d=/tmp/crop-new
+expect "Esc saves nothing" "$after_esc" "a.png "
+expect "Enter saves a copy beside it" "$files" "a-cropped.png a.png "
+expect "the image itself unchanged" "$same" yes
+[ -e $d/a-cropped.png ] && size=$(identify -format "%w %h" $d/a-cropped.png)
+note "cropped: ${size:-none}"
+# 400 x 400 points of a 300 x 200 image shown 1040 wide: about 115 pixels each way.
+set -- ${size:-0 0}
+expect "about 115 x 115 pixels" "$([ $1 -ge 105 ] && [ $1 -le 125 ] && [ $2 -ge 105 ] && [ $2 -le 125 ] && echo yes)" yes
+expect "the right half: blue" "$([ -e $d/a-cropped.png ] && side $d/a-cropped.png 10,10)" blue
 
 echo "-- / puts the cursor in the search field, without typing itself there"
 d=/tmp/slash

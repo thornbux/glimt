@@ -417,6 +417,8 @@ config! {
     save_orientation: bool = false,
     /// Quality (0–100) when a lossy WebP is saved again after turning it.
     webp_quality: u8 = 90,
+    /// Quality (0–100) of a cropped JPEG.
+    jpeg_quality: u8 = 92,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
     /// How an image that is not zoomed fills the view: whole, width, height or fill (the whole
@@ -562,6 +564,7 @@ impl Config {
         c.histogram = c.histogram.min(2);
         c.thumb_size = c.thumb_size.min(2);
         c.webp_quality = c.webp_quality.min(100);
+        c.jpeg_quality = c.jpeg_quality.clamp(1, 100);
         c.delay = c.delay.clamp(1, MAX_DELAY);
         c.toolbar_icons = c.toolbar_icons.min(2);
         c.view_filter = c.view_filter.min(3);

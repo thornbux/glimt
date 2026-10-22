@@ -211,6 +211,9 @@ impl crate::App {
         let quality = egui::Slider::new(&mut self.config.webp_quality, 50..=100)
             .text(tr("quality when a lossy WebP is saved again"));
         changed |= ui.add(quality).changed();
+        let quality = egui::Slider::new(&mut self.config.jpeg_quality, 50..=100)
+            .text(tr("quality of a cropped JPEG (Edit → Crop)"));
+        changed |= ui.add(quality).changed();
         let c = &mut self.config;
         changed |= ui
             .checkbox(&mut c.enlarge, tr("Enlarge small images to fit the window"))
