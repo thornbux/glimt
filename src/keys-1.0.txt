@@ -119,3 +119,7 @@ Zoom1To1
 ZoomFit
 ZoomIn
 ZoomOut
+# Added in 0.40.0
+Undo
+Crop
+SaveAs

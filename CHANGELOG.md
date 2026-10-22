@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-22
+
 ### Added
 
 - The .deb and .rpm install the example plugins and decoders in
@@ -1854,7 +1856,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.39.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/thornbux/glimt/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/thornbux/glimt/compare/v0.38.5...v0.39.0
 [0.38.5]: https://github.com/thornbux/glimt/compare/v0.38.4...v0.38.5
 [0.38.4]: https://github.com/thornbux/glimt/compare/v0.38.3...v0.38.4
