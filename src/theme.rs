@@ -429,7 +429,17 @@ mod tests {
             ("main.rs", include_str!("main.rs")),
             ("marks.rs", include_str!("marks.rs")),
             ("meta.rs", include_str!("meta.rs")),
+            ("da.po", include_str!("da.po")),
+            ("de.po", include_str!("de.po")),
+            ("es.po", include_str!("es.po")),
+            ("fi.po", include_str!("fi.po")),
+            ("fr.po", include_str!("fr.po")),
+            ("is.po", include_str!("is.po")),
+            ("it.po", include_str!("it.po")),
+            ("nl.po", include_str!("nl.po")),
             ("no_nb.po", include_str!("no_nb.po")),
+            ("pl.po", include_str!("pl.po")),
+            ("sv.po", include_str!("sv.po")),
             ("pan.rs", include_str!("pan.rs")),
             ("plugins.rs", include_str!("plugins.rs")),
             ("preferences.rs", include_str!("preferences.rs")),
@@ -443,7 +453,7 @@ mod tests {
             ("video.rs", include_str!("video.rs")),
         ];
         // What Inter has, of the signs the texts use; the Phosphor icons are U+E000–F8FF.
-        const IN_INTER: &str = "©«°±·»×–“”…⁴←↑→↓≈★✓⬆";
+        const IN_INTER: &str = "©«°±·»¿×–“”„…⁴←↑→↓≈★✓⬆";
         for (name, text) in SOURCES {
             for c in text.chars() {
                 let fine = c.is_ascii()

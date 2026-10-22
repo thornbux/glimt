@@ -1,6 +1,6 @@
 //! The interface in the user's language. The English texts are the keys: `tr("Open File…")`,
 //! `tf!("Could not save {name}: {e}", name, e)` for texts with values, and `plural` for
-//! `count`'s nouns. A translation is a gettext `.po` file built in (`src/no_nb.po`); a text it
+//! `count`'s nouns. A translation is a gettext `.po` file built in (`src/no_nb.po` …); a text it
 //! lacks shows in English, mixed with the translated ones, as in Geeqie. The language follows
 //! `$LANGUAGE`, `$LC_ALL`, `$LC_MESSAGES` and `$LANG`, unless the `language` setting names one.
 //! Command-line output, `--remote` and the Help Manual stay English.
@@ -9,20 +9,46 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 /// The translations built in: code (the setting), name in its own language, the language codes
-/// of `$LANG` it is for, and its `.po` file.
-pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[(
-    "no_nb",
-    "Norsk bokmål",
-    &["nb", "no"],
-    include_str!("no_nb.po"),
-)];
+/// of `$LANG` it is for, and its `.po` file. Each has every text of `no_nb.po`.
+pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
+    ("da", "Dansk", &["da"], include_str!("da.po")),
+    ("de", "Deutsch", &["de"], include_str!("de.po")),
+    ("es", "Español", &["es"], include_str!("es.po")),
+    ("fr", "Français", &["fr"], include_str!("fr.po")),
+    ("is", "Íslenska", &["is"], include_str!("is.po")),
+    ("it", "Italiano", &["it"], include_str!("it.po")),
+    ("nl", "Nederlands", &["nl"], include_str!("nl.po")),
+    (
+        "no_nb",
+        "Norsk bokmål",
+        &["nb", "no"],
+        include_str!("no_nb.po"),
+    ),
+    ("pl", "Polski", &["pl"], include_str!("pl.po")),
+    ("fi", "Suomi", &["fi"], include_str!("fi.po")),
+    ("sv", "Svenska", &["sv"], include_str!("sv.po")),
+];
+
+/// Which of a noun's forms goes with `n`, by the language's rule (its `.po`'s Plural-Forms):
+/// one and many in most; 0 also one in French; 21 one in Icelandic; one, few and many in Polish.
+fn plural_form(code: &str, n: usize) -> usize {
+    match code {
+        "fr" => (n > 1) as usize,
+        "is" => (n % 10 != 1 || n % 100 == 11) as usize,
+        "pl" if n == 1 => 0,
+        "pl" if (2..=4).contains(&(n % 10)) && !(12..=14).contains(&(n % 100)) => 1,
+        "pl" => 2,
+        _ => (n != 1) as usize,
+    }
+}
 
 /// A translation, parsed: each English text and its translation, and each noun of `count`
-/// with its two forms.
+/// with its forms; `code` picks the form.
 #[derive(Default)]
 struct Table {
+    code: &'static str,
     texts: HashMap<String, String>,
-    plurals: HashMap<String, [String; 2]>,
+    plurals: HashMap<String, Vec<String>>,
 }
 
 /// The translation in use; `None` for English.
@@ -48,7 +74,13 @@ fn table(k: usize) -> &'static Table {
         std::sync::Mutex::new(Vec::new());
     let mut tables = TABLES.lock().unwrap_or_else(|e| e.into_inner());
     tables.resize(LANGUAGES.len(), None);
-    tables[k].get_or_insert_with(|| Box::leak(Box::new(parse(LANGUAGES[k].3))))
+    tables[k].get_or_insert_with(|| {
+        let table = Table {
+            code: LANGUAGES[k].0,
+            ..parse(LANGUAGES[k].3)
+        };
+        Box::leak(Box::new(table))
+    })
 }
 
 /// The translation's code for the first language the environment asks for, as gettext reads
@@ -88,13 +120,14 @@ pub fn tr(en: &'static str) -> &'static str {
     }
 }
 
-/// The form of `noun` for `n` of it: "image" or "images", or the translation's two forms.
-// shortcut: two forms, the one and the many, as in English and Norwegian; a language with
-// more (Polish, Russian) gets its rule from its .po's Plural-Forms when one is added.
+/// The form of `noun` for `n` of it: "image" or "images", or the translation's form.
 pub fn plural(noun: &'static str, n: usize) -> std::borrow::Cow<'static, str> {
     let current = CURRENT.read().unwrap_or_else(|e| e.into_inner());
-    if let Some(forms) = current.and_then(|t| t.plurals.get(noun)) {
-        return forms[(n != 1) as usize].as_str().into();
+    if let Some(table) = *current
+        && let Some(forms) = table.plurals.get(noun)
+        && let Some(form) = forms.get(plural_form(table.code, n))
+    {
+        return form.as_str().into();
     }
     match n {
         1 => noun.into(),
@@ -140,23 +173,24 @@ macro_rules! tf {
     };
 }
 
-/// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0] and [1]; the
+/// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …; the
 /// header, untranslated ones and those marked fuzzy left out, as gettext does.
 fn parse(po: &str) -> Table {
     let mut table = Table::default();
     let (mut fuzzy, mut field, mut id, mut id_plural) = (false, "", String::new(), None);
-    let mut strs: [Option<String>; 2] = [None, None];
+    let mut strs: Vec<Option<String>> = vec![None; FORMS];
     let mut entries = Vec::new();
+    let mut form = 0;
     let mut end = |fuzzy: &mut bool,
                    id: &mut String,
                    id_plural: &mut Option<String>,
-                   strs: &mut [Option<String>; 2]| {
+                   strs: &mut Vec<Option<String>>| {
         if !*fuzzy && !id.is_empty() {
             entries.push((std::mem::take(id), id_plural.take(), std::mem::take(strs)));
         }
         id.clear();
         *id_plural = None;
-        *strs = [None, None];
+        *strs = vec![None; FORMS];
         *fuzzy = false;
     };
     for line in po.lines().map(str::trim) {
@@ -175,40 +209,52 @@ fn parse(po: &str) -> Table {
         } else if let Some(text) = line.strip_prefix("msgid ") {
             field = "id";
             id = unquote(text);
-        } else if let Some(text) = line
-            .strip_prefix("msgstr[0] ")
-            .or(line.strip_prefix("msgstr "))
-        {
-            field = "str0";
+        } else if let Some(text) = line.strip_prefix("msgstr ") {
+            field = "str";
+            form = 0;
             strs[0] = Some(unquote(text));
-        } else if let Some(text) = line.strip_prefix("msgstr[1] ") {
-            field = "str1";
-            strs[1] = Some(unquote(text));
+        } else if let Some((k, text)) = line
+            .strip_prefix("msgstr[")
+            .and_then(|rest| rest.split_once("] "))
+            .and_then(|(k, text)| Some((k.parse::<usize>().ok().filter(|&k| k < FORMS)?, text)))
+        {
+            field = "str";
+            form = k;
+            strs[k] = Some(unquote(text));
         } else if line.starts_with('"') {
             let more = unquote(line);
             match field {
                 "id" => id.push_str(&more),
                 "plural" => id_plural.get_or_insert_default().push_str(&more),
-                "str0" => strs[0].get_or_insert_default().push_str(&more),
-                "str1" => strs[1].get_or_insert_default().push_str(&more),
+                "str" => strs[form].get_or_insert_default().push_str(&more),
                 _ => {}
             }
         }
     }
     end(&mut fuzzy, &mut id, &mut id_plural, &mut strs);
-    for (id, id_plural, [one, many]) in entries {
-        match (id_plural, one, many) {
-            (Some(_), Some(one), Some(many)) if !one.is_empty() && !many.is_empty() => {
-                table.plurals.insert(id, [one, many]);
+    for (id, id_plural, strs) in entries {
+        // The forms given, up to the first missing one: at least two, each with its text.
+        let forms: Vec<String> = strs
+            .into_iter()
+            .map_while(|s| s.filter(|s| !s.is_empty()))
+            .collect();
+        match id_plural {
+            Some(_) if forms.len() >= 2 => {
+                table.plurals.insert(id, forms);
             }
-            (None, Some(text), _) if !text.is_empty() => {
-                table.texts.insert(id, text);
+            None if !forms.is_empty() => {
+                table
+                    .texts
+                    .insert(id, forms.into_iter().next().unwrap_or_default());
             }
             _ => {}
         }
     }
     table
 }
+
+/// The most forms a noun has in a translation built in (Polish: one, few, many).
+const FORMS: usize = 4;
 
 /// The text of a quoted `.po` string, its escapes read: \" \\ \n \t.
 fn unquote(s: &str) -> String {
@@ -275,10 +321,12 @@ msgstr[1] "bilder"
             "Kunne ikke lagre {name}: {e}"
         );
         assert_eq!(t.texts.get("Say \"hi\"\n").unwrap(), "Si \"hei\"\n");
-        assert_eq!(
-            t.plurals.get("image").unwrap(),
-            &["bilde".to_owned(), "bilder".to_owned()]
+        assert_eq!(t.plurals.get("image").unwrap(), &["bilde", "bilder"]);
+        // Polish: one, few, many.
+        let t = super::parse(
+            "msgid \"file\"\nmsgid_plural \"files\"\nmsgstr[0] \"plik\"\nmsgstr[1] \"pliki\"\nmsgstr[2] \"plików\"\n",
         );
+        assert_eq!(t.plurals.get("file").unwrap(), &["plik", "pliki", "plików"]);
     }
 
     /// `{name}`s filled in, others and a lone brace left as they are.
@@ -303,7 +351,9 @@ msgstr[1] "bilder"
         for l in ["nb_NO.UTF-8", "nb", "no_NO", "nb_NO@euro", "no_nb"] {
             assert_eq!(super::language(l).as_deref(), Some("no_nb"), "{l}");
         }
-        for l in ["en_US.UTF-8", "C", "de_DE.UTF-8", ""] {
+        assert_eq!(super::language("de_DE.UTF-8").as_deref(), Some("de"));
+        assert_eq!(super::language("pl_PL.UTF-8").as_deref(), Some("pl"));
+        for l in ["en_US.UTF-8", "C", "ru_RU.UTF-8", ""] {
             assert_eq!(super::language(l), None, "{l}");
         }
     }
@@ -327,6 +377,50 @@ msgstr[1] "bilder"
                 assert_eq!(names(en), names(text), "{code}: {en}");
             }
             println!("{code}: {} texts, {} nouns", t.texts.len(), t.plurals.len());
+        }
+    }
+
+    /// Each language's form for a number: Polish's few and many, Icelandic's 21, French's 0.
+    #[test]
+    fn picks_the_plural_form() {
+        let forms = |code, ns: &[usize]| {
+            ns.iter()
+                .map(|&n| super::plural_form(code, n))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(forms("de", &[0, 1, 2, 21]), [1, 0, 1, 1]);
+        assert_eq!(forms("fr", &[0, 1, 2]), [0, 0, 1]);
+        assert_eq!(forms("is", &[1, 2, 11, 21, 111]), [0, 1, 1, 0, 1]);
+        assert_eq!(
+            forms("pl", &[1, 2, 4, 5, 12, 22, 25, 112]),
+            [0, 1, 1, 2, 2, 1, 2, 2]
+        );
+    }
+
+    /// Every translation has every text and noun of the Norwegian one, which each new text
+    /// gets first: a language that lacks one would show it in English.
+    #[test]
+    fn every_language_has_every_text() {
+        let nb = super::parse(include_str!("no_nb.po"));
+        for (code, _, _, po) in super::LANGUAGES {
+            let t = super::parse(po);
+            let lacks: Vec<&String> = (nb.texts.keys())
+                .filter(|k| !t.texts.contains_key(*k))
+                .chain(nb.plurals.keys().filter(|k| !t.plurals.contains_key(*k)))
+                .collect();
+            assert!(lacks.is_empty(), "{code} lacks {lacks:?}");
+            // As many forms as its rule picks from.
+            let most = (0..200)
+                .map(|n| super::plural_form(code, n))
+                .max()
+                .unwrap_or(0);
+            for (noun, forms) in &t.plurals {
+                assert!(
+                    forms.len() > most,
+                    "{code}: {noun} has {} forms",
+                    forms.len()
+                );
+            }
         }
     }
 

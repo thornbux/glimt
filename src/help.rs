@@ -478,7 +478,8 @@ const MANUAL: &[(&str, &str)] = &[
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, the \
          theme, what is shown, window and memory use, and how deleting works.\n\n\
-         Language: the interface in English or Norwegian bokmål, by the system's language (LANG) \
+         Language: the interface in English, Danish, Dutch, Finnish, French, German, Icelandic, \
+         Italian, Norwegian bokmål, Polish, Spanish or Swedish, by the system's language (LANG) \
          or as chosen; a text not translated shows in English, and this manual stays English. \
          Under Keyboard shortcuts, Change gives an action the next key you press; \
          Reset gives it Geeqie's keys back.\n\n\
@@ -529,7 +530,8 @@ const MANUAL: &[(&str, &str)] = &[
 const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Language",
-        "English or Norwegian bokmål, by LANG or chosen in Preferences; the manual in English",
+        "English and ten more (Danish, German, French, Polish …), by LANG or chosen in \
+         Preferences; the manual in English",
         "Some 40 languages by LANG only",
     ),
     (

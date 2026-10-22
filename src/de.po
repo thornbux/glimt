@@ -1,0 +1,2288 @@
+# Glimt's interface in German. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/accessibility.rs
+msgid "No images"
+msgstr "Keine Bilder"
+
+#: src/actions.rs
+msgid "About Glimt"
+msgstr "Über Glimt"
+
+#: src/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Automatisch nach EXIF drehen"
+
+#: src/actions.rs
+msgid "Back"
+msgstr "Zurück"
+
+#: src/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Glimts Daten sichern …"
+
+#: src/actions.rs
+msgid "Check Images…"
+msgstr "Bilder prüfen …"
+
+#: src/actions.rs
+msgid "Close Window"
+msgstr "Fenster schließen"
+
+#: src/actions.rs
+msgid "Compare Side by Side"
+msgstr "Nebeneinander vergleichen"
+
+#: src/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Dateien in die Zwischenablage kopieren"
+
+#: src/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Bild in die Zwischenablage kopieren"
+
+#: src/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Pfad kopieren (ohne Anführungszeichen)"
+
+#: src/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Pfad in die Zwischenablage kopieren"
+
+#: src/actions.rs
+msgid "Copy…"
+msgstr "Kopieren …"
+
+#: src/actions.rs
+msgid "Delete Permanently…"
+msgstr "Endgültig löschen …"
+
+#: src/actions.rs
+msgid "Delete…"
+msgstr "Löschen …"
+
+#: src/actions.rs
+msgid "EXIF Window"
+msgstr "EXIF-Fenster"
+
+#: src/actions.rs
+msgid "Export Frames…"
+msgstr "Einzelbilder exportieren …"
+
+#: src/actions.rs
+msgid "Faster"
+msgstr "Schneller"
+
+#: src/actions.rs
+msgid "Fill the View"
+msgstr "Ansicht füllen"
+
+#: src/actions.rs
+msgid "Find Duplicates…"
+msgstr "Duplikate finden …"
+
+#: src/actions.rs
+msgid "First Image"
+msgstr "Erstes Bild"
+
+#: src/actions.rs
+msgid "Fit the Height"
+msgstr "An Höhe anpassen"
+
+#: src/actions.rs
+msgid "Fit the Width"
+msgstr "An Breite anpassen"
+
+#: src/actions.rs
+msgid "Flip"
+msgstr "Vertikal spiegeln"
+
+#: src/actions.rs
+msgid "Forward"
+msgstr "Vorwärts"
+
+#: src/actions.rs
+msgid "Full Screen"
+msgstr "Vollbild"
+
+#: src/actions.rs
+msgid "Help Manual"
+msgstr "Handbuch"
+
+#: src/actions.rs
+msgid "Hide File List"
+msgstr "Dateiliste ausblenden"
+
+#: src/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Histogramm: aus, RGB, Helligkeit"
+
+#: src/actions.rs
+msgid "Home"
+msgstr "Startordner"
+
+#: src/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Lightroom-Katalog importieren …"
+
+#: src/actions.rs
+msgid "Include Subfolders"
+msgstr "Unterordner einbeziehen"
+
+#: src/actions.rs
+msgid "Invert Selection"
+msgstr "Auswahl umkehren"
+
+#: src/actions.rs
+msgid "Keyboard Map"
+msgstr "Tastaturbelegung"
+
+#: src/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Tastenkürzel"
+
+#: src/actions.rs
+msgid "Keywords and Comment"
+msgstr "Schlagwörter und Kommentar"
+
+#: src/actions.rs
+msgid "Last Image"
+msgstr "Letztes Bild"
+
+#: src/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Logarithmisches Histogramm"
+
+#: src/actions.rs
+msgid "Mark 1"
+msgstr "Markierung 1"
+
+#: src/actions.rs
+msgid "Mark 2"
+msgstr "Markierung 2"
+
+#: src/actions.rs
+msgid "Mark 3"
+msgstr "Markierung 3"
+
+#: src/actions.rs
+msgid "Mark 4"
+msgstr "Markierung 4"
+
+#: src/actions.rs
+msgid "Mark 5"
+msgstr "Markierung 5"
+
+#: src/actions.rs
+msgid "Mark 6"
+msgstr "Markierung 6"
+
+#: src/actions.rs
+msgid "Mirror"
+msgstr "Horizontal spiegeln"
+
+#: src/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Sammlung in den Papierkorb verschieben"
+
+#: src/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "In der Sammlung nach vorne"
+
+#: src/actions.rs
+msgid "Move Later in Collection"
+msgstr "In der Sammlung nach hinten"
+
+#: src/actions.rs
+msgid "Move to End of Collection"
+msgstr "An das Ende der Sammlung"
+
+#: src/actions.rs
+msgid "Move to Start of Collection"
+msgstr "An den Anfang der Sammlung"
+
+#: src/actions.rs
+msgid "Move…"
+msgstr "Verschieben …"
+
+#: src/actions.rs
+msgid "New Collection…"
+msgstr "Neue Sammlung …"
+
+#: src/actions.rs
+msgid "New Folder…"
+msgstr "Neuer Ordner …"
+
+#: src/actions.rs
+msgid "New Window"
+msgstr "Neues Fenster"
+
+#: src/actions.rs
+msgid "Next Filter"
+msgstr "Nächster Filter"
+
+#: src/actions.rs
+msgid "Next Image"
+msgstr "Nächstes Bild"
+
+#: src/actions.rs
+msgid "Next Layout"
+msgstr "Nächstes Layout"
+
+#: src/actions.rs
+msgid "Next Page"
+msgstr "Nächste Seite"
+
+#: src/actions.rs
+msgid "No Stars"
+msgstr "Keine Sterne"
+
+#: src/actions.rs
+msgid "One Image"
+msgstr "Ein Bild"
+
+#: src/actions.rs
+msgid "Open Collection…"
+msgstr "Sammlung öffnen …"
+
+#: src/actions.rs
+msgid "Open File…"
+msgstr "Datei öffnen …"
+
+#: src/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Ordner rekursiv öffnen …"
+
+#: src/actions.rs
+msgid "Open Folder…"
+msgstr "Ordner öffnen …"
+
+#: src/actions.rs
+msgid "Open Several Folders…"
+msgstr "Mehrere Ordner öffnen …"
+
+#: src/actions.rs
+msgid "Open With Default App"
+msgstr "Mit Standardanwendung öffnen"
+
+#: src/actions.rs
+msgid "Pan View"
+msgstr "Übersicht"
+
+#: src/actions.rs
+msgid "Pane Above"
+msgstr "Bereich oben"
+
+#: src/actions.rs
+msgid "Pane Below"
+msgstr "Bereich unten"
+
+#: src/actions.rs
+msgid "Pane to the Left"
+msgstr "Bereich links"
+
+#: src/actions.rs
+msgid "Pane to the Right"
+msgstr "Bereich rechts"
+
+#: src/actions.rs
+msgid "Pause Slideshow"
+msgstr "Diaschau anhalten"
+
+#: src/actions.rs
+msgid "Play Animations"
+msgstr "Animationen abspielen"
+
+#: src/actions.rs
+msgid "Play Video"
+msgstr "Video abspielen"
+
+#: src/actions.rs
+msgid "Preferences…"
+msgstr "Einstellungen …"
+
+#: src/actions.rs
+msgid "Previous Image"
+msgstr "Vorheriges Bild"
+
+#: src/actions.rs
+msgid "Previous Page"
+msgstr "Vorherige Seite"
+
+#: src/actions.rs
+msgid "Print…"
+msgstr "Drucken …"
+
+#: src/actions.rs
+msgid "Projector"
+msgstr "Projektor"
+
+#: src/actions.rs
+msgid "Quit"
+msgstr "Beenden"
+
+#: src/actions.rs
+msgid "Random Order"
+msgstr "Zufällige Reihenfolge"
+
+#: src/actions.rs
+msgid "Refresh"
+msgstr "Aktualisieren"
+
+#: src/actions.rs
+msgid "Remove from Collection"
+msgstr "Aus der Sammlung entfernen"
+
+#: src/actions.rs
+msgid "Rename Collection…"
+msgstr "Sammlung umbenennen …"
+
+#: src/actions.rs
+msgid "Rename…"
+msgstr "Umbenennen …"
+
+#: src/actions.rs
+msgid "Rotate 180°"
+msgstr "Um 180° drehen"
+
+#: src/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Im Uhrzeigersinn drehen"
+
+#: src/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Gegen den Uhrzeigersinn drehen"
+
+#: src/actions.rs
+msgid "Save Orientation to File"
+msgstr "Ausrichtung in der Datei speichern"
+
+#: src/actions.rs
+msgid "Save This Frame…"
+msgstr "Dieses Einzelbild speichern …"
+
+#: src/actions.rs
+msgid "Search File Names"
+msgstr "Dateinamen durchsuchen"
+
+#: src/actions.rs
+msgid "Select All"
+msgstr "Alles auswählen"
+
+#: src/actions.rs
+msgid "Select Mark 1"
+msgstr "Markierung 1 auswählen"
+
+#: src/actions.rs
+msgid "Select Mark 2"
+msgstr "Markierung 2 auswählen"
+
+#: src/actions.rs
+msgid "Select Mark 3"
+msgstr "Markierung 3 auswählen"
+
+#: src/actions.rs
+msgid "Select Mark 4"
+msgstr "Markierung 4 auswählen"
+
+#: src/actions.rs
+msgid "Select Mark 5"
+msgstr "Markierung 5 auswählen"
+
+#: src/actions.rs
+msgid "Select Mark 6"
+msgstr "Markierung 6 auswählen"
+
+#: src/actions.rs
+msgid "Select None"
+msgstr "Nichts auswählen"
+
+#: src/actions.rs
+msgid "Show EXIF Panel"
+msgstr "EXIF-Leiste anzeigen"
+
+#: src/actions.rs
+msgid "Show Folder Path"
+msgstr "Ordnerpfad anzeigen"
+
+#: src/actions.rs
+msgid "Show Folder Tree"
+msgstr "Ordnerbaum anzeigen"
+
+#: src/actions.rs
+msgid "Show Hidden Files"
+msgstr "Versteckte Dateien anzeigen"
+
+#: src/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Bildinfo im Vollbild anzeigen"
+
+#: src/actions.rs
+msgid "Show Sort Manager"
+msgstr "Sortierhelfer anzeigen"
+
+#: src/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Zeiger auf dem Projektor anzeigen"
+
+#: src/actions.rs
+msgid "Show Thumbnails"
+msgstr "Vorschaubilder anzeigen"
+
+#: src/actions.rs
+msgid "Show Toolbar"
+msgstr "Werkzeugleiste anzeigen"
+
+#: src/actions.rs
+msgid "Slower"
+msgstr "Langsamer"
+
+#: src/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Diaschau starten/beenden"
+
+#: src/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Diaschau beenden, Vollbild verlassen"
+
+#: src/actions.rs
+msgid "Two Above Each Other"
+msgstr "Zwei übereinander"
+
+#: src/actions.rs
+msgid "Up"
+msgstr "Nach oben"
+
+#: src/actions.rs
+msgid "View Images as Icons"
+msgstr "Bilder als Symbole anzeigen"
+
+#: src/actions.rs
+msgid "Zoom 1:1"
+msgstr "Zoom 1:1"
+
+#: src/actions.rs
+msgid "Zoom In"
+msgstr "Vergrößern"
+
+#: src/actions.rs
+msgid "Zoom Out"
+msgstr "Verkleinern"
+
+#: src/actions.rs
+msgid "Zoom to Fit"
+msgstr "In Fenster einpassen"
+
+#: src/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Kein gültiger Sammlungsname: »{name}«"
+
+#: src/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Es gibt bereits eine Sammlung namens »{name}«"
+
+#: src/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "Unter den {count} in der Liste vergleichen nach"
+
+#: src/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Alle außer der ersten jeder Gruppe ankreuzen"
+
+#: src/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Prüfsumme (identische Dateien)"
+
+#: src/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Vergleiche … {done} von {total}"
+
+#: src/duplicates.rs
+msgid "Find"
+msgstr "Suchen"
+
+#: src/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Duplikate finden"
+
+#: src/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Gruppe {n} ({files})"
+
+#: src/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Unterordner einbeziehen im Menü Ansicht durchsucht auch die Ordner darunter."
+
+#: src/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "{n} angekreuzte in den Papierkorb verschieben …"
+
+#: src/duplicates.rs
+msgid "Name"
+msgstr "Name"
+
+#: src/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Ähnlichkeit (90 %)"
+
+#: src/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Ähnlichkeit (hoch, 95 %)"
+
+#: src/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Ähnlichkeit (niedrig, 85 %)"
+
+#: src/duplicates.rs
+msgid "Size"
+msgstr "Größe"
+
+#: src/duplicates.rs
+msgid "Stop"
+msgstr "Anhalten"
+
+#: src/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "Die angekreuzten Dateien sind nicht mehr alle in der Liste"
+
+#: src/duplicates.rs
+msgid "Uncheck all"
+msgstr "Alle abwählen"
+
+#: src/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, unter {images}"
+
+#: src/file_ops.rs
+msgid "Backing up"
+msgstr "Sichere"
+
+#: src/file_ops.rs
+msgid "Copy"
+msgstr "Kopieren"
+
+#: src/file_ops.rs
+msgid "Copying"
+msgstr "Kopiere"
+
+#: src/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Konnte {folder} nicht anlegen"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Konnte {f} nicht in {t} umbenennen: {e}; nichts umbenannt"
+
+#: src/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Konnte die Einzelbilder nicht speichern: {e}"
+
+#: src/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Löschen fehlgeschlagen ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Deleting"
+msgstr "Lösche"
+
+#: src/file_ops.rs
+msgid "Exporting"
+msgstr "Exportiere"
+
+#: src/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (aus glib): {e}"
+
+#: src/file_ops.rs
+msgid "Move"
+msgstr "Verschieben"
+
+#: src/file_ops.rs
+msgid "Moving"
+msgstr "Verschiebe"
+
+#: src/file_ops.rs
+msgid "Saved {file}"
+msgstr "{file} gespeichert"
+
+#: src/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Gespeichert; sichtbar, wenn Automatisch nach EXIF drehen eingeschaltet ist"
+
+#: src/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Eine Drehung wird noch gespeichert: gleich noch einmal versuchen"
+
+#: src/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "Die betroffenen Dateien sind nicht mehr in der Liste: nichts getan"
+
+#: src/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Das Muster gibt mehreren Dateien denselben Namen; # für eine Nummer hinzufügen"
+
+#: src/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Das Schreiben der Begleitdateien endete bei einer Datei, die es scheitern ließ"
+
+#: src/file_ops.rs
+msgid "{count} deleted"
+msgstr "{count} gelöscht"
+
+#: src/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "{count} in den Papierkorb verschoben"
+
+#: src/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "{frames} in {folder} gespeichert"
+
+#: src/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} gibt es bereits; nichts umbenannt"
+
+#: src/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "{verb} fehlgeschlagen ({count}): {first}"
+
+#: src/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Abbrechen (Esc)"
+
+#: src/lightroom.rs
+msgid "Import"
+msgstr "Importieren"
+
+#: src/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Aus Lightroom importieren"
+
+#: src/lightroom.rs
+msgid "Importing"
+msgstr "Importiere"
+
+#: src/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "Glimts Sterne behalten"
+
+#: src/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroom hat den Katalog geöffnet: zuerst Lightroom schließen"
+
+#: src/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "Lightrooms Sterne oder Schlagwörter nicht in die Begleitdateien von {count} geschrieben"
+
+#: src/lightroom.rs
+msgid "Next"
+msgstr "Weiter"
+
+#: src/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Kein Lightroom-Classic-Katalog, den Glimt lesen kann: {why}"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "Zum Lesen eines Lightroom-Katalogs wird das Programm sqlite3 benötigt"
+
+#: src/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "Lightrooms Sterne übernehmen"
+
+#: src/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "die Schlagwörter von {count}"
+
+#: src/lightroom.rs
+msgid "the stars of {count}"
+msgstr "die Sterne von {count}"
+
+#: src/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Bereits vorhanden, sie bekommen nur die fehlenden Bilder: {names}."
+
+#: src/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Wo die Ordner des Katalogs jetzt sind (leer: ausgelassen):"
+
+#: src/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} und die Sterne von {images}."
+
+#: src/lightroom.rs
+msgid "{count} have"
+msgstr "{count} haben"
+
+#: src/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, das nicht installiert ist"
+
+#: src/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "{n} andere Sterne in Glimt:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", und {n} weitere"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; und {n} weitere (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "Ein Dateidialog ist bereits offen"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "Eine einfache Liste wird von Glimt nicht umbenannt oder weggeworfen"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Hinzufügen"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "Die Schlagwörter den {n} ausgewählten hinzufügen"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Diesen Ordner hinzufügen"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "Die Schlagwörter dieses Bildes dem Baum hinzufügen"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Zur Sammlung hinzufügen"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Füge Schlagwörter hinzu"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Hinzufügen …"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Alle Bilder wechseln gemeinsam"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Alternativtext"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Aufsteigend"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Groß/klein"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Prüfen"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Bilder prüfen"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Sammlungen"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Farbmanagement"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Kommentar"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Verbinden (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Verbinde mit {uri} …"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Konnte das Bild nicht kopieren: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Konnte nicht in die Zwischenablage kopieren: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Konnte kein neues Fenster öffnen: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Konnte den Schlagwortbaum nicht lesen: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Konnte die Ordner des Sortierhelfers nicht lesen: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Konnte den Alternativtext nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Konnte die Sammlung nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Konnte die Schlagwörter nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Konnte die Ausrichtung nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Konnte die Ordner des Sortierhelfers nicht speichern: kein Persönlicher Ordner"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Konnte die Ordner des Sortierhelfers nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Konnte das Thema nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "Konnte {name} nicht in den Papierkorb verschieben (gio wird benötigt): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "Konnte {name} nicht in den Papierkorb verschieben: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Löschen (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Desktop-Dateien dort, wie die von Geeqie, erscheinen nach einem Neustart in diesem Menü"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Abmessungen"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Domäne:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Jede Datei behält ihre eigenen Schlagwörter und bekommt diese dazu"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Bearbeiten"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Ausführliche Beschreibung"
+
+#: src/main.rs
+msgid "File"
+msgstr "Datei"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Filter"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Umbenennen abschließen"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "Erste: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Weitere Themen holen …"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Gehe zu"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Hilfe"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Bilder"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Schlagwortbaum"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Schlagwörter"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Schlagwörter zu {count} hinzugefügt"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Schlagwörter konnten für {count} nicht gespeichert werden"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Später"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Layout"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Bei {uri} anmelden"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Markierungen und Sterne"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Ordner in den Papierkorb verschieben …"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "In der Sammlung verschieben"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "Den Ordner »{name}« mit allem darin in den Papierkorb verschieben?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "In den Papierkorb (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "{what} in den Papierkorb verschieben?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Name einer neuen Sammlung mit {count}:"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Neuer Ordner legt einen Ordner im angezeigten Ordner an: einen öffnen"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Neue Namen für {count} (* = alter Name, # = Nummer, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Keine Anwendungen gefunden"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Noch keine Sammlungen"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Keine EXIF-Daten"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Kein Dateidialog (zenity oder kdialog installieren): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Hier keine Bilder für eine Sammlung"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Keine Bilder im Ordner"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Keine Plugins"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Kein solcher Ordner: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Kein gültiger Name: »{text}«"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "OK (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "Ein Bild nach dem anderen"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Nur die Bilder einer Sammlung können verschoben werden"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "Plugin-Ordner öffnen"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Themen-Ordner öffnen"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Öffnen mit"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Ausrichtung"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Passwort:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "{what} endgültig löschen?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Orte|Norwegen|Oslo"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Plugins"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "Die alten Namen zurückgeben"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Zufällige Reihenfolge ist an: R schaltet sie aus, um Bilder zu verschieben"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Lese Ordner …"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Entfernen"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Aus dem Baum entfernen"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Ordner umbenennen …"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Mehrere umbenennen läuft noch"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Mehrere umbenennen wurde abgebrochen"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Als Thema speichern …"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Auswählen"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Diese auswählen"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Durch Kommas getrennt"
+
+#: src/main.rs
+msgid "set on"
+msgstr "gesetzt"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Setze Schlagwörter"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Dateinamen anzeigen"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Auf OpenStreetMap zeigen"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Zusammen mit diesen Bildern zeigen"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Diaschau in diesem Layout:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Sortierhelfer"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Diaschau starten"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "Die letzte Drehung dieser Datei wird noch gespeichert"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Diaschau beenden"
+
+#: src/main.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Angehalten: {done} von {total}"
+
+#: src/main.rs
+msgid "taken off"
+msgstr "entfernt"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Entferne Schlagwörter"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Groß- und Kleinschreibung unterscheiden"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "Die Sammlung {file} ist weg (in einem anderen Fenster umbenannt oder entfernt): nicht gespeichert"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Das Schlagwort konnte für {count} nicht gespeichert werden"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Der Bereich, zu dem diese Angaben gehören: der unter dem Zeiger"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "Die Einstellungen sind gesperrt (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "Die Sterne konnten nicht in die XMP-Begleitdatei von {count} geschrieben werden"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Thema"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Dies kann nicht rückgängig gemacht werden."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Benutzer:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Video: Enter oder Klick zum Abspielen"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Videos"
+
+#: src/main.rs
+msgid "View"
+msgstr "Ansicht"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Was das Bild zeigt, für jemanden, der es nicht sehen kann"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Fenster"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Schreibe Sterne"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Zoom"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done} von {total} …{more}"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "{n} zur Sammlung »{name}« hinzugefügt"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "{n} beschädigt:"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} ist ein eingebautes Thema: einen anderen Namen wählen"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Vier (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "Zwei nebeneinander"
+
+#: src/pan.rs
+msgid "April"
+msgstr "April"
+
+#: src/pan.rs
+msgid "August"
+msgstr "August"
+
+#: src/pan.rs
+msgid "Calendar"
+msgstr "Kalender"
+
+#: src/pan.rs
+msgid "December"
+msgstr "Dezember"
+
+#: src/pan.rs
+msgid "EXIF date"
+msgstr "EXIF-Datum"
+
+#: src/pan.rs
+msgid "February"
+msgstr "Februar"
+
+#: src/pan.rs
+msgid "January"
+msgstr "Januar"
+
+#: src/pan.rs
+msgid "July"
+msgstr "Juli"
+
+#: src/pan.rs
+msgid "June"
+msgstr "Juni"
+
+#: src/pan.rs
+msgid "March"
+msgstr "März"
+
+#: src/pan.rs
+msgid "May"
+msgstr "Mai"
+
+#: src/pan.rs
+msgid "No date"
+msgstr "Kein Datum"
+
+#: src/pan.rs
+msgid "November"
+msgstr "November"
+
+#: src/pan.rs
+msgid "October"
+msgstr "Oktober"
+
+#: src/pan.rs
+msgid "September"
+msgstr "September"
+
+#: src/pan.rs
+msgid "Timeline"
+msgstr "Zeitleiste"
+
+#: src/pan.rs
+msgid "{images} on {days}"
+msgstr "{images} an {days}"
+
+#: src/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Sterne auch in XMP-Begleitdateien schreiben (photo.jpg.xmp), für darktable und digiKam"
+
+#: src/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Bilder automatisch nach EXIF drehen (Alt+X)"
+
+#: src/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Automatisch (Systemsprache)"
+
+#: src/preferences.rs
+msgid "Background behind the image"
+msgstr "Hintergrund hinter dem Bild"
+
+#: src/preferences.rs
+msgid "Black"
+msgstr "Schwarz"
+
+#: src/preferences.rs
+msgid "Brightness"
+msgstr "Helligkeit"
+
+#: src/preferences.rs
+msgid "Change"
+msgstr "Ändern"
+
+#: src/preferences.rs
+msgid "Choose…"
+msgstr "Wählen …"
+
+#: src/preferences.rs
+msgid "Colour management"
+msgstr "Farbmanagement"
+
+#: src/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Verschieben in den Papierkorb bestätigen"
+
+#: src/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Endgültiges Löschen bestätigen"
+
+#: src/preferences.rs
+msgid "CPU use:"
+msgstr "Prozessorlast:"
+
+#: src/preferences.rs
+msgid "Custom"
+msgstr "Eigene"
+
+#: src/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Dekodier-Threads und eine malloc-Arena wirken nach einem Neustart."
+
+#: src/preferences.rs
+msgid "Default"
+msgstr "Standard"
+
+#: src/preferences.rs
+msgid "default application"
+msgstr "Standardanwendung"
+
+#: src/preferences.rs
+msgid "Delete behaviour:"
+msgstr "Löschen:"
+
+#: src/preferences.rs
+msgid "Details"
+msgstr "Details"
+
+#: src/preferences.rs
+msgid "Enable Delete key"
+msgstr "Delete-Taste aktivieren"
+
+#: src/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Kleine Bilder auf Fenstergröße vergrößern"
+
+#: src/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Überblenden zum nächsten Bild:"
+
+#: src/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Von colord, das GNOME und KDE setzen"
+
+#: src/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Unscharf, beste Treffer zuerst (wie fzf)"
+
+#: src/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Hoher Kontrast, wenn der Desktop hohen Kontrast verlangt"
+
+#: src/preferences.rs
+msgid "Histogram (K):"
+msgstr "Histogramm (K):"
+
+#: src/preferences.rs
+msgid "Image info template:"
+msgstr "Vorlage für die Bildinfo:"
+
+#: src/preferences.rs
+msgid "images decoded at once"
+msgstr "Bilder gleichzeitig dekodiert"
+
+#: src/preferences.rs
+msgid "images on each side"
+msgstr "Bilder auf jeder Seite"
+
+#: src/preferences.rs
+msgid "Images without a profile:"
+msgstr "Bilder ohne Profil:"
+
+#: src/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "In ~/.cache/thumbnails; für nicht angeschlossene Laufwerke behalten"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "Die Bilder in Unterordnern einbeziehen"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "Die Bilder in Unterordnern in der Dateiliste einbeziehen"
+
+#: src/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Bildschirmschoner im Vollbild aus lassen"
+
+#: src/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Zoom und Position beim Bildwechsel behalten"
+
+#: src/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Tastenkürzel"
+
+#: src/preferences.rs
+msgid "Language"
+msgstr "Sprache"
+
+#: src/preferences.rs
+msgid "Large"
+msgstr "Groß"
+
+#: src/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Noch größer, wenn der Text des Desktops es ist (GNOMEs Großer Text)"
+
+#: src/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Auf glimt --remote-Befehle hören (nach Neustart)"
+
+#: src/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Logarithmisch (J)"
+
+#: src/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "MB höchstens für die Einzelbilder einer Animation"
+
+#: src/preferences.rs
+msgid "Medium"
+msgstr "Mittel"
+
+#: src/preferences.rs
+msgid "Memory use:"
+msgstr "Speicherverbrauch:"
+
+#: src/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Mausrad zoomt (aus: nächstes/vorheriges Bild, Ctrl+Rad zoomt)"
+
+#: src/preferences.rs
+msgid "None"
+msgstr "Keine"
+
+#: src/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Nicht mit Prozessorlast Energiesparen"
+
+#: src/preferences.rs
+msgid "Off"
+msgstr "Aus"
+
+#: src/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "Eine malloc-Arena: viel weniger Speicher, Dekodieren bis ~8 % langsamer"
+
+#: src/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Animierte GIF und WebP abspielen (A)"
+
+#: src/preferences.rs
+msgid "Player (Enter):"
+msgstr "Player (Enter):"
+
+#: src/preferences.rs
+msgid "Preferences"
+msgstr "Einstellungen"
+
+#: src/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Nächste und vorherige Bilder vorab laden:"
+
+#: src/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Eine Taste drücken (Esc bricht ab)"
+
+#: src/preferences.rs
+msgid "Profile file…"
+msgstr "Profildatei …"
+
+#: src/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "Qualität, wenn ein verlustbehaftetes WebP neu gespeichert wird"
+
+#: src/preferences.rs
+msgid "Random order"
+msgstr "Zufällige Reihenfolge"
+
+#: src/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "Ordner aktualisieren, wenn sich Dateien ändern"
+
+#: src/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Regulärer Ausdruck, in Listenreihenfolge (wie Geeqies Dateifilter)"
+
+#: src/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Fenstergröße und -position merken"
+
+#: src/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Vorschaubilder gelöschter Dateien entfernen"
+
+#: src/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "{removed} von {seen} Vorschaubildern entfernt"
+
+#: src/preferences.rs
+msgid "Rendering intent:"
+msgstr "Wiedergabeabsicht:"
+
+#: src/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Wiederholen: nach dem letzten Bild von vorn beginnen"
+
+#: src/preferences.rs
+msgid "Reset"
+msgstr "Zurücksetzen"
+
+#: src/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Neue Vorschaubilder in ~/.cache/thumbnails speichern (mit anderen Programmen geteilt)"
+
+#: src/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Drehung beim Bildwechsel in der Datei speichern (JPEG; PNG und WebP werden neu gespeichert)"
+
+#: src/preferences.rs
+msgid "Screen profile:"
+msgstr "Bildschirmprofil:"
+
+#: src/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Suchfeld über der Dateiliste:"
+
+#: src/preferences.rs
+msgid "seconds per image"
+msgstr "Sekunden pro Bild"
+
+#: src/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Dateigröße und Datum in der Dateiliste anzeigen"
+
+#: src/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Ordner als Baum anzeigen (Ctrl+T)"
+
+#: src/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Bildinfo im Vollbild anzeigen (I)"
+
+#: src/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Markierungen und Sterne in der Dateiliste anzeigen"
+
+#: src/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "EXIF-Leiste anzeigen (Ctrl+K; liest ein wenig aus jedem angezeigten Bild)"
+
+#: src/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "Dateiliste als Symbole anzeigen (Ctrl+I)"
+
+#: src/preferences.rs
+msgid "Show the file name search"
+msgstr "Dateinamensuche anzeigen"
+
+#: src/preferences.rs
+msgid "Show the folder path"
+msgstr "Ordnerpfad anzeigen"
+
+#: src/preferences.rs
+msgid "Show the toolbar"
+msgstr "Werkzeugleiste anzeigen"
+
+#: src/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Vorschaubilder in der Dateiliste anzeigen (T)"
+
+#: src/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Videos in der Dateiliste anzeigen"
+
+#: src/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "Größe der Menüs, Listen und Texte"
+
+#: src/preferences.rs
+msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
+msgstr "Diaschau (S, R = zufällig, Ctrl+= schneller, Ctrl+- langsamer):"
+
+#: src/preferences.rs
+msgid "Small"
+msgstr "Klein"
+
+#: src/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Im zuletzt benutzten Ordner starten"
+
+#: src/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Vorschaugröße:"
+
+#: src/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Symbole der Werkzeugleiste:"
+
+#: src/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Bis zu ≈ {mb} MB, jedes Bild höchstens {w}×{h}"
+
+#: src/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Gar keinen Papierkorb verwenden (Delete löscht endgültig)"
+
+#: src/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Das Bildschirmprofil des Desktops verwenden"
+
+#: src/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Das eigene Profil des Bildes verwenden"
+
+#: src/preferences.rs
+msgid "Video (needs ffmpeg for previews):"
+msgstr "Video (braucht ffmpeg für Vorschauen):"
+
+#: src/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} war auch die Taste für {others}: jetzt nur für {label}"
+
+#: src/print.rs
+msgid "Copies:"
+msgstr "Kopien:"
+
+#: src/print.rs
+msgid "Images per page:"
+msgstr "Bilder pro Seite:"
+
+#: src/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Kein Bild konnte gelesen werden: nichts gedruckt"
+
+#: src/print.rs
+msgid "No printers found"
+msgstr "Keine Drucker gefunden"
+
+#: src/print.rs
+msgid "Paper:"
+msgstr "Papier:"
+
+#: src/print.rs
+msgid "PDF file"
+msgstr "PDF-Datei"
+
+#: src/print.rs
+msgid "Print (Enter)"
+msgstr "Drucken (Enter)"
+
+#: src/print.rs
+msgid "Print {count}"
+msgstr "{count} drucken"
+
+#: src/print.rs
+msgid "Printer:"
+msgstr "Drucker:"
+
+#: src/print.rs
+msgid "Printing failed: {e}"
+msgstr "Drucken fehlgeschlagen: {e}"
+
+#: src/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "PDF speichern … (Enter)"
+
+#: src/print.rs
+msgid "{images} on {pages}"
+msgstr "{images} auf {pages}"
+
+#: src/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; {f} konnten nicht gelesen werden"
+
+#: src/print.rs
+msgid "{what} saved in {file}"
+msgstr "{what} in {file} gespeichert"
+
+#: src/print.rs
+msgid "{what} sent to {printer}"
+msgstr "{what} an {printer} gesendet"
+
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "Sammlung"
+msgstr[1] "Sammlungen"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "Tag"
+msgstr[1] "Tage"
+
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "Fehler"
+msgstr[1] "Fehler"
+
+msgid "file"
+msgid_plural "files"
+msgstr[0] "Datei"
+msgstr[1] "Dateien"
+
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "Einzelbild"
+msgstr[1] "Einzelbilder"
+
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "Gruppe"
+msgstr[1] "Gruppen"
+
+msgid "image"
+msgid_plural "images"
+msgstr[0] "Bild"
+msgstr[1] "Bilder"
+
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "Schlagwort"
+msgstr[1] "Schlagwörter"
+
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "Seite"
+msgstr[1] "Seiten"
+
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "Stern"
+msgstr[1] "Sterne"
+
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "Schritt"
+msgstr[1] "Schritte"
+
+#: src/print.rs
+msgid "Orientation:"
+msgstr "Ausrichtung:"
+
+#: src/print.rs
+msgid "Automatic"
+msgstr "Automatisch"
+
+#: src/print.rs
+msgid "Portrait"
+msgstr "Hochformat"
+
+#: src/print.rs
+msgid "Landscape"
+msgstr "Querformat"
+
+#: src/print.rs
+msgid "Margin (mm):"
+msgstr "Rand (mm):"
+
+#: src/print.rs
+msgid "Image size (%):"
+msgstr "Bildgröße (%):"
+
+#: src/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Jedes Feld füllen und das Bild darauf zuschneiden"
+
+#: src/print.rs
+msgid "Text under each image:"
+msgstr "Text unter jedem Bild:"
+
+#: src/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Wie die Bildinfo im Vollbild: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% ist die Seitennummer, %pages% die Anzahl der Seiten"
+
+#: src/print.rs
+msgid "Top of each page:"
+msgstr "Oben auf jeder Seite:"
+
+#: src/print.rs
+msgid "Bottom of each page:"
+msgstr "Unten auf jeder Seite:"
+
+#: src/print.rs
+msgid "Both sides of the paper"
+msgstr "Beide Seiten des Papiers"
+
+#: src/print.rs
+msgid "Print the image"
+msgstr "Das Bild drucken"
+
+#: src/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} nach {folder} kopiert"
+
+#: src/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} nach {folder} verschoben"
+
+#: src/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Konnte den Ordner nicht in den Papierkorb verschieben: {e}"
+
+#: src/print.rs
+msgid "calculating…"
+msgstr "berechne …"
+
+#: src/print.rs
+msgid "Open Folder"
+msgstr "Ordner öffnen"
+
+#: src/print.rs
+msgid "Open File"
+msgstr "Datei öffnen"
+
+#: src/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Ordner öffnen (Ctrl+Klick für mehrere)"
+
+#: src/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Ordner mit seinen Unterordnern öffnen"
+
+#: src/print.rs
+msgid "Open Collection"
+msgstr "Sammlung öffnen"
+
+#: src/print.rs
+msgid "Copy to Folder"
+msgstr "In Ordner kopieren"
+
+#: src/print.rs
+msgid "Move to Folder"
+msgstr "In Ordner verschieben"
+
+#: src/print.rs
+msgid "Save as PDF"
+msgstr "Als PDF speichern"
+
+#: src/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Zum Sortierhelfer hinzufügen"
+
+#: src/print.rs
+msgid "Screen Profile"
+msgstr "Bildschirmprofil"
+
+#: src/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profil für Bilder ohne eigenes"
+
+#: src/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Lightroom-Katalog importieren"
+
+#: src/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Glimts Daten sichern nach"
+
+#: src/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Dieses Einzelbild als PNG speichern"
+
+#: src/print.rs
+msgid "Export Every Frame To"
+msgstr "Jedes Einzelbild exportieren nach"
+
+#: src/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Sammlung {name} in den Papierkorb verschoben"
+
+#: src/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Kein Muster: {e}"
+
+#: src/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} gibt es bereits: einen anderen Namen wählen"
+
+#: src/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Als {file} gespeichert: bearbeiten, dann erneut wählen"
+
+#: src/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} haben ihre alten Namen zurück"
+
+#: src/print.rs
+msgid "{files} renamed"
+msgstr "{files} umbenannt"
+
+#: src/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} nicht, beim nächsten Start erneut gefragt"
+
+#: src/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} von {images} ({size})"
+
+#: src/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} ausgewählt ({size})"
+
+#: src/print.rs
+msgid "{n} bytes"
+msgstr "{n} Bytes"
+
+#: src/print.rs
+msgid " page {n}/{pages}"
+msgstr " Seite {n}/{pages}"
+
+#: src/print.rs
+msgid " frame {n}/{frames}"
+msgstr " Einzelbild {n}/{frames}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Konnte {f} nicht in {t} umbenennen: {e}; nicht alle Namen konnten zurückgegeben werden, Glimt bietet beim nächsten Start an, sie zu korrigieren"
+
+#: src/pan.rs
+msgid "Mon"
+msgstr "Mo"
+
+#: src/pan.rs
+msgid "Tue"
+msgstr "Di"
+
+#: src/pan.rs
+msgid "Wed"
+msgstr "Mi"
+
+#: src/pan.rs
+msgid "Thu"
+msgstr "Do"
+
+#: src/pan.rs
+msgid "Fri"
+msgstr "Fr"
+
+#: src/pan.rs
+msgid "Sat"
+msgstr "Sa"
+
+#: src/pan.rs
+msgid "Sun"
+msgstr "So"
+
+#: src/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Schlagwörter werden noch geschrieben: gleich noch einmal versuchen"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} hat unerwartet aufgehört"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Verbinde"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Lese den Lightroom-Katalog"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Suche abgebrochene Umbenennungen"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "Der EXIF-Index"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Die Tage der Übersicht"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Mehrere umbenennen"
+
+#: src/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Keine Antwort vom Server seit einer Minute"
+
+#: src/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Der Katalog ist zu groß zum Lesen"
+
+#: src/file_ops.rs
+msgid "stopped"
+msgstr "angehalten"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Speichere Schlagwörter"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Speichere den Alternativtext"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Lese den Ordner"
+
+#: src/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Keine Antwort vom Druckserver seit zwei Minuten"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Konnte {f} nicht in {t} umbenennen: {e}; nicht alle Namen konnten zurückgegeben werden, und kein Plan konnte gespeichert werden: die Dateien mit .glimt-rename-*-Namen daneben gehören ihnen"
+
+#: src/preferences.rs
+msgid "Look"
+msgstr "Aussehen"
+
+#: src/preferences.rs
+msgid "Keyboard"
+msgstr "Tastatur"
+
+#: src/preferences.rs
+msgid "Image"
+msgstr "Bild"
+
+#: src/preferences.rs
+msgid "Slideshow"
+msgstr "Diaschau"
+
+#: src/preferences.rs
+msgid "File list"
+msgstr "Dateiliste"
+
+#: src/preferences.rs
+msgid "Memory and CPU"
+msgstr "Speicher und Prozessor"
+
+#: src/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/preferences.rs
+msgid "Start and system"
+msgstr "Start und System"
+
+#: src/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Vorschauen brauchen ffmpeg"
+
+#: src/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S startet und beendet, R zufällige Reihenfolge, Ctrl+= schneller, Ctrl+- langsamer"
+
+#: src/actions.rs
+msgid "Undo"
+msgstr "Rückgängig"
+
+#: src/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Nichts rückgängig zu machen"
+
+#: src/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Rückgängig fehlgeschlagen ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Rückgängig fehlgeschlagen: {e}"
+
+#: src/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} aus dem Papierkorb zurück"
+
+#: src/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} zurückverschoben"
+
+#: src/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} gibt es bereits"
+
+#: src/file_ops.rs
+msgid "{name} is not in the trash"
+msgstr "{name} ist nicht im Papierkorb"
+
+#: src/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Als Hintergrundbild verwenden"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Konnte das Hintergrundbild nicht setzen: {e}"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Liste leeren"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Noch nichts geöffnet"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Zuletzt geöffnet"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} gibt es nicht mehr"
+
+#: src/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Eine Liste der zuletzt geöffneten Ordner führen (Datei → Zuletzt geöffnet)"
+
+#: src/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Schachbrett hinter transparenten Bildern"
+
+#: src/actions.rs
+msgid "Crop…"
+msgstr "Zuschneiden …"
+
+#: src/crop.rs
+msgid "A video is not cropped"
+msgstr "Ein Video wird nicht zugeschnitten"
+
+#: src/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Über das Bild ziehen, um den Teil zu wählen, der bleiben soll"
+
+#: src/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Kopie speichern (Enter)"
+
+#: src/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Konnte das Bild nicht zuschneiden: {e}"
+
+#: src/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "Qualität eines zugeschnittenen JPEG (Bearbeiten → Zuschneiden)"
+
+#: src/actions.rs
+msgid "Save As…"
+msgstr "Speichern unter …"
+
+#: src/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "Ein Video wird nicht als Bild gespeichert"
+
+#: src/save_as.rs
+msgid "Format:"
+msgstr "Format:"
+
+#: src/save_as.rs
+msgid "As the original ({format})"
+msgstr "Wie das Original ({format})"
+
+#: src/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, verlustfrei"
+
+#: src/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, verlustbehaftet"
+
+#: src/save_as.rs
+msgid "Size:"
+msgstr "Größe:"
+
+#: src/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Original ({w} × {h})"
+
+#: src/save_as.rs
+msgid "Longest side"
+msgstr "Längste Seite"
+
+#: src/save_as.rs
+msgid "Percent"
+msgstr "Prozent"
+
+#: src/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Gespeichert in {w} × {h}; nie vergrößert"
+
+#: src/save_as.rs
+msgid "Quality:"
+msgstr "Qualität:"
+
+#: src/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "EXIF und GPS (Kamera, Datum, Ort), XMP und die Begleitdatei entfernen"
+
+#: src/save_as.rs
+msgid "Save…"
+msgstr "Speichern …"
+
+#: src/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Konnte das Bild nicht speichern: {e}"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Speichern unter"

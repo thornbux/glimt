@@ -1,0 +1,2288 @@
+# Glimt's interface in Icelandic. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: is\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n%10!=1 || n%100==11);\n"
+
+#: src/accessibility.rs
+msgid "No images"
+msgstr "Engar myndir"
+
+#: src/actions.rs
+msgid "About Glimt"
+msgstr "Um Glimt"
+
+#: src/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Snúa sjálfkrafa samkvæmt EXIF"
+
+#: src/actions.rs
+msgid "Back"
+msgstr "Til baka"
+
+#: src/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Taka afrit af gögnum Glimt…"
+
+#: src/actions.rs
+msgid "Check Images…"
+msgstr "Athuga myndir…"
+
+#: src/actions.rs
+msgid "Close Window"
+msgstr "Loka glugga"
+
+#: src/actions.rs
+msgid "Compare Side by Side"
+msgstr "Bera saman hlið við hlið"
+
+#: src/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Afrita skrár á klemmuspjald"
+
+#: src/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Afrita mynd á klemmuspjald"
+
+#: src/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Afrita slóð (án gæsalappa)"
+
+#: src/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Afrita slóð á klemmuspjald"
+
+#: src/actions.rs
+msgid "Copy…"
+msgstr "Afrita…"
+
+#: src/actions.rs
+msgid "Delete Permanently…"
+msgstr "Eyða varanlega…"
+
+#: src/actions.rs
+msgid "Delete…"
+msgstr "Eyða…"
+
+#: src/actions.rs
+msgid "EXIF Window"
+msgstr "EXIF-gluggi"
+
+#: src/actions.rs
+msgid "Export Frames…"
+msgstr "Flytja út ramma…"
+
+#: src/actions.rs
+msgid "Faster"
+msgstr "Hraðar"
+
+#: src/actions.rs
+msgid "Fill the View"
+msgstr "Fylla sýnina"
+
+#: src/actions.rs
+msgid "Find Duplicates…"
+msgstr "Finna tvítök…"
+
+#: src/actions.rs
+msgid "First Image"
+msgstr "Fyrsta mynd"
+
+#: src/actions.rs
+msgid "Fit the Height"
+msgstr "Laga að hæð"
+
+#: src/actions.rs
+msgid "Fit the Width"
+msgstr "Laga að breidd"
+
+#: src/actions.rs
+msgid "Flip"
+msgstr "Snúa við lóðrétt"
+
+#: src/actions.rs
+msgid "Forward"
+msgstr "Áfram"
+
+#: src/actions.rs
+msgid "Full Screen"
+msgstr "Heilskjár"
+
+#: src/actions.rs
+msgid "Help Manual"
+msgstr "Handbók"
+
+#: src/actions.rs
+msgid "Hide File List"
+msgstr "Fela skráalista"
+
+#: src/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Stuðlarit: af, RGB, birtustig"
+
+#: src/actions.rs
+msgid "Home"
+msgstr "Heimamappa"
+
+#: src/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Flytja inn Lightroom-skrá…"
+
+#: src/actions.rs
+msgid "Include Subfolders"
+msgstr "Taka með undirmöppur"
+
+#: src/actions.rs
+msgid "Invert Selection"
+msgstr "Snúa vali við"
+
+#: src/actions.rs
+msgid "Keyboard Map"
+msgstr "Lyklaborðskort"
+
+#: src/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Flýtilyklar"
+
+#: src/actions.rs
+msgid "Keywords and Comment"
+msgstr "Efnisorð og athugasemd"
+
+#: src/actions.rs
+msgid "Last Image"
+msgstr "Síðasta mynd"
+
+#: src/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Lógaritmískt stuðlarit"
+
+#: src/actions.rs
+msgid "Mark 1"
+msgstr "Merki 1"
+
+#: src/actions.rs
+msgid "Mark 2"
+msgstr "Merki 2"
+
+#: src/actions.rs
+msgid "Mark 3"
+msgstr "Merki 3"
+
+#: src/actions.rs
+msgid "Mark 4"
+msgstr "Merki 4"
+
+#: src/actions.rs
+msgid "Mark 5"
+msgstr "Merki 5"
+
+#: src/actions.rs
+msgid "Mark 6"
+msgstr "Merki 6"
+
+#: src/actions.rs
+msgid "Mirror"
+msgstr "Spegla"
+
+#: src/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Færa safnið í ruslið"
+
+#: src/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "Færa framar í safninu"
+
+#: src/actions.rs
+msgid "Move Later in Collection"
+msgstr "Færa aftar í safninu"
+
+#: src/actions.rs
+msgid "Move to End of Collection"
+msgstr "Færa aftast í safnið"
+
+#: src/actions.rs
+msgid "Move to Start of Collection"
+msgstr "Færa fremst í safnið"
+
+#: src/actions.rs
+msgid "Move…"
+msgstr "Færa…"
+
+#: src/actions.rs
+msgid "New Collection…"
+msgstr "Nýtt safn…"
+
+#: src/actions.rs
+msgid "New Folder…"
+msgstr "Ný mappa…"
+
+#: src/actions.rs
+msgid "New Window"
+msgstr "Nýr gluggi"
+
+#: src/actions.rs
+msgid "Next Filter"
+msgstr "Næsta sía"
+
+#: src/actions.rs
+msgid "Next Image"
+msgstr "Næsta mynd"
+
+#: src/actions.rs
+msgid "Next Layout"
+msgstr "Næsta uppsetning"
+
+#: src/actions.rs
+msgid "Next Page"
+msgstr "Næsta síða"
+
+#: src/actions.rs
+msgid "No Stars"
+msgstr "Engar stjörnur"
+
+#: src/actions.rs
+msgid "One Image"
+msgstr "Ein mynd"
+
+#: src/actions.rs
+msgid "Open Collection…"
+msgstr "Opna safn…"
+
+#: src/actions.rs
+msgid "Open File…"
+msgstr "Opna skrá…"
+
+#: src/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Opna möppu með undirmöppum…"
+
+#: src/actions.rs
+msgid "Open Folder…"
+msgstr "Opna möppu…"
+
+#: src/actions.rs
+msgid "Open Several Folders…"
+msgstr "Opna nokkrar möppur…"
+
+#: src/actions.rs
+msgid "Open With Default App"
+msgstr "Opna með sjálfgefnu forriti"
+
+#: src/actions.rs
+msgid "Pan View"
+msgstr "Yfirlitssýn"
+
+#: src/actions.rs
+msgid "Pane Above"
+msgstr "Reitur fyrir ofan"
+
+#: src/actions.rs
+msgid "Pane Below"
+msgstr "Reitur fyrir neðan"
+
+#: src/actions.rs
+msgid "Pane to the Left"
+msgstr "Reitur til vinstri"
+
+#: src/actions.rs
+msgid "Pane to the Right"
+msgstr "Reitur til hægri"
+
+#: src/actions.rs
+msgid "Pause Slideshow"
+msgstr "Gera hlé á skyggnusýningu"
+
+#: src/actions.rs
+msgid "Play Animations"
+msgstr "Spila hreyfimyndir"
+
+#: src/actions.rs
+msgid "Play Video"
+msgstr "Spila myndskeið"
+
+#: src/actions.rs
+msgid "Preferences…"
+msgstr "Kjörstillingar…"
+
+#: src/actions.rs
+msgid "Previous Image"
+msgstr "Fyrri mynd"
+
+#: src/actions.rs
+msgid "Previous Page"
+msgstr "Fyrri síða"
+
+#: src/actions.rs
+msgid "Print…"
+msgstr "Prenta…"
+
+#: src/actions.rs
+msgid "Projector"
+msgstr "Skjávarpi"
+
+#: src/actions.rs
+msgid "Quit"
+msgstr "Hætta"
+
+#: src/actions.rs
+msgid "Random Order"
+msgstr "Slembiröð"
+
+#: src/actions.rs
+msgid "Refresh"
+msgstr "Endurnýja"
+
+#: src/actions.rs
+msgid "Remove from Collection"
+msgstr "Fjarlægja úr safninu"
+
+#: src/actions.rs
+msgid "Rename Collection…"
+msgstr "Endurnefna safnið…"
+
+#: src/actions.rs
+msgid "Rename…"
+msgstr "Endurnefna…"
+
+#: src/actions.rs
+msgid "Rotate 180°"
+msgstr "Snúa 180°"
+
+#: src/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Snúa réttsælis"
+
+#: src/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Snúa rangsælis"
+
+#: src/actions.rs
+msgid "Save Orientation to File"
+msgstr "Vista stefnu í skrána"
+
+#: src/actions.rs
+msgid "Save This Frame…"
+msgstr "Vista þennan ramma…"
+
+#: src/actions.rs
+msgid "Search File Names"
+msgstr "Leita í skráarheitum"
+
+#: src/actions.rs
+msgid "Select All"
+msgstr "Velja allt"
+
+#: src/actions.rs
+msgid "Select Mark 1"
+msgstr "Velja merki 1"
+
+#: src/actions.rs
+msgid "Select Mark 2"
+msgstr "Velja merki 2"
+
+#: src/actions.rs
+msgid "Select Mark 3"
+msgstr "Velja merki 3"
+
+#: src/actions.rs
+msgid "Select Mark 4"
+msgstr "Velja merki 4"
+
+#: src/actions.rs
+msgid "Select Mark 5"
+msgstr "Velja merki 5"
+
+#: src/actions.rs
+msgid "Select Mark 6"
+msgstr "Velja merki 6"
+
+#: src/actions.rs
+msgid "Select None"
+msgstr "Velja ekkert"
+
+#: src/actions.rs
+msgid "Show EXIF Panel"
+msgstr "Sýna EXIF-spjald"
+
+#: src/actions.rs
+msgid "Show Folder Path"
+msgstr "Sýna slóð möppu"
+
+#: src/actions.rs
+msgid "Show Folder Tree"
+msgstr "Sýna möpputré"
+
+#: src/actions.rs
+msgid "Show Hidden Files"
+msgstr "Sýna faldar skrár"
+
+#: src/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Sýna upplýsingar um mynd á heilskjá"
+
+#: src/actions.rs
+msgid "Show Sort Manager"
+msgstr "Sýna flokkara"
+
+#: src/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Sýna bendil á skjávarpanum"
+
+#: src/actions.rs
+msgid "Show Thumbnails"
+msgstr "Sýna smámyndir"
+
+#: src/actions.rs
+msgid "Show Toolbar"
+msgstr "Sýna verkfærastiku"
+
+#: src/actions.rs
+msgid "Slower"
+msgstr "Hægar"
+
+#: src/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Ræsa/stöðva skyggnusýningu"
+
+#: src/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Stöðva skyggnusýningu, hætta í heilskjá"
+
+#: src/actions.rs
+msgid "Two Above Each Other"
+msgstr "Tvær hvor yfir annarri"
+
+#: src/actions.rs
+msgid "Up"
+msgstr "Upp"
+
+#: src/actions.rs
+msgid "View Images as Icons"
+msgstr "Sýna myndir sem tákn"
+
+#: src/actions.rs
+msgid "Zoom 1:1"
+msgstr "Aðdráttur 1:1"
+
+#: src/actions.rs
+msgid "Zoom In"
+msgstr "Auka aðdrátt"
+
+#: src/actions.rs
+msgid "Zoom Out"
+msgstr "Minnka aðdrátt"
+
+#: src/actions.rs
+msgid "Zoom to Fit"
+msgstr "Laga að glugga"
+
+#: src/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Ekki gilt heiti á safni: „{name}“"
+
+#: src/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Það er þegar til safn sem heitir „{name}“"
+
+#: src/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "Meðal {count} í listanum, bera saman eftir"
+
+#: src/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Haka við allar nema þá fyrstu í hverjum hópi"
+
+#: src/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Gátsumma (eins skrár)"
+
+#: src/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Ber saman… {done} af {total}"
+
+#: src/duplicates.rs
+msgid "Find"
+msgstr "Finna"
+
+#: src/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Finna tvítök"
+
+#: src/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Hópur {n} ({files})"
+
+#: src/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Taka með undirmöppur í Skoða-valmyndinni leitar líka í möppunum fyrir neðan."
+
+#: src/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "Færa {n} merktar í ruslið…"
+
+#: src/duplicates.rs
+msgid "Name"
+msgstr "Heiti"
+
+#: src/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Líkindi (90%)"
+
+#: src/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Líkindi (mikil, 95%)"
+
+#: src/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Líkindi (lítil, 85%)"
+
+#: src/duplicates.rs
+msgid "Size"
+msgstr "Stærð"
+
+#: src/duplicates.rs
+msgid "Stop"
+msgstr "Stöðva"
+
+#: src/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "Merktu skrárnar eru ekki lengur allar í listanum"
+
+#: src/duplicates.rs
+msgid "Uncheck all"
+msgstr "Taka hak af öllum"
+
+#: src/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, meðal {images}"
+
+#: src/file_ops.rs
+msgid "Backing up"
+msgstr "Tekur afrit"
+
+#: src/file_ops.rs
+msgid "Copy"
+msgstr "Afrita"
+
+#: src/file_ops.rs
+msgid "Copying"
+msgstr "Afritar"
+
+#: src/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Gat ekki búið til {folder}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekkert endurnefnt"
+
+#: src/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Gat ekki vistað rammana: {e}"
+
+#: src/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Eyðing mistókst ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Deleting"
+msgstr "Eyðir"
+
+#: src/file_ops.rs
+msgid "Exporting"
+msgstr "Flytur út"
+
+#: src/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (úr glib): {e}"
+
+#: src/file_ops.rs
+msgid "Move"
+msgstr "Færa"
+
+#: src/file_ops.rs
+msgid "Moving"
+msgstr "Færir"
+
+#: src/file_ops.rs
+msgid "Saved {file}"
+msgstr "Vistaði {file}"
+
+#: src/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Vistað; sést þegar Snúa sjálfkrafa samkvæmt EXIF er virkt"
+
+#: src/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Enn er verið að vista snúning: reyndu aftur eftir smástund"
+
+#: src/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "Skrárnar sem spurt var um eru ekki lengur í listanum: ekkert var gert"
+
+#: src/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Mynstrið gefur nokkrum skrám sama heiti; bættu við # fyrir númer"
+
+#: src/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Ritun hliðarskránna stöðvaðist við skrá sem lét hana mistakast"
+
+#: src/file_ops.rs
+msgid "{count} deleted"
+msgstr "{count} eytt"
+
+#: src/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "{count} fært í ruslið"
+
+#: src/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "{frames} vistað í {folder}"
+
+#: src/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} er þegar til; ekkert endurnefnt"
+
+#: src/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "{verb} mistókst ({count}): {first}"
+
+#: src/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Hætta við (Esc)"
+
+#: src/lightroom.rs
+msgid "Import"
+msgstr "Flytja inn"
+
+#: src/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Flytja inn úr Lightroom"
+
+#: src/lightroom.rs
+msgid "Importing"
+msgstr "Flytur inn"
+
+#: src/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "Halda stjörnum Glimt"
+
+#: src/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroom er með skrána opna: lokaðu Lightroom fyrst"
+
+#: src/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "Stjörnur eða efnisorð Lightroom ekki skrifuð í hliðarskrár {count}"
+
+#: src/lightroom.rs
+msgid "Next"
+msgstr "Næsta"
+
+#: src/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Ekki Lightroom Classic-skrá sem Glimt getur lesið: {why}"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "Til að lesa Lightroom-skrá þarf forritið sqlite3"
+
+#: src/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "Taka stjörnur Lightroom"
+
+#: src/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "efnisorð {count}"
+
+#: src/lightroom.rs
+msgid "the stars of {count}"
+msgstr "stjörnur {count}"
+
+#: src/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Eru þegar til, svo þau fá aðeins myndirnar sem vantar: {names}."
+
+#: src/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Hvar möppur skrárinnar eru núna (autt: sleppt):"
+
+#: src/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} og stjörnur {images}."
+
+#: src/lightroom.rs
+msgid "{count} have"
+msgstr "{count} hafa"
+
+#: src/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, sem er ekki uppsett"
+
+#: src/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "{n} aðrar stjörnur í Glimt:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", og {n} í viðbót"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; og {n} í viðbót (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "Skráargluggi er þegar opinn"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "Glimt endurnefnir ekki og hendir ekki venjulegum lista"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Bæta við"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "Bæta efnisorðunum við {n} valdar"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Bæta þessari möppu við"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "Bæta efnisorðum þessarar myndar við tréð"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Bæta í safn"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Bætir við efnisorðum"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Bæta við…"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Allar myndir skipta saman"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Alt-texti"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Hækkandi"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Hástafir"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Athuga"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Athuga myndir"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Söfn"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Litastýring"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Athugasemd"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Tengjast (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Tengist {uri}…"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Gat ekki afritað myndina: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Gat ekki afritað á klemmuspjaldið: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Gat ekki opnað nýjan glugga: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Gat ekki lesið efnisorðatréð: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Gat ekki lesið möppur flokkarans: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Gat ekki vistað alt-textann: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Gat ekki vistað safnið: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Gat ekki vistað efnisorðin: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Gat ekki vistað stefnuna: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Gat ekki vistað möppur flokkarans: engin heimamappa"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Gat ekki vistað möppur flokkarans: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Gat ekki vistað þemað: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "Gat ekki fært {name} í ruslið (gio þarf): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "Gat ekki fært {name} í ruslið: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Eyða (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Desktop-skrár þar, eins og Geeqie notar, birtast í þessari valmynd eftir endurræsingu"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Mál"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Lén:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Hver skrá heldur sínum eigin efnisorðum og fær þessi líka"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Breyta"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Ítarleg lýsing"
+
+#: src/main.rs
+msgid "File"
+msgstr "Skrá"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Sía"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Ljúka endurnefningu"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "Fyrst: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Sækja fleiri þemu…"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Fara"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Hjálp"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Myndir"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Efnisorðatré"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Efnisorð"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Efnisorðum bætt við {count}"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Ekki tókst að vista efnisorð fyrir {count}"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Seinna"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Uppsetning"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Skrá inn á {uri}"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Merki og stjörnur"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Færa möppu í ruslið…"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "Færa í safninu"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "Færa möppuna „{name}“ og allt í henni í ruslið?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "Færa í ruslið (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "Færa {what} í ruslið?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Heiti á nýju safni með {count}:"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Ný mappa býr til möppu í möppunni sem er sýnd: opnaðu einhverja"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Ný heiti fyrir {count} (* = gamla heitið, # = númer, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Engin forrit fundust"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Engin söfn enn"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Engin EXIF-gögn"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Enginn skráargluggi (settu upp zenity eða kdialog): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Engar myndir fyrir safn hér"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Engar myndir í möppunni"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Engar viðbætur"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Engin slík mappa: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Ekki gilt heiti: „{text}“"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "Í lagi (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "Ein mynd í einu"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Aðeins er hægt að færa myndir safns"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "Opna viðbótamöppuna"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Opna þemamöppuna"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Opna með"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Stefna"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Lykilorð:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "Eyða {what} varanlega?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Staðir|Noregur|Osló"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Viðbætur"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "Setja gömlu heitin aftur"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Slembiröð er virk: R slekkur á henni til að færa myndir"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Les möppu…"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Fjarlægja"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Fjarlægja úr trénu"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Endurnefna möppu…"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Endurnefna margar er enn að endurnefna"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Endurnefna margar var rofið"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Vista sem þema…"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Velja"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Velja þær"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Aðskilin með kommum"
+
+#: src/main.rs
+msgid "set on"
+msgstr "sett á"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Setur efnisorð"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Sýna skráarheiti"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Sýna á OpenStreetMap"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Sýna með þessum myndum"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Skyggnusýning í þessari uppsetningu:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Flokkari"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Ræsa skyggnusýningu"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "Enn er verið að vista síðasta snúning þessarar skrár"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Stöðva skyggnusýningu"
+
+#: src/main.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Stöðvað: {done} af {total}"
+
+#: src/main.rs
+msgid "taken off"
+msgstr "tekið af"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Tekur efnisorð af"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Gera greinarmun á há- og lágstöfum"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "Safnið {file} er horfið (endurnefnt eða fjarlægt í öðrum glugga): ekki vistað"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Ekki tókst að vista efnisorðið fyrir {count}"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Reiturinn sem þessar upplýsingar eiga við: sá undir bendlinum"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "Stillingunum er læst (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "Ekki tókst að skrifa stjörnurnar í XMP-hliðarskrá {count}"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Þema"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Ekki er hægt að afturkalla þetta."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Notandi:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Myndskeið: Enter eða smelltu til að spila"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Myndskeið"
+
+#: src/main.rs
+msgid "View"
+msgstr "Skoða"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Hvað myndin sýnir, fyrir þann sem sér hana ekki"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Gluggi"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Skrifar stjörnur"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Aðdráttur"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done} af {total}…{more}"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "{n} bætt í safnið „{name}“"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "{n} skemmdar:"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} er innbyggt þema: veldu annað heiti"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Fjórar (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "Tvær hlið við hlið"
+
+#: src/pan.rs
+msgid "April"
+msgstr "apríl"
+
+#: src/pan.rs
+msgid "August"
+msgstr "ágúst"
+
+#: src/pan.rs
+msgid "Calendar"
+msgstr "Dagatal"
+
+#: src/pan.rs
+msgid "December"
+msgstr "desember"
+
+#: src/pan.rs
+msgid "EXIF date"
+msgstr "EXIF-dagsetning"
+
+#: src/pan.rs
+msgid "February"
+msgstr "febrúar"
+
+#: src/pan.rs
+msgid "January"
+msgstr "janúar"
+
+#: src/pan.rs
+msgid "July"
+msgstr "júlí"
+
+#: src/pan.rs
+msgid "June"
+msgstr "júní"
+
+#: src/pan.rs
+msgid "March"
+msgstr "mars"
+
+#: src/pan.rs
+msgid "May"
+msgstr "maí"
+
+#: src/pan.rs
+msgid "No date"
+msgstr "Engin dagsetning"
+
+#: src/pan.rs
+msgid "November"
+msgstr "nóvember"
+
+#: src/pan.rs
+msgid "October"
+msgstr "október"
+
+#: src/pan.rs
+msgid "September"
+msgstr "september"
+
+#: src/pan.rs
+msgid "Timeline"
+msgstr "Tímalína"
+
+#: src/pan.rs
+msgid "{images} on {days}"
+msgstr "{images} á {days}"
+
+#: src/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Skrifa stjörnur líka í XMP-hliðarskrár (photo.jpg.xmp), fyrir darktable og digiKam"
+
+#: src/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Snúa myndum sjálfkrafa samkvæmt EXIF (Alt+X)"
+
+#: src/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Sjálfvirkt (tungumál kerfisins)"
+
+#: src/preferences.rs
+msgid "Background behind the image"
+msgstr "Bakgrunnur á bak við myndina"
+
+#: src/preferences.rs
+msgid "Black"
+msgstr "Svartur"
+
+#: src/preferences.rs
+msgid "Brightness"
+msgstr "Birtustig"
+
+#: src/preferences.rs
+msgid "Change"
+msgstr "Breyta"
+
+#: src/preferences.rs
+msgid "Choose…"
+msgstr "Velja…"
+
+#: src/preferences.rs
+msgid "Colour management"
+msgstr "Litastýring"
+
+#: src/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Staðfesta færslu skráar í ruslið"
+
+#: src/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Staðfesta varanlega eyðingu skráar"
+
+#: src/preferences.rs
+msgid "CPU use:"
+msgstr "Örgjörvanotkun:"
+
+#: src/preferences.rs
+msgid "Custom"
+msgstr "Sérsniðið"
+
+#: src/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Afkóðunarþræðir og ein malloc-arena taka gildi eftir endurræsingu."
+
+#: src/preferences.rs
+msgid "Default"
+msgstr "Sjálfgefið"
+
+#: src/preferences.rs
+msgid "default application"
+msgstr "sjálfgefið forrit"
+
+#: src/preferences.rs
+msgid "Delete behaviour:"
+msgstr "Eyðing:"
+
+#: src/preferences.rs
+msgid "Details"
+msgstr "Nánar"
+
+#: src/preferences.rs
+msgid "Enable Delete key"
+msgstr "Virkja Delete-lykilinn"
+
+#: src/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Stækka litlar myndir til að fylla gluggann"
+
+#: src/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Hverfa yfir í næstu mynd:"
+
+#: src/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Úr colord, sem GNOME og KDE stilla"
+
+#: src/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Óljós, bestu samsvaranir fyrst (eins og fzf)"
+
+#: src/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Mikil birtuskil þegar skjáborðið biður um mikil birtuskil"
+
+#: src/preferences.rs
+msgid "Histogram (K):"
+msgstr "Stuðlarit (K):"
+
+#: src/preferences.rs
+msgid "Image info template:"
+msgstr "Sniðmát fyrir myndupplýsingar:"
+
+#: src/preferences.rs
+msgid "images decoded at once"
+msgstr "myndir afkóðaðar í einu"
+
+#: src/preferences.rs
+msgid "images on each side"
+msgstr "myndir hvoru megin"
+
+#: src/preferences.rs
+msgid "Images without a profile:"
+msgstr "Myndir án litasniðs:"
+
+#: src/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "Í ~/.cache/thumbnails; geymdar fyrir diska sem eru ekki tengdir"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "Taka með myndirnar í undirmöppum"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "Taka með myndirnar í undirmöppum í skráalistanum"
+
+#: src/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Halda skjávaranum af á heilskjá"
+
+#: src/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Halda aðdrætti og staðsetningu þegar skipt er um mynd"
+
+#: src/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Flýtilyklar"
+
+#: src/preferences.rs
+msgid "Language"
+msgstr "Tungumál"
+
+#: src/preferences.rs
+msgid "Large"
+msgstr "Stór"
+
+#: src/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Enn stærri þegar texti skjáborðsins er það (Stór texti í GNOME)"
+
+#: src/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Hlusta eftir glimt --remote-skipunum (eftir endurræsingu)"
+
+#: src/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Lógaritmískt (J)"
+
+#: src/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "MB í mesta lagi fyrir ramma hreyfimyndar"
+
+#: src/preferences.rs
+msgid "Medium"
+msgstr "Miðlungs"
+
+#: src/preferences.rs
+msgid "Memory use:"
+msgstr "Minnisnotkun:"
+
+#: src/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Músarhjólið stýrir aðdrætti (af: næsta/fyrri mynd, Ctrl+hjól stýrir aðdrætti)"
+
+#: src/preferences.rs
+msgid "None"
+msgstr "Ekkert"
+
+#: src/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Ekki með örgjörvanotkun Orkusparnaður"
+
+#: src/preferences.rs
+msgid "Off"
+msgstr "Af"
+
+#: src/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "Ein malloc-arena: miklu minna minni, afkóðun allt að ~8% hægari"
+
+#: src/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Spila hreyfðar GIF og WebP (A)"
+
+#: src/preferences.rs
+msgid "Player (Enter):"
+msgstr "Spilari (Enter):"
+
+#: src/preferences.rs
+msgid "Preferences"
+msgstr "Kjörstillingar"
+
+#: src/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Forhlaða næstu og fyrri myndum:"
+
+#: src/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Ýttu á lykil (Esc hættir við)"
+
+#: src/preferences.rs
+msgid "Profile file…"
+msgstr "Litasniðsskrá…"
+
+#: src/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "gæði þegar WebP með tapi er vistað aftur"
+
+#: src/preferences.rs
+msgid "Random order"
+msgstr "Slembiröð"
+
+#: src/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "Endurnýja möppuna þegar skrár breytast"
+
+#: src/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Reglulegur segð, í röð listans (eins og skráasía Geeqie)"
+
+#: src/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Muna stærð og staðsetningu gluggans"
+
+#: src/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Fjarlægja smámyndir eyddra skráa"
+
+#: src/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "Fjarlægði {removed} af {seen} smámyndum"
+
+#: src/preferences.rs
+msgid "Rendering intent:"
+msgstr "Birtingaráætlun:"
+
+#: src/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Endurtaka: byrja aftur eftir síðustu mynd"
+
+#: src/preferences.rs
+msgid "Reset"
+msgstr "Endurstilla"
+
+#: src/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Vista nýjar smámyndir í ~/.cache/thumbnails (deilt með öðrum forritum)"
+
+#: src/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Vista snúning í skrána þegar skipt er um mynd (JPEG; PNG og WebP eru vistaðar aftur)"
+
+#: src/preferences.rs
+msgid "Screen profile:"
+msgstr "Skjálitasnið:"
+
+#: src/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Leitarreitur fyrir ofan skráalistann:"
+
+#: src/preferences.rs
+msgid "seconds per image"
+msgstr "sekúndur á mynd"
+
+#: src/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Sýna skráarstærð og dagsetningu í skráalistanum"
+
+#: src/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Sýna möppur sem tré (Ctrl+T)"
+
+#: src/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Sýna myndupplýsingar á heilskjá (I)"
+
+#: src/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Sýna merki og stjörnur í skráalistanum"
+
+#: src/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Sýna EXIF-spjaldið (Ctrl+K; les svolítið úr hverri sýndri mynd)"
+
+#: src/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "Sýna skráalistann sem tákn (Ctrl+I)"
+
+#: src/preferences.rs
+msgid "Show the file name search"
+msgstr "Sýna leit í skráarheitum"
+
+#: src/preferences.rs
+msgid "Show the folder path"
+msgstr "Sýna slóð möppunnar"
+
+#: src/preferences.rs
+msgid "Show the toolbar"
+msgstr "Sýna verkfærastikuna"
+
+#: src/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Sýna smámyndir í skráalistanum (T)"
+
+#: src/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Sýna myndskeið í skráalistanum"
+
+#: src/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "stærð valmynda, lista og texta"
+
+#: src/preferences.rs
+msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
+msgstr "Skyggnusýning (S, R = slembiröð, Ctrl+= hraðar, Ctrl+- hægar):"
+
+#: src/preferences.rs
+msgid "Small"
+msgstr "Lítil"
+
+#: src/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Ræsa í síðast notuðu möppunni"
+
+#: src/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Stærð smámynda:"
+
+#: src/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Tákn verkfærastiku:"
+
+#: src/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Allt að ≈ {mb} MB, hver mynd í mesta lagi {w}×{h}"
+
+#: src/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Nota ekkert rusl (Delete eyðir varanlega)"
+
+#: src/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Nota skjálitasnið skjáborðsins"
+
+#: src/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Nota eigið litasnið myndarinnar"
+
+#: src/preferences.rs
+msgid "Video (needs ffmpeg for previews):"
+msgstr "Myndskeið (þarf ffmpeg fyrir forskoðanir):"
+
+#: src/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} var líka lykill {others}: nú aðeins {label}"
+
+#: src/print.rs
+msgid "Copies:"
+msgstr "Eintök:"
+
+#: src/print.rs
+msgid "Images per page:"
+msgstr "Myndir á síðu:"
+
+#: src/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Engin mynd var lesanleg: ekkert prentað"
+
+#: src/print.rs
+msgid "No printers found"
+msgstr "Engir prentarar fundust"
+
+#: src/print.rs
+msgid "Paper:"
+msgstr "Pappír:"
+
+#: src/print.rs
+msgid "PDF file"
+msgstr "PDF-skrá"
+
+#: src/print.rs
+msgid "Print (Enter)"
+msgstr "Prenta (Enter)"
+
+#: src/print.rs
+msgid "Print {count}"
+msgstr "Prenta {count}"
+
+#: src/print.rs
+msgid "Printer:"
+msgstr "Prentari:"
+
+#: src/print.rs
+msgid "Printing failed: {e}"
+msgstr "Prentun mistókst: {e}"
+
+#: src/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "Vista PDF… (Enter)"
+
+#: src/print.rs
+msgid "{images} on {pages}"
+msgstr "{images} á {pages}"
+
+#: src/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; ekki var hægt að lesa {f}"
+
+#: src/print.rs
+msgid "{what} saved in {file}"
+msgstr "{what} vistað í {file}"
+
+#: src/print.rs
+msgid "{what} sent to {printer}"
+msgstr "{what} sent á {printer}"
+
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "safn"
+msgstr[1] "söfn"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "dagur"
+msgstr[1] "dagar"
+
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "villa"
+msgstr[1] "villur"
+
+msgid "file"
+msgid_plural "files"
+msgstr[0] "skrá"
+msgstr[1] "skrár"
+
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "rammi"
+msgstr[1] "rammar"
+
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "hópur"
+msgstr[1] "hópar"
+
+msgid "image"
+msgid_plural "images"
+msgstr[0] "mynd"
+msgstr[1] "myndir"
+
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "efnisorð"
+msgstr[1] "efnisorð"
+
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "síða"
+msgstr[1] "síður"
+
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "stjarna"
+msgstr[1] "stjörnur"
+
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "skref"
+msgstr[1] "skref"
+
+#: src/print.rs
+msgid "Orientation:"
+msgstr "Stefna:"
+
+#: src/print.rs
+msgid "Automatic"
+msgstr "Sjálfvirk"
+
+#: src/print.rs
+msgid "Portrait"
+msgstr "Langsnið"
+
+#: src/print.rs
+msgid "Landscape"
+msgstr "Þversnið"
+
+#: src/print.rs
+msgid "Margin (mm):"
+msgstr "Spássía (mm):"
+
+#: src/print.rs
+msgid "Image size (%):"
+msgstr "Myndastærð (%):"
+
+#: src/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Fylla hvern reit og skera myndina að honum"
+
+#: src/print.rs
+msgid "Text under each image:"
+msgstr "Texti undir hverri mynd:"
+
+#: src/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Eins og upplýsingarnar á heilskjá: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% er númer síðunnar, %pages% hversu margar þær eru"
+
+#: src/print.rs
+msgid "Top of each page:"
+msgstr "Efst á hverri síðu:"
+
+#: src/print.rs
+msgid "Bottom of each page:"
+msgstr "Neðst á hverri síðu:"
+
+#: src/print.rs
+msgid "Both sides of the paper"
+msgstr "Báðar hliðar pappírsins"
+
+#: src/print.rs
+msgid "Print the image"
+msgstr "Prenta myndina"
+
+#: src/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} afritað í {folder}"
+
+#: src/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} fært í {folder}"
+
+#: src/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Gat ekki fært möppuna í ruslið: {e}"
+
+#: src/print.rs
+msgid "calculating…"
+msgstr "reiknar…"
+
+#: src/print.rs
+msgid "Open Folder"
+msgstr "Opna möppu"
+
+#: src/print.rs
+msgid "Open File"
+msgstr "Opna skrá"
+
+#: src/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Opna möppur (Ctrl+smella fyrir fleiri)"
+
+#: src/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Opna möppu með undirmöppum hennar"
+
+#: src/print.rs
+msgid "Open Collection"
+msgstr "Opna safn"
+
+#: src/print.rs
+msgid "Copy to Folder"
+msgstr "Afrita í möppu"
+
+#: src/print.rs
+msgid "Move to Folder"
+msgstr "Færa í möppu"
+
+#: src/print.rs
+msgid "Save as PDF"
+msgstr "Vista sem PDF"
+
+#: src/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Bæta í flokkarann"
+
+#: src/print.rs
+msgid "Screen Profile"
+msgstr "Skjálitasnið"
+
+#: src/print.rs
+msgid "Profile of Images Without One"
+msgstr "Litasnið mynda sem hafa ekkert"
+
+#: src/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Flytja inn Lightroom-skrá"
+
+#: src/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Taka afrit af gögnum Glimt í"
+
+#: src/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Vista þennan ramma sem PNG"
+
+#: src/print.rs
+msgid "Export Every Frame To"
+msgstr "Flytja hvern ramma út í"
+
+#: src/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Safnið {name} fært í ruslið"
+
+#: src/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Ekki mynstur: {e}"
+
+#: src/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} er þegar til: veldu annað heiti"
+
+#: src/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Vistað sem {file}: breyttu því og veldu það svo aftur"
+
+#: src/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} fengu gömlu heitin sín aftur"
+
+#: src/print.rs
+msgid "{files} renamed"
+msgstr "{files} endurnefnt"
+
+#: src/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} tókst ekki, spurt aftur við næstu ræsingu"
+
+#: src/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} af {images} ({size})"
+
+#: src/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} valdar ({size})"
+
+#: src/print.rs
+msgid "{n} bytes"
+msgstr "{n} bæti"
+
+#: src/print.rs
+msgid " page {n}/{pages}"
+msgstr " síða {n}/{pages}"
+
+#: src/print.rs
+msgid " frame {n}/{frames}"
+msgstr " rammi {n}/{frames}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur, Glimt býðst til að laga þau við næstu ræsingu"
+
+#: src/pan.rs
+msgid "Mon"
+msgstr "mán"
+
+#: src/pan.rs
+msgid "Tue"
+msgstr "þri"
+
+#: src/pan.rs
+msgid "Wed"
+msgstr "mið"
+
+#: src/pan.rs
+msgid "Thu"
+msgstr "fim"
+
+#: src/pan.rs
+msgid "Fri"
+msgstr "fös"
+
+#: src/pan.rs
+msgid "Sat"
+msgstr "lau"
+
+#: src/pan.rs
+msgid "Sun"
+msgstr "sun"
+
+#: src/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Enn er verið að skrifa efnisorð: reyndu aftur eftir smástund"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} stöðvaðist óvænt"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Tengist"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Les Lightroom-skrána"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Leitar að rofnum endurnefningum"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "EXIF-skráin"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Dagar yfirlitssýnarinnar"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Endurnefna margar"
+
+#: src/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Ekkert svar frá þjóninum í mínútu"
+
+#: src/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Skráin er of stór til að lesa"
+
+#: src/file_ops.rs
+msgid "stopped"
+msgstr "stöðvað"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Vistar efnisorð"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Vistar alt-textann"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Les möppuna"
+
+#: src/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Ekkert svar frá prentþjóninum í tvær mínútur"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur og engin áætlun var geymd: skrárnar með .glimt-rename-*-heitum við hliðina eru þeirra"
+
+#: src/preferences.rs
+msgid "Look"
+msgstr "Útlit"
+
+#: src/preferences.rs
+msgid "Keyboard"
+msgstr "Lyklaborð"
+
+#: src/preferences.rs
+msgid "Image"
+msgstr "Mynd"
+
+#: src/preferences.rs
+msgid "Slideshow"
+msgstr "Skyggnusýning"
+
+#: src/preferences.rs
+msgid "File list"
+msgstr "Skráalisti"
+
+#: src/preferences.rs
+msgid "Memory and CPU"
+msgstr "Minni og örgjörvi"
+
+#: src/preferences.rs
+msgid "Video"
+msgstr "Myndskeið"
+
+#: src/preferences.rs
+msgid "Start and system"
+msgstr "Ræsing og kerfi"
+
+#: src/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Forskoðanir þurfa ffmpeg"
+
+#: src/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S ræsir og stöðvar, R slembiröð, Ctrl+= hraðar, Ctrl+- hægar"
+
+#: src/actions.rs
+msgid "Undo"
+msgstr "Afturkalla"
+
+#: src/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Ekkert að afturkalla"
+
+#: src/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Afturköllun mistókst ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Afturköllun mistókst: {e}"
+
+#: src/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} aftur úr ruslinu"
+
+#: src/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} fært til baka"
+
+#: src/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} er þegar til"
+
+#: src/file_ops.rs
+msgid "{name} is not in the trash"
+msgstr "{name} er ekki í ruslinu"
+
+#: src/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Nota sem bakgrunnsmynd"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Gat ekki stillt bakgrunnsmyndina: {e}"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Hreinsa listann"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Ekkert opnað enn"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Opna nýlegt"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} er horfið"
+
+#: src/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Halda lista yfir nýlegar möppur (Skrá → Opna nýlegt)"
+
+#: src/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Taflborð á bak við gegnsæjar myndir"
+
+#: src/actions.rs
+msgid "Crop…"
+msgstr "Skera…"
+
+#: src/crop.rs
+msgid "A video is not cropped"
+msgstr "Myndskeið er ekki skorið"
+
+#: src/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Dragðu yfir myndina til að velja hlutann sem á að halda"
+
+#: src/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Vista afrit (Enter)"
+
+#: src/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Gat ekki skorið myndina: {e}"
+
+#: src/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "gæði skorinnar JPEG-myndar (Breyta → Skera)"
+
+#: src/actions.rs
+msgid "Save As…"
+msgstr "Vista sem…"
+
+#: src/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "Myndskeið er ekki vistað sem mynd"
+
+#: src/save_as.rs
+msgid "Format:"
+msgstr "Snið:"
+
+#: src/save_as.rs
+msgid "As the original ({format})"
+msgstr "Eins og frumritið ({format})"
+
+#: src/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, taplaust"
+
+#: src/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, með tapi"
+
+#: src/save_as.rs
+msgid "Size:"
+msgstr "Stærð:"
+
+#: src/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Upprunaleg ({w} × {h})"
+
+#: src/save_as.rs
+msgid "Longest side"
+msgstr "Lengsta hlið"
+
+#: src/save_as.rs
+msgid "Percent"
+msgstr "Prósent"
+
+#: src/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Vistuð {w} × {h}; aldrei stækkuð"
+
+#: src/save_as.rs
+msgid "Quality:"
+msgstr "Gæði:"
+
+#: src/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "Fjarlægja EXIF og GPS (myndavél, dagsetningu, stað), XMP og hliðarskrána"
+
+#: src/save_as.rs
+msgid "Save…"
+msgstr "Vista…"
+
+#: src/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Gat ekki vistað myndina: {e}"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Vista sem"

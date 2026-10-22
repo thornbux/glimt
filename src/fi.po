@@ -1,0 +1,2288 @@
+# Glimt's interface in Finnish. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: fi\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/accessibility.rs
+msgid "No images"
+msgstr "Ei kuvia"
+
+#: src/actions.rs
+msgid "About Glimt"
+msgstr "Tietoja Glimtistä"
+
+#: src/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Kierrä automaattisesti EXIFin mukaan"
+
+#: src/actions.rs
+msgid "Back"
+msgstr "Takaisin"
+
+#: src/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Varmuuskopioi Glimtin tiedot…"
+
+#: src/actions.rs
+msgid "Check Images…"
+msgstr "Tarkista kuvat…"
+
+#: src/actions.rs
+msgid "Close Window"
+msgstr "Sulje ikkuna"
+
+#: src/actions.rs
+msgid "Compare Side by Side"
+msgstr "Vertaa rinnakkain"
+
+#: src/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Kopioi tiedostot leikepöydälle"
+
+#: src/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Kopioi kuva leikepöydälle"
+
+#: src/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Kopioi polku (ilman lainausmerkkejä)"
+
+#: src/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Kopioi polku leikepöydälle"
+
+#: src/actions.rs
+msgid "Copy…"
+msgstr "Kopioi…"
+
+#: src/actions.rs
+msgid "Delete Permanently…"
+msgstr "Poista pysyvästi…"
+
+#: src/actions.rs
+msgid "Delete…"
+msgstr "Poista…"
+
+#: src/actions.rs
+msgid "EXIF Window"
+msgstr "EXIF-ikkuna"
+
+#: src/actions.rs
+msgid "Export Frames…"
+msgstr "Vie ruudut…"
+
+#: src/actions.rs
+msgid "Faster"
+msgstr "Nopeammin"
+
+#: src/actions.rs
+msgid "Fill the View"
+msgstr "Täytä näkymä"
+
+#: src/actions.rs
+msgid "Find Duplicates…"
+msgstr "Etsi kaksoiskappaleet…"
+
+#: src/actions.rs
+msgid "First Image"
+msgstr "Ensimmäinen kuva"
+
+#: src/actions.rs
+msgid "Fit the Height"
+msgstr "Sovita korkeuteen"
+
+#: src/actions.rs
+msgid "Fit the Width"
+msgstr "Sovita leveyteen"
+
+#: src/actions.rs
+msgid "Flip"
+msgstr "Käännä pystysuunnassa"
+
+#: src/actions.rs
+msgid "Forward"
+msgstr "Eteenpäin"
+
+#: src/actions.rs
+msgid "Full Screen"
+msgstr "Koko näyttö"
+
+#: src/actions.rs
+msgid "Help Manual"
+msgstr "Käyttöopas"
+
+#: src/actions.rs
+msgid "Hide File List"
+msgstr "Piilota tiedostoluettelo"
+
+#: src/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Histogrammi: pois, RGB, kirkkaus"
+
+#: src/actions.rs
+msgid "Home"
+msgstr "Kotikansio"
+
+#: src/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Tuo Lightroom-luettelo…"
+
+#: src/actions.rs
+msgid "Include Subfolders"
+msgstr "Sisällytä alikansiot"
+
+#: src/actions.rs
+msgid "Invert Selection"
+msgstr "Käännä valinta"
+
+#: src/actions.rs
+msgid "Keyboard Map"
+msgstr "Näppäimistökartta"
+
+#: src/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Pikanäppäimet"
+
+#: src/actions.rs
+msgid "Keywords and Comment"
+msgstr "Avainsanat ja kommentti"
+
+#: src/actions.rs
+msgid "Last Image"
+msgstr "Viimeinen kuva"
+
+#: src/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Logaritminen histogrammi"
+
+#: src/actions.rs
+msgid "Mark 1"
+msgstr "Merkki 1"
+
+#: src/actions.rs
+msgid "Mark 2"
+msgstr "Merkki 2"
+
+#: src/actions.rs
+msgid "Mark 3"
+msgstr "Merkki 3"
+
+#: src/actions.rs
+msgid "Mark 4"
+msgstr "Merkki 4"
+
+#: src/actions.rs
+msgid "Mark 5"
+msgstr "Merkki 5"
+
+#: src/actions.rs
+msgid "Mark 6"
+msgstr "Merkki 6"
+
+#: src/actions.rs
+msgid "Mirror"
+msgstr "Peilaa"
+
+#: src/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Siirrä kokoelma roskakoriin"
+
+#: src/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "Siirrä aiemmaksi kokoelmassa"
+
+#: src/actions.rs
+msgid "Move Later in Collection"
+msgstr "Siirrä myöhemmäksi kokoelmassa"
+
+#: src/actions.rs
+msgid "Move to End of Collection"
+msgstr "Siirrä kokoelman loppuun"
+
+#: src/actions.rs
+msgid "Move to Start of Collection"
+msgstr "Siirrä kokoelman alkuun"
+
+#: src/actions.rs
+msgid "Move…"
+msgstr "Siirrä…"
+
+#: src/actions.rs
+msgid "New Collection…"
+msgstr "Uusi kokoelma…"
+
+#: src/actions.rs
+msgid "New Folder…"
+msgstr "Uusi kansio…"
+
+#: src/actions.rs
+msgid "New Window"
+msgstr "Uusi ikkuna"
+
+#: src/actions.rs
+msgid "Next Filter"
+msgstr "Seuraava suodatin"
+
+#: src/actions.rs
+msgid "Next Image"
+msgstr "Seuraava kuva"
+
+#: src/actions.rs
+msgid "Next Layout"
+msgstr "Seuraava asettelu"
+
+#: src/actions.rs
+msgid "Next Page"
+msgstr "Seuraava sivu"
+
+#: src/actions.rs
+msgid "No Stars"
+msgstr "Ei tähtiä"
+
+#: src/actions.rs
+msgid "One Image"
+msgstr "Yksi kuva"
+
+#: src/actions.rs
+msgid "Open Collection…"
+msgstr "Avaa kokoelma…"
+
+#: src/actions.rs
+msgid "Open File…"
+msgstr "Avaa tiedosto…"
+
+#: src/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Avaa kansio alikansioineen…"
+
+#: src/actions.rs
+msgid "Open Folder…"
+msgstr "Avaa kansio…"
+
+#: src/actions.rs
+msgid "Open Several Folders…"
+msgstr "Avaa useita kansioita…"
+
+#: src/actions.rs
+msgid "Open With Default App"
+msgstr "Avaa oletussovelluksella"
+
+#: src/actions.rs
+msgid "Pan View"
+msgstr "Yleiskatsaus"
+
+#: src/actions.rs
+msgid "Pane Above"
+msgstr "Ruutu yllä"
+
+#: src/actions.rs
+msgid "Pane Below"
+msgstr "Ruutu alla"
+
+#: src/actions.rs
+msgid "Pane to the Left"
+msgstr "Ruutu vasemmalla"
+
+#: src/actions.rs
+msgid "Pane to the Right"
+msgstr "Ruutu oikealla"
+
+#: src/actions.rs
+msgid "Pause Slideshow"
+msgstr "Keskeytä diaesitys"
+
+#: src/actions.rs
+msgid "Play Animations"
+msgstr "Toista animaatiot"
+
+#: src/actions.rs
+msgid "Play Video"
+msgstr "Toista video"
+
+#: src/actions.rs
+msgid "Preferences…"
+msgstr "Asetukset…"
+
+#: src/actions.rs
+msgid "Previous Image"
+msgstr "Edellinen kuva"
+
+#: src/actions.rs
+msgid "Previous Page"
+msgstr "Edellinen sivu"
+
+#: src/actions.rs
+msgid "Print…"
+msgstr "Tulosta…"
+
+#: src/actions.rs
+msgid "Projector"
+msgstr "Projektori"
+
+#: src/actions.rs
+msgid "Quit"
+msgstr "Lopeta"
+
+#: src/actions.rs
+msgid "Random Order"
+msgstr "Satunnainen järjestys"
+
+#: src/actions.rs
+msgid "Refresh"
+msgstr "Päivitä"
+
+#: src/actions.rs
+msgid "Remove from Collection"
+msgstr "Poista kokoelmasta"
+
+#: src/actions.rs
+msgid "Rename Collection…"
+msgstr "Nimeä kokoelma uudelleen…"
+
+#: src/actions.rs
+msgid "Rename…"
+msgstr "Nimeä uudelleen…"
+
+#: src/actions.rs
+msgid "Rotate 180°"
+msgstr "Kierrä 180°"
+
+#: src/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Kierrä myötäpäivään"
+
+#: src/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Kierrä vastapäivään"
+
+#: src/actions.rs
+msgid "Save Orientation to File"
+msgstr "Tallenna suunta tiedostoon"
+
+#: src/actions.rs
+msgid "Save This Frame…"
+msgstr "Tallenna tämä ruutu…"
+
+#: src/actions.rs
+msgid "Search File Names"
+msgstr "Hae tiedostonimistä"
+
+#: src/actions.rs
+msgid "Select All"
+msgstr "Valitse kaikki"
+
+#: src/actions.rs
+msgid "Select Mark 1"
+msgstr "Valitse merkki 1"
+
+#: src/actions.rs
+msgid "Select Mark 2"
+msgstr "Valitse merkki 2"
+
+#: src/actions.rs
+msgid "Select Mark 3"
+msgstr "Valitse merkki 3"
+
+#: src/actions.rs
+msgid "Select Mark 4"
+msgstr "Valitse merkki 4"
+
+#: src/actions.rs
+msgid "Select Mark 5"
+msgstr "Valitse merkki 5"
+
+#: src/actions.rs
+msgid "Select Mark 6"
+msgstr "Valitse merkki 6"
+
+#: src/actions.rs
+msgid "Select None"
+msgstr "Poista valinnat"
+
+#: src/actions.rs
+msgid "Show EXIF Panel"
+msgstr "Näytä EXIF-paneeli"
+
+#: src/actions.rs
+msgid "Show Folder Path"
+msgstr "Näytä kansion polku"
+
+#: src/actions.rs
+msgid "Show Folder Tree"
+msgstr "Näytä kansiopuu"
+
+#: src/actions.rs
+msgid "Show Hidden Files"
+msgstr "Näytä piilotiedostot"
+
+#: src/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Näytä kuvan tiedot koko näytössä"
+
+#: src/actions.rs
+msgid "Show Sort Manager"
+msgstr "Näytä lajittelija"
+
+#: src/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Näytä osoitin projektorissa"
+
+#: src/actions.rs
+msgid "Show Thumbnails"
+msgstr "Näytä pienoiskuvat"
+
+#: src/actions.rs
+msgid "Show Toolbar"
+msgstr "Näytä työkalupalkki"
+
+#: src/actions.rs
+msgid "Slower"
+msgstr "Hitaammin"
+
+#: src/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Aloita/lopeta diaesitys"
+
+#: src/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Lopeta diaesitys, poistu koko näytöstä"
+
+#: src/actions.rs
+msgid "Two Above Each Other"
+msgstr "Kaksi päällekkäin"
+
+#: src/actions.rs
+msgid "Up"
+msgstr "Ylös"
+
+#: src/actions.rs
+msgid "View Images as Icons"
+msgstr "Näytä kuvat kuvakkeina"
+
+#: src/actions.rs
+msgid "Zoom 1:1"
+msgstr "Zoomaus 1:1"
+
+#: src/actions.rs
+msgid "Zoom In"
+msgstr "Lähennä"
+
+#: src/actions.rs
+msgid "Zoom Out"
+msgstr "Loitonna"
+
+#: src/actions.rs
+msgid "Zoom to Fit"
+msgstr "Sovita ikkunaan"
+
+#: src/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Ei kelvollinen kokoelman nimi: ”{name}”"
+
+#: src/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Kokoelma nimeltä ”{name}” on jo olemassa"
+
+#: src/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "Luettelon {count} joukosta vertaa"
+
+#: src/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Valitse kaikki paitsi kunkin ryhmän ensimmäinen"
+
+#: src/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Tarkistussumma (identtiset tiedostot)"
+
+#: src/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Verrataan… {done}/{total}"
+
+#: src/duplicates.rs
+msgid "Find"
+msgstr "Etsi"
+
+#: src/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Etsi kaksoiskappaleet"
+
+#: src/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Ryhmä {n} ({files})"
+
+#: src/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Näytä-valikon Sisällytä alikansiot hakee myös alla olevista kansioista."
+
+#: src/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "Siirrä {n} valittua roskakoriin…"
+
+#: src/duplicates.rs
+msgid "Name"
+msgstr "Nimi"
+
+#: src/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Samankaltaisuus (90 %)"
+
+#: src/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Samankaltaisuus (korkea, 95 %)"
+
+#: src/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Samankaltaisuus (matala, 85 %)"
+
+#: src/duplicates.rs
+msgid "Size"
+msgstr "Koko"
+
+#: src/duplicates.rs
+msgid "Stop"
+msgstr "Pysäytä"
+
+#: src/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "Valitut tiedostot eivät ole enää kaikki luettelossa"
+
+#: src/duplicates.rs
+msgid "Uncheck all"
+msgstr "Poista kaikki valinnat"
+
+#: src/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, joukossa {images}"
+
+#: src/file_ops.rs
+msgid "Backing up"
+msgstr "Varmuuskopioidaan"
+
+#: src/file_ops.rs
+msgid "Copy"
+msgstr "Kopioi"
+
+#: src/file_ops.rs
+msgid "Copying"
+msgstr "Kopioidaan"
+
+#: src/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Kohdetta {folder} ei voitu luoda"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; mitään ei nimetty uudelleen"
+
+#: src/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Ruutuja ei voitu tallentaa: {e}"
+
+#: src/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Poisto epäonnistui ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Deleting"
+msgstr "Poistetaan"
+
+#: src/file_ops.rs
+msgid "Exporting"
+msgstr "Viedään"
+
+#: src/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (glibistä): {e}"
+
+#: src/file_ops.rs
+msgid "Move"
+msgstr "Siirrä"
+
+#: src/file_ops.rs
+msgid "Moving"
+msgstr "Siirretään"
+
+#: src/file_ops.rs
+msgid "Saved {file}"
+msgstr "Tallennettu {file}"
+
+#: src/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Tallennettu; näkyy, kun Kierrä automaattisesti EXIFin mukaan on päällä"
+
+#: src/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Kiertoa tallennetaan vielä: yritä hetken päästä uudelleen"
+
+#: src/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "Kysytyt tiedostot eivät ole enää luettelossa: mitään ei tehty"
+
+#: src/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Kaava antaa usealle tiedostolle saman nimen; lisää # numeroa varten"
+
+#: src/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Sivutiedostojen kirjoitus pysähtyi tiedostoon, joka sai sen epäonnistumaan"
+
+#: src/file_ops.rs
+msgid "{count} deleted"
+msgstr "{count} poistettu"
+
+#: src/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "{count} siirretty roskakoriin"
+
+#: src/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "{frames} tallennettu kansioon {folder}"
+
+#: src/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} on jo olemassa; mitään ei nimetty uudelleen"
+
+#: src/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "{verb} epäonnistui ({count}): {first}"
+
+#: src/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Peruuta (Esc)"
+
+#: src/lightroom.rs
+msgid "Import"
+msgstr "Tuo"
+
+#: src/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Tuo Lightroomista"
+
+#: src/lightroom.rs
+msgid "Importing"
+msgstr "Tuodaan"
+
+#: src/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "Säilytä Glimtin tähdet"
+
+#: src/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroomissa on luettelo auki: sulje ensin Lightroom"
+
+#: src/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "Lightroomin tähtiä tai avainsanoja ei kirjoitettu sivutiedostoihin: {count}"
+
+#: src/lightroom.rs
+msgid "Next"
+msgstr "Seuraava"
+
+#: src/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Ei Lightroom Classic -luettelo, jota Glimt osaa lukea: {why}"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "Lightroom-luettelon lukeminen vaatii sqlite3-ohjelman"
+
+#: src/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "Ota Lightroomin tähdet"
+
+#: src/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "avainsanat: {count}"
+
+#: src/lightroom.rs
+msgid "the stars of {count}"
+msgstr "tähdet: {count}"
+
+#: src/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Ovat jo olemassa, joten ne saavat vain puuttuvat kuvat: {names}."
+
+#: src/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Missä luettelon kansiot nyt ovat (tyhjä: jätetään pois):"
+
+#: src/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} ja tähdet: {images}."
+
+#: src/lightroom.rs
+msgid "{count} have"
+msgstr "{count}:"
+
+#: src/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, jota ei ole asennettu"
+
+#: src/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "{n} muuta tähteä Glimtissä:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", ja {n} muuta"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; ja {n} muuta (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "Tiedostoikkuna on jo auki"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "Glimt ei nimeä uudelleen eikä heitä roskakoriin tavallista luetteloa"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Lisää"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "Lisää avainsanat {n} valittuun"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Lisää tämä kansio"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "Lisää tämän kuvan avainsanat puuhun"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Lisää kokoelmaan"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Lisätään avainsanoja"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Lisää…"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Kaikki kuvat vaihtuvat yhdessä"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Vaihtoehtoinen teksti"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Nouseva"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Kirjainkoko"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Tarkista"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Tarkista kuvat"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Kokoelmat"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Värinhallinta"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Kommentti"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Yhdistä (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Yhdistetään kohteeseen {uri}…"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Kuvaa ei voitu kopioida: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Leikepöydälle ei voitu kopioida: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Uutta ikkunaa ei voitu avata: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Avainsanapuuta ei voitu lukea: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Lajittelijan kansioita ei voitu lukea: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Vaihtoehtoista tekstiä ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Kokoelmaa ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Avainsanoja ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Suuntaa ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Lajittelijan kansioita ei voitu tallentaa: ei kotikansiota"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Lajittelijan kansioita ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Teemaa ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "Kohdetta {name} ei voitu siirtää roskakoriin (tarvitaan gio): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "Kohdetta {name} ei voitu siirtää roskakoriin: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Poista (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Siellä olevat desktop-tiedostot, kuten Geeqien, näkyvät tässä valikossa uudelleenkäynnistyksen jälkeen"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Mitat"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Toimialue:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Jokainen tiedosto säilyttää omat avainsanansa ja saa myös nämä"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Muokkaa"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Laajennettu kuvaus"
+
+#: src/main.rs
+msgid "File"
+msgstr "Tiedosto"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Suodatin"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Viimeistele uudelleennimeäminen"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "Ensimmäinen: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Hae lisää teemoja…"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Siirry"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Ohje"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Kuvat"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Avainsanapuu"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Avainsanat"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Avainsanat lisätty: {count}"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Avainsanoja ei voitu tallentaa: {count}"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Myöhemmin"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Asettelu"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Kirjaudu kohteeseen {uri}"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Merkit ja tähdet"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Siirrä kansio roskakoriin…"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "Siirrä kokoelmassa"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "Siirretäänkö kansio ”{name}” ja kaikki sen sisältö roskakoriin?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "Siirrä roskakoriin (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "Siirretäänkö {what} roskakoriin?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Uuden kokoelman nimi, mukana {count}:"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Uusi kansio luo kansion näytettyyn kansioon: avaa jokin"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Uudet nimet: {count} (* = vanha nimi, # = numero, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Sovelluksia ei löytynyt"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Ei vielä kokoelmia"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Ei EXIF-tietoja"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Ei tiedostoikkunaa (asenna zenity tai kdialog): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Täällä ei ole kuvia kokoelmaan"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Kansiossa ei ole kuvia"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Ei liitännäisiä"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Kansiota ei ole: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Ei kelvollinen nimi: ”{text}”"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "OK (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "Yksi kuva kerrallaan"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Vain kokoelman kuvia voi siirtää"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "Avaa liitännäiskansio"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Avaa teemakansio"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Avaa sovelluksella"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Suunta"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Salasana:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "Poistetaanko {what} pysyvästi?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Paikat|Norja|Oslo"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Liitännäiset"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "Palauta vanhat nimet"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Satunnainen järjestys on päällä: R kytkee sen pois kuvien siirtämiseksi"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Luetaan kansiota…"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Poista"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Poista puusta"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Nimeä kansio uudelleen…"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Monen uudelleennimeäminen on yhä käynnissä"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Monen uudelleennimeäminen keskeytyi"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Tallenna teemaksi…"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Valitse"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Valitse ne"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Pilkuilla erotettuina"
+
+#: src/main.rs
+msgid "set on"
+msgstr "lisätty"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Asetetaan avainsanoja"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Näytä tiedostonimet"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Näytä OpenStreetMapissa"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Näytä yhdessä näiden kuvien kanssa"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Diaesitys tässä asettelussa:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Lajittelija"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Aloita diaesitys"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "Tämän tiedoston viimeisintä kiertoa tallennetaan vielä"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Lopeta diaesitys"
+
+#: src/main.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Pysäytetty: {done}/{total}"
+
+#: src/main.rs
+msgid "taken off"
+msgstr "poistettu"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Poistetaan avainsanoja"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Erota isot ja pienet kirjaimet"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "Kokoelma {file} on poissa (nimetty uudelleen tai poistettu toisessa ikkunassa): ei tallennettu"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Avainsanaa ei voitu tallentaa: {count}"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Ruutu, jota nämä tiedot koskevat: osoittimen alla oleva"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "Asetukset on lukittu (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "Tähtiä ei voitu kirjoittaa XMP-sivutiedostoon: {count}"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Teema"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Tätä ei voi kumota."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Käyttäjä:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Video: Enter tai napsautus toistaa"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Videot"
+
+#: src/main.rs
+msgid "View"
+msgstr "Näytä"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Mitä kuva esittää, sille joka ei näe sitä"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Ikkuna"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Kirjoitetaan tähtiä"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Zoomaus"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done}/{total}…{more}"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "{n} lisätty kokoelmaan ”{name}”"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "{n} rikki:"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} on sisäänrakennettu teema: valitse toinen nimi"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Neljä (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "Kaksi rinnakkain"
+
+#: src/pan.rs
+msgid "April"
+msgstr "huhtikuu"
+
+#: src/pan.rs
+msgid "August"
+msgstr "elokuu"
+
+#: src/pan.rs
+msgid "Calendar"
+msgstr "Kalenteri"
+
+#: src/pan.rs
+msgid "December"
+msgstr "joulukuu"
+
+#: src/pan.rs
+msgid "EXIF date"
+msgstr "EXIF-päiväys"
+
+#: src/pan.rs
+msgid "February"
+msgstr "helmikuu"
+
+#: src/pan.rs
+msgid "January"
+msgstr "tammikuu"
+
+#: src/pan.rs
+msgid "July"
+msgstr "heinäkuu"
+
+#: src/pan.rs
+msgid "June"
+msgstr "kesäkuu"
+
+#: src/pan.rs
+msgid "March"
+msgstr "maaliskuu"
+
+#: src/pan.rs
+msgid "May"
+msgstr "toukokuu"
+
+#: src/pan.rs
+msgid "No date"
+msgstr "Ei päiväystä"
+
+#: src/pan.rs
+msgid "November"
+msgstr "marraskuu"
+
+#: src/pan.rs
+msgid "October"
+msgstr "lokakuu"
+
+#: src/pan.rs
+msgid "September"
+msgstr "syyskuu"
+
+#: src/pan.rs
+msgid "Timeline"
+msgstr "Aikajana"
+
+#: src/pan.rs
+msgid "{images} on {days}"
+msgstr "{images}, {days}"
+
+#: src/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Kirjoita tähdet myös XMP-sivutiedostoihin (photo.jpg.xmp) darktablea ja digiKamia varten"
+
+#: src/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Kierrä kuvat automaattisesti EXIFin mukaan (Alt+X)"
+
+#: src/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Automaattinen (järjestelmän kieli)"
+
+#: src/preferences.rs
+msgid "Background behind the image"
+msgstr "Tausta kuvan takana"
+
+#: src/preferences.rs
+msgid "Black"
+msgstr "Musta"
+
+#: src/preferences.rs
+msgid "Brightness"
+msgstr "Kirkkaus"
+
+#: src/preferences.rs
+msgid "Change"
+msgstr "Vaihda"
+
+#: src/preferences.rs
+msgid "Choose…"
+msgstr "Valitse…"
+
+#: src/preferences.rs
+msgid "Colour management"
+msgstr "Värinhallinta"
+
+#: src/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Vahvista tiedoston siirto roskakoriin"
+
+#: src/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Vahvista tiedoston pysyvä poisto"
+
+#: src/preferences.rs
+msgid "CPU use:"
+msgstr "Suorittimen käyttö:"
+
+#: src/preferences.rs
+msgid "Custom"
+msgstr "Mukautettu"
+
+#: src/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Purkusäikeet ja yksi malloc-areena tulevat voimaan uudelleenkäynnistyksen jälkeen."
+
+#: src/preferences.rs
+msgid "Default"
+msgstr "Oletus"
+
+#: src/preferences.rs
+msgid "default application"
+msgstr "oletussovellus"
+
+#: src/preferences.rs
+msgid "Delete behaviour:"
+msgstr "Poisto:"
+
+#: src/preferences.rs
+msgid "Details"
+msgstr "Tiedot"
+
+#: src/preferences.rs
+msgid "Enable Delete key"
+msgstr "Ota Delete-näppäin käyttöön"
+
+#: src/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Suurenna pienet kuvat täyttämään ikkuna"
+
+#: src/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Häivytys seuraavaan kuvaan:"
+
+#: src/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Colordista, jonka GNOME ja KDE asettavat"
+
+#: src/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Sumea, parhaat osumat ensin (kuten fzf)"
+
+#: src/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Suuri kontrasti, kun työpöytä pyytää suurta kontrastia"
+
+#: src/preferences.rs
+msgid "Histogram (K):"
+msgstr "Histogrammi (K):"
+
+#: src/preferences.rs
+msgid "Image info template:"
+msgstr "Kuvatietojen malli:"
+
+#: src/preferences.rs
+msgid "images decoded at once"
+msgstr "kuvaa purettuna kerralla"
+
+#: src/preferences.rs
+msgid "images on each side"
+msgstr "kuvaa kummallakin puolella"
+
+#: src/preferences.rs
+msgid "Images without a profile:"
+msgstr "Kuvat ilman profiilia:"
+
+#: src/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "Kansiossa ~/.cache/thumbnails; säilytetään levyille, jotka eivät ole kytkettyinä"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "Sisällytä alikansioiden kuvat"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "Sisällytä alikansioiden kuvat tiedostoluetteloon"
+
+#: src/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Pidä näytönsäästäjä pois koko näytössä"
+
+#: src/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Säilytä zoomaus ja sijainti kuvaa vaihdettaessa"
+
+#: src/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Pikanäppäimet"
+
+#: src/preferences.rs
+msgid "Language"
+msgstr "Kieli"
+
+#: src/preferences.rs
+msgid "Large"
+msgstr "Suuri"
+
+#: src/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Vielä suurempi, kun työpöydän teksti on (GNOMEn suuri teksti)"
+
+#: src/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Kuuntele glimt --remote -komentoja (uudelleenkäynnistyksen jälkeen)"
+
+#: src/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Logaritminen (J)"
+
+#: src/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "Mt enintään animaation ruuduille"
+
+#: src/preferences.rs
+msgid "Medium"
+msgstr "Keskikokoinen"
+
+#: src/preferences.rs
+msgid "Memory use:"
+msgstr "Muistin käyttö:"
+
+#: src/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Hiiren rulla zoomaa (pois: seuraava/edellinen kuva, Ctrl+rulla zoomaa)"
+
+#: src/preferences.rs
+msgid "None"
+msgstr "Ei mitään"
+
+#: src/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Ei suorittimen käytöllä Virransäästö"
+
+#: src/preferences.rs
+msgid "Off"
+msgstr "Pois"
+
+#: src/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "Yksi malloc-areena: paljon vähemmän muistia, purku jopa ~8 % hitaampaa"
+
+#: src/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Toista animoidut GIF- ja WebP-kuvat (A)"
+
+#: src/preferences.rs
+msgid "Player (Enter):"
+msgstr "Soitin (Enter):"
+
+#: src/preferences.rs
+msgid "Preferences"
+msgstr "Asetukset"
+
+#: src/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Esilataa seuraavat ja edelliset kuvat:"
+
+#: src/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Paina näppäintä (Esc peruuttaa)"
+
+#: src/preferences.rs
+msgid "Profile file…"
+msgstr "Profiilitiedosto…"
+
+#: src/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "laatu, kun häviöllinen WebP tallennetaan uudelleen"
+
+#: src/preferences.rs
+msgid "Random order"
+msgstr "Satunnainen järjestys"
+
+#: src/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "Päivitä kansio, kun tiedostot muuttuvat"
+
+#: src/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Säännöllinen lauseke, luettelon järjestyksessä (kuten Geeqien tiedostosuodatin)"
+
+#: src/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Muista ikkunan koko ja sijainti"
+
+#: src/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Poista poistettujen tiedostojen pienoiskuvat"
+
+#: src/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "Poistettiin {removed}/{seen} pienoiskuvaa"
+
+#: src/preferences.rs
+msgid "Rendering intent:"
+msgstr "Renderöintitapa:"
+
+#: src/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Toista: aloita alusta viimeisen kuvan jälkeen"
+
+#: src/preferences.rs
+msgid "Reset"
+msgstr "Palauta"
+
+#: src/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Tallenna uudet pienoiskuvat kansioon ~/.cache/thumbnails (jaettu muiden ohjelmien kanssa)"
+
+#: src/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Tallenna kierto tiedostoon kuvaa vaihdettaessa (JPEG; PNG ja WebP tallennetaan uudelleen)"
+
+#: src/preferences.rs
+msgid "Screen profile:"
+msgstr "Näytön profiili:"
+
+#: src/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Hakukenttä tiedostoluettelon yllä:"
+
+#: src/preferences.rs
+msgid "seconds per image"
+msgstr "sekuntia kuvaa kohti"
+
+#: src/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Näytä tiedostokoko ja päiväys tiedostoluettelossa"
+
+#: src/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Näytä kansiot puuna (Ctrl+T)"
+
+#: src/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Näytä kuvan tiedot koko näytössä (I)"
+
+#: src/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Näytä merkit ja tähdet tiedostoluettelossa"
+
+#: src/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Näytä EXIF-paneeli (Ctrl+K; lukee vähän jokaisesta näytetystä kuvasta)"
+
+#: src/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "Näytä tiedostoluettelo kuvakkeina (Ctrl+I)"
+
+#: src/preferences.rs
+msgid "Show the file name search"
+msgstr "Näytä tiedostonimihaku"
+
+#: src/preferences.rs
+msgid "Show the folder path"
+msgstr "Näytä kansion polku"
+
+#: src/preferences.rs
+msgid "Show the toolbar"
+msgstr "Näytä työkalupalkki"
+
+#: src/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Näytä pienoiskuvat tiedostoluettelossa (T)"
+
+#: src/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Näytä videot tiedostoluettelossa"
+
+#: src/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "valikoiden, luetteloiden ja tekstin koko"
+
+#: src/preferences.rs
+msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
+msgstr "Diaesitys (S, R = satunnainen, Ctrl+= nopeammin, Ctrl+- hitaammin):"
+
+#: src/preferences.rs
+msgid "Small"
+msgstr "Pieni"
+
+#: src/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Aloita viimeksi käytetystä kansiosta"
+
+#: src/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Pienoiskuvien koko:"
+
+#: src/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Työkalupalkin kuvakkeet:"
+
+#: src/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Enintään ≈ {mb} Mt, kukin kuva enintään {w}×{h}"
+
+#: src/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Älä käytä roskakoria lainkaan (Delete poistaa pysyvästi)"
+
+#: src/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Käytä työpöydän näyttöprofiilia"
+
+#: src/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Käytä kuvan omaa profiilia"
+
+#: src/preferences.rs
+msgid "Video (needs ffmpeg for previews):"
+msgstr "Video (esikatselut vaativat ffmpegin):"
+
+#: src/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} oli myös toiminnon {others} näppäin: nyt vain toiminnon {label}"
+
+#: src/print.rs
+msgid "Copies:"
+msgstr "Kopioita:"
+
+#: src/print.rs
+msgid "Images per page:"
+msgstr "Kuvia sivulla:"
+
+#: src/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Yhtään kuvaa ei voitu lukea: mitään ei tulostettu"
+
+#: src/print.rs
+msgid "No printers found"
+msgstr "Tulostimia ei löytynyt"
+
+#: src/print.rs
+msgid "Paper:"
+msgstr "Paperi:"
+
+#: src/print.rs
+msgid "PDF file"
+msgstr "PDF-tiedosto"
+
+#: src/print.rs
+msgid "Print (Enter)"
+msgstr "Tulosta (Enter)"
+
+#: src/print.rs
+msgid "Print {count}"
+msgstr "Tulosta {count}"
+
+#: src/print.rs
+msgid "Printer:"
+msgstr "Tulostin:"
+
+#: src/print.rs
+msgid "Printing failed: {e}"
+msgstr "Tulostus epäonnistui: {e}"
+
+#: src/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "Tallenna PDF… (Enter)"
+
+#: src/print.rs
+msgid "{images} on {pages}"
+msgstr "{images}, {pages}"
+
+#: src/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; {f} ei voitu lukea"
+
+#: src/print.rs
+msgid "{what} saved in {file}"
+msgstr "{what} tallennettu tiedostoon {file}"
+
+#: src/print.rs
+msgid "{what} sent to {printer}"
+msgstr "{what} lähetetty tulostimelle {printer}"
+
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "kokoelma"
+msgstr[1] "kokoelmaa"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "päivä"
+msgstr[1] "päivää"
+
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "virhe"
+msgstr[1] "virhettä"
+
+msgid "file"
+msgid_plural "files"
+msgstr[0] "tiedosto"
+msgstr[1] "tiedostoa"
+
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "ruutu"
+msgstr[1] "ruutua"
+
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "ryhmä"
+msgstr[1] "ryhmää"
+
+msgid "image"
+msgid_plural "images"
+msgstr[0] "kuva"
+msgstr[1] "kuvaa"
+
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "avainsana"
+msgstr[1] "avainsanaa"
+
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "sivu"
+msgstr[1] "sivua"
+
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "tähti"
+msgstr[1] "tähteä"
+
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "vaihe"
+msgstr[1] "vaihetta"
+
+#: src/print.rs
+msgid "Orientation:"
+msgstr "Suunta:"
+
+#: src/print.rs
+msgid "Automatic"
+msgstr "Automaattinen"
+
+#: src/print.rs
+msgid "Portrait"
+msgstr "Pysty"
+
+#: src/print.rs
+msgid "Landscape"
+msgstr "Vaaka"
+
+#: src/print.rs
+msgid "Margin (mm):"
+msgstr "Marginaali (mm):"
+
+#: src/print.rs
+msgid "Image size (%):"
+msgstr "Kuvan koko (%):"
+
+#: src/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Täytä jokainen ruutu rajaamalla kuva siihen"
+
+#: src/print.rs
+msgid "Text under each image:"
+msgstr "Teksti jokaisen kuvan alla:"
+
+#: src/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Kuten kuvatiedot koko näytössä: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% on sivun numero, %pages% sivujen määrä"
+
+#: src/print.rs
+msgid "Top of each page:"
+msgstr "Jokaisen sivun ylälaidassa:"
+
+#: src/print.rs
+msgid "Bottom of each page:"
+msgstr "Jokaisen sivun alalaidassa:"
+
+#: src/print.rs
+msgid "Both sides of the paper"
+msgstr "Paperin molemmat puolet"
+
+#: src/print.rs
+msgid "Print the image"
+msgstr "Tulosta kuva"
+
+#: src/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} kopioitu kansioon {folder}"
+
+#: src/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} siirretty kansioon {folder}"
+
+#: src/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Kansiota ei voitu siirtää roskakoriin: {e}"
+
+#: src/print.rs
+msgid "calculating…"
+msgstr "lasketaan…"
+
+#: src/print.rs
+msgid "Open Folder"
+msgstr "Avaa kansio"
+
+#: src/print.rs
+msgid "Open File"
+msgstr "Avaa tiedosto"
+
+#: src/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Avaa kansiot (Ctrl+napsautus useampaan)"
+
+#: src/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Avaa kansio alikansioineen"
+
+#: src/print.rs
+msgid "Open Collection"
+msgstr "Avaa kokoelma"
+
+#: src/print.rs
+msgid "Copy to Folder"
+msgstr "Kopioi kansioon"
+
+#: src/print.rs
+msgid "Move to Folder"
+msgstr "Siirrä kansioon"
+
+#: src/print.rs
+msgid "Save as PDF"
+msgstr "Tallenna PDF:nä"
+
+#: src/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Lisää lajittelijaan"
+
+#: src/print.rs
+msgid "Screen Profile"
+msgstr "Näytön profiili"
+
+#: src/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profiili kuville, joilla ei ole omaa"
+
+#: src/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Tuo Lightroom-luettelo"
+
+#: src/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Varmuuskopioi Glimtin tiedot kohteeseen"
+
+#: src/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Tallenna tämä ruutu PNG:nä"
+
+#: src/print.rs
+msgid "Export Every Frame To"
+msgstr "Vie jokainen ruutu kohteeseen"
+
+#: src/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Kokoelma {name} siirretty roskakoriin"
+
+#: src/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Ei kaava: {e}"
+
+#: src/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} on jo olemassa: valitse toinen nimi"
+
+#: src/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Tallennettu nimellä {file}: muokkaa sitä ja valitse se sitten uudelleen"
+
+#: src/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} saivat vanhat nimensä takaisin"
+
+#: src/print.rs
+msgid "{files} renamed"
+msgstr "{files} nimetty uudelleen"
+
+#: src/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} ei voitu, kysytään uudelleen seuraavalla käynnistyskerralla"
+
+#: src/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found}/{images} ({size})"
+
+#: src/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} valittu ({size})"
+
+#: src/print.rs
+msgid "{n} bytes"
+msgstr "{n} tavua"
+
+#: src/print.rs
+msgid " page {n}/{pages}"
+msgstr " sivu {n}/{pages}"
+
+#: src/print.rs
+msgid " frame {n}/{frames}"
+msgstr " ruutu {n}/{frames}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa, Glimt tarjoutuu korjaamaan ne seuraavalla käynnistyskerralla"
+
+#: src/pan.rs
+msgid "Mon"
+msgstr "ma"
+
+#: src/pan.rs
+msgid "Tue"
+msgstr "ti"
+
+#: src/pan.rs
+msgid "Wed"
+msgstr "ke"
+
+#: src/pan.rs
+msgid "Thu"
+msgstr "to"
+
+#: src/pan.rs
+msgid "Fri"
+msgstr "pe"
+
+#: src/pan.rs
+msgid "Sat"
+msgstr "la"
+
+#: src/pan.rs
+msgid "Sun"
+msgstr "su"
+
+#: src/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Avainsanoja kirjoitetaan vielä: yritä hetken päästä uudelleen"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} pysähtyi odottamatta"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Yhdistetään"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Luetaan Lightroom-luetteloa"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Etsitään keskeytyneitä uudelleennimeämisiä"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "EXIF-hakemisto"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Yleiskatsauksen päivät"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Nimeä useita uudelleen"
+
+#: src/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Ei vastausta palvelimelta minuuttiin"
+
+#: src/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Luettelo on liian suuri luettavaksi"
+
+#: src/file_ops.rs
+msgid "stopped"
+msgstr "pysäytetty"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Tallennetaan avainsanoja"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Tallennetaan vaihtoehtoista tekstiä"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Luetaan kansiota"
+
+#: src/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Ei vastausta tulostuspalvelimelta kahteen minuuttiin"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa eikä suunnitelmaa voitu säilyttää: niiden vieressä olevat .glimt-rename-*-nimiset tiedostot ovat niiden"
+
+#: src/preferences.rs
+msgid "Look"
+msgstr "Ulkoasu"
+
+#: src/preferences.rs
+msgid "Keyboard"
+msgstr "Näppäimistö"
+
+#: src/preferences.rs
+msgid "Image"
+msgstr "Kuva"
+
+#: src/preferences.rs
+msgid "Slideshow"
+msgstr "Diaesitys"
+
+#: src/preferences.rs
+msgid "File list"
+msgstr "Tiedostoluettelo"
+
+#: src/preferences.rs
+msgid "Memory and CPU"
+msgstr "Muisti ja suoritin"
+
+#: src/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/preferences.rs
+msgid "Start and system"
+msgstr "Käynnistys ja järjestelmä"
+
+#: src/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Esikatselut vaativat ffmpegin"
+
+#: src/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S aloittaa ja lopettaa, R satunnainen järjestys, Ctrl+= nopeammin, Ctrl+- hitaammin"
+
+#: src/actions.rs
+msgid "Undo"
+msgstr "Kumoa"
+
+#: src/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Ei mitään kumottavaa"
+
+#: src/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Kumoaminen epäonnistui ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Kumoaminen epäonnistui: {e}"
+
+#: src/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} palautettu roskakorista"
+
+#: src/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} siirretty takaisin"
+
+#: src/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} on jo olemassa"
+
+#: src/file_ops.rs
+msgid "{name} is not in the trash"
+msgstr "{name} ei ole roskakorissa"
+
+#: src/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Aseta taustakuvaksi"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Taustakuvaa ei voitu asettaa: {e}"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Tyhjennä luettelo"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Mitään ei ole vielä avattu"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Avaa viimeaikainen"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} on poissa"
+
+#: src/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Pidä luetteloa viimeaikaisista kansioista (Tiedosto → Avaa viimeaikainen)"
+
+#: src/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Shakkiruudukko läpinäkyvien kuvien takana"
+
+#: src/actions.rs
+msgid "Crop…"
+msgstr "Rajaa…"
+
+#: src/crop.rs
+msgid "A video is not cropped"
+msgstr "Videota ei rajata"
+
+#: src/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Vedä kuvan yli valitaksesi säilytettävän osan"
+
+#: src/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Tallenna kopio (Enter)"
+
+#: src/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Kuvaa ei voitu rajata: {e}"
+
+#: src/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "rajatun JPEG-kuvan laatu (Muokkaa → Rajaa)"
+
+#: src/actions.rs
+msgid "Save As…"
+msgstr "Tallenna nimellä…"
+
+#: src/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "Videota ei tallenneta kuvana"
+
+#: src/save_as.rs
+msgid "Format:"
+msgstr "Muoto:"
+
+#: src/save_as.rs
+msgid "As the original ({format})"
+msgstr "Kuten alkuperäinen ({format})"
+
+#: src/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, häviötön"
+
+#: src/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, häviöllinen"
+
+#: src/save_as.rs
+msgid "Size:"
+msgstr "Koko:"
+
+#: src/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Alkuperäinen ({w} × {h})"
+
+#: src/save_as.rs
+msgid "Longest side"
+msgstr "Pisin sivu"
+
+#: src/save_as.rs
+msgid "Percent"
+msgstr "Prosentti"
+
+#: src/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Tallennetaan kokoon {w} × {h}; ei koskaan suurenneta"
+
+#: src/save_as.rs
+msgid "Quality:"
+msgstr "Laatu:"
+
+#: src/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "Poista EXIF ja GPS (kamera, päiväys, paikka), XMP ja sivutiedosto"
+
+#: src/save_as.rs
+msgid "Save…"
+msgstr "Tallenna…"
+
+#: src/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Kuvaa ei voitu tallentaa: {e}"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Tallenna nimellä"

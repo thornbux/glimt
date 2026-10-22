@@ -1,0 +1,2288 @@
+# Glimt's interface in Dutch. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: nl\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/accessibility.rs
+msgid "No images"
+msgstr "Geen afbeeldingen"
+
+#: src/actions.rs
+msgid "About Glimt"
+msgstr "Over Glimt"
+
+#: src/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Automatisch draaien volgens EXIF"
+
+#: src/actions.rs
+msgid "Back"
+msgstr "Terug"
+
+#: src/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Gegevens van Glimt back-uppen …"
+
+#: src/actions.rs
+msgid "Check Images…"
+msgstr "Afbeeldingen controleren …"
+
+#: src/actions.rs
+msgid "Close Window"
+msgstr "Venster sluiten"
+
+#: src/actions.rs
+msgid "Compare Side by Side"
+msgstr "Naast elkaar vergelijken"
+
+#: src/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Bestanden naar klembord kopiëren"
+
+#: src/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Afbeelding naar klembord kopiëren"
+
+#: src/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Pad kopiëren (zonder aanhalingstekens)"
+
+#: src/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Pad naar klembord kopiëren"
+
+#: src/actions.rs
+msgid "Copy…"
+msgstr "Kopiëren …"
+
+#: src/actions.rs
+msgid "Delete Permanently…"
+msgstr "Definitief verwijderen …"
+
+#: src/actions.rs
+msgid "Delete…"
+msgstr "Verwijderen …"
+
+#: src/actions.rs
+msgid "EXIF Window"
+msgstr "EXIF-venster"
+
+#: src/actions.rs
+msgid "Export Frames…"
+msgstr "Frames exporteren …"
+
+#: src/actions.rs
+msgid "Faster"
+msgstr "Sneller"
+
+#: src/actions.rs
+msgid "Fill the View"
+msgstr "Weergave vullen"
+
+#: src/actions.rs
+msgid "Find Duplicates…"
+msgstr "Duplicaten zoeken …"
+
+#: src/actions.rs
+msgid "First Image"
+msgstr "Eerste afbeelding"
+
+#: src/actions.rs
+msgid "Fit the Height"
+msgstr "Aanpassen aan hoogte"
+
+#: src/actions.rs
+msgid "Fit the Width"
+msgstr "Aanpassen aan breedte"
+
+#: src/actions.rs
+msgid "Flip"
+msgstr "Verticaal spiegelen"
+
+#: src/actions.rs
+msgid "Forward"
+msgstr "Vooruit"
+
+#: src/actions.rs
+msgid "Full Screen"
+msgstr "Volledig scherm"
+
+#: src/actions.rs
+msgid "Help Manual"
+msgstr "Handleiding"
+
+#: src/actions.rs
+msgid "Hide File List"
+msgstr "Bestandslijst verbergen"
+
+#: src/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Histogram: uit, RGB, helderheid"
+
+#: src/actions.rs
+msgid "Home"
+msgstr "Thuismap"
+
+#: src/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Lightroom-catalogus importeren …"
+
+#: src/actions.rs
+msgid "Include Subfolders"
+msgstr "Submappen meenemen"
+
+#: src/actions.rs
+msgid "Invert Selection"
+msgstr "Selectie omkeren"
+
+#: src/actions.rs
+msgid "Keyboard Map"
+msgstr "Toetsenbordkaart"
+
+#: src/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Sneltoetsen"
+
+#: src/actions.rs
+msgid "Keywords and Comment"
+msgstr "Trefwoorden en opmerking"
+
+#: src/actions.rs
+msgid "Last Image"
+msgstr "Laatste afbeelding"
+
+#: src/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Logaritmisch histogram"
+
+#: src/actions.rs
+msgid "Mark 1"
+msgstr "Markering 1"
+
+#: src/actions.rs
+msgid "Mark 2"
+msgstr "Markering 2"
+
+#: src/actions.rs
+msgid "Mark 3"
+msgstr "Markering 3"
+
+#: src/actions.rs
+msgid "Mark 4"
+msgstr "Markering 4"
+
+#: src/actions.rs
+msgid "Mark 5"
+msgstr "Markering 5"
+
+#: src/actions.rs
+msgid "Mark 6"
+msgstr "Markering 6"
+
+#: src/actions.rs
+msgid "Mirror"
+msgstr "Horizontaal spiegelen"
+
+#: src/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Verzameling naar prullenbak verplaatsen"
+
+#: src/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "Eerder in verzameling"
+
+#: src/actions.rs
+msgid "Move Later in Collection"
+msgstr "Later in verzameling"
+
+#: src/actions.rs
+msgid "Move to End of Collection"
+msgstr "Naar einde van verzameling"
+
+#: src/actions.rs
+msgid "Move to Start of Collection"
+msgstr "Naar begin van verzameling"
+
+#: src/actions.rs
+msgid "Move…"
+msgstr "Verplaatsen …"
+
+#: src/actions.rs
+msgid "New Collection…"
+msgstr "Nieuwe verzameling …"
+
+#: src/actions.rs
+msgid "New Folder…"
+msgstr "Nieuwe map …"
+
+#: src/actions.rs
+msgid "New Window"
+msgstr "Nieuw venster"
+
+#: src/actions.rs
+msgid "Next Filter"
+msgstr "Volgend filter"
+
+#: src/actions.rs
+msgid "Next Image"
+msgstr "Volgende afbeelding"
+
+#: src/actions.rs
+msgid "Next Layout"
+msgstr "Volgende indeling"
+
+#: src/actions.rs
+msgid "Next Page"
+msgstr "Volgende pagina"
+
+#: src/actions.rs
+msgid "No Stars"
+msgstr "Geen sterren"
+
+#: src/actions.rs
+msgid "One Image"
+msgstr "Eén afbeelding"
+
+#: src/actions.rs
+msgid "Open Collection…"
+msgstr "Verzameling openen …"
+
+#: src/actions.rs
+msgid "Open File…"
+msgstr "Bestand openen …"
+
+#: src/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Map recursief openen …"
+
+#: src/actions.rs
+msgid "Open Folder…"
+msgstr "Map openen …"
+
+#: src/actions.rs
+msgid "Open Several Folders…"
+msgstr "Meerdere mappen openen …"
+
+#: src/actions.rs
+msgid "Open With Default App"
+msgstr "Openen met standaardtoepassing"
+
+#: src/actions.rs
+msgid "Pan View"
+msgstr "Overzicht"
+
+#: src/actions.rs
+msgid "Pane Above"
+msgstr "Paneel erboven"
+
+#: src/actions.rs
+msgid "Pane Below"
+msgstr "Paneel eronder"
+
+#: src/actions.rs
+msgid "Pane to the Left"
+msgstr "Paneel links"
+
+#: src/actions.rs
+msgid "Pane to the Right"
+msgstr "Paneel rechts"
+
+#: src/actions.rs
+msgid "Pause Slideshow"
+msgstr "Diavoorstelling pauzeren"
+
+#: src/actions.rs
+msgid "Play Animations"
+msgstr "Animaties afspelen"
+
+#: src/actions.rs
+msgid "Play Video"
+msgstr "Video afspelen"
+
+#: src/actions.rs
+msgid "Preferences…"
+msgstr "Voorkeuren …"
+
+#: src/actions.rs
+msgid "Previous Image"
+msgstr "Vorige afbeelding"
+
+#: src/actions.rs
+msgid "Previous Page"
+msgstr "Vorige pagina"
+
+#: src/actions.rs
+msgid "Print…"
+msgstr "Afdrukken …"
+
+#: src/actions.rs
+msgid "Projector"
+msgstr "Projector"
+
+#: src/actions.rs
+msgid "Quit"
+msgstr "Afsluiten"
+
+#: src/actions.rs
+msgid "Random Order"
+msgstr "Willekeurige volgorde"
+
+#: src/actions.rs
+msgid "Refresh"
+msgstr "Vernieuwen"
+
+#: src/actions.rs
+msgid "Remove from Collection"
+msgstr "Uit verzameling verwijderen"
+
+#: src/actions.rs
+msgid "Rename Collection…"
+msgstr "Verzameling hernoemen …"
+
+#: src/actions.rs
+msgid "Rename…"
+msgstr "Hernoemen …"
+
+#: src/actions.rs
+msgid "Rotate 180°"
+msgstr "180° draaien"
+
+#: src/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Rechtsom draaien"
+
+#: src/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Linksom draaien"
+
+#: src/actions.rs
+msgid "Save Orientation to File"
+msgstr "Oriëntatie in bestand opslaan"
+
+#: src/actions.rs
+msgid "Save This Frame…"
+msgstr "Dit frame opslaan …"
+
+#: src/actions.rs
+msgid "Search File Names"
+msgstr "Bestandsnamen zoeken"
+
+#: src/actions.rs
+msgid "Select All"
+msgstr "Alles selecteren"
+
+#: src/actions.rs
+msgid "Select Mark 1"
+msgstr "Markering 1 selecteren"
+
+#: src/actions.rs
+msgid "Select Mark 2"
+msgstr "Markering 2 selecteren"
+
+#: src/actions.rs
+msgid "Select Mark 3"
+msgstr "Markering 3 selecteren"
+
+#: src/actions.rs
+msgid "Select Mark 4"
+msgstr "Markering 4 selecteren"
+
+#: src/actions.rs
+msgid "Select Mark 5"
+msgstr "Markering 5 selecteren"
+
+#: src/actions.rs
+msgid "Select Mark 6"
+msgstr "Markering 6 selecteren"
+
+#: src/actions.rs
+msgid "Select None"
+msgstr "Niets selecteren"
+
+#: src/actions.rs
+msgid "Show EXIF Panel"
+msgstr "EXIF-paneel tonen"
+
+#: src/actions.rs
+msgid "Show Folder Path"
+msgstr "Mappad tonen"
+
+#: src/actions.rs
+msgid "Show Folder Tree"
+msgstr "Mappenboom tonen"
+
+#: src/actions.rs
+msgid "Show Hidden Files"
+msgstr "Verborgen bestanden tonen"
+
+#: src/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Afbeeldingsinfo tonen in volledig scherm"
+
+#: src/actions.rs
+msgid "Show Sort Manager"
+msgstr "Sorteerhulp tonen"
+
+#: src/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Aanwijzer tonen op de projector"
+
+#: src/actions.rs
+msgid "Show Thumbnails"
+msgstr "Miniaturen tonen"
+
+#: src/actions.rs
+msgid "Show Toolbar"
+msgstr "Werkbalk tonen"
+
+#: src/actions.rs
+msgid "Slower"
+msgstr "Langzamer"
+
+#: src/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Diavoorstelling starten/stoppen"
+
+#: src/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Diavoorstelling stoppen, volledig scherm verlaten"
+
+#: src/actions.rs
+msgid "Two Above Each Other"
+msgstr "Twee boven elkaar"
+
+#: src/actions.rs
+msgid "Up"
+msgstr "Omhoog"
+
+#: src/actions.rs
+msgid "View Images as Icons"
+msgstr "Afbeeldingen als pictogrammen tonen"
+
+#: src/actions.rs
+msgid "Zoom 1:1"
+msgstr "Zoom 1:1"
+
+#: src/actions.rs
+msgid "Zoom In"
+msgstr "Inzoomen"
+
+#: src/actions.rs
+msgid "Zoom Out"
+msgstr "Uitzoomen"
+
+#: src/actions.rs
+msgid "Zoom to Fit"
+msgstr "Passend in venster"
+
+#: src/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Geen geldige naam voor een verzameling: “{name}”"
+
+#: src/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Er is al een verzameling met de naam “{name}”"
+
+#: src/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "Vergelijk onder de {count} in de lijst op"
+
+#: src/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Alle aanvinken behalve de eerste van elke groep"
+
+#: src/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Controlesom (identieke bestanden)"
+
+#: src/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Vergelijken … {done} van {total}"
+
+#: src/duplicates.rs
+msgid "Find"
+msgstr "Zoeken"
+
+#: src/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Duplicaten zoeken"
+
+#: src/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Groep {n} ({files})"
+
+#: src/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Submappen meenemen in het menu Beeld doorzoekt ook de mappen eronder."
+
+#: src/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "{n} aangevinkte naar prullenbak verplaatsen …"
+
+#: src/duplicates.rs
+msgid "Name"
+msgstr "Naam"
+
+#: src/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Gelijkenis (90%)"
+
+#: src/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Gelijkenis (hoog, 95%)"
+
+#: src/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Gelijkenis (laag, 85%)"
+
+#: src/duplicates.rs
+msgid "Size"
+msgstr "Grootte"
+
+#: src/duplicates.rs
+msgid "Stop"
+msgstr "Stoppen"
+
+#: src/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "De aangevinkte bestanden staan niet meer allemaal in de lijst"
+
+#: src/duplicates.rs
+msgid "Uncheck all"
+msgstr "Alles uitvinken"
+
+#: src/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, onder {images}"
+
+#: src/file_ops.rs
+msgid "Backing up"
+msgstr "Back-up maken"
+
+#: src/file_ops.rs
+msgid "Copy"
+msgstr "Kopiëren"
+
+#: src/file_ops.rs
+msgid "Copying"
+msgstr "Kopiëren"
+
+#: src/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Kon {folder} niet aanmaken"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Kon {f} niet hernoemen naar {t}: {e}; niets hernoemd"
+
+#: src/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Kon de frames niet opslaan: {e}"
+
+#: src/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Verwijderen mislukt ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Deleting"
+msgstr "Verwijderen"
+
+#: src/file_ops.rs
+msgid "Exporting"
+msgstr "Exporteren"
+
+#: src/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (uit glib): {e}"
+
+#: src/file_ops.rs
+msgid "Move"
+msgstr "Verplaatsen"
+
+#: src/file_ops.rs
+msgid "Moving"
+msgstr "Verplaatsen"
+
+#: src/file_ops.rs
+msgid "Saved {file}"
+msgstr "{file} opgeslagen"
+
+#: src/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Opgeslagen; zichtbaar wanneer Automatisch draaien volgens EXIF aan staat"
+
+#: src/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Er wordt nog een draaiing opgeslagen: probeer het zo opnieuw"
+
+#: src/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "De gevraagde bestanden staan niet meer in de lijst: er is niets gedaan"
+
+#: src/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Het patroon geeft meerdere bestanden dezelfde naam; voeg # toe voor een nummer"
+
+#: src/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Het schrijven van de sidecar-bestanden stopte bij een bestand dat het liet mislukken"
+
+#: src/file_ops.rs
+msgid "{count} deleted"
+msgstr "{count} verwijderd"
+
+#: src/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "{count} naar prullenbak verplaatst"
+
+#: src/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "{frames} opgeslagen in {folder}"
+
+#: src/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} bestaat al; niets hernoemd"
+
+#: src/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "{verb} mislukt ({count}): {first}"
+
+#: src/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Annuleren (Esc)"
+
+#: src/lightroom.rs
+msgid "Import"
+msgstr "Importeren"
+
+#: src/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Importeren uit Lightroom"
+
+#: src/lightroom.rs
+msgid "Importing"
+msgstr "Importeren"
+
+#: src/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "De sterren van Glimt behouden"
+
+#: src/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroom heeft de catalogus open: sluit eerst Lightroom"
+
+#: src/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "De sterren of trefwoorden van Lightroom niet geschreven naar de sidecar-bestanden van {count}"
+
+#: src/lightroom.rs
+msgid "Next"
+msgstr "Volgende"
+
+#: src/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Geen Lightroom Classic-catalogus die Glimt kan lezen: {why}"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "Een Lightroom-catalogus lezen vereist het programma sqlite3"
+
+#: src/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "De sterren van Lightroom nemen"
+
+#: src/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "de trefwoorden van {count}"
+
+#: src/lightroom.rs
+msgid "the stars of {count}"
+msgstr "de sterren van {count}"
+
+#: src/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Bestaan al, dus ze krijgen alleen de afbeeldingen die ze missen: {names}."
+
+#: src/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Waar de mappen van de catalogus nu zijn (leeg: weggelaten):"
+
+#: src/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} en de sterren van {images}."
+
+#: src/lightroom.rs
+msgid "{count} have"
+msgstr "{count} hebben"
+
+#: src/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, dat niet geïnstalleerd is"
+
+#: src/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "{n} andere sterren in Glimt:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", en nog {n}"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; en nog {n} (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "Er is al een bestandsdialoog open"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "Een gewone lijst wordt niet hernoemd of weggegooid door Glimt"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Toevoegen"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "De trefwoorden toevoegen aan de {n} geselecteerde"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Deze map toevoegen"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "De trefwoorden van deze afbeelding aan de boom toevoegen"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Aan verzameling toevoegen"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Trefwoorden toevoegen"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Toevoegen …"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Alle afbeeldingen wisselen samen"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Alternatieve tekst"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Oplopend"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Hoofdletters"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Controleren"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Afbeeldingen controleren"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Verzamelingen"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Kleurbeheer"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Opmerking"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Verbinden (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Verbinden met {uri} …"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Kon de afbeelding niet kopiëren: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Kon niet naar het klembord kopiëren: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Kon geen nieuw venster openen: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Kon de trefwoordenboom niet lezen: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Kon de mappen van de sorteerhulp niet lezen: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Kon de alternatieve tekst niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Kon de verzameling niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Kon de trefwoorden niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Kon de oriëntatie niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Kon de mappen van de sorteerhulp niet opslaan: geen thuismap"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Kon de mappen van de sorteerhulp niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Kon het thema niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "Kon {name} niet naar de prullenbak verplaatsen (gio is nodig): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "Kon {name} niet naar de prullenbak verplaatsen: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Verwijderen (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Desktop-bestanden daar, zoals die van Geeqie, verschijnen na een herstart in dit menu"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Afmetingen"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Domein:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Elk bestand houdt zijn eigen trefwoorden en krijgt deze erbij"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Bewerken"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Uitgebreide beschrijving"
+
+#: src/main.rs
+msgid "File"
+msgstr "Bestand"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Filter"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Het hernoemen afmaken"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "Eerste: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Meer thema's halen …"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Ga"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Hulp"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Afbeeldingen"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Trefwoordenboom"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Trefwoorden"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Trefwoorden toegevoegd aan {count}"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Trefwoorden konden niet worden opgeslagen voor {count}"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Later"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Indeling"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Aanmelden bij {uri}"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Markeringen en sterren"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Map naar prullenbak verplaatsen …"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "Verplaatsen in verzameling"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "De map “{name}” en alles erin naar de prullenbak verplaatsen?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "Naar prullenbak (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "{what} naar de prullenbak verplaatsen?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Naam van een nieuwe verzameling met {count}:"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Nieuwe map maakt een map in de getoonde map: open er een"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Nieuwe namen voor {count} (* = oude naam, # = nummer, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Geen toepassingen gevonden"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Nog geen verzamelingen"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Geen EXIF-gegevens"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Geen bestandsdialoog (installeer zenity of kdialog): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Hier geen afbeeldingen voor een verzameling"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Geen afbeeldingen in de map"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Geen plug-ins"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Map bestaat niet: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Geen geldige naam: “{text}”"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "OK (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "Eén afbeelding tegelijk"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Alleen de afbeeldingen van een verzameling kunnen worden verplaatst"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "De plug-inmap openen"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Themamap openen"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Openen met"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Oriëntatie"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Wachtwoord:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "{what} definitief verwijderen?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Plaatsen|Noorwegen|Oslo"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Plug-ins"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "De oude namen terugzetten"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Willekeurige volgorde staat aan: R zet hem uit om afbeeldingen te verplaatsen"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Map lezen …"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Verwijderen"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Uit de boom verwijderen"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Map hernoemen …"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Meerdere hernoemen is nog bezig"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Meerdere hernoemen werd afgebroken"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Opslaan als thema …"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Selecteren"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Deze selecteren"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Gescheiden door komma's"
+
+#: src/main.rs
+msgid "set on"
+msgstr "ingesteld"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Trefwoorden instellen"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Bestandsnamen tonen"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Tonen op OpenStreetMap"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Samen met deze afbeeldingen tonen"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Diavoorstelling in deze indeling:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Sorteerhulp"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Diavoorstelling starten"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "De laatste draaiing van dit bestand wordt nog opgeslagen"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Diavoorstelling stoppen"
+
+#: src/main.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Gestopt: {done} van {total}"
+
+#: src/main.rs
+msgid "taken off"
+msgstr "verwijderd"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Trefwoorden verwijderen"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Hoofdletters en kleine letters onderscheiden"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "De verzameling {file} is weg (hernoemd of verwijderd in een ander venster): niet opgeslagen"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Het trefwoord kon niet worden opgeslagen voor {count}"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Het paneel waar deze gegevens bij horen: dat onder de aanwijzer"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "De instellingen zijn vergrendeld (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "De sterren konden niet worden geschreven naar het XMP-sidecar-bestand van {count}"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Thema"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Dit kan niet ongedaan worden gemaakt."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Gebruiker:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Video: Enter of klik om af te spelen"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Video's"
+
+#: src/main.rs
+msgid "View"
+msgstr "Beeld"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Wat de afbeelding toont, voor wie het niet kan zien"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Venster"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Sterren schrijven"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Zoom"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done} van {total} …{more}"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "{n} toegevoegd aan de verzameling “{name}”"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "{n} beschadigd:"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} is een ingebouwd thema: kies een andere naam"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Vier (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "Twee naast elkaar"
+
+#: src/pan.rs
+msgid "April"
+msgstr "april"
+
+#: src/pan.rs
+msgid "August"
+msgstr "augustus"
+
+#: src/pan.rs
+msgid "Calendar"
+msgstr "Kalender"
+
+#: src/pan.rs
+msgid "December"
+msgstr "december"
+
+#: src/pan.rs
+msgid "EXIF date"
+msgstr "EXIF-datum"
+
+#: src/pan.rs
+msgid "February"
+msgstr "februari"
+
+#: src/pan.rs
+msgid "January"
+msgstr "januari"
+
+#: src/pan.rs
+msgid "July"
+msgstr "juli"
+
+#: src/pan.rs
+msgid "June"
+msgstr "juni"
+
+#: src/pan.rs
+msgid "March"
+msgstr "maart"
+
+#: src/pan.rs
+msgid "May"
+msgstr "mei"
+
+#: src/pan.rs
+msgid "No date"
+msgstr "Geen datum"
+
+#: src/pan.rs
+msgid "November"
+msgstr "november"
+
+#: src/pan.rs
+msgid "October"
+msgstr "oktober"
+
+#: src/pan.rs
+msgid "September"
+msgstr "september"
+
+#: src/pan.rs
+msgid "Timeline"
+msgstr "Tijdlijn"
+
+#: src/pan.rs
+msgid "{images} on {days}"
+msgstr "{images} op {days}"
+
+#: src/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Sterren ook naar XMP-sidecar-bestanden schrijven (photo.jpg.xmp), voor darktable en digiKam"
+
+#: src/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Afbeeldingen automatisch draaien volgens EXIF (Alt+X)"
+
+#: src/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Automatisch (systeemtaal)"
+
+#: src/preferences.rs
+msgid "Background behind the image"
+msgstr "Achtergrond achter de afbeelding"
+
+#: src/preferences.rs
+msgid "Black"
+msgstr "Zwart"
+
+#: src/preferences.rs
+msgid "Brightness"
+msgstr "Helderheid"
+
+#: src/preferences.rs
+msgid "Change"
+msgstr "Wijzigen"
+
+#: src/preferences.rs
+msgid "Choose…"
+msgstr "Kiezen …"
+
+#: src/preferences.rs
+msgid "Colour management"
+msgstr "Kleurbeheer"
+
+#: src/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Verplaatsen naar prullenbak bevestigen"
+
+#: src/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Definitief verwijderen bevestigen"
+
+#: src/preferences.rs
+msgid "CPU use:"
+msgstr "Processorgebruik:"
+
+#: src/preferences.rs
+msgid "Custom"
+msgstr "Aangepast"
+
+#: src/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Decodeerthreads en één malloc-arena werken na een herstart."
+
+#: src/preferences.rs
+msgid "Default"
+msgstr "Standaard"
+
+#: src/preferences.rs
+msgid "default application"
+msgstr "standaardtoepassing"
+
+#: src/preferences.rs
+msgid "Delete behaviour:"
+msgstr "Verwijderen:"
+
+#: src/preferences.rs
+msgid "Details"
+msgstr "Details"
+
+#: src/preferences.rs
+msgid "Enable Delete key"
+msgstr "Delete-toets inschakelen"
+
+#: src/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Kleine afbeeldingen vergroten tot het venster"
+
+#: src/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Overvloeien naar de volgende afbeelding:"
+
+#: src/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Uit colord, dat GNOME en KDE instellen"
+
+#: src/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Vaag, beste overeenkomsten eerst (zoals fzf)"
+
+#: src/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Hoog contrast wanneer het bureaublad om hoog contrast vraagt"
+
+#: src/preferences.rs
+msgid "Histogram (K):"
+msgstr "Histogram (K):"
+
+#: src/preferences.rs
+msgid "Image info template:"
+msgstr "Sjabloon voor afbeeldingsinfo:"
+
+#: src/preferences.rs
+msgid "images decoded at once"
+msgstr "afbeeldingen tegelijk gedecodeerd"
+
+#: src/preferences.rs
+msgid "images on each side"
+msgstr "afbeeldingen aan elke kant"
+
+#: src/preferences.rs
+msgid "Images without a profile:"
+msgstr "Afbeeldingen zonder profiel:"
+
+#: src/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "In ~/.cache/thumbnails; bewaard voor schijven die niet aangesloten zijn"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "De afbeeldingen in submappen meenemen"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "De afbeeldingen in submappen meenemen in de bestandslijst"
+
+#: src/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Schermbeveiliging uit houden in volledig scherm"
+
+#: src/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Zoom en positie behouden bij wisselen van afbeelding"
+
+#: src/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Sneltoetsen"
+
+#: src/preferences.rs
+msgid "Language"
+msgstr "Taal"
+
+#: src/preferences.rs
+msgid "Large"
+msgstr "Groot"
+
+#: src/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Nog groter wanneer de tekst van het bureaublad dat is (Grote tekst van GNOME)"
+
+#: src/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Luisteren naar glimt --remote-opdrachten (na herstart)"
+
+#: src/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Logaritmisch (J)"
+
+#: src/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "MB hoogstens voor de frames van een animatie"
+
+#: src/preferences.rs
+msgid "Medium"
+msgstr "Middel"
+
+#: src/preferences.rs
+msgid "Memory use:"
+msgstr "Geheugengebruik:"
+
+#: src/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Muiswiel zoomt (uit: volgende/vorige afbeelding, Ctrl+wiel zoomt)"
+
+#: src/preferences.rs
+msgid "None"
+msgstr "Geen"
+
+#: src/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Niet met processorgebruik Energiebesparing"
+
+#: src/preferences.rs
+msgid "Off"
+msgstr "Uit"
+
+#: src/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "Eén malloc-arena: veel minder geheugen, decoderen tot ~8% trager"
+
+#: src/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Geanimeerde GIF en WebP afspelen (A)"
+
+#: src/preferences.rs
+msgid "Player (Enter):"
+msgstr "Speler (Enter):"
+
+#: src/preferences.rs
+msgid "Preferences"
+msgstr "Voorkeuren"
+
+#: src/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Volgende en vorige afbeeldingen vooraf laden:"
+
+#: src/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Druk op een toets (Esc annuleert)"
+
+#: src/preferences.rs
+msgid "Profile file…"
+msgstr "Profielbestand …"
+
+#: src/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "kwaliteit wanneer een WebP met verlies opnieuw wordt opgeslagen"
+
+#: src/preferences.rs
+msgid "Random order"
+msgstr "Willekeurige volgorde"
+
+#: src/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "De map vernieuwen wanneer bestanden veranderen"
+
+#: src/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Reguliere expressie, in lijstvolgorde (zoals het bestandsfilter van Geeqie)"
+
+#: src/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Grootte en positie van het venster onthouden"
+
+#: src/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Miniaturen van verwijderde bestanden opruimen"
+
+#: src/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "{removed} van {seen} miniaturen verwijderd"
+
+#: src/preferences.rs
+msgid "Rendering intent:"
+msgstr "Weergave-intentie:"
+
+#: src/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Herhalen: opnieuw beginnen na de laatste afbeelding"
+
+#: src/preferences.rs
+msgid "Reset"
+msgstr "Herstellen"
+
+#: src/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Nieuwe miniaturen opslaan in ~/.cache/thumbnails (gedeeld met andere programma's)"
+
+#: src/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Draaiing in het bestand opslaan bij wisselen van afbeelding (JPEG; PNG en WebP worden opnieuw opgeslagen)"
+
+#: src/preferences.rs
+msgid "Screen profile:"
+msgstr "Schermprofiel:"
+
+#: src/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Zoekveld boven de bestandslijst:"
+
+#: src/preferences.rs
+msgid "seconds per image"
+msgstr "seconden per afbeelding"
+
+#: src/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Bestandsgrootte en datum tonen in de bestandslijst"
+
+#: src/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Mappen als boom tonen (Ctrl+T)"
+
+#: src/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Afbeeldingsinfo tonen in volledig scherm (I)"
+
+#: src/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Markeringen en sterren tonen in de bestandslijst"
+
+#: src/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Het EXIF-paneel tonen (Ctrl+K; leest een beetje uit elke getoonde afbeelding)"
+
+#: src/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "De bestandslijst als pictogrammen tonen (Ctrl+I)"
+
+#: src/preferences.rs
+msgid "Show the file name search"
+msgstr "Zoeken op bestandsnaam tonen"
+
+#: src/preferences.rs
+msgid "Show the folder path"
+msgstr "Het mappad tonen"
+
+#: src/preferences.rs
+msgid "Show the toolbar"
+msgstr "De werkbalk tonen"
+
+#: src/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Miniaturen tonen in de bestandslijst (T)"
+
+#: src/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Video's tonen in de bestandslijst"
+
+#: src/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "grootte van menu's, lijsten en tekst"
+
+#: src/preferences.rs
+msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
+msgstr "Diavoorstelling (S, R = willekeurig, Ctrl+= sneller, Ctrl+- langzamer):"
+
+#: src/preferences.rs
+msgid "Small"
+msgstr "Klein"
+
+#: src/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Starten in de laatst gebruikte map"
+
+#: src/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Grootte van miniaturen:"
+
+#: src/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Pictogrammen in de werkbalk:"
+
+#: src/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Tot ≈ {mb} MB, elke afbeelding hoogstens {w}×{h}"
+
+#: src/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Helemaal geen prullenbak gebruiken (Delete verwijdert definitief)"
+
+#: src/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Het schermprofiel van het bureaublad gebruiken"
+
+#: src/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Het eigen profiel van de afbeelding gebruiken"
+
+#: src/preferences.rs
+msgid "Video (needs ffmpeg for previews):"
+msgstr "Video (heeft ffmpeg nodig voor voorbeelden):"
+
+#: src/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} was ook de toets van {others}: nu alleen van {label}"
+
+#: src/print.rs
+msgid "Copies:"
+msgstr "Exemplaren:"
+
+#: src/print.rs
+msgid "Images per page:"
+msgstr "Afbeeldingen per pagina:"
+
+#: src/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Geen afbeelding kon worden gelezen: niets afgedrukt"
+
+#: src/print.rs
+msgid "No printers found"
+msgstr "Geen printers gevonden"
+
+#: src/print.rs
+msgid "Paper:"
+msgstr "Papier:"
+
+#: src/print.rs
+msgid "PDF file"
+msgstr "PDF-bestand"
+
+#: src/print.rs
+msgid "Print (Enter)"
+msgstr "Afdrukken (Enter)"
+
+#: src/print.rs
+msgid "Print {count}"
+msgstr "{count} afdrukken"
+
+#: src/print.rs
+msgid "Printer:"
+msgstr "Printer:"
+
+#: src/print.rs
+msgid "Printing failed: {e}"
+msgstr "Afdrukken mislukt: {e}"
+
+#: src/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "PDF opslaan … (Enter)"
+
+#: src/print.rs
+msgid "{images} on {pages}"
+msgstr "{images} op {pages}"
+
+#: src/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; {f} konden niet worden gelezen"
+
+#: src/print.rs
+msgid "{what} saved in {file}"
+msgstr "{what} opgeslagen in {file}"
+
+#: src/print.rs
+msgid "{what} sent to {printer}"
+msgstr "{what} verzonden naar {printer}"
+
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "verzameling"
+msgstr[1] "verzamelingen"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "dag"
+msgstr[1] "dagen"
+
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "fout"
+msgstr[1] "fouten"
+
+msgid "file"
+msgid_plural "files"
+msgstr[0] "bestand"
+msgstr[1] "bestanden"
+
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "frame"
+msgstr[1] "frames"
+
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "groep"
+msgstr[1] "groepen"
+
+msgid "image"
+msgid_plural "images"
+msgstr[0] "afbeelding"
+msgstr[1] "afbeeldingen"
+
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "trefwoord"
+msgstr[1] "trefwoorden"
+
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "pagina"
+msgstr[1] "pagina's"
+
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "ster"
+msgstr[1] "sterren"
+
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "stap"
+msgstr[1] "stappen"
+
+#: src/print.rs
+msgid "Orientation:"
+msgstr "Oriëntatie:"
+
+#: src/print.rs
+msgid "Automatic"
+msgstr "Automatisch"
+
+#: src/print.rs
+msgid "Portrait"
+msgstr "Staand"
+
+#: src/print.rs
+msgid "Landscape"
+msgstr "Liggend"
+
+#: src/print.rs
+msgid "Margin (mm):"
+msgstr "Marge (mm):"
+
+#: src/print.rs
+msgid "Image size (%):"
+msgstr "Afbeeldingsgrootte (%):"
+
+#: src/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Elk vak vullen en de afbeelding erop bijsnijden"
+
+#: src/print.rs
+msgid "Text under each image:"
+msgstr "Tekst onder elke afbeelding:"
+
+#: src/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Zoals de afbeeldingsinfo in volledig scherm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% is het paginanummer, %pages% hoeveel er zijn"
+
+#: src/print.rs
+msgid "Top of each page:"
+msgstr "Boven aan elke pagina:"
+
+#: src/print.rs
+msgid "Bottom of each page:"
+msgstr "Onder aan elke pagina:"
+
+#: src/print.rs
+msgid "Both sides of the paper"
+msgstr "Beide zijden van het papier"
+
+#: src/print.rs
+msgid "Print the image"
+msgstr "De afbeelding afdrukken"
+
+#: src/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} gekopieerd naar {folder}"
+
+#: src/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} verplaatst naar {folder}"
+
+#: src/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Kon de map niet naar de prullenbak verplaatsen: {e}"
+
+#: src/print.rs
+msgid "calculating…"
+msgstr "berekenen …"
+
+#: src/print.rs
+msgid "Open Folder"
+msgstr "Map openen"
+
+#: src/print.rs
+msgid "Open File"
+msgstr "Bestand openen"
+
+#: src/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Mappen openen (Ctrl+klik voor meerdere)"
+
+#: src/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Map met submappen openen"
+
+#: src/print.rs
+msgid "Open Collection"
+msgstr "Verzameling openen"
+
+#: src/print.rs
+msgid "Copy to Folder"
+msgstr "Naar map kopiëren"
+
+#: src/print.rs
+msgid "Move to Folder"
+msgstr "Naar map verplaatsen"
+
+#: src/print.rs
+msgid "Save as PDF"
+msgstr "Opslaan als PDF"
+
+#: src/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Aan de sorteerhulp toevoegen"
+
+#: src/print.rs
+msgid "Screen Profile"
+msgstr "Schermprofiel"
+
+#: src/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profiel van afbeeldingen zonder eigen profiel"
+
+#: src/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Lightroom-catalogus importeren"
+
+#: src/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Gegevens van Glimt back-uppen naar"
+
+#: src/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Dit frame opslaan als PNG"
+
+#: src/print.rs
+msgid "Export Every Frame To"
+msgstr "Elk frame exporteren naar"
+
+#: src/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Verzameling {name} naar prullenbak verplaatst"
+
+#: src/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Geen patroon: {e}"
+
+#: src/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} bestaat al: kies een andere naam"
+
+#: src/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Opgeslagen als {file}: bewerk het en kies het dan opnieuw"
+
+#: src/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} kregen hun oude namen terug"
+
+#: src/print.rs
+msgid "{files} renamed"
+msgstr "{files} hernoemd"
+
+#: src/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} niet, opnieuw gevraagd bij de volgende start"
+
+#: src/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} van {images} ({size})"
+
+#: src/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} geselecteerd ({size})"
+
+#: src/print.rs
+msgid "{n} bytes"
+msgstr "{n} bytes"
+
+#: src/print.rs
+msgid " page {n}/{pages}"
+msgstr " pagina {n}/{pages}"
+
+#: src/print.rs
+msgid " frame {n}/{frames}"
+msgstr " frame {n}/{frames}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Kon {f} niet hernoemen naar {t}: {e}; niet alle namen konden worden teruggezet, Glimt biedt aan ze bij de volgende start te herstellen"
+
+#: src/pan.rs
+msgid "Mon"
+msgstr "ma"
+
+#: src/pan.rs
+msgid "Tue"
+msgstr "di"
+
+#: src/pan.rs
+msgid "Wed"
+msgstr "wo"
+
+#: src/pan.rs
+msgid "Thu"
+msgstr "do"
+
+#: src/pan.rs
+msgid "Fri"
+msgstr "vr"
+
+#: src/pan.rs
+msgid "Sat"
+msgstr "za"
+
+#: src/pan.rs
+msgid "Sun"
+msgstr "zo"
+
+#: src/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Er worden nog trefwoorden geschreven: probeer het zo opnieuw"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} is onverwacht gestopt"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Verbinden"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "De Lightroom-catalogus lezen"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Zoeken naar afgebroken hernoemingen"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "De EXIF-index"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "De dagen van het overzicht"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Meerdere hernoemen"
+
+#: src/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Geen antwoord van de server binnen een minuut"
+
+#: src/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "De catalogus is te groot om te lezen"
+
+#: src/file_ops.rs
+msgid "stopped"
+msgstr "gestopt"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Trefwoorden opslaan"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "De alternatieve tekst opslaan"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "De map lezen"
+
+#: src/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Geen antwoord van de afdrukserver binnen twee minuten"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Kon {f} niet hernoemen naar {t}: {e}; niet alle namen konden worden teruggezet en er kon geen plan worden bewaard: de bestanden met .glimt-rename-*-namen ernaast zijn van hen"
+
+#: src/preferences.rs
+msgid "Look"
+msgstr "Uiterlijk"
+
+#: src/preferences.rs
+msgid "Keyboard"
+msgstr "Toetsenbord"
+
+#: src/preferences.rs
+msgid "Image"
+msgstr "Afbeelding"
+
+#: src/preferences.rs
+msgid "Slideshow"
+msgstr "Diavoorstelling"
+
+#: src/preferences.rs
+msgid "File list"
+msgstr "Bestandslijst"
+
+#: src/preferences.rs
+msgid "Memory and CPU"
+msgstr "Geheugen en processor"
+
+#: src/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/preferences.rs
+msgid "Start and system"
+msgstr "Start en systeem"
+
+#: src/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Voorbeelden hebben ffmpeg nodig"
+
+#: src/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S start en stopt, R willekeurige volgorde, Ctrl+= sneller, Ctrl+- langzamer"
+
+#: src/actions.rs
+msgid "Undo"
+msgstr "Ongedaan maken"
+
+#: src/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Niets om ongedaan te maken"
+
+#: src/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Ongedaan maken mislukt ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Ongedaan maken mislukt: {e}"
+
+#: src/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} terug uit de prullenbak"
+
+#: src/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} teruggezet"
+
+#: src/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} bestaat al"
+
+#: src/file_ops.rs
+msgid "{name} is not in the trash"
+msgstr "{name} is niet in de prullenbak"
+
+#: src/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Als achtergrond instellen"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Kon de achtergrond niet instellen: {e}"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Lijst wissen"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Nog niets geopend"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Recent geopend"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} bestaat niet meer"
+
+#: src/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Een lijst van recente mappen bijhouden (Bestand → Recent geopend)"
+
+#: src/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Dambord achter transparante afbeeldingen"
+
+#: src/actions.rs
+msgid "Crop…"
+msgstr "Bijsnijden …"
+
+#: src/crop.rs
+msgid "A video is not cropped"
+msgstr "Een video wordt niet bijgesneden"
+
+#: src/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Sleep over de afbeelding om het deel te kiezen dat blijft"
+
+#: src/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Kopie opslaan (Enter)"
+
+#: src/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Kon de afbeelding niet bijsnijden: {e}"
+
+#: src/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "kwaliteit van een bijgesneden JPEG (Bewerken → Bijsnijden)"
+
+#: src/actions.rs
+msgid "Save As…"
+msgstr "Opslaan als …"
+
+#: src/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "Een video wordt niet als afbeelding opgeslagen"
+
+#: src/save_as.rs
+msgid "Format:"
+msgstr "Formaat:"
+
+#: src/save_as.rs
+msgid "As the original ({format})"
+msgstr "Zoals het origineel ({format})"
+
+#: src/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, verliesvrij"
+
+#: src/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, met verlies"
+
+#: src/save_as.rs
+msgid "Size:"
+msgstr "Grootte:"
+
+#: src/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Origineel ({w} × {h})"
+
+#: src/save_as.rs
+msgid "Longest side"
+msgstr "Langste zijde"
+
+#: src/save_as.rs
+msgid "Percent"
+msgstr "Procent"
+
+#: src/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Opgeslagen als {w} × {h}; nooit vergroot"
+
+#: src/save_as.rs
+msgid "Quality:"
+msgstr "Kwaliteit:"
+
+#: src/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "EXIF en GPS (camera, datum, plaats), XMP en het sidecar-bestand verwijderen"
+
+#: src/save_as.rs
+msgid "Save…"
+msgstr "Opslaan …"
+
+#: src/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Kon de afbeelding niet opslaan: {e}"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Opslaan als"

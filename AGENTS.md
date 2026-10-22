@@ -42,6 +42,16 @@ test; new ones go at the end of that file.
 English for everything in the repository: UI text, identifiers, comments, commit messages and
 documentation.
 
+The interface ships in eleven languages: English and the translations in `src/*.po` (Danish,
+German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål, Polish and
+Swedish), listed in `lang::LANGUAGES`. **Every new UI text, `tr("…")` or `tf!("…")`, is
+translated into all of them in the same commit**: `src/no_nb.po` first, then the others.
+`lang::tests::every_language_has_every_text` fails while one lacks a text of `no_nb.po`, and
+`translations_keep_placeholders` while a translation drops a `{name}`. Keep the key names as the
+menus show them (Ctrl, Shift, Enter, Esc, Delete), `%field%` template names unchanged, and only
+quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` has the forms its language's
+`plural_form` picks from: two in most, three in Polish (one, few, many).
+
 ## Code layout
 
 | File | Contents |
@@ -112,6 +122,8 @@ documentation.
   goes into `List`, never into `App`: a new list is a new `List`, so such state cannot outlive
   the list it was made for. What should follow a file to the new list is carried over by name
   in `replace_files`.
+- **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `src/*.po`
+  (see Language).
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it

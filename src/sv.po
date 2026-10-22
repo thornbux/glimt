@@ -1,0 +1,2288 @@
+# Glimt's interface in Swedish. The English text is the msgid; a text left out, or
+# with an empty msgstr, shows in English.
+msgid ""
+msgstr ""
+"Project-Id-Version: Glimt\n"
+"Language: sv\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/accessibility.rs
+msgid "No images"
+msgstr "Inga bilder"
+
+#: src/actions.rs
+msgid "About Glimt"
+msgstr "Om Glimt"
+
+#: src/actions.rs
+msgid "Auto Rotate Using EXIF"
+msgstr "Rotera automatiskt enligt EXIF"
+
+#: src/actions.rs
+msgid "Back"
+msgstr "Bakåt"
+
+#: src/actions.rs
+msgid "Back Up Glimt's Data…"
+msgstr "Säkerhetskopiera Glimts data …"
+
+#: src/actions.rs
+msgid "Check Images…"
+msgstr "Kontrollera bilder …"
+
+#: src/actions.rs
+msgid "Close Window"
+msgstr "Stäng fönster"
+
+#: src/actions.rs
+msgid "Compare Side by Side"
+msgstr "Jämför sida vid sida"
+
+#: src/actions.rs
+msgid "Copy Files to Clipboard"
+msgstr "Kopiera filer till urklipp"
+
+#: src/actions.rs
+msgid "Copy Image to Clipboard"
+msgstr "Kopiera bild till urklipp"
+
+#: src/actions.rs
+msgid "Copy Path (Unquoted)"
+msgstr "Kopiera sökväg (utan citattecken)"
+
+#: src/actions.rs
+msgid "Copy Path to Clipboard"
+msgstr "Kopiera sökväg till urklipp"
+
+#: src/actions.rs
+msgid "Copy…"
+msgstr "Kopiera …"
+
+#: src/actions.rs
+msgid "Delete Permanently…"
+msgstr "Radera permanent …"
+
+#: src/actions.rs
+msgid "Delete…"
+msgstr "Radera …"
+
+#: src/actions.rs
+msgid "EXIF Window"
+msgstr "EXIF-fönster"
+
+#: src/actions.rs
+msgid "Export Frames…"
+msgstr "Exportera bildrutor …"
+
+#: src/actions.rs
+msgid "Faster"
+msgstr "Snabbare"
+
+#: src/actions.rs
+msgid "Fill the View"
+msgstr "Fyll vyn"
+
+#: src/actions.rs
+msgid "Find Duplicates…"
+msgstr "Hitta dubbletter …"
+
+#: src/actions.rs
+msgid "First Image"
+msgstr "Första bilden"
+
+#: src/actions.rs
+msgid "Fit the Height"
+msgstr "Anpassa till höjden"
+
+#: src/actions.rs
+msgid "Fit the Width"
+msgstr "Anpassa till bredden"
+
+#: src/actions.rs
+msgid "Flip"
+msgstr "Vänd upp och ned"
+
+#: src/actions.rs
+msgid "Forward"
+msgstr "Framåt"
+
+#: src/actions.rs
+msgid "Full Screen"
+msgstr "Helskärm"
+
+#: src/actions.rs
+msgid "Help Manual"
+msgstr "Hjälpmanual"
+
+#: src/actions.rs
+msgid "Hide File List"
+msgstr "Dölj fillistan"
+
+#: src/actions.rs
+msgid "Histogram: Off, RGB, Brightness"
+msgstr "Histogram: av, RGB, ljushet"
+
+#: src/actions.rs
+msgid "Home"
+msgstr "Hem"
+
+#: src/actions.rs
+msgid "Import Lightroom Catalog…"
+msgstr "Importera Lightroom-katalog …"
+
+#: src/actions.rs
+msgid "Include Subfolders"
+msgstr "Inkludera undermappar"
+
+#: src/actions.rs
+msgid "Invert Selection"
+msgstr "Invertera markering"
+
+#: src/actions.rs
+msgid "Keyboard Map"
+msgstr "Tangentbordskarta"
+
+#: src/actions.rs
+msgid "Keyboard Shortcuts"
+msgstr "Kortkommandon"
+
+#: src/actions.rs
+msgid "Keywords and Comment"
+msgstr "Nyckelord och kommentar"
+
+#: src/actions.rs
+msgid "Last Image"
+msgstr "Sista bilden"
+
+#: src/actions.rs
+msgid "Logarithmic Histogram"
+msgstr "Logaritmiskt histogram"
+
+#: src/actions.rs
+msgid "Mark 1"
+msgstr "Märke 1"
+
+#: src/actions.rs
+msgid "Mark 2"
+msgstr "Märke 2"
+
+#: src/actions.rs
+msgid "Mark 3"
+msgstr "Märke 3"
+
+#: src/actions.rs
+msgid "Mark 4"
+msgstr "Märke 4"
+
+#: src/actions.rs
+msgid "Mark 5"
+msgstr "Märke 5"
+
+#: src/actions.rs
+msgid "Mark 6"
+msgstr "Märke 6"
+
+#: src/actions.rs
+msgid "Mirror"
+msgstr "Spegla"
+
+#: src/actions.rs
+msgid "Move Collection to Trash"
+msgstr "Flytta samlingen till papperskorgen"
+
+#: src/actions.rs
+msgid "Move Earlier in Collection"
+msgstr "Flytta tidigare i samlingen"
+
+#: src/actions.rs
+msgid "Move Later in Collection"
+msgstr "Flytta senare i samlingen"
+
+#: src/actions.rs
+msgid "Move to End of Collection"
+msgstr "Flytta till slutet av samlingen"
+
+#: src/actions.rs
+msgid "Move to Start of Collection"
+msgstr "Flytta till början av samlingen"
+
+#: src/actions.rs
+msgid "Move…"
+msgstr "Flytta …"
+
+#: src/actions.rs
+msgid "New Collection…"
+msgstr "Ny samling …"
+
+#: src/actions.rs
+msgid "New Folder…"
+msgstr "Ny mapp …"
+
+#: src/actions.rs
+msgid "New Window"
+msgstr "Nytt fönster"
+
+#: src/actions.rs
+msgid "Next Filter"
+msgstr "Nästa filter"
+
+#: src/actions.rs
+msgid "Next Image"
+msgstr "Nästa bild"
+
+#: src/actions.rs
+msgid "Next Layout"
+msgstr "Nästa layout"
+
+#: src/actions.rs
+msgid "Next Page"
+msgstr "Nästa sida"
+
+#: src/actions.rs
+msgid "No Stars"
+msgstr "Inga stjärnor"
+
+#: src/actions.rs
+msgid "One Image"
+msgstr "En bild"
+
+#: src/actions.rs
+msgid "Open Collection…"
+msgstr "Öppna samling …"
+
+#: src/actions.rs
+msgid "Open File…"
+msgstr "Öppna fil …"
+
+#: src/actions.rs
+msgid "Open Folder Recursive…"
+msgstr "Öppna mapp rekursivt …"
+
+#: src/actions.rs
+msgid "Open Folder…"
+msgstr "Öppna mapp …"
+
+#: src/actions.rs
+msgid "Open Several Folders…"
+msgstr "Öppna flera mappar …"
+
+#: src/actions.rs
+msgid "Open With Default App"
+msgstr "Öppna med standardprogram"
+
+#: src/actions.rs
+msgid "Pan View"
+msgstr "Panoreringsvy"
+
+#: src/actions.rs
+msgid "Pane Above"
+msgstr "Rutan ovanför"
+
+#: src/actions.rs
+msgid "Pane Below"
+msgstr "Rutan nedanför"
+
+#: src/actions.rs
+msgid "Pane to the Left"
+msgstr "Rutan till vänster"
+
+#: src/actions.rs
+msgid "Pane to the Right"
+msgstr "Rutan till höger"
+
+#: src/actions.rs
+msgid "Pause Slideshow"
+msgstr "Pausa bildspelet"
+
+#: src/actions.rs
+msgid "Play Animations"
+msgstr "Spela animationer"
+
+#: src/actions.rs
+msgid "Play Video"
+msgstr "Spela video"
+
+#: src/actions.rs
+msgid "Preferences…"
+msgstr "Inställningar …"
+
+#: src/actions.rs
+msgid "Previous Image"
+msgstr "Föregående bild"
+
+#: src/actions.rs
+msgid "Previous Page"
+msgstr "Föregående sida"
+
+#: src/actions.rs
+msgid "Print…"
+msgstr "Skriv ut …"
+
+#: src/actions.rs
+msgid "Projector"
+msgstr "Projektor"
+
+#: src/actions.rs
+msgid "Quit"
+msgstr "Avsluta"
+
+#: src/actions.rs
+msgid "Random Order"
+msgstr "Slumpvis ordning"
+
+#: src/actions.rs
+msgid "Refresh"
+msgstr "Uppdatera"
+
+#: src/actions.rs
+msgid "Remove from Collection"
+msgstr "Ta bort från samlingen"
+
+#: src/actions.rs
+msgid "Rename Collection…"
+msgstr "Byt namn på samlingen …"
+
+#: src/actions.rs
+msgid "Rename…"
+msgstr "Byt namn …"
+
+#: src/actions.rs
+msgid "Rotate 180°"
+msgstr "Rotera 180°"
+
+#: src/actions.rs
+msgid "Rotate Clockwise"
+msgstr "Rotera medurs"
+
+#: src/actions.rs
+msgid "Rotate Counterclockwise"
+msgstr "Rotera moturs"
+
+#: src/actions.rs
+msgid "Save Orientation to File"
+msgstr "Spara orienteringen i filen"
+
+#: src/actions.rs
+msgid "Save This Frame…"
+msgstr "Spara denna bildruta …"
+
+#: src/actions.rs
+msgid "Search File Names"
+msgstr "Sök filnamn"
+
+#: src/actions.rs
+msgid "Select All"
+msgstr "Markera alla"
+
+#: src/actions.rs
+msgid "Select Mark 1"
+msgstr "Markera märke 1"
+
+#: src/actions.rs
+msgid "Select Mark 2"
+msgstr "Markera märke 2"
+
+#: src/actions.rs
+msgid "Select Mark 3"
+msgstr "Markera märke 3"
+
+#: src/actions.rs
+msgid "Select Mark 4"
+msgstr "Markera märke 4"
+
+#: src/actions.rs
+msgid "Select Mark 5"
+msgstr "Markera märke 5"
+
+#: src/actions.rs
+msgid "Select Mark 6"
+msgstr "Markera märke 6"
+
+#: src/actions.rs
+msgid "Select None"
+msgstr "Markera inga"
+
+#: src/actions.rs
+msgid "Show EXIF Panel"
+msgstr "Visa EXIF-panelen"
+
+#: src/actions.rs
+msgid "Show Folder Path"
+msgstr "Visa mappsökvägen"
+
+#: src/actions.rs
+msgid "Show Folder Tree"
+msgstr "Visa mappträdet"
+
+#: src/actions.rs
+msgid "Show Hidden Files"
+msgstr "Visa dolda filer"
+
+#: src/actions.rs
+msgid "Show Image Info in Full Screen"
+msgstr "Visa bildinfo i helskärm"
+
+#: src/actions.rs
+msgid "Show Sort Manager"
+msgstr "Visa sorteringshanteraren"
+
+#: src/actions.rs
+msgid "Show the Pointer on the Projector"
+msgstr "Visa pekaren på projektorn"
+
+#: src/actions.rs
+msgid "Show Thumbnails"
+msgstr "Visa miniatyrer"
+
+#: src/actions.rs
+msgid "Show Toolbar"
+msgstr "Visa verktygsfältet"
+
+#: src/actions.rs
+msgid "Slower"
+msgstr "Långsammare"
+
+#: src/actions.rs
+msgid "Start/Stop Slideshow"
+msgstr "Starta/stoppa bildspelet"
+
+#: src/actions.rs
+msgid "Stop Slideshow, Leave Full Screen"
+msgstr "Stoppa bildspelet, lämna helskärm"
+
+#: src/actions.rs
+msgid "Two Above Each Other"
+msgstr "Två ovanför varandra"
+
+#: src/actions.rs
+msgid "Up"
+msgstr "Upp"
+
+#: src/actions.rs
+msgid "View Images as Icons"
+msgstr "Visa bilder som ikoner"
+
+#: src/actions.rs
+msgid "Zoom 1:1"
+msgstr "Zooma 1:1"
+
+#: src/actions.rs
+msgid "Zoom In"
+msgstr "Zooma in"
+
+#: src/actions.rs
+msgid "Zoom Out"
+msgstr "Zooma ut"
+
+#: src/actions.rs
+msgid "Zoom to Fit"
+msgstr "Anpassa till fönstret"
+
+#: src/collections.rs
+msgid "Not a valid collection name: \"{name}\""
+msgstr "Inte ett giltigt samlingsnamn: ”{name}”"
+
+#: src/collections.rs
+msgid "There is a collection called \"{name}\" already"
+msgstr "Det finns redan en samling som heter ”{name}”"
+
+#: src/duplicates.rs
+msgid "Among the {count} in the list, compare by"
+msgstr "Bland de {count} i listan, jämför efter"
+
+#: src/duplicates.rs
+msgid "Check all but the first of each group"
+msgstr "Kryssa i alla utom den första i varje grupp"
+
+#: src/duplicates.rs
+msgid "Checksum (identical files)"
+msgstr "Kontrollsumma (identiska filer)"
+
+#: src/duplicates.rs
+msgid "Comparing… {done} of {total}"
+msgstr "Jämför … {done} av {total}"
+
+#: src/duplicates.rs
+msgid "Find"
+msgstr "Sök"
+
+#: src/duplicates.rs
+msgid "Find Duplicates"
+msgstr "Hitta dubbletter"
+
+#: src/duplicates.rs
+msgid "Group {n} ({files})"
+msgstr "Grupp {n} ({files})"
+
+#: src/duplicates.rs
+msgid "Include Subfolders in the View menu searches the folders below too."
+msgstr "Inkludera undermappar i Visa-menyn söker även i mapparna under."
+
+#: src/duplicates.rs
+msgid "Move {n} checked to trash…"
+msgstr "Flytta {n} ikryssade till papperskorgen …"
+
+#: src/duplicates.rs
+msgid "Name"
+msgstr "Namn"
+
+#: src/duplicates.rs
+msgid "Similarity (90%)"
+msgstr "Likhet (90 %)"
+
+#: src/duplicates.rs
+msgid "Similarity (high, 95%)"
+msgstr "Likhet (hög, 95 %)"
+
+#: src/duplicates.rs
+msgid "Similarity (low, 85%)"
+msgstr "Likhet (låg, 85 %)"
+
+#: src/duplicates.rs
+msgid "Size"
+msgstr "Storlek"
+
+#: src/duplicates.rs
+msgid "Stop"
+msgstr "Stoppa"
+
+#: src/duplicates.rs
+msgid "The checked files are no longer all in the list"
+msgstr "De ikryssade filerna finns inte längre alla i listan"
+
+#: src/duplicates.rs
+msgid "Uncheck all"
+msgstr "Kryssa ur alla"
+
+#: src/duplicates.rs
+msgid "{groups}, {files}, among {images}"
+msgstr "{groups}, {files}, bland {images}"
+
+#: src/file_ops.rs
+msgid "Backing up"
+msgstr "Säkerhetskopierar"
+
+#: src/file_ops.rs
+msgid "Copy"
+msgstr "Kopiera"
+
+#: src/file_ops.rs
+msgid "Copying"
+msgstr "Kopierar"
+
+#: src/file_ops.rs
+msgid "Could not make {folder}"
+msgstr "Kunde inte skapa {folder}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; nothing renamed"
+msgstr "Kunde inte byta namn på {f} till {t}: {e}; inget namn ändrades"
+
+#: src/file_ops.rs
+msgid "Could not save the frames: {e}"
+msgstr "Kunde inte spara bildrutorna: {e}"
+
+#: src/file_ops.rs
+msgid "Delete failed ({count}): {first}"
+msgstr "Radering misslyckades ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Deleting"
+msgstr "Raderar"
+
+#: src/file_ops.rs
+msgid "Exporting"
+msgstr "Exporterar"
+
+#: src/file_ops.rs
+msgid "gio trash (from glib): {e}"
+msgstr "gio trash (från glib): {e}"
+
+#: src/file_ops.rs
+msgid "Move"
+msgstr "Flytta"
+
+#: src/file_ops.rs
+msgid "Moving"
+msgstr "Flyttar"
+
+#: src/file_ops.rs
+msgid "Saved {file}"
+msgstr "Sparade {file}"
+
+#: src/file_ops.rs
+msgid "Saved; it shows when Auto Rotate Using EXIF is on"
+msgstr "Sparad; det syns när Rotera automatiskt enligt EXIF är på"
+
+#: src/file_ops.rs
+msgid "Still saving a rotation: try again in a moment"
+msgstr "Sparar fortfarande en rotation: försök igen om en stund"
+
+#: src/file_ops.rs
+msgid "The files asked about are no longer in the list: nothing was done"
+msgstr "Filerna som frågan gällde finns inte längre i listan: inget gjordes"
+
+#: src/file_ops.rs
+msgid "The pattern gives several files the same name; add # for a number"
+msgstr "Mönstret ger flera filer samma namn; lägg till # för ett nummer"
+
+#: src/file_ops.rs
+msgid "Writing the sidecars stopped at a file that broke it"
+msgstr "Skrivningen av sidofilerna stoppade vid en fil som fick den att misslyckas"
+
+#: src/file_ops.rs
+msgid "{count} deleted"
+msgstr "{count} raderade"
+
+#: src/file_ops.rs
+msgid "{count} moved to the trash"
+msgstr "{count} flyttade till papperskorgen"
+
+#: src/file_ops.rs
+msgid "{frames} saved in {folder}"
+msgstr "{frames} sparade i {folder}"
+
+#: src/file_ops.rs
+msgid "{name} exists already; nothing renamed"
+msgstr "{name} finns redan; inget namn ändrades"
+
+#: src/file_ops.rs
+msgid "{verb} failed ({count}): {first}"
+msgstr "{verb} misslyckades ({count}): {first}"
+
+#: src/lightroom.rs
+msgid "Cancel (Esc)"
+msgstr "Avbryt (Esc)"
+
+#: src/lightroom.rs
+msgid "Import"
+msgstr "Importera"
+
+#: src/lightroom.rs
+msgid "Import from Lightroom"
+msgstr "Importera från Lightroom"
+
+#: src/lightroom.rs
+msgid "Importing"
+msgstr "Importerar"
+
+#: src/lightroom.rs
+msgid "Keep Glimt's stars"
+msgstr "Behåll Glimts stjärnor"
+
+#: src/lightroom.rs
+msgid "Lightroom has the catalog open: close Lightroom first"
+msgstr "Lightroom har katalogen öppen: stäng Lightroom först"
+
+#: src/lightroom.rs
+msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
+msgstr "Lightrooms stjärnor eller nyckelord skrevs inte till sidofilerna för {count}"
+
+#: src/lightroom.rs
+msgid "Next"
+msgstr "Nästa"
+
+#: src/lightroom.rs
+msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
+msgstr "Inte en Lightroom Classic-katalog som Glimt kan läsa: {why}"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs the sqlite3 program"
+msgstr "För att läsa en Lightroom-katalog behövs programmet sqlite3"
+
+#: src/lightroom.rs
+msgid "Take Lightroom's stars"
+msgstr "Ta Lightrooms stjärnor"
+
+#: src/lightroom.rs
+msgid "the keywords of {count}"
+msgstr "nyckelorden för {count}"
+
+#: src/lightroom.rs
+msgid "the stars of {count}"
+msgstr "stjärnorna för {count}"
+
+#: src/lightroom.rs
+msgid "There already, so they get only the images they lack: {names}."
+msgstr "Finns redan, så de får bara de bilder de saknar: {names}."
+
+#: src/lightroom.rs
+msgid "Where the catalog's folders are now (empty: left out):"
+msgstr "Var katalogens mappar finns nu (tomt: utelämnas):"
+
+#: src/lightroom.rs
+msgid "{collections}, {keywords} and the stars of {images}."
+msgstr "{collections}, {keywords} och stjärnorna för {images}."
+
+#: src/lightroom.rs
+msgid "{count} have"
+msgstr "{count} har"
+
+#: src/lightroom.rs
+msgid "{needs}, which is not installed"
+msgstr "{needs}, som inte är installerat"
+
+#: src/lightroom.rs
+msgid "{n} other stars in Glimt:"
+msgstr "{n} andra stjärnor i Glimt:"
+
+#: src/main.rs
+msgid ", and {n} more"
+msgstr ", och {n} till"
+
+#: src/main.rs
+msgid "; and {n} more (glimt --check-config)"
+msgstr "; och {n} till (glimt --check-config)"
+
+#: src/main.rs
+msgid "A file dialog is open already"
+msgstr "En fildialog är redan öppen"
+
+#: src/main.rs
+msgid "A plain list is not renamed or trashed by Glimt"
+msgstr "En vanlig lista byter inte namn och kastas inte av Glimt"
+
+#: src/main.rs
+msgid "Add"
+msgstr "Lägg till"
+
+#: src/main.rs
+msgid "Add the keywords to the {n} selected"
+msgstr "Lägg till nyckelorden för de {n} markerade"
+
+#: src/main.rs
+msgid "Add This Folder"
+msgstr "Lägg till denna mapp"
+
+#: src/main.rs
+msgid "Add this image's keywords to the tree"
+msgstr "Lägg till bildens nyckelord i trädet"
+
+#: src/main.rs
+msgid "Add to Collection"
+msgstr "Lägg till i samling"
+
+#: src/main.rs
+msgid "Adding keywords"
+msgstr "Lägger till nyckelord"
+
+#: src/main.rs
+msgid "Add…"
+msgstr "Lägg till …"
+
+#: src/main.rs
+msgid "All Images Change Together"
+msgstr "Alla bilder byts tillsammans"
+
+#: src/main.rs
+msgid "Alt text"
+msgstr "Alternativtext"
+
+#: src/main.rs
+msgid "Ascending"
+msgstr "Stigande"
+
+#: src/main.rs
+msgid "Case"
+msgstr "Skiftläge"
+
+#: src/main.rs
+msgid "Check"
+msgstr "Kontrollera"
+
+#: src/main.rs
+msgid "Check Images"
+msgstr "Kontrollera bilder"
+
+#: src/main.rs
+msgid "Collections"
+msgstr "Samlingar"
+
+#: src/main.rs
+msgid "Colour Management"
+msgstr "Färghantering"
+
+#: src/main.rs
+msgid "Comment"
+msgstr "Kommentar"
+
+#: src/main.rs
+msgid "Connect (Enter)"
+msgstr "Anslut (Enter)"
+
+#: src/main.rs
+msgid "Connecting to {uri}…"
+msgstr "Ansluter till {uri} …"
+
+#: src/main.rs
+msgid "Could not copy the image: {e}"
+msgstr "Kunde inte kopiera bilden: {e}"
+
+#: src/main.rs
+msgid "Could not copy to the clipboard: {e}"
+msgstr "Kunde inte kopiera till urklipp: {e}"
+
+#: src/main.rs
+msgid "Could not open a new window: {e}"
+msgstr "Kunde inte öppna ett nytt fönster: {e}"
+
+#: src/main.rs
+msgid "Could not read the keyword tree: {e}"
+msgstr "Kunde inte läsa nyckelordsträdet: {e}"
+
+#: src/main.rs
+msgid "Could not read the sort manager's folders: {e}"
+msgstr "Kunde inte läsa sorteringshanterarens mappar: {e}"
+
+#: src/main.rs
+msgid "Could not save the alt text: {e}"
+msgstr "Kunde inte spara alternativtexten: {e}"
+
+#: src/main.rs
+msgid "Could not save the collection: {e}"
+msgstr "Kunde inte spara samlingen: {e}"
+
+#: src/main.rs
+msgid "Could not save the keywords: {e}"
+msgstr "Kunde inte spara nyckelorden: {e}"
+
+#: src/main.rs
+msgid "Could not save the orientation: {e}"
+msgstr "Kunde inte spara orienteringen: {e}"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: no home folder"
+msgstr "Kunde inte spara sorteringshanterarens mappar: ingen hemmapp"
+
+#: src/main.rs
+msgid "Could not save the sort manager's folders: {e}"
+msgstr "Kunde inte spara sorteringshanterarens mappar: {e}"
+
+#: src/main.rs
+msgid "Could not save the theme: {e}"
+msgstr "Kunde inte spara temat: {e}"
+
+#: src/main.rs
+msgid "Could not trash {name} (gio is needed): {e}"
+msgstr "Kunde inte kasta {name} (gio behövs): {e}"
+
+#: src/main.rs
+msgid "Could not trash {name}: {err}"
+msgstr "Kunde inte kasta {name}: {err}"
+
+#: src/main.rs
+msgid "Delete (Enter)"
+msgstr "Radera (Enter)"
+
+#: src/main.rs
+msgid "Desktop files there, as Geeqie's, show in this menu after a restart"
+msgstr "Desktop-filer där, som Geeqies, visas i denna meny efter en omstart"
+
+#: src/main.rs
+msgid "Dimensions"
+msgstr "Mått"
+
+#: src/main.rs
+msgid "Domain:"
+msgstr "Domän:"
+
+#: src/main.rs
+msgid "Each file keeps its own keywords and gets these too"
+msgstr "Varje fil behåller sina egna nyckelord och får även dessa"
+
+#: src/main.rs
+msgid "Edit"
+msgstr "Redigera"
+
+#: src/main.rs
+msgid "Extended description"
+msgstr "Utförlig beskrivning"
+
+#: src/main.rs
+msgid "File"
+msgstr "Arkiv"
+
+#: src/main.rs
+msgid "Filter"
+msgstr "Filter"
+
+#: src/main.rs
+msgid "Finish the renaming"
+msgstr "Slutför namnbytet"
+
+#: src/main.rs
+msgid "First: {name}"
+msgstr "Första: {name}"
+
+#: src/main.rs
+msgid "Get More Themes…"
+msgstr "Hämta fler teman …"
+
+#: src/main.rs
+msgid "Glimt ({n})"
+msgstr "Glimt ({n})"
+
+#: src/main.rs
+msgid "Go"
+msgstr "Gå"
+
+#: src/main.rs
+msgid "Help"
+msgstr "Hjälp"
+
+#: src/main.rs
+msgid "Images"
+msgstr "Bilder"
+
+#: src/main.rs
+msgid "Keyword tree"
+msgstr "Nyckelordsträd"
+
+#: src/main.rs
+msgid "Keywords"
+msgstr "Nyckelord"
+
+#: src/main.rs
+msgid "Keywords added to {count}"
+msgstr "Nyckelord tillagda för {count}"
+
+#: src/main.rs
+msgid "Keywords could not be saved for {count}"
+msgstr "Nyckelord kunde inte sparas för {count}"
+
+#: src/main.rs
+msgid "Later"
+msgstr "Senare"
+
+#: src/main.rs
+msgid "Layout"
+msgstr "Layout"
+
+#: src/main.rs
+msgid "Log in to {uri}"
+msgstr "Logga in på {uri}"
+
+#: src/main.rs
+msgid "Marks and Stars"
+msgstr "Märken och stjärnor"
+
+#: src/main.rs
+msgid "Move Folder to Trash…"
+msgstr "Flytta mappen till papperskorgen …"
+
+#: src/main.rs
+msgid "Move in Collection"
+msgstr "Flytta i samlingen"
+
+#: src/main.rs
+msgid "Move the folder \"{name}\" and all in it to the trash?"
+msgstr "Flytta mappen ”{name}” och allt i den till papperskorgen?"
+
+#: src/main.rs
+msgid "Move to Trash (Enter)"
+msgstr "Flytta till papperskorgen (Enter)"
+
+#: src/main.rs
+msgid "Move {what} to the trash?"
+msgstr "Flytta {what} till papperskorgen?"
+
+#: src/main.rs
+msgid "Name of a new collection with {count}:"
+msgstr "Namn på en ny samling med {count}:"
+
+#: src/main.rs
+msgid "New Folder makes a folder in the folder shown: open one"
+msgstr "Ny mapp skapar en mapp i den visade mappen: öppna en"
+
+#: src/main.rs
+msgid "New names for {count} (* = old name, # = number, ### = 001):"
+msgstr "Nya namn för {count} (* = gammalt namn, # = nummer, ### = 001):"
+
+#: src/main.rs
+msgid "No applications found"
+msgstr "Inga program hittades"
+
+#: src/main.rs
+msgid "No collections yet"
+msgstr "Inga samlingar än"
+
+#: src/main.rs
+msgid "No EXIF data"
+msgstr "Inga EXIF-data"
+
+#: src/main.rs
+msgid "No file dialog (install zenity or kdialog): {e}"
+msgstr "Ingen fildialog (installera zenity eller kdialog): {e}"
+
+#: src/main.rs
+msgid "No images for a collection here"
+msgstr "Inga bilder för en samling här"
+
+#: src/main.rs
+msgid "No images in folder"
+msgstr "Inga bilder i mappen"
+
+#: src/main.rs
+msgid "No plugins"
+msgstr "Inga tillägg"
+
+#: src/main.rs
+msgid "No such folder: {folder}"
+msgstr "Ingen sådan mapp: {folder}"
+
+#: src/main.rs
+msgid "Not a valid name: \"{text}\""
+msgstr "Inte ett giltigt namn: ”{text}”"
+
+#: src/main.rs
+msgid "OK (Enter)"
+msgstr "OK (Enter)"
+
+#: src/main.rs
+msgid "One Image at a Time"
+msgstr "En bild i taget"
+
+#: src/main.rs
+msgid "Only the images of a collection can be moved"
+msgstr "Bara bilderna i en samling kan flyttas"
+
+#: src/main.rs
+msgid "Open the Plugins Folder"
+msgstr "Öppna tilläggsmappen"
+
+#: src/main.rs
+msgid "Open Themes Folder"
+msgstr "Öppna temamappen"
+
+#: src/main.rs
+msgid "Open With"
+msgstr "Öppna med"
+
+#: src/main.rs
+msgid "Orientation"
+msgstr "Orientering"
+
+#: src/main.rs
+msgid "Password:"
+msgstr "Lösenord:"
+
+#: src/main.rs
+msgid "Permanently delete {what}?"
+msgstr "Radera {what} permanent?"
+
+#: src/main.rs
+msgid "Places|Norway|Oslo"
+msgstr "Platser|Norge|Oslo"
+
+#: src/main.rs
+msgid "Plugins"
+msgstr "Tillägg"
+
+#: src/main.rs
+msgid "Put the old names back"
+msgstr "Sätt tillbaka de gamla namnen"
+
+#: src/main.rs
+msgid "Random order is on: R turns it off to move images"
+msgstr "Slumpvis ordning är på: R stänger av den för att flytta bilder"
+
+#: src/main.rs
+msgid "Reading folder…"
+msgstr "Läser mappen …"
+
+#: src/main.rs
+msgid "Remove"
+msgstr "Ta bort"
+
+#: src/main.rs
+msgid "Remove from the tree"
+msgstr "Ta bort från trädet"
+
+#: src/main.rs
+msgid "Rename Folder…"
+msgstr "Byt namn på mappen …"
+
+#: src/main.rs
+msgid "Rename Many is still renaming"
+msgstr "Byt namn på flera byter fortfarande namn"
+
+#: src/main.rs
+msgid "Rename Many was cut short"
+msgstr "Byt namn på flera avbröts"
+
+#: src/main.rs
+msgid "Save as Theme…"
+msgstr "Spara som tema …"
+
+#: src/main.rs
+msgid "Select"
+msgstr "Markera"
+
+#: src/main.rs
+msgid "Select Them"
+msgstr "Markera dem"
+
+#: src/main.rs
+msgid "Separated by commas"
+msgstr "Åtskilda med kommatecken"
+
+#: src/main.rs
+msgid "set on"
+msgstr "satt på"
+
+#: src/main.rs
+msgid "Setting keywords"
+msgstr "Sätter nyckelord"
+
+#: src/main.rs
+msgid "Show File Names"
+msgstr "Visa filnamn"
+
+#: src/main.rs
+msgid "Show on OpenStreetMap"
+msgstr "Visa på OpenStreetMap"
+
+#: src/main.rs
+msgid "Show Together with These Images"
+msgstr "Visa tillsammans med dessa bilder"
+
+#: src/main.rs
+msgid "Slideshow in this layout:"
+msgstr "Bildspel i denna layout:"
+
+#: src/main.rs
+msgid "Sort Manager"
+msgstr "Sorteringshanterare"
+
+#: src/main.rs
+msgid "Start Slideshow"
+msgstr "Starta bildspel"
+
+#: src/main.rs
+msgid "Still saving the last rotation of this file"
+msgstr "Sparar fortfarande den senaste rotationen av denna fil"
+
+#: src/main.rs
+msgid "Stop Slideshow"
+msgstr "Stoppa bildspel"
+
+#: src/main.rs
+msgid "Stopped: {done} of {total}"
+msgstr "Stoppad: {done} av {total}"
+
+#: src/main.rs
+msgid "taken off"
+msgstr "borttaget"
+
+#: src/main.rs
+msgid "Taking keywords off"
+msgstr "Tar bort nyckelord"
+
+#: src/main.rs
+msgid "Tell upper and lower case apart"
+msgstr "Skilj på stora och små bokstäver"
+
+#: src/main.rs
+msgid "The collection {file} is gone (renamed or removed in another window): not saved"
+msgstr "Samlingen {file} är borta (bytt namn eller borttagen i ett annat fönster): inte sparad"
+
+#: src/main.rs
+msgid "The keyword could not be saved for {count}"
+msgstr "Nyckelordet kunde inte sparas för {count}"
+
+#: src/main.rs
+msgid "The pane these details are of: the one under the pointer"
+msgstr "Rutan dessa detaljer gäller: den under pekaren"
+
+#: src/main.rs
+msgid "The settings are locked (--lock-settings)"
+msgstr "Inställningarna är låsta (--lock-settings)"
+
+#: src/main.rs
+msgid "The stars could not be written to the XMP sidecar of {count}"
+msgstr "Stjärnorna kunde inte skrivas till XMP-sidofilen för {count}"
+
+#: src/main.rs
+msgid "Theme"
+msgstr "Tema"
+
+#: src/main.rs
+msgid "This cannot be undone."
+msgstr "Detta kan inte ångras."
+
+#: src/main.rs
+msgid "User:"
+msgstr "Användare:"
+
+#: src/main.rs
+msgid "Video: Enter or click to play"
+msgstr "Video: Enter eller klicka för att spela"
+
+#: src/main.rs
+msgid "Videos"
+msgstr "Videor"
+
+#: src/main.rs
+msgid "View"
+msgstr "Visa"
+
+#: src/main.rs
+msgid "What the picture shows, for someone who cannot see it"
+msgstr "Vad bilden visar, för den som inte kan se den"
+
+#: src/main.rs
+msgid "Window"
+msgstr "Fönster"
+
+#: src/main.rs
+msgid "Writing stars"
+msgstr "Skriver stjärnor"
+
+#: src/main.rs
+msgid "Zoom"
+msgstr "Zoom"
+
+#: src/main.rs
+msgid "{doing} {done} of {total}…{more}"
+msgstr "{doing} {done} av {total} …{more}"
+
+#: src/main.rs
+msgid "{n} added to the collection \"{name}\""
+msgstr "{n} tillagda i samlingen ”{name}”"
+
+#: src/main.rs
+msgid "{n} broken:"
+msgstr "{n} trasiga:"
+
+#: src/main.rs
+msgid "{text} is a built-in theme: choose another name"
+msgstr "{text} är ett inbyggt tema: välj ett annat namn"
+
+#: src/main.rs LAYOUTS
+msgid "Four (2 × 2)"
+msgstr "Fyra (2 × 2)"
+
+#: src/main.rs LAYOUTS
+msgid "Two Side by Side"
+msgstr "Två sida vid sida"
+
+#: src/pan.rs
+msgid "April"
+msgstr "april"
+
+#: src/pan.rs
+msgid "August"
+msgstr "augusti"
+
+#: src/pan.rs
+msgid "Calendar"
+msgstr "Kalender"
+
+#: src/pan.rs
+msgid "December"
+msgstr "december"
+
+#: src/pan.rs
+msgid "EXIF date"
+msgstr "EXIF-datum"
+
+#: src/pan.rs
+msgid "February"
+msgstr "februari"
+
+#: src/pan.rs
+msgid "January"
+msgstr "januari"
+
+#: src/pan.rs
+msgid "July"
+msgstr "juli"
+
+#: src/pan.rs
+msgid "June"
+msgstr "juni"
+
+#: src/pan.rs
+msgid "March"
+msgstr "mars"
+
+#: src/pan.rs
+msgid "May"
+msgstr "maj"
+
+#: src/pan.rs
+msgid "No date"
+msgstr "Inget datum"
+
+#: src/pan.rs
+msgid "November"
+msgstr "november"
+
+#: src/pan.rs
+msgid "October"
+msgstr "oktober"
+
+#: src/pan.rs
+msgid "September"
+msgstr "september"
+
+#: src/pan.rs
+msgid "Timeline"
+msgstr "Tidslinje"
+
+#: src/pan.rs
+msgid "{images} on {days}"
+msgstr "{images} på {days}"
+
+#: src/preferences.rs
+msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
+msgstr "Skriv även stjärnor till XMP-sidofiler (photo.jpg.xmp), för darktable och digiKam"
+
+#: src/preferences.rs
+msgid "Auto rotate images using EXIF (Alt+X)"
+msgstr "Rotera bilder automatiskt enligt EXIF (Alt+X)"
+
+#: src/preferences.rs
+msgid "Automatic (system language)"
+msgstr "Automatiskt (systemets språk)"
+
+#: src/preferences.rs
+msgid "Background behind the image"
+msgstr "Bakgrund bakom bilden"
+
+#: src/preferences.rs
+msgid "Black"
+msgstr "Svart"
+
+#: src/preferences.rs
+msgid "Brightness"
+msgstr "Ljushet"
+
+#: src/preferences.rs
+msgid "Change"
+msgstr "Ändra"
+
+#: src/preferences.rs
+msgid "Choose…"
+msgstr "Välj …"
+
+#: src/preferences.rs
+msgid "Colour management"
+msgstr "Färghantering"
+
+#: src/preferences.rs
+msgid "Confirm move file to Trash"
+msgstr "Bekräfta flytt av fil till papperskorgen"
+
+#: src/preferences.rs
+msgid "Confirm permanent file delete"
+msgstr "Bekräfta permanent radering av fil"
+
+#: src/preferences.rs
+msgid "CPU use:"
+msgstr "Processoranvändning:"
+
+#: src/preferences.rs
+msgid "Custom"
+msgstr "Anpassad"
+
+#: src/preferences.rs
+msgid "Decoding threads and one malloc arena take effect after a restart."
+msgstr "Avkodningstrådar och en malloc-arena gäller efter en omstart."
+
+#: src/preferences.rs
+msgid "Default"
+msgstr "Standard"
+
+#: src/preferences.rs
+msgid "default application"
+msgstr "standardprogram"
+
+#: src/preferences.rs
+msgid "Delete behaviour:"
+msgstr "Radering:"
+
+#: src/preferences.rs
+msgid "Details"
+msgstr "Detaljer"
+
+#: src/preferences.rs
+msgid "Enable Delete key"
+msgstr "Aktivera Delete-tangenten"
+
+#: src/preferences.rs
+msgid "Enlarge small images to fit the window"
+msgstr "Förstora små bilder för att fylla fönstret"
+
+#: src/preferences.rs
+msgid "Fade to the next image:"
+msgstr "Tona över till nästa bild:"
+
+#: src/preferences.rs
+msgid "From colord, which GNOME and KDE set"
+msgstr "Från colord, som GNOME och KDE ställer in"
+
+#: src/preferences.rs
+msgid "Fuzzy, best matches first (like fzf)"
+msgstr "Ungefärlig, bästa träffar först (som fzf)"
+
+#: src/preferences.rs
+msgid "High Contrast when the desktop asks for high contrast"
+msgstr "Hög kontrast när skrivbordet ber om hög kontrast"
+
+#: src/preferences.rs
+msgid "Histogram (K):"
+msgstr "Histogram (K):"
+
+#: src/preferences.rs
+msgid "Image info template:"
+msgstr "Mall för bildinfo:"
+
+#: src/preferences.rs
+msgid "images decoded at once"
+msgstr "bilder avkodade samtidigt"
+
+#: src/preferences.rs
+msgid "images on each side"
+msgstr "bilder på varje sida"
+
+#: src/preferences.rs
+msgid "Images without a profile:"
+msgstr "Bilder utan profil:"
+
+#: src/preferences.rs
+msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
+msgstr "I ~/.cache/thumbnails; behålls för diskar som inte är anslutna"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders"
+msgstr "Inkludera bilderna i undermappar"
+
+#: src/preferences.rs
+msgid "Include the images in subfolders in the file list"
+msgstr "Inkludera bilderna i undermappar i fillistan"
+
+#: src/preferences.rs
+msgid "Keep the screen saver off in full screen"
+msgstr "Håll skärmsläckaren avstängd i helskärm"
+
+#: src/preferences.rs
+msgid "Keep zoom and position when changing image"
+msgstr "Behåll zoom och position vid byte av bild"
+
+#: src/preferences.rs
+msgid "Keyboard shortcuts"
+msgstr "Kortkommandon"
+
+#: src/preferences.rs
+msgid "Language"
+msgstr "Språk"
+
+#: src/preferences.rs
+msgid "Large"
+msgstr "Stor"
+
+#: src/preferences.rs
+msgid "Larger still when the desktop's text is (GNOME's Large Text)"
+msgstr "Ännu större när skrivbordets text är det (GNOMEs stor text)"
+
+#: src/preferences.rs
+msgid "Listen for glimt --remote commands (after restart)"
+msgstr "Lyssna efter glimt --remote-kommandon (efter omstart)"
+
+#: src/preferences.rs
+msgid "Logarithmic (J)"
+msgstr "Logaritmiskt (J)"
+
+#: src/preferences.rs
+msgid "MB at most for an animation's frames"
+msgstr "MB högst för en animations bildrutor"
+
+#: src/preferences.rs
+msgid "Medium"
+msgstr "Mellan"
+
+#: src/preferences.rs
+msgid "Memory use:"
+msgstr "Minnesanvändning:"
+
+#: src/preferences.rs
+msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
+msgstr "Mushjulet zoomar (av: nästa/föregående bild, Ctrl+hjul zoomar)"
+
+#: src/preferences.rs
+msgid "None"
+msgstr "Ingen"
+
+#: src/preferences.rs
+msgid "Not with CPU use Power saving"
+msgstr "Inte med processoranvändning Energisparläge"
+
+#: src/preferences.rs
+msgid "Off"
+msgstr "Av"
+
+#: src/preferences.rs
+msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
+msgstr "En malloc-arena: mycket mindre minne, avkodning upp till ~8 % långsammare"
+
+#: src/preferences.rs
+msgid "Play animated GIF and WebP (A)"
+msgstr "Spela animerade GIF och WebP (A)"
+
+#: src/preferences.rs
+msgid "Player (Enter):"
+msgstr "Spelare (Enter):"
+
+#: src/preferences.rs
+msgid "Preferences"
+msgstr "Inställningar"
+
+#: src/preferences.rs
+msgid "Preload next and previous images:"
+msgstr "Förladda nästa och föregående bilder:"
+
+#: src/preferences.rs
+msgid "Press a key (Esc cancels)"
+msgstr "Tryck på en tangent (Esc avbryter)"
+
+#: src/preferences.rs
+msgid "Profile file…"
+msgstr "Profilfil …"
+
+#: src/preferences.rs
+msgid "quality when a lossy WebP is saved again"
+msgstr "kvalitet när en förstörande WebP sparas igen"
+
+#: src/preferences.rs
+msgid "Random order"
+msgstr "Slumpvis ordning"
+
+#: src/preferences.rs
+msgid "Refresh the folder when files change"
+msgstr "Uppdatera mappen när filer ändras"
+
+#: src/preferences.rs
+msgid "Regular expression, in list order (like Geeqie's file filter)"
+msgstr "Reguljärt uttryck, i listans ordning (som Geeqies filfilter)"
+
+#: src/preferences.rs
+msgid "Remember the window size and position"
+msgstr "Kom ihåg fönstrets storlek och position"
+
+#: src/preferences.rs
+msgid "Remove thumbnails of deleted files"
+msgstr "Ta bort miniatyrer för raderade filer"
+
+#: src/preferences.rs
+msgid "Removed {removed} of {seen} thumbnails"
+msgstr "Tog bort {removed} av {seen} miniatyrer"
+
+#: src/preferences.rs
+msgid "Rendering intent:"
+msgstr "Återgivningsavsikt:"
+
+#: src/preferences.rs
+msgid "Repeat: start again after the last image"
+msgstr "Upprepa: börja om efter den sista bilden"
+
+#: src/preferences.rs
+msgid "Reset"
+msgstr "Återställ"
+
+#: src/preferences.rs
+msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
+msgstr "Spara nya miniatyrer i ~/.cache/thumbnails (delas med andra program)"
+
+#: src/preferences.rs
+msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
+msgstr "Spara rotationen i filen vid byte av bild (JPEG; PNG och WebP sparas igen)"
+
+#: src/preferences.rs
+msgid "Screen profile:"
+msgstr "Skärmprofil:"
+
+#: src/preferences.rs
+msgid "Search field above the file list:"
+msgstr "Sökfält ovanför fillistan:"
+
+#: src/preferences.rs
+msgid "seconds per image"
+msgstr "sekunder per bild"
+
+#: src/preferences.rs
+msgid "Show file size and date in the file list"
+msgstr "Visa filstorlek och datum i fillistan"
+
+#: src/preferences.rs
+msgid "Show folders as a tree (Ctrl+T)"
+msgstr "Visa mappar som ett träd (Ctrl+T)"
+
+#: src/preferences.rs
+msgid "Show image info in full screen (I)"
+msgstr "Visa bildinfo i helskärm (I)"
+
+#: src/preferences.rs
+msgid "Show marks and stars in the file list"
+msgstr "Visa märken och stjärnor i fillistan"
+
+#: src/preferences.rs
+msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
+msgstr "Visa EXIF-panelen (Ctrl+K; läser lite från varje bild som visas)"
+
+#: src/preferences.rs
+msgid "Show the file list as icons (Ctrl+I)"
+msgstr "Visa fillistan som ikoner (Ctrl+I)"
+
+#: src/preferences.rs
+msgid "Show the file name search"
+msgstr "Visa sökningen på filnamn"
+
+#: src/preferences.rs
+msgid "Show the folder path"
+msgstr "Visa mappsökvägen"
+
+#: src/preferences.rs
+msgid "Show the toolbar"
+msgstr "Visa verktygsfältet"
+
+#: src/preferences.rs
+msgid "Show thumbnails in the file list (T)"
+msgstr "Visa miniatyrer i fillistan (T)"
+
+#: src/preferences.rs
+msgid "Show videos in the file list"
+msgstr "Visa videor i fillistan"
+
+#: src/preferences.rs
+msgid "size of the menus, lists and text"
+msgstr "storlek på menyer, listor och text"
+
+#: src/preferences.rs
+msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
+msgstr "Bildspel (S, R = slumpvis, Ctrl+= snabbare, Ctrl+- långsammare):"
+
+#: src/preferences.rs
+msgid "Small"
+msgstr "Liten"
+
+#: src/preferences.rs
+msgid "Start in the last used folder"
+msgstr "Starta i den senast använda mappen"
+
+#: src/preferences.rs
+msgid "Thumbnail size:"
+msgstr "Miniatyrstorlek:"
+
+#: src/preferences.rs
+msgid "Toolbar icons:"
+msgstr "Ikoner i verktygsfältet:"
+
+#: src/preferences.rs
+msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
+msgstr "Upp till ≈ {mb} MB, varje bild högst {w}×{h}"
+
+#: src/preferences.rs
+msgid "Use no trash at all (Delete deletes permanently)"
+msgstr "Använd ingen papperskorg alls (Delete raderar permanent)"
+
+#: src/preferences.rs
+msgid "Use the desktop's screen profile"
+msgstr "Använd skrivbordets skärmprofil"
+
+#: src/preferences.rs
+msgid "Use the image's own profile"
+msgstr "Använd bildens egen profil"
+
+#: src/preferences.rs
+msgid "Video (needs ffmpeg for previews):"
+msgstr "Video (behöver ffmpeg för förhandsvisningar):"
+
+#: src/preferences.rs
+msgid "{keys} was the key of {others} too: now of {label} only"
+msgstr "{keys} var också tangenten för {others}: nu bara för {label}"
+
+#: src/print.rs
+msgid "Copies:"
+msgstr "Kopior:"
+
+#: src/print.rs
+msgid "Images per page:"
+msgstr "Bilder per sida:"
+
+#: src/print.rs
+msgid "No image could be read: nothing printed"
+msgstr "Ingen bild kunde läsas: inget skrevs ut"
+
+#: src/print.rs
+msgid "No printers found"
+msgstr "Inga skrivare hittades"
+
+#: src/print.rs
+msgid "Paper:"
+msgstr "Papper:"
+
+#: src/print.rs
+msgid "PDF file"
+msgstr "PDF-fil"
+
+#: src/print.rs
+msgid "Print (Enter)"
+msgstr "Skriv ut (Enter)"
+
+#: src/print.rs
+msgid "Print {count}"
+msgstr "Skriv ut {count}"
+
+#: src/print.rs
+msgid "Printer:"
+msgstr "Skrivare:"
+
+#: src/print.rs
+msgid "Printing failed: {e}"
+msgstr "Utskriften misslyckades: {e}"
+
+#: src/print.rs
+msgid "Save PDF… (Enter)"
+msgstr "Spara PDF … (Enter)"
+
+#: src/print.rs
+msgid "{images} on {pages}"
+msgstr "{images} på {pages}"
+
+#: src/print.rs
+msgid "{msg}; {f} could not be read"
+msgstr "{msg}; {f} kunde inte läsas"
+
+#: src/print.rs
+msgid "{what} saved in {file}"
+msgstr "{what} sparade i {file}"
+
+#: src/print.rs
+msgid "{what} sent to {printer}"
+msgstr "{what} skickade till {printer}"
+
+msgid "collection"
+msgid_plural "collections"
+msgstr[0] "samling"
+msgstr[1] "samlingar"
+
+msgid "day"
+msgid_plural "days"
+msgstr[0] "dag"
+msgstr[1] "dagar"
+
+msgid "error"
+msgid_plural "errors"
+msgstr[0] "fel"
+msgstr[1] "fel"
+
+msgid "file"
+msgid_plural "files"
+msgstr[0] "fil"
+msgstr[1] "filer"
+
+msgid "frame"
+msgid_plural "frames"
+msgstr[0] "bildruta"
+msgstr[1] "bildrutor"
+
+msgid "group"
+msgid_plural "groups"
+msgstr[0] "grupp"
+msgstr[1] "grupper"
+
+msgid "image"
+msgid_plural "images"
+msgstr[0] "bild"
+msgstr[1] "bilder"
+
+msgid "keyword"
+msgid_plural "keywords"
+msgstr[0] "nyckelord"
+msgstr[1] "nyckelord"
+
+msgid "page"
+msgid_plural "pages"
+msgstr[0] "sida"
+msgstr[1] "sidor"
+
+msgid "star"
+msgid_plural "stars"
+msgstr[0] "stjärna"
+msgstr[1] "stjärnor"
+
+msgid "step"
+msgid_plural "steps"
+msgstr[0] "steg"
+msgstr[1] "steg"
+
+#: src/print.rs
+msgid "Orientation:"
+msgstr "Orientering:"
+
+#: src/print.rs
+msgid "Automatic"
+msgstr "Automatisk"
+
+#: src/print.rs
+msgid "Portrait"
+msgstr "Stående"
+
+#: src/print.rs
+msgid "Landscape"
+msgstr "Liggande"
+
+#: src/print.rs
+msgid "Margin (mm):"
+msgstr "Marginal (mm):"
+
+#: src/print.rs
+msgid "Image size (%):"
+msgstr "Bildstorlek (%):"
+
+#: src/print.rs
+msgid "Fill each box, cutting the image to it"
+msgstr "Fyll varje ruta och beskär bilden till den"
+
+#: src/print.rs
+msgid "Text under each image:"
+msgstr "Text under varje bild:"
+
+#: src/print.rs
+msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+msgstr "Som bildinfon i helskärm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
+
+#: src/print.rs
+msgid "%page% is the page's number, %pages% how many there are"
+msgstr "%page% är sidans nummer, %pages% hur många det finns"
+
+#: src/print.rs
+msgid "Top of each page:"
+msgstr "Överst på varje sida:"
+
+#: src/print.rs
+msgid "Bottom of each page:"
+msgstr "Nederst på varje sida:"
+
+#: src/print.rs
+msgid "Both sides of the paper"
+msgstr "Båda sidorna av papperet"
+
+#: src/print.rs
+msgid "Print the image"
+msgstr "Skriv ut bilden"
+
+#: src/print.rs
+msgid "{files} copied to {folder}"
+msgstr "{files} kopierade till {folder}"
+
+#: src/print.rs
+msgid "{files} moved to {folder}"
+msgstr "{files} flyttade till {folder}"
+
+#: src/print.rs
+msgid "Could not move the folder to the trash: {e}"
+msgstr "Kunde inte flytta mappen till papperskorgen: {e}"
+
+#: src/print.rs
+msgid "calculating…"
+msgstr "beräknar …"
+
+#: src/print.rs
+msgid "Open Folder"
+msgstr "Öppna mapp"
+
+#: src/print.rs
+msgid "Open File"
+msgstr "Öppna fil"
+
+#: src/print.rs
+msgid "Open Folders (Ctrl+click for several)"
+msgstr "Öppna mappar (Ctrl+klick för flera)"
+
+#: src/print.rs
+msgid "Open Folder with Its Subfolders"
+msgstr "Öppna mapp med dess undermappar"
+
+#: src/print.rs
+msgid "Open Collection"
+msgstr "Öppna samling"
+
+#: src/print.rs
+msgid "Copy to Folder"
+msgstr "Kopiera till mapp"
+
+#: src/print.rs
+msgid "Move to Folder"
+msgstr "Flytta till mapp"
+
+#: src/print.rs
+msgid "Save as PDF"
+msgstr "Spara som PDF"
+
+#: src/print.rs
+msgid "Add to the Sort Manager"
+msgstr "Lägg till i sorteringshanteraren"
+
+#: src/print.rs
+msgid "Screen Profile"
+msgstr "Skärmprofil"
+
+#: src/print.rs
+msgid "Profile of Images Without One"
+msgstr "Profil för bilder utan egen"
+
+#: src/print.rs
+msgid "Import Lightroom Catalog"
+msgstr "Importera Lightroom-katalog"
+
+#: src/print.rs
+msgid "Back Up Glimt's Data To"
+msgstr "Säkerhetskopiera Glimts data till"
+
+#: src/print.rs
+msgid "Save This Frame as PNG"
+msgstr "Spara denna bildruta som PNG"
+
+#: src/print.rs
+msgid "Export Every Frame To"
+msgstr "Exportera varje bildruta till"
+
+#: src/print.rs
+msgid "Collection {name} moved to the trash"
+msgstr "Samlingen {name} flyttad till papperskorgen"
+
+#: src/print.rs
+msgid "Not a pattern: {e}"
+msgstr "Inte ett mönster: {e}"
+
+#: src/print.rs
+msgid "{text} exists already: choose another name"
+msgstr "{text} finns redan: välj ett annat namn"
+
+#: src/print.rs
+msgid "Saved as {file}: edit it, then choose it again"
+msgstr "Sparad som {file}: redigera den och välj den sedan igen"
+
+#: src/print.rs
+msgid "{files} given their old names back"
+msgstr "{files} fick tillbaka sina gamla namn"
+
+#: src/print.rs
+msgid "{files} renamed"
+msgstr "{files} bytte namn"
+
+#: src/print.rs
+msgid "; {files} could not be, asked again at the next start"
+msgstr "; {files} kunde inte, frågas igen vid nästa start"
+
+#: src/print.rs
+msgid "{found} of {images} ({size})"
+msgstr "{found} av {images} ({size})"
+
+#: src/print.rs
+msgid ", {m} selected ({size})"
+msgstr ", {m} markerade ({size})"
+
+#: src/print.rs
+msgid "{n} bytes"
+msgstr "{n} byte"
+
+#: src/print.rs
+msgid " page {n}/{pages}"
+msgstr " sida {n}/{pages}"
+
+#: src/print.rs
+msgid " frame {n}/{frames}"
+msgstr " bildruta {n}/{frames}"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
+msgstr "Kunde inte byta namn på {f} till {t}: {e}; inte alla namn kunde sättas tillbaka, Glimt erbjuder att rätta dem vid nästa start"
+
+#: src/pan.rs
+msgid "Mon"
+msgstr "mån"
+
+#: src/pan.rs
+msgid "Tue"
+msgstr "tis"
+
+#: src/pan.rs
+msgid "Wed"
+msgstr "ons"
+
+#: src/pan.rs
+msgid "Thu"
+msgstr "tor"
+
+#: src/pan.rs
+msgid "Fri"
+msgstr "fre"
+
+#: src/pan.rs
+msgid "Sat"
+msgstr "lör"
+
+#: src/pan.rs
+msgid "Sun"
+msgstr "sön"
+
+#: src/file_ops.rs
+msgid "Still writing keywords: try again in a moment"
+msgstr "Skriver fortfarande nyckelord: försök igen om en stund"
+
+#: src/main.rs
+msgid "{what} stopped unexpectedly"
+msgstr "{what} stoppade oväntat"
+
+#: src/main.rs
+msgid "Connecting"
+msgstr "Ansluter"
+
+#: src/main.rs
+msgid "Reading the Lightroom catalog"
+msgstr "Läser Lightroom-katalogen"
+
+#: src/main.rs
+msgid "Looking for renames cut short"
+msgstr "Letar efter avbrutna namnbyten"
+
+#: src/main.rs
+msgid "The EXIF index"
+msgstr "EXIF-indexet"
+
+#: src/main.rs
+msgid "The Pan view's days"
+msgstr "Panoreringsvyns dagar"
+
+#: src/main.rs
+msgid "Rename Many"
+msgstr "Byt namn på flera"
+
+#: src/external.rs
+msgid "No answer from the server in a minute"
+msgstr "Inget svar från servern på en minut"
+
+#: src/lightroom.rs
+msgid "The catalog is too large to read"
+msgstr "Katalogen är för stor för att läsas"
+
+#: src/file_ops.rs
+msgid "stopped"
+msgstr "stoppad"
+
+#: src/main.rs
+msgid "Saving keywords"
+msgstr "Sparar nyckelord"
+
+#: src/main.rs
+msgid "Saving the alt text"
+msgstr "Sparar alternativtexten"
+
+#: src/main.rs
+msgid "Reading the folder"
+msgstr "Läser mappen"
+
+#: src/print.rs
+msgid "No answer from the print server in two minutes"
+msgstr "Inget svar från utskriftsservern på två minuter"
+
+#: src/file_ops.rs
+msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
+msgstr "Kunde inte byta namn på {f} till {t}: {e}; inte alla namn kunde sättas tillbaka och ingen plan kunde sparas: filerna med .glimt-rename-*-namn bredvid dem är deras"
+
+#: src/preferences.rs
+msgid "Look"
+msgstr "Utseende"
+
+#: src/preferences.rs
+msgid "Keyboard"
+msgstr "Tangentbord"
+
+#: src/preferences.rs
+msgid "Image"
+msgstr "Bild"
+
+#: src/preferences.rs
+msgid "Slideshow"
+msgstr "Bildspel"
+
+#: src/preferences.rs
+msgid "File list"
+msgstr "Fillista"
+
+#: src/preferences.rs
+msgid "Memory and CPU"
+msgstr "Minne och processor"
+
+#: src/preferences.rs
+msgid "Video"
+msgstr "Video"
+
+#: src/preferences.rs
+msgid "Start and system"
+msgstr "Start och system"
+
+#: src/preferences.rs
+msgid "Previews need ffmpeg"
+msgstr "Förhandsvisningar behöver ffmpeg"
+
+#: src/preferences.rs
+msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
+msgstr "S startar och stoppar, R slumpvis ordning, Ctrl+= snabbare, Ctrl+- långsammare"
+
+#: src/actions.rs
+msgid "Undo"
+msgstr "Ångra"
+
+#: src/file_ops.rs
+msgid "Nothing to undo"
+msgstr "Inget att ångra"
+
+#: src/file_ops.rs
+msgid "Undo failed ({count}): {first}"
+msgstr "Ångra misslyckades ({count}): {first}"
+
+#: src/file_ops.rs
+msgid "Undo failed: {e}"
+msgstr "Ångra misslyckades: {e}"
+
+#: src/file_ops.rs
+msgid "{count} back from the trash"
+msgstr "{count} tillbaka från papperskorgen"
+
+#: src/file_ops.rs
+msgid "{files} moved back"
+msgstr "{files} flyttade tillbaka"
+
+#: src/file_ops.rs
+msgid "{name} exists already"
+msgstr "{name} finns redan"
+
+#: src/file_ops.rs
+msgid "{name} is not in the trash"
+msgstr "{name} finns inte i papperskorgen"
+
+#: src/actions.rs
+msgid "Set as Wallpaper"
+msgstr "Använd som skrivbordsbakgrund"
+
+#: src/main.rs
+msgid "Could not set the wallpaper: {e}"
+msgstr "Kunde inte ställa in skrivbordsbakgrunden: {e}"
+
+#: src/main.rs
+msgid "Clear Recent"
+msgstr "Töm listan"
+
+#: src/main.rs
+msgid "Nothing opened yet"
+msgstr "Inget öppnat än"
+
+#: src/main.rs
+msgid "Open Recent"
+msgstr "Öppna senaste"
+
+#: src/main.rs
+msgid "{name} is gone"
+msgstr "{name} finns inte längre"
+
+#: src/preferences.rs
+msgid "Keep a list of recent folders (File → Open Recent)"
+msgstr "Behåll en lista över senaste mappar (Arkiv → Öppna senaste)"
+
+#: src/preferences.rs
+msgid "Checkerboard behind transparent images"
+msgstr "Schackrutor bakom genomskinliga bilder"
+
+#: src/actions.rs
+msgid "Crop…"
+msgstr "Beskär …"
+
+#: src/crop.rs
+msgid "A video is not cropped"
+msgstr "En video beskärs inte"
+
+#: src/crop.rs
+msgid "Drag over the image to choose the part to keep"
+msgstr "Dra över bilden för att välja den del som ska behållas"
+
+#: src/crop.rs
+msgid "Save Copy (Enter)"
+msgstr "Spara kopia (Enter)"
+
+#: src/crop.rs
+msgid "Could not crop the image: {e}"
+msgstr "Kunde inte beskära bilden: {e}"
+
+#: src/preferences.rs
+msgid "quality of a cropped JPEG (Edit → Crop)"
+msgstr "kvalitet för en beskuren JPEG (Redigera → Beskär)"
+
+#: src/actions.rs
+msgid "Save As…"
+msgstr "Spara som …"
+
+#: src/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "En video sparas inte som bild"
+
+#: src/save_as.rs
+msgid "Format:"
+msgstr "Format:"
+
+#: src/save_as.rs
+msgid "As the original ({format})"
+msgstr "Som originalet ({format})"
+
+#: src/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, förlustfri"
+
+#: src/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, förstörande"
+
+#: src/save_as.rs
+msgid "Size:"
+msgstr "Storlek:"
+
+#: src/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Original ({w} × {h})"
+
+#: src/save_as.rs
+msgid "Longest side"
+msgstr "Längsta sidan"
+
+#: src/save_as.rs
+msgid "Percent"
+msgstr "Procent"
+
+#: src/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Sparas {w} × {h}; förstoras aldrig"
+
+#: src/save_as.rs
+msgid "Quality:"
+msgstr "Kvalitet:"
+
+#: src/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "Ta bort EXIF och GPS (kamera, datum, plats), XMP och sidofilen"
+
+#: src/save_as.rs
+msgid "Save…"
+msgstr "Spara …"
+
+#: src/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Kunde inte spara bilden: {e}"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Spara som"

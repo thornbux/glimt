@@ -28,6 +28,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - File → Save As… (Ctrl+Shift+S): the shown image saved again as JPEG, PNG or WebP (lossless
   or lossy), at its size or smaller (longest side or percent), at a quality of your choice,
   and if asked without EXIF and GPS, XMP and sidecar; never over the image itself.
+- The interface in Danish, Dutch, Finnish, French, German, Icelandic, Italian, Polish, Spanish
+  and Swedish too, by the system's language or chosen in Preferences; nouns after a number take
+  each language's form (Polish's three, Icelandic's 21 as one, French's 0 as one).
 
 ## [0.39.0] - 2026-10-21
 
