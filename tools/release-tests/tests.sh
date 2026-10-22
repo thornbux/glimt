@@ -2895,6 +2895,33 @@ set -- ${size:-0 0}
 expect "about 115 x 115 pixels" "$([ $1 -ge 105 ] && [ $1 -le 125 ] && [ $2 -ge 105 ] && [ $2 -le 125 ] && echo yes)" yes
 expect "the right half: blue" "$([ -e $d/a-cropped.png ] && side $d/a-cropped.png 10,10)" blue
 
+echo "-- Ctrl+Shift+S saves as: JPEG at half the size, the extension added, the image kept"
+for v in new old; do
+    as_version $v
+    d=/tmp/save-as-$v
+    mkdir -p $d/out
+    convert -size 400x200 xc:red $d/a.png
+    sum=$(md5sum <$d/a.png)
+    # The stand-in file dialog: says what name it was offered, answers a name without extension.
+    printf '#!/bin/sh\necho "$@" >/tmp/zenity-args\necho "%s"\n' $d/out/b >/tmp/stub/zenity
+    chmod +x /tmp/stub/zenity
+    rm -f /tmp/zenity-args
+    config
+    start $d
+    sleep 2
+    key ctrl+shift+s; sleep 1
+    menu "Percent" "As the original (PNG)" "JPEG" "Save…"
+    until_file $d/out/b.jpg 10
+    [ $v = new ] && { files=$(ls $d/out | tr '\n' ' '); size=$(identify -format "%m %w %h" $d/out/b.jpg 2>/dev/null)
+        offered=$(grep -o 'a-200.jpg' /tmp/zenity-args); same=$([ "$(md5sum <$d/a.png)" = "$sum" ] && echo yes); }
+    quit
+    [ $v = old ] && note "old: $(ls $d/out | tr '\n' ' ')"
+done
+expect "offered a-200.jpg beside the image" "$offered" a-200.jpg
+expect "saved as b.jpg" "$files" "b.jpg "
+expect "a JPEG of 200 x 100" "$size" "JPEG 200 100"
+expect "the image itself unchanged" "$same" yes
+
 echo "-- / puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d

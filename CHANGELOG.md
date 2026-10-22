@@ -25,6 +25,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   file beside the image (NAME-cropped), as the view shows it; the image itself is never
   changed. JPEG at the quality set in Preferences (92 by default), PNG and WebP as they were,
   other formats as PNG, with the EXIF, XMP and sidecar.
+- File → Save As… (Ctrl+Shift+S): the shown image saved again as JPEG, PNG or WebP (lossless
+  or lossy), at its size or smaller (longest side or percent), at a quality of your choice,
+  and if asked without EXIF and GPS, XMP and sidecar; never over the image itself.
 
 ## [0.39.0] - 2026-10-21
 

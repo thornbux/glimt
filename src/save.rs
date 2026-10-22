@@ -41,46 +41,124 @@ pub fn save_rotated(
     crate::config::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
-/// Save the part `[x, y, width, height]` of the image as the view shows it (turned by `turns`
-/// and `mirrored`, and by EXIF with `rotate`) as a new file beside it, "NAME-cropped.EXT" or
-/// "NAME-cropped-2.EXT" …, never over another. In the same format with its profile, EXIF
-/// (upright) and XMP: JPEG at `jpeg_quality`, a lossy WebP through ffmpeg, PNG and lossless
-/// WebP as they were; other formats as PNG. Its sidecar is copied too. Returns the new file.
-#[allow(clippy::too_many_arguments)]
-pub fn save_cropped(
-    path: &Path,
-    rotate: bool,
-    turns: u8,
-    mirrored: bool,
-    [x, y, width, height]: [u32; 4],
-    jpeg_quality: u8,
-    webp_quality: u8,
-) -> Result<std::path::PathBuf, String> {
+/// How a copy of an image is made (Edit → Crop, File → Save As): as the view shows it (turned
+/// by `turns` and `mirrored`, and by EXIF with `rotate`), a part of it, smaller, in a format.
+pub struct CopyAs {
+    pub rotate: bool,
+    pub turns: u8,
+    pub mirrored: bool,
+    /// The part `[x, y, width, height]` of the image as shown.
+    pub crop: Option<[u32; 4]>,
+    /// The longest side at most, in pixels; never enlarged.
+    pub long_side: Option<u32>,
+    /// `None`: as the original, which is JPEG, PNG or WebP (lossy as it was), else PNG.
+    pub format: Option<Format>,
+    pub jpeg_quality: u8,
+    pub webp_quality: u8,
+    /// Without the EXIF block (camera, date, place), the XMP and the sidecar.
+    pub strip: bool,
+}
+
+/// A format a copy is saved in.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Format {
+    Jpeg,
+    Png,
+    WebP,
+    WebPLossy,
+}
+
+impl Format {
+    /// The extension of its files.
+    pub fn ext(self) -> &'static str {
+        match self {
+            Format::Jpeg => "jpg",
+            Format::Png => "png",
+            Format::WebP | Format::WebPLossy => "webp",
+        }
+    }
+
+    /// The format `path` would be copied in "as the original".
+    pub fn of(path: &Path) -> Format {
+        if crate::files::is_jpeg(path) {
+            Format::Jpeg
+        } else if has_ext(path, &["webp"]) && webp_lossless(path) == Some(false) {
+            Format::WebPLossy
+        } else if has_ext(path, &["webp"]) {
+            Format::WebP
+        } else {
+            Format::Png
+        }
+    }
+}
+
+/// The copy of `path` that `how` asks for, encoded, and its format. With its profile, and
+/// unless stripped its EXIF (upright) and XMP: JPEG and a lossy WebP at their quality (the
+/// WebP through ffmpeg), PNG and lossless WebP without loss.
+pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String> {
     if animated(path)? {
-        return Err("animated images are not cropped".into());
+        return Err("animated images are not saved as a copy".into());
     }
-    let (kind, ext) = if crate::files::is_jpeg(path) {
-        (Kind::Jpeg(jpeg_quality), None)
-    } else if has_ext(path, &["png"]) {
-        (Kind::Png, None)
-    } else if has_ext(path, &["webp"]) {
-        (Kind::WebP(webp_lossless(path) == Some(false)), None)
-    } else {
-        (Kind::Png, Some("png"))
+    let format = how.format.unwrap_or_else(|| Format::of(path));
+    let kind = match format {
+        Format::Jpeg => Kind::Jpeg(how.jpeg_quality),
+        Format::Png => Kind::Png,
+        Format::WebP => Kind::WebP(false),
+        Format::WebPLossy => Kind::WebP(true),
     };
-    let (exif, xmp, _) = upright_metadata(path, rotate)?;
-    let (img, icc) = load_icc(path, rotate)?;
-    let img = turned(img, turns, mirrored);
-    if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
-        return Err("the part is outside the image".into());
+    let (exif, xmp, _) = match how.strip {
+        true => (None, None, false),
+        false => upright_metadata(path, how.rotate)?,
+    };
+    let (img, icc) = load_icc(path, how.rotate)?;
+    let mut img = turned(img, how.turns, how.mirrored);
+    if let Some([x, y, width, height]) = how.crop {
+        if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
+            return Err("the part is outside the image".into());
+        }
+        img = img.crop_imm(x, y, width, height);
     }
-    let img = img.crop_imm(x, y, width, height);
-    // Its PNG chunks hold as they were: a DPI is no different for a part.
-    let out = encode(path, img, icc, exif, xmp, kind, false, webp_quality)?;
+    if let Some(long) = how.long_side {
+        img = smaller(img, long.max(1))?;
+    }
+    // A PNG's other chunks hold as they were: a DPI is no different for a part. Not stripped,
+    // its text chunks may say where and by whom.
+    let from = if how.strip { Path::new("") } else { path };
+    let out = encode(from, img, icc, exif, xmp, kind, false, how.webp_quality)?;
+    Ok((out, format))
+}
+
+/// `img` with its longest side `long` at most, by Lanczos3: sharp, for a copy kept.
+fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
+    let (w, h) = (img.width(), img.height());
+    if w.max(h) <= long {
+        return Ok(img);
+    }
+    let scale = long as f64 / w.max(h) as f64;
+    let size = |side: u32| ((side as f64 * scale).round() as u32).max(1);
+    let mut small = image::DynamicImage::new(size(w), size(h), img.color());
+    let opts = fast_image_resize::ResizeOptions::new().resize_alg(
+        fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Lanczos3),
+    );
+    fast_image_resize::Resizer::new()
+        .resize(&img, &mut small, &opts)
+        .map_err(|e| e.to_string())?;
+    Ok(small)
+}
+
+/// Save the part `how.crop` of the image as a new file beside it, "NAME-cropped.EXT" or
+/// "NAME-cropped-2.EXT" …, never over another; its sidecar is copied too. Returns the new file.
+pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, String> {
+    let (out, format) = copy_bytes(path, how)?;
     let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-    let ext = ext
-        .map(str::to_owned)
-        .unwrap_or_else(|| (path.extension().unwrap_or_default().to_string_lossy()).into_owned());
+    // The original's own spelling (.jpeg, .JPG) where the format is the same.
+    let ext = match path.extension().and_then(|e| e.to_str()) {
+        Some(e) if how.format.is_none() && Format::of(path) == format && format != Format::Png => {
+            e.to_owned()
+        }
+        Some(e) if format == Format::Png && e.eq_ignore_ascii_case("png") => e.to_owned(),
+        _ => format.ext().to_owned(),
+    };
     for n in 1.. {
         let name = match n {
             1 => format!("{stem}-cropped.{ext}"),
@@ -91,12 +169,52 @@ pub fn save_cropped(
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.to_string()),
             Ok(()) => {
-                let _ = crate::meta::follow(path, &new, true);
+                if !how.strip {
+                    let _ = crate::meta::follow(path, &new, true);
+                }
                 return Ok(new);
             }
         }
     }
     unreachable!()
+}
+
+/// File → Save As: the copy `how` asks for, saved as `to`, which the file dialog let replace
+/// a file there. Its extension made the format's, and then never over a file the dialog did
+/// not ask about; never the image itself. Returns the file saved.
+pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBuf, String> {
+    let format = how.format.unwrap_or_else(|| Format::of(path));
+    let ext = to.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let matches = match format {
+        Format::Jpeg => ["jpg", "jpeg"].iter().any(|x| x.eq_ignore_ascii_case(ext)),
+        f => f.ext().eq_ignore_ascii_case(ext),
+    };
+    let to = match matches {
+        true => to.to_owned(),
+        false => {
+            let mut name = to.file_name().unwrap_or_default().to_owned();
+            name.push(".");
+            name.push(format.ext());
+            to.with_file_name(name)
+        }
+    };
+    let same = |a: &Path, b: &Path| match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if same(path, &to) {
+        return Err("choose another name: the image itself is not changed".into());
+    }
+    let (out, _) = copy_bytes(path, how)?;
+    let written = match matches {
+        true => crate::config::replace_file(&to, &out),
+        false => crate::config::create_file(&to, &out),
+    };
+    written.map_err(|e| format!("{}: {e}", to.display()))?;
+    if !how.strip {
+        let _ = crate::meta::follow(path, &to, true);
+    }
+    Ok(to)
 }
 
 /// How an image is written: as a PNG, a WebP (lossy or not) or a JPEG of a quality.
@@ -751,8 +869,19 @@ mod tests {
             let p = img.get_pixel(img.width() / 2, img.height() / 2).0;
             (img.dimensions(), p[0] > 200 && p[2] < 60)
         };
+        let how = |turns, part| super::CopyAs {
+            rotate: true,
+            turns,
+            mirrored: false,
+            crop: Some(part),
+            long_side: None,
+            format: None,
+            jpeg_quality: 92,
+            webp_quality: 90,
+            strip: false,
+        };
         // The right half: blue.
-        let new = super::save_cropped(&file, true, 0, false, [8, 0, 8, 8], 92, 90).unwrap();
+        let new = super::save_cropped(&file, &how(0, [8, 0, 8, 8])).unwrap();
         assert_eq!(new, dir.join("a-cropped.jpg"));
         assert_eq!(colour(&new), ((8, 8), false));
         let mut dec = image::ImageReader::open(&new)
@@ -761,11 +890,67 @@ mod tests {
             .unwrap();
         assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
         // Turned a quarter clockwise, the left (red) half is on top.
-        let new = super::save_cropped(&file, true, 1, false, [0, 0, 8, 8], 92, 90).unwrap();
+        let new = super::save_cropped(&file, &how(1, [0, 0, 8, 8])).unwrap();
         assert_eq!(new, dir.join("a-cropped-2.jpg"));
         assert_eq!(colour(&new), ((8, 8), true));
         assert_eq!(std::fs::read(&file).unwrap(), before);
-        assert!(super::save_cropped(&file, true, 0, false, [8, 0, 9, 8], 92, 90).is_err());
+        assert!(super::save_cropped(&file, &how(0, [8, 0, 9, 8])).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Save As: smaller and in another format, its extension made the format's, the metadata
+    /// kept or left out, and never the image itself.
+    #[test]
+    fn saves_as_another_format_and_size() {
+        use image::{ImageDecoder, ImageEncoder};
+        let dir = std::env::temp_dir().join(format!("glimt-save-as-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.png");
+        let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x01\0\0\0\0\0\0";
+        let mut enc = image::codecs::png::PngEncoder::new(std::fs::File::create(&file).unwrap());
+        enc.set_exif_metadata(exif.to_vec()).unwrap();
+        image::RgbImage::from_pixel(400, 200, image::Rgb([200, 30, 30]))
+            .write_with_encoder(enc)
+            .unwrap();
+        let how = |format, strip| super::CopyAs {
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: None,
+            long_side: Some(100),
+            format,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip,
+        };
+        // Named without an extension: the format's is added.
+        let to = super::save_as(
+            &file,
+            &how(Some(super::Format::Jpeg), false),
+            &dir.join("b"),
+        );
+        let to = to.unwrap();
+        assert_eq!(to, dir.join("b.jpg"));
+        let mut dec = image::ImageReader::open(&to)
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.dimensions(), (100, 50));
+        assert!(dec.exif_metadata().unwrap().is_some());
+        let to = super::save_as(
+            &file,
+            &how(Some(super::Format::WebP), true),
+            &dir.join("c.webp"),
+        );
+        let mut dec = image::ImageReader::open(to.unwrap())
+            .unwrap()
+            .into_decoder()
+            .unwrap();
+        assert_eq!(dec.dimensions(), (100, 50));
+        assert!(dec.exif_metadata().unwrap().is_none());
+        // Never the image itself, also asked for by name.
+        assert!(super::save_as(&file, &how(None, false), &file).is_err());
+        assert_eq!(image::image_dimensions(&file).unwrap(), (400, 200));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

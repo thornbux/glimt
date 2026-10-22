@@ -107,6 +107,7 @@ The images in the screenshots are generated for the purpose.
 - Copy, move, rename (many at once with a pattern), delete to the trash.
 - Set an image as the desktop's wallpaper (GNOME and KDE, through the desktop portal).
 - Crop: drag out a part of the image and save it as a copy beside it.
+- Save As: another format (JPEG, PNG, WebP), smaller, and without EXIF and GPS for sharing.
 - Save the rotation to the file. Copy images or paths to the clipboard, open them with another
   application, and print them to any CUPS printer or a PDF, one per page or as a contact sheet,
   with image and page text from templates and a preview of the first page.

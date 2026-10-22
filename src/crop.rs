@@ -136,16 +136,20 @@ impl crate::App {
         let pixels = if turns % 2 == 1 { [h, w] } else { [w, h] };
         let rect = part_pixels(part, pixels);
         let path = self.path(file);
-        let (rotate, jpeg, webp) = (
-            self.config.exif_rotate,
-            self.config.jpeg_quality,
-            self.config.webp_quality,
-        );
+        let how = crate::save::CopyAs {
+            rotate: self.config.exif_rotate,
+            turns,
+            mirrored,
+            crop: Some(rect),
+            long_side: None,
+            format: None,
+            jpeg_quality: self.config.jpeg_quality,
+            webp_quality: self.config.webp_quality,
+            strip: false,
+        };
         let deleted = self.deleted_tx.clone();
         self.background(ctx, true, move || {
-            let saved = crate::decode::survive(|| {
-                crate::save::save_cropped(&path, rotate, turns, mirrored, rect, jpeg, webp)
-            });
+            let saved = crate::decode::survive(|| crate::save::save_cropped(&path, &how));
             Some(match saved {
                 Ok(new) => {
                     let _ = deleted.send(Deleted {

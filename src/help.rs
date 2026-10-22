@@ -109,7 +109,13 @@ const MANUAL: &[(&str, &str)] = &[
          Save Copy) saves it as a new file beside the image, NAME-cropped, as the view shows it \
          (turned, mirrored); Esc cancels. The image itself is never changed. JPEG is saved at the \
          quality set in Preferences, PNG and WebP as they were, other formats as PNG; EXIF, XMP \
-         and the sidecar go along.",
+         and the sidecar go along.\n\n\
+         File → Save As… (Ctrl+Shift+S) saves the shown image again, as the view shows it: as \
+         JPEG, PNG or WebP (lossless or lossy), at its size or smaller (the longest side in \
+         pixels, or a percentage; never larger), at a quality of your choice. Remove EXIF and GPS \
+         leaves out the camera, date and place, the XMP and the sidecar, for sharing. The file \
+         dialog asks where; the image itself is never replaced. From a RAW file its built-in \
+         preview is saved; an animation is not saved.",
     ),
     (
         "Slideshow",
@@ -621,6 +627,11 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Crop (Shift+C)",
         "Edit → Crop…: a part dragged over the image is saved as a copy beside it, NAME-cropped",
         "A plugin on a selection drawn over the image",
+    ),
+    (
+        "Save As (Ctrl+Shift+S)",
+        "File → Save As…: another format (JPEG, PNG, WebP), smaller, without EXIF and GPS",
+        "None; a plugin (Edit → Plugins) can convert or resize",
     ),
     (
         "Print (Ctrl+P)",

@@ -369,6 +369,10 @@ msgid "Crop…"
 msgstr "Beskjær …"
 
 #: src/actions.rs
+msgid "Save As…"
+msgstr "Lagre som …"
+
+#: src/actions.rs
 msgid "Save This Frame…"
 msgstr "Lagre denne ruten …"
 
@@ -515,6 +519,62 @@ msgstr "Lagre kopi (Enter)"
 #: src/crop.rs
 msgid "Could not crop the image: {e}"
 msgstr "Kunne ikke beskjære bildet: {e}"
+
+#: src/save_as.rs
+msgid "A video is not saved as an image"
+msgstr "En video lagres ikke som bilde"
+
+#: src/save_as.rs
+msgid "Format:"
+msgstr "Format:"
+
+#: src/save_as.rs
+msgid "As the original ({format})"
+msgstr "Som originalen ({format})"
+
+#: src/save_as.rs
+msgid "WebP, lossless"
+msgstr "WebP, tapsfri"
+
+#: src/save_as.rs
+msgid "WebP, lossy"
+msgstr "WebP, tapsbefengt"
+
+#: src/save_as.rs
+msgid "Size:"
+msgstr "Størrelse:"
+
+#: src/save_as.rs
+msgid "Original ({w} × {h})"
+msgstr "Original ({w} × {h})"
+
+#: src/save_as.rs
+msgid "Longest side"
+msgstr "Lengste side"
+
+#: src/save_as.rs
+msgid "Percent"
+msgstr "Prosent"
+
+#: src/save_as.rs
+msgid "Saved {w} × {h}; never enlarged"
+msgstr "Lagres {w} × {h}; forstørres aldri"
+
+#: src/save_as.rs
+msgid "Quality:"
+msgstr "Kvalitet:"
+
+#: src/save_as.rs
+msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
+msgstr "Fjern EXIF og GPS (kamera, dato, sted), XMP og sidefilen"
+
+#: src/save_as.rs
+msgid "Save…"
+msgstr "Lagre …"
+
+#: src/save_as.rs
+msgid "Could not save the image: {e}"
+msgstr "Kunne ikke lagre bildet: {e}"
 
 #: src/duplicates.rs
 msgid "Among the {count} in the list, compare by"
@@ -2021,6 +2081,10 @@ msgstr "Flytt til mappe"
 #: src/print.rs
 msgid "Save as PDF"
 msgstr "Lagre som PDF"
+
+#: src/main.rs
+msgid "Save As"
+msgstr "Lagre som"
 
 #: src/print.rs
 msgid "Add to the Sort Manager"

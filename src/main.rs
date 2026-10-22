@@ -60,6 +60,7 @@ mod print;
 mod raw;
 mod remote;
 mod save;
+mod save_as;
 mod search;
 mod theme;
 mod thumbs;
@@ -885,6 +886,8 @@ enum Pick {
     BackUp,
     /// Where to save frame (or page) number .1 of the file .0, as PNG.
     SaveFrame(PathBuf, usize),
+    /// Save As: where to save the copy .1 of the file .0, starting at the name .2.
+    SaveAs(PathBuf, save::CopyAs, PathBuf),
     /// The folder for every frame (or page) of the file, as PNG files.
     ExportFrames(PathBuf),
 }
@@ -1603,6 +1606,9 @@ struct App {
     pan_window: Option<Pan>,
     /// Edit → Crop: the part of the shown image being chosen.
     crop: Option<crop::Crop>,
+    /// File → Save As: the dialog while open, and what it asked last.
+    save_as: Option<save_as::SaveAs>,
+    save_as_last: save_as::Choice,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
     /// The Check Images window: `None` closed, `Some(None)` open and not started.
@@ -2050,6 +2056,8 @@ impl App {
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             crop: None,
+            save_as: None,
+            save_as_last: Default::default(),
             asked_for: (0, Vec::new()),
             grid_cols: 1,
             compare: false,
@@ -5903,6 +5911,7 @@ impl App {
             || self.login.is_some()
             || self.print_window.is_some()
             || self.lightroom.is_some()
+            || self.save_as.is_some()
             || !self.cut_short.is_empty()
     }
 
@@ -6137,6 +6146,7 @@ impl App {
             Action::Thumbnails => self.set_thumbnails(!self.config.thumbnails),
             Action::SaveOrientation => self.save_orientation(ctx),
             Action::Crop => self.start_crop(),
+            Action::SaveAs => self.start_save_as(),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => {
                 self.config.show_hidden = !self.config.show_hidden;
@@ -6743,6 +6753,7 @@ impl App {
                     self.export_frames(ctx, path, Some(k), file)
                 }
                 (Pick::ExportFrames(path), Some(dir)) => self.export_frames(ctx, path, None, dir),
+                (Pick::SaveAs(path, how, _), Some(to)) => self.save_as_to(ctx, path, how, to),
             }
         }
     }
@@ -6770,6 +6781,7 @@ impl App {
                 let stem = path.file_stem().unwrap_or_default().to_string_lossy();
                 self.dir.join(format!("{stem}-frame-{}.png", k + 1))
             }
+            Pick::SaveAs(_, _, start) => start.clone(),
             // Made first: the file dialog cannot start in a folder that is not there.
             Pick::Collection => (collections::dir())
                 .inspect(|d| drop(std::fs::create_dir_all(d)))
@@ -6784,7 +6796,10 @@ impl App {
             }
             _ => self.dir.join(""),
         };
-        let save = matches!(purpose, Pick::SavePdf(_) | Pick::SaveFrame(..));
+        let save = matches!(
+            purpose,
+            Pick::SavePdf(_) | Pick::SaveFrame(..) | Pick::SaveAs(..)
+        );
         let several = matches!(purpose, Pick::Folders);
         let ctx = ctx.clone();
         let title = match purpose {
@@ -6803,6 +6818,7 @@ impl App {
             Pick::BackUp => tr("Back Up Glimt's Data To"),
             Pick::SaveFrame(..) => tr("Save This Frame as PNG"),
             Pick::ExportFrames(_) => tr("Export Every Frame To"),
+            Pick::SaveAs(..) => tr("Save As"),
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
@@ -7079,6 +7095,7 @@ impl App {
                     menu_item(ui, act, Action::SetWallpaper);
                     #[cfg(feature = "video")]
                     menu_item(ui, act, Action::Play);
+                    menu_item(ui, act, Action::SaveAs);
                     menu_item(ui, act, Action::Print);
                     // Only for a file of several frames or pages: the menu stays as it was
                     // for every other one.
@@ -8881,6 +8898,7 @@ impl App {
         self.prompt_dialog(ctx);
         self.print_dialog(ctx);
         self.lightroom_dialog(ctx);
+        self.save_as_dialog(ctx);
         self.cut_short_dialog(ctx);
         self.pan_view(ctx);
         self.exif_fields_window(ctx);
