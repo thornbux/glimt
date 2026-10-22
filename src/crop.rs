@@ -159,6 +159,7 @@ impl crate::App {
                         moved: Vec::new(),
                         copied: false,
                         relist: true,
+                        undo: None,
                     });
                     tf!("Saved {file}", file = new.display())
                 }
