@@ -42,8 +42,12 @@ pub fn save_rotated(
 }
 
 /// How a copy of an image is made (Edit → Crop, File → Save As): as the view shows it (turned
-/// by `turns` and `mirrored`, and by EXIF with `rotate`), a part of it, smaller, in a format.
+/// by `turns` and `mirrored`, and by EXIF with `rotate`; the page `page` of a TIFF), a part of
+/// it, smaller, in a format. `App::shown_copy` makes it from the view, for both.
+#[derive(Clone)]
 pub struct CopyAs {
+    /// The page of a multi-page TIFF shown; 0 for any other image.
+    pub page: usize,
     pub rotate: bool,
     pub turns: u8,
     pub mirrored: bool,
@@ -110,7 +114,11 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         true => (None, None, false),
         false => upright_metadata(path, how.rotate)?,
     };
-    let (img, icc) = load_icc(path, how.rotate)?;
+    // A later page as the view decodes it: the image crate reads only the first.
+    let (img, icc) = match how.page {
+        0 => load_icc(path, how.rotate)?,
+        page => (crate::decode::tiff_page(path, page)?, None),
+    };
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
@@ -165,18 +173,37 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
             _ => format!("{stem}-cropped-{n}.{ext}"),
         };
         let new = path.with_file_name(name);
-        match crate::config::create_file(&new, &out) {
+        match land(path, &new, &out, false, how.strip) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.to_string()),
-            Ok(()) => {
-                if !how.strip {
-                    let _ = crate::meta::follow(path, &new, true);
-                }
-                return Ok(new);
-            }
+            Ok(()) => return Ok(new),
         }
     }
     unreachable!()
+}
+
+/// A copy of `path`, encoded as `out`, saved as `new` (over a file there only when `replace`,
+/// which the file dialog asked about), and given `path`'s sidecar, or none when `strip` or when
+/// `path` has none: a sidecar at `new`'s name is the replaced file's, or one left without its
+/// image, and its keywords and comment are not the copy's. The one way Crop and Save As save.
+fn land(path: &Path, new: &Path, out: &[u8], replace: bool, strip: bool) -> std::io::Result<()> {
+    match replace {
+        true => crate::config::replace_file(new, out)?,
+        false => crate::config::create_file(new, out)?,
+    }
+    let side = crate::meta::sidecar(new);
+    let source = match strip {
+        true => None,
+        false => crate::config::read_or_none(&crate::meta::sidecar(path))?,
+    };
+    match source {
+        Some(xmp) => crate::config::replace_file(&side, xmp),
+        None => match std::fs::remove_file(&side) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        },
+    }
+    .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
 }
 
 /// File → Save As: the copy `how` asks for, saved as `to`, which the file dialog let replace
@@ -206,14 +233,7 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
         return Err("choose another name: the image itself is not changed".into());
     }
     let (out, _) = copy_bytes(path, how)?;
-    let written = match matches {
-        true => crate::config::replace_file(&to, &out),
-        false => crate::config::create_file(&to, &out),
-    };
-    written.map_err(|e| format!("{}: {e}", to.display()))?;
-    if !how.strip {
-        let _ = crate::meta::follow(path, &to, true);
-    }
+    land(path, &to, &out, matches, how.strip).map_err(|e| format!("{}: {e}", to.display()))?;
     Ok(to)
 }
 
@@ -866,6 +886,7 @@ mod tests {
             (img.dimensions(), p[0] > 200 && p[2] < 60)
         };
         let how = |turns, part| super::CopyAs {
+            page: 0,
             rotate: true,
             turns,
             mirrored: false,
@@ -909,6 +930,7 @@ mod tests {
             .write_with_encoder(enc)
             .unwrap();
         let how = |format, strip| super::CopyAs {
+            page: 0,
             rotate: true,
             turns: 0,
             mirrored: false,
@@ -947,6 +969,68 @@ mod tests {
         // Never the image itself, also asked for by name.
         assert!(super::save_as(&file, &how(None, false), &file).is_err());
         assert_eq!(image::image_dimensions(&file).unwrap(), (400, 200));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy gets the sidecar of what it was made from, or none: never the one of a file it
+    /// replaced (b's keywords showed on a copy saved over b.png, also on one saved without
+    /// metadata), nor one left at its name. And of a TIFF the page shown, not the first.
+    #[test]
+    fn a_copy_has_its_own_sidecar_and_page() {
+        use tiff::encoder::{TiffEncoder, colortype};
+        let dir = std::env::temp_dir().join(format!("glimt-copy-own-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        image::RgbImage::from_pixel(8, 8, image::Rgb([255, 0, 0]))
+            .save(&a)
+            .unwrap();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([0, 0, 255]))
+            .save(&b)
+            .unwrap();
+        let side = |p: &std::path::Path| crate::meta::sidecar(p);
+        let text = |p: &std::path::Path| std::fs::read_to_string(side(p)).ok();
+        std::fs::write(side(&a), "a's").unwrap();
+        let how = |page, strip| super::CopyAs {
+            page,
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: None,
+            long_side: None,
+            format: None,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip,
+        };
+        std::fs::write(side(&b), "b's").unwrap();
+        super::save_as(&a, &how(0, false), &b).unwrap();
+        assert_eq!(text(&b).as_deref(), Some("a's"));
+        std::fs::write(side(&b), "b's").unwrap();
+        super::save_as(&a, &how(0, true), &b).unwrap();
+        assert_eq!(text(&b), None);
+        // A sidecar left at the crop's name is not the crop's.
+        let cropped = dir.join("a-cropped.png");
+        std::fs::write(side(&cropped), "left").unwrap();
+        let part = super::CopyAs {
+            crop: Some([0, 0, 4, 4]),
+            ..how(0, false)
+        };
+        assert_eq!(super::save_cropped(&a, &part).unwrap(), cropped);
+        assert_eq!(text(&cropped).as_deref(), Some("a's"));
+        // Page 2 of a TIFF: blue, 6 by 2, not the red first page.
+        let tif = dir.join("t.tif");
+        let mut enc = TiffEncoder::new(std::fs::File::create(&tif).unwrap()).unwrap();
+        enc.write_image::<colortype::RGB8>(8, 8, &[255, 0, 0].repeat(64))
+            .unwrap();
+        enc.write_image::<colortype::RGB8>(6, 2, &[0, 0, 255].repeat(12))
+            .unwrap();
+        drop(enc);
+        let page = super::save_as(&tif, &how(1, false), &dir.join("p.png")).unwrap();
+        let img = image::open(&page).unwrap().into_rgb8();
+        assert_eq!(
+            (img.dimensions(), img.get_pixel(0, 0).0),
+            ((6, 2), [0, 0, 255])
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

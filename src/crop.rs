@@ -2,12 +2,25 @@
 
 use crate::*;
 
-/// The part being chosen of image `file` of the list, as fractions (0–1) of the image as shown,
-/// turned; `None` until a drag.
+/// The part being chosen of the image `path`, as fractions (0–1) of the image as shown, turned;
+/// `None` until a drag. Held by its path and with the copy as it was shown (`how`), not by a
+/// place in the list: a list read again, or a file deleted before it, would make that place
+/// another image's. Another image, turn or page shown ends it.
 pub struct Crop {
-    file: usize,
+    path: PathBuf,
+    how: crate::save::CopyAs,
     anchor: egui::Pos2,
     part: Option<egui::Rect>,
+}
+
+impl crate::App {
+    /// Whether `crop` is still of what is shown: the same file, turned and paged the same.
+    fn crop_shown(&self, crop: &Crop) -> bool {
+        let now = self.shown_copy();
+        self.is_file(self.list.cur, &crop.path)
+            && (now.turns, now.mirrored, now.page)
+                == (crop.how.turns, crop.how.mirrored, crop.how.page)
+    }
 }
 
 impl crate::App {
@@ -22,7 +35,8 @@ impl crate::App {
         }
         if self.list.slots.contains_key(&cur) {
             self.crop = Some(Crop {
-                file: cur,
+                path: self.path(cur),
+                how: self.shown_copy(),
                 anchor: egui::Pos2::ZERO,
                 part: None,
             });
@@ -39,13 +53,12 @@ impl crate::App {
         bounds: egui::Rect,
         pixels: [usize; 2],
     ) {
+        if self.crop.as_ref().is_some_and(|c| !self.crop_shown(c)) {
+            self.crop = None;
+        }
         let Some(crop) = &mut self.crop else {
             return;
         };
-        if crop.file != self.list.cur {
-            self.crop = None;
-            return;
-        }
         let at = |p: egui::Pos2| {
             let p = bounds.clamp(p);
             egui::pos2(
@@ -120,33 +133,23 @@ impl crate::App {
     /// Save the part chosen as a new file beside the image, in the background; the folder is
     /// read again to show it.
     pub(crate) fn save_crop(&mut self, ctx: &egui::Context) {
-        let Some(Crop {
-            file,
-            part: Some(part),
-            ..
-        }) = self.crop.take()
-        else {
+        let Some(crop) = self.crop.take().filter(|c| self.crop_shown(c)) else {
             return;
         };
-        let Some(slot) = self.list.slots.get(&file) else {
+        let (Some(part), Some(slot)) = (crop.part, self.list.slots.get(&self.list.cur)) else {
             return;
         };
-        let (turns, mirrored) = self.orient;
         let [w, h] = slot.orig;
-        let pixels = if turns % 2 == 1 { [h, w] } else { [w, h] };
-        let rect = part_pixels(part, pixels);
-        let path = self.path(file);
-        let how = crate::save::CopyAs {
-            rotate: self.config.exif_rotate,
-            turns,
-            mirrored,
-            crop: Some(rect),
-            long_side: None,
-            format: None,
-            jpeg_quality: self.config.jpeg_quality,
-            webp_quality: self.config.webp_quality,
-            strip: false,
+        let pixels = if crop.how.turns % 2 == 1 {
+            [h, w]
+        } else {
+            [w, h]
         };
+        let how = crate::save::CopyAs {
+            crop: Some(part_pixels(part, pixels)),
+            ..crop.how
+        };
+        let path = crop.path;
         let deleted = self.deleted_tx.clone();
         self.background(ctx, true, move || {
             let saved = crate::decode::survive(|| crate::save::save_cropped(&path, &how));

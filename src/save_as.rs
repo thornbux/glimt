@@ -30,9 +30,10 @@ impl Default for Choice {
     }
 }
 
-/// The dialog open, for the image `path` as shown, `orig` pixels large.
+/// The dialog open, for the image `path` as shown (`how`), `orig` pixels large.
 pub struct SaveAs {
     path: PathBuf,
+    how: CopyAs,
     orig: [usize; 2],
     choice: Choice,
 }
@@ -77,7 +78,33 @@ impl crate::App {
             Format::WebPLossy => self.config.webp_quality,
             _ => self.config.jpeg_quality,
         };
-        self.save_as = Some(SaveAs { path, orig, choice });
+        let how = self.shown_copy();
+        self.save_as = Some(SaveAs {
+            path,
+            how,
+            orig,
+            choice,
+        });
+    }
+
+    /// The shown image as a copy saves it: turned as it is shown (by hand, and by its EXIF with
+    /// Auto Rotate), the page shown, at the qualities in Preferences; whole, in its own format,
+    /// with its metadata. Crop and Save As start from it, so neither can leave out a part of how
+    /// the image is shown, as the page was.
+    pub(crate) fn shown_copy(&self) -> CopyAs {
+        let (turns, mirrored) = self.orient;
+        CopyAs {
+            page: self.page,
+            rotate: self.config.exif_rotate,
+            turns,
+            mirrored,
+            crop: None,
+            long_side: None,
+            format: None,
+            jpeg_quality: self.config.jpeg_quality,
+            webp_quality: self.config.webp_quality,
+            strip: false,
+        }
     }
 
     /// The Save As dialog: format, size, quality and metadata; Save… asks where.
@@ -185,17 +212,13 @@ impl crate::App {
             let c = dialog.choice;
             let [w, h] = dialog.orig;
             let format = c.format.unwrap_or_else(|| Format::of(&dialog.path));
-            let (turns, mirrored) = self.orient;
             let how = CopyAs {
-                rotate: self.config.exif_rotate,
-                turns,
-                mirrored,
-                crop: None,
                 long_side: c.long_side(w.max(h)),
                 format: c.format,
                 jpeg_quality: c.quality,
                 webp_quality: c.quality,
                 strip: c.strip,
+                ..dialog.how.clone()
             };
             // "a-1920.jpg" when smaller, "a.webp" in another format, else "a-copy.jpg".
             let path = &dialog.path;

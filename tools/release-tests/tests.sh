@@ -2902,6 +2902,31 @@ set -- ${size:-0 0}
 expect "about 115 x 115 pixels" "$([ $1 -ge 105 ] && [ $1 -le 125 ] && [ $2 -ge 105 ] && [ $2 -le 125 ] && echo yes)" yes
 expect "the right half: blue" "$([ -e $d/a-cropped.png ] && side $d/a-cropped.png 10,10)" blue
 
+echo "-- a crop whose image is deleted meanwhile saves nothing, not the next image's part"
+for v in new old; do
+    as_version $v
+    d=/tmp/crop-gone-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.png
+    convert -size 300x200 xc:blue $d/b.png
+    config
+    start $d/a.png
+    sleep 2
+    key shift+c; sleep 0.5
+    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
+    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+    shot crop-gone-chosen-$v
+    # Another program deletes a.png; the folder is read again, b.png is shown in its place.
+    rm $d/a.png
+    until_current $d/b.png
+    key Return; sleep 2
+    files=$(ls $d | tr '\n' ' ')
+    quit
+    if [ $v = new ]; then expect "nothing saved for b.png" "$files" "b.png "
+    else note "old: $files"; fi
+done
+as_version new
+
 echo "-- Ctrl+Shift+S saves as: JPEG at half the size, the extension added, the image kept"
 for v in new old; do
     as_version $v

@@ -7,6 +7,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Crop and Save As on page 2 or later of a multi-page TIFF save that page, not the first.
+- Crop ends when its image is no longer the one shown (deleted or renamed meanwhile, the folder
+  read again, another turn or page): Enter saved the part chosen from the next image.
+- Save As over another file gives the copy its own sidecar, or none when saved without metadata:
+  the replaced file's keywords, comment and stars stayed on it. A crop never takes a sidecar left
+  at its name.
+- A crop saved shares only what was kept: the camera's EXIF thumbnail of the whole frame stayed
+  inside the copy, unlinked but readable by any tool that looks for a JPEG in it. The same holds
+  for an image saved turned.
 - Undo of a large move to the trash, and deleting many images from a large collection, no longer
   take minutes (each file was looked for through the whole trash or the whole collection), with
   closing waiting for them.

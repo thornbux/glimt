@@ -364,11 +364,25 @@ pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     }
     // Offsets count from the TIFF header, after any "Exif\0\0" before it.
     let head = block.len() - t.data.len();
-    // The EXIF thumbnail (IFD1) would show the old way up: left out, as IFD0 is made the last.
+    // The EXIF thumbnail (IFD1) would show the old way up, and of a crop the whole frame: left
+    // out, as IFD0 is made the last, and its bytes cleared, as a tool that looks for a JPEG in
+    // the block would still find it.
     let next = t
         .u32(4)
         .and_then(|o| Some(o as usize + 2 + 12 * t.u16(o as usize)? as usize));
+    let thumbnail = next.and_then(|n| t.u32(n)).filter(|&o| o != 0).map(|o| {
+        let ifd1 = t.ifd(o as usize);
+        // A JPEG thumbnail (offset and length), or an uncompressed one's strips.
+        let part = |at: u16, len: u16| Some((t.int(find(&ifd1, at)?)?, t.int(find(&ifd1, len)?)?));
+        [part(0x0201, 0x0202), part(0x0111, 0x0117)]
+    });
     let little = t.little;
+    for (at, len) in thumbnail.into_iter().flatten().flatten() {
+        let start = head + at as usize;
+        if let Some(bytes) = block.get_mut(start..start.saturating_add(len as usize)) {
+            bytes.fill(0);
+        }
+    }
     if let Some(n) = next.and_then(|n| block.get_mut(head + n..head + n + 4)) {
         n.fill(0);
     }
@@ -1106,6 +1120,32 @@ mod tests {
         let upright = image::metadata::Orientation::NoTransforms;
         assert_eq!(super::orientation(&block), Some(upright));
         assert_eq!(block[28..32], [0, 0, 0, 0]);
+    }
+
+    /// Turned upright or cropped, a copy keeps no EXIF thumbnail of the whole frame: its bytes
+    /// are cleared, not only unlinked, as a crop shared was found to hold the camera's thumbnail
+    /// of what was cut away.
+    #[test]
+    fn clears_the_exif_thumbnail() {
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, value: u32| {
+            d.extend(tag.to_le_bytes());
+            d.extend(kind.to_le_bytes());
+            d.extend(1u32.to_le_bytes());
+            d.extend(value.to_le_bytes());
+        };
+        // IFD0 at 8 with the orientation 6, IFD1 at 26 with a JPEG thumbnail at 56, 6 bytes.
+        let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
+        d.extend(1u16.to_le_bytes());
+        entry(&mut d, 0x0112, 3, 6);
+        d.extend(26u32.to_le_bytes());
+        d.extend(2u16.to_le_bytes());
+        entry(&mut d, 0x0201, 4, 56);
+        entry(&mut d, 0x0202, 4, 6);
+        d.extend(0u32.to_le_bytes());
+        d.extend(b"\xff\xd8\xaa\xbb\xff\xd9");
+        super::set_upright(&mut d).unwrap();
+        assert!(!d.windows(2).any(|w| w == b"\xff\xd8"));
+        assert_eq!(d.len(), 6 + 62);
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:
