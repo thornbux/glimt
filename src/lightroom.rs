@@ -53,7 +53,6 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     }
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
-    use std::os::unix::process::CommandExt;
     let mut child = crate::external::stoppable_command("sqlite3")
         .args([
             "-readonly",
@@ -66,10 +65,6 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         ])
         .arg(file)
         .arg(QUERY)
-        .process_group(0)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("{NEEDS}: {e}"))?;
     let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);

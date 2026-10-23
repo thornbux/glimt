@@ -460,7 +460,8 @@ pub fn sides(layout: &Layout) -> &'static str {
 }
 
 /// Send the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
-/// left behind (and the Flatpak's private /tmp does not matter).
+/// left behind (and the Flatpak's private /tmp does not matter). Each page lp takes is
+/// progress: only two minutes without any end it.
 pub fn send(
     printer: &str,
     copies: u32,
@@ -468,20 +469,21 @@ pub fn send(
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    use std::os::unix::process::CommandExt;
     let mut child = crate::external::stoppable_command("lp")
-        .process_group(0)
         .args(lp_args(printer, copies, sides, title))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("lp (from CUPS): {e}"))?;
-    // A CUPS server that does not answer: lp is ended after two minutes and the print told as
-    // failed, instead of the busy pointer for ever.
+    // A CUPS server that does not answer: lp is ended after two minutes without progress and
+    // the print told as failed, instead of the busy pointer for ever. A long print is not: the
+    // PDF is made while lp reads it, and each write lp takes feeds the dog.
     let dog = crate::external::Watchdog::new(child.id(), crate::external::LIMIT * 4);
     let written = match child.stdin.take() {
-        Some(input) => write(&mut std::io::BufWriter::new(input)),
+        Some(input) => write(&mut Fed {
+            out: std::io::BufWriter::new(input),
+            dog: &dog,
+        }),
         None => Err(std::io::Error::other("no input")),
     };
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
@@ -492,6 +494,26 @@ pub fn send(
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
     }
     written.map_err(|e| e.to_string())
+}
+
+/// A writer that tells `dog` of each write taken: a full pipe holds the write until lp reads.
+struct Fed<'a, W: Write> {
+    out: W,
+    dog: &'a crate::external::Watchdog,
+}
+
+impl<W: Write> Write for Fed<'_, W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let n = self.out.write(bytes)?;
+        self.dog.feed();
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()?;
+        self.dog.feed();
+        Ok(())
+    }
 }
 
 /// Images the preview shows at most: the most on one page.

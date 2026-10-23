@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A print to a printer longer than two minutes is printed: lp was ended two minutes after it
+  started, while the PDF was still being made for it; now only after two minutes in which it takes
+  nothing.
+- HEIC, AVIF and video frames show at once when Glimt was started from a terminal: ffmpeg was
+  handed the terminal for its input, stopped itself there, and each file waited 30 seconds for
+  nothing.
+
+### Changed
+
+- Every program Glimt may stop starts with the same safe defaults (a process group of its own, no
+  terminal for its input, its output and errors read), and is stopped the same way, TERM and then
+  KILL, also by the watchdog of lp and gio mount, which in a Flatpak could not reach the program
+  on the host.
+
 ## [0.40.0] - 2026-10-22
 
 ### Added

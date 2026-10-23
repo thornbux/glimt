@@ -91,7 +91,6 @@ impl Decoder {
     }
 
     fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {
-        use std::process::Stdio;
         // Absolute, so the path never reads as an option or as ImageMagick's "format:" prefix.
         let path = std::path::absolute(path).map_err(|e| e.to_string())?;
         let args: Vec<std::ffi::OsString> = (self.exec.iter())
@@ -109,14 +108,8 @@ impl Decoder {
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
         let program = if local.is_file() { local } else { program };
-        use std::os::unix::process::CommandExt;
         let mut child = crate::external::stoppable_command(program.to_string_lossy().as_ref())
             .args(&args[1..])
-            // A group of its own: a script's own children are stopped with it.
-            .process_group(0)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
         let max = crate::decode::MAX_DECODE + 64;

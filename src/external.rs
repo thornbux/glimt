@@ -43,16 +43,10 @@ pub fn heif(
     path: &Path,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
-    use std::os::unix::process::CommandExt;
-    use std::process::Stdio;
     let mut child = stoppable_command("ffprobe")
-        .process_group(0)
         .args(["-v", "error", "-show_stream_groups", "-of", "compact"])
         .args(FILES_ONLY)
         .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
     let (probe, _, _) = output_of(&mut child, 1 << 20, LIMIT);
@@ -94,18 +88,12 @@ fn heif_size(probe: &str) -> Option<[usize; 2]> {
 /// than the view, which still shows and zooms it at its real size.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn probe_size(path: &Path) -> Option<[usize; 2]> {
-    use std::os::unix::process::CommandExt;
-    use std::process::Stdio;
     let mut child = stoppable_command("ffprobe")
-        .process_group(0)
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries"])
         .arg("stream=width,height:stream_side_data=rotation")
         .args(["-of", "default=nw=1"])
         .args(FILES_ONLY)
         .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .ok()?;
     let (out, _, _) = output_of(&mut child, 1 << 16, LIMIT);
@@ -207,88 +195,109 @@ const FILES_ONLY: [&str; 4] = [
 /// can keep it busy for good, and the decoder thread with it.
 pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// What `child` writes, `max` bytes at most (more: `None`, and it is stopped), its errors, and
-/// whether it ended well. Its errors are read beside its output, so neither pipe can fill and
-/// stop both. `child` was started with `stoppable_command` in a process group of its own, which
-/// is stopped after `limit`: TERM first, as in a Flatpak flatpak-spawn passes it on to the
-/// program on the host, which a KILL of the group cannot reach; then KILL what is left.
 /// `program`'s output on `args`, at most `max` bytes, within `LIMIT` and ended if not: the one
 /// way to run a program that answers a question (gio info, gio mime, lpstat), as `output_of`
 /// is for decoders. `None` when it could not run, gave too much, or did not end in time.
 pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -> Option<String> {
-    use std::os::unix::process::CommandExt;
-    let mut child = stoppable_command(program)
-        .process_group(0)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .ok()?;
+    let mut child = stoppable_command(program).args(args).spawn().ok()?;
     let (out, _, ok) = output_of(&mut child, max, LIMIT);
     let out = out.filter(|_| ok)?;
     Some(String::from_utf8_lossy(&out).into_owned())
 }
 
-/// Ends the process group of `pid` after `limit` unless dropped first (the program ended): for
-/// a program fed on its input or read line by line (gio mount, lp), which `output_of` cannot
-/// run. `gave_up` tells, after the wait, whether it was the dog that ended it.
+/// Ends the process group of `pid` once it has gone `limit` without progress, unless dropped
+/// first (the program ended): for a program fed on its input or read line by line (gio mount,
+/// lp), which `output_of` cannot run. `feed` tells it of progress (a page taken), so a long
+/// print is not ended while the printer takes it. `gave_up` tells, after the wait, whether it
+/// was the dog that ended it.
 pub struct Watchdog {
-    ended: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    gave_up: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    state: std::sync::Arc<Dog>,
+}
+
+struct Dog {
+    ended: std::sync::atomic::AtomicBool,
+    gave_up: std::sync::atomic::AtomicBool,
+    fed: std::sync::Mutex<std::time::Instant>,
 }
 
 impl Watchdog {
     pub fn new(pid: u32, limit: std::time::Duration) -> Watchdog {
-        use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-        let dog = Watchdog {
-            ended: std::sync::Arc::new(AtomicBool::new(false)),
-            gave_up: std::sync::Arc::new(AtomicBool::new(false)),
-        };
-        let (ended, gave_up) = (dog.ended.clone(), dog.gave_up.clone());
+        use std::sync::atomic::Ordering::Relaxed;
+        let state = std::sync::Arc::new(Dog {
+            ended: false.into(),
+            gave_up: false.into(),
+            fed: std::time::Instant::now().into(),
+        });
+        let dog = state.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(limit);
-            if !ended.load(Relaxed) {
-                gave_up.store(true, Relaxed);
-                // SAFETY: a plain signal to the group the program was started as; nothing of
-                // ours is touched.
-                unsafe { crate::decoders::libc_kill(-(pid as i32), 9) };
+            let step = limit.min(std::time::Duration::from_millis(100));
+            loop {
+                std::thread::sleep(step);
+                if dog.ended.load(Relaxed) {
+                    return;
+                }
+                if dog.fed.lock().unwrap().elapsed() >= limit {
+                    dog.gave_up.store(true, Relaxed);
+                    stop_group(-(pid as i32), |wait| {
+                        let until = std::time::Instant::now() + wait;
+                        while !dog.ended.load(Relaxed) && std::time::Instant::now() < until {
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
+                        dog.ended.load(Relaxed)
+                    });
+                    return;
+                }
             }
         });
-        dog
+        Watchdog { state }
+    }
+
+    /// The program made progress: its `limit` starts again.
+    pub fn feed(&self) {
+        *self.state.fed.lock().unwrap() = std::time::Instant::now();
     }
 
     pub fn gave_up(&self) -> bool {
-        self.gave_up.load(std::sync::atomic::Ordering::Relaxed)
+        self.state
+            .gave_up
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
 impl Drop for Watchdog {
     fn drop(&mut self) {
-        self.ended.store(true, std::sync::atomic::Ordering::Relaxed);
+        (self.state.ended).store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
+/// End the process group `group` (a negative process ID): TERM first, as in a Flatpak
+/// flatpak-spawn passes it on to the program on the host, which a KILL of the group cannot
+/// reach; then, unless `ended` says within a second that it is over, KILL what is left. The one
+/// way `output_of` and `Watchdog` stop a program.
+fn stop_group(group: i32, ended: impl FnOnce(std::time::Duration) -> bool) {
+    // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
+    unsafe { crate::decoders::libc_kill(group, 15) };
+    if !ended(std::time::Duration::from_secs(1)) {
+        // SAFETY: as above.
+        unsafe { crate::decoders::libc_kill(group, 9) };
+    }
+}
+
+/// What `child` writes, `max` bytes at most (more: `None`, and it is stopped), its errors, and
+/// whether it ended well. Its errors are read beside its output, so neither pipe can fill and
+/// stop both. `child` was started with `stoppable_command`, and its group is stopped after
+/// `limit` (`stop_group`).
 pub fn output_of(
     child: &mut std::process::Child,
     max: u64,
     limit: std::time::Duration,
 ) -> (Option<Vec<u8>>, String, bool) {
-    use crate::decoders::libc_kill;
     use std::io::Read;
     let group = -(child.id() as i32);
     let (done, timer) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         if timer.recv_timeout(limit).is_err() {
-            // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
-            unsafe { libc_kill(group, 15) };
-            if timer
-                .recv_timeout(std::time::Duration::from_secs(1))
-                .is_err()
-            {
-                // SAFETY: as above.
-                unsafe { libc_kill(group, 9) };
-            }
+            stop_group(group, |wait| timer.recv_timeout(wait).is_ok());
         }
     });
     let errors = child
@@ -301,8 +310,8 @@ pub fn output_of(
     }
     let large = out.len() as u64 > max;
     if large {
-        // SAFETY: as above.
-        unsafe { libc_kill(group, 9) };
+        // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
+        unsafe { crate::decoders::libc_kill(group, 9) };
     }
     let ok = child.wait().is_ok_and(|s| s.success());
     // Only once its errors are read to their end: a helper it left behind may hold them open.
@@ -332,12 +341,9 @@ pub fn ffmpeg_ppm(
     before: &[&str],
     after: &[&str],
 ) -> Result<image::DynamicImage, String> {
-    use std::process::Stdio;
     // A frame no larger than Glimt decodes, in `LIMIT`: a crafted file could otherwise keep
     // ffmpeg busy for good, or hand over gigabytes.
-    use std::os::unix::process::CommandExt;
     let mut child = stoppable_command("ffmpeg")
-        .process_group(0)
         .args(["-v", "error"])
         .args(before)
         .args(FILES_ONLY)
@@ -345,8 +351,6 @@ pub fn ffmpeg_ppm(
         .arg(path)
         .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
     let limit = crate::decode::MAX_DECODE + 64;
@@ -403,13 +407,9 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     if let Some(path) = local() {
         return Ok(path);
     }
-    use std::os::unix::process::CommandExt;
     let mut child = stoppable_command("gio")
-        .process_group(0)
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| Some(format!("Could not run gio: {e}")))?;
     // A server that never answers (a NAS asleep, a VPN down): gio is ended after a minute and
@@ -606,11 +606,22 @@ pub fn command(program: &str) -> std::process::Command {
     host_command(program, &[])
 }
 
-/// As `command`, for a program Glimt may have to stop: inside a Flatpak it runs on the host,
-/// out of reach of a signal to its process group, and `--watch-bus` ends it when its
-/// flatpak-spawn is killed.
+/// As `command`, for a program Glimt may have to stop, with what every such program needs: a
+/// process group of its own, so its children are stopped with it; no terminal for its input, as
+/// one started from a shell would stop itself (SIGTTOU) touching the terminal from the
+/// background; and its output and errors piped, for `output_of`. One fed on its input sets
+/// `.stdin(Stdio::piped())` after. Inside a Flatpak it runs on the host, out of reach of a
+/// signal to its process group, and `--watch-bus` ends it when its flatpak-spawn is killed.
 pub fn stoppable_command(program: &str) -> std::process::Command {
-    host_command(program, &["--watch-bus"])
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    let mut command = host_command(program, &["--watch-bus"]);
+    command
+        .process_group(0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
 }
 
 /// Whether `program` is there to run: on the host in a Flatpak, where flatpak-spawn starts
@@ -690,6 +701,43 @@ mod tests {
             .unwrap();
         let dog = super::Watchdog::new(quick.id(), std::time::Duration::from_secs(10));
         assert!(quick.wait().unwrap().success() && !dog.gave_up());
+    }
+
+    /// One that keeps making progress is not ended at the limit: a print to lp longer than two
+    /// minutes, the PDF made while lp takes it, was ended halfway. Unfed, it is ended.
+    #[test]
+    fn the_watchdog_waits_while_fed() {
+        use std::os::unix::process::CommandExt;
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let dog = super::Watchdog::new(child.id(), std::time::Duration::from_millis(300));
+        // A second, three times the limit, fed every tenth.
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            dog.feed();
+        }
+        assert!(!dog.gave_up());
+        let start = std::time::Instant::now();
+        assert!(!child.wait().unwrap().success());
+        assert!(dog.gave_up() && start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    /// Every program Glimt may stop has a process group of its own and no terminal for its
+    /// input: ffmpeg, handed the terminal Glimt was started from, stopped itself (SIGTTOU) and
+    /// every HEIC, AVIF and video frame waited 30 seconds for nothing.
+    #[test]
+    fn a_stoppable_program_has_its_own_group_and_no_terminal() {
+        let script = "readlink /proc/self/fd/0; set -- $(cat /proc/$$/stat); [ \"$1\" = \"$5\" ] && echo own";
+        let mut child = super::stoppable_command("sh")
+            .args(["-c", script])
+            .spawn()
+            .unwrap();
+        let (out, _, ok) = super::output_of(&mut child, 1024, super::LIMIT);
+        assert!(ok);
+        assert_eq!(String::from_utf8_lossy(&out.unwrap()), "/dev/null\nown\n");
     }
 
     /// A program is there or not, and the shell is asked once.

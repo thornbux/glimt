@@ -496,12 +496,10 @@ pub fn webp_lossless(path: &Path) -> Option<bool> {
 /// lossless ones), in memory: its errors read beside it, and stopped after `external::LIMIT`.
 pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     use std::io::Write;
-    use std::os::unix::process::CommandExt;
     let mut png = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
     let mut child = crate::external::stoppable_command("ffmpeg")
-        .process_group(0)
         .args([
             "-v", "error", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
         ])
@@ -515,8 +513,6 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
             "-",
         ])
         .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("a lossy WebP needs ffmpeg to be saved: {e}"))?;
     // Written in a thread of its own, while its output is read: neither pipe fills and stops it.
