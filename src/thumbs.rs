@@ -91,7 +91,7 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
 
 /// A cached thumbnail, if it was made from the file as it is now (same Thumb::MTime).
 fn read_cached(file: &Path, mtime: u64) -> Option<image::RgbaImage> {
-    let bytes = std::fs::read(file).ok()?;
+    let bytes = crate::decode::read_limited(file).ok()?;
     let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
         .read_info()
         .ok()?;

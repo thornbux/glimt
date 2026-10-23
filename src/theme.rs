@@ -145,7 +145,7 @@ pub fn names() -> Vec<String> {
 /// "Desktop". Read each time, so a changed file shows when it is chosen again.
 pub fn load(name: &str) -> Theme {
     let file = dir().map(|d| d.join(format!("{name}.theme")));
-    match file.and_then(|f| std::fs::read_to_string(f).ok()) {
+    match file.and_then(|f| crate::decode::read_text(f).ok()) {
         Some(text) => Theme::parse(&text),
         None => BUILT_IN
             .iter()

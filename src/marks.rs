@@ -24,7 +24,9 @@ impl Marks {
         let read = file
             .as_ref()
             .and_then(|f| std::fs::metadata(f).ok()?.modified().ok());
-        let text = file.and_then(|f| std::fs::read(f).ok()).unwrap_or_default();
+        let text = file
+            .and_then(|f| crate::decode::read_limited(f).ok())
+            .unwrap_or_default();
         Marks {
             map: parse(&text),
             read,

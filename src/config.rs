@@ -677,7 +677,7 @@ impl Config {
 /// write over, as everything it holds would be lost. The one rule for the settings, the marks,
 /// the keyword tree, the sort manager's folders and a sidecar.
 pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    match std::fs::read(path) {
+    match crate::decode::read_limited(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
@@ -687,7 +687,7 @@ pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
 /// A settings file's text, a byte that is not UTF-8 (a path in another encoding) made the
 /// replacement character: read so when loaded, and when saved again, which merges into it.
 fn read_lossy(path: &Path) -> std::io::Result<String> {
-    Ok(String::from_utf8_lossy(&std::fs::read(path)?).into_owned())
+    Ok(String::from_utf8_lossy(&crate::decode::read_limited(path)?).into_owned())
 }
 
 /// The value of `key` in key=value lines, as `to_text` writes them.

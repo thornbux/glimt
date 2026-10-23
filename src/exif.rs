@@ -252,7 +252,7 @@ pub fn write_orientation(
 ) -> Result<(), String> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    let data = crate::decode::read_limited(path).map_err(|e| e.to_string())?;
     crate::config::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
         .map_err(|e| e.to_string())
 }
@@ -531,7 +531,9 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         // Found too near the head's end, it may be cut short (EXIF blocks reach 64 KB).
         let whole = head.len() < 1 << 20;
         let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);
-        return in_head.or_else(|| find(&std::fs::read(path).ok()?));
+        // Read whole only when the head was not all of it, and never more than a decode would.
+        let rest = || find(&crate::decode::read_limited(path).ok()?);
+        return in_head.or_else(|| (!whole).then(rest).flatten());
     }
     if crate::files::is_jpeg(path)
         && let Some(exif) = jpeg_app1(path, b"Exif\0\0")

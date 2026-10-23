@@ -633,7 +633,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
                     .join(p),
             };
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
-            if meta.len() > 64 << 20 || !fits_too(&std::fs::read(&file).ok()?) {
+            if meta.len() > 64 << 20 || !fits_too(&read_limited(&file).ok()?) {
                 return None;
             }
             string(href, opts)
@@ -750,10 +750,26 @@ pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String>
         .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
 }
 
+/// As `read_limited`, as UTF-8 text.
+pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
+    String::from_utf8(read_limited(path)?)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 /// The whole of `path`, read only up to `MAX_DECODE` bytes: a larger file (a sparse one, or
-/// one unpacked from a small zip) is refused before it fills memory, not read whole first.
-pub fn read_limited(path: &Path) -> std::io::Result<Vec<u8>> {
+/// one unpacked from a small zip) is refused before it fills memory, not read whole first; so
+/// is what is no file (a pipe would block for good, /dev/zero fill memory), also through a
+/// link. The one way Glimt reads a file whole, whoever wrote it: a test holds every other read
+/// to it.
+pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
+    let path = path.as_ref();
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
     let too_large =
         || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
     let file = std::fs::File::open(path)?;
@@ -796,6 +812,31 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    /// Every file Glimt reads whole goes through `read_limited`: a sidecar linked to /dev/zero,
+    /// a pipe in its place, or a sparse 4 GB AVIF filled memory or blocked for good where one
+    /// place read with `std::fs::read`, which three audits in a row found again somewhere new.
+    #[test]
+    fn every_whole_file_read_is_limited() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        for entry in std::fs::read_dir(&src).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|x| x != "rs") {
+                continue;
+            }
+            let text = super::read_text(&path).unwrap();
+            let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+            for (n, line) in code.lines().enumerate() {
+                let raw = ["fs::read(", "fs::read_to_string("];
+                let read =
+                    !line.trim_start().starts_with("//") && raw.iter().any(|r| line.contains(r));
+                assert!(!read, "{}:{}: {line}", path.display(), n + 1);
+            }
+        }
+        // What is no file is refused before it is opened.
+        let refused = super::read_limited("/dev/zero").unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
     /// The histogram counts alpha too, which tells a transparent image from an opaque one.
     #[test]
     fn counts_alpha() {

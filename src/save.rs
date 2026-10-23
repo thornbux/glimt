@@ -358,7 +358,7 @@ fn encode(
     // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn. Only from a PNG.
     if let Kind::Png = kind
         && has_ext(path, &["png"])
-        && let Ok(old) = std::fs::read(path)
+        && let Ok(old) = crate::decode::read_limited(path)
     {
         out = png_with_chunks(&out, &old, quarter);
     }

@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A folder that came with a download cannot take Glimt down any more: a sidecar linked to
+  /dev/zero or a pipe in its place, a large HEIC or AVIF without EXIF, or a keyword of a million
+  '&' filled memory, blocked a thread for good or took hours. Every file is now read whole only if
+  it is a file and of 512 MB at most, and a test holds every read in the code to that.
 - A print to a printer longer than two minutes is printed: lp was ended two minutes after it
   started, while the PDF was still being made for it; now only after two minutes in which it takes
   nothing.

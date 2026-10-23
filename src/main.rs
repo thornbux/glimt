@@ -1976,7 +1976,7 @@ impl App {
         }
         let path = path
             .or_else(|| {
-                let state = std::fs::read_to_string(state_path()?).ok()?;
+                let state = crate::decode::read_text(state_path()?).ok()?;
                 parse_last_dir(&state).filter(|d| {
                     config.remember_dir && (d.is_dir() || collections::is_collection(d))
                 })
@@ -1988,9 +1988,8 @@ impl App {
                 config::write_later(move || drop(std::fs::remove_file(file)));
                 Vec::new()
             }
-            Some(file) => {
-                std::fs::read(file).map_or_else(|_| Vec::new(), |t| config::parse_recent(&t))
-            }
+            Some(file) => crate::decode::read_limited(file)
+                .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
             None => Vec::new(),
         };
         let preload = Arc::new(AtomicUsize::new(config.preload));
@@ -2049,10 +2048,10 @@ impl App {
             cut_short: Vec::new(),
             renaming: None,
             renaming_rx: Receiving::none(),
-            keyword_tree: (keyword_tree_path().and_then(|p| std::fs::read_to_string(p).ok()))
+            keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
                 .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
             new_keyword: String::new(),
-            sort_folders: (sort_folders_path().and_then(|p| std::fs::read(p).ok()))
+            sort_folders: (sort_folders_path().and_then(|p| crate::decode::read_limited(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             crop: None,
@@ -2292,8 +2291,8 @@ impl App {
             let Some(file) = config::recent_path() else {
                 return;
             };
-            let on_disk =
-                std::fs::read(&file).map_or_else(|_| Vec::new(), |t| config::parse_recent(&t));
+            let on_disk = crate::decode::read_limited(&file)
+                .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t));
             write_atomic(
                 &file,
                 config::recent_text(&config::add_recent(&on_disk, &path)),
@@ -9080,7 +9079,7 @@ fn check_config(file: Option<PathBuf>) -> ! {
         eprintln!("glimt: no home folder, so no settings file");
         std::process::exit(1);
     };
-    let problems = match std::fs::read_to_string(&path) {
+    let problems = match crate::decode::read_text(&path) {
         Ok(text) => Config::check(&text).1,
         Err(e) => vec![format!("cannot be read ({e})")],
     };
@@ -9177,7 +9176,7 @@ fn main() -> eframe::Result {
         config::lock();
     }
     if Config::load().remember_window
-        && let Some(state) = state_path().and_then(|p| std::fs::read_to_string(p).ok())
+        && let Some(state) = state_path().and_then(|p| crate::decode::read_text(p).ok())
     {
         let win = WindowState::parse(&state);
         if let Some(size) = win.size {

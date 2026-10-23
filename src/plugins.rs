@@ -39,7 +39,7 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "desktop"))
         .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
-        .filter_map(|p| Some((p.clone(), std::fs::read_to_string(&p).ok()?)))
+        .filter_map(|p| Some((p.clone(), crate::decode::read_text(&p).ok()?)))
         .collect()
 }
 

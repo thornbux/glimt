@@ -92,7 +92,7 @@ pub fn instance_id() -> &'static str {
     static ME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ME.get_or_init(|| {
         let info = std::env::var_os("FLATPAK_ID")
-            .and_then(|_| std::fs::read_to_string("/.flatpak-info").ok());
+            .and_then(|_| crate::decode::read_text("/.flatpak-info").ok());
         let instance = info
             .as_deref()
             .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));
@@ -210,7 +210,7 @@ fn live() -> Vec<PathBuf> {
 /// Send `command` to the Glimt used last, or else to another one; false if none runs.
 pub fn send(command: &str) -> bool {
     let last = dir()
-        .and_then(|d| std::fs::read_to_string(d.join("focused")).ok())
+        .and_then(|d| crate::decode::read_text(d.join("focused")).ok())
         .and_then(|id| socket(id.trim()));
     if last.is_some_and(|p| deliver(&p, command)) {
         return true;

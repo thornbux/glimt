@@ -59,7 +59,7 @@ fn parse_access(xmp: &str) -> Access {
 /// sidecar if that has them, else from the image), its sidecar and the XMP inside it each read
 /// once, for the panel: on a network share each reading of a large photo costs.
 pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
-    let side = std::fs::read_to_string(sidecar(path)).ok();
+    let side = crate::decode::read_text(sidecar(path)).ok();
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
     let has_meta = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
@@ -160,7 +160,7 @@ pub fn tree_paths(path: &Path) -> Vec<String> {
 /// image's own.
 fn source(path: &Path) -> Option<String> {
     let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let side = std::fs::read_to_string(sidecar(path)).ok().filter(has);
+    let side = crate::decode::read_text(sidecar(path)).ok().filter(has);
     side.or_else(|| embedded(path))
 }
 
@@ -557,7 +557,13 @@ fn unescape(text: &str) -> String {
     while let Some(i) = rest.find('&') {
         out += &rest[..i];
         rest = &rest[i..];
-        let Some(end) = rest.find(';') else { break };
+        // The longest entity, "&#x10FFFF;", is 10 bytes: a ';' further on ends none, and looking
+        // to the next ';' from each '&' was quadratic (a million '&' and one ';': hours).
+        let Some(end) = rest.as_bytes().iter().take(11).position(|&b| b == b';') else {
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        };
         let entity = &rest[1..end];
         let c = match entity {
             "amp" => Some('&'),
@@ -626,6 +632,16 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// A million '&' and then one ';' (a crafted keyword): read at once, not in hours.
+    #[test]
+    fn unescapes_in_one_pass() {
+        let text = "&".repeat(1_000_000) + "; &amp; &#x41; &#66; &ampno;";
+        let start = std::time::Instant::now();
+        let out = super::unescape(&text);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        assert!(out.ends_with("; & A B &ampno;") && out.len() == text.len() - 13);
+    }
+
     /// The lock file of a sidecar is the same in every Glimt: FNV-1a, as known for these.
     #[test]
     fn lock_slots_stay() {

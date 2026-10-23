@@ -188,7 +188,7 @@ pub fn convert(
 /// costs nothing); an error for one that cannot be read or is not RGB.
 pub fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, String> {
     use moxcms::{ColorProfile, DataColorSpace};
-    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let bytes = crate::decode::read_limited(path).map_err(|e| format!("{path}: {e}"))?;
     let profile = ColorProfile::new_from_slice(&bytes)
         .ok()
         .filter(|p| p.color_space == DataColorSpace::Rgb)

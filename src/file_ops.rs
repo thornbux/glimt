@@ -930,7 +930,7 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
                 .to_str()?
                 .strip_suffix(".trashinfo")?
                 .to_owned();
-            let text = std::fs::read_to_string(&info).ok()?;
+            let text = crate::decode::read_text(&info).ok()?;
             let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
             let from = collections::percent_decoded(value("Path=")?.as_bytes());
             Some(Trashed {

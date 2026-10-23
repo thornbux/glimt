@@ -83,7 +83,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let text = std::fs::read(file)?;
+    let text = crate::decode::read_limited(file)?;
     Ok(match is_list(file) {
         true => parse_list(&text, file.parent().unwrap_or(Path::new("/"))),
         false => parse(&text),
