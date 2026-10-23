@@ -337,12 +337,14 @@ struct Deleted {
     relist: bool,
     /// What Undo puts back, when this was a move to the trash or a move.
     undo: Option<Undo>,
+    /// Marks and stars put back: of files back from the trash.
+    marks: Vec<(PathBuf, (u8, u8))>,
 }
 
 /// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
 /// moved `(from, to)`, or the last renamed (old names, new names).
 enum Undo {
-    Trash(Vec<PathBuf>),
+    Trash(file_ops::Thrown),
     Move(Vec<(PathBuf, PathBuf)>),
     Rename(Vec<PathBuf>, Vec<PathBuf>),
 }

@@ -7,6 +7,16 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Undo of a large move to the trash, and deleting many images from a large collection, no longer
+  take minutes (each file was looked for through the whole trash or the whole collection), with
+  closing waiting for them.
+- Undo of a move to the trash gives the files their marks and stars back, and their places in the
+  collection shown; both were gone for good.
+- Undo of a move to the trash works on USB disks and shares without one-step renames (FAT, NTFS
+  and exFAT through FUSE): it failed there every time.
+- Undo of a move to the trash puts back what that move put there and nothing more: not an older
+  sidecar of the same name from the trash, which belonged to another file and brought its keywords
+  and stars along.
 - A folder that came with a download cannot take Glimt down any more: a sidecar linked to
   /dev/zero or a pipe in its place, a large HEIC or AVIF without EXIF, or a keyword of a million
   '&' filled memory, blocked a thread for good or took hours. Every file is now read whole only if
@@ -20,6 +30,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Glimt renames in one way: one step where the file system can, else a link and an unlink, else a
+  rename after looking; moves, copies, new files, folders, collections and Undo all use it.
 - Every program Glimt may stop starts with the same safe defaults (a process group of its own, no
   terminal for its input, its output and errors read), and is stopped the same way, TERM and then
   KILL, also by the watchdog of lp and gio mount, which in a Flatpak could not reach the program

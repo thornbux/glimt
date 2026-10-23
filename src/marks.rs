@@ -69,8 +69,8 @@ impl Marks {
     }
 
     /// Files deleted, or folders with all in them: their marks go, so a new file of the same name
-    /// does not get them.
-    pub fn forget(&mut self, paths: &[PathBuf]) {
+    /// does not get them. Returned as they were, for Undo to `restore`.
+    pub fn forget(&mut self, paths: &[PathBuf]) -> Vec<(PathBuf, (u8, u8))> {
         let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
         // Each marked file and the folders above it, not every path deleted: a few thousand
         // marked against 100 files at a time to the trash.
@@ -78,8 +78,22 @@ impl Marks {
             .filter(|k| k.ancestors().any(|a| gone.contains(a)))
             .cloned()
             .collect();
+        let was: Vec<(PathBuf, (u8, u8))> =
+            marked.iter().map(|p| (p.clone(), self.get(p))).collect();
         if !marked.is_empty() {
             self.change(&marked, Change::Clear);
+        }
+        was
+    }
+
+    /// Marks and stars put back as `forget` returned them: one change for each value.
+    pub fn restore(&mut self, marks: Vec<(PathBuf, (u8, u8))>) {
+        let mut by_value: HashMap<(u8, u8), Vec<PathBuf>> = HashMap::new();
+        for (path, value) in marks {
+            by_value.entry(value).or_default().push(path);
+        }
+        for ((bits, stars), paths) in by_value {
+            self.change(&paths, Change::Set(bits, stars));
         }
     }
 
@@ -138,6 +152,8 @@ enum Change {
     Stars(u8),
     /// No marks and no stars.
     Clear,
+    /// These marks and stars, as they were.
+    Set(u8, u8),
 }
 
 /// Apply `change` to each path's marks and stars; a path with neither is removed.
@@ -149,6 +165,7 @@ fn apply(map: &mut HashMap<PathBuf, (u8, u8)>, paths: &[PathBuf], change: Change
             Change::Mark(bit, false) => (bits & !bit, stars),
             Change::Stars(stars) => (bits, stars),
             Change::Clear => (0, 0),
+            Change::Set(bits, stars) => (bits, stars),
         };
         match new {
             (0, 0) => drop(map.remove(path)),

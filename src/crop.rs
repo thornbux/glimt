@@ -153,13 +153,8 @@ impl crate::App {
             Some(match saved {
                 Ok(new) => {
                     let _ = deleted.send(Deleted {
-                        paths: Vec::new(),
-                        gone: Vec::new(),
-                        failed: false,
-                        moved: Vec::new(),
-                        copied: false,
                         relist: true,
-                        undo: None,
+                        ..Default::default()
                     });
                     tf!("Saved {file}", file = new.display())
                 }
