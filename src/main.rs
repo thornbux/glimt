@@ -7515,7 +7515,10 @@ impl App {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
             for (plan, moves, done) in &plans {
-                let (r, l) = journal::settle(plan, moves, *done, undo);
+                // Put right by another window: nothing done here, nothing to tell.
+                let Some((r, l)) = journal::settle(plan, moves, *done, undo) else {
+                    continue;
+                };
                 (renamed, left) = (renamed + r, left + l);
                 // Finished: marks and collections follow the files, as after a Rename Many.
                 if !undo && l == 0 {

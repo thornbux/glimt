@@ -201,18 +201,19 @@ pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
 
 /// Put the old names back, or finish the renames: the `done` steps undone, or the rest done; for
 /// a plan that did not count them, every step, by the names alone. (renamed, left); the plan
-/// goes when nothing is left, else it is asked about again at the next start.
+/// goes when nothing is left, else it is asked about again at the next start. `None` when
+/// another window has it or has put it right already: nothing was done here, and the caller
+/// must not tell marks and collections of moves a second time (a swap's marks swapped back).
 pub fn settle(
     plan: &Path,
     moves: &[(PathBuf, PathBuf)],
     done: Option<usize>,
     undo_them: bool,
-) -> (usize, usize) {
+) -> Option<(usize, usize)> {
     // One window at a time, and only while the plan is there: a second window that asked about
-    // it too would do the same steps again, on files already put right.
-    let Some(_held) = File::open(plan).ok().filter(free) else {
-        return (0, 0);
-    };
+    // it too would do the same steps again, on files already put right. Also one that opened it
+    // just before the first deleted it, and got the lock once that one let go.
+    let _held = File::open(plan).ok().filter(free).filter(linked)?;
     let mut first = 0;
     // Put back: the step cut short between its link and its unlink, the first not counted, has
     // its new name taken away first, so the steps before it can be undone.
@@ -233,7 +234,13 @@ pub fn settle(
     if left == 0 {
         let _ = std::fs::remove_file(plan);
     }
-    (renamed + first, left)
+    Some((renamed + first, left))
+}
+
+/// Whether `file` still has a name: a plan another window put right and deleted has none.
+fn linked(file: &File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata().is_ok_and(|m| m.nlink() > 0)
 }
 
 /// Whether `a` and `b` are names of the same file.
@@ -303,7 +310,7 @@ mod tests {
         std::fs::copy(&path, plans.join("linked")).unwrap();
         assert_eq!(
             super::settle(&plans.join("linked"), &read, Some(2), false),
-            (2, 0)
+            Some((2, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
         assert!(!p(".tmp-0").exists());
@@ -314,7 +321,7 @@ mod tests {
         std::fs::copy(&path, plans.join("linked")).unwrap();
         assert_eq!(
             super::settle(&plans.join("linked"), &read, Some(2), true),
-            (3, 0)
+            Some((3, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         std::fs::rename(p("a.jpg"), p(".tmp-0")).unwrap();
@@ -322,13 +329,18 @@ mod tests {
         // While another window puts it right, this one does nothing.
         let other = std::fs::File::open(&path).unwrap();
         other.lock().unwrap();
-        assert_eq!(super::settle(&path, &read, done, true), (0, 0));
+        assert_eq!(super::settle(&path, &read, done, true), None);
         drop(other);
-        assert_eq!(super::settle(&path, &read, done, true), (2, 0));
+        assert_eq!(super::settle(&path, &read, done, true), Some((2, 0)));
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         assert!(!path.exists());
+        // One that opened it before it was deleted finds it has no name left.
+        std::fs::write(&path, "x").unwrap();
+        let opened = std::fs::File::open(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(!super::linked(&opened));
         // A second window that asked about it too finds it gone, and does nothing.
-        assert_eq!(super::settle(&path, &read, done, true), (0, 0));
+        assert_eq!(super::settle(&path, &read, done, true), None);
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         // Finishing instead gives the new names.
         std::fs::rename(p("a.jpg"), p(".tmp-0")).unwrap();
@@ -336,7 +348,7 @@ mod tests {
         std::fs::copy(&plan, plans.join("crashed")).unwrap();
         assert_eq!(
             super::settle(&plans.join("crashed"), &moves, Some(2), false),
-            (2, 0)
+            Some((2, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
         // Cut short after three steps, where the names alone look like after one: finished, the
@@ -350,14 +362,14 @@ mod tests {
         after_three();
         assert_eq!(
             super::settle(&plans.join("crashed"), &moves, Some(3), false),
-            (1, 0)
+            Some((1, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
         assert!(!plans.join("crashed").exists());
         after_three();
         assert_eq!(
             super::settle(&plans.join("crashed"), &moves, Some(3), true),
-            (3, 0)
+            Some((3, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
         std::fs::remove_dir_all(dir).unwrap();
@@ -482,7 +494,7 @@ mod tests {
                             panic!("one plan");
                         };
                         assert_eq!((read, *done), (&moves, Some(cut)));
-                        let (_, left) = super::settle(path, read, *done, undo);
+                        let (_, left) = super::settle(path, read, *done, undo).unwrap();
                         let case = format!("{from:?} -> {to:?}, cut {cut}, half {half}");
                         assert_eq!(left, 0, "{case}");
                         assert!(!path.exists(), "{case}");
@@ -498,7 +510,7 @@ mod tests {
                         let mut want: Vec<String> = names.iter().map(|n| n.to_string()).collect();
                         want.sort();
                         assert_eq!(there, want, "{case}");
-                        assert_eq!(super::settle(path, read, *done, undo), (0, 0), "{case}");
+                        assert_eq!(super::settle(path, read, *done, undo), None, "{case}");
                     }
                 }
             }

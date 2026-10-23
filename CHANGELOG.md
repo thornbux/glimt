@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Answering the repair of a cut-short Rename Many in a second window as well no longer moves marks
+  and collection entries a second time (a swap's marks swapped back, a renamed file's lost), nor
+  can it do the steps again on a plan the first window had just put right.
 - Crop and Save As on page 2 or later of a multi-page TIFF save that page, not the first.
 - Crop ends when its image is no longer the one shown (deleted or renamed meanwhile, the folder
   read again, another turn or page): Enter saved the part chosen from the next image.
