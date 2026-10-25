@@ -1,0 +1,16 @@
+# Glimt's rules for what touches the disk and starts programs, checked by `cargo clippy`. The
+# one place that may do each has `#[allow(clippy::disallowed_methods)]` with its reason.
+disallowed-methods = [
+    { path = "std::fs::read", reason = "decode::read_limited: a size cap, and no pipe or device" },
+    { path = "std::fs::read_to_string", reason = "decode::read_text: a size cap, and no pipe or device" },
+    { path = "std::io::read_to_string", reason = "decode::read_text, or bound the reader with take" },
+    { path = "std::io::Read::read_to_end", reason = "decode::read_limited, or bound the reader with take" },
+    { path = "std::fs::write", reason = "config::replace_file or create_file: whole or not at all" },
+    { path = "std::fs::File::create", reason = "config::create_file or replace_file: never through a link, never half-written" },
+    { path = "std::fs::OpenOptions::open", reason = "config's writers or decode::read_limited" },
+    { path = "std::fs::rename", reason = "file_ops::rename_never_over, or config::replace_file to replace" },
+    { path = "std::fs::copy", reason = "file_ops::put_file: never over a file, never half-copied" },
+    { path = "std::process::Command::new", reason = "external::command or stoppable_command, which also run on the host in a Flatpak" },
+    { path = "std::process::Command::output", reason = "external::run_limited or limited: never wait for good" },
+    { path = "std::process::Command::status", reason = "external::run_limited or limited: never wait for good" },
+]

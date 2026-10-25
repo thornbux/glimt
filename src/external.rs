@@ -195,14 +195,45 @@ const FILES_ONLY: [&str; 4] = [
 /// can keep it busy for good, and the decoder thread with it.
 pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// `program`'s output on `args`, at most `max` bytes, within `LIMIT` and ended if not: the one
-/// way to run a program that answers a question (gio info, gio mime, lpstat), as `output_of`
-/// is for decoders. `None` when it could not run, gave too much, or did not end in time.
+/// `program`'s output on `args`, at most `max` bytes, within `LIMIT`: `None` when it could not
+/// run, failed, gave too much or did not end in time. For a question whose answer is all there
+/// is (gio info, gio mime, lpstat, gdbus, gsettings).
 pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -> Option<String> {
-    let mut child = stoppable_command(program).args(args).spawn().ok()?;
-    let (out, _, ok) = output_of(&mut child, max, LIMIT);
-    let out = out.filter(|_| ok)?;
+    let mut command = stoppable_command(program);
+    command.args(args);
+    let out = run_limited(command, max, LIMIT).ok()?;
     Some(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// `command` (from `stoppable_command`) run to its end within `limit`, `max` bytes of output at
+/// most: its output, or why not (its last error line, or what stopped it). The one way Glimt
+/// runs a program for what it says or does and waits for it; clippy refuses `.output()` and
+/// `.status()`, which wait for good.
+pub fn run_limited(
+    mut command: std::process::Command,
+    max: u64,
+    limit: std::time::Duration,
+) -> Result<Vec<u8>, String> {
+    let program = command.get_program().to_string_lossy().into_owned();
+    let mut child = command.spawn().map_err(|e| format!("{program}: {e}"))?;
+    let (out, err, ok) = output_of(&mut child, max, limit);
+    let out = out.ok_or_else(|| format!("{program}: too much output"))?;
+    match ok {
+        true => Ok(out),
+        false => Err(match err.lines().last().map(str::trim) {
+            Some(last) if !last.is_empty() => last.to_owned(),
+            _ => format!("{program} failed or did not end in time"),
+        }),
+    }
+}
+
+/// Move `paths` to the trash with gio, within two minutes: a share that stopped answering left
+/// the delete running for good, with no Stop. One call for many files, so thousands do not
+/// become thousands of processes.
+pub fn trash<S: AsRef<std::ffi::OsStr>>(paths: &[S]) -> Result<(), String> {
+    let mut gio = stoppable_command("gio");
+    gio.args(["trash", "--"]).args(paths);
+    run_limited(gio, 64 << 10, LIMIT * 4).map(drop)
 }
 
 /// Ends the process group of `pid` once it has gone `limit` without progress, unless dropped
@@ -238,13 +269,7 @@ impl Watchdog {
                 }
                 if dog.fed.lock().unwrap().elapsed() >= limit {
                     dog.gave_up.store(true, Relaxed);
-                    stop_group(-(pid as i32), |wait| {
-                        let until = std::time::Instant::now() + wait;
-                        while !dog.ended.load(Relaxed) && std::time::Instant::now() < until {
-                            std::thread::sleep(std::time::Duration::from_millis(20));
-                        }
-                        dog.ended.load(Relaxed)
-                    });
+                    stop_group(-(pid as i32), || dog.ended.load(Relaxed));
                     return;
                 }
             }
@@ -273,20 +298,30 @@ impl Drop for Watchdog {
 /// End the process group `group` (a negative process ID): TERM first, as in a Flatpak
 /// flatpak-spawn passes it on to the program on the host, which a KILL of the group cannot
 /// reach; then, unless `ended` says within a second that it is over, KILL what is left. The one
-/// way `output_of` and `Watchdog` stop a program.
-fn stop_group(group: i32, ended: impl FnOnce(std::time::Duration) -> bool) {
+/// way Glimt stops a program: the `Watchdog`, which `output_of` runs too, and a program that
+/// gave too much.
+fn stop_group(group: i32, ended: impl Fn() -> bool) {
     // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
-    unsafe { crate::decoders::libc_kill(group, 15) };
-    if !ended(std::time::Duration::from_secs(1)) {
-        // SAFETY: as above.
-        unsafe { crate::decoders::libc_kill(group, 9) };
+    unsafe { libc_kill(group, 15) };
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    while !ended() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
+    if !ended() {
+        // SAFETY: as above.
+        unsafe { libc_kill(group, 9) };
+    }
+}
+
+unsafe extern "C" {
+    #[link_name = "kill"]
+    fn libc_kill(pid: i32, signal: i32) -> i32;
 }
 
 /// What `child` writes, `max` bytes at most (more: `None`, and it is stopped), its errors, and
 /// whether it ended well. Its errors are read beside its output, so neither pipe can fill and
-/// stop both. `child` was started with `stoppable_command`, and its group is stopped after
-/// `limit` (`stop_group`).
+/// stop both. `child` was started with `stoppable_command`; a `Watchdog` stops its group after
+/// `limit`.
 pub fn output_of(
     child: &mut std::process::Child,
     max: u64,
@@ -294,29 +329,24 @@ pub fn output_of(
 ) -> (Option<Vec<u8>>, String, bool) {
     use std::io::Read;
     let group = -(child.id() as i32);
-    let (done, timer) = std::sync::mpsc::channel::<()>();
-    std::thread::spawn(move || {
-        if timer.recv_timeout(limit).is_err() {
-            stop_group(group, |wait| timer.recv_timeout(wait).is_ok());
-        }
-    });
+    let dog = Watchdog::new(child.id(), limit);
     let errors = child
         .stderr
         .take()
         .map(|e| std::thread::spawn(move || last_text(e, 64 << 10)));
     let mut out = Vec::new();
     if let Some(stdout) = child.stdout.take() {
+        #[allow(clippy::disallowed_methods)] // bounded by take
         let _ = stdout.take(max + 1).read_to_end(&mut out);
     }
     let large = out.len() as u64 > max;
     if large {
-        // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
-        unsafe { crate::decoders::libc_kill(group, 9) };
+        stop_group(group, || false);
     }
     let ok = child.wait().is_ok_and(|s| s.success());
     // Only once its errors are read to their end: a helper it left behind may hold them open.
     let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
-    let _ = done.send(());
+    drop(dog);
     ((!large).then_some(out), err, ok)
 }
 
@@ -528,7 +558,7 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
         .map(str::trim)
         // Glimt itself, as a package or as the Flatpak.
         .filter(|id| !matches!(*id, "glimt.desktop" | "io.github.thornbux.Glimt.desktop"));
-    named(command("sh"), &ids.collect::<Vec<_>>())
+    named(stoppable_command("sh"), &ids.collect::<Vec<_>>())
 }
 
 /// The names and desktop files of the applications `ids`, found by `sh`: on the host in a
@@ -548,8 +578,8 @@ fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> 
             fi
         done
     done"#;
-    let out = sh.arg("-c").arg(FIND).arg("sh").args(ids).output();
-    let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    sh.arg("-c").arg(FIND).arg("sh").args(ids);
+    let text = run_limited(sh, 1 << 20, LIMIT).map(|o| String::from_utf8_lossy(&o).into_owned());
     (text.unwrap_or_default().lines())
         .filter_map(|l| l.split_once('\t'))
         .filter(|(name, _)| !name.is_empty())
@@ -561,6 +591,8 @@ fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> 
 pub fn open_url(url: &str) {
     let url = url.to_owned();
     std::thread::spawn(move || {
+        #[allow(clippy::disallowed_methods)]
+        // the browser may stay open: waited for in its own thread
         let run = |cmd: &str, args: &[&str]| command(cmd).args(args).arg(&url).status();
         if !run("gio", &["open"]).is_ok_and(|s| s.success()) {
             let _ = run("xdg-open", &[]);
@@ -574,7 +606,8 @@ pub fn open_url(url: &str) {
 pub fn set_wallpaper(path: &Path) -> Result<(), String> {
     // A GVariant string: uri_path leaves no " or \ in it.
     let uri = format!("\"file://{}\"", crate::thumbs::uri_path(path));
-    let out = command("gdbus")
+    let mut gdbus = stoppable_command("gdbus");
+    gdbus
         .args([
             "call",
             "--session",
@@ -591,13 +624,8 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
             "",
             &uri,
             "{'show-preview': <true>, 'set-on': <'background'>}",
-        ])
-        .output()
-        .map_err(|e| format!("gdbus: {e}"))?;
-    match out.status.success() {
-        true => Ok(()),
-        false => Err(String::from_utf8_lossy(&out.stderr).trim().to_owned()),
-    }
+        ]);
+    run_limited(gdbus, 1 << 16, LIMIT).map(drop)
 }
 
 /// An external program: ffmpeg, gio, zenity, a player. Inside a Flatpak it runs on the host,
@@ -636,16 +664,16 @@ pub fn host_has(program: &str) -> bool {
     if let Some(&has) = known.lock().unwrap().get(program) {
         return has;
     }
-    let has = command("sh")
-        .args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program])
-        .status()
-        .is_ok_and(|s| s.success());
+    let mut sh = stoppable_command("sh");
+    sh.args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program]);
+    let has = run_limited(sh, 1 << 10, LIMIT).is_ok();
     if has {
         known.lock().unwrap().insert(program.to_owned(), true);
     }
     has
 }
 
+#[allow(clippy::disallowed_methods)] // the one place a program is named to run
 fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
     if std::env::var_os("FLATPAK_ID").is_none() {
         return std::process::Command::new(program);
@@ -740,6 +768,29 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.unwrap()), "/dev/null\nown\n");
     }
 
+    /// A program run for its answer is ended at its limit and says why: `gio trash` on a share
+    /// that stopped answering held a delete for good, gdbus and the shell's lookups as well.
+    #[test]
+    fn run_limited_ends_at_its_limit() {
+        let mut sleep = super::stoppable_command("sleep");
+        sleep.arg("30");
+        let start = std::time::Instant::now();
+        let ended = super::run_limited(sleep, 1024, std::time::Duration::from_millis(200));
+        assert!(ended.is_err() && start.elapsed() < std::time::Duration::from_secs(5));
+        let mut echo = super::stoppable_command("sh");
+        echo.args(["-c", "echo yes; echo why >&2"]);
+        assert_eq!(
+            super::run_limited(echo, 1024, super::LIMIT).unwrap(),
+            b"yes\n"
+        );
+        let mut fails = super::stoppable_command("sh");
+        fails.args(["-c", "echo first >&2; echo the reason >&2; exit 1"]);
+        assert_eq!(
+            super::run_limited(fails, 1024, super::LIMIT).unwrap_err(),
+            "the reason"
+        );
+    }
+
     /// A program is there or not, and the shell is asked once.
     #[test]
     fn knows_what_the_host_has() {
@@ -761,7 +812,7 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("b/applications/x.desktop"), "Name=Other\n").unwrap();
         std::fs::write(dir.join("b/applications/y.desktop"), "Name=Why\n").unwrap();
-        let mut sh = std::process::Command::new("sh");
+        let mut sh = super::stoppable_command("sh");
         sh.env("XDG_DATA_HOME", dir.join("a"))
             .env("XDG_DATA_DIRS", dir.join("b"));
         let found = super::named(sh, &["x.desktop", "y.desktop", "none.desktop"]);

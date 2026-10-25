@@ -60,13 +60,16 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys; variants are stored by name, never rename one |
 | `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths; the writer thread (`write_later`, `flush`), `file_lock`, `write_atomic`, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
-| `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram |
+| `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/decoders.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/file_ops.rs` | Delete, copy and move, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `put_file`, `rename_files` |
+| `src/file_ops.rs` | Delete, copy and move, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `put_file`, `rename_never_over` (the one way to rename), `rename_files`; Undo, with `Thrown` (what a move to the trash did) and `restore` |
 | `src/files.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
-| `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP |
-| `src/external.rs` | External programs: `command()`, `output_of`, ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
+| `src/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
+| `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
+| `src/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
+| `src/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
 | `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders, and putting them in order (`moved`, `dropped`) |
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
@@ -129,6 +132,19 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it
   `crate::broken(sample)`: 2,000 damaged forms of a good input in every run, five million
   every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
+- **Touching the disk or starting a program** goes through one function each, and
+  `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
+  bypass:
+  - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device);
+  - write with `config::replace_file`, `create_file` or `write_atomic` (whole or not at all,
+    never through a link), and a file the windows share under `config::file_lock` with
+    `read_or_none`;
+  - rename with `file_ops::rename_never_over` (never over a file), move or copy with `put_file`;
+  - start a program with `external::command` or `stoppable_command`, and wait for it only with
+    `run_limited`, `limited`, `output_of` or a `Watchdog` (never `.output()`/`.status()`);
+  - make a copy of the shown image from `App::shown_copy` and save it with `save::land`.
+  A place that must do otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest
+  statement or function, with its reason on the same line.
 - **A shortcut with a known limit** (work in the UI thread, a whole file rewritten) gets a
   comment `shortcut: <the limit>; <when to do more>`, so the next reader knows it was chosen.
 

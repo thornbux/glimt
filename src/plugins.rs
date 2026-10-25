@@ -134,6 +134,7 @@ impl Plugin {
             };
             // Its output is not read: a converter writing the image to stdout would else be
             // kept whole in memory; its errors are.
+            #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
             let out = crate::external::command(program.to_string_lossy().as_ref())
                 .args(&args[1..])
                 .current_dir(folder)

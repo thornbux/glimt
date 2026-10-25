@@ -65,6 +65,7 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let path = dir.join(format!("{}-{nanos}", crate::remote::instance_id()));
+    #[allow(clippy::disallowed_methods)] // a plan made new, in Glimt's own state folder
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -109,10 +110,11 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
             let file = File::open(e.path()).ok()?;
             free(&file).then_some(())?;
             let mut bytes = Vec::new();
-            (&file)
+            #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
+            let read = (&file)
                 .take(crate::decode::MAX_DECODE)
-                .read_to_end(&mut bytes)
-                .ok()?;
+                .read_to_end(&mut bytes);
+            read.ok()?;
             let (moves, done) = parse(&bytes)?;
             Some((e.path(), moves, done))
         })

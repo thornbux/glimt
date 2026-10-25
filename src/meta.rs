@@ -264,6 +264,7 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
         .recursive(true)
         .mode(0o700)
         .create(dir);
+    #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
     let file = std::fs::File::create(dir.join(lock_slot(side).to_string())).ok()?;
     file.lock().ok()?;
     Some(file)

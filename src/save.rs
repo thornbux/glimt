@@ -114,6 +114,18 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         true => (None, None, false),
         false => upright_metadata(path, how.rotate)?,
     };
+    let (img, icc) = pixels(path, how)?;
+    // A PNG's other chunks hold as they were: a DPI is no different for a part. Not stripped,
+    // its text chunks may say where and by whom.
+    let from = if how.strip { Path::new("") } else { path };
+    let out = encode(from, img, icc, exif, xmp, kind, false, how.webp_quality)?;
+    Ok((out, format))
+}
+
+/// The pixels of `path` as `how` asks for them, with its ICC profile: the page shown, turned as
+/// shown, the part, smaller. What every copy of the shown image starts from, saved or put on
+/// the clipboard.
+fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
     // A later page as the view decodes it: the image crate reads only the first.
     let (img, icc) = match how.page {
         0 => load_icc(path, how.rotate)?,
@@ -129,11 +141,14 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
     if let Some(long) = how.long_side {
         img = smaller(img, long.max(1))?;
     }
-    // A PNG's other chunks hold as they were: a DPI is no different for a part. Not stripped,
-    // its text chunks may say where and by whom.
-    let from = if how.strip { Path::new("") } else { path };
-    let out = encode(from, img, icc, exif, xmp, kind, false, how.webp_quality)?;
-    Ok((out, format))
+    Ok((img, icc))
+}
+
+/// The image as `how` shows it, in sRGB: Select → Copy Image, which copied it unturned and its
+/// first page.
+pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {
+    let (img, icc) = pixels(path, how)?;
+    Ok(crate::colour::to_srgb(img, icc.as_deref()))
 }
 
 /// `img` with its longest side `long` at most, by Lanczos3: sharp, for a copy kept.
@@ -187,8 +202,14 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// `path` has none: a sidecar at `new`'s name is the replaced file's, or one left without its
 /// image, and its keywords and comment are not the copy's: removed, and the copy's made new,
 /// never written through a link there, which a downloaded folder may have pointed at any file of
-/// the user's (~/.bashrc). The one way Crop and Save As save.
-fn land(path: &Path, new: &Path, out: &[u8], replace: bool, strip: bool) -> std::io::Result<()> {
+/// the user's (~/.bashrc). The one way a copy is saved: Crop, Save As, Save This Frame.
+pub(crate) fn land(
+    path: &Path,
+    new: &Path,
+    out: &[u8],
+    replace: bool,
+    strip: bool,
+) -> std::io::Result<()> {
     // Read before the copy is written: one that cannot be read leaves no copy behind.
     let source = match strip {
         true => None,
@@ -1055,6 +1076,17 @@ mod tests {
         assert_eq!(
             (img.dimensions(), img.get_pixel(0, 0).0),
             ((6, 2), [0, 0, 255])
+        );
+        // Copy Image takes the same: page 2, turned a quarter as shown (it copied page 1,
+        // unturned).
+        let turned = super::CopyAs {
+            turns: 1,
+            ..how(1, false)
+        };
+        let shown = super::shown_image(&tif, &turned).unwrap().into_rgb8();
+        assert_eq!(
+            (shown.dimensions(), shown.get_pixel(0, 0).0),
+            ((2, 6), [0, 0, 255])
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

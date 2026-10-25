@@ -3,7 +3,6 @@
 //! screen profile can come from colord.
 
 use crate::exif;
-use crate::external::command;
 use eframe::egui;
 use image::ImageDecoder;
 use std::collections::HashMap;
@@ -382,18 +381,11 @@ pub fn read_desktop_screen(ctx: &egui::Context) -> mpsc::Receiver<Option<String>
 /// shortcut: the first screen's for every screen; per screen once Glimt knows which it is on.
 pub fn desktop_screen_profile() -> Option<String> {
     let call = |object: &str, method: &[&str]| {
-        let out = (command("gdbus").args(["call", "--system", "--dest"]))
-            .args([
-                "org.freedesktop.ColorManager",
-                "--object-path",
-                object,
-                "--method",
-            ])
-            .args(method)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())?;
-        first_quoted(&String::from_utf8_lossy(&out.stdout)).map(str::to_owned)
+        let mut args = vec!["call", "--system", "--dest", "org.freedesktop.ColorManager"];
+        args.extend(["--object-path", object, "--method"]);
+        args.extend(method);
+        let out = crate::external::limited("gdbus", &args, 1 << 20)?;
+        first_quoted(&out).map(str::to_owned)
     };
     let get = "org.freedesktop.DBus.Properties.Get";
     let manager = ["org.freedesktop.ColorManager.GetDevicesByKind", "display"];

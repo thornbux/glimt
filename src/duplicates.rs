@@ -120,12 +120,7 @@ pub fn find(
 /// A JPEG's width and height from its first 256 KB, where its frame header is: the decoder
 /// would read the whole file. `None` if it is not there, so the decoder is asked after all.
 fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
-    let mut head = Vec::new();
-    std::fs::File::open(path)
-        .ok()?
-        .take(1 << 18)
-        .read_to_end(&mut head)
-        .ok()?;
+    let head = crate::decode::read_head(path, 1 << 18).ok()?;
     head.starts_with(&[0xff, 0xd8])
         .then(|| crate::raw::jpeg_size(&head))?
 }

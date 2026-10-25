@@ -128,13 +128,8 @@ impl crate::App {
                     if job.stopped() {
                         break;
                     }
-                    match command("gio").arg("trash").arg("--").args(chunk).output() {
-                        Ok(o) if o.status.success() => {}
-                        Ok(o) => errors.push(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
-                        Err(e) => {
-                            errors.push(tf!("gio trash (from glib): {e}", e));
-                            break;
-                        }
+                    if let Err(e) = crate::external::trash(chunk) {
+                        errors.push(e);
                     }
                     job.did(chunk.len());
                 }
@@ -177,7 +172,7 @@ impl crate::App {
                 .collect();
             for chunk in sides.chunks(500) {
                 if trash {
-                    let _ = command("gio").arg("trash").arg("--").args(chunk).output();
+                    let _ = crate::external::trash(chunk);
                 } else {
                     chunk.iter().for_each(|s| drop(std::fs::remove_file(s)));
                 }
@@ -624,11 +619,7 @@ impl crate::App {
         let collection = self.collection.clone();
         self.background(ctx, true, move || {
             let since = std::time::SystemTime::now();
-            let error = match command("gio").arg("trash").arg("--").arg(&dir).output() {
-                Ok(o) if o.status.success() => None,
-                Ok(o) => Some(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
-                Err(e) => Some(tf!("gio trash (from glib): {e}", e)),
-            };
+            let error = crate::external::trash(std::slice::from_ref(&dir)).err();
             // Failed: listed again, as a failed delete of files is.
             let gone = if error.is_none() {
                 vec![dir.clone()]
@@ -762,6 +753,7 @@ impl crate::App {
 /// old name unlinked; where links cannot be made either, a rename after looking first. The one
 /// way Glimt renames: a file moved, a copy or a new file given its name, a folder, a collection,
 /// a file back from the trash. `CrossesDevices` is the caller's to copy instead.
+#[allow(clippy::disallowed_methods)] // its last fallback, a rename after looking
 pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices, Unsupported};
     match rename_noreplace(from, to) {
@@ -852,6 +844,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         let part = to.with_file_name(format!(".glimt-copy-{}-{k}", remote::instance_id()));
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.
+        #[allow(clippy::disallowed_methods)] // a copy's hidden part, made new
         let mut out = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -1320,12 +1313,14 @@ impl crate::App {
                             Some(_) => to.clone(),
                             None => folder.join(format!("{stem}-{:03}.png", k + 1)),
                         };
-                        // Whole or not at all, also over a file the dialog let it replace.
+                        // Whole or not at all, also over a file the dialog let it replace, whose
+                        // sidecar is not the frame's: a frame is saved without one.
                         let mut png = std::io::Cursor::new(Vec::new());
                         (img.write_to(&mut png, image::ImageFormat::Png))
                             .map_err(|e| e.to_string())
                             .and_then(|_| {
-                                config::replace_file(&file, png.into_inner())
+                                let png = png.into_inner();
+                                crate::save::land(&path, &file, &png, true, true)
                                     .map_err(|e| e.to_string())
                             })
                             .map_err(|e| format!("{}: {e}", file.display()))

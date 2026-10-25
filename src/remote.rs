@@ -180,7 +180,9 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
     let _ = s.shutdown(std::net::Shutdown::Write);
     let _ = s.set_read_timeout(Some(WAIT));
     let mut answer = Vec::new();
-    if let Err(e) = s.read_to_end(&mut answer) {
+    #[allow(clippy::disallowed_methods)] // a reply on Glimt's own private socket, with a time limit
+    let read = s.read_to_end(&mut answer);
+    if let Err(e) = read {
         eprintln!("glimt: no answer from {}: {e}", path.display());
         UNANSWERED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -408,6 +410,7 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
     }
     // One at a time from here: another Glimt of this name could take the left socket over
     // between our check and our remove, and lose its new one to us.
+    #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
     let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
     lock.lock().map_err(Some)?;
     if UnixStream::connect(path).is_ok() {
@@ -420,7 +423,8 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
 /// This Glimt got the focus: `--remote` goes to it from now on.
 pub fn mark_focused() {
     if let Some(d) = dir() {
-        let _ = std::fs::write(d.join("focused"), socket_id());
+        // Whole, never truncated first: a `--remote` reading it meanwhile got an empty name.
+        let _ = crate::config::replace_file(&d.join("focused"), socket_id());
     }
 }
 

@@ -107,6 +107,7 @@ fn read_cached(file: &Path, mtime: u64) -> Option<image::RgbaImage> {
 
 /// Write a thumbnail as the spec says: PNG with Thumb::URI and Thumb::MTime, mode 600, and
 /// renamed into place so other programs never read a half-written file.
+#[allow(clippy::disallowed_methods)] // the cache's own file, replaced on purpose
 fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let dir = file.parent().unwrap_or(Path::new("."));
@@ -145,6 +146,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
             out.set_permissions(std::fs::Permissions::from_mode(0o600))?;
             out.write_all(&png)
         },
+        // The cache's own file, replaced on purpose.
         |tmp| std::fs::rename(tmp, file),
     )
 }

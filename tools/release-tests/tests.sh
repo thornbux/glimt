@@ -2293,6 +2293,23 @@ rm -f /tmp/stub/gio $XDG_DATA_HOME/applications/stamp.desktop
 expect "gio open, then gio launch of the chosen application" "$(cat $d/ran 2>/dev/null | tr '\n' ' ')" \
     "open $d/a.png launch $XDG_DATA_HOME/applications/stamp.desktop $d/a.png "
 
+echo "-- Copy Image copies the image as shown: turned by hand"
+for v in new old; do
+    as_version $v
+    d=/tmp/clipboard-turned-$v
+    mkdir -p $d
+    convert -size 64x48 xc:red $d/a.png
+    config
+    start $d/a.png; sleep 2
+    key bracketright; sleep 1        # turned a quarter clockwise, not saved
+    menu Select "Copy Image to Clipboard"; sleep 3
+    size=$(xclip -o -selection clipboard -t image/png 2>/dev/null | identify -format '%wx%h' - 2>/dev/null)
+    quit
+    if [ $v = new ]; then expect "the turned image, 48x64" "$size" 48x64
+    else note "old: $size"; fi
+done
+as_version new
+
 echo "-- the clipboard: Copy Path, Copy Image and Copy Files from the Select menu, read back with xclip"
 d=/tmp/clipboard
 mkdir -p $d

@@ -331,24 +331,19 @@ pub const HIGH_CONTRAST: &str = "High Contrast";
 /// and false where it says nothing. Runs `gdbus`, so it belongs in a background thread.
 pub fn desktop() -> Desktop {
     let read = |key: &str| {
-        crate::external::command("gdbus")
-            .args([
-                "call",
-                "--session",
-                "--dest",
-                "org.freedesktop.portal.Desktop",
-                "--object-path",
-                "/org/freedesktop/portal/desktop",
-                "--method",
-                "org.freedesktop.portal.Settings.ReadOne",
-                "org.freedesktop.appearance",
-                key,
-            ])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+        let args = [
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+            "org.freedesktop.portal.Settings.ReadOne",
+            "org.freedesktop.appearance",
+            key,
+        ];
+        crate::external::limited("gdbus", &args, 1 << 16).unwrap_or_default()
     };
     Desktop {
         dark: parse_scheme(&read("color-scheme")),
@@ -360,12 +355,8 @@ pub fn desktop() -> Desktop {
 
 /// GNOME's text scaling factor (1.25 for Large Text); `None` elsewhere, or outside 0.5–3.
 fn text_scale() -> Option<f32> {
-    let out = crate::external::command("gsettings")
-        .args(["get", "org.gnome.desktop.interface", "text-scaling-factor"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    parse_scale(&String::from_utf8_lossy(&out.stdout))
+    let args = ["get", "org.gnome.desktop.interface", "text-scaling-factor"];
+    parse_scale(&crate::external::limited("gsettings", &args, 1 << 10)?)
 }
 
 fn parse_scale(text: &str) -> Option<f32> {

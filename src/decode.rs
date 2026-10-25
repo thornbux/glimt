@@ -508,13 +508,12 @@ pub fn scaled_jpeg(
     None
 }
 
-/// The first `max` bytes of `path`.
+/// The first `max` bytes of `path`, if it is a file (`open_file`).
 pub(crate) fn read_head(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let mut head = Vec::new();
-    std::fs::File::open(path)?
-        .take(max)
-        .read_to_end(&mut head)?;
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    open_file(path)?.0.take(max).read_to_end(&mut head)?;
     Ok(head)
 }
 
@@ -647,6 +646,7 @@ fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let mut out = Vec::new();
     let mut reader = flate2::read::GzDecoder::new(data).take(limit + 1);
+    #[allow(clippy::disallowed_methods)] // bounded by take
     reader.read_to_end(&mut out).map_err(|e| e.to_string())?;
     match out.len() as u64 > limit {
         true => Err("SVG too large once unpacked".into()),
@@ -763,12 +763,29 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
 /// to it.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
-    use std::os::unix::fs::OpenOptionsExt;
     let too_large =
         || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
-    // Opened without waiting (O_NONBLOCK, which a file does not heed), and what is open looked
-    // at, not the name: a pipe put there between a look and an open would block that open.
+    let (file, meta) = open_file(path.as_ref())?;
+    // Its size first, so a large one is not read at all; `take` for one that grows meanwhile.
+    if meta.len() > MAX_DECODE {
+        return Err(too_large());
+    }
+    let mut data = Vec::new();
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    file.take(MAX_DECODE + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > MAX_DECODE {
+        return Err(too_large());
+    }
+    Ok(data)
+}
+
+/// `path` opened to be read, if it is a file, with what it is: opened without waiting
+/// (O_NONBLOCK, which a file does not heed), and what is open looked at, not the name, as a
+/// pipe put there between a look and an open would block that open.
+fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    use std::os::unix::fs::OpenOptionsExt;
     const O_NONBLOCK: i32 = 0o4000;
+    #[allow(clippy::disallowed_methods)] // the one opening of a file to read it whole
     let file = (std::fs::OpenOptions::new().read(true))
         .custom_flags(O_NONBLOCK)
         .open(path)?;
@@ -779,16 +796,7 @@ pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
             "not a regular file",
         ));
     }
-    // Its size first, so a large one is not read at all; `take` for one that grows meanwhile.
-    if meta.len() > MAX_DECODE {
-        return Err(too_large());
-    }
-    let mut data = Vec::new();
-    file.take(MAX_DECODE + 1).read_to_end(&mut data)?;
-    if data.len() as u64 > MAX_DECODE {
-        return Err(too_large());
-    }
-    Ok(data)
+    Ok((file, meta))
 }
 
 /// Scale down to fit within `max`.
@@ -818,26 +826,10 @@ pub fn color_image(img: image::DynamicImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
-    /// Every file Glimt reads whole goes through `read_limited`: a sidecar linked to /dev/zero,
-    /// a pipe in its place, or a sparse 4 GB AVIF filled memory or blocked for good where one
-    /// place read with `std::fs::read`, which three audits in a row found again somewhere new.
+    /// What is no file is refused before it is read, a pipe without blocking on it. That every
+    /// whole-file read goes through `read_limited` is clippy's to hold (clippy.toml).
     #[test]
-    fn every_whole_file_read_is_limited() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        for entry in std::fs::read_dir(&src).unwrap() {
-            let path = entry.unwrap().path();
-            if path.extension().is_none_or(|x| x != "rs") {
-                continue;
-            }
-            let text = super::read_text(&path).unwrap();
-            let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
-            for (n, line) in code.lines().enumerate() {
-                let raw = ["fs::read(", "fs::read_to_string("];
-                let read =
-                    !line.trim_start().starts_with("//") && raw.iter().any(|r| line.contains(r));
-                assert!(!read, "{}:{}: {line}", path.display(), n + 1);
-            }
-        }
+    fn read_limited_refuses_what_is_no_file() {
         // What is no file is refused, a pipe without blocking on it.
         let refused = super::read_limited("/dev/zero").unwrap_err();
         assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);

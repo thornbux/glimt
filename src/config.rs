@@ -774,6 +774,7 @@ pub fn file_lock(path: &Path) -> Option<std::fs::File> {
     let name = path.file_name()?.to_string_lossy();
     // Never truncated: a lock file that is a link planted in a shared folder must not empty
     // the file it points to.
+    #[allow(clippy::disallowed_methods)] // a lock file, never truncated
     let lock = (std::fs::OpenOptions::new().create(true).append(true))
         .open(path.with_file_name(format!(".{name}.lock")))
         .ok()?;
@@ -867,6 +868,7 @@ pub fn replace_with(
     // shortcut: `there` is looked at just before the rename, not in the same step; a file that
     // goes in those microseconds comes back. renameat2 with RENAME_EXCHANGE if that is ever seen.
     there()?;
+    #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
         there().and_then(|_| std::fs::rename(tmp, path))
     })
@@ -917,6 +919,7 @@ pub fn tmp_path(path: &Path) -> PathBuf {
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
 /// or a list kept private, 0600, stays so). Made private first when `path` is there, and given
 /// those before a byte is written: no one else can open it meanwhile. A new file as usual.
+#[allow(clippy::disallowed_methods)] // the one way a new file is made, under its temporary name
 pub fn new_beside(tmp: &Path, path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     // Made new, never opened: a link left or planted at `tmp` would be followed and the file
@@ -967,6 +970,7 @@ pub fn own_folders() -> Vec<(&'static str, PathBuf)> {
 
 /// Copy the folder `from` with everything in it to `to`, made; how many files. Links are
 /// copied as the files they point to; one that leads nowhere is left out.
+#[allow(clippy::disallowed_methods)] // copies into a backup folder made new for it
 pub fn copy_tree(from: &Path, to: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(to)?;
     let mut files = 0;

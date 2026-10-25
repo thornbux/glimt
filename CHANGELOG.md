@@ -5,6 +5,30 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Asking the desktop for its colour profile, dark style and text size, the Open With list's names
+  and whether a program is installed all end after 30 seconds: each could wait for good.
+- A --remote command sent as another window takes the focus goes to that window: the file naming
+  it was emptied before it was written, and the command went to any window.
+- Save as Theme writes the theme whole or not at all: a full disk left half a theme, whose name
+  was then taken.
+- Open Recent keeps the folders two windows open at the same moment, and never writes over a list
+  it cannot read.
+- Save This Frame over another file leaves that file's sidecar behind: the frame showed its
+  keywords.
+- Select → Copy Image copies the image as it is shown: turned by hand, and the page of a multi-
+  page TIFF shown. It copied it unturned and its first page.
+- Deleting or moving to the trash on a share that stopped answering ends with an error after two
+  minutes, instead of running for good with Stop unable to end it: gio trash had no time limit.
+
+### Changed
+
+- Reading a file whole, writing, renaming, copying and starting or waiting for a program each go
+  through one function, and clippy refuses the raw calls everywhere else (clippy.toml), so the
+  next feature cannot leave them out; the few places that must do otherwise say why. Every program
+  Glimt waits for is stopped the same way.
+
 ## [0.40.1] - 2026-10-25
 
 ### Fixed

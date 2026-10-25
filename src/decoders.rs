@@ -123,11 +123,6 @@ impl Decoder {
     }
 }
 
-unsafe extern "C" {
-    #[link_name = "kill"]
-    pub(crate) fn libc_kill(pid: i32, signal: i32) -> i32;
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;

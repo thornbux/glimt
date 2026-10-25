@@ -15,7 +15,7 @@ use config::{
     keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
     write_atomic, xdg_dir,
 };
-use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, load, survive};
+use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, survive};
 use eframe::egui;
 use external::{Login, Mounted, apps_for, command, gio_mount, is_video, open_url};
 use files::{
@@ -2293,8 +2293,13 @@ impl App {
             let Some(file) = config::recent_path() else {
                 return;
             };
-            let on_disk = crate::decode::read_limited(&file)
-                .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t));
+            // As every file the windows share: read and written under its lock, so two windows
+            // opening at once keep both; one that cannot be read is not written over.
+            let _held = config::file_lock(&file);
+            let Ok(on_disk) = config::read_or_none(&file) else {
+                return;
+            };
+            let on_disk = config::parse_recent(&on_disk.unwrap_or_default());
             write_atomic(
                 &file,
                 config::recent_text(&config::add_recent(&on_disk, &path)),
@@ -2984,19 +2989,10 @@ impl App {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            Some(
-                match command("gio").arg("trash").arg("--").arg(&file).output() {
-                    Ok(out) if out.status.success() => {
-                        tf!("Collection {name} moved to the trash", name)
-                    }
-                    Ok(out) => tf!(
-                        "Could not trash {name}: {err}",
-                        name,
-                        err = String::from_utf8_lossy(&out.stderr).trim()
-                    ),
-                    Err(e) => tf!("Could not trash {name} (gio is needed): {e}", name, e),
-                },
-            )
+            Some(match external::trash(std::slice::from_ref(&file)) {
+                Ok(()) => tf!("Collection {name} moved to the trash", name),
+                Err(err) => tf!("Could not trash {name}: {err}", name, err),
+            })
         });
         let folder = (!self.list.files.is_empty())
             .then(|| self.path(self.list.cur))
@@ -6487,6 +6483,8 @@ impl App {
         });
         // After an update (or a rebuild) Linux reports the running binary as
         // "/path/glimt (deleted)"; the new one is at the same path.
+        #[allow(clippy::disallowed_methods)]
+        // Glimt itself, in the sandbox where it runs, not on the host
         let started = exe.and_then(|exe| {
             let exe = exe.to_string_lossy();
             let exe = exe.strip_suffix(" (deleted)").unwrap_or(&exe);
@@ -6505,7 +6503,7 @@ impl App {
 
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     fn copy_image(&mut self, ctx: &egui::Context) {
-        let (path, rotate) = (self.path(self.list.cur), self.config.exif_rotate);
+        let (path, how) = (self.path(self.list.cur), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.clip_rx = Receiving::of(clip_rx);
@@ -6513,7 +6511,7 @@ impl App {
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
             // would stay for good.
-            match survive(|| load(&path, rotate)) {
+            match survive(|| save::shown_image(&path, &how)) {
                 Ok(img) => drop(clip_tx.send(color_image(img))),
                 Err(e) => drop(tx.send(tf!("Could not copy the image: {e}", e))),
             }
@@ -6823,6 +6821,7 @@ impl App {
         };
         let notices = self.notices_tx.clone();
         std::thread::spawn(move || {
+            #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
             let zenity = || {
                 let mut cmd = command("zenity");
                 cmd.arg("--file-selection").arg("--title").arg(title);
@@ -6839,6 +6838,7 @@ impl App {
                 cmd.output()
             };
             // KDE desktops often have kdialog but not zenity.
+            #[allow(clippy::disallowed_methods)] // waits for the user, in its own thread
             let kdialog = || {
                 let mode = if save {
                     "--getsavefilename"
@@ -7378,19 +7378,14 @@ impl App {
                     return Err(tf!("{text} is a built-in theme: choose another name", text));
                 }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
-                let new = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&f);
-                let mut file = new.map_err(|e| match e.kind() {
+                // Whole or not at all: a full disk left half a theme, whose name was then taken.
+                let made = config::create_file(&f, theme::Theme::file_from(ctx));
+                made.map(|_| f).map_err(|e| match e.kind() {
                     std::io::ErrorKind::AlreadyExists => {
                         tf!("{text} exists already: choose another name", text)
                     }
                     _ => e.to_string(),
-                })?;
-                std::io::Write::write_all(&mut file, theme::Theme::file_from(ctx).as_bytes())
-                    .map(|_| f)
-                    .map_err(|e| e.to_string())
+                })
             });
             self.notice = Some(match saved {
                 Ok(f) => {
@@ -8348,6 +8343,8 @@ impl App {
                 let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
                 let tx = self.notices_tx.clone();
                 std::thread::spawn(move || {
+                    #[allow(clippy::disallowed_methods)]
+                    // the chosen application may stay open: its own thread
                     let out = command("gio")
                         .arg("launch")
                         .arg(&desktop)
@@ -8375,6 +8372,8 @@ impl App {
         std::thread::spawn(move || {
             let run = |cmd: &str, args: &[String]| {
                 // Only its errors are read: a program that prints for hours is not kept.
+                #[allow(clippy::disallowed_methods)]
+                // the player stays open as long as it plays: its own thread
                 let out = command(cmd)
                     .args(args)
                     .arg(&path)
