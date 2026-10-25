@@ -7,18 +7,6 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- An uncompressed EXIF thumbnail in several strips is cleared whole in a crop or a turned copy,
-  not only its first strip; and a file swapped for a pipe while Glimt opens it is refused instead
-  of blocking a thread for good.
-- A crop or Save As whose image has a sidecar that cannot be read leaves no copy behind, and says
-  so; before, the copy was written first and stayed while the save was told as failed.
-- Undo of a move to the trash works on shares whose server clock is off: it looked at the time the
-  server gave the trash's own file, and with a server a minute behind found nothing of the move.
-  It reads the deletion time the trash writes from this computer's clock.
-- A crop or a copy saved with Save As can no longer write through a link left at its sidecar's
-  name: a downloaded folder could point it at any file of the user's (~/.bashrc) and have that
-  file replaced with its own sidecar's contents. New in 0.40.1's own changes, fixed before its
-  release.
 - Answering the repair of a cut-short Rename Many in a second window as well no longer moves marks
   and collection entries a second time (a swap's marks swapped back, a renamed file's lost), nor
   can it do the steps again on a plan the first window had just put right.
