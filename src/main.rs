@@ -1947,9 +1947,21 @@ impl App {
     // ---- Starting up ----
 
     fn new(cc: &eframe::CreationContext, path: Option<PathBuf>, start: Start) -> Self {
+        let (config, problems) = Config::load_checked();
+        Self::with(&cc.egui_ctx, config, &problems, path, start)
+    }
+
+    /// The window's state from the settings `new` reads, or a test gives, so a test makes an
+    /// `App` on `egui::Context::default()` with settings of its own.
+    fn with(
+        ctx: &egui::Context,
+        mut config: Config,
+        problems: &[String],
+        path: Option<PathBuf>,
+        start: Start,
+    ) -> Self {
         let keep = Arc::new(Mutex::new(vec![0]));
         let full_ok = Arc::new(AtomicUsize::new(1));
-        let (mut config, problems) = Config::load_checked();
         lang::set(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
@@ -1999,24 +2011,24 @@ impl App {
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
         set_cpu_use(config.cpu_use);
         let workers = cores().min(config.decode_threads);
-        let (jobs, done) = spawn_decoders(&cc.egui_ctx, workers, &keep, &full_ok, &rotate);
+        let (jobs, done) = spawn_decoders(ctx, workers, &keep, &full_ok, &rotate);
         // Thumbnails have their own workers, so scrolling the list never delays the shown image.
         let thumb_view: ThumbView = Arc::default();
         let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
         let (thumb_jobs, thumbs_rx) =
-            spawn_thumbnailers(&cc.egui_ctx, workers, &rotate, &thumb_view, &save_thumbs);
-        let (exif_jobs, exif_rx) = spawn_exif_reader(&cc.egui_ctx);
-        theme::fonts(&cc.egui_ctx);
-        theme::apply(&cc.egui_ctx, &theme::load(&config.theme), None, None);
+            spawn_thumbnailers(ctx, workers, &rotate, &thumb_view, &save_thumbs);
+        let (exif_jobs, exif_rx) = spawn_exif_reader(ctx);
+        theme::fonts(ctx);
+        theme::apply(ctx, &theme::load(&config.theme), None, None);
         // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
-        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        cc.egui_ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
         // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
         let (desktop_tx, desktop_rx) = mpsc::channel();
-        let ctx = cc.egui_ctx.clone();
+        let repaint = ctx.clone();
         std::thread::spawn(move || {
             let _ = desktop_tx.send(theme::desktop());
-            ctx.request_repaint();
+            repaint.request_repaint();
         });
         let (notices_tx, notices) = mpsc::channel();
         let (tree_tx, tree_rx) = mpsc::channel();
@@ -2025,7 +2037,7 @@ impl App {
         // A name is only of use with remote control, so it listens anyway; a kiosk too, as
         // --remote quit is its way out.
         if config.remote_control || remote::given_name().is_some() || start.kiosk {
-            remote::listen(remote_tx, cc.egui_ctx.clone());
+            remote::listen(remote_tx, ctx.clone());
         }
         let (freed_tx, freed_rx) = mpsc::channel();
         let (deleted_tx, deleted_rx) = mpsc::channel();
@@ -2082,7 +2094,7 @@ impl App {
             clip_rx: Receiving::none(),
             clipboard: None,
             remote_rx,
-            ctx: cc.egui_ctx.clone(),
+            ctx: ctx.clone(),
             list: List::default(),
             has_focus: true,
             apps: HashMap::new(),
@@ -2091,13 +2103,13 @@ impl App {
             desktop_rx: Receiving::of(desktop_rx),
             desktop_screen: None,
             desktop_screen_rx: Receiving(
-                (config.desktop_profile).then(|| read_desktop_screen(&cc.egui_ctx)),
+                (config.desktop_profile).then(|| read_desktop_screen(ctx)),
             ),
             plugins: plugins::find(),
             apps_rx,
             row_step: 1,
             notices_rx: notices,
-            notice: screen_error.or_else(|| config_notice(&problems)),
+            notice: screen_error.or_else(|| config_notice(problems)),
             dir: PathBuf::new(),
             subdirs: Vec::new(),
             keep,
@@ -2220,17 +2232,17 @@ impl App {
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {
             Some(uri) => {
-                app.open(&cc.egui_ctx, ".".into());
-                app.mount(&cc.egui_ctx, uri.to_owned());
+                app.open(ctx, ".".into());
+                app.mount(ctx, uri.to_owned());
             }
             None if !start.more.is_empty() => {
                 let all = std::iter::once(path).chain(start.more.iter().cloned());
-                app.open_folders(&cc.egui_ctx, all.collect());
+                app.open_folders(ctx, all.collect());
             }
-            None => app.open(&cc.egui_ctx, path),
+            None => app.open(ctx, path),
         }
         // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
-        app.receive_listing(&cc.egui_ctx, std::time::Duration::from_millis(50));
+        app.receive_listing(ctx, std::time::Duration::from_millis(50));
         app
     }
 
@@ -9287,6 +9299,39 @@ fn frame_at(frame_ms: &[u32], share: f64) -> usize {
 
 #[cfg(test)]
 mod tests {
+    /// An `App` for a test, on folder `dir`, listed: its own settings, no remote control,
+    /// nothing kept in the user's files (no recent list, thumbnails or last folder; marks are
+    /// not written in tests). The window's logic without a window.
+    pub(crate) fn app_on(dir: &std::path::Path) -> (super::App, eframe::egui::Context) {
+        let ctx = eframe::egui::Context::default();
+        let config = crate::config::Config {
+            remote_control: false,
+            keep_recent: false,
+            save_thumbnails: false,
+            desktop_profile: false,
+            remember_dir: false,
+            ..Default::default()
+        };
+        let start = super::Start::default();
+        let mut app = super::App::with(&ctx, config, &[], Some(dir.into()), start);
+        app.receive_listing(&ctx, std::time::Duration::from_secs(5));
+        (app, ctx)
+    }
+
+    /// The window's state is made and lists a folder without a window, so its logic can be
+    /// tested in milliseconds rather than through the release tests' virtual display.
+    #[test]
+    fn an_app_lists_its_folder_without_a_window() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-app-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["b.png", "a.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (app, _ctx) = app_on(&dir);
+        assert_eq!(app.list.files, ["a.png", "b.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The full screen info's and the print's template broken in thousands of ways: no panic.
     #[test]
     fn survives_broken_templates() {

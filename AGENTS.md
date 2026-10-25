@@ -214,7 +214,11 @@ By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused 
 `--remote-all next` to both and `--remote-all quit`; the AppImage, with a second window (Ctrl+N)
 that stays when the first one closes.
 
-A fix in the window code that a unit test cannot reach gets a check in `tests.sh`: the steps
+The window's logic (the list, the selection, file operations and what follows them) is tested
+without a window: `tests::app_on(dir)` in main.rs makes an `App` on `egui::Context::default()`
+with settings of its own, listed, in milliseconds. A fix there gets such a test.
+
+A fix in the window code that a unit test cannot reach (painting, keys, clicks) gets a check in `tests.sh`: the steps
 with keys, `--remote` and clicks by text (`menu File "Open With"`, through the `test-hooks`
 build's `glimt --remote where LABEL`; a widget the tests need gets a `noted(…)` call), and the
 result read from the files or from a colour in a screenshot. Screen coordinates only where a

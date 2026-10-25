@@ -24,6 +24,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The window's state can be made in a unit test without a window (App::with, tests::app_on), so
+  the logic behind the list, the selection and file operations is tested in milliseconds instead
+  of only through the release tests' virtual display.
 - Reading a file whole, writing, renaming, copying and starting or waiting for a program each go
   through one function, and clippy refuses the raw calls everywhere else (clippy.toml), so the
   next feature cannot leave them out; the few places that must do otherwise say why. Every program
