@@ -1334,12 +1334,11 @@ impl crate::App {
         let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
             return;
         };
-        // "exif:" searches find keywords, comments and stars too: these are read again.
-        if self.exif_index.is_some() {
-            let names = paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok());
-            self.exif_stale
-                .extend(names.map(|n| n.as_os_str().to_owned()));
-        }
+        // "exif:" searches find keywords, comments and stars too: these are read again, also
+        // when the first index is still being read (it may have read them before this write).
+        let names = paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok());
+        self.exif_stale
+            .extend(names.map(|n| n.as_os_str().to_owned()));
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let work: Work = Box::new(move || {
@@ -1380,19 +1379,19 @@ impl crate::App {
         to: PathBuf,
     ) {
         let rotate = self.config.exif_rotate;
-        // One frame over the animation itself would put a still in its place and take its
-        // sidecar, marks and stars with it: refused, as Save As refuses.
-        if only.is_some() && crate::save::same_file(&path, &to) {
-            let e = "choose another name: the image itself is not changed";
-            self.notice = Some(tf!("Could not save the image: {e}", e));
-            return;
-        }
         // A job, so closing waits for it (or stops it between frames), as for copies.
         let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
             return;
         };
         let deleted = self.deleted_tx.clone();
         self.background(ctx, Vec::new(), move || {
+            // One frame over the animation itself would put a still in its place and take its
+            // sidecar, marks and stars with it: refused, as Save As refuses, here in the
+            // background, as a file on a share that stalls would hold the window.
+            if only.is_some() && crate::save::same_file(&path, &to) {
+                let e = "choose another name: the image itself is not changed";
+                return Some(tf!("Could not save the image: {e}", e));
+            }
             let stem = path
                 .file_stem()
                 .unwrap_or_default()

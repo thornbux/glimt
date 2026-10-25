@@ -430,7 +430,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     if let Some(decoder) = crate::decoders::for_path(path) {
         return Ok((decoder.decode(path)?, None, upright, None));
     }
-    let dec = image::ImageReader::open(path)
+    let dec = image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .into_decoder()
@@ -805,6 +805,20 @@ pub(crate) fn open(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
     open_file(path.as_ref()).map(|(file, _)| file)
 }
 
+/// An image crate reader on `path`, opened with `open` (no pipe or device) and its format
+/// guessed from the extension, as `image::ImageReader::open` does, which clippy refuses: the
+/// image crate opens the file itself, where clippy cannot look.
+pub(crate) fn image_reader(
+    path: impl AsRef<Path>,
+) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
+    let path = path.as_ref();
+    let mut reader = image::ImageReader::new(std::io::BufReader::new(open(path)?));
+    if let Ok(format) = image::ImageFormat::from_path(path) {
+        reader.set_format(format);
+    }
+    Ok(reader)
+}
+
 /// Scale down to fit within `max`.
 pub fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicImage, String> {
     if img.width() > max[0] || img.height() > max[1] {
@@ -849,6 +863,11 @@ mod tests {
         );
         let refused = super::read_limited(&fifo).unwrap_err();
         assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
+        // Nor through the image crate: a collection naming a pipe x.png held Find Duplicates.
+        let fifo_png = fifo.with_extension("png");
+        std::fs::rename(&fifo, &fifo_png).unwrap();
+        assert!(super::image_reader(&fifo_png).is_err());
+        let fifo = fifo_png;
         std::fs::remove_file(fifo).unwrap();
     }
 

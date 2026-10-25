@@ -90,7 +90,7 @@ pub fn find(
                 {
                     return Some(size);
                 }
-                image::ImageReader::open(path)
+                crate::decode::image_reader(path)
                     .ok()?
                     .with_guessed_format()
                     .ok()?

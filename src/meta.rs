@@ -183,7 +183,7 @@ fn embedded(path: &Path) -> Option<String> {
         Some(found) => found?[JPEG.len()..].to_vec(),
         None => {
             use image::ImageDecoder;
-            let reader = image::ImageReader::open(path)
+            let reader = crate::decode::image_reader(path)
                 .ok()?
                 .with_guessed_format()
                 .ok()?;

@@ -205,10 +205,12 @@ pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
     Some(base.join(app))
 }
 
-/// The home folder of this test run, under the temporary folder, for every XDG folder.
+/// The home folder of the tests, under the temporary folder, for every XDG folder: one for
+/// every run, so what a test leaves there (Rename Many's empty plans folder) is never more
+/// than one tree; files in it have names of their own (plans by instance and time).
 #[cfg(test)]
 pub fn test_home() -> PathBuf {
-    std::env::temp_dir().join(format!("glimt-test-home-{}", std::process::id()))
+    std::env::temp_dir().join("glimt-test-home")
 }
 
 pub fn parse_last_dir(state: &str) -> Option<PathBuf> {

@@ -322,7 +322,7 @@ pub fn colour_source(path: &Path) -> String {
     use moxcms::{ColorProfile, ProfileText};
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
-    let dec = image::ImageReader::open(path)
+    let dec = crate::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok());

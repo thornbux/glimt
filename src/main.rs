@@ -9422,6 +9422,15 @@ mod tests {
             image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
+        // Keywords written while the first index is still being read are read again after it.
+        app.write_sidecars(
+            &ctx,
+            "Saving keywords",
+            vec![dir.join("a.png")],
+            |_| true,
+            |_, _| None,
+        );
+        assert!(app.exif_stale.contains(std::ffi::OsStr::new("a.png")));
         let names = ["a.png", "b.png"].map(|n| (std::ffi::OsString::from(n), String::new()));
         app.exif_index = Some(names.into_iter().collect());
         // Renamed by another program, the folder read again: the new name is read too.

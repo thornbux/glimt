@@ -280,7 +280,7 @@ enum Kind {
 /// file is, as it is read by its content: an animated GIF named a.png is still animated, a
 /// JPEG named so is not.
 fn animated(path: &Path) -> Result<bool, String> {
-    let format = image::ImageReader::open(path)
+    let format = crate::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .format();
@@ -303,7 +303,7 @@ fn animated(path: &Path) -> Result<bool, String> {
 /// orientation turned the image a quarter, with Auto Rotate.
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
-    let (mut exif, mut xmp, stored) = image::ImageReader::open(path)
+    let (mut exif, mut xmp, stored) = crate::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
