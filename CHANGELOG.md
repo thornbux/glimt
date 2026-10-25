@@ -32,6 +32,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- What belongs to the image shown (its page, frame, turn not saved yet and crop) is kept together
+  and made anew when another image is shown, so nothing of one image can stay for the next.
 - Every file the windows share (the settings, marks and stars, the keyword tree, the sort
   manager's folders, the recent list) is read, changed and written in one function, under its
   lock, never over a file it cannot read; clippy refuses the lock anywhere else.

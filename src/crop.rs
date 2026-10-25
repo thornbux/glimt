@@ -33,7 +33,7 @@ impl crate::App {
             return;
         }
         if self.list.slots.contains_key(&cur) {
-            self.crop = Some(Crop {
+            self.viewing.crop = Some(Crop {
                 path: self.path(cur),
                 how: self.shown_copy(),
                 anchor: egui::Pos2::ZERO,
@@ -52,10 +52,15 @@ impl crate::App {
         bounds: egui::Rect,
         pixels: [usize; 2],
     ) {
-        if self.crop.as_ref().is_some_and(|c| !self.crop_shown(c)) {
-            self.crop = None;
+        if self
+            .viewing
+            .crop
+            .as_ref()
+            .is_some_and(|c| !self.crop_shown(c))
+        {
+            self.viewing.crop = None;
         }
-        let Some(crop) = &mut self.crop else {
+        let Some(crop) = &mut self.viewing.crop else {
             return;
         };
         let at = |p: egui::Pos2| {
@@ -125,14 +130,14 @@ impl crate::App {
         if save {
             self.save_crop(ctx);
         } else if cancel {
-            self.crop = None;
+            self.viewing.crop = None;
         }
     }
 
     /// Save the part chosen as a new file beside the image, in the background; the folder is
     /// read again to show it.
     pub(crate) fn save_crop(&mut self, ctx: &egui::Context) {
-        let Some(crop) = self.crop.take().filter(|c| self.crop_shown(c)) else {
+        let Some(crop) = self.viewing.crop.take().filter(|c| self.crop_shown(c)) else {
             return;
         };
         let (Some(part), Some(slot)) = (crop.part, self.list.slots.get(&self.list.cur)) else {

@@ -66,7 +66,7 @@ impl crate::App {
             return;
         };
         let [w, h] = slot.orig;
-        let orig = if self.orient.0 % 2 == 1 {
+        let orig = if self.viewing.orient.0 % 2 == 1 {
             [h, w]
         } else {
             [w, h]
@@ -92,9 +92,9 @@ impl crate::App {
     /// with its metadata. Crop and Save As start from it, so neither can leave out a part of how
     /// the image is shown, as the page was.
     pub(crate) fn shown_copy(&self) -> CopyAs {
-        let (turns, mirrored) = self.orient;
+        let (turns, mirrored) = self.viewing.orient;
         CopyAs {
-            page: self.page,
+            page: self.viewing.page,
             rotate: self.config.exif_rotate,
             turns,
             mirrored,

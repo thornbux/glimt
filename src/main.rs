@@ -321,6 +321,27 @@ impl Drop for Pan {
     }
 }
 
+/// What belongs to the image shown, beside its place in the list (`List.cur`): the page of a
+/// TIFF, the frame of an animation stepped to, the turn not saved yet and the file it belongs
+/// to, the part being cropped. Made anew whole when the image is left (`leave_image`), as
+/// `List` is when the list is read again, so nothing of one image stays for the next, also a
+/// field added later; the zoom, which Keep Zoom carries over, is not here.
+#[derive(Default)]
+struct Viewing {
+    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
+    page: usize,
+    /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
+    frame: Option<usize>,
+    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
+    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
+    orient: (u8, bool),
+    /// The file `orient` belongs to, set when it is turned: saved into that file even when the
+    /// list changed meanwhile and another file is at `cur`.
+    turned: PathBuf,
+    /// Edit → Crop: the part of the shown image being chosen.
+    crop: Option<crop::Crop>,
+}
+
 /// What a delete, move, copy or plugin reports, in one message: the files it was asked to
 /// delete or move, those gone now (found out in its thread, not one `stat` each in the
 /// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
@@ -1375,10 +1396,6 @@ struct App {
     decode_jobs: mpsc::Sender<DecodeJob>,
     decoded_rx: mpsc::Receiver<Decoded>,
     decodes_sent: u64,
-    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
-    page: usize,
-    /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
-    frame: Option<usize>,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// A slideshow's change of image fading in: when it began, and what each pane (the first,
@@ -1411,12 +1428,8 @@ struct App {
     last_scale: f32,
     /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
     wheel: f32,
-    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
-    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
-    orient: (u8, bool),
-    /// The file `orient` belongs to, set when it is turned: saved into that file even when the
-    /// list changed meanwhile and another file is at `cur`.
-    turned: PathBuf,
+    /// What belongs to the image shown, made anew when it is left.
+    viewing: Viewing,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
@@ -1618,8 +1631,6 @@ struct App {
     file_dialog_rx: Receiving<Option<PathBuf>>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
-    /// Edit → Crop: the part of the shown image being chosen.
-    crop: Option<crop::Crop>,
     /// File → Save As: the dialog while open, and what it asked last.
     save_as: Option<save_as::SaveAs>,
     save_as_last: save_as::Choice,
@@ -2080,7 +2091,7 @@ impl App {
             sort_folders: (sort_folders_path().and_then(|p| crate::decode::read_limited(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
-            crop: None,
+            viewing: Viewing::default(),
             save_as: None,
             save_as_last: Default::default(),
             asked_for: (0, Vec::new()),
@@ -2148,8 +2159,6 @@ impl App {
             view_area: [1920, 1080],
             max_side: 8192,
             decode_jobs: jobs,
-            page: 0,
-            frame: None,
             decoded_rx: done,
             decodes_sent: 0,
             stale_thumbs: HashSet::new(),
@@ -2235,8 +2244,6 @@ impl App {
             exif_stale: HashSet::new(),
             exif_index_rx: Receiving::none(),
             exif_index_stop: Arc::default(),
-            orient: (0, false),
-            turned: PathBuf::new(),
             opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
         };
@@ -2811,7 +2818,7 @@ impl App {
         // The shown file's decodes still being made: kept, so it is not decoded twice. Not
         // those of a later page, as the file is shown again from its first.
         let jobs: Vec<_> = ([false, true].into_iter())
-            .filter(|_| self.page == 0)
+            .filter(|_| self.viewing.page == 0)
             .filter_map(|full| {
                 Some((
                     full,
@@ -2881,9 +2888,8 @@ impl App {
     /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
     fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
         if removed.binary_search(&self.list.cur).is_ok() {
-            // The shown image is gone, and its rotation with it.
-            self.orient = (0, false);
-            self.page = 0;
+            // The shown image is gone, and all that belonged to it.
+            self.viewing = Viewing::default();
         } else {
             self.leave_image(ctx);
         }
@@ -3149,9 +3155,9 @@ impl App {
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.fade = None;
         // A new image plays from its start.
-        self.frame = None;
+        self.viewing.frame = None;
         // Saving the old image's rotation may leave a notice, which must outlive the move.
-        let saved = self.config.save_orientation && self.orient != (0, false);
+        let saved = self.config.save_orientation && self.viewing.orient != (0, false);
         self.leave_image(ctx);
         let notice = if saved { self.notice.take() } else { None };
         self.list.cur = idx.min(self.list.files.len() - 1);
@@ -3180,14 +3186,14 @@ impl App {
     fn leave_image(&mut self, ctx: &egui::Context) {
         // A TIFF shown at another page than the first: its decoded page must not stay for when
         // it is shown again from the first page.
-        if self.page > 0 {
+        if self.viewing.page > 0 {
             self.list.slots.remove(&self.list.cur);
-            self.page = 0;
         }
-        if self.config.save_orientation && self.orient != (0, false) {
+        if self.config.save_orientation && self.viewing.orient != (0, false) {
             self.save_orientation(ctx);
         }
-        self.orient = (0, false);
+        // Everything that belonged to it, whole.
+        self.viewing = Viewing::default();
     }
 
     /// The file `delta` rows from the shown one, in the order the list shows (the search matches
@@ -3382,7 +3388,11 @@ impl App {
                 .decodes_pending
                 .insert((idx, full), (self.decodes_sent, path.clone()));
             // The neighbours are preloaded at their first page.
-            let page = if idx == self.list.cur { self.page } else { 0 };
+            let page = if idx == self.list.cur {
+                self.viewing.page
+            } else {
+                0
+            };
             let max = match full {
                 true => [self.max_side; 2],
                 false => self.decode_box(idx),
@@ -3455,7 +3465,7 @@ impl App {
             self.list.decodes_pending.remove(&(idx, full));
             let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
-                && d.page == if idx == self.list.cur { self.page } else { 0 }
+                && d.page == if idx == self.list.cur { self.viewing.page } else { 0 }
                 && self.keep.lock().unwrap().contains(&idx)
                 // Full resolution for each image on screen: the shown one, the compared one and
                 // the panes of a layout, zoomed together.
@@ -3497,9 +3507,11 @@ impl App {
                     // A full-resolution decode keeps fewer frames of a large animation (its
                     // memory budget): the frame stepped to stays among them.
                     let frames = self.list.slots.get(&idx).map_or(0, |s| s.anim.len());
-                    if idx == self.list.cur && frames > 0 && self.frame.is_some_and(|k| k >= frames)
+                    if idx == self.list.cur
+                        && frames > 0
+                        && self.viewing.frame.is_some_and(|k| k >= frames)
                     {
-                        self.frame = Some(frames - 1);
+                        self.viewing.frame = Some(frames - 1);
                     }
                     if idx == self.list.cur
                         && let Some(t) = self.started.take()
@@ -3895,7 +3907,7 @@ impl App {
             return;
         };
         let ppp = ui.ctx().pixels_per_point();
-        let turns = self.orient.0;
+        let turns = self.viewing.orient.0;
         let [w, h] = slot.orig.map(|n| n as f32);
         let (uw, uh) = if turns % 2 == 1 { (h, w) } else { (w, h) };
         let fit = fit_scale(area.size() * ppp, [uw, uh], self.config.fit_mode);
@@ -3920,7 +3932,7 @@ impl App {
             paint_checker(ui.painter(), rect, turns, egui::Color32::WHITE);
         }
         let tex = self.texture(slot, ui.ctx());
-        paint_turned(ui, tex, rect, self.orient, egui::Color32::WHITE);
+        paint_turned(ui, tex, rect, self.viewing.orient, egui::Color32::WHITE);
         // Where the pointer is over the main window's image, to point things out.
         if self.config.projector_pointer
             && let Some(v) = self.last_view
@@ -3953,7 +3965,7 @@ impl App {
     /// What `slot` shows now, in the main window and on the projector alike: the frame stepped
     /// to, the frame playing, or the image.
     fn texture<'a>(&self, slot: &'a Slot, ctx: &egui::Context) -> &'a egui::TextureHandle {
-        match self.frame {
+        match self.viewing.frame {
             Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
             None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
             None => &slot.tex,
@@ -3967,10 +3979,10 @@ impl App {
             .slots
             .get(&self.list.cur)
             .is_some_and(|s| s.anim.len() > 1);
-        match self.frame {
+        match self.viewing.frame {
             Some(k) => k,
             None if animated => self.playing_frame(),
-            None => self.page,
+            None => self.viewing.page,
         }
     }
 
@@ -6197,8 +6209,8 @@ impl App {
                     .slots
                     .get(&self.list.cur)
                     .map_or(1, |s| s.anim.len());
-                let at = self.frame.unwrap_or_else(|| self.playing_frame());
-                self.frame = Some(match action {
+                let at = self.viewing.frame.unwrap_or_else(|| self.playing_frame());
+                self.viewing.frame = Some(match action {
                     Action::NextPage => (at + 1) % n,
                     _ => (at + n - 1) % n,
                 });
@@ -6206,11 +6218,11 @@ impl App {
             Action::NextPage | Action::PrevPage => {
                 let pages = self.list.slots.get(&self.list.cur).map_or(1, |s| s.pages);
                 let page = match action {
-                    Action::NextPage => (self.page + 1).min(pages - 1),
-                    _ => self.page.saturating_sub(1),
+                    Action::NextPage => (self.viewing.page + 1).min(pages - 1),
+                    _ => self.viewing.page.saturating_sub(1),
                 };
-                if page != self.page {
-                    self.page = page;
+                if page != self.viewing.page {
+                    self.viewing.page = page;
                     self.list.slots.remove(&self.list.cur);
                     self.list
                         .decodes_pending
@@ -6306,7 +6318,7 @@ impl App {
                     Action::HistogramLog => &mut c.histogram_log,
                     Action::Animate => {
                         // Stepped to a frame: A plays on from there, without turning it off.
-                        if self.frame.take().is_some() {
+                        if self.viewing.frame.take().is_some() {
                             return;
                         }
                         &mut c.animate
@@ -6386,9 +6398,9 @@ impl App {
                     self.notice = Some(tr("Still saving the last rotation of this file").into());
                     return;
                 }
-                let (q, m) = self.orient;
-                self.turned = self.path(self.list.cur);
-                self.orient = match action {
+                let (q, m) = self.viewing.orient;
+                self.viewing.turned = self.path(self.list.cur);
+                self.viewing.orient = match action {
                     Action::RotateCw => ((q + 1) % 4, m),
                     Action::RotateCcw => ((q + 3) % 4, m),
                     Action::Rotate180 => ((q + 2) % 4, m),
@@ -6907,9 +6919,9 @@ impl App {
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
         // Choosing a part to crop: Enter saves it, Escape stops; read first, as for the pan view.
-        if self.crop.is_some() && !self.dialog_open() {
+        if self.viewing.crop.is_some() && !self.dialog_open() {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-                self.crop = None;
+                self.viewing.crop = None;
             } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                 self.save_crop(ctx);
             }
@@ -7794,8 +7806,14 @@ impl App {
                                 ui.separator();
                             }
                             let page = if slot.pages > 1 && idx == self.list.cur {
-                                tf!(" page {n}/{pages}", n = self.page + 1, pages = slot.pages)
-                            } else if let Some(k) = self.frame.filter(|_| idx == self.list.cur) {
+                                tf!(
+                                    " page {n}/{pages}",
+                                    n = self.viewing.page + 1,
+                                    pages = slot.pages
+                                )
+                            } else if let Some(k) =
+                                self.viewing.frame.filter(|_| idx == self.list.cur)
+                            {
                                 tf!(" frame {n}/{frames}", n = k + 1, frames = slot.anim.len())
                             } else {
                                 String::new()
@@ -8479,7 +8497,7 @@ impl App {
                     1.0
                 };
                 // Size on screen after a quarter turn.
-                let quarter = self.orient.0 % 2 == 1;
+                let quarter = self.viewing.orient.0 % 2 == 1;
                 let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
                 let mode = self.config.fit_mode;
                 let fit = self.list.slots.get(&self.list.cur).map_or(1.0, |s| {
@@ -8504,7 +8522,7 @@ impl App {
                     .or(self.last_drawn.as_ref().map(|d| d.1));
                 if let Some([w, h]) = orig.map(turned) {
                     // Choosing a part to crop, a drag draws it instead.
-                    if response.dragged() && self.crop.is_none() {
+                    if response.dragged() && self.viewing.crop.is_none() {
                         self.pan_offset += response.drag_delta();
                     }
                     let size = egui::vec2(w as f32, h as f32) * scale / ppp;
@@ -8530,7 +8548,7 @@ impl App {
                     self.request(self.list.cur, true);
                 }
                 self.paint_shown(ctx, ui, area, scale, max_fit);
-                if self.crop.is_some() {
+                if self.viewing.crop.is_some() {
                     let shown = self.list.slots.get(&self.list.cur).map(|s| turned(s.orig));
                     match shown {
                         Some([w, h]) => {
@@ -8539,7 +8557,7 @@ impl App {
                             let bounds = egui::Rect::from_center_size(at, size);
                             self.crop_input(ctx, ui, &response, bounds, [w, h]);
                         }
-                        None => self.crop = None,
+                        None => self.viewing.crop = None,
                     }
                 }
                 // A video: a play button over the preview frame (click or Enter), readable on
@@ -8622,7 +8640,7 @@ impl App {
         // The image area, not the whole screen: a small window on a 4K screen needs a fraction
         // of the memory (3840×2160 is 33 MB per image).
         let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
-        let quarter = self.orient.0 % 2 == 1;
+        let quarter = self.viewing.orient.0 % 2 == 1;
         let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
         let mode = self.config.fit_mode;
         // Decoded to the size shown: the view for a whole image. Fit Width and Fit Height
@@ -8656,7 +8674,7 @@ impl App {
             self.view_area,
             self.config.fit_mode == 3,
             idx == self.list.cur,
-            self.orient.0 % 2 == 1,
+            self.viewing.orient.0 % 2 == 1,
             self.projector_size,
         )
     }
@@ -8696,9 +8714,9 @@ impl App {
                 None => 1.0,
             };
             if self.config.checkerboard && slot.transparent() {
-                paint_checker(ui.painter(), rect, self.orient.0, alpha(shown));
+                paint_checker(ui.painter(), rect, self.viewing.orient.0, alpha(shown));
             }
-            paint_turned(ui, tex, rect, self.orient, alpha(shown));
+            paint_turned(ui, tex, rect, self.viewing.orient, alpha(shown));
             ui.set_clip_rect(clip);
             self.last_drawn = Some((slot.tex.clone(), slot.orig));
             // For the projector: this view, and the pointer from the image's centre.
@@ -9418,6 +9436,29 @@ mod tests {
         assert!(app.exif_stale.contains(std::ffi::OsStr::new("b.png")));
         #[cfg(feature = "marks")]
         assert_eq!(app.marks.get(&b), (0, 0));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Going to another image leaves nothing of the one before: its turn, page, frame and crop
+    /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets
+    /// (a crop once outlived its image).
+    #[test]
+    fn another_image_starts_afresh() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-viewing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = false;
+        app.viewing.orient = (1, true);
+        app.viewing.page = 2;
+        app.viewing.frame = Some(3);
+        app.viewing.turned = dir.join("a.png");
+        app.go(&ctx, 1);
+        let v = &app.viewing;
+        assert_eq!((v.orient, v.page, v.frame), ((0, false), 0, None));
+        assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
