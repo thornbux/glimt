@@ -9343,6 +9343,14 @@ mod tests {
         }
         let a = dir.join("a.png");
         let (mut app, ctx) = app_on(&dir);
+        // Work that touches none of the user's files is never held back, also while a
+        // keywords job holds back everything else (a Lightroom import's collections).
+        let held = app
+            .start_job_of("Writing", 1, true, vec![dir.join("b.png")])
+            .unwrap();
+        assert!(app.background(&ctx, Vec::new(), || None));
+        drop(held);
+        app.file_jobs.clear();
         let (go, wait) = std::sync::mpsc::channel::<()>();
         assert!(app.background(&ctx, vec![a.clone()], move || {
             let _ = wait.recv();

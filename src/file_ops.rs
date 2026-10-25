@@ -108,7 +108,7 @@ impl crate::App {
     }
 
     /// `start_job`, of the files' `sidecars` or of the files themselves.
-    fn start_job_of(
+    pub(crate) fn start_job_of(
         &mut self,
         doing: &'static str,
         total: usize,
@@ -116,8 +116,9 @@ impl crate::App {
         touches: Vec<PathBuf>,
     ) -> Option<Arc<Job>> {
         // Keywords and stars are never refused: an edit made in the panel would be lost. Their
-        // job holds back every other operation instead (`none_saving`'s `writing`).
-        if !sidecars && !self.none_saving(&touches) {
+        // job holds back every other operation instead (`none_saving`'s `writing`). Nor is a
+        // job that changes none of the user's files (a backup).
+        if !sidecars && !touches.is_empty() && !self.none_saving(&touches) {
             return None;
         }
         let job = Arc::new(Job::new(doing, total, sidecars, touches));
@@ -1256,7 +1257,10 @@ impl crate::App {
         touches: Vec<PathBuf>,
         work: impl FnOnce() -> Option<String> + Send + 'static,
     ) -> bool {
-        if !self.none_saving(&touches) {
+        // Work that changes none of the user's files (within a job that holds them, or
+        // Glimt's own collections) waits for nothing: a Lightroom import's collections were
+        // refused while its own keywords were being written.
+        if !touches.is_empty() && !self.none_saving(&touches) {
             return false;
         }
         let touching = Arc::new(touches);
