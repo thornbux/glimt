@@ -108,7 +108,7 @@ pub fn decode(
 
 /// The number of pages (images) in a TIFF file; reads only their directories.
 pub fn tiff_pages(path: &Path) -> usize {
-    let Ok(file) = std::fs::File::open(path) else {
+    let Ok(file) = open(path) else {
         return 1;
     };
     let Ok(mut dec) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
@@ -132,7 +132,7 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
     use image::DynamicImage as D;
     use tiff::ColorType as C;
     use tiff::decoder::DecodingResult as R;
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = open(path).map_err(|e| e.to_string())?;
     let mut dec =
         tiff::decoder::Decoder::new(std::io::BufReader::new(file)).map_err(|e| e.to_string())?;
     dec.seek_to_image(page).map_err(|e| e.to_string())?;
@@ -230,7 +230,7 @@ pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
 fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> {
     use image::{AnimationDecoder, ImageDecoder};
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    let file = std::io::BufReader::new(open(path).ok()?);
     // The decoders' own limit on what they allocate (512 MB, as `MAX_DECODE`): a damaged frame
     // header claiming gigabytes is an error, not a failed allocation that ends Glimt.
     let limits = image::Limits::default();
@@ -418,7 +418,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::files::JXL_EXTS) {
-        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+        let file = open(path).map_err(|e| e.to_string())?;
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;
         check_size(&dec)?;
@@ -759,8 +759,8 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
 /// The whole of `path`, read only up to `MAX_DECODE` bytes: a larger file (a sparse one, or
 /// one unpacked from a small zip) is refused before it fills memory, not read whole first; so
 /// is what is no file (a pipe would block for good, /dev/zero fill memory), also through a
-/// link. The one way Glimt reads a file whole, whoever wrote it: a test holds every other read
-/// to it.
+/// link. The one way Glimt reads a file whole, whoever wrote it: clippy (clippy.toml) refuses
+/// every other read.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let too_large =
@@ -782,7 +782,7 @@ pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
 /// `path` opened to be read, if it is a file, with what it is: opened without waiting
 /// (O_NONBLOCK, which a file does not heed), and what is open looked at, not the name, as a
 /// pipe put there between a look and an open would block that open.
-fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+pub(crate) fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::unix::fs::OpenOptionsExt;
     const O_NONBLOCK: i32 = 0o4000;
     #[allow(clippy::disallowed_methods)] // the one opening of a file to read it whole
@@ -797,6 +797,12 @@ fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)>
         ));
     }
     Ok((file, meta))
+}
+
+/// `path` opened to be read, if it is a file (`open_file`): the one way Glimt opens a file,
+/// so a pipe or device in its place is refused, not waited on for good.
+pub(crate) fn open(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
+    open_file(path.as_ref()).map(|(file, _)| file)
 }
 
 /// Scale down to fit within `max`.

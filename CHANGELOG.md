@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Save This Frame refuses to save over the animation it comes from: a still took its place, and
+  since this version its sidecar, marks and stars would have gone with it.
 - Save As or Save This Frame over a file in the list shows the new image, not the old one's
   thumbnail and pixels, and the old one's marks and stars go, as its sidecar did.
 - An exif: search finds files renamed, moved or copied into the folder, new ones a refresh

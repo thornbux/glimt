@@ -546,7 +546,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     }
     #[cfg(feature = "jxl")]
     if crate::files::has_ext(path, crate::files::JXL_EXTS) {
-        let file = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+        let file = std::io::BufReader::new(crate::decode::open(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.exif_metadata().ok().flatten();
     }

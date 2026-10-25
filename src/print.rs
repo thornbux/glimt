@@ -486,6 +486,7 @@ pub fn send(
         }),
         None => Err(std::io::Error::other("no input")),
     };
+    #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if dog.gave_up() {
         return Err(crate::lang::tr("No answer from the print server in two minutes").into());

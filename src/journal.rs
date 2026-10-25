@@ -107,7 +107,7 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
             // A pipe or a link planted in the state folder is no plan: opening a pipe would hold
             // the start for good. Read no more than a decode would.
             e.file_type().ok().filter(|t| t.is_file())?;
-            let file = File::open(e.path()).ok()?;
+            let file = crate::decode::open(e.path()).ok()?;
             free(&file).then_some(())?;
             let mut bytes = Vec::new();
             #[allow(clippy::disallowed_methods)] // bounded by take, and only a file
@@ -221,7 +221,7 @@ pub fn settle(
     // One window at a time, and only while the plan is there: a second window that asked about
     // it too would do the same steps again, on files already put right. Also one that opened it
     // just before the first deleted it, and got the lock once that one let go.
-    let _held = File::open(plan).ok().filter(free).filter(linked)?;
+    let _held = crate::decode::open(plan).ok().filter(free).filter(linked)?;
     let mut first = 0;
     // Put back: the step cut short between its link and its unlink, the first not counted, has
     // its new name taken away first, so the steps before it can be undone.

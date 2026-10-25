@@ -343,6 +343,7 @@ pub fn output_of(
     if large {
         stop_group(group, || false);
     }
+    #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let ok = child.wait().is_ok_and(|s| s.success());
     // Only once its errors are read to their end: a helper it left behind may hold them open.
     let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
@@ -424,6 +425,7 @@ pub struct Login {
 /// domain, password) one prompt at a time; they are answered from `login`, or, without one,
 /// `Err(None)` says that a login is needed. A password saved in the keyring (from Files) is
 /// used without asking.
+#[allow(clippy::disallowed_methods)] // waits for gio under its Watchdog, answering its prompts
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
     // With the usual limit: asked before the mount, this would otherwise wait on a server

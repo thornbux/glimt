@@ -363,8 +363,8 @@ struct Deleted {
     undo: Option<Undo>,
     /// Marks and stars to put back: of files Undo brought back from the trash.
     restored_marks: Vec<(PathBuf, (u8, u8))>,
-    /// Files whose content changed in place (saved turned, edited by a plugin): what is shown
-    /// of them is read again.
+    /// Files a plugin changed in place: what is shown of them is read again. (A turn saved
+    /// comes through `saved_rx`, which also ends its guard, into the same `files_changed`.)
     changed: Vec<PathBuf>,
     /// Files written over by another image (Save As, Save This Frame onto a file there): read
     /// again, and their marks and stars go, as their sidecar did.
@@ -1588,8 +1588,6 @@ struct App {
     /// have changed them, so they are decoded again.
     saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
-    /// Files a plugin may have edited: shown again. Not `saved_tx`, whose report ends the
-    /// guard of a turned image being saved.
     /// The files Rename or a delete asked about, by their names in the list, and where the list
     /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
     asked_for: (u64, Vec<OsString>),
@@ -2023,7 +2021,7 @@ impl App {
         // No list kept: one of before goes too, also when the setting was changed in the file.
         let recent = match config::recent_path() {
             Some(file) if !config.keep_recent => {
-                config::write_later(move || drop(std::fs::remove_file(file)));
+                config::write_later(move || config::remove_shared(&file));
                 Vec::new()
             }
             Some(file) => crate::decode::read_limited(file)
@@ -2329,7 +2327,9 @@ impl App {
                 let all = config::add_recent(&config::parse_recent(old), &path);
                 (config::recent_text(&all), ())
             };
-            let _ = config::edit_shared(&file, add);
+            if let Err(e) = config::edit_shared(&file, add) {
+                config::save_failed(format!("Could not save {}: {e}", file.display()));
+            }
         });
     }
 
@@ -2337,7 +2337,7 @@ impl App {
     pub(crate) fn clear_recent(&mut self) {
         self.recent.clear();
         if let Some(file) = config::recent_path() {
-            config::write_later(move || drop(std::fs::remove_file(file)));
+            config::write_later(move || config::remove_shared(&file));
         }
     }
 
@@ -3154,8 +3154,6 @@ impl App {
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.fade = None;
-        // A new image plays from its start.
-        self.viewing.frame = None;
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.viewing.orient != (0, false);
         self.leave_image(ctx);
@@ -5075,12 +5073,6 @@ impl App {
             meta::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
         }
-        // "exif:" searches find keywords too: only these files are read again.
-        self.exif_stale.extend(
-            targets
-                .iter()
-                .filter_map(|&i| self.list.files.get(i).cloned()),
-        );
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
         let (doing, verb) = match on {
             true => (tr("Setting keywords"), tr("set on")),
@@ -5155,7 +5147,6 @@ impl App {
         edit.keywords = edit.saved.keywords_text();
         edit.comment = edit.saved.comment.clone();
         let (path, tx) = (edit.path.clone(), self.notices_tx.clone());
-        let edited = path.clone();
         // A sidecar job, so that a Move, Rename or Delete of the file waits until it has
         // landed, instead of leaving the new keywords behind under the old name.
         self.write_sidecars(
@@ -5171,11 +5162,6 @@ impl App {
             },
             |_, _| None,
         );
-        // "exif:" searches find keywords and comments too: the edited file, which may not be
-        // the shown one any more, is read again when next used.
-        if let Ok(name) = edited.strip_prefix(&self.dir) {
-            self.exif_stale.insert(name.as_os_str().to_owned());
-        }
     }
 
     /// Add `keywords` to every selected file, in the background.
@@ -5184,12 +5170,6 @@ impl App {
         self.save_meta(ctx);
         self.meta = None;
         self.exif_asked = None;
-        let targets = self.targets();
-        self.exif_stale.extend(
-            targets
-                .iter()
-                .filter_map(|&i| self.list.files.get(i).cloned()),
-        );
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
         let n = paths.len();
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
@@ -6539,6 +6519,7 @@ impl App {
         });
         match started {
             // Reap the child when it exits, so it does not linger as a zombie.
+            #[allow(clippy::disallowed_methods)] // the new window, reaped in a thread of its own
             Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
             Err(e) => self.notice = Some(tf!("Could not open a new window: {e}", e)),
         }
@@ -7083,6 +7064,7 @@ impl App {
         self.inhibit_on = on;
         if let Some(mut child) = self.inhibitor.take() {
             let _ = child.kill();
+            #[allow(clippy::disallowed_methods)] // killed just now, reaped in a thread of its own
             std::thread::spawn(move || child.wait());
         }
         if !on {
@@ -7545,11 +7527,15 @@ impl App {
             });
         });
         let Some(undo) = choice else { return };
-        let plans = std::mem::take(&mut self.cut_short);
-        let deleted = self.deleted_tx.clone();
-        let touches = (plans.iter())
+        // Asked before the plans are taken: one held back is asked about again.
+        let touches: Vec<PathBuf> = (self.cut_short.iter())
             .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
             .collect();
+        if !self.none_saving(&touches) {
+            return;
+        }
+        let plans = std::mem::take(&mut self.cut_short);
+        let deleted = self.deleted_tx.clone();
         self.background(ctx, touches, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
@@ -9373,7 +9359,6 @@ mod tests {
             .unwrap();
         assert!(app.background(&ctx, Vec::new(), || None));
         drop(held);
-        app.file_jobs.clear();
         let (go, wait) = std::sync::mpsc::channel::<()>();
         assert!(app.background(&ctx, vec![a.clone()], move || {
             let _ = wait.recv();
@@ -9396,13 +9381,33 @@ mod tests {
                 now
             })
         };
-        assert!(wait_for(
-            &|| std::sync::Arc::strong_count(&app.touching[0]) == 1
-        ));
-        app.touching.clear();
+        let free = (0..250).any(|_| {
+            let now = app.none_saving(std::slice::from_ref(&a));
+            if !now {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            now
+        });
+        assert!(free);
         app.undo = None;
         app.delete_now(&ctx, false, vec![0]);
         assert!(wait_for(&|| !a.exists()));
+        // Thousands against thousands are answered at once, not path against path (10^8
+        // comparisons froze the window for seconds).
+        let many = |top: &str| -> Vec<std::path::PathBuf> {
+            (0..50_000)
+                .map(|k| dir.join(top).join(format!("{k}.jpg")))
+                .collect()
+        };
+        let held = std::sync::Arc::new(many("busy"));
+        app.touching.push(held.clone());
+        let asked = many("free");
+        let start = std::time::Instant::now();
+        assert!(app.none_saving(&asked));
+        assert!(!app.none_saving(&[dir.join("busy")]));
+        assert!(!app.none_saving(&[dir.join("busy/7.jpg")]));
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        drop(held);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

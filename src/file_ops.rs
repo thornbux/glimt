@@ -70,14 +70,11 @@ impl crate::App {
     /// so no operation can leave it out.
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
         let saving = (self.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
-        let writing = self.file_jobs.iter().any(|j| j.sidecars);
-        let overlap = |t: &PathBuf| paths.iter().any(|p| p.starts_with(t) || t.starts_with(p));
-        let busy = (self.file_jobs.iter().flat_map(|j| &j.touches))
-            .chain(self.touching.iter().flat_map(|t| t.iter()))
-            .any(overlap);
+        let writing = (self.file_jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
         // One Rename Many at a time, and nothing else on files while it runs: a step would
         // find its file gone, and its undo could not put the others back.
         let renaming = self.renaming.is_some();
+        let busy = !saving && !writing && !renaming && self.touched(paths);
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
         } else if writing {
@@ -88,6 +85,28 @@ impl crate::App {
             self.notice = Some(tr("Still working on these files: try again in a moment").into());
         }
         !saving && !writing && !renaming && !busy
+    }
+
+    /// Whether a job or background work still running changes a file of `paths`, a folder
+    /// above one, or one inside one of them. Work over is not counted, whether or not the frame
+    /// has let go of it yet. Looked up by name and by the folders above, not path against path:
+    /// a delete of 1,000 files beside a keywords job on 100,000 was 10^8 comparisons.
+    fn touched(&self, paths: &[PathBuf]) -> bool {
+        let running = (self.file_jobs.iter())
+            .filter(|j| Arc::strong_count(j) > 1)
+            .flat_map(|j| &j.touches)
+            .chain(
+                (self.touching.iter())
+                    .filter(|t| Arc::strong_count(t) > 1)
+                    .flat_map(|t| t.iter()),
+            );
+        let held: HashSet<&Path> = running.map(PathBuf::as_path).collect();
+        if held.is_empty() {
+            return false;
+        }
+        let above: HashSet<&Path> = held.iter().flat_map(|t| t.ancestors()).collect();
+        (paths.iter())
+            .any(|p| above.contains(p.as_path()) || p.ancestors().any(|a| held.contains(a)))
     }
 
     /// Whether files are still being written (`config::WRITING`): file jobs, a turned image, a
@@ -912,7 +931,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before a move removes the
         // source: a stick pulled out right after must not lose both.
-        let copied = std::fs::File::open(from)
+        let copied = crate::decode::open(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
                 let meta = std::fs::metadata(from)?;
@@ -1315,6 +1334,12 @@ impl crate::App {
         let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
             return;
         };
+        // "exif:" searches find keywords, comments and stars too: these are read again.
+        if self.exif_index.is_some() {
+            let names = paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok());
+            self.exif_stale
+                .extend(names.map(|n| n.as_os_str().to_owned()));
+        }
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let work: Work = Box::new(move || {
@@ -1355,6 +1380,13 @@ impl crate::App {
         to: PathBuf,
     ) {
         let rotate = self.config.exif_rotate;
+        // One frame over the animation itself would put a still in its place and take its
+        // sidecar, marks and stars with it: refused, as Save As refuses.
+        if only.is_some() && crate::save::same_file(&path, &to) {
+            let e = "choose another name: the image itself is not changed";
+            self.notice = Some(tf!("Could not save the image: {e}", e));
+            return;
+        }
         // A job, so closing waits for it (or stops it between frames), as for copies.
         let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
             return;

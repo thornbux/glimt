@@ -192,7 +192,7 @@ pub fn clean() -> (usize, usize) {
 
 /// The file a cached thumbnail was made from, from its Thumb::URI (file:// only).
 fn thumb_source(thumb: &Path) -> Option<PathBuf> {
-    let file = std::io::BufReader::new(std::fs::File::open(thumb).ok()?);
+    let file = std::io::BufReader::new(crate::decode::open(thumb).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
     let info = reader.info();
     let uri = info

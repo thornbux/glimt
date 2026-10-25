@@ -232,6 +232,15 @@ pub(crate) fn land(
     .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
 }
 
+/// Whether `a` and `b` name one file, also through links: a copy is never saved over the image
+/// it is made from (Save As, Save This Frame).
+pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 /// File → Save As: the copy `how` asks for, saved as `to`, which the file dialog let replace
 /// a file there. Its extension made the format's, and then never over a file the dialog did
 /// not ask about; never the image itself. Returns the file saved.
@@ -251,11 +260,7 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
             to.with_file_name(name)
         }
     };
-    let same = |a: &Path, b: &Path| match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    };
-    if same(path, &to) {
+    if same_file(path, &to) {
         return Err("choose another name: the image itself is not changed".into());
     }
     let (out, _) = copy_bytes(path, how)?;
@@ -279,7 +284,7 @@ fn animated(path: &Path) -> Result<bool, String> {
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .format();
-    let file = || std::fs::File::open(path).map(std::io::BufReader::new);
+    let file = || crate::decode::open(path).map(std::io::BufReader::new);
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
         Some(image::ImageFormat::Png) => (file().ok())
@@ -517,7 +522,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// Whether a WebP file is lossless (a VP8L image) or lossy (VP8); `None` if neither is found.
 pub fn webp_lossless(path: &Path) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path).ok()?;
+    let mut file = crate::decode::open(path).ok()?;
     let mut head = [0; 12];
     file.read_exact(&mut head).ok()?;
     if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {

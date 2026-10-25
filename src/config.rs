@@ -194,10 +194,21 @@ pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
 }
 
 pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
+    // Tests have a home of their own: an App made in a test removed the user's recent list.
+    #[cfg(test)]
+    return Some(test_home().join(home_fallback).join(app));
+    #[cfg(not(test))]
     let base = std::env::var_os(var)
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))?;
+    #[cfg(not(test))]
     Some(base.join(app))
+}
+
+/// The home folder of this test run, under the temporary folder, for every XDG folder.
+#[cfg(test)]
+pub fn test_home() -> PathBuf {
+    std::env::temp_dir().join(format!("glimt-test-home-{}", std::process::id()))
 }
 
 pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
@@ -660,7 +671,7 @@ impl Config {
                 };
                 // One that cannot be read is not written over: every setting would be lost.
                 if let Err(e) = edit_shared(&p, merge) {
-                    save_failed(format!("Settings not saved: {}: {e}", p.display()));
+                    save_failed(format!("Could not save {}: {e}", p.display()));
                 }
             });
         }
@@ -673,18 +684,30 @@ impl Config {
 /// holds would be lost: the error says why. The one way the settings, the marks, the keyword
 /// tree, the sort manager's folders and the recent list are written again, so another window's
 /// change made meanwhile stays; clippy refuses `file_lock` elsewhere (collections keep their
-/// own `collections::edit`, which must not make one that went).
+/// own `collections::edit` and `rename`, which must not make one that went).
 pub fn edit_shared<T>(
     path: &Path,
     change: impl FnOnce(&[u8]) -> (Vec<u8>, T),
 ) -> std::io::Result<T> {
-    #[allow(clippy::disallowed_methods)] // the one place, with collections::edit
+    // The folder first: without it there is no lock file, and the first write had no lock.
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
+    #[allow(clippy::disallowed_methods)] // the one place, with collections::edit and rename
     let _held = file_lock(path);
     let old = read_or_none(path)?.unwrap_or_default();
     let (new, keep) = change(&old);
-    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
     replace_file(path, new)?;
     Ok(keep)
+}
+
+/// A file the windows share removed under its lock, as `edit_shared` changes one: another
+/// window's change cannot land after it and bring back what was cleared.
+pub fn remove_shared(path: &Path) {
+    if std::fs::symlink_metadata(path).is_err() {
+        return;
+    }
+    #[allow(clippy::disallowed_methods)] // as edit_shared
+    let _held = file_lock(path);
+    let _ = std::fs::remove_file(path);
 }
 
 /// A file Glimt is about to write again, as it is: `None` when there is none yet, and an error

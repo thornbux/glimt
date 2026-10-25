@@ -439,12 +439,6 @@ impl crate::App {
             true => image_keywords,
             false => Vec::new(),
         };
-        // "exif:" searches here read those images' keywords again.
-        for (path, _) in &image_keywords {
-            if let Ok(name) = path.strip_prefix(&self.dir) {
-                self.exif_stale.insert(name.as_os_str().to_owned());
-            }
-        }
         let mut done = vec![count(keywords.len(), "keyword")];
         self.change_keyword_tree(keywords, None);
         #[cfg(feature = "marks")]

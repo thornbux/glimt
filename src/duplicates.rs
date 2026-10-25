@@ -203,7 +203,7 @@ fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
 
 /// Whether files `a` and `b` hold the same bytes; not when one cannot be read.
 fn same_bytes(a: &Path, b: &Path) -> bool {
-    let (Ok(mut a), Ok(mut b)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
+    let (Ok(mut a), Ok(mut b)) = (crate::decode::open(a), crate::decode::open(b)) else {
         return false;
     };
     let (mut x, mut y) = (vec![0; 1 << 16], vec![0; 1 << 16]);
@@ -222,7 +222,7 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
 
 /// A 64-bit hash of the whole file.
 fn checksum(path: &Path) -> Option<u64> {
-    let mut file = std::fs::File::open(path).ok()?;
+    let mut file = crate::decode::open(path).ok()?;
     let mut hasher = std::hash::DefaultHasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {

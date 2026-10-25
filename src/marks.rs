@@ -242,10 +242,7 @@ fn write(file: &Path, changes: &[Edit]) {
         (to_text(&map), ())
     };
     if let Err(e) = crate::config::edit_shared(file, edit) {
-        crate::config::save_failed(format!(
-            "Marks and stars not saved: {}: {e}",
-            file.display()
-        ));
+        crate::config::save_failed(format!("Could not save {}: {e}", file.display()));
     }
 }
 
