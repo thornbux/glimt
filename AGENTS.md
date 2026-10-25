@@ -137,8 +137,8 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
   bypass:
   - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device);
   - write with `config::replace_file`, `create_file` or `write_atomic` (whole or not at all,
-    never through a link), and a file the windows share under `config::file_lock` with
-    `read_or_none`;
+    never through a link), and a file the windows share with `config::edit_shared` (lock,
+    read, change and write as one; clippy refuses `file_lock` elsewhere);
   - rename with `file_ops::rename_never_over` (never over a file), move or copy with `put_file`;
   - start a program with `external::command` or `stoppable_command`, and wait for it only with
     `run_limited`, `limited`, `output_of` or a `Watchdog` (never `.output()`/`.status()`);

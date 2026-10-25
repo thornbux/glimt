@@ -69,6 +69,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     let name = valid(name)?;
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
+    #[allow(clippy::disallowed_methods)] // a collection's own lock, as collections::edit
     let _held = crate::config::file_lock(file);
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
@@ -164,6 +165,7 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
 /// else that is an error, so a collection renamed or trashed elsewhere is not made again. One
 /// that cannot be read is never written over: what it holds would be lost.
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
     let _held = crate::config::file_lock(file);
     let (mut all, was_new) = match load(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),

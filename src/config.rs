@@ -654,22 +654,37 @@ impl Config {
             // Read, merged and written in the background, as each toggle in a menu saves: the
             // file's sync must not hold the window.
             write_later(move || {
-                let _held = file_lock(&p);
-                // One that is there but cannot be read is not written over: every setting the
-                // user had would be the defaults then.
-                let on_disk = match read_or_none(&p) {
-                    Ok(bytes) => String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned(),
-                    Err(e) => {
-                        return save_failed(format!(
-                            "Settings not saved: {} cannot be read: {e}",
-                            p.display()
-                        ));
-                    }
+                let merge = |on_disk: &[u8]| {
+                    let on_disk = String::from_utf8_lossy(on_disk);
+                    (merged(&ours, &before, &on_disk).into_bytes(), ())
                 };
-                write_atomic(&p, merged(&ours, &before, &on_disk));
+                // One that cannot be read is not written over: every setting would be lost.
+                if let Err(e) = edit_shared(&p, merge) {
+                    save_failed(format!("Settings not saved: {}: {e}", p.display()));
+                }
             });
         }
     }
+}
+
+/// A file the windows share, changed as it is now: under its lock, read whole (one not there
+/// yet is empty), `change` gives its new contents and what the caller keeps, and it is written
+/// whole or not at all. One that is there but cannot be read is not written over, as all it
+/// holds would be lost: the error says why. The one way the settings, the marks, the keyword
+/// tree, the sort manager's folders and the recent list are written again, so another window's
+/// change made meanwhile stays; clippy refuses `file_lock` elsewhere (collections keep their
+/// own `collections::edit`, which must not make one that went).
+pub fn edit_shared<T>(
+    path: &Path,
+    change: impl FnOnce(&[u8]) -> (Vec<u8>, T),
+) -> std::io::Result<T> {
+    #[allow(clippy::disallowed_methods)] // the one place, with collections::edit
+    let _held = file_lock(path);
+    let old = read_or_none(path)?.unwrap_or_default();
+    let (new, keep) = change(&old);
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(Path::new(".")));
+    replace_file(path, new)?;
+    Ok(keep)
 }
 
 /// A file Glimt is about to write again, as it is: `None` when there is none yet, and an error
@@ -1038,6 +1053,41 @@ pub(crate) fn back_up_to(dir: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    /// Two windows changing one shared file at the same moment both keep their change, and one
+    /// that cannot be read is not written over: Open Recent lost an entry so, having copied
+    /// the steps by hand and left two out.
+    #[test]
+    fn edit_shared_keeps_every_change() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-shared-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("recent");
+        std::thread::scope(|s| {
+            for k in 0..8 {
+                let file = &file;
+                s.spawn(move || {
+                    super::edit_shared(file, |old| {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                        let mut new = old.to_vec();
+                        new.extend(format!("{k}\n").bytes());
+                        (new, ())
+                    })
+                    .unwrap();
+                });
+            }
+        });
+        let mut lines: Vec<String> = (std::fs::read_to_string(&file).unwrap().lines())
+            .map(str::to_owned)
+            .collect();
+        lines.sort();
+        assert_eq!(lines, (0..8).map(|k| k.to_string()).collect::<Vec<_>>());
+        // A folder in its place cannot be read: refused, and left as it was.
+        let folder = dir.join("folder");
+        std::fs::create_dir(&folder).unwrap();
+        assert!(super::edit_shared(&folder, |_| (b"x".to_vec(), ())).is_err());
+        assert!(folder.is_dir());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A write that panics leaves the writer running: the next one is done, and flush waits.
     #[test]
     fn writer_survives_a_panic() {

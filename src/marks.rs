@@ -232,23 +232,21 @@ fn save(edit: Edit) {
 /// `changes` applied to the marks file as it is now.
 #[cfg(not(test))]
 fn write(file: &Path, changes: &[Edit]) {
-    // Another window's read and write must not fall between ours, or its change is lost.
-    let _locked = crate::config::file_lock(file);
-    // A file that is there but cannot be read is not written over with these changes alone:
-    // every other mark would be lost.
-    let mut map = match crate::config::read_or_none(file) {
-        Ok(bytes) => parse(&bytes.unwrap_or_default()),
-        Err(e) => {
-            return crate::config::save_failed(format!(
-                "Marks and stars not saved: {} cannot be read: {e}",
-                file.display()
-            ));
+    // These changes on the file as another window may have left it; one that cannot be read
+    // is not written over with these changes alone, as every other mark would be lost.
+    let edit = |bytes: &[u8]| {
+        let mut map = parse(bytes);
+        for change in changes {
+            apply_edit(&mut map, change);
         }
+        (to_text(&map), ())
     };
-    for change in changes {
-        apply_edit(&mut map, change);
+    if let Err(e) = crate::config::edit_shared(file, edit) {
+        crate::config::save_failed(format!(
+            "Marks and stars not saved: {}: {e}",
+            file.display()
+        ));
     }
-    crate::config::write_atomic(file, to_text(&map));
 }
 
 #[cfg(test)]

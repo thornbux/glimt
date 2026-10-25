@@ -2316,17 +2316,13 @@ impl App {
             let Some(file) = config::recent_path() else {
                 return;
             };
-            // As every file the windows share: read and written under its lock, so two windows
-            // opening at once keep both; one that cannot be read is not written over.
-            let _held = config::file_lock(&file);
-            let Ok(on_disk) = config::read_or_none(&file) else {
-                return;
+            // As every file the windows share: two windows opening at once keep both, and one
+            // that cannot be read is not written over.
+            let add = |old: &[u8]| {
+                let all = config::add_recent(&config::parse_recent(old), &path);
+                (config::recent_text(&all), ())
             };
-            let on_disk = config::parse_recent(&on_disk.unwrap_or_default());
-            write_atomic(
-                &file,
-                config::recent_text(&config::add_recent(&on_disk, &path)),
-            );
+            let _ = config::edit_shared(&file, add);
         });
     }
 
@@ -4682,20 +4678,14 @@ impl App {
             return self.notice =
                 Some(tr("Could not save the sort manager's folders: no home folder").into());
         };
-        // Another window's read and write must not fall between ours, or its folder is lost.
-        let _held = config::file_lock(&path);
-        // One that is there but cannot be read is not written over: its folders would be lost.
-        let on_disk = match config::read_or_none(&path) {
-            Ok(bytes) => sort_folders_from(&bytes.unwrap_or_default()),
-            Err(e) => {
-                return self.notice =
-                    Some(tf!("Could not read the sort manager's folders: {e}", e));
-            }
+        // This change on the file as it is now, so another window's folders stay; one that
+        // cannot be read is not written over.
+        let change = |old: &[u8]| {
+            let dirs = config::sort_folders_changed(sort_folders_from(old), add, remove);
+            (config::sort_folders_text(&dirs), dirs)
         };
-        let dirs = config::sort_folders_changed(on_disk, add, remove);
-        let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
-        match config::replace_file(&path, config::sort_folders_text(&dirs)) {
-            Ok(()) => self.sort_folders = dirs,
+        match config::edit_shared(&path, change) {
+            Ok(dirs) => self.sort_folders = dirs,
             Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),
         }
     }
@@ -5047,16 +5037,19 @@ impl App {
             self.keyword_tree = meta::keyword_tree_changed(&self.keyword_tree, add, remove);
             return;
         };
-        let _held = config::file_lock(&p);
-        // One that is there but cannot be read is not written over: its keywords would be lost.
-        let on_disk: Vec<String> = match config::read_or_none(&p) {
-            Ok(bytes) => (String::from_utf8_lossy(&bytes.unwrap_or_default()).lines())
+        // One that cannot be read is not written over: its keywords would be lost.
+        let change = |old: &[u8]| {
+            let on_disk: Vec<String> = String::from_utf8_lossy(old)
+                .lines()
                 .map(str::to_owned)
-                .collect(),
-            Err(e) => return self.notice = Some(tf!("Could not read the keyword tree: {e}", e)),
+                .collect();
+            let tree = meta::keyword_tree_changed(&on_disk, add, remove);
+            ((tree.join("\n") + "\n").into_bytes(), tree)
         };
-        self.keyword_tree = meta::keyword_tree_changed(&on_disk, add, remove);
-        write_atomic(&p, self.keyword_tree.join("\n") + "\n");
+        match config::edit_shared(&p, change) {
+            Ok(tree) => self.keyword_tree = tree,
+            Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),
+        }
     }
 
     /// Set the keyword `tag` (a tree path) on the selected images, or the shown one, or take it

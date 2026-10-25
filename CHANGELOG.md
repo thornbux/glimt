@@ -32,6 +32,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Every file the windows share (the settings, marks and stars, the keyword tree, the sort
+  manager's folders, the recent list) is read, changed and written in one function, under its
+  lock, never over a file it cannot read; clippy refuses the lock anywhere else.
 - What happened to files on disk is told in one report, and one place brings along everything that
   follows a file (marks, the collection, a turn not saved, decoded images, thumbnails, details,
   the exif: index); a separate channel for files a plugin edited is gone.
