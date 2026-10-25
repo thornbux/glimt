@@ -185,7 +185,9 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// A copy of `path`, encoded as `out`, saved as `new` (over a file there only when `replace`,
 /// which the file dialog asked about), and given `path`'s sidecar, or none when `strip` or when
 /// `path` has none: a sidecar at `new`'s name is the replaced file's, or one left without its
-/// image, and its keywords and comment are not the copy's. The one way Crop and Save As save.
+/// image, and its keywords and comment are not the copy's: removed, and the copy's made new,
+/// never written through a link there, which a downloaded folder may have pointed at any file of
+/// the user's (~/.bashrc). The one way Crop and Save As save.
 fn land(path: &Path, new: &Path, out: &[u8], replace: bool, strip: bool) -> std::io::Result<()> {
     match replace {
         true => crate::config::replace_file(new, out)?,
@@ -196,13 +198,15 @@ fn land(path: &Path, new: &Path, out: &[u8], replace: bool, strip: bool) -> std:
         true => None,
         false => crate::config::read_or_none(&crate::meta::sidecar(path))?,
     };
-    match source {
-        Some(xmp) => crate::config::replace_file(&side, xmp),
-        None => match std::fs::remove_file(&side) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
-        },
+    // A link goes, not what it points to; `create_file` never follows one.
+    match std::fs::remove_file(&side) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
     }
+    .and_then(|_| match source {
+        Some(xmp) => crate::config::create_file(&side, xmp),
+        None => Ok(()),
+    })
     .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
 }
 
@@ -1017,6 +1021,20 @@ mod tests {
         };
         assert_eq!(super::save_cropped(&a, &part).unwrap(), cropped);
         assert_eq!(text(&cropped).as_deref(), Some("a's"));
+        // A link left at the next crop's sidecar name, to a file of the user's: the link goes,
+        // the file keeps what it had.
+        let victim = dir.join("victim");
+        std::fs::write(&victim, "keep").unwrap();
+        let second = dir.join("a-cropped-2.png");
+        std::os::unix::fs::symlink(&victim, side(&second)).unwrap();
+        assert_eq!(super::save_cropped(&a, &part).unwrap(), second);
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(
+            !std::fs::symlink_metadata(side(&second))
+                .unwrap()
+                .is_symlink()
+        );
+        assert_eq!(text(&second).as_deref(), Some("a's"));
         // Page 2 of a TIFF: blue, 6 by 2, not the red first page.
         let tif = dir.join("t.tif");
         let mut enc = TiffEncoder::new(std::fs::File::create(&tif).unwrap()).unwrap();

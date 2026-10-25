@@ -7,6 +7,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A crop or a copy saved with Save As can no longer write through a link left at its sidecar's
+  name: a downloaded folder could point it at any file of the user's (~/.bashrc) and have that
+  file replaced with its own sidecar's contents. New in 0.40.1's own changes, fixed before its
+  release.
 - Answering the repair of a cut-short Rename Many in a second window as well no longer moves marks
   and collection entries a second time (a swap's marks swapped back, a renamed file's lost), nor
   can it do the steps again on a plan the first window had just put right.
