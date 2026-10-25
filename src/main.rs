@@ -6607,7 +6607,8 @@ impl App {
         let were_writing = sidecars(&self.file_jobs);
         self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
         // Keywords written: an `exif:` search reads what it held back for them.
-        if were_writing && !sidecars(&self.file_jobs) && self.search.contains("exif:") {
+        let held = !self.exif_stale.is_empty() && self.search.contains("exif:");
+        if were_writing && !sidecars(&self.file_jobs) && held {
             self.update_search(ctx);
         }
         self.touching.retain(|t| Arc::strong_count(t) > 1);
@@ -9468,7 +9469,8 @@ mod tests {
             now
         });
         assert!(over);
-        app.update_search(&ctx);
+        // The frame that sees the jobs end searches again, and the held marks are read.
+        app.poll_background(&ctx);
         assert!(app.exif_stale.is_empty() && app.exif_index_rx.is_some());
         app.exif_index_rx = super::Receiving::none();
         app.search.clear();
