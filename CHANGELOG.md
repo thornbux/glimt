@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Undo of a move to the trash works on shares whose server clock is off: it looked at the time the
+  server gave the trash's own file, and with a server a minute behind found nothing of the move.
+  It reads the deletion time the trash writes from this computer's clock.
 - A crop or a copy saved with Save As can no longer write through a link left at its sidecar's
   name: a downloaded folder could point it at any file of the user's (~/.bashrc) and have that
   file replaced with its own sidecar's contents. New in 0.40.1's own changes, fixed before its

@@ -892,6 +892,13 @@ fn restore(
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf)>,
 ) -> (Vec<PathBuf>, Option<String>) {
     let mut trashes: HashMap<PathBuf, HashMap<PathBuf, Trashed>> = HashMap::new();
+    // As the trash writes DeletionDate: local time, from this computer's clock, as `since` is;
+    // not the .trashinfo's own time, which a share stamps with its server's clock. Two seconds
+    // early, for a move that began in the second before.
+    let since = (thrown
+        .since
+        .and_then(|s| s.duration_since(std::time::UNIX_EPOCH).ok()))
+    .map(|d| crate::local_time(d.as_secs() as i64 - 2).replacen(' ', "T", 1));
     let mut find = |path: &Path| {
         let mut latest: Option<Trashed> = None;
         for (dir, top) in dirs_of(path) {
@@ -903,13 +910,7 @@ fn restore(
                 latest = Some(t.clone());
             }
         }
-        // Its .trashinfo is written as the file goes; FAT keeps times to two seconds.
-        let ours = |t: &Trashed| {
-            let written = std::fs::metadata(&t.info).and_then(|m| m.modified());
-            let since = thrown.since.unwrap_or(std::time::UNIX_EPOCH);
-            written.is_ok_and(|w| w + std::time::Duration::from_secs(2) >= since)
-        };
-        latest.filter(ours)
+        latest.filter(|t| since.as_ref().is_none_or(|s| t.date >= *s))
     };
     let mut found = Vec::new();
     for path in &thrown.files {
@@ -1403,18 +1404,22 @@ mod tests {
         for d in [trash.join("files"), trash.join("info"), photos.clone()] {
             std::fs::create_dir_all(d).unwrap();
         }
+        // DeletionDate as gio writes it, in local time; the .trashinfo's own time, which a share
+        // stamps with its server's clock, an hour off and so of no use.
         let trashed = |name: &str, kept: &str, at: SystemTime| {
             std::fs::write(trash.join("files").join(kept), name).unwrap();
             let info = trash.join("info").join(format!("{kept}.trashinfo"));
             let from = photos.join(name);
-            let text = format!("[Trash Info]\nPath={}\nDeletionDate=x\n", from.display());
+            let secs = at.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+            let date = crate::local_time(secs).replacen(' ', "T", 1);
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                from.display()
+            );
             std::fs::write(&info, text).unwrap();
-            std::fs::File::options()
-                .write(true)
-                .open(&info)
-                .unwrap()
-                .set_modified(at)
-                .unwrap();
+            let skewed = SystemTime::now() - Duration::from_secs(3600);
+            let file = std::fs::File::options().write(true).open(&info).unwrap();
+            file.set_modified(skewed).unwrap();
         };
         let now = SystemTime::now();
         let january = now - Duration::from_secs(90 * 24 * 3600);
