@@ -324,8 +324,8 @@ impl Drop for Pan {
 /// What a delete, move, copy or plugin reports, in one message: the files it was asked to
 /// delete or move, those gone now (found out in its thread, not one `stat` each in the
 /// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
-/// whose marks follow before the gone ones are forgotten. One message, so nothing depends on
-/// the order two would arrive in.
+/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, and the
+/// marks an Undo puts back. One message, so nothing depends on the order two would arrive in.
 #[derive(Default)]
 struct Deleted {
     paths: Vec<PathBuf>,
@@ -337,8 +337,8 @@ struct Deleted {
     relist: bool,
     /// What Undo puts back, when this was a move to the trash or a move.
     undo: Option<Undo>,
-    /// Marks and stars put back: of files back from the trash.
-    marks: Vec<(PathBuf, (u8, u8))>,
+    /// Marks and stars to put back: of files Undo brought back from the trash.
+    restored_marks: Vec<(PathBuf, (u8, u8))>,
 }
 
 /// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
@@ -1696,7 +1696,8 @@ unsafe extern "C" {
     fn localtime_r(time: *const i64, tm: *mut Tm) -> *mut Tm;
 }
 
-/// Seconds since 1970 as local "2026-10-11 00:34:12".
+/// Seconds since 1970 as local "2026-10-11 00:34:12". Undo compares this form, with a T for
+/// the space, with the trash's DeletionDate: keep it so.
 fn local_time(secs: i64) -> String {
     // SAFETY: Tm matches glibc's struct tm on 64-bit Linux, and both pointers are valid.
     let tm = unsafe {

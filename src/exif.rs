@@ -353,7 +353,9 @@ pub fn set_xmp_orientation(xmp: &mut [u8], value: u8) {
 
 /// Set the orientation in an EXIF block, as PNG and WebP keep it, to 1: for pixels that were
 /// turned upright. A block without the field is left as it is, and so is one without a TIFF
-/// header: no program finds an orientation in it to turn the pixels again.
+/// header: no program finds an orientation in it to turn the pixels again. Also clears the EXIF
+/// thumbnail (IFD1), which a copy must not keep: of a crop it shows the whole frame, so every
+/// copy goes through here, upright or not.
 pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     let Some((t, ifd0, _, _)) = ifds(block) else {
         return Ok(());

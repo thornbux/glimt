@@ -206,7 +206,7 @@ impl crate::App {
                     files: gone.clone(),
                     // Those that went: a sidecar gio could not move is still there.
                     sidecars: sides.into_iter().filter(|s| !s.exists()).collect(),
-                    since: Some(since),
+                    since,
                     marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
                 })
@@ -236,7 +236,7 @@ impl crate::App {
             copied,
             relist,
             undo,
-            marks,
+            restored_marks,
         } in self.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             // Moved before their sources are taken for deleted ones: the marks go along first.
@@ -250,11 +250,11 @@ impl crate::App {
                 if let Some(Undo::Trash(thrown)) = &mut undo {
                     thrown.marks = forgotten;
                 }
-                self.marks.restore(marks);
+                self.marks.restore(restored_marks);
                 undo
             };
             #[cfg(not(feature = "marks"))]
-            drop(marks);
+            drop(restored_marks);
             if undo.is_some() {
                 self.undo = undo;
             }
@@ -662,9 +662,10 @@ impl crate::App {
             let undo = (!gone.is_empty()).then(|| {
                 Undo::Trash(Thrown {
                     files: gone.clone(),
-                    since: Some(since),
+                    sidecars: Vec::new(),
+                    since,
+                    marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
-                    ..Default::default()
                 })
             });
             let _ = deleted_tx.send(Deleted {
@@ -761,7 +762,7 @@ impl crate::App {
                     .collect();
                 let _ = deleted_tx.send(Deleted {
                     relist: true,
-                    marks,
+                    restored_marks: marks,
                     ..Default::default()
                 });
                 Some(match error {
@@ -927,10 +928,8 @@ fn restore(
     // As the trash writes DeletionDate: local time, from this computer's clock, as `since` is;
     // not the .trashinfo's own time, which a share stamps with its server's clock. Two seconds
     // early, for a move that began in the second before.
-    let since = (thrown
-        .since
-        .and_then(|s| s.duration_since(std::time::UNIX_EPOCH).ok()))
-    .map(|d| crate::local_time(d.as_secs() as i64 - 2).replacen(' ', "T", 1));
+    let secs = (thrown.since.duration_since(std::time::UNIX_EPOCH)).map_or(0, |d| d.as_secs());
+    let since = crate::local_time(secs as i64 - 2).replacen(' ', "T", 1);
     let mut find = |path: &Path| {
         let mut latest: Option<Trashed> = None;
         for (dir, top) in dirs_of(path) {
@@ -942,7 +941,7 @@ fn restore(
                 latest = Some(t.clone());
             }
         }
-        latest.filter(|t| since.as_ref().is_none_or(|s| t.date >= *s))
+        latest.filter(|t| t.date >= since)
     };
     let mut found = Vec::new();
     for path in &thrown.files {
@@ -1012,12 +1011,14 @@ fn put_back(all: &mut Vec<PathBuf>, removed: &[(usize, PathBuf)]) {
 /// What a move to the trash did, as it did it, for Undo to put back: the files or folder it
 /// moved, the sidecars that went with them, when it began (the trash may hold older files of the
 /// same names, which are not these), and what went with them elsewhere: their marks and stars,
-/// and their places in the collection shown. Recorded as it happens, never found out later.
-#[derive(Default)]
+/// and their places in the collection shown. Recorded as it happens, never found out later: by
+/// the move's thread, and the marks by `receive_deleted` as it forgets them, which is the one
+/// way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
+/// older file of the same name from the trash.
 pub(crate) struct Thrown {
     files: Vec<PathBuf>,
     sidecars: Vec<PathBuf>,
-    since: Option<std::time::SystemTime>,
+    since: std::time::SystemTime,
     pub(crate) marks: Vec<(PathBuf, (u8, u8))>,
     collection: Option<(PathBuf, Vec<(usize, PathBuf)>)>,
 }
@@ -1502,8 +1503,9 @@ mod tests {
         let thrown = |files: &[&str], sidecars: &[&str]| super::Thrown {
             files: files.iter().map(|f| photos.join(f)).collect(),
             sidecars: sidecars.iter().map(|f| photos.join(f)).collect(),
-            since: Some(now - Duration::from_secs(1)),
-            ..Default::default()
+            since: now - Duration::from_secs(1),
+            marks: Vec::new(),
+            collection: None,
         };
         // IMG_0001.jpg went alone: January's sidecar of its name stays in the trash.
         let (back, error) = super::restore(&thrown(&["IMG_0001.jpg"], &[]), dirs);
