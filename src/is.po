@@ -2035,6 +2035,10 @@ msgstr "sun"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Enn er verið að skrifa efnisorð: reyndu aftur eftir smástund"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Enn er verið að vinna með þessar skrár: reyndu aftur eftir smástund"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} stöðvaðist óvænt"

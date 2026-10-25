@@ -2046,6 +2046,10 @@ msgstr "nie"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Słowa kluczowe są jeszcze zapisywane: spróbuj ponownie za chwilę"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Te pliki są jeszcze przetwarzane: spróbuj ponownie za chwilę"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} nieoczekiwanie się zatrzymało"

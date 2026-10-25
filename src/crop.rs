@@ -150,7 +150,7 @@ impl crate::App {
         };
         let path = crop.path;
         let deleted = self.deleted_tx.clone();
-        self.background(ctx, true, move || {
+        self.background(ctx, vec![path.clone()], move || {
             let saved = crate::decode::survive(|| crate::save::save_cropped(&path, &how));
             Some(match saved {
                 Ok(new) => {

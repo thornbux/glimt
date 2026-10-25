@@ -2035,6 +2035,10 @@ msgstr "su"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Avainsanoja kirjoitetaan vielä: yritä hetken päästä uudelleen"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Näitä tiedostoja käsitellään vielä: yritä hetken päästä uudelleen"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} pysähtyi odottamatta"

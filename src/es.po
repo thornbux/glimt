@@ -2035,6 +2035,10 @@ msgstr "dom"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Todavía se están escribiendo palabras clave: inténtelo de nuevo en un momento"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Todavía se está trabajando con estos archivos: inténtelo de nuevo en un momento"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} se detuvo inesperadamente"

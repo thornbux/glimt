@@ -62,13 +62,19 @@ impl crate::App {
         Some(found)
     }
 
-    /// No file of `paths`, or in a folder of them, is being saved turned, and no keywords are
-    /// being written; else a notice. Deleted, moved or renamed meanwhile, a PNG or WebP would
-    /// come back when its save puts it under its name again, and a sidecar written file by file
-    /// would miss the files moved before their turn.
+    /// No file of `paths`, or in a folder of them, is being saved turned, changed by another
+    /// job or background work, and no keywords are being written; else a notice. Deleted, moved
+    /// or renamed meanwhile, a PNG or WebP would come back when its save puts it under its name
+    /// again, a sidecar written file by file would miss the files moved before their turn, and
+    /// an Undo would put files back over a move. `start_job` and `background` ask it themselves,
+    /// so no operation can leave it out.
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
         let saving = (self.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
         let writing = self.file_jobs.iter().any(|j| j.sidecars);
+        let overlap = |t: &PathBuf| paths.iter().any(|p| p.starts_with(t) || t.starts_with(p));
+        let busy = (self.file_jobs.iter().flat_map(|j| &j.touches))
+            .chain(self.touching.iter().flat_map(|t| t.iter()))
+            .any(overlap);
         // One Rename Many at a time, and nothing else on files while it runs: a step would
         // find its file gone, and its undo could not put the others back.
         let renaming = self.renaming.is_some();
@@ -78,8 +84,10 @@ impl crate::App {
             self.notice = Some(tr("Still writing keywords: try again in a moment").into());
         } else if renaming {
             self.notice = Some(tr("Rename Many is still renaming").into());
+        } else if busy {
+            self.notice = Some(tr("Still working on these files: try again in a moment").into());
         }
-        !saving && !writing && !renaming
+        !saving && !writing && !renaming && !busy
     }
 
     /// Whether files are still being written (`config::WRITING`): file jobs, a turned image, a
@@ -88,32 +96,48 @@ impl crate::App {
         config::WRITING.load(Ordering::Relaxed) > 0
     }
 
-    /// A file operation on `total` files, shown in the status bar until its thread drops it.
-    pub(crate) fn start_job(&mut self, doing: &'static str, total: usize) -> Arc<Job> {
-        self.start_job_of(doing, total, false)
+    /// A file operation on `total` files that changes `touches`, shown in the status bar until
+    /// its thread drops it; `None`, with a notice, while something else works on them.
+    pub(crate) fn start_job(
+        &mut self,
+        doing: &'static str,
+        total: usize,
+        touches: Vec<PathBuf>,
+    ) -> Option<Arc<Job>> {
+        self.start_job_of(doing, total, false, touches)
     }
 
     /// `start_job`, of the files' `sidecars` or of the files themselves.
-    fn start_job_of(&mut self, doing: &'static str, total: usize, sidecars: bool) -> Arc<Job> {
-        let job = Arc::new(Job::new(doing, total, sidecars));
+    fn start_job_of(
+        &mut self,
+        doing: &'static str,
+        total: usize,
+        sidecars: bool,
+        touches: Vec<PathBuf>,
+    ) -> Option<Arc<Job>> {
+        // Keywords and stars are never refused: an edit made in the panel would be lost. Their
+        // job holds back every other operation instead (`none_saving`'s `writing`).
+        if !sidecars && !self.none_saving(&touches) {
+            return None;
+        }
+        let job = Arc::new(Job::new(doing, total, sidecars, touches));
         self.file_jobs.push(job.clone());
-        job
+        Some(job)
     }
 
     /// Delete the files at `targets` in the background, to the trash or for good,
     /// as a job with progress and Stop; the list follows when `receive_deleted` hears back.
     pub(crate) fn delete_now(&mut self, ctx: &egui::Context, trash: bool, targets: Vec<usize>) {
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-        if !self.none_saving(&paths) {
+        let Some(job) = self.start_job(tr("Deleting"), paths.len(), paths.clone()) else {
             return;
-        }
+        };
         self.deleting
             .extend(targets.iter().map(|&i| self.list.files[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
         let collection = self.collection.clone();
-        let job = self.start_job(tr("Deleting"), paths.len());
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             let since = std::time::SystemTime::now();
@@ -301,9 +325,12 @@ impl crate::App {
         dest: PathBuf,
         keep: bool,
     ) {
-        if !keep && !self.none_saving(&paths) {
+        // A copy changes none of the files it reads.
+        let touches = if keep { Vec::new() } else { paths.clone() };
+        let doing = tr(if keep { "Copying" } else { "Moving" });
+        let Some(job) = self.start_job(doing, paths.len(), touches) else {
             return;
-        }
+        };
         // In a collection, the entries follow the files that got there, in `receive_deleted`.
         if !keep && self.collection.is_none() {
             // Moved out of its folder: out of the list at once, as when deleting. Names in the
@@ -326,7 +353,6 @@ impl crate::App {
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.dir || (self.recursive && dest.starts_with(&self.dir));
-        let job = self.start_job(tr(if keep { "Copying" } else { "Moving" }), paths.len());
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             if !keep && same_dir {
@@ -426,6 +452,12 @@ impl crate::App {
         from: Vec<PathBuf>,
         to: Vec<PathBuf>,
     ) {
+        // A job as every other writer: closing waits for it, the status bar counts it and
+        // its Stop puts the names done so far back.
+        let touches = from.iter().chain(&to).cloned().collect();
+        let Some(steps) = self.start_job(tr("Renaming"), from.len(), touches) else {
+            return;
+        };
         let shown = from.iter().position(|f| *f == self.path(self.list.cur));
         let job = RenameJob {
             files_gen: self.list.version,
@@ -437,9 +469,6 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         let pointer = Working::new(&self.busy);
-        // A job as every other writer: closing waits for it, the status bar counts it and
-        // its Stop puts the names done so far back.
-        let steps = self.start_job(tr("Renaming"), from.len());
         std::thread::spawn(move || {
             let _ = tx.send(rename_files(from, to, &steps));
             drop(steps);
@@ -617,7 +646,7 @@ impl crate::App {
         }
         let deleted_tx = self.deleted_tx.clone();
         let collection = self.collection.clone();
-        self.background(ctx, true, move || {
+        self.background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
             let error = crate::external::trash(std::slice::from_ref(&dir)).err();
             // Failed: listed again, as a failed delete of files is.
@@ -655,6 +684,18 @@ impl crate::App {
     /// last files moved go back, the last renamed get their old names. Once: what it put back
     /// is not undone again. Nothing is put over a file that has taken the name meanwhile.
     pub(crate) fn undo(&mut self, ctx: &egui::Context) {
+        // Asked before it is taken: one refused stays to be done again.
+        let touches: Vec<PathBuf> = match &self.undo {
+            Some(Undo::Move(pairs)) => (pairs.iter())
+                .flat_map(|(from, to)| [from.clone(), to.clone()])
+                .collect(),
+            Some(Undo::Trash(thrown)) => thrown.files.clone(),
+            Some(Undo::Rename(from, to)) => from.iter().chain(to).cloned().collect(),
+            None => Vec::new(),
+        };
+        if !self.none_saving(&touches) {
+            return;
+        }
         let Some(undo) = self.undo.take() else {
             self.notice = Some(tr("Nothing to undo").into());
             return;
@@ -662,14 +703,12 @@ impl crate::App {
         let deleted_tx = self.deleted_tx.clone();
         match undo {
             Undo::Rename(from, to) => {
-                if self.none_saving(&to) {
-                    self.rename_in_background(ctx, to, from);
-                    if let Some(job) = &mut self.renaming {
-                        job.undoing = true;
-                    }
+                self.rename_in_background(ctx, to, from);
+                if let Some(job) = &mut self.renaming {
+                    job.undoing = true;
                 }
             }
-            Undo::Move(pairs) => self.background(ctx, true, move || {
+            Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
                 let (mut errors, mut back) = (Vec::new(), Vec::new());
                 for (from, to) in pairs {
                     let result = match taken(&from, &HashSet::new()) {
@@ -700,8 +739,8 @@ impl crate::App {
                     ),
                     None => tf!("{files} moved back", files),
                 })
-            }),
-            Undo::Trash(thrown) => self.background(ctx, true, move || {
+            })),
+            Undo::Trash(thrown) => drop(self.background(ctx, touches, move || {
                 let (back, mut error) = restore(&thrown, trash_dirs);
                 // What went with them comes back with those back: their places in the
                 // collection, their marks and stars.
@@ -732,7 +771,7 @@ impl crate::App {
                     ),
                     Some(e) => tf!("Undo failed: {e}", e),
                 })
-            }),
+            })),
         }
         // A folder that came back shows in the tree again.
         self.tree.clear();
@@ -1206,26 +1245,33 @@ fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
 }
 
 impl crate::App {
-    /// `work` in a thread of its own, the busy pointer showing meanwhile; what it returns is
-    /// told in the window. Work that `writes` files (the trash, renames, collections) is waited
-    /// for at closing.
+    /// `work`, which writes files and changes `touches`, in a thread of its own, the busy pointer
+    /// showing meanwhile and closing waiting for it; what it returns is told in the window.
+    /// Not started, with a notice, while something else works on `touches` (`none_saving`);
+    /// whether it started. Work within a job passes no `touches`: its job holds them.
     pub(crate) fn background(
-        &self,
+        &mut self,
         ctx: &egui::Context,
-        writes: bool,
+        touches: Vec<PathBuf>,
         work: impl FnOnce() -> Option<String> + Send + 'static,
-    ) {
+    ) -> bool {
+        if !self.none_saving(&touches) {
+            return false;
+        }
+        let touching = Arc::new(touches);
+        self.touching.push(touching.clone());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        let writing = writes.then(|| Working::new(&config::WRITING));
+        let writing = Working::new(&config::WRITING);
         std::thread::spawn(move || {
-            let _writing = writing;
+            let _writing = (writing, touching);
             if let Some(text) = work() {
                 let _ = tx.send(text);
             }
             drop(pointer);
             ctx.request_repaint();
         });
+        true
     }
 
     /// Write the sidecars of `paths` in the background, through one thread for this window's
@@ -1242,7 +1288,9 @@ impl crate::App {
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
         use config::Work;
-        let job = self.start_job_of(doing, paths.len(), true);
+        let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
+            return;
+        };
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let work: Work = Box::new(move || {
@@ -1284,8 +1332,10 @@ impl crate::App {
     ) {
         let rotate = self.config.exif_rotate;
         // A job, so closing waits for it (or stops it between frames), as for copies.
-        let job = self.start_job(tr("Exporting"), 1);
-        self.background(ctx, true, move || {
+        let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
+            return;
+        };
+        self.background(ctx, Vec::new(), move || {
             let stem = path
                 .file_stem()
                 .unwrap_or_default()
@@ -1345,8 +1395,10 @@ impl crate::App {
     /// copy them back while Glimt is closed; the README says where.
     pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
         // A job, so closing waits for the copy to be whole.
-        let job = self.start_job(tr("Backing up"), 1);
-        self.background(ctx, true, move || {
+        let Some(job) = self.start_job(tr("Backing up"), 1, Vec::new()) else {
+            return;
+        };
+        self.background(ctx, Vec::new(), move || {
             let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
             drop(job);
             Some(done)
@@ -1588,7 +1640,7 @@ mod tests {
         for (n, t) in [("a.jpg", "a"), ("b.jpg", "b"), ("a.jpg.xmp", "a's")] {
             std::fs::write(p(n), t).unwrap();
         }
-        let job = crate::Job::new("Renaming", 2, false);
+        let job = crate::Job::new("Renaming", 2, false, Vec::new());
         super::rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],

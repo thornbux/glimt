@@ -362,11 +362,13 @@ struct Job {
     _writing: Working,
     /// Writes the sidecars of its files: they must not be moved, renamed or deleted meanwhile.
     sidecars: bool,
+    /// The files and folders it changes: no other operation starts on them meanwhile.
+    touches: Vec<PathBuf>,
 }
 
 impl Job {
     /// A job on `total` files, holding the writing count until it is dropped.
-    fn new(doing: &'static str, total: usize, sidecars: bool) -> Job {
+    fn new(doing: &'static str, total: usize, sidecars: bool, touches: Vec<PathBuf>) -> Job {
         Job {
             doing,
             total,
@@ -375,6 +377,7 @@ impl Job {
             started: Instant::now(),
             _writing: Working::new(&config::WRITING),
             sidecars,
+            touches,
         }
     }
 
@@ -1548,6 +1551,8 @@ struct App {
     busy: Arc<AtomicUsize>,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     file_jobs: Vec<Arc<Job>>,
+    /// What `background` work changes, held by its thread as long as it runs.
+    touching: Vec<Arc<Vec<PathBuf>>>,
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
@@ -2215,6 +2220,7 @@ impl App {
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
             file_jobs: Vec::new(),
+            touching: Vec::new(),
             closing: 0,
             search: String::new(),
             match_rows: Default::default(),
@@ -2995,7 +3001,7 @@ impl App {
         let Some(file) = self.collection.clone() else {
             return;
         };
-        self.background(ctx, true, move || {
+        if !self.background(ctx, vec![file.clone()], move || {
             let name = file
                 .file_stem()
                 .unwrap_or_default()
@@ -3005,7 +3011,9 @@ impl App {
                 Ok(()) => tf!("Collection {name} moved to the trash", name),
                 Err(err) => tf!("Could not trash {name}: {err}", name, err),
             })
-        });
+        }) {
+            return;
+        }
         let folder = (!self.list.files.is_empty())
             .then(|| self.path(self.list.cur))
             .and_then(|p| p.parent().map(Path::to_path_buf));
@@ -6582,6 +6590,7 @@ impl App {
         self.receive_deleted();
         self.selection_size(ctx);
         self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
+        self.touching.retain(|t| Arc::strong_count(t) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else if self.closing > 0 {
@@ -7518,7 +7527,10 @@ impl App {
         let Some(undo) = choice else { return };
         let plans = std::mem::take(&mut self.cut_short);
         let deleted = self.deleted_tx.clone();
-        self.background(ctx, true, move || {
+        let touches = (plans.iter())
+            .flat_map(|(_, moves, _)| moves.iter().flat_map(|(a, b)| [a.clone(), b.clone()]))
+            .collect();
+        self.background(ctx, touches, move || {
             let (mut renamed, mut left) = (0, 0);
             let mut moved = Vec::new();
             for (plan, moves, done) in &plans {
@@ -9316,6 +9328,50 @@ mod tests {
         let mut app = super::App::with(&ctx, config, &[], Some(dir.into()), start);
         app.receive_listing(&ctx, std::time::Duration::from_secs(5));
         (app, ctx)
+    }
+
+    /// Work on a file holds every other operation on it back, also work started outside a job
+    /// (Undo, Save As, Crop): Undo could run in the middle of a Rename Many, and a delete in the
+    /// middle of an Undo. A refused Undo stays to be done again.
+    #[test]
+    fn work_on_a_file_holds_others_back() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-guard-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let a = dir.join("a.png");
+        let (mut app, ctx) = app_on(&dir);
+        let (go, wait) = std::sync::mpsc::channel::<()>();
+        assert!(app.background(&ctx, vec![a.clone()], move || {
+            let _ = wait.recv();
+            None
+        }));
+        app.delete_now(&ctx, false, vec![0]);
+        assert!(a.exists() && app.notice.is_some());
+        assert_eq!(app.list.files.len(), 2);
+        app.undo = Some(super::Undo::Move(vec![(a.clone(), dir.join("c.png"))]));
+        app.undo(&ctx);
+        assert!(app.undo.is_some());
+        // Once that work is over, the delete goes ahead.
+        go.send(()).unwrap();
+        let wait_for = |done: &dyn Fn() -> bool| {
+            (0..250).any(|_| {
+                let now = done();
+                if !now {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                now
+            })
+        };
+        assert!(wait_for(
+            &|| std::sync::Arc::strong_count(&app.touching[0]) == 1
+        ));
+        app.touching.clear();
+        app.undo = None;
+        app.delete_now(&ctx, false, vec![0]);
+        assert!(wait_for(&|| !a.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The window's state is made and lists a folder without a window, so its logic can be

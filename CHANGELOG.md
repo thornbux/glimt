@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Undo, Save As, Crop and moving a collection to the trash wait while other work changes the same
+  files, as Copy, Move and Delete do: an Undo could run in the middle of a Rename Many, and a
+  delete in the middle of an Undo. An Undo held back stays to be done.
 - Asking the desktop for its colour profile, dark style and text size, the Open With list's names
   and whether a program is installed all end after 30 seconds: each could wait for good.
 - A --remote command sent as another window takes the focus goes to that window: the file naming
@@ -24,6 +27,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Every file operation names the files it changes when it starts, and the check for other work on
+  them is made there, by the job or the background work itself, so no operation can leave it out.
 - The window's state can be made in a unit test without a window (App::with, tests::app_on), so
   the logic behind the list, the selection and file operations is tested in milliseconds instead
   of only through the release tests' virtual display.

@@ -2035,6 +2035,10 @@ msgstr "So"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Schlagwörter werden noch geschrieben: gleich noch einmal versuchen"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Diese Dateien werden noch bearbeitet: gleich noch einmal versuchen"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} hat unerwartet aufgehört"

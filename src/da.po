@@ -2035,6 +2035,10 @@ msgstr "søn"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Skriver stadig nøgleord: prøv igen om et øjeblik"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Arbejder stadig med disse filer: prøv igen om et øjeblik"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} stoppede uventet"

@@ -2035,6 +2035,10 @@ msgstr "zo"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Er worden nog trefwoorden geschreven: probeer het zo opnieuw"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Er wordt nog aan deze bestanden gewerkt: probeer het zo opnieuw"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} is onverwacht gestopt"

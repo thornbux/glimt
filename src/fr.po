@@ -2035,6 +2035,10 @@ msgstr "dim"
 msgid "Still writing keywords: try again in a moment"
 msgstr "Écriture des mots-clés en cours : réessayez dans un instant"
 
+#: src/file_ops.rs
+msgid "Still working on these files: try again in a moment"
+msgstr "Ces fichiers sont encore en cours de traitement : réessayez dans un instant"
+
 #: src/main.rs
 msgid "{what} stopped unexpectedly"
 msgstr "{what} s'est arrêté de façon inattendue"
