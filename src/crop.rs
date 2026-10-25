@@ -14,12 +14,11 @@ pub struct Crop {
 }
 
 impl crate::App {
-    /// Whether `crop` is still of what is shown: the same file, turned and paged the same.
+    /// Whether `crop` is still of what is shown: the same file, and shown the same in every way
+    /// a copy takes from the view (turns, Auto Rotate, the page …), compared whole so a way
+    /// added later cannot be left out of the check, as Auto Rotate first was.
     fn crop_shown(&self, crop: &Crop) -> bool {
-        let now = self.shown_copy();
-        self.is_file(self.list.cur, &crop.path)
-            && (now.turns, now.mirrored, now.page)
-                == (crop.how.turns, crop.how.mirrored, crop.how.page)
+        self.is_file(self.list.cur, &crop.path) && self.shown_copy() == crop.how
     }
 }
 

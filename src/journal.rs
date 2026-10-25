@@ -103,10 +103,16 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     entries
         .filter_map(|e| {
-            let mut file = File::open(e.path()).ok()?;
+            // A pipe or a link planted in the state folder is no plan: opening a pipe would hold
+            // the start for good. Read no more than a decode would.
+            e.file_type().ok().filter(|t| t.is_file())?;
+            let file = File::open(e.path()).ok()?;
             free(&file).then_some(())?;
             let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes).ok()?;
+            (&file)
+                .take(crate::decode::MAX_DECODE)
+                .read_to_end(&mut bytes)
+                .ok()?;
             let (moves, done) = parse(&bytes)?;
             Some((e.path(), moves, done))
         })
@@ -254,6 +260,24 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A pipe in the plans folder is passed over, not opened: opening it would hold Glimt's
+    /// start for good.
+    #[test]
+    fn passes_over_a_pipe_among_the_plans() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-plan-pipe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pipe = dir.join("rename-pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&pipe)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(super::interrupted(&dir).is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A plan locked by a running rename is not taken for a cut-short one, nor written over by a
     /// second; one left by a crash is, and its files get their old names back, or their new ones.
     #[test]

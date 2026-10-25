@@ -44,7 +44,7 @@ pub fn save_rotated(
 /// How a copy of an image is made (Edit → Crop, File → Save As): as the view shows it (turned
 /// by `turns` and `mirrored`, and by EXIF with `rotate`; the page `page` of a TIFF), a part of
 /// it, smaller, in a format. `App::shown_copy` makes it from the view, for both.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CopyAs {
     /// The page of a multi-page TIFF shown; 0 for any other image.
     pub page: usize,

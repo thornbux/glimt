@@ -2927,6 +2927,27 @@ for v in new old; do
 done
 as_version new
 
+echo "-- Auto Rotate switched during a crop ends it: the part was chosen on another view"
+for v in new old; do
+    as_version $v
+    d=/tmp/crop-rotate-$v
+    mkdir -p $d
+    convert -size 300x200 xc:red $d/a.png
+    config
+    start $d/a.png
+    sleep 2
+    key shift+c; sleep 0.5
+    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
+    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+    key alt+x; sleep 1
+    key Return; sleep 2
+    files=$(ls $d | tr '\n' ' ')
+    quit
+    if [ $v = new ]; then expect "nothing saved after Auto Rotate changed" "$files" "a.png "
+    else note "old: $files"; fi
+done
+as_version new
+
 echo "-- Ctrl+Shift+S saves as: JPEG at half the size, the extension added, the image kept"
 for v in new old; do
     as_version $v

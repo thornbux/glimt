@@ -928,10 +928,12 @@ fn restore(
             }
         }
     }
-    // A sidecar no longer there (the trash emptied of it) does not hold its file back.
+    // A sidecar no longer there (the trash emptied of it) does not hold its file back; the
+    // sidecars put back are not among the files told and counted.
+    let files = found.len();
     found.extend(thrown.sidecars.iter().filter_map(|s| find(s)));
     let mut back = Vec::new();
-    for t in found {
+    for (k, t) in found.into_iter().enumerate() {
         if let Err(e) = rename_never_over(&t.file, &t.from) {
             return (
                 back,
@@ -939,7 +941,9 @@ fn restore(
             );
         }
         let _ = std::fs::remove_file(&t.info);
-        back.push(t.from);
+        if k < files {
+            back.push(t.from);
+        }
     }
     (back, None)
 }
@@ -1355,6 +1359,26 @@ impl crate::App {
     }
 }
 
+/// `(from, to)` pairs to look up by the old path.
+pub(crate) fn moves(pairs: &[(PathBuf, PathBuf)]) -> HashMap<&Path, &Path> {
+    pairs
+        .iter()
+        .map(|(a, b)| (a.as_path(), b.as_path()))
+        .collect()
+}
+
+/// Where `path` is after the `moved` ones: moved itself, or in a folder that was.
+pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<PathBuf> {
+    path.ancestors().find_map(|a| {
+        let to = moved.get(a)?;
+        let rest = path.strip_prefix(a).ok()?;
+        Some(match rest.as_os_str().is_empty() {
+            true => to.to_path_buf(),
+            false => to.join(rest),
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     /// A moved file, a file in a moved folder, and one not moved; no trailing slash.
@@ -1448,10 +1472,8 @@ mod tests {
         std::fs::remove_file(photos.join("IMG_0002.jpg")).unwrap();
         let (back, error) = super::restore(&thrown(&["IMG_0002.jpg"], &["IMG_0002.jpg.xmp"]), dirs);
         assert_eq!(error, None);
-        assert_eq!(
-            back,
-            [photos.join("IMG_0002.jpg"), photos.join("IMG_0002.jpg.xmp")]
-        );
+        assert_eq!(back, [photos.join("IMG_0002.jpg")]);
+        assert!(photos.join("IMG_0002.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1614,24 +1636,4 @@ mod tests {
         assert_eq!(left, 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
-}
-
-/// `(from, to)` pairs to look up by the old path.
-pub(crate) fn moves(pairs: &[(PathBuf, PathBuf)]) -> HashMap<&Path, &Path> {
-    pairs
-        .iter()
-        .map(|(a, b)| (a.as_path(), b.as_path()))
-        .collect()
-}
-
-/// Where `path` is after the `moved` ones: moved itself, or in a folder that was.
-pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<PathBuf> {
-    path.ancestors().find_map(|a| {
-        let to = moved.get(a)?;
-        let rest = path.strip_prefix(a).ok()?;
-        Some(match rest.as_os_str().is_empty() {
-            true => to.to_path_buf(),
-            false => to.join(rest),
-        })
-    })
 }
