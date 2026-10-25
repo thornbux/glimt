@@ -5409,7 +5409,14 @@ impl App {
             None => None,
         };
         // Files edited since: read again alone, while the search goes on with the index there is.
-        if self.exif_index.is_some() && !self.exif_stale.is_empty() && self.exif_index_rx.is_none()
+        // Not while keywords are still being written: the marks stay until they are, so files
+        // read before their sidecar landed are read again after (the frame that sees the job
+        // end searches again).
+        let writing = (self.file_jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
+        if !writing
+            && self.exif_index.is_some()
+            && !self.exif_stale.is_empty()
+            && self.exif_index_rx.is_none()
         {
             let (tx, rx) = mpsc::channel();
             let names: Vec<OsString> = self.exif_stale.drain().collect();
@@ -5426,7 +5433,10 @@ impl App {
         }
         let Some(index) = &self.exif_index else {
             if self.exif_index_rx.is_none() {
-                self.exif_stale.clear();
+                // Marks made while keywords are written are kept for after this first index.
+                if !writing {
+                    self.exif_stale.clear();
+                }
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.list.files.clone(), ctx.clone());
                 let pointer = Working::new(&self.busy);
@@ -6593,7 +6603,13 @@ impl App {
         self.receive_exif_index(ctx);
         self.receive_deleted();
         self.selection_size(ctx);
+        let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
+        let were_writing = sidecars(&self.file_jobs);
         self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
+        // Keywords written: an `exif:` search reads what it held back for them.
+        if were_writing && !sidecars(&self.file_jobs) && self.search.contains("exif:") {
+            self.update_search(ctx);
+        }
         self.touching.retain(|t| Arc::strong_count(t) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -9433,6 +9449,29 @@ mod tests {
         assert!(app.exif_stale.contains(std::ffi::OsStr::new("a.png")));
         let names = ["a.png", "b.png"].map(|n| (std::ffi::OsString::from(n), String::new()));
         app.exif_index = Some(names.into_iter().collect());
+        // A search while keywords are still being written keeps the marks for after: the file
+        // would be read before its sidecar landed. Once written, it is read again.
+        let writing = app
+            .start_job_of("Saving keywords", 1, true, vec![dir.join("a.png")])
+            .unwrap();
+        app.search = "exif:x".into();
+        app.update_search(&ctx);
+        assert!(app.exif_stale.contains(std::ffi::OsStr::new("a.png")));
+        assert!(app.exif_index_rx.is_none());
+        drop(writing);
+        // The first keywords job above is over too, once the guard lets everything through.
+        let over = (0..250).any(|_| {
+            let now = app.none_saving(&[]);
+            if !now {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            now
+        });
+        assert!(over);
+        app.update_search(&ctx);
+        assert!(app.exif_stale.is_empty() && app.exif_index_rx.is_some());
+        app.exif_index_rx = super::Receiving::none();
+        app.search.clear();
         // Renamed by another program, the folder read again: the new name is read too.
         std::fs::rename(dir.join("a.png"), dir.join("c.png")).unwrap();
         app.replace_files(&ctx, vec!["b.png".into(), "c.png".into()], None);

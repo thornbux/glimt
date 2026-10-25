@@ -617,9 +617,8 @@ impl crate::App {
                 self.thumbs.remove(name);
                 self.thumbs_pending.remove(name);
                 self.list.details.remove(name);
-                if self.exif_index.is_some() {
-                    self.exif_stale.insert(name.to_owned());
-                }
+                // Also while the first index is being read, which may have read it before.
+                self.exif_stale.insert(name.to_owned());
             }
         }
         // Their size changed: the status bar and the list read it again.
