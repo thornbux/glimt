@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Save As or Save This Frame over a file in the list shows the new image, not the old one's
+  thumbnail and pixels, and the old one's marks and stars go, as its sidecar did.
+- An exif: search finds files renamed, moved or copied into the folder, new ones a refresh
+  brought, and those of subfolders once Include Subfolders is on: the index never read their
+  names, so no search found them.
 - Undo, Save As, Crop and moving a collection to the trash wait while other work changes the same
   files, as Copy, Move and Delete do: an Undo could run in the middle of a Rename Many, and a
   delete in the middle of an Undo. An Undo held back stays to be done.
@@ -27,6 +32,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- What happened to files on disk is told in one report, and one place brings along everything that
+  follows a file (marks, the collection, a turn not saved, decoded images, thumbnails, details,
+  the exif: index); a separate channel for files a plugin edited is gone.
 - Every file operation names the files it changes when it starts, and the check for other work on
   them is made there, by the job or the background work itself, so no operation can leave it out.
 - The window's state can be made in a unit test without a window (App::with, tests::app_on), so

@@ -249,8 +249,10 @@ impl crate::App {
         self.background(ctx, vec![path.clone(), to.clone()], move || {
             Some(match decode::survive(|| save::save_as(&path, &how, &to)) {
                 Ok(new) => {
+                    // Saved over a file the dialog let it replace, maybe one in the list.
                     let _ = deleted.send(Deleted {
                         relist: true,
+                        overwritten: vec![new.clone()],
                         ..Default::default()
                     });
                     tf!("Saved {file}", file = new.display())

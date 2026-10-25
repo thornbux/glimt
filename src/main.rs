@@ -324,8 +324,11 @@ impl Drop for Pan {
 /// What a delete, move, copy or plugin reports, in one message: the files it was asked to
 /// delete or move, those gone now (found out in its thread, not one `stat` each in the
 /// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
-/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, and the
-/// marks an Undo puts back. One message, so nothing depends on the order two would arrive in.
+/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, the
+/// marks an Undo puts back, and files changed or written over. The one report of what happened
+/// to files on disk, and `receive_deleted` the one place that brings everything that follows a
+/// file along: marks, the collection, a turn not saved, decoded images, thumbnails, details and
+/// the `exif:` index. One message, so nothing depends on the order two would arrive in.
 #[derive(Default)]
 struct Deleted {
     paths: Vec<PathBuf>,
@@ -339,6 +342,12 @@ struct Deleted {
     undo: Option<Undo>,
     /// Marks and stars to put back: of files Undo brought back from the trash.
     restored_marks: Vec<(PathBuf, (u8, u8))>,
+    /// Files whose content changed in place (saved turned, edited by a plugin): what is shown
+    /// of them is read again.
+    changed: Vec<PathBuf>,
+    /// Files written over by another image (Save As, Save This Frame onto a file there): read
+    /// again, and their marks and stars go, as their sidecar did.
+    overwritten: Vec<PathBuf>,
 }
 
 /// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
@@ -1568,8 +1577,6 @@ struct App {
     saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
     /// Files a plugin may have edited: shown again. Not `saved_tx`, whose report ends the
     /// guard of a turned image being saved.
-    edited_tx: mpsc::Sender<PathBuf>,
-    edited_rx: mpsc::Receiver<PathBuf>,
     /// The files Rename or a delete asked about, by their names in the list, and where the list
     /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
     asked_for: (u64, Vec<OsString>),
@@ -2049,7 +2056,6 @@ impl App {
         let (deleted_tx, deleted_rx) = mpsc::channel();
         let (saved_tx, saved_rx) = mpsc::channel();
         let (changed_tx, changed_rx) = mpsc::channel();
-        let (edited_tx, edited_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
             mounting_rx: Receiving::none(),
@@ -2216,8 +2222,6 @@ impl App {
             deleted_rx,
             saved_tx,
             saved_rx,
-            edited_tx,
-            edited_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
             file_jobs: Vec::new(),
@@ -2837,6 +2841,7 @@ impl App {
             version: self.list.version + 1,
             ..Default::default()
         };
+        self.exif_follow_list();
         self.selection_changed(ctx);
         self.list.panes = (panes.iter())
             .filter_map(|n| self.list.files.iter().position(|f| f == n))
@@ -5301,7 +5306,19 @@ impl App {
             Some(old) => old.extend(index),
             None => self.exif_index = Some(index),
         }
+        // Read from the list as it was: names that came since are read too.
+        self.exif_follow_list();
         self.update_search(ctx);
+    }
+
+    /// Names in the list the `exif:` index has not read (renamed, moved or copied in, new in a
+    /// folder read again, from subfolders turned on) are read with the next search, as edited
+    /// ones are: a name it lacked was found by no `exif:` search at all.
+    fn exif_follow_list(&mut self) {
+        if let Some(index) = &self.exif_index {
+            let missing = self.list.files.iter().filter(|n| !index.contains_key(*n));
+            self.exif_stale.extend(missing.cloned());
+        }
     }
 
     /// The files a search finds: one term as it always was (fuzzy names best first), or terms
@@ -6597,13 +6614,10 @@ impl App {
         } else if self.closing > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        while let Ok(path) = self.edited_rx.try_recv() {
-            self.saved(&path);
-        }
         while let Ok((path, result)) = self.saved_rx.try_recv() {
             self.saving.remove(&path);
             match result {
-                Ok(()) => self.saved(&path),
+                Ok(()) => self.files_changed(&[path]),
                 Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
             }
         }
@@ -8305,17 +8319,15 @@ impl App {
             }
             let plugin = self.plugins[k].clone();
             let dir = self.dir.clone();
-            let (edited, deleted) = (self.edited_tx.clone(), self.deleted_tx.clone());
+            let deleted = self.deleted_tx.clone();
             let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
             // A plugin may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
                 let result = plugin.run(&files, &dir);
-                for f in files {
-                    let _ = edited.send(f);
-                }
                 let _ = deleted.send(Deleted {
                     relist: true,
+                    changed: files,
                     ..Default::default()
                 });
                 if let Err(e) = result {
@@ -9380,6 +9392,39 @@ mod tests {
         app.undo = None;
         app.delete_now(&ctx, false, vec![0]);
         assert!(wait_for(&|| !a.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// What follows a file comes along through the one report of what happened on disk: an
+    /// `exif:` search was blind to a renamed file, as the index never read its new name; and a
+    /// file written over by Save As kept its old marks and stars, though it lost its sidecar.
+    #[test]
+    fn what_follows_a_file_comes_along() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-follow-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let names = ["a.png", "b.png"].map(|n| (std::ffi::OsString::from(n), String::new()));
+        app.exif_index = Some(names.into_iter().collect());
+        // Renamed by another program, the folder read again: the new name is read too.
+        std::fs::rename(dir.join("a.png"), dir.join("c.png")).unwrap();
+        app.replace_files(&ctx, vec!["b.png".into(), "c.png".into()], None);
+        assert!(app.exif_stale.contains(std::ffi::OsStr::new("c.png")));
+        // Written over by another image: read again, and its stars gone.
+        let b = dir.join("b.png");
+        #[cfg(feature = "marks")]
+        app.marks.rate(std::slice::from_ref(&b), 3);
+        let over = super::Deleted {
+            overwritten: vec![b.clone()],
+            ..Default::default()
+        };
+        app.deleted_tx.send(over).unwrap();
+        app.receive_deleted();
+        assert!(app.exif_stale.contains(std::ffi::OsStr::new("b.png")));
+        #[cfg(feature = "marks")]
+        assert_eq!(app.marks.get(&b), (0, 0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

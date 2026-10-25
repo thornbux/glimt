@@ -238,10 +238,17 @@ impl crate::App {
             relist,
             undo,
             restored_marks,
+            changed,
+            overwritten,
         } in self.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             // Moved before their sources are taken for deleted ones: the marks go along first.
             self.paths_moved(moved, copied);
+            // Another image under a name: its marks are not this one's, as its sidecar was not.
+            #[cfg(feature = "marks")]
+            self.marks.forget(&overwritten);
+            self.files_changed(&changed);
+            self.files_changed(&overwritten);
             // Deleted: their marks go, so that a new file of the same name does not get them;
             // kept with the undo of a move to the trash, and put back by it.
             #[cfg(feature = "marks")]
@@ -313,6 +320,7 @@ impl crate::App {
                 });
             }
         }
+        self.exif_follow_list();
         #[cfg(feature = "marks")]
         self.marks.put(pairs, copied);
     }
@@ -569,23 +577,34 @@ impl crate::App {
         });
     }
 
-    /// `path` was saved turned: decode it again and make a new thumbnail.
-    pub(crate) fn saved(&mut self, path: &Path) {
-        if self.is_file(self.list.cur, path) {
-            self.orient = (0, false);
-            self.list
-                .decodes_pending
-                .retain(|p, _| p.0 != self.list.cur);
-            self.exif = None;
+    /// `paths` have other contents now (saved turned, edited by a plugin, written over): what
+    /// is shown of them, decoded, as thumbnails, their size and date, their EXIF and the
+    /// `exif:` index, is read again.
+    pub(crate) fn files_changed(&mut self, paths: &[PathBuf]) {
+        if paths.is_empty() {
+            return;
         }
-        self.list.slots.retain(|_, s| s.path != path);
-        // Its size changed: the status bar and the list read it again.
+        for path in paths {
+            if self.is_file(self.list.cur, path) {
+                self.orient = (0, false);
+                self.list
+                    .decodes_pending
+                    .retain(|p, _| p.0 != self.list.cur);
+                self.exif = None;
+            }
+            self.list.slots.retain(|_, s| s.path != *path);
+            if let Ok(name) = path.strip_prefix(&self.dir) {
+                let name = name.as_os_str();
+                self.thumbs.remove(name);
+                self.thumbs_pending.remove(name);
+                self.list.details.remove(name);
+                if self.exif_index.is_some() {
+                    self.exif_stale.insert(name.to_owned());
+                }
+            }
+        }
+        // Their size changed: the status bar and the list read it again.
         self.cur_size = None;
-        if let Ok(name) = path.strip_prefix(&self.dir) {
-            self.thumbs.remove(name.as_os_str());
-            self.thumbs_pending.remove(name.as_os_str());
-            self.list.details.remove(name.as_os_str());
-        }
         self.refill();
     }
 
@@ -1340,6 +1359,7 @@ impl crate::App {
         let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
             return;
         };
+        let deleted = self.deleted_tx.clone();
         self.background(ctx, Vec::new(), move || {
             let stem = path
                 .file_stem()
@@ -1382,6 +1402,13 @@ impl crate::App {
                     })
                 })
             };
+            // One frame saved over a file the dialog let it replace, maybe one in the list.
+            if only.is_some() && saved.as_ref().is_ok_and(|&n| n > 0) {
+                let _ = deleted.send(Deleted {
+                    overwritten: vec![to.clone()],
+                    ..Default::default()
+                });
+            }
             Some(match (saved, only) {
                 (Ok(0), _) => "No such frame".to_owned(),
                 (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
