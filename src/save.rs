@@ -189,15 +189,16 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
 /// never written through a link there, which a downloaded folder may have pointed at any file of
 /// the user's (~/.bashrc). The one way Crop and Save As save.
 fn land(path: &Path, new: &Path, out: &[u8], replace: bool, strip: bool) -> std::io::Result<()> {
+    // Read before the copy is written: one that cannot be read leaves no copy behind.
+    let source = match strip {
+        true => None,
+        false => crate::config::read_or_none(&crate::meta::sidecar(path))?,
+    };
     match replace {
         true => crate::config::replace_file(new, out)?,
         false => crate::config::create_file(new, out)?,
     }
     let side = crate::meta::sidecar(new);
-    let source = match strip {
-        true => None,
-        false => crate::config::read_or_none(&crate::meta::sidecar(path))?,
-    };
     // A link goes, not what it points to; `create_file` never follows one.
     match std::fs::remove_file(&side) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -1035,6 +1036,12 @@ mod tests {
                 .is_symlink()
         );
         assert_eq!(text(&second).as_deref(), Some("a's"));
+        // A source sidecar that cannot be read (a folder in its place): no copy left behind.
+        std::fs::remove_file(side(&a)).unwrap();
+        std::fs::create_dir(side(&a)).unwrap();
+        assert!(super::save_cropped(&a, &part).is_err());
+        assert!(!dir.join("a-cropped-3.png").exists());
+        std::fs::remove_dir(side(&a)).unwrap();
         // Page 2 of a TIFF: blue, 6 by 2, not the red first page.
         let tif = dir.join("t.tif");
         let mut enc = TiffEncoder::new(std::fs::File::create(&tif).unwrap()).unwrap();

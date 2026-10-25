@@ -7,6 +7,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An uncompressed EXIF thumbnail in several strips is cleared whole in a crop or a turned copy,
+  not only its first strip; and a file swapped for a pipe while Glimt opens it is refused instead
+  of blocking a thread for good.
+- A crop or Save As whose image has a sidecar that cannot be read leaves no copy behind, and says
+  so; before, the copy was written first and stayed while the save was told as failed.
 - Undo of a move to the trash works on shares whose server clock is off: it looked at the time the
   server gave the trash's own file, and with a server a minute behind found nothing of the move.
   It reads the deletion time the trash writes from this computer's clock.

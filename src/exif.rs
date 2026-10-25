@@ -372,12 +372,27 @@ pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
         .and_then(|o| Some(o as usize + 2 + 12 * t.u16(o as usize)? as usize));
     let thumbnail = next.and_then(|n| t.u32(n)).filter(|&o| o != 0).map(|o| {
         let ifd1 = t.ifd(o as usize);
-        // A JPEG thumbnail (offset and length), or an uncompressed one's strips.
-        let part = |at: u16, len: u16| Some((t.int(find(&ifd1, at)?)?, t.int(find(&ifd1, len)?)?));
-        [part(0x0201, 0x0202), part(0x0111, 0x0117)]
+        // A JPEG thumbnail (offset and length), or an uncompressed one's strips, each of them.
+        let nth = |e: Entry, i: usize| {
+            let size = if e.kind == SHORT { 2 } else { 4 };
+            t.int(Entry {
+                at: e.at + i * size,
+                ..e
+            })
+        };
+        let parts = |at: u16, len: u16| {
+            let (Some(at), Some(len)) = (find(&ifd1, at), find(&ifd1, len)) else {
+                return Vec::new();
+            };
+            // A count from the file: no more strips than a thumbnail has room for.
+            (0..(at.count.min(len.count) as usize).min(4096))
+                .filter_map(|i| Some((nth(at, i)?, nth(len, i)?)))
+                .collect()
+        };
+        [parts(0x0201, 0x0202), parts(0x0111, 0x0117)].concat()
     });
     let little = t.little;
-    for (at, len) in thumbnail.into_iter().flatten().flatten() {
+    for (at, len) in thumbnail.into_iter().flatten() {
         let start = head + at as usize;
         if let Some(bytes) = block.get_mut(start..start.saturating_add(len as usize)) {
             bytes.fill(0);
@@ -1146,6 +1161,27 @@ mod tests {
         super::set_upright(&mut d).unwrap();
         assert!(!d.windows(2).any(|w| w == b"\xff\xd8"));
         assert_eq!(d.len(), 6 + 62);
+        // An uncompressed thumbnail in two strips: both cleared. IFD1 at 26 with StripOffsets
+        // (two LONGs at 0x38) and StripByteCounts (two SHORTs, inline), the strips at 0x40, 0x44.
+        let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
+        d.extend(1u16.to_le_bytes());
+        entry(&mut d, 0x0112, 3, 6);
+        d.extend(26u32.to_le_bytes());
+        d.extend(2u16.to_le_bytes());
+        d.extend(0x0111u16.to_le_bytes());
+        d.extend(4u16.to_le_bytes());
+        d.extend(2u32.to_le_bytes());
+        d.extend(0x38u32.to_le_bytes());
+        d.extend(0x0117u16.to_le_bytes());
+        d.extend(3u16.to_le_bytes());
+        d.extend(2u32.to_le_bytes());
+        d.extend([4, 0, 4, 0]);
+        d.extend(0u32.to_le_bytes());
+        d.extend(0x40u32.to_le_bytes());
+        d.extend(0x44u32.to_le_bytes());
+        d.extend(b"AAAABBBB");
+        super::set_upright(&mut d).unwrap();
+        assert_eq!(&d[6 + 0x40..], [0; 8]);
     }
 
     /// Blocks and a JPEG broken in thousands of ways, as a damaged or crafted file has them:

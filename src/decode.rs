@@ -763,18 +763,24 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
 /// to it.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
-    let path = path.as_ref();
-    if !std::fs::metadata(path)?.is_file() {
+    use std::os::unix::fs::OpenOptionsExt;
+    let too_large =
+        || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
+    // Opened without waiting (O_NONBLOCK, which a file does not heed), and what is open looked
+    // at, not the name: a pipe put there between a look and an open would block that open.
+    const O_NONBLOCK: i32 = 0o4000;
+    let file = (std::fs::OpenOptions::new().read(true))
+        .custom_flags(O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "not a regular file",
         ));
     }
-    let too_large =
-        || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
-    let file = std::fs::File::open(path)?;
     // Its size first, so a large one is not read at all; `take` for one that grows meanwhile.
-    if file.metadata()?.len() > MAX_DECODE {
+    if meta.len() > MAX_DECODE {
         return Err(too_large());
     }
     let mut data = Vec::new();
@@ -832,9 +838,20 @@ mod tests {
                 assert!(!read, "{}:{}: {line}", path.display(), n + 1);
             }
         }
-        // What is no file is refused before it is opened.
+        // What is no file is refused, a pipe without blocking on it.
         let refused = super::read_limited("/dev/zero").unwrap_err();
         assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
+        let fifo = std::env::temp_dir().join(format!("glimt-test-fifo-{}", std::process::id()));
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let refused = super::read_limited(&fifo).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
+        std::fs::remove_file(fifo).unwrap();
     }
 
     /// The histogram counts alpha too, which tells a transparent image from an opaque one.
