@@ -148,6 +148,39 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 - **A shortcut with a known limit** (work in the UI thread, a whole file rewritten) gets a
   comment `shortcut: <the limit>; <when to do more>`, so the next reader knows it was chosen.
 
+## What must be fixed, and when
+
+Audits always find more; this is the bar their findings are ranked against, so a release is
+not spent polishing whatever the last one dug up. 0.35–0.41 had 264 fixes for 30 features, a
+third of them fixes of fixes, none reported by a user.
+
+- **Must fix** — blocks a release, and is the only reason for a dot release:
+  - a user's file lost, changed or written over wrongly, or its metadata (sidecar, marks and
+    stars, collection entry) lost or put on another file;
+  - a crash, or a window or operation that hangs, in normal use;
+  - a wrong result in normal use: another file shown, saved, moved or deleted than the one
+    meant, a feature that does not do what it says;
+  - a security hole with a realistic way in: a file or folder that came with a download,
+    another user on the computer, a program that can reach Glimt's socket.
+- **Should fix** — goes into the next minor release: slowness at the scale in *Goals* (500,000
+  files), a risky piece of logic without its check, debt that makes the next bug of a known
+  kind likely (see the classes in *How to add things*).
+- **Hardening** — goes into the next minor release, never a dot release: what needs something
+  planted in Glimt's own folders, a deliberate race between two windows at the same moment,
+  scale far past the goals, or a stalled share that only delays. Noted as a GitHub issue
+  labelled `hardening` until then.
+
+An audit or review ranks each finding against this bar and says why; one it cannot place is
+should fix.
+
+## Releases: two tracks
+
+- **A minor release (X.Y.0)** gathers new features and structural work: one or two features at
+  a time, each on its own branch, never a batch of them. 0.38.0 shipped eleven new things and
+  0.40.0 eight, and the next releases were spent fixing them.
+- **A dot release (X.Y.Z)** fixes only *must fix* bugs of the release before it, nothing else:
+  no hardening, no refactoring, no feature. What else is found waits for the next minor.
+
 ## Before every commit
 
 ```sh
@@ -174,6 +207,14 @@ python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt 
   separate `HOME` and `XDG_CACHE_HOME`, so test runs leave nothing in the real cache.
 
 ## Before a release
+
+**Audited before the tag, not after.** A release is tagged only when an audit of its own
+changes (everything since the last tag) finds nothing it must or should fix by the bar above.
+What it finds is fixed on the release branch, and those fixes are audited again, until a round
+finds nothing; hardening findings become issues instead. The audit reads the diff without the
+author's conclusions (another agent, or another session). Up to 0.40.0 every release was one
+audit round run after its tag, so each release shipped the last round's fixes unaudited and
+the next release fixed them; 0.41.0 was audited four rounds before its tag.
 
 Run `tools/release-tests/run.sh` on the release branch, on the very commit that gets the tag:
 a change after the run means a new run, and a release the same day as the last one gets the
