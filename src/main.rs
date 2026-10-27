@@ -9428,6 +9428,356 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A folder for the contract: a.png (red) and b.png (blue), each with a sidecar saying whose
+    /// it is, a folder sub, and a collection naming both images.
+    fn contract_folder(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-contract-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for (file, colour) in [("a", [255, 0, 0]), ("b", [0, 0, 255])] {
+            let png = dir.join(format!("{file}.png"));
+            image::RgbImage::from_pixel(8, 8, image::Rgb(colour))
+                .save(&png)
+                .unwrap();
+            std::fs::write(crate::meta::sidecar(&png), file).unwrap();
+        }
+        let gqv = format!(
+            "#GQview collection\n\"{}\"\n\"{}\"\n",
+            dir.join("a.png").display(),
+            dir.join("b.png").display()
+        );
+        std::fs::write(dir.join("col.gqv"), gqv).unwrap();
+        dir
+    }
+
+    /// Run the window's background work until `done` holds, at most five seconds.
+    fn settle(
+        app: &mut super::App,
+        ctx: &eframe::egui::Context,
+        done: impl Fn(&super::App) -> bool,
+    ) -> bool {
+        (0..250).any(|_| {
+            app.poll_background(ctx);
+            let now = done(app);
+            if !now {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            now
+        })
+    }
+
+    /// The stars of `path` in the window's marks; none without marks built in.
+    fn stars(app: &super::App, path: &std::path::Path) -> u8 {
+        #[cfg(feature = "marks")]
+        return app.marks.get(path).1;
+        #[cfg(not(feature = "marks"))]
+        {
+            let _ = (app, path);
+            0
+        }
+    }
+
+    /// The sidecar's text of `path`, or "" when it has none.
+    fn side(path: &std::path::Path) -> String {
+        std::fs::read_to_string(crate::meta::sidecar(path)).unwrap_or_default()
+    }
+
+    /// Every file operation brings along what follows a file (its sidecar, its stars, its entry
+    /// in the collection shown) and waits while other work changes the file: the classes that
+    /// came back release after release, held for every operation at once. A new operation
+    /// joins here; `every_file_operation_is_in_the_contract` fails until it does.
+    #[test]
+    fn file_operations_keep_their_contract() {
+        use std::path::Path;
+        type Ctx = eframe::egui::Context;
+        type Op = fn(&mut super::App, &Ctx, &Path);
+        type Check = fn(&super::App, &Path) -> bool;
+        // Each operation, run on a.png (and b.png), and what must hold after. Held back while
+        // other work changes its files, except those that change none: a copy only reads them,
+        // and keywords never wait (an edit would be lost; their job holds back the rest).
+        let ops: [(&str, Op, Check); 10] = [
+            (
+                "move",
+                |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false),
+                |app, d| {
+                    let to = d.join("sub/a.png");
+                    to.exists()
+                        && !d.join("a.png").exists()
+                        && side(&to) == "a"
+                        && !crate::meta::sidecar(&d.join("a.png")).exists()
+                        && (!cfg!(feature = "marks")
+                            || (stars(app, &to) == 3 && stars(app, &d.join("a.png")) == 0))
+                },
+            ),
+            (
+                "copy",
+                |app, ctx, d| app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), true),
+                |app, d| {
+                    let to = d.join("sub/a.png");
+                    to.exists()
+                        && d.join("a.png").exists()
+                        && side(&to) == "a"
+                        && side(&d.join("a.png")) == "a"
+                        && (!cfg!(feature = "marks")
+                            || (stars(app, &to) == 3 && stars(app, &d.join("a.png")) == 3))
+                },
+            ),
+            (
+                "rename",
+                |app, ctx, d| {
+                    app.rename_in_background(ctx, vec![d.join("a.png")], vec![d.join("c.png")])
+                },
+                |app, d| {
+                    let to = d.join("c.png");
+                    to.exists()
+                        && !d.join("a.png").exists()
+                        && side(&to) == "a"
+                        && app.renaming.is_none()
+                        && (!cfg!(feature = "marks") || stars(app, &to) == 3)
+                },
+            ),
+            (
+                "rename many",
+                |app, ctx, _| {
+                    app.list.selected = [0, 1].into_iter().collect();
+                    app.rename_many(ctx, "x#");
+                },
+                |app, d| {
+                    side(&d.join("x1.png")) == "a"
+                        && side(&d.join("x2.png")) == "b"
+                        && app.renaming.is_none()
+                        && (!cfg!(feature = "marks")
+                            || (stars(app, &d.join("x1.png")) == 3
+                                && stars(app, &d.join("x2.png")) == 2))
+                },
+            ),
+            (
+                "delete",
+                |app, ctx, _| app.delete_now(ctx, false, vec![0]),
+                |app, d| {
+                    !d.join("a.png").exists()
+                        && !crate::meta::sidecar(&d.join("a.png")).exists()
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("a.png")) == 0)
+                },
+            ),
+            (
+                "save as over b",
+                |app, ctx, d| {
+                    let how = app.shown_copy();
+                    app.save_as_to(ctx, d.join("a.png"), how, d.join("b.png"));
+                },
+                |app, d| {
+                    side(&d.join("b.png")) == "a"
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("b.png")) == 0)
+                },
+            ),
+            (
+                "save frame over b",
+                |app, ctx, d| app.export_frames(ctx, d.join("g.gif"), Some(0), d.join("b.png")),
+                |app, d| {
+                    !crate::meta::sidecar(&d.join("b.png")).exists()
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("b.png")) == 0)
+                },
+            ),
+            (
+                "undo a move",
+                |app, ctx, d| {
+                    app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false);
+                    // Only when it started: held back, it says so, and there is nothing to wait for.
+                    if app.notice.is_none() {
+                        settle(app, ctx, |app| app.undo.is_some());
+                    }
+                    app.undo(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    a.exists()
+                        && !d.join("sub/a.png").exists()
+                        && side(&a) == "a"
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
+            (
+                "undo a rename",
+                |app, ctx, d| {
+                    app.rename_in_background(ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
+                    // Only when it started: held back, it says so, and there is nothing to wait for.
+                    if app.notice.is_none() {
+                        settle(app, ctx, |app| app.undo.is_some());
+                    }
+                    app.undo(ctx);
+                },
+                |app, d| {
+                    let a = d.join("a.png");
+                    a.exists()
+                        && !d.join("c.png").exists()
+                        && side(&a) == "a"
+                        && app.renaming.is_none()
+                        && (!cfg!(feature = "marks") || stars(app, &a) == 3)
+                },
+            ),
+            (
+                "keywords",
+                |app, ctx, d| {
+                    // The fixture's sidecar says only whose it is: no XMP Glimt writes over.
+                    let _ = std::fs::remove_file(crate::meta::sidecar(&d.join("a.png")));
+                    app.write_sidecars(
+                        ctx,
+                        "Saving keywords",
+                        vec![d.join("a.png")],
+                        |p| crate::meta::add_tags(p, &["Tag".into()]).is_ok(),
+                        |_, _| None,
+                    );
+                },
+                |_, d| side(&d.join("a.png")).contains("Tag"),
+            ),
+        ];
+        for (name, op, check) in ops {
+            let d = contract_folder(&name.replace(' ', "-"));
+            let gif = d.join("g.gif");
+            let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+            for c in [10u8, 200] {
+                let frame = image::Frame::new(image::RgbaImage::from_pixel(
+                    4,
+                    4,
+                    image::Rgba([c, c, c, 255]),
+                ));
+                enc.encode_frame(frame).unwrap();
+            }
+            drop(enc);
+            let (mut app, ctx) = app_on(&d);
+            #[cfg(feature = "marks")]
+            {
+                app.marks.rate(&[d.join("a.png")], 3);
+                app.marks.rate(&[d.join("b.png")], 2);
+            }
+            // Held back while other work changes the same files: nothing moves.
+            let (go, wait) = std::sync::mpsc::channel::<()>();
+            let held = vec![d.join("a.png"), d.join("b.png")];
+            assert!(app.background(&ctx, held, move || {
+                let _ = wait.recv();
+                None
+            }));
+            if !["copy", "keywords"].contains(&name) {
+                app.notice = None;
+                op(&mut app, &ctx, &d);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                app.poll_background(&ctx);
+                let before = ["a.png", "b.png"].iter().all(|f| d.join(f).exists())
+                    && side(&d.join("a.png")) == "a"
+                    && side(&d.join("b.png")) == "b";
+                assert!(before && app.notice.is_some(), "{name}: not held back");
+            }
+            go.send(()).unwrap();
+            assert!(settle(&mut app, &ctx, |app| app
+                .touching
+                .iter()
+                .all(|t| std::sync::Arc::strong_count(t) == 1)));
+            // Then it runs, and what follows the file comes along.
+            app.notice = None;
+            op(&mut app, &ctx, &d);
+            assert!(
+                settle(&mut app, &ctx, |app| check(app, &d)),
+                "{name}: what follows the file"
+            );
+            std::fs::remove_dir_all(d).unwrap();
+        }
+    }
+
+    /// The same in a collection: its file follows a rename, a move and a delete.
+    #[test]
+    fn a_collection_follows_its_files() {
+        let d = contract_folder("collection");
+        let gqv = d.join("col.gqv");
+        let (mut app, ctx) = app_on(&gqv);
+        let entries = |gqv: &std::path::Path| std::fs::read_to_string(gqv).unwrap();
+        app.rename_in_background(&ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
+        assert!(settle(&mut app, &ctx, |_| entries(&gqv).contains("c.png")
+            && !entries(&gqv).contains("a.png")));
+        app.transfer(&ctx, vec![d.join("c.png")], d.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |_| entries(&gqv).contains("sub/c.png")));
+        let b = app
+            .list
+            .files
+            .iter()
+            .position(|f| std::path::Path::new(f).ends_with("b.png"))
+            .unwrap();
+        app.delete_now(&ctx, false, vec![b]);
+        assert!(settle(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Every operation that starts a job or background work is in the contract above, or says
+    /// here why it is not: a new one cannot leave out what follows its files unseen.
+    #[test]
+    fn every_file_operation_is_in_the_contract() {
+        const IN_CONTRACT: &[&str] = &[
+            "delete_now",
+            "transfer",
+            "rename_in_background",
+            "undo",
+            "save_as_to",
+            "export_frames",
+            "write_sidecars",
+        ];
+        const OUTSIDE: &[(&str, &str)] = &[
+            ("start_job", "the start itself"),
+            (
+                "save_crop",
+                "a new file beside the image: save::land's tests; it needs a decoded image",
+            ),
+            ("trash_folder", "gio trash; Undo's restore has its own test"),
+            ("trash_collection", "gio trash of the collection's own file"),
+            ("back_up", "Glimt's own folders, no file of the user's"),
+            (
+                "import_lightroom",
+                "needs sqlite3; a release check imports a catalog",
+            ),
+            (
+                "cut_short_dialog",
+                "journal's tests put every cut-short plan right",
+            ),
+        ];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = std::collections::BTreeSet::new();
+        for entry in std::fs::read_dir(src).unwrap() {
+            let path = entry.unwrap().path();
+            let text = std::fs::read_to_string(&path).unwrap();
+            let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+            let mut function = String::new();
+            for line in code.lines() {
+                if let Some(at) = line.find("fn ") {
+                    let rest = &line[at + 3..];
+                    if let Some(end) = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')) {
+                        if rest[end..].starts_with('(') || rest[end..].starts_with('<') {
+                            function = rest[..end].to_owned();
+                        }
+                    }
+                }
+                let starts = ["self.start_job(", "self.start_job_of(", "self.background("];
+                if starts.iter().any(|s| line.contains(s)) && !line.trim_start().starts_with("//") {
+                    found.insert(function.clone());
+                }
+            }
+        }
+        let known: Vec<&str> = IN_CONTRACT
+            .iter()
+            .copied()
+            .chain(OUTSIDE.iter().map(|o| o.0))
+            .collect();
+        let unknown: Vec<&String> = found
+            .iter()
+            .filter(|f| !known.contains(&f.as_str()))
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "operations outside the contract: {unknown:?}"
+        );
+        let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
+        assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+    }
+
     /// What follows a file comes along through the one report of what happened on disk: an
     /// `exif:` search was blind to a renamed file, as the index never read its new name; and a
     /// file written over by Save As kept its old marks and stars, though it lost its sidecar.

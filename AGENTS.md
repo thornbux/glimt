@@ -116,6 +116,11 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
   (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its
   settings shown in Preferences only when built in. Never break the default build. "Plugin"
   means only the desktop files in Edit → Plugins, and decoder plugins.
+- **A file operation** (one that starts a job or background work) joins
+  `file_operations_keep_their_contract` in main.rs: a line with what it does to the contract's
+  folder and what must hold after (the file, its sidecar, its stars, the collection's entry, held
+  back while other work changes its files). `every_file_operation_is_in_the_contract` fails
+  until it is there, or listed with the reason it is not.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and

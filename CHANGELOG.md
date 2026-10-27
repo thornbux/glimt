@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Every file operation is held to one contract in the tests: run on a folder with sidecars, stars
+  and a collection, it must bring them along and wait while other work changes its files; a new
+  operation fails the tests until it joins.
+
 ## [0.41.0] - 2026-10-26
 
 ### Fixed
