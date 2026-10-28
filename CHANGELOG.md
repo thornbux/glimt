@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-10-28
+
 ### Fixed
 
 - A playlist opened by its name in its own folder (glimt show.m3u) shows its images: its entries
@@ -1958,7 +1960,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.41.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.41.1...HEAD
+[0.41.1]: https://github.com/thornbux/glimt/compare/v0.41.0...v0.41.1
 [0.41.0]: https://github.com/thornbux/glimt/compare/v0.40.1...v0.41.0
 [0.40.1]: https://github.com/thornbux/glimt/compare/v0.40.0...v0.40.1
 [0.40.0]: https://github.com/thornbux/glimt/compare/v0.39.0...v0.40.0
