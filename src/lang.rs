@@ -413,16 +413,26 @@ msgstr[1] "bilder"
             }
             let text = std::fs::read_to_string(&path).unwrap();
             let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
-            for line in code.lines().filter(|l| !l.trim_start().starts_with("//")) {
-                for call in ["tr(\"", "tf!(\""] {
-                    for (at, _) in line.match_indices(call) {
-                        let rest = &line[at + call.len()..];
-                        // A text on one line, without escapes: the ones a line can hold whole.
-                        if let Some(end) = rest.find('"').filter(|&e| !rest[..e].contains('\\')) {
-                            let msgid = &rest[..end];
-                            if !nb.texts.contains_key(msgid) && !nb.plurals.contains_key(msgid) {
-                                lacking.push(format!("{}: {msgid}", path.display()));
-                            }
+            // Joined: rustfmt puts a long text on the line after `tr(`.
+            let code: Vec<&str> = (code.lines())
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect();
+            let code = code.join("\n");
+            for call in ["tr(", "tf!("] {
+                for (at, _) in code.match_indices(call) {
+                    // Not the end of another name (`attr(`).
+                    let before = code[..at].chars().next_back();
+                    if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                        continue;
+                    }
+                    let Some(rest) = code[at + call.len()..].trim_start().strip_prefix('"') else {
+                        continue;
+                    };
+                    // Without escapes: the texts written as they are in the .po file.
+                    if let Some(end) = rest.find('"').filter(|&e| !rest[..e].contains('\\')) {
+                        let msgid = &rest[..end];
+                        if !nb.texts.contains_key(msgid) && !nb.plurals.contains_key(msgid) {
+                            lacking.push(format!("{}: {msgid}", path.display()));
                         }
                     }
                 }
