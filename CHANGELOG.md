@@ -8,7 +8,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A playlist opened by its name in its own folder (glimt show.m3u) shows its images: its entries
-  were joined to an empty folder name and every one was left out.
+  were joined to an empty folder name and every one was left out. A collection or list opened by a
+  relative name is kept in Open Recent and as the last folder by its full path, so another window
+  opens that file and not one of the same name where it was started.
 
 ## [0.41.0] - 2026-10-26
 

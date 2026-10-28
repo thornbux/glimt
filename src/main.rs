@@ -2403,6 +2403,9 @@ impl App {
 
     /// Show the collection in `file` as the list.
     fn open_collection(&mut self, ctx: &egui::Context, file: PathBuf) {
+        // Absolute from here on: kept in Open Recent and as the last folder, a relative name
+        // was another file, or none, for a window started elsewhere.
+        let file = std::path::absolute(&file).unwrap_or(file);
         let paths = match collections::load(&file) {
             Ok(paths) => paths,
             Err(e) => {
@@ -9514,6 +9517,21 @@ mod tests {
         let v = &app.viewing;
         assert_eq!((v.orient, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A list opened by a relative name is the collection by its absolute path, as Open Recent
+    /// and the last folder keep it: a window started elsewhere opened another list or none.
+    #[test]
+    fn a_list_opened_by_a_relative_name_is_kept_absolute() {
+        let dir = std::path::PathBuf::from(format!("glimt-test-app-list-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        std::fs::write(dir.join("show.m3u"), "a.png\n").unwrap();
+        let (app, _ctx) = app_on(&dir.join("show.m3u"));
+        let here = std::env::current_dir().unwrap().join(&dir);
+        assert_eq!(app.collection, Some(here.join("show.m3u")));
+        assert_eq!(app.list.files.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

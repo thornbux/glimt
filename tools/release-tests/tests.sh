@@ -2973,7 +2973,7 @@ for v in new old; do
     convert -size 64x64 xc:red $d/a.png
     printf 'a.png\n' >$d/show.m3u
     config
-    cd $d && start show.m3u && cd - >/dev/null
+    cd $d; start show.m3u; cd - >/dev/null
     shown=$(until_current $d/a.png 5 && echo yes)
     quit
     if [ $v = new ]; then expect "the list's image shown" "$shown" yes
