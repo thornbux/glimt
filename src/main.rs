@@ -1265,6 +1265,9 @@ struct List {
     selected: std::collections::BTreeSet<usize>,
     /// Where a Shift selection started (file index).
     anchor: Option<usize>,
+    /// Where the Shift selection made by the keys last ended (file index), while nothing else
+    /// changed the selection or the search since: the selection is then that range.
+    range_end: Option<usize>,
     /// The images of a layout's panes after the first, which shows `cur`.
     panes: Vec<usize>,
     slots: HashMap<usize, Slot>,
@@ -3334,20 +3337,18 @@ impl App {
     }
 
     /// The selection from file `anchor` to file `from` made to end at `to`, only the rows between
-    /// changed: Shift+↓ held in a selection of 500,000. False when the selection is not that range.
+    /// changed: Shift+↓ held in a selection of 500,000. False when the selection is not that range
+    /// (a Ctrl-click, a click or a search since).
     fn move_range_end(&mut self, anchor: usize, from: usize, to: usize) -> bool {
+        if self.list.range_end != Some(from) {
+            return false;
+        }
         let m = self.list.matches.as_deref();
         let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
         let (Some(a), Some(f), Some(t)) = (row(anchor), row(from), row(to)) else {
             return false;
         };
         let selected = &mut self.list.selected;
-        if selected.len() != a.abs_diff(f) + 1
-            || !selected.contains(&anchor)
-            || !selected.contains(&from)
-        {
-            return false;
-        }
         // Every row that is in one range and not the other lies between the two ends.
         let file = |r: usize| m.map_or(r, |m| m[r]);
         for r in f.min(t)..=f.max(t) {
@@ -3362,6 +3363,7 @@ impl App {
 
     /// Called when the selection changes: update the title and compute the size in the background.
     fn selection_changed(&mut self, ctx: &egui::Context) {
+        self.list.range_end = None;
         self.title(ctx);
         if self.compare {
             self.refill();
@@ -5357,6 +5359,8 @@ impl App {
         let query = self.search.trim().to_owned();
         let query = query.as_str();
         self.match_rows.set(Default::default());
+        // Other rows: a Shift range of the keys is no longer the rows it was.
+        self.list.range_end = None;
         // A place "[n/m]" told for another pane: another search may have as many matches.
         self.status_place = None;
         self.search_error = None;
@@ -6218,7 +6222,8 @@ impl App {
                 };
                 // With Shift the selection runs from where it started to the new image, as in
                 // a file manager; moving without Shift clears it.
-                if ctx.input(|i| i.modifiers.shift) {
+                let shift = ctx.input(|i| i.modifiers.shift);
+                if shift {
                     let anchor = *self.list.anchor.get_or_insert(self.list.cur);
                     if !self.move_range_end(anchor, self.list.cur, to) {
                         self.list.selected.clear();
@@ -6233,6 +6238,9 @@ impl App {
                     }
                 }
                 self.go(ctx, to);
+                if shift {
+                    self.list.range_end = Some(to);
+                }
             }
             Action::Back | Action::Forward => {
                 let here = self.back_step();
@@ -9511,21 +9519,29 @@ mod tests {
     fn a_range_end_moved_is_the_range_anew() {
         let dir = std::env::temp_dir().join(format!("glimt-test-range-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let (mut app, _ctx) = app_on(&dir);
+        let (mut app, ctx) = app_on(&dir);
         app.list.files = (0..10).map(|i| format!("{i}.png").into()).collect();
         for matches in [None, Some(vec![1, 3, 4, 6, 8, 9])] {
             app.list.matches = matches.clone();
             let shown = app.shown_files();
             let (anchor, mut end) = (shown[2], shown[2]);
             app.list.selected = [anchor].into();
+            app.list.range_end = Some(end);
             for &to in [shown[4], shown[5], shown[0], shown[3], shown[5]].iter() {
                 assert!(app.move_range_end(anchor, end, to));
                 let moved = std::mem::take(&mut app.list.selected);
                 app.select_range(anchor, to);
                 assert_eq!(moved, app.list.selected, "{matches:?} to {to}");
                 end = to;
+                app.list.range_end = Some(end);
             }
         }
+        // Ctrl-clicks since (on 9, then 2, the image shown 0): a selection of three that looks
+        // like the range 2..=0 but holds 9; it is made anew, not moved.
+        app.list.matches = None;
+        app.list.selected = [0, 2, 9].into();
+        app.selection_changed(&ctx);
+        assert!(!app.move_range_end(2, 0, 1));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
