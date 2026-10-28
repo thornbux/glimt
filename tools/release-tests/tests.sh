@@ -1318,6 +1318,50 @@ fits.CompImageHDU(numpy.fromfunction(lambda y, x: y, (400, 600), dtype=numpy.flo
 done
 as_version new
 
+echo "-- the ImageMagick fallbacks: a .fits and a .dcm without astropy or pydicom's decoders"
+for v in new old; do
+    as_version $v
+    d=/tmp/decoders-imagemagick-$v
+    # Only these two, as on a computer without astropy and pydicom: fits.desktop and
+    # dicom.desktop come first by name and would take the files otherwise.
+    rm -rf $XDG_DATA_HOME/glimt/decoders && mkdir -p $d $XDG_DATA_HOME/glimt/decoders
+    cp /t/new/examples/decoders/imagemagick-*.desktop $XDG_DATA_HOME/glimt/decoders/
+    # Dark at the top, light at the bottom, both.
+    convert -size 600x400 gradient:black-white $d/a.fits
+    python3 - "$d" <<'PY'
+import sys, numpy
+from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.uid import ExplicitVRLittleEndian, generate_uid, SecondaryCaptureImageStorage
+meta = FileMetaDataset()
+meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+meta.MediaStorageSOPInstanceUID = generate_uid()
+meta.TransferSyntaxUID = ExplicitVRLittleEndian
+ds = Dataset()
+ds.file_meta = meta
+ds.SOPClassUID, ds.SOPInstanceUID = meta.MediaStorageSOPClassUID, meta.MediaStorageSOPInstanceUID
+ds.Modality, ds.Rows, ds.Columns = "OT", 400, 600
+ds.SamplesPerPixel, ds.PhotometricInterpretation = 1, "MONOCHROME2"
+ds.BitsAllocated, ds.BitsStored, ds.HighBit, ds.PixelRepresentation = 8, 8, 7, 0
+ds.PixelData = numpy.fromfunction(lambda r, c: r * 255 / 399, (400, 600)).astype(numpy.uint8).tobytes()
+ds.is_little_endian, ds.is_implicit_VR = True, False
+ds.save_as(f"{sys.argv[1]}/b.dcm", write_like_original=False)
+PY
+    config
+    start $d/a.fits
+    sleep 3
+    shot decoder-im-fits-$v
+    key space; sleep 3
+    shot decoder-im-dcm-$v
+    quit
+    rm -rf $XDG_DATA_HOME/glimt/decoders
+    dark_light() { [ $(red $1 760 120) -lt 60 ] && [ $(red $1 760 700) -gt 190 ] && echo yes; }
+    if [ $v = new ]; then
+        expect "a .fits through ImageMagick" "$(dark_light decoder-im-fits-new)" yes
+        expect "a .dcm through ImageMagick" "$(dark_light decoder-im-dcm-new)" yes
+    else note "old: fits $(dark_light decoder-im-fits-old), dcm $(dark_light decoder-im-dcm-old)"; fi
+done
+as_version new
+
 echo "-- science decoders: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
 for v in new old; do
     as_version $v
