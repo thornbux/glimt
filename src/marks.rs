@@ -51,10 +51,28 @@ impl Marks {
         if WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0 {
             return;
         }
-        let changed = file().and_then(|f| std::fs::metadata(f).ok()?.modified().ok());
-        if changed != self.read {
-            *self = Self::load();
+        let Some(file) = file() else { return };
+        let changed = std::fs::metadata(&file)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if changed == self.read {
+            return;
         }
+        // Changed by this window's own write: the marks it wrote, not the whole file read again,
+        // on every mark key after one in a file of 500,000 marked.
+        let mut written = WRITTEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if written
+            .as_ref()
+            .is_some_and(|(f, t, _)| *f == file && Some(*t) == changed)
+            && let Some((_, t, map)) = written.take()
+        {
+            *self = Marks { map, read: Some(t) };
+            return;
+        }
+        drop(written);
+        *self = Self::load();
     }
 
     /// Every file with a mark or stars, and them.
@@ -154,6 +172,13 @@ impl Marks {
 static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
+/// The marks file as this window's last write left it, with its time then, for `refresh`; also
+/// what another window wrote before, merged in. Held until a refresh takes it.
+/// shortcut: the time is read just after the lock is let go; a window writing in that moment
+/// goes unseen until the file changes again.
+type Written = (PathBuf, std::time::SystemTime, HashMap<PathBuf, (u8, u8)>);
+static WRITTEN: std::sync::Mutex<Option<Written>> = std::sync::Mutex::new(None);
+
 /// What a window did, applied to the file as it is then.
 enum Edit {
     Change(Vec<PathBuf>, Change),
@@ -247,7 +272,6 @@ fn save(edit: Edit) {
 }
 
 /// `changes` applied to the marks file as it is now.
-#[cfg(not(test))]
 fn write(file: &Path, changes: &[Edit]) {
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
@@ -256,10 +280,18 @@ fn write(file: &Path, changes: &[Edit]) {
         for change in changes {
             apply_edit(&mut map, change);
         }
-        (to_text(&map), ())
+        (to_text(&map), map)
     };
-    if let Err(e) = crate::config::edit_shared(file, edit) {
-        crate::config::save_failed(format!("Could not save {}: {e}", file.display()));
+    match crate::config::edit_shared(file, edit) {
+        Ok(map) => {
+            if let Ok(t) = std::fs::metadata(file).and_then(|m| m.modified()) {
+                let mut written = WRITTEN
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                *written = Some((file.to_path_buf(), t, map));
+            }
+        }
+        Err(e) => crate::config::save_failed(format!("Could not save {}: {e}", file.display())),
     }
 }
 
@@ -349,6 +381,36 @@ mod tests {
         assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
         let was = marks.forget(std::slice::from_ref(&b));
         assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// After this window's own write, a refresh takes what it wrote instead of the whole file.
+    #[test]
+    fn own_writes_are_not_read_again() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-marks-own-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let a = dir.join("a.png");
+        let mut marks = super::Marks::load();
+        super::write(
+            &file,
+            &[super::Edit::Change(
+                vec![a.clone()],
+                super::Change::Stars(4),
+            )],
+        );
+        // The file's bytes gone but its time kept: read again, it would have no stars.
+        let t = std::fs::metadata(&file).unwrap().modified().unwrap();
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&file)
+            .unwrap();
+        f.set_modified(t).unwrap();
+        marks.refresh();
+        assert_eq!(marks.get(&a), (0, 4));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
