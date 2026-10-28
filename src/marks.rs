@@ -100,6 +100,10 @@ impl Marks {
     /// Files deleted, or folders with all in them: their marks go, so a new file of the same name
     /// does not get them. Returned as they were, for Undo to `restore`.
     pub fn forget(&mut self, paths: &[PathBuf]) -> Vec<(PathBuf, (u8, u8))> {
+        // Most messages of a file operation have nothing gone: no look at every mark.
+        if paths.is_empty() {
+            return Vec::new();
+        }
         // From the file as it is: stars set in another window since this one last read it
         // would else stay on a name that is gone, for the next file of that name.
         self.refresh();

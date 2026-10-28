@@ -61,6 +61,7 @@ pub mod icon {
     pub const DESKTOP: &str = "\u{e560}"; // desktop
     pub const STACK_PLUS: &str = "\u{edf6}"; // stack-plus
     pub const CARET_DOWN: &str = "\u{e136}"; // caret-down
+    pub const CARET_RIGHT: &str = "\u{e13a}"; // caret-right
 }
 
 /// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then

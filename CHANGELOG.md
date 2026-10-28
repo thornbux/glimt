@@ -13,6 +13,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Large folders stay quick in four more places: a search sums the size of its matches once typing
+  pauses, not at each letter, and an exif: search looks through the index in parallel; Shift+Up or
+  Down changes only the rows between the old and new end of the selection; a delete no longer
+  looks at every name in the list and every mark for each file; the folder tree draws only the
+  rows on screen, opened at the folder shown.
 - Two glimt --remote select sent while a folder is still being read both get their answer, in the
   order sent: the second took the first one's place, and the first script got no answer, which it
   read as every file found.

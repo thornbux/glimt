@@ -1368,6 +1368,8 @@ struct App {
     tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
     /// The folder the tree was last opened up to; it opens again when the folder changes.
     tree_shown: PathBuf,
+    /// The folders open in the tree.
+    tree_open: HashSet<PathBuf>,
 
     // ---- The selection ----
     /// Size of the selected files; computed in the background when the selection changes.
@@ -1544,6 +1546,8 @@ struct App {
     /// Why a re: search pattern is not one, shown under the search field.
     search_error: Option<String>,
     match_rx: Receiving<u64>,
+    /// When to sum the matches' size: once the search has stayed the same a moment.
+    match_size_due: Option<Instant>,
 
     // ---- The status bar ----
     /// Size in bytes of the shown file, for the status bar.
@@ -2116,6 +2120,7 @@ impl App {
             tree_tx,
             tree_rx,
             tree_shown: PathBuf::new(),
+            tree_open: HashSet::new(),
             clip_rx: Receiving::none(),
             clipboard: None,
             remote_rx,
@@ -2243,6 +2248,7 @@ impl App {
             match_rows: Default::default(),
             search_error: None,
             match_rx: Receiving::none(),
+            match_size_due: None,
             exif_index: None,
             exif_stale: HashSet::new(),
             exif_index_rx: Receiving::none(),
@@ -3317,6 +3323,33 @@ impl App {
                 self.list.selected.insert(b);
             }
         }
+    }
+
+    /// The selection from file `anchor` to file `from` made to end at `to`, only the rows between
+    /// changed: Shift+↓ held in a selection of 500,000. False when the selection is not that range.
+    fn move_range_end(&mut self, anchor: usize, from: usize, to: usize) -> bool {
+        let m = self.list.matches.as_deref();
+        let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
+        let (Some(a), Some(f), Some(t)) = (row(anchor), row(from), row(to)) else {
+            return false;
+        };
+        let selected = &mut self.list.selected;
+        if selected.len() != a.abs_diff(f) + 1
+            || !selected.contains(&anchor)
+            || !selected.contains(&from)
+        {
+            return false;
+        }
+        // Every row that is in one range and not the other lies between the two ends.
+        let file = |r: usize| m.map_or(r, |m| m[r]);
+        for r in f.min(t)..=f.max(t) {
+            if (a.min(t)..=a.max(t)).contains(&r) {
+                selected.insert(file(r));
+            } else {
+                selected.remove(&file(r));
+            }
+        }
+        true
     }
 
     /// Called when the selection changes: update the title and compute the size in the background.
@@ -4563,59 +4596,90 @@ impl App {
         while let Ok((dir, subdirs)) = self.tree_rx.try_recv() {
             self.tree.insert(dir, Some(subdirs));
         }
-        egui::ScrollArea::both()
-            .id_salt("tree")
-            .auto_shrink(false)
-            .show(ui, |ui| self.tree_node(ui, Path::new("/"), open_dir));
-    }
-
-    fn tree_node(&mut self, ui: &mut egui::Ui, path: &Path, open_dir: &mut Option<PathBuf>) {
-        let id = ui.make_persistent_id(("tree", path));
-        let on_way = self.dir.starts_with(path);
-        let mut state =
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, on_way);
-        let follow = on_way && self.tree_shown != self.dir;
-        if follow && path != self.dir {
-            state.set_open(true);
+        // Opened up to the folder shown when that changes.
+        let follow = self.tree_shown != self.dir;
+        if follow {
+            self.tree_open
+                .extend(self.dir.ancestors().map(Path::to_path_buf));
         }
-        let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
-        state
-            .show_header(ui, |ui| {
-                let label = ui.selectable_label(path == self.dir, name);
-                // Shown once the folders above it are read.
-                if follow && path == self.dir {
-                    label.scroll_to_me(Some(egui::Align::Center));
-                    self.tree_shown = self.dir.clone();
-                }
-                if label.clicked() {
-                    *open_dir = Some(path.to_path_buf());
-                }
-                if path.parent().is_some() {
-                    self.folder_menu(&label, path);
-                }
-            })
-            .body(|ui| match self.tree.get(path) {
+        // The open folders as rows, so only those on screen are drawn: a folder of 100,000
+        // folders opened. An empty path is a folder still being read.
+        // shortcut: the rows are made again each frame, a lookup for each; keep them until the
+        // tree changes if trees of millions of folders are opened.
+        let tree = std::mem::take(&mut self.tree);
+        let mut rows: Vec<(usize, &Path)> = Vec::new();
+        let mut unread = Vec::new();
+        let mut stack = vec![(0, Path::new("/"))];
+        while let Some((depth, path)) = stack.pop() {
+            rows.push((depth, path));
+            if !self.tree_open.contains(path) {
+                continue;
+            }
+            match tree.get(path) {
                 Some(Some(subdirs)) => {
-                    for dir in subdirs.clone() {
-                        self.tree_node(ui, &dir, open_dir);
+                    stack.extend(subdirs.iter().rev().map(|d| (depth + 1, d.as_path())))
+                }
+                Some(None) => rows.push((depth + 1, Path::new(""))),
+                None => unread.push(path.to_path_buf()),
+            }
+        }
+        let row_h = ui.spacing().interact_size.y;
+        let mut area = egui::ScrollArea::both().id_salt("tree").auto_shrink(false);
+        // Shown once the folders above it are read.
+        if follow && let Some(i) = rows.iter().position(|r| r.1 == self.dir) {
+            // A row and the space below it, as show_rows lays them out.
+            let step = row_h + ui.spacing().item_spacing.y;
+            let top = i as f32 * step - ui.available_height() / 2.0;
+            area = area.vertical_scroll_offset(top.max(0.0));
+            self.tree_shown = self.dir.clone();
+        }
+        let mut toggled = None;
+        area.show_rows(ui, row_h, rows.len(), |ui, range| {
+            for &(depth, path) in &rows[range] {
+                ui.horizontal(|ui| {
+                    ui.add_space(depth as f32 * ui.spacing().indent);
+                    if path.as_os_str().is_empty() {
+                        return drop(ui.label("…"));
                     }
-                }
-                Some(None) => drop(ui.label("…")),
-                None => {
-                    self.tree.insert(path.to_path_buf(), None);
-                    let (dir, tx, ctx) =
-                        (path.to_path_buf(), self.tree_tx.clone(), ui.ctx().clone());
-                    let folders = Types {
-                        hidden: self.config.show_hidden,
-                        ..Types::NONE
+                    let caret = match self.tree_open.contains(path) {
+                        true => theme::icon::CARET_DOWN,
+                        false => theme::icon::CARET_RIGHT,
                     };
-                    std::thread::spawn(move || {
-                        let subdirs = list_folder(&dir, folders).0;
-                        let _ = tx.send((dir, subdirs));
-                        ctx.request_repaint();
-                    });
-                }
+                    if ui.add(egui::Button::new(caret).frame(false)).clicked() {
+                        toggled = Some(path.to_path_buf());
+                    }
+                    let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
+                    let label = ui.selectable_label(path == self.dir, name.as_ref());
+                    let label = noted(&label, &name);
+                    if label.clicked() {
+                        *open_dir = Some(path.to_path_buf());
+                    }
+                    if path.parent().is_some() {
+                        self.folder_menu(&label, path);
+                    }
+                });
+            }
+        });
+        drop(rows);
+        self.tree = tree;
+        if let Some(path) = toggled
+            && !self.tree_open.remove(&path)
+        {
+            self.tree_open.insert(path);
+        }
+        let folders = Types {
+            hidden: self.config.show_hidden,
+            ..Types::NONE
+        };
+        for dir in unread {
+            self.tree.insert(dir.clone(), None);
+            let (tx, ctx) = (self.tree_tx.clone(), ui.ctx().clone());
+            std::thread::spawn(move || {
+                let subdirs = list_folder(&dir, folders).0;
+                let _ = tx.send((dir, subdirs));
+                ctx.request_repaint();
             });
+        }
     }
 
     /// Right-click on a folder in the list or the tree: rename it, or move it to the trash.
@@ -5293,6 +5357,18 @@ impl App {
         // stops the old sum.
         self.list.match_size = 0;
         self.match_rx = Receiving::none();
+        // Not at each letter typed: each would copy every match's name, 500,000 for an "a".
+        let wait = std::time::Duration::from_millis(200);
+        self.match_size_due = self.list.matches.is_some().then(|| Instant::now() + wait);
+        ctx.request_repaint_after(wait);
+    }
+
+    /// The size of the matches, in the background, once the search has stayed the same a moment.
+    fn match_size(&mut self, ctx: &egui::Context) {
+        if self.match_size_due.is_none_or(|due| Instant::now() < due) {
+            return;
+        }
+        self.match_size_due = None;
         let Some(m) = &self.list.matches else { return };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
@@ -5490,9 +5566,13 @@ impl App {
             Some(re) => re.is_match(text.as_bytes()),
             None => words.iter().all(|w| text.contains(w)),
         };
-        (0..self.list.files.len())
-            .filter(|&i| index.get(&self.list.files[i]).is_some_and(found))
-            .collect()
+        // In parallel: 500,000 lookups at each letter typed.
+        in_parts(&self.list.files, background_threads().min(8), |part, at| {
+            (part.iter().enumerate())
+                .filter(|(_, f)| index.get(*f).is_some_and(found))
+                .map(|(i, _)| at + i)
+                .collect()
+        })
     }
 
     /// "mark:2" shows the files with mark 2, "stars:3" those with three stars or more.
@@ -6132,8 +6212,10 @@ impl App {
                 // a file manager; moving without Shift clears it.
                 if ctx.input(|i| i.modifiers.shift) {
                     let anchor = *self.list.anchor.get_or_insert(self.list.cur);
-                    self.list.selected.clear();
-                    self.select_range(anchor, to);
+                    if !self.move_range_end(anchor, self.list.cur, to) {
+                        self.list.selected.clear();
+                        self.select_range(anchor, to);
+                    }
                     self.selection_changed(ctx);
                 } else {
                     self.list.anchor = None;
@@ -6636,6 +6718,7 @@ impl App {
         self.receive_exif_index(ctx);
         self.receive_deleted();
         self.selection_size(ctx);
+        self.match_size(ctx);
         let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
         let were_writing = sidecars(&self.file_jobs);
         self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
@@ -7794,8 +7877,10 @@ impl App {
                     _ if self.listing_rx.is_some() => tr("Reading folder…").to_owned(),
                     // A search shows the matches: count and size of what the list shows.
                     Some(found) => {
-                        let size =
-                            size_text(self.match_rx.is_none().then_some(self.list.match_size));
+                        let size = size_text(
+                            (self.match_rx.is_none() && self.match_size_due.is_none())
+                                .then_some(self.list.match_size),
+                        );
                         tf!(
                             "{found} of {images} ({size})",
                             found = thousands(found.len()),
@@ -9412,6 +9497,30 @@ mod tests {
         (app, ctx)
     }
 
+    /// Moving the end of a Shift range changes the selection as selecting the range anew does,
+    /// in the list and among search matches, also across the anchor.
+    #[test]
+    fn a_range_end_moved_is_the_range_anew() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-range-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        app.list.files = (0..10).map(|i| format!("{i}.png").into()).collect();
+        for matches in [None, Some(vec![1, 3, 4, 6, 8, 9])] {
+            app.list.matches = matches.clone();
+            let shown = app.shown_files();
+            let (anchor, mut end) = (shown[2], shown[2]);
+            app.list.selected = [anchor].into();
+            for &to in [shown[4], shown[5], shown[0], shown[3], shown[5]].iter() {
+                assert!(app.move_range_end(anchor, end, to));
+                let moved = std::mem::take(&mut app.list.selected);
+                app.select_range(anchor, to);
+                assert_eq!(moved, app.list.selected, "{matches:?} to {to}");
+                end = to;
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Work on a file holds every other operation on it back, also work started outside a job
     /// (Undo, Save As, Crop): Undo could run in the middle of a Rename Many, and a delete in the
     /// middle of an Undo. A refused Undo stays to be done again.
@@ -9747,11 +9856,16 @@ mod tests {
         let gqv = d.join("col.gqv");
         let (mut app, ctx) = app_on(&gqv);
         let entries = |gqv: &std::path::Path| std::fs::read_to_string(gqv).unwrap();
+        // Each step's work ended too: the next would be held back while it still runs.
+        let idle =
+            |app: &super::App| (app.touching.iter()).all(|t| std::sync::Arc::strong_count(t) == 1);
         app.rename_in_background(&ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
-        assert!(settle(&mut app, &ctx, |_| entries(&gqv).contains("c.png")
+        assert!(settle(&mut app, &ctx, |app| idle(app)
+            && entries(&gqv).contains("c.png")
             && !entries(&gqv).contains("a.png")));
         app.transfer(&ctx, vec![d.join("c.png")], d.join("sub"), false);
-        assert!(settle(&mut app, &ctx, |_| entries(&gqv).contains("sub/c.png")));
+        assert!(settle(&mut app, &ctx, |app| idle(app)
+            && entries(&gqv).contains("sub/c.png")));
         let b = app
             .list
             .files

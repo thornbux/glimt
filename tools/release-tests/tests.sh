@@ -3548,6 +3548,38 @@ for s in range(10):
     expect "sorted within 1.5 times the last release's time" "$(within $exif_ms_new $exif_ms_old 100)" yes
 fi
 
+echo "-- the folder tree: 100,000 folders, opened at the folder shown, one opened by a click"
+d=/tmp/tree
+mkdir -p $d/many
+(cd $d/many && seq -f 'f%06.0f' 100000 | xargs mkdir -p)
+convert -size 64x64 xc:blue $d/many/f000002/b.png
+for v in new old; do
+    as_version $v
+    for tree in false true; do
+        config folder_tree=$tree
+        start $d/many; sleep 6
+        shot tree-$v-$tree
+        # Drawn again and again, the pointer moving over it: told, not checked, as drawing the
+        # frame in software under Xvfb costs more than the tree does in either version.
+        (for i in $(seq 60); do xdotool mousemove 60 $((200 + i % 2 * 40)); sleep 0.05; done) &
+        mover=$!
+        ticks=$(busy); wait $mover
+        eval "ticks_$tree=$ticks"
+        if [ $tree = true ]; then
+            note "$v: f000002 at $($BIN --remote where f000002 | tr -d '\0')"
+            menu f000002; sleep 2
+            shot tree-$v-clicked
+            opened=$($BIN --remote current | tr -d '\0')
+        fi
+        quit
+    done
+    note "$v: ticks in 3 s with the pointer moving: $ticks_false without the tree, $ticks_true with 100,000 folders in it"
+    if [ $v = new ]; then
+        expect "the tree's folder opened by a click" "$opened" "$d/many/f000002/b.png"
+    fi
+done
+as_version new
+
 echo "-- as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host"
 # A stand-in flatpak-spawn runs the host command here, as the real one does on the host, its
 # flags (--host, --env=…) dropped; Glimt takes itself for a Flatpak from FLATPAK_ID. So the
