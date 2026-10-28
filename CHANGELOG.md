@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A random slideshow of a collection with "Include the images in subfolders" on for the
+  slideshow plays in random order: it played the collection in its own order.
 - The size of the selected files in the status bar no longer stays on calculating until the
   pointer moves.
 - With hundreds of thousands of files marked, each mark or star key after the first no longer

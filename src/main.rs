@@ -2617,6 +2617,10 @@ impl App {
                 if sort {
                     sort_files(&list_dir, &mut files, by, ascending, case);
                 }
+                // A random slideshow with its subfolders: read from the file, in its order.
+                if shuffled {
+                    shuffle(&mut files);
+                }
                 let sizes: Vec<u64> = (files.iter())
                     .filter_map(|f| Some(list_dir.join(f).metadata().ok()?.len()))
                     .collect();
@@ -9920,6 +9924,42 @@ mod tests {
         app.run(&ctx, crate::actions::Action::Refresh);
         assert!(app.listed_as.is_none());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A random slideshow of a collection with its subfolders plays in random order, also when
+    /// the list was shuffled (R) before: the collection is read again from its file for it.
+    #[test]
+    fn a_random_slideshow_of_a_collection_is_shuffled() {
+        for shuffled_first in [false, true] {
+            let d = std::env::temp_dir().join(format!(
+                "glimt-test-shuffle-{shuffled_first}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut gqv = String::from("#GQview collection\n");
+            for i in 0..30 {
+                let f = d.join(format!("{i:02}.png"));
+                image::RgbImage::new(2, 2).save(&f).unwrap();
+                gqv.push_str(&format!("\"{}\"\n", f.display()));
+            }
+            let file = d.join("c.gqv");
+            std::fs::write(&file, gqv).unwrap();
+            let (mut app, ctx) = app_on(&file);
+            let order = app.list.files.clone();
+            app.config.slideshow_subfolders = true;
+            app.config.random = true;
+            if shuffled_first {
+                app.shuffle_list(&ctx, true);
+            }
+            app.start_slideshow(&ctx);
+            assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+            assert!(
+                app.shuffled && app.list.files != order,
+                "R first: {shuffled_first}"
+            );
+            std::fs::remove_dir_all(&d).unwrap();
+        }
     }
 
     /// The same in a collection: its file follows a rename, a move and a delete.
