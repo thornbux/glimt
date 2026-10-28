@@ -10,8 +10,29 @@ use std::path::{Path, PathBuf};
 pub struct Marks {
     /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
     map: HashMap<PathBuf, (u8, u8)>,
-    /// When the file was written, as it was read: another window's changes since are read again.
-    read: Option<std::time::SystemTime>,
+    /// The file as it was read: another window's changes since are read again.
+    read: Option<Seen>,
+}
+
+/// A marks file told apart from another: every write makes a new file (a new inode), and two
+/// writes in the same tick of the clock have the same time.
+type Seen = (u64, std::time::SystemTime);
+
+fn seen(file: &Path) -> Option<Seen> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::metadata(file).ok()?;
+    Some((m.ino(), m.modified().ok()?))
+}
+
+/// Each marks file as this window's marks hold it: as read, or as its own write left it when
+/// no other window had written since. A refresh that finds it so reads nothing.
+static KNOWN: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Option<Seen>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn known() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<PathBuf, Option<Seen>>> {
+    KNOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn file() -> Option<PathBuf> {
@@ -32,9 +53,10 @@ thread_local! {
 impl Marks {
     pub fn load() -> Self {
         let file = file();
-        let read = file
-            .as_ref()
-            .and_then(|f| std::fs::metadata(f).ok()?.modified().ok());
+        let read = file.as_deref().and_then(seen);
+        if let Some(f) = &file {
+            known().insert(f.clone(), read);
+        }
         let text = file
             .and_then(|f| crate::decode::read_limited(f).ok())
             .unwrap_or_default();
@@ -52,26 +74,16 @@ impl Marks {
             return;
         }
         let Some(file) = file() else { return };
-        let changed = std::fs::metadata(&file)
-            .ok()
-            .and_then(|m| m.modified().ok());
-        if changed == self.read {
+        let now = seen(&file);
+        if now == self.read {
             return;
         }
-        // Changed by this window's own write: the marks it wrote, not the whole file read again,
+        // Changed only by this window's own writes: its marks are what it wrote, not read again
         // on every mark key after one in a file of 500,000 marked.
-        let mut written = WRITTEN
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if written
-            .as_ref()
-            .is_some_and(|(f, t, _)| *f == file && Some(*t) == changed)
-            && let Some((_, t, map)) = written.take()
-        {
-            *self = Marks { map, read: Some(t) };
+        if known().get(&file) == Some(&now) {
+            self.read = now;
             return;
         }
-        drop(written);
         *self = Self::load();
     }
 
@@ -176,13 +188,6 @@ impl Marks {
 static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
     std::sync::LazyLock::new(Default::default);
 
-/// The marks file as this window's last write left it, with its time then, for `refresh`; also
-/// what another window wrote before, merged in. Held until a refresh takes it.
-/// shortcut: the time is read just after the lock is let go; a window writing in that moment
-/// goes unseen until the file changes again.
-type Written = (PathBuf, std::time::SystemTime, HashMap<PathBuf, (u8, u8)>);
-static WRITTEN: std::sync::Mutex<Option<Written>> = std::sync::Mutex::new(None);
-
 /// What a window did, applied to the file as it is then.
 enum Edit {
     Change(Vec<PathBuf>, Change),
@@ -280,22 +285,25 @@ fn write(file: &Path, changes: &[Edit]) {
     // These changes on the file as another window may have left it; one that cannot be read
     // is not written over with these changes alone, as every other mark would be lost.
     let edit = |bytes: &[u8]| {
+        // Under the lock: no other window wrote since this one read or wrote it.
+        let ours = known().get(file) == Some(&seen(file));
         let mut map = parse(bytes);
         for change in changes {
             apply_edit(&mut map, change);
         }
-        (to_text(&map), map)
+        (to_text(&map), ours)
     };
-    match crate::config::edit_shared(file, edit) {
-        Ok(map) => {
-            if let Ok(t) = std::fs::metadata(file).and_then(|m| m.modified()) {
-                let mut written = WRITTEN
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                *written = Some((file.to_path_buf(), t, map));
-            }
-        }
-        Err(e) => crate::config::save_failed(format!("Could not save {}: {e}", file.display())),
+    let result = crate::config::edit_shared(file, edit);
+    // Ours alone, the window's marks are the file now; else it is read again.
+    // shortcut: the file is looked at just after the lock is let go; a window that wrote in that
+    // moment goes unseen until the file changes again.
+    let now = matches!(result, Ok(true)).then(|| seen(file)).flatten();
+    match now {
+        Some(now) => drop(known().insert(file.to_path_buf(), Some(now))),
+        None => drop(known().remove(file)),
+    }
+    if let Err(e) = result {
+        crate::config::save_failed(format!("Could not save {}: {e}", file.display()));
     }
 }
 
@@ -396,16 +404,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("marks");
         super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
-        let a = dir.join("a.png");
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
         let mut marks = super::Marks::load();
-        super::write(
-            &file,
-            &[super::Edit::Change(
-                vec![a.clone()],
-                super::Change::Stars(4),
-            )],
-        );
-        // The file's bytes gone but its time kept: read again, it would have no stars.
+        let stars =
+            |p: &std::path::Path, n| super::Edit::Change(vec![p.into()], super::Change::Stars(n));
+        marks.rate(std::slice::from_ref(&a), 4);
+        super::write(&file, &[stars(&a, 4)]);
+        // The file's bytes gone but the file and its time kept: read again, it would have no
+        // stars.
         let t = std::fs::metadata(&file).unwrap().modified().unwrap();
         let f = std::fs::OpenOptions::new()
             .write(true)
@@ -415,6 +421,16 @@ mod tests {
         f.set_modified(t).unwrap();
         marks.refresh();
         assert_eq!(marks.get(&a), (0, 4));
+        // Another window's write just after, maybe in the same tick of the clock: read.
+        super::write(&file, &[stars(&a, 4)]);
+        crate::config::edit_shared(&file, |old| {
+            let mut text = old.to_vec();
+            text.extend(format!("0\t2\t{}\n", b.display()).as_bytes());
+            (text, ())
+        })
+        .unwrap();
+        marks.refresh();
+        assert_eq!((marks.get(&a), marks.get(&b)), ((0, 4), (0, 2)));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);
         std::fs::remove_dir_all(dir).unwrap();
     }
