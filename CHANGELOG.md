@@ -13,6 +13,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A collection shown while one of its images is renamed or moved keeps the image, with auto
+  refresh on: a refresh that started just before the rename was reported brought the old name
+  back, which dropped the image from the list, and a later move of it no longer changed the
+  collection's file.
 - Large folders stay quick in four more places: a search sums the size of its matches once typing
   pauses, not at each letter, and an exif: search looks through the index in parallel; Shift+Up or
   Down changes only the rows between the old and new end of the selection; a delete no longer

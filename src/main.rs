@@ -2542,6 +2542,9 @@ impl App {
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
         let (recursive, shuffled) = (self.recursive, self.shuffled && self.whole_shuffle);
         let collection = self.collection.is_some().then(|| self.list.files.clone());
+        // A collection's file, which every move writes at once: read again, it has what moved
+        // after the list was copied. A plain list is never written: the list as shown.
+        let saved = (self.collection.clone()).filter(|f| !collections::is_list(f));
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.sort_collection;
         let folders = self.folders.clone();
@@ -2602,6 +2605,11 @@ impl App {
                 return;
             }
             if let Some(mut files) = collection {
+                if let Some(Ok(paths)) = saved.map(|f| collections::load(&f)) {
+                    files = (paths.iter())
+                        .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
+                        .collect();
+                }
                 files.retain(|f| list_dir.join(f).exists());
                 if sort {
                     sort_files(&list_dir, &mut files, by, ascending, case);
@@ -9847,6 +9855,27 @@ mod tests {
             );
             std::fs::remove_dir_all(d).unwrap();
         }
+    }
+
+    /// A refresh of a collection that started before a rename landed (auto refresh saw the
+    /// folder change first) loses neither the image in the list nor its entry in the file.
+    #[test]
+    fn a_collection_refreshed_before_a_rename_landed_keeps_it() {
+        let d = contract_folder("collection-race");
+        let gqv = d.join("col.gqv");
+        let (mut app, ctx) = app_on(&gqv);
+        let (a, c) = (d.join("a.png"), d.join("c.png"));
+        // Renamed on disk, the refresh reads, and only then the rename is reported.
+        std::fs::rename(&a, &c).unwrap();
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        app.paths_moved(vec![(a, c)], false);
+        let has_c = |app: &super::App| {
+            (app.list.files.iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
+        };
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none() && has_c(app)));
+        assert!(std::fs::read_to_string(&gqv).unwrap().contains("c.png"));
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// The same in a collection: its file follows a rename, a move and a delete.

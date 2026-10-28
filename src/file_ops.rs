@@ -332,16 +332,27 @@ impl crate::App {
                     any = true;
                 }
             }
-            // None of its images moved: the file is not touched, nor said to be gone.
-            if any {
-                self.edit_collection(|all| {
-                    for p in all {
-                        if let Some(to) = new_place(p, &moved) {
-                            *p = to;
-                        }
+            let follow = |all: &mut Vec<PathBuf>| {
+                for p in all {
+                    if let Some(to) = new_place(p, &moved) {
+                        *p = to;
                     }
-                });
+                }
+            };
+            if any {
+                self.edit_collection(follow);
+            } else if let Some(file) = self
+                .collection
+                .as_ref()
+                .filter(|f| !collections::is_list(f))
+            {
+                // None in the list, as a refresh that started before they moved left them out:
+                // the file follows still, quietly, as it may hold none of them.
+                let _ = collections::edit(file, false, follow);
             }
+            // The list again from the file: a refresh that started before they moved brings
+            // the old names.
+            self.relist = true;
         }
         self.exif_follow_list();
         #[cfg(feature = "marks")]
