@@ -979,6 +979,8 @@ enum Prompt {
     RenameCollection,
     /// Save the look shown as a theme file of this name.
     SaveTheme,
+    /// This window's own title, a template as in Preferences.
+    WindowTitle,
 }
 
 /// A menu that scrolls when it is taller than the window, instead of running off it.
@@ -1614,6 +1616,8 @@ struct App {
     help: Option<help::Page>,
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
+    /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
+    window_title: String,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm_delete: Option<bool>,
     /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
@@ -2145,6 +2149,7 @@ impl App {
             confirm_folder: false,
             opened_type: Types::NONE,
             prompt: None,
+            window_title: String::new(),
             last_drawn: None,
             fade: None,
             last_scale: 1.0,
@@ -2922,8 +2927,16 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text()));
     }
 
+    /// Window → Set Window Title: this window's own template, until it closes; empty, the one
+    /// in Preferences again.
+    fn set_window_title(&mut self, ctx: &egui::Context, template: &str) {
+        self.window_title = template.to_owned();
+        self.title(ctx);
+    }
+
     /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no
-    /// images. Or the template in Preferences, unless its fields are all empty.
+    /// images. Or this window's own template, else the one in Preferences, unless its fields
+    /// are all empty.
     fn title_text(&self) -> String {
         let (name, path) = match (self.list.files.get(self.list.cur), &self.collection) {
             (Some(_), _) => (
@@ -2941,7 +2954,11 @@ impl App {
             Some(n) => tf!("Glimt ({n})", n),
             None => "Glimt".to_owned(),
         };
-        let own = fill_template(&self.config.window_title, |field| match field {
+        let template = match self.window_title.as_str() {
+            "" => &self.config.window_title,
+            own => own,
+        };
+        let own = fill_template(template, |field| match field {
             "name" => name.clone(),
             "path" => path.clone(),
             "folder" => self.dir.display().to_string(),
@@ -6381,6 +6398,9 @@ impl App {
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
+            Action::WindowTitle => {
+                self.prompt = Some((Prompt::WindowTitle, self.window_title.clone()));
+            }
             Action::Projector => {
                 self.projector = !self.projector;
                 self.projector_size = [0, 0];
@@ -7334,6 +7354,7 @@ impl App {
                 scroll_menu(ui, tr("Window"), |ui| {
                     menu_item(ui, act, Action::NewWindow);
                     menu_item(ui, act, Action::CloseWindow);
+                    menu_item(ui, act, Action::WindowTitle);
                     ui.separator();
                     menu_toggle(ui, act, self.projector, Action::Projector);
                     let pointer = self.config.projector_pointer;
@@ -7362,6 +7383,11 @@ impl App {
                 Prompt::NewFolder => "New folder name:".to_owned(),
                 Prompt::RenameFolder => "New folder name:".to_owned(),
                 Prompt::SaveTheme => "Name of the new theme:".to_owned(),
+                Prompt::WindowTitle => tr(
+                    "Title of this window (%name%, %path%, %folder%, %app%; empty: as in \
+                     Preferences):",
+                )
+                .to_owned(),
                 Prompt::RenameCollection => "New name of the collection:".to_owned(),
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => tf!(
@@ -7408,6 +7434,9 @@ impl App {
 
     /// The text dialog was answered with `text`.
     fn answer_prompt(&mut self, ctx: &egui::Context, prompt: Prompt, text: &str) {
+        if let Prompt::WindowTitle = prompt {
+            return self.set_window_title(ctx, text);
+        }
         if let Prompt::NewCollection = prompt {
             return match collections::new_file(text) {
                 Ok(file) => self.add_to_collection(&file),
@@ -7499,7 +7528,8 @@ impl App {
             Prompt::NewCollection
             | Prompt::RenameCollection
             | Prompt::SaveTheme
-            | Prompt::RenameFolder => return,
+            | Prompt::RenameFolder
+            | Prompt::WindowTitle => return,
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
@@ -9386,7 +9416,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-title-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
-        let (mut app, _ctx) = app_on(&dir);
+        let (mut app, ctx) = app_on(&dir);
         assert_eq!(app.title_text(), "a.png - Glimt");
         app.config.window_title = "%app%: %name% in %folder%".into();
         assert_eq!(
@@ -9397,6 +9427,12 @@ mod tests {
         assert_eq!(app.title_text(), dir.join("a.png").display().to_string());
         app.config.window_title = "%nothing%".into();
         assert_eq!(app.title_text(), "a.png - Glimt");
+        // This window's own title before the one in Preferences, until it is emptied.
+        app.config.window_title = "%app%".into();
+        app.set_window_title(&ctx, "Left: %name%");
+        assert_eq!(app.title_text(), "Left: a.png");
+        app.set_window_title(&ctx, "");
+        assert_eq!(app.title_text(), "Glimt");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

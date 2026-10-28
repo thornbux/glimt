@@ -2309,3 +2309,11 @@ msgstr "Egen vindustittel (tom: som over):"
 #: src/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Felt: %name%, %path%, %folder% og %app%. En | starter en del, som utelates når feltene i den er tomme."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Angi vindustittel …"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Tittel på dette vinduet (%name%, %path%, %folder%, %app%; tom: som i Innstillinger):"

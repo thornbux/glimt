@@ -2309,3 +2309,11 @@ msgstr "Własny tytuł okna (puste: jak wyżej):"
 #: src/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Pola: %name%, %path%, %folder% i %app%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Ustaw tytuł okna…"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"

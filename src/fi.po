@@ -2298,3 +2298,11 @@ msgstr "Oma ikkunan otsikko (tyhjä: kuten yllä):"
 #: src/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Kentät: %name%, %path%, %folder% ja %app%. | aloittaa osan, joka jätetään pois, kun sen kentät ovat tyhjiä."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Aseta ikkunan otsikko…"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten asetuksissa):"

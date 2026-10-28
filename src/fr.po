@@ -2298,3 +2298,11 @@ msgstr "Titre de fenêtre personnalisé (vide : comme ci-dessus) :"
 #: src/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Champs : %name%, %path%, %folder% et %app%. Une | commence une partie, omise quand ses champs sont vides."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Définir le titre de la fenêtre…"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Titre de cette fenêtre (%name%, %path%, %folder%, %app% ; vide : comme dans les Préférences) :"

@@ -143,6 +143,7 @@ pub enum Action {
     Slower,
     Escape,
     NewWindow,
+    WindowTitle,
     Projector,
     ProjectorPointer,
     Print,
@@ -327,6 +328,7 @@ impl Action {
             Slower => "Slower",
             Escape => "Stop Slideshow, Leave Full Screen",
             NewWindow => "New Window",
+            WindowTitle => "Set Window Title…",
             Projector => "Projector",
             ProjectorPointer => "Show the Pointer on the Projector",
             Print => "Print…",
@@ -349,6 +351,7 @@ impl Action {
             OpenRecursive | FolderTree => "\u{e67c}",       // tree-structure
             NewFolder => "\u{e258}",                        // folder-plus
             Rename | RenameCollection => "\u{e3b4}",        // pencil-simple
+            WindowTitle => "\u{e3b4}",                      // pencil-simple
             Copy => "\u{e1ca}",                             // copy
             Move | Forward | PaneRight => "\u{e06c}",       // arrow-right
             OpenWith => "\u{e5de}",                         // arrow-square-out

@@ -2298,3 +2298,11 @@ msgstr "Eigen venstertitel (leeg: zoals hierboven):"
 #: src/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Velden: %name%, %path%, %folder% en %app%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Venstertitel instellen …"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Titel van dit venster (%name%, %path%, %folder%, %app%; leeg: zoals in Voorkeuren):"

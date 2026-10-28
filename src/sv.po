@@ -2298,3 +2298,11 @@ msgstr "Egen fönstertitel (tom: som ovan):"
 #: src/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Fält: %name%, %path%, %folder% och %app%. Ett | börjar en del, som utelämnas när dess fält är tomma."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Ange fönstertitel …"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Titel på det här fönstret (%name%, %path%, %folder%, %app%; tom: som i Inställningar):"

@@ -436,7 +436,8 @@ const MANUAL: &[(&str, &str)] = &[
          and the other EXIF panel labels, | between parts that are left out when empty, \\n for a \
          new line.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
-         %path%, %folder% and %app%, such as %app%: %folder%.\n\n\
+         %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
+         this window a template of its own until it closes.\n\n\
          Moving the pointer to the bottom shows a film strip of the images around the shown one; a \
          click on one shows it. Thumbnails are read from ~/.cache/thumbnails, which the file \
          manager shares; new ones are saved there only with Save new thumbnails on in \
@@ -765,7 +766,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Window title",
         "\"name - Glimt\" or \"Glimt - name\", or a template of %name%, %path%, %folder% and \
-         %app% (Preferences)",
+         %app% (Preferences), or one window's own (Window → Set Window Title…)",
         "The image name and Geeqie; no title of the user's own",
     ),
     (
