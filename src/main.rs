@@ -1338,6 +1338,8 @@ struct App {
     part_rx: Receiving<Vec<OsString>>,
     /// The next listing shows a tree's images as they are found (a folder opened).
     list_parts: bool,
+    /// What the list shown was read and sorted as: folder, order, ascending, case, subfolders.
+    listed_as: Option<(PathBuf, files::Sort, bool, bool, bool)>,
     /// The image the first part of a tree went to by itself: the whole list goes to its first.
     went_to: Option<OsString>,
     /// Set to stop the listing of the tree before, when another one starts.
@@ -2186,6 +2188,7 @@ impl App {
             subdirs_rx: Receiving::none(),
             part_rx: Receiving::none(),
             list_parts: false,
+            listed_as: None,
             went_to: None,
             listing_stop: Arc::default(),
             listing_rx: Receiving::none(),
@@ -2536,6 +2539,14 @@ impl App {
         // A collection keeps its own order unless the Sort menu was used.
         let sort = collection.is_none() || self.sort_collection;
         let folders = self.folders.clone();
+        // A folder read again in EXIF date order (mostly after Glimt's own sidecar writes) keeps
+        // the order shown when no name is new, instead of reading every file's EXIF again.
+        let exif = matches!(by, files::Sort::ExifOriginal | files::Sort::ExifDigitized);
+        let same = Some((self.dir.clone(), by, ascending, case, recursive));
+        let before = (exif && !self.list_parts && !self.shuffled && collection.is_none())
+            .then_some(())
+            .filter(|_| folders.is_empty() && self.listed_as == same)
+            .map(|_| self.list.files.clone());
         // The listing before stops, if it is still reading a tree.
         self.listing_stop.store(true, Ordering::Relaxed);
         self.listing_stop = Arc::default();
@@ -2638,7 +2649,10 @@ impl App {
             if stop.load(Ordering::Relaxed) {
                 return;
             }
-            sort_files(&list_dir, &mut files, by, ascending, case);
+            match before.and_then(|before| files::kept_order(before, &files)) {
+                Some(kept) => files = kept,
+                None => sort_files(&list_dir, &mut files, by, ascending, case),
+            }
             if shuffled {
                 shuffle(&mut files);
             }
@@ -2728,6 +2742,17 @@ impl App {
         }
         self.subdirs = dirs;
         self.take_files(ctx, files, true);
+        let c = &self.config;
+        self.listed_as = (self.collection.is_none() && self.folders.is_empty() && !self.shuffled)
+            .then(|| {
+                (
+                    self.dir.clone(),
+                    c.sort,
+                    c.sort_ascending,
+                    c.sort_case,
+                    self.recursive,
+                )
+            });
     }
 
     /// The images of the folder read in the background as the list: all of them when `whole`,
@@ -2816,6 +2841,8 @@ impl App {
         files: Vec<OsString>,
         shown: Option<OsString>,
     ) {
+        // A new order (shuffled, a collection's): set again only by a listing in sort order.
+        self.listed_as = None;
         // Shown now and in the new list too: not when another program removed or renamed it,
         // whose turn not saved would else go to the image shown in its place.
         let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f == p));

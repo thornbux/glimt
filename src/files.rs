@@ -341,6 +341,17 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
     }
 }
 
+/// `before` in its order without the names gone, if `listed` has no name it lacks: a folder read
+/// again after a sidecar was written keeps its EXIF date order instead of reading every file.
+/// shortcut: a file whose date changed under the same name keeps its place; opening the folder
+/// again sorts it again.
+pub fn kept_order(before: Vec<OsString>, listed: &[OsString]) -> Option<Vec<OsString>> {
+    let names: std::collections::HashSet<&OsString> = listed.iter().collect();
+    let mut kept = before;
+    kept.retain(|f| names.contains(f));
+    (kept.len() == listed.len()).then_some(kept)
+}
+
 /// Compare with runs of digits by value, so "img2" comes before "img10".
 pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let (mut a, mut b) = (a, b);
@@ -597,6 +608,13 @@ mod tests {
         let mut v: Vec<std::ffi::OsString> = ["a1", "a01"].iter().map(Into::into).collect();
         let dot = std::path::Path::new(".");
         super::sort_files(dot, &mut v, super::Sort::Number, true, false);
+        let os = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        let kept = super::kept_order(os(&["c", "a", "gone", "b"]), &os(&["a", "b", "c"]));
+        assert_eq!(kept, Some(os(&["c", "a", "b"])));
+        assert_eq!(
+            super::kept_order(os(&["c", "a"]), &os(&["a", "b", "c"])),
+            None
+        );
         assert_eq!(v, ["a01", "a1"]);
         let mut v: Vec<std::ffi::OsString> = ["b.png", "c.JPG", "a.mp4", "d.jpg", "e"]
             .iter()
