@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A playlist opened by its name in its own folder (glimt show.m3u) shows its images: its entries
+  were joined to an empty folder name and every one was left out.
+
 ## [0.41.0] - 2026-10-26
 
 ### Fixed
