@@ -2290,3 +2290,11 @@ msgstr "No se pudo guardar la imagen: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Guardar como"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Título de ventana propio (vacío: como arriba):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Campos: %name%, %path%, %folder% y %app%. Una | empieza una parte, que se omite cuando sus campos están vacíos."

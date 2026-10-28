@@ -2301,3 +2301,11 @@ msgstr "Nie udało się zapisać obrazu: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Zapisz jako"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Własny tytuł okna (puste: jak wyżej):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Pola: %name%, %path%, %folder% i %app%. Znak | zaczyna część, pomijaną, gdy jej pola są puste."

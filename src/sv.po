@@ -2290,3 +2290,11 @@ msgstr "Kunde inte spara bilden: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Spara som"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Egen fönstertitel (tom: som ovan):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Fält: %name%, %path%, %folder% och %app%. Ett | börjar en del, som utelämnas när dess fält är tomma."

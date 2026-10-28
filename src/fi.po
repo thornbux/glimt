@@ -2290,3 +2290,11 @@ msgstr "Kuvaa ei voitu tallentaa: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Tallenna nimellä"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Oma ikkunan otsikko (tyhjä: kuten yllä):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Kentät: %name%, %path%, %folder% ja %app%. | aloittaa osan, joka jätetään pois, kun sen kentät ovat tyhjiä."

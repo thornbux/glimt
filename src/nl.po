@@ -2290,3 +2290,11 @@ msgstr "Kon de afbeelding niet opslaan: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Opslaan als"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Eigen venstertitel (leeg: zoals hierboven):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Velden: %name%, %path%, %folder% en %app%. Een | begint een deel, dat wordt weggelaten als de velden ervan leeg zijn."

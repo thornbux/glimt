@@ -2918,24 +2918,43 @@ impl App {
         }
     }
 
-    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no images.
     fn title(&self, ctx: &egui::Context) {
-        let name = match (self.list.files.get(self.list.cur), &self.collection) {
-            (Some(_), _) => self.name(self.list.cur).into_owned(),
-            (None, Some(file)) => file.display().to_string(),
-            (None, None) => self.dir.display().to_string(),
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text()));
+    }
+
+    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no
+    /// images. Or the template in Preferences, unless its fields are all empty.
+    fn title_text(&self) -> String {
+        let (name, path) = match (self.list.files.get(self.list.cur), &self.collection) {
+            (Some(_), _) => (
+                self.name(self.list.cur).into_owned(),
+                self.path(self.list.cur).display().to_string(),
+            ),
+            (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
+            (None, None) => (
+                self.dir.display().to_string(),
+                self.dir.display().to_string(),
+            ),
         };
         // A named Glimt says which it is.
         let app = match remote::given_name() {
             Some(n) => tf!("Glimt ({n})", n),
             None => "Glimt".to_owned(),
         };
-        let title = if self.config.app_name_first {
+        let own = fill_template(&self.config.window_title, |field| match field {
+            "name" => name.clone(),
+            "path" => path.clone(),
+            "folder" => self.dir.display().to_string(),
+            "app" => app.clone(),
+            _ => String::new(),
+        });
+        if !own.trim().is_empty() {
+            own
+        } else if self.config.app_name_first {
             format!("{app} - {name}")
         } else {
             format!("{name} - {app}")
-        };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        }
     }
 
     // ---- Collections ----
@@ -9358,6 +9377,27 @@ mod tests {
         let mut app = super::App::with(&ctx, config, &[], Some(dir.into()), start);
         app.receive_listing(&ctx, std::time::Duration::from_secs(5));
         (app, ctx)
+    }
+
+    /// The window title from the template in Preferences, and the default order when it is
+    /// empty or all its fields are.
+    #[test]
+    fn window_title_from_the_template() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-title-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        assert_eq!(app.title_text(), "a.png - Glimt");
+        app.config.window_title = "%app%: %name% in %folder%".into();
+        assert_eq!(
+            app.title_text(),
+            format!("Glimt: a.png in {}", dir.display())
+        );
+        app.config.window_title = "%path%".into();
+        assert_eq!(app.title_text(), dir.join("a.png").display().to_string());
+        app.config.window_title = "%nothing%".into();
+        assert_eq!(app.title_text(), "a.png - Glimt");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Work on a file holds every other operation on it back, also work started outside a job

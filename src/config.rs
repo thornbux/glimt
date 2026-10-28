@@ -478,6 +478,9 @@ config! {
     inhibit_screensaver: bool = true,
     /// Window title "Glimt - image name" instead of "image name - Glimt".
     app_name_first: bool = false,
+    /// The window title from a template of %name%, %path%, %folder% and %app%; empty: the
+    /// order above.
+    window_title: String = String::new(),
     /// File list with size and date columns, as in Geeqie.
     file_details: bool = false,
     sort: Sort = Sort::Name,

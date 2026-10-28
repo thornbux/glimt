@@ -632,6 +632,18 @@ impl crate::App {
             changed = true;
             self.title(ctx);
         }
+        ui.label(tr("Custom window title (empty: as above):"));
+        let field = egui::TextEdit::singleline(&mut self.config.window_title)
+            .desired_width(f32::INFINITY)
+            .hint_text("%name% - %app%");
+        if ui.add(field).changed() {
+            changed = true;
+            self.title(ctx);
+        }
+        ui.weak(tr(
+            "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its \
+             fields are empty.",
+        ));
         if clear {
             self.clear_recent();
         }

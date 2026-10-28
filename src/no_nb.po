@@ -2301,3 +2301,11 @@ msgstr "Forhåndsvisning trenger ffmpeg"
 #: src/preferences.rs
 msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr "S starter og stopper, R tilfeldig rekkefølge, Ctrl+= raskere, Ctrl+- saktere"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Egen vindustittel (tom: som over):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Felt: %name%, %path%, %folder% og %app%. En | starter en del, som utelates når feltene i den er tomme."

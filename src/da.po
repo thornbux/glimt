@@ -2290,3 +2290,11 @@ msgstr "Kunne ikke gemme billedet: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Gem som"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Egen vinduestitel (tom: som ovenfor):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Felter: %name%, %path%, %folder% og %app%. En | starter en del, som udelades, når dens felter er tomme."
