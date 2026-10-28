@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A mark or star that could not be saved (a full disk) no longer stays shown in the window as if
+  it were saved.
 - A random slideshow with the images in subfolders and without Repeat shows every image: it
   started its round where the shown image had landed in the shuffled list and ended after the
   images behind it.

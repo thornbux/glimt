@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 pub struct Marks {
     /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
     map: HashMap<PathBuf, (u8, u8)>,
-    /// The file as it was read: another window's changes since are read again.
-    read: Option<Seen>,
 }
 
 /// A marks file told apart from another: every write makes a new file (a new inode), and two
@@ -53,38 +51,29 @@ thread_local! {
 impl Marks {
     pub fn load() -> Self {
         let file = file();
-        let read = file.as_deref().and_then(seen);
         if let Some(f) = &file {
-            known().insert(f.clone(), read);
+            known().insert(f.clone(), seen(f));
         }
         let text = file
             .and_then(|f| crate::decode::read_limited(f).ok())
             .unwrap_or_default();
-        Marks {
-            map: parse(&text),
-            read,
-        }
+        Marks { map: parse(&text) }
     }
 
-    /// Read the file again if it changed since: what another Glimt window marked meanwhile, so
-    /// a mark toggled here goes from what is there. Not while this window's own changes are
-    /// still on their way to it: those would be read back as they were before.
+    /// Read the file again unless it is as this window's marks hold it: what another Glimt
+    /// window marked meanwhile, so a mark toggled here goes from what is there, and after a write
+    /// that failed, what the file kept. Not while this window's own changes are still on their
+    /// way to it: those would be read back as they were before.
     pub fn refresh(&mut self) {
         if WRITING.load(std::sync::atomic::Ordering::Relaxed) > 0 {
             return;
         }
         let Some(file) = file() else { return };
-        let now = seen(&file);
-        if now == self.read {
-            return;
+        // As read, or changed only by this window's own writes: not read again on every mark key
+        // in a file of 500,000 marked.
+        if known().get(&file) != Some(&seen(&file)) {
+            *self = Self::load();
         }
-        // Changed only by this window's own writes: its marks are what it wrote, not read again
-        // on every mark key after one in a file of 500,000 marked.
-        if known().get(&file) == Some(&now) {
-            self.read = now;
-            return;
-        }
-        *self = Self::load();
     }
 
     /// Every file with a mark or stars, and them.
@@ -435,6 +424,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A mark whose write failed is not kept in the window as if it were in the file.
+    #[test]
+    fn a_mark_not_written_is_not_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-failed-{}", std::process::id()));
+        // A folder where the marks file would be: it cannot be read or written over.
+        let file = dir.join("marks");
+        std::fs::create_dir_all(&file).unwrap();
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let a = dir.join("a.png");
+        let mut marks = super::Marks::load();
+        marks.rate(std::slice::from_ref(&a), 3);
+        let stars = super::Edit::Change(vec![a.clone()], super::Change::Stars(3));
+        super::write(&file, &[stars]);
+        let _ = crate::config::take_save_error();
+        marks.refresh();
+        assert_eq!(marks.get(&a), (0, 0));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A damaged marks file is read as far as it goes, never a panic.
     #[test]
     fn survives_broken_marks() {
@@ -507,7 +517,11 @@ mod tests {
     fn follow_their_files() {
         use std::path::PathBuf;
         let p = PathBuf::from;
-        let mut m = super::Marks::default();
+        // A marks file of its own, which is not there: the shared one may hold other tests'.
+        let none =
+            std::env::temp_dir().join(format!("glimt-test-marks-none-{}", std::process::id()));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(none.join("marks")));
+        let mut m = super::Marks::load();
         m.rate(&[p("/a.jpg"), p("/b.jpg")], 4);
         m.toggle(&[p("/a.jpg")], 1);
         m.put(vec![(p("/a.jpg"), p("/to/a.jpg"))], false);
@@ -548,6 +562,7 @@ mod tests {
             false,
         );
         assert_eq!((m.get(&p("/x.jpg")).1, m.get(&p("/z.jpg")).1), (1, 2));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
     }
 
     /// Marks files broken in thousands of ways: read without a panic.
