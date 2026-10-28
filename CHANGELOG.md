@@ -13,6 +13,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- With hundreds of thousands of files marked, each mark or star key after the first no longer
+  reads the whole marks file again: the window takes what it wrote itself.
+- In a large folder sorted by EXIF date, giving an image keywords, stars or alt text no longer
+  reads every file's EXIF again: the folder read again keeps its order when no name is new.
+- Full screen no longer waits for the screen saver inhibitor to be looked for: in the Flatpak that
+  asked the host on every F.
 - A collection shown while one of its images is renamed or moved keeps the image, with auto
   refresh on: a refresh that started just before the rename was reported brought the old name
   back, which dropped the image from the list, and a later move of it no longer changed the
