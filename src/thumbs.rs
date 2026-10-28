@@ -165,9 +165,11 @@ fn cache_dir() -> Option<std::path::PathBuf> {
 /// removed only when the file's folder is still there, so thumbnails of a disk that is not
 /// plugged in are kept.
 pub fn clean() -> (usize, usize) {
-    let Some(cache) = cache_dir() else {
-        return (0, 0);
-    };
+    cache_dir().map_or((0, 0), |cache| clean_in(&cache))
+}
+
+/// `clean` in the thumbnail cache `cache`.
+fn clean_in(cache: &Path) -> (usize, usize) {
     let (mut removed, mut seen) = (0, 0);
     for folder in SIZES.map(|s| s.1).into_iter().chain([FAILED]) {
         for entry in std::fs::read_dir(cache.join(folder))
@@ -289,6 +291,31 @@ fn program_missing(error: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// Cleaning the shared thumbnail cache removes the thumbnail of a file that is gone from a
+    /// folder still there, and keeps the one of a file there and those of a folder not there
+    /// (a disk not plugged in): it deletes in a cache file managers share.
+    #[test]
+    fn cleans_only_thumbnails_of_files_gone() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-clean-{}", std::process::id()));
+        let (cache, photos) = (dir.join("cache"), dir.join("photos"));
+        std::fs::create_dir_all(&photos).unwrap();
+        std::fs::write(photos.join("kept.png"), "x").unwrap();
+        let img = image::RgbaImage::new(2, 2);
+        let thumb = |name: &str, of: &std::path::Path| {
+            let uri = format!("file://{}", super::uri_path(of));
+            super::write(&cache.join("normal").join(name), &img, &uri, 1).unwrap();
+        };
+        thumb("kept.png", &photos.join("kept.png"));
+        thumb("gone.png", &photos.join("gone.png"));
+        thumb("unplugged.png", &dir.join("not-plugged-in/x.png"));
+        assert_eq!(super::clean_in(&cache), (1, 3));
+        let left: Vec<_> = (std::fs::read_dir(cache.join("normal")).unwrap())
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert!(left.contains(&"kept.png".into()) && left.contains(&"unplugged.png".into()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// ffmpeg not installed is no reason to give up on a file; ffmpeg failing on it is.
     #[test]
     fn tells_a_missing_program_from_a_bad_file() {
