@@ -6960,8 +6960,7 @@ impl App {
             ),
             // "name-frame-3.png" beside the file.
             Pick::SaveFrame(path, k) => {
-                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-                self.dir.join(format!("{stem}-frame-{}.png", k + 1))
+                (self.dir).join(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
             }
             Pick::SaveAs(_, _, start) => start.clone(),
             // Made first: the file dialog cannot start in a folder that is not there.

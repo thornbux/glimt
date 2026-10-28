@@ -1406,17 +1406,14 @@ impl crate::App {
                 let e = "choose another name: the image itself is not changed";
                 return Some(tf!("Could not save the image: {e}", e));
             }
-            let stem = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
+            // The name's own bytes, also when they are not UTF-8.
+            let named = |more: &str| crate::save::stem_and(&path, more);
             let folder = match only {
                 Some(_) => to.clone(),
                 None => (1..)
                     .map(|n| match n {
-                        1 => to.join(format!("{stem}-frames")),
-                        n => to.join(format!("{stem}-frames-{n}")),
+                        1 => to.join(named("-frames")),
+                        n => to.join(named(&format!("-frames-{n}"))),
                     })
                     .find(|p| !p.exists())
                     .unwrap_or_default(),
@@ -1431,7 +1428,7 @@ impl crate::App {
                         }
                         let file = match only {
                             Some(_) => to.clone(),
-                            None => folder.join(format!("{stem}-{:03}.png", k + 1)),
+                            None => folder.join(named(&format!("-{:03}.png", k + 1))),
                         };
                         // Whole or not at all, also over a file the dialog let it replace, whose
                         // sidecar is not the frame's: a frame is saved without one.
