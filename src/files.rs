@@ -343,8 +343,8 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
 
 /// `before` in its order without the names gone, if `listed` has no name it lacks: a folder read
 /// again after a sidecar was written keeps its EXIF date order instead of reading every file.
-/// shortcut: a file whose date changed under the same name keeps its place; opening the folder
-/// again sorts it again.
+/// shortcut: a file whose date changed under the same name keeps its place until Refresh (F5),
+/// the Sort menu or opening the folder again sorts it anew.
 pub fn kept_order(before: Vec<OsString>, listed: &[OsString]) -> Option<Vec<OsString>> {
     let names: std::collections::HashSet<&OsString> = listed.iter().collect();
     let mut kept = before;

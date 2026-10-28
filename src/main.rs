@@ -4871,6 +4871,7 @@ impl App {
             // A chosen order replaces a shuffled one (kept after a random slideshow).
             self.shuffled = false;
             self.sort_collection = self.collection.is_some();
+            self.listed_as = None;
             self.list(ctx);
         }
     }
@@ -6554,6 +6555,8 @@ impl App {
             }
             Action::HideTools => self.hide_file_list = !self.hide_file_list,
             Action::Refresh => {
+                // Asked for: sorted anew, also in an EXIF date order whose names stayed.
+                self.listed_as = None;
                 self.tree.clear();
                 self.list.slots.clear();
                 self.list.decodes_pending.clear();
@@ -9897,6 +9900,26 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none() && has_c(app)));
         assert!(std::fs::read_to_string(&gqv).unwrap().contains("c.png"));
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A folder in EXIF date order read again keeps its order, but Refresh sorts it anew: a date
+    /// changed by another program under the same name takes its place.
+    #[test]
+    fn refresh_sorts_an_exif_date_order_anew() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-exif-order-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::files::Sort::ExifOriginal;
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        assert!(app.listed_as.is_some());
+        app.run(&ctx, crate::actions::Action::Refresh);
+        assert!(app.listed_as.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The same in a collection: its file follows a rename, a move and a delete.
