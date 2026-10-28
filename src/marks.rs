@@ -15,7 +15,18 @@ pub struct Marks {
 }
 
 fn file() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(file) = TEST_FILE.with(|f| f.borrow().clone()) {
+        return Some(file);
+    }
     crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("marks"))
+}
+
+// The marks file of one test, on its thread: the tests run side by side, and one that writes
+// the shared file would change what the others read back.
+#[cfg(test)]
+thread_local! {
+    static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
 impl Marks {
@@ -71,6 +82,9 @@ impl Marks {
     /// Files deleted, or folders with all in them: their marks go, so a new file of the same name
     /// does not get them. Returned as they were, for Undo to `restore`.
     pub fn forget(&mut self, paths: &[PathBuf]) -> Vec<(PathBuf, (u8, u8))> {
+        // From the file as it is: stars set in another window since this one last read it
+        // would else stay on a name that is gone, for the next file of that name.
+        self.refresh();
         let gone: std::collections::HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
         // Each marked file and the folders above it, not every path deleted: a few thousand
         // marked against 100 files at a time to the trash.
@@ -100,6 +114,9 @@ impl Marks {
     /// Files or folders copied (`keep`) or moved and renamed `(from, to)`: the new ones get the
     /// marks, also the files in a folder.
     pub fn put(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
+        // From the file as it is: stars set in another window since this one last read it were
+        // left behind on the old names, as this window did not know them.
+        self.refresh();
         // The files in a folder that went: every mark looked at, so only for a folder (Rename
         // Folder), not for each rename of a file with 500,000 marked.
         let folder = pairs.len() == 1 && pairs[0].1.is_dir();
@@ -313,6 +330,29 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Stars set in another window follow a move and go with a delete made in this one, which
+    /// had not read them yet: they stayed on names that were gone.
+    #[test]
+    fn stars_from_another_window_follow_a_move() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-marks-other-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A marks file of its own: the other tests, side by side, read the shared one.
+        let file = dir.join("marks");
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(file.clone()));
+        let (a, b, c) = (dir.join("a.png"), dir.join("b.png"), dir.join("c.png"));
+        // This window read the marks before the other one wrote these.
+        let mut marks = super::Marks::default();
+        let text = format!("0\t3\t{}\n0\t2\t{}\n", a.display(), b.display());
+        std::fs::write(&file, text).unwrap();
+        marks.put(vec![(a.clone(), c.clone())], false);
+        assert_eq!((marks.get(&c), marks.get(&a)), ((0, 3), (0, 0)));
+        let was = marks.forget(std::slice::from_ref(&b));
+        assert_eq!((marks.get(&b), was), ((0, 0), vec![(b.clone(), (0, 2))]));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A damaged marks file is read as far as it goes, never a panic.
     #[test]
     fn survives_broken_marks() {

@@ -11,6 +11,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
   and a collection, it must bring them along and wait while other work changes its files; a new
   operation fails the tests until it joins.
 
+### Fixed
+
+- Stars and marks set in another Glimt window follow the files this window moves or renames, and
+  go with those it deletes, also while a move started in this window is still running: this window
+  decided from its own copy of them, which did not have them yet.
+
 ## [0.41.0] - 2026-10-26
 
 ### Fixed
