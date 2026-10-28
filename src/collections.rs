@@ -157,11 +157,6 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Write `paths` to `file`, through a temporary file so a crash never leaves half of it.
-pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
-    crate::config::replace_file(file, to_text(paths))
-}
-
 /// Make `change` to the collection in `file` as it is on disk now, under its lock: each window
 /// writes only its own change (images taken out, renamed, put in order), never its whole list,
 /// so what other windows changed meanwhile stays. With `new` a file not there yet starts empty;
@@ -170,21 +165,40 @@ pub fn save(file: &Path, paths: &[PathBuf]) -> std::io::Result<()> {
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
     let _held = crate::config::file_lock(file);
-    let (mut all, was_new) = match load(file) {
+    let (text, was_new) = match crate::decode::read_limited(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
-        loaded => (loaded?, false),
+        read => (read?, false),
     };
+    let mut all = parse(&text);
     let before = all.clone();
     change(&mut all);
     // Nothing changed (an unrelated folder renamed): the file stays as it is.
     if all == before {
         return Ok(());
     }
-    // A new one never lands over a collection another window made meanwhile.
+    // Written whole or not at all; a new one never lands over a collection another window made
+    // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
+    let out = to_text(&all, &other_lines(&text));
     match was_new {
-        true => crate::config::create_file(file, to_text(&all)),
-        false => save(file, &all),
+        true => crate::config::create_file(file, out),
+        false => crate::config::replace_file(file, out),
     }
+}
+
+/// The lines of a collection that are not Glimt's to write: neither the header and the end
+/// marker it writes itself, nor an image's path, which it writes from its list. Geeqie's own
+/// lines (#geometry, its comments) stay as they were when Glimt edits one of its collections.
+fn other_lines(text: &[u8]) -> Vec<&[u8]> {
+    let ours = |line: &[u8]| {
+        line.is_empty()
+            || line.starts_with(b"#GQview collection")
+            || line.starts_with(b"#created with ")
+            || line == b"#end"
+            || line.starts_with(b"\"/")
+    };
+    text.split(|&b| b == b'\n')
+        .filter(|line| !ours(line))
+        .collect()
 }
 
 /// Add `paths` to `all`, leaving out those it has; how many were added.
@@ -245,13 +259,17 @@ fn parse(text: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
-fn to_text(paths: &[PathBuf]) -> Vec<u8> {
+fn to_text(paths: &[PathBuf], other: &[&[u8]]) -> Vec<u8> {
     // Geeqie still writes the marker of GQview, which it came from.
     let head = format!(
         "#GQview collection\n#created with Glimt version {}\n",
         env!("CARGO_PKG_VERSION")
     );
     let mut text = head.into_bytes();
+    for line in other {
+        text.extend(*line);
+        text.push(b'\n');
+    }
     for path in paths {
         let bytes = path.as_os_str().as_bytes();
         if !bytes.contains(&b'\n') {
@@ -303,6 +321,25 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// Editing a collection Geeqie wrote keeps Geeqie's own lines: its #geometry line was
+    /// dropped the first time Glimt took an image out.
+    #[test]
+    fn an_edit_keeps_geeqies_lines() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-lines-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("trip.gqv");
+        let geeqie = "#GQview collection\n#created with Geeqie version 2.0\n#geometry: 0 0 400 300\n\"/a.jpg\"\n\"/b.jpg\"\n#end\n";
+        std::fs::write(&file, geeqie).unwrap();
+        super::edit(&file, false, |all| {
+            all.retain(|p| p.as_os_str() != "/a.jpg")
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("#geometry: 0 0 400 300\n") && text.contains("\"/b.jpg\""));
+        assert!(!text.contains("/a.jpg") && text.ends_with("#end\n"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A list opened by a path relative to where Glimt was started keeps its relative entries:
     /// `glimt show.m3u` in its own folder showed none of them.
     #[test]
@@ -423,7 +460,7 @@ mod tests {
             PathBuf::from("/a b/c.jpg"),
             PathBuf::from("/x/\"quoted\".png"),
         ];
-        let text = super::to_text(&paths);
+        let text = super::to_text(&paths, &[]);
         assert!(text.starts_with(b"#GQview collection\n"));
         assert_eq!(super::parse(&text), paths);
         // As Geeqie writes it, with its geometry line; relative paths and a second line of the
@@ -455,7 +492,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-edits-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("c.gqv");
-        super::save(&file, &[p("/a"), p("/b"), p("/c")]).unwrap();
+        std::fs::write(&file, super::to_text(&[p("/a"), p("/b"), p("/c")], &[])).unwrap();
         super::edit(&file, false, |all| all.retain(|x| x != &p("/a"))).unwrap();
         super::edit(&file, false, |all| {
             (all.iter_mut().filter(|x| **x == p("/c"))).for_each(|x| *x = p("/d"))
@@ -480,7 +517,7 @@ mod tests {
     #[test]
     fn survives_broken_files() {
         let paths = [PathBuf::from("/a b/c.jpg"), PathBuf::from("/x/\"q\".png")];
-        for text in crate::broken(&super::to_text(&paths)) {
+        for text in crate::broken(&super::to_text(&paths, &[])) {
             super::parse(&text);
         }
     }

@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Editing a collection that Geeqie wrote keeps Geeqie's own lines (its #geometry and comments):
+  they were dropped the first time Glimt took an image out or put them in order.
 - Crop and Save As keep a file name that is not UTF-8 (a Latin-1 café.jpg) as it is in the copy's
   name, instead of a replacement character.
 - A file with a long name (over about 230 bytes) can be saved turned and given keywords, stars and
