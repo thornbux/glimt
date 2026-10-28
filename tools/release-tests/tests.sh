@@ -3566,8 +3566,9 @@ convert -size 64x64 xc:blue $d/kde/k.jpg
 # answer, a folder, is opened.
 rm -f /tmp/stub/zenity
 printf '#!/bin/sh\necho "%s"\n' $d/kde >/tmp/stub/kdialog; chmod +x /tmp/stub/kdialog
-# The host's screen saver inhibitor: found, and started once for full screen.
-printf '#!/bin/sh\ntouch %s/inhibited\nexec cat\n' $d >/tmp/stub/gnome-session-inhibit
+# The host's screen saver inhibitor: found and started for full screen (looked for in a thread
+# since 0.42), and ended when full screen ends.
+printf '#!/bin/sh\necho $$ >%s/inhibited\nexec cat\n' $d >/tmp/stub/gnome-session-inhibit
 chmod +x /tmp/stub/gnome-session-inhibit
 export FLATPAK_ID=io.github.thornbux.Glimt
 config
@@ -3576,11 +3577,14 @@ key o; sleep 3
 opened=$($BIN --remote current | tr -d '\0')
 key f; sleep 2
 ticks=$(busy)
+key f; sleep 2
+ended=$(kill -0 "$(cat $d/inhibited 2>/dev/null)" 2>/dev/null || echo yes)
 quit
 unset FLATPAK_ID
 rm -f /tmp/stub/kdialog /tmp/stub/gnome-session-inhibit /tmp/stub/flatpak-spawn
 expect "no zenity on the host: kdialog's answer opened" "$opened" "$d/kde/k.jpg"
 expect "the host's inhibitor started, and full screen at rest" "$([ -e $d/inhibited ] && [ $ticks -lt 60 ] && echo yes)" yes
+expect "the inhibitor ended with full screen" "$ended" yes
 
 echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"
 echo "   focused one, --remote-all next to both, --remote-all quit)"

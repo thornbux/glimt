@@ -1440,8 +1440,10 @@ struct App {
     hide_file_list: bool,
     /// Window geometry seen in the last frame, saved at exit.
     window_state: WindowState,
-    /// The screen saver inhibitor running while in full screen.
-    inhibitor: Option<std::process::Child>,
+    /// The screen saver inhibitor running while in full screen, and how many times full screen
+    /// was turned on or off: the inhibitor is looked for and started in a thread, and one that
+    /// comes after full screen ended again is ended at once.
+    inhibitor: Arc<Mutex<(u64, Option<std::process::Child>)>>,
     /// Whether it was asked for: tried once, not on every frame where none could be started.
     inhibit_on: bool,
     /// Since when the pointer has been away from an open menu of the menu bar.
@@ -2220,7 +2222,7 @@ impl App {
             status_place: None,
             path_text: String::new(),
             window_state: WindowState::default(),
-            inhibitor: None,
+            inhibitor: Arc::default(),
             inhibit_on: false,
             deleting: HashSet::new(),
             undo: None,
@@ -7083,10 +7085,18 @@ impl App {
             return;
         }
         self.inhibit_on = on;
-        if let Some(mut child) = self.inhibitor.take() {
+        let mut held = self.inhibitor.lock().unwrap_or_else(|e| e.into_inner());
+        held.0 += 1;
+        let turn = held.0;
+        let old = held.1.take();
+        drop(held);
+        let end = |mut child: std::process::Child| {
             let _ = child.kill();
             #[allow(clippy::disallowed_methods)] // killed just now, reaped in a thread of its own
             std::thread::spawn(move || child.wait());
+        };
+        if let Some(child) = old {
+            end(child);
         }
         if !on {
             return;
@@ -7108,16 +7118,30 @@ impl App {
                 "cat",
             ],
         ];
-        // The first that is there, on the host in a Flatpak.
-        let found = commands.iter().find(|c| external::host_has(c[0]));
-        self.inhibitor = found.and_then(|c| {
-            command(c[0])
-                .args(&c[1..])
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .ok()
+        // The first that is there, on the host in a Flatpak: asked of the shell, through
+        // flatpak-spawn there, so in a thread, not each time full screen starts on the UI thread.
+        let inhibitor = self.inhibitor.clone();
+        std::thread::spawn(move || {
+            let found = commands.iter().find(|c| external::host_has(c[0]));
+            let Some(child) = found.and_then(|c| {
+                command(c[0])
+                    .args(&c[1..])
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                    .ok()
+            }) else {
+                return;
+            };
+            let mut held = inhibitor.lock().unwrap_or_else(|e| e.into_inner());
+            // Full screen ended or started again meanwhile: this one is not wanted.
+            if held.0 == turn {
+                held.1 = Some(child);
+            } else {
+                drop(held);
+                end(child);
+            }
         });
     }
 
