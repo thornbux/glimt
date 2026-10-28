@@ -37,6 +37,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "open PATH",
         "Show a file, folder or collection (starts Glimt if it is not running)",
     ),
+    (
+        "title [TEXT…]",
+        "This window's title, a template as in Preferences (%name%, %path%, %folder%, %app%); without the text, the one in Preferences",
+    ),
     ("quit", "Close Glimt"),
     (
         "current",
@@ -128,7 +132,8 @@ pub fn name_fits(name: &str) -> bool {
 }
 
 /// One of `COMMANDS`, with a path where it takes one and none where it does not: `open` takes
-/// one path, `select` any number of files, and a choice in brackets ([on|off]) may be left out.
+/// one path, `select` any number of files, and a choice in brackets ([on|off]) may be left out,
+/// as may `title`'s words.
 pub fn known(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
@@ -143,7 +148,9 @@ pub fn known(words: &[String]) -> bool {
                 (optional && words.len() == 1)
                     || (words.len() == 2 && choices.split('|').any(|w| w == words[1]))
             }
-            Some(many) if many.ends_with('…') => words.len() >= 2,
+            Some(many) if many.trim_end_matches(']').ends_with('…') => {
+                words.len() >= 2 || many.starts_with('[')
+            }
             Some(_) => words.len() == 2,
             None => words.len() == 1,
         }
@@ -453,6 +460,8 @@ mod tests {
         assert!(!super::known(&words("open")));
         assert!(!super::known(&words("next 2")));
         assert!(super::known(&words("subfolders on")));
+        assert!(super::known(&words("title")));
+        assert!(super::known(&words("title Left: %name%")));
         assert!(!super::known(&words("subfolders")));
         assert!(super::known(&words("subfolders off")));
         assert!(super::known(&words("slideshow")) && super::known(&words("slideshow off")));

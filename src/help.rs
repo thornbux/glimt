@@ -437,7 +437,7 @@ const MANUAL: &[(&str, &str)] = &[
          new line.\n\n\
          Preferences → Custom window title makes the window's title from a template of %name%, \
          %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
-         this window a template of its own until it closes.\n\n\
+         this window a template of its own until it closes, as glimt --remote title does.\n\n\
          Moving the pointer to the bottom shows a film strip of the images around the shown one; a \
          click on one shows it. Thumbnails are read from ~/.cache/thumbnails, which the file \
          manager shares; new ones are saved there only with Save new thumbnails on in \
@@ -546,7 +546,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Remote control",
         "glimt --remote with next, prev, first, last, slideshow, random, fullscreen (each also \
-         with on or off), subfolders on|off, open, quit, current, selection or select; \
+         with on or off), subfolders on|off, open, title, quit, current, selection or select; \
          --remote-all sends it to every window",
         "The options themselves go to the running Geeqie (geeqie --next, --tell, \
          --get-selection, --file= …), and there are many more",

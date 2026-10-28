@@ -340,6 +340,7 @@ must have the desktop's `XDG_RUNTIME_DIR`, as a systemd login has).
 glimt --remote next          # also prev, first, last, slideshow, random, fullscreen, quit
 glimt --remote slideshow on  # a state, not a toggle: also off; random and fullscreen too
 glimt --remote open ~/Pictures/holiday   # starts Glimt if it is not running
+glimt --name left --remote title 'Left: %name%'   # this window's own title; no text: as in Preferences
 glimt --remote-all quit      # close every Glimt
 glimt --help                 # all commands
 ```

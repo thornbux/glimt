@@ -3428,6 +3428,26 @@ expect "EXIF says Adobe RGB (R03): shown as Adobe RGB" "$(show exif.png)" "$as_a
 expect "its own Adobe RGB profile: shown as Adobe RGB" "$(show icc.png)" "$as_adobe"
 expect "its own profile left out: as sRGB" "$(show icc.png own_profile=false)" "$plain"
 
+echo "-- the window title: the template in Preferences, this window's own, and back"
+d=/tmp/title
+mkdir -p $d
+convert -size 64x64 xc:red $d/a.png
+config 'window_title=%app%: %name%'
+start $d/a.png
+from_setting=$(xdotool getwindowname $WIN)
+menu Window "Set Window Title…"
+xdotool type 'Left %name%'; key Return
+from_menu=$(xdotool getwindowname $WIN)
+$BIN --remote title 'Right: %folder%'; sleep 1
+from_remote=$(xdotool getwindowname $WIN)
+$BIN --remote title; sleep 1
+back=$(xdotool getwindowname $WIN)
+quit
+expect "the template in Preferences" "$from_setting" "Glimt: a.png"
+expect "Window → Set Window Title…" "$from_menu" "Left a.png"
+expect "glimt --remote title" "$from_remote" "Right: $d"
+expect "glimt --remote title without text: Preferences' again" "$back" "Glimt: a.png"
+
 echo "-- timings: the large folder and EXIF dates, with nothing else running"
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"

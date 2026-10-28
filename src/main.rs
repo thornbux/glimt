@@ -5872,7 +5872,7 @@ impl App {
 
     /// A command from `glimt --remote`: next, prev, first, last, slideshow, random and
     /// fullscreen (each with on or off, or without to go to the other), subfolders on|off, quit,
-    /// or open PATH.
+    /// open PATH, or title with this window's own title, or without to have the one in Preferences.
     fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let action = match command.trim() {
@@ -5897,6 +5897,10 @@ impl App {
             }
             "subfolders on" => return self.set_subfolders(ctx, true),
             "subfolders off" => return self.set_subfolders(ctx, false),
+            "title" => return self.set_window_title(ctx, ""),
+            other if other.starts_with("title ") => {
+                return self.set_window_title(ctx, other["title ".len()..].trim());
+            }
             other if other.starts_with("open ") => {
                 // The path as it was sent, not trimmed: a folder's name may end in a space.
                 if let Some(path) = command.trim_start().strip_prefix("open ") {
