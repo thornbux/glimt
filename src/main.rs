@@ -2789,11 +2789,19 @@ impl App {
         // The flag is for this listing, taken whether or not the order is still random: left,
         // it would shuffle every later listing.
         let fresh = whole && std::mem::take(&mut self.whole_shuffle);
-        let files = if whole && self.shuffled && !fresh {
+        let mut files = if whole && self.shuffled && !fresh {
             merge_shuffled(&self.list.files, files)
         } else {
             files
         };
+        // Shuffled whole for a random slideshow: the image shown first, as R puts it, so a
+        // slideshow without Repeat shows all before it ends.
+        if fresh
+            && let Some(at) = (self.list.files.get(self.list.cur))
+                .and_then(|shown| files.iter().position(|f| f == shown))
+        {
+            files.swap(0, at);
+        }
         // Nothing changed (most refreshes, after Glimt's own writes beside the files): the list,
         // the selection and the search stay as they are.
         if files == self.list.files && !self.sort_collection {
@@ -9965,6 +9973,9 @@ mod tests {
                 app.shuffled && app.list.files != order,
                 "R first: {shuffled_first}"
             );
+            // The image shown (the slideshow may have gone on to the next) is first: without
+            // Repeat the round shows every image.
+            assert_eq!(app.list.cur, 0);
             std::fs::remove_dir_all(&d).unwrap();
         }
     }

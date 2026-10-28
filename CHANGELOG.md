@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A random slideshow with the images in subfolders and without Repeat shows every image: it
+  started its round where the shown image had landed in the shuffled list and ended after the
+  images behind it.
 - A random slideshow of a collection with "Include the images in subfolders" on for the
   slideshow plays in random order: it played the collection in its own order.
 - The size of the selected files in the status bar no longer stays on calculating until the
