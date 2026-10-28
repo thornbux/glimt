@@ -401,6 +401,34 @@ msgstr[1] "bilder"
     /// gets first: a language that lacks one would show it in English.
     #[test]
     fn every_language_has_every_text() {
+        // Every text the code puts through tr or tf! is in the catalogue, so in every language:
+        // "Renaming" in the status bar showed in English in all eleven.
+        let nb = super::parse(include_str!("no_nb.po"));
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut lacking = Vec::new();
+        for entry in std::fs::read_dir(src).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|x| x != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
+            for line in code.lines().filter(|l| !l.trim_start().starts_with("//")) {
+                for call in ["tr(\"", "tf!(\""] {
+                    for (at, _) in line.match_indices(call) {
+                        let rest = &line[at + call.len()..];
+                        // A text on one line, without escapes: the ones a line can hold whole.
+                        if let Some(end) = rest.find('"').filter(|&e| !rest[..e].contains('\\')) {
+                            let msgid = &rest[..end];
+                            if !nb.texts.contains_key(msgid) && !nb.plurals.contains_key(msgid) {
+                                lacking.push(format!("{}: {msgid}", path.display()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(lacking.is_empty(), "not in no_nb.po: {lacking:?}");
         let nb = super::parse(include_str!("no_nb.po"));
         for (code, _, _, po) in super::LANGUAGES {
             let t = super::parse(po);

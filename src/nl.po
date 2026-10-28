@@ -593,6 +593,10 @@ msgid "Deleting"
 msgstr "Verwijderen"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Hernoemen"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Exporteren"
 
@@ -831,6 +835,10 @@ msgstr "Kon geen nieuw venster openen: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Kon de trefwoordenboom niet lezen: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Kon de trefwoordenboom niet opslaan: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1401,10 +1409,6 @@ msgid "default application"
 msgstr "standaardtoepassing"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Verwijderen:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Details"
 
@@ -1661,10 +1665,6 @@ msgid "size of the menus, lists and text"
 msgstr "grootte van menu's, lijsten en tekst"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Diavoorstelling (S, R = willekeurig, Ctrl+= sneller, Ctrl+- langzamer):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Klein"
 
@@ -1695,10 +1695,6 @@ msgstr "Het schermprofiel van het bureaublad gebruiken"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Het eigen profiel van de afbeelding gebruiken"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Video (heeft ffmpeg nodig voor voorbeelden):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

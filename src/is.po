@@ -593,6 +593,10 @@ msgid "Deleting"
 msgstr "Eyðir"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Endurnefnir"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Flytur út"
 
@@ -831,6 +835,10 @@ msgstr "Gat ekki opnað nýjan glugga: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Gat ekki lesið efnisorðatréð: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Gat ekki vistað efnisorðatréð: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1401,10 +1409,6 @@ msgid "default application"
 msgstr "sjálfgefið forrit"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Eyðing:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Nánar"
 
@@ -1661,10 +1665,6 @@ msgid "size of the menus, lists and text"
 msgstr "stærð valmynda, lista og texta"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Skyggnusýning (S, R = slembiröð, Ctrl+= hraðar, Ctrl+- hægar):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Lítil"
 
@@ -1695,10 +1695,6 @@ msgstr "Nota skjálitasnið skjáborðsins"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Nota eigið litasnið myndarinnar"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Myndskeið (þarf ffmpeg fyrir forskoðanir):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

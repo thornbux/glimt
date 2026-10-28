@@ -593,6 +593,10 @@ msgid "Deleting"
 msgstr "Lösche"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Umbenennen"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Exportiere"
 
@@ -831,6 +835,10 @@ msgstr "Konnte kein neues Fenster öffnen: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Konnte den Schlagwortbaum nicht lesen: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Konnte den Schlagwortbaum nicht speichern: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1401,10 +1409,6 @@ msgid "default application"
 msgstr "Standardanwendung"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Löschen:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Details"
 
@@ -1661,10 +1665,6 @@ msgid "size of the menus, lists and text"
 msgstr "Größe der Menüs, Listen und Texte"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Diaschau (S, R = zufällig, Ctrl+= schneller, Ctrl+- langsamer):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Klein"
 
@@ -1695,10 +1695,6 @@ msgstr "Das Bildschirmprofil des Desktops verwenden"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Das eigene Profil des Bildes verwenden"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Video (braucht ffmpeg für Vorschauen):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

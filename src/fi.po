@@ -593,6 +593,10 @@ msgid "Deleting"
 msgstr "Poistetaan"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Nimetään uudelleen"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Viedään"
 
@@ -831,6 +835,10 @@ msgstr "Uutta ikkunaa ei voitu avata: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Avainsanapuuta ei voitu lukea: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Avainsanapuuta ei voitu tallentaa: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1401,10 +1409,6 @@ msgid "default application"
 msgstr "oletussovellus"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Poisto:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Tiedot"
 
@@ -1661,10 +1665,6 @@ msgid "size of the menus, lists and text"
 msgstr "valikoiden, luetteloiden ja tekstin koko"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Diaesitys (S, R = satunnainen, Ctrl+= nopeammin, Ctrl+- hitaammin):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Pieni"
 
@@ -1695,10 +1695,6 @@ msgstr "Käytä työpöydän näyttöprofiilia"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Käytä kuvan omaa profiilia"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Video (esikatselut vaativat ffmpegin):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

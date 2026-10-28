@@ -681,6 +681,10 @@ msgid "Deleting"
 msgstr "Sletter"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Omdøper"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Eksporterer"
 
@@ -951,6 +955,10 @@ msgstr "Kunne ikke åpne et nytt vindu: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Kunne ikke lese nøkkelordtreet: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Kunne ikke lagre nøkkelordtreet: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1545,10 +1553,6 @@ msgid "default application"
 msgstr "standardprogram"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Sletting:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Detaljer"
 
@@ -1809,10 +1813,6 @@ msgid "size of the menus, lists and text"
 msgstr "størrelse på menyer, lister og tekst"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Lysbildefremvisning (S, R = tilfeldig, Ctrl+= raskere, Ctrl+- tregere):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Små"
 
@@ -1843,10 +1843,6 @@ msgstr "Bruk skrivebordets skjermprofil"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Bruk bildets egen profil"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Video (trenger ffmpeg for forhåndsvisning):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

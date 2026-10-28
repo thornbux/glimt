@@ -593,6 +593,10 @@ msgid "Deleting"
 msgstr "Eliminazione"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Ridenominazione"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Esportazione"
 
@@ -831,6 +835,10 @@ msgstr "Impossibile aprire una nuova finestra: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Impossibile leggere l'albero delle parole chiave: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Impossibile salvare l'albero delle parole chiave: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1401,10 +1409,6 @@ msgid "default application"
 msgstr "applicazione predefinita"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Eliminazione:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Dettagli"
 
@@ -1661,10 +1665,6 @@ msgid "size of the menus, lists and text"
 msgstr "dimensione di menu, elenchi e testo"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Presentazione (S, R = casuale, Ctrl+= più veloce, Ctrl+- più lenta):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Piccola"
 
@@ -1695,10 +1695,6 @@ msgstr "Usa il profilo dello schermo del desktop"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Usa il profilo proprio dell'immagine"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Video (serve ffmpeg per le anteprime):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

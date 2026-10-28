@@ -593,6 +593,10 @@ msgid "Deleting"
 msgstr "Raderar"
 
 #: src/file_ops.rs
+msgid "Renaming"
+msgstr "Byter namn"
+
+#: src/file_ops.rs
 msgid "Exporting"
 msgstr "Exporterar"
 
@@ -831,6 +835,10 @@ msgstr "Kunde inte öppna ett nytt fönster: {e}"
 #: src/main.rs
 msgid "Could not read the keyword tree: {e}"
 msgstr "Kunde inte läsa nyckelordsträdet: {e}"
+
+#: src/main.rs
+msgid "Could not save the keyword tree: {e}"
+msgstr "Kunde inte spara nyckelordsträdet: {e}"
 
 #: src/main.rs
 msgid "Could not read the sort manager's folders: {e}"
@@ -1401,10 +1409,6 @@ msgid "default application"
 msgstr "standardprogram"
 
 #: src/preferences.rs
-msgid "Delete behaviour:"
-msgstr "Radering:"
-
-#: src/preferences.rs
 msgid "Details"
 msgstr "Detaljer"
 
@@ -1661,10 +1665,6 @@ msgid "size of the menus, lists and text"
 msgstr "storlek på menyer, listor och text"
 
 #: src/preferences.rs
-msgid "Slideshow (S, R = random, Ctrl+= faster, Ctrl+- slower):"
-msgstr "Bildspel (S, R = slumpvis, Ctrl+= snabbare, Ctrl+- långsammare):"
-
-#: src/preferences.rs
 msgid "Small"
 msgstr "Liten"
 
@@ -1695,10 +1695,6 @@ msgstr "Använd skrivbordets skärmprofil"
 #: src/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Använd bildens egen profil"
-
-#: src/preferences.rs
-msgid "Video (needs ffmpeg for previews):"
-msgstr "Video (behöver ffmpeg för förhandsvisningar):"
 
 #: src/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"

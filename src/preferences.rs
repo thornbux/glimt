@@ -590,7 +590,7 @@ impl crate::App {
         let field = egui::TextEdit::multiline(&mut text)
             .desired_rows(3)
             .desired_width(f32::INFINITY)
-            .hint_text(tr("%name%  %position%"));
+            .hint_text("%name%  %position%");
         if ui.add_enabled(c.osd, field).changed() {
             c.osd_template = text.replace('\n', "\\n");
             changed = true;

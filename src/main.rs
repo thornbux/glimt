@@ -8408,7 +8408,7 @@ impl App {
                     match out {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => drop(tx.send(String::from_utf8_lossy(&o.stderr).trim().into())),
-                        Err(e) => drop(tx.send(tf!("gio: {e}", e))),
+                        Err(e) => drop(tx.send(format!("gio: {e}"))),
                     }
                 });
             }

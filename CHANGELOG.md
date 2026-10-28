@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The status bar's Renaming and the message when the keyword tree cannot be saved are in every
+  language; three texts no longer shown anywhere are gone from the translations.
 - Stars and marks set in another Glimt window follow the files this window moves or renames, and
   go with those it deletes, also while a move started in this window is still running: this window
   decided from its own copy of them, which did not have them yet.
