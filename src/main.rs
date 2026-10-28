@@ -1647,7 +1647,7 @@ struct App {
     remote_rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
     /// A `--remote select` that came while the folder was being read or Delete or Rename asked:
     /// done once neither is.
-    waiting_select: Option<(String, remote::Reply)>,
+    waiting_select: Vec<(String, remote::Reply)>,
 }
 
 /// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
@@ -2189,7 +2189,7 @@ impl App {
             listing_rx: Receiving::none(),
             image_id: None,
             focus_by_keys: false,
-            waiting_select: None,
+            waiting_select: Vec::new(),
             total_size: 0,
             size_rx: Receiving::none(),
             freed_tx,
@@ -5804,11 +5804,12 @@ impl App {
     /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
     /// dialog asks about the selection.
     fn receive_remote(&mut self, ctx: &egui::Context) {
-        if self.listing_rx.is_none()
-            && !self.asking_about_selection()
-            && let Some((command, reply)) = self.waiting_select.take()
-        {
-            let _ = reply.send(self.remote_select(ctx, &command));
+        // Those held back, in the order they came: each gets its own answer (a second one put in
+        // the place of the first dropped its answer, which the script took for all found).
+        if self.listing_rx.is_none() && !self.asking_about_selection() {
+            for (command, reply) in std::mem::take(&mut self.waiting_select) {
+                let _ = reply.send(self.remote_select(ctx, &command));
+            }
         }
         while let Ok((command, reply)) = self.remote_rx.try_recv() {
             match reply {
@@ -5819,7 +5820,7 @@ impl App {
                     if command.starts_with("select ")
                         && (self.listing_rx.is_some() || self.asking_about_selection()) =>
                 {
-                    self.waiting_select = Some((command, reply));
+                    self.waiting_select.push((command, reply));
                 }
                 Some(reply) if command.starts_with("select ") => {
                     let _ = reply.send(self.remote_select(ctx, &command));
@@ -9882,6 +9883,36 @@ mod tests {
         let here = std::env::current_dir().unwrap().join(&dir);
         assert_eq!(app.collection, Some(here.join("show.m3u")));
         assert_eq!(app.list.files.len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Two `--remote select` held back while the folder is read each get their answer: the
+    /// second took the first one's place, and the first script got no answer, which it read as
+    /// every file found.
+    #[test]
+    fn selects_held_back_each_get_their_answer() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-selects-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote_rx = rx;
+        // A folder still being read.
+        let (_reading, listing) = std::sync::mpsc::channel();
+        app.listing_rx = super::Receiving::of(listing);
+        let mut answers = Vec::new();
+        for name in ["a.png", "none.png"] {
+            let (reply, answer) = std::sync::mpsc::channel();
+            let command = format!("select {}\0", dir.join(name).display());
+            tx.send((command, Some(reply))).unwrap();
+            answers.push(answer);
+        }
+        app.receive_remote(&ctx);
+        app.listing_rx = super::Receiving::none();
+        app.receive_remote(&ctx);
+        let got: Vec<Vec<u8>> = answers.iter().map(|a| a.try_recv().unwrap()).collect();
+        assert!(got[0].is_empty(), "a.png is there");
+        assert!(String::from_utf8_lossy(&got[1]).contains("none.png"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

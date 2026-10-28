@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Two glimt --remote select sent while a folder is still being read both get their answer, in the
+  order sent: the second took the first one's place, and the first script got no answer, which it
+  read as every file found.
 - Editing a collection that Geeqie wrote keeps Geeqie's own lines (its #geometry and comments):
   they were dropped the first time Glimt took an image out or put them in order.
 - Crop and Save As keep a file name that is not UTF-8 (a Latin-1 café.jpg) as it is in the copy's
