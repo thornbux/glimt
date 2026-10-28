@@ -2797,6 +2797,7 @@ impl App {
         // Shuffled whole for a random slideshow: the image shown first, as R puts it, so a
         // slideshow without Repeat shows all before it ends.
         if fresh
+            && self.shuffled
             && let Some(at) = (self.list.files.get(self.list.cur))
                 .and_then(|shown| files.iter().position(|f| f == shown))
         {
@@ -4159,6 +4160,11 @@ impl App {
     /// decoding, so the slideshow never shows a black screen.
     fn slideshow_tick(&mut self, ctx: &egui::Context) {
         let Some(last) = self.slideshow else { return };
+        // The list to show (with the subfolders, shuffled) is still being read: a step in the
+        // list before it would end a round without Repeat at once on the last image.
+        if self.whole_shuffle && self.listing_rx.is_some() {
+            return;
+        }
         // Waits while Rename or a delete asks about the shown image.
         if self.list.files.is_empty()
             || self.paused
@@ -9941,6 +9947,51 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A random slideshow with subfolders, without Repeat, started on the last image: it does
+    /// not end before its list is read, and stopped before that, the list comes back in sort
+    /// order with no image moved.
+    #[test]
+    fn a_random_slideshow_waits_for_its_list() {
+        for stop in [false, true] {
+            let d = std::env::temp_dir()
+                .join(format!("glimt-test-slides-{stop}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(d.join("sub")).unwrap();
+            for i in 0..5 {
+                image::RgbImage::new(2, 2)
+                    .save(d.join(format!("{i}.png")))
+                    .unwrap();
+                image::RgbImage::new(2, 2)
+                    .save(d.join("sub").join(format!("{i}.png")))
+                    .unwrap();
+            }
+            let (mut app, ctx) = app_on(&d);
+            let sorted = app.list.files.clone();
+            app.go(&ctx, 4);
+            app.config.slideshow_subfolders = true;
+            app.config.random = true;
+            app.config.slideshow_repeat = false;
+            app.start_slideshow(&ctx);
+            app.slideshow_tick(&ctx);
+            assert!(app.slideshow.is_some(), "ended before its list came");
+            if stop {
+                app.stop_slideshow(&ctx);
+            }
+            assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+            if stop {
+                assert_eq!(app.list.files, sorted);
+            } else {
+                // Shuffled, its round starting at the image shown (the first slide may have
+                // come since).
+                assert_eq!(
+                    (app.list.files.len(), app.list.files[0].to_str()),
+                    (10, Some("4.png"))
+                );
+            }
+            std::fs::remove_dir_all(&d).unwrap();
+        }
+    }
+
     /// A random slideshow of a collection with its subfolders plays in random order, also when
     /// the list was shuffled (R) before: the collection is read again from its file for it.
     #[test]
@@ -9967,15 +10018,16 @@ mod tests {
             if shuffled_first {
                 app.shuffle_list(&ctx, true);
             }
+            let shown = app.list.files[app.list.cur].clone();
             app.start_slideshow(&ctx);
             assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
             assert!(
                 app.shuffled && app.list.files != order,
                 "R first: {shuffled_first}"
             );
-            // The image shown (the slideshow may have gone on to the next) is first: without
-            // Repeat the round shows every image.
-            assert_eq!(app.list.cur, 0);
+            // The round starts at the image shown (the first slide may have come since): without
+            // Repeat it shows every image.
+            assert_eq!(app.list.files[0], shown);
             std::fs::remove_dir_all(&d).unwrap();
         }
     }

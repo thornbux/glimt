@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A random slideshow with the images in subfolders no longer ends at once when started on the last
+  image without Repeat: it now waits for its shuffled list.
 - A mark or star that could not be saved (a full disk) no longer stays shown in the window as if
   it were saved.
 - A random slideshow with the images in subfolders and without Repeat shows every image: it
