@@ -947,13 +947,15 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
     )
 }
 
-/// Where a new version of `path` is written before it is renamed over it: its whole name, this
-/// Glimt's instance ID and ".glimt-tmp", so that "a.png" and "a.webp", saved at the same time,
-/// or one file saved by two windows at once, never share one.
+/// Where a new version of `path` is written before it is renamed over it: this Glimt's instance
+/// ID, a count and ".glimt-tmp" beside it, so that "a.png" and "a.webp", saved at the same time,
+/// or one file saved by two windows at once, never share one. Not the file's own name with more
+/// after it: a name near the 255-byte limit could then not be saved turned, nor its sidecar
+/// written.
 pub fn tmp_path(path: &Path) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_owned();
-    name.push(format!(".{}.glimt-tmp", crate::remote::instance_id()));
-    path.with_file_name(name)
+    static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    path.with_file_name(format!("{}-{k}.glimt-tmp", crate::remote::instance_id()))
 }
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
@@ -1410,7 +1412,19 @@ mod tests {
         super::create_file(&file, "first").unwrap();
         assert!(super::create_file(&file, "second").is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "first");
-        assert!(!super::tmp_path(&file).exists());
+        let left = std::fs::read_dir(&dir).unwrap().flatten();
+        assert!(
+            !left
+                .into_iter()
+                .any(|e| e.file_name().to_string_lossy().ends_with(".glimt-tmp"))
+        );
+        // A name near the limit of 255 bytes is written again, and its sidecar too: the
+        // temporary name made from it was too long.
+        let long = dir.join(format!("{}.jpg", "a".repeat(240)));
+        super::create_file(&long, "x").unwrap();
+        super::replace_file(&long, "y").unwrap();
+        super::replace_file(&crate::meta::sidecar(&long), "<x/>").unwrap();
+        assert_eq!(std::fs::read_to_string(&long).unwrap(), "y");
         let file = dir.join("config");
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
         let text = super::read_lossy(&file).unwrap();

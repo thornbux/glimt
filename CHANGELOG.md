@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file with a long name (over about 230 bytes) can be saved turned and given keywords, stars and
+  comments: the temporary file was named after it with more added, past the limit of 255 bytes.
 - An EXIF field that says it has no values, or fewer than are read, shows nothing instead of a
   number made of the bytes beside it (an aperture of count 0, a GPS position with one value).
 - The status bar's Renaming and the message when the keyword tree cannot be saved are in every
