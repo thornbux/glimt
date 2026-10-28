@@ -720,7 +720,7 @@ impl Tiff<'_> {
     }
 
     fn int(&self, e: Entry) -> Option<u32> {
-        // No value at all: what lies where it would be is the next entry, not a number.
+        // No value at all: the bytes of its value field are not a number.
         if e.count == 0 {
             return None;
         }

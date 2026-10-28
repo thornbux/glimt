@@ -3578,6 +3578,7 @@ for v in new old; do
         expect "the tree's folder opened by a click" "$opened" "$d/many/f000002/b.png"
     fi
 done
+rm -rf $d
 as_version new
 
 echo "-- as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host"

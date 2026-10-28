@@ -9978,7 +9978,7 @@ mod tests {
         let entries = |gqv: &std::path::Path| std::fs::read_to_string(gqv).unwrap();
         // Each step's work ended too: the next would be held back while it still runs.
         let idle =
-            |app: &super::App| (app.touching.iter()).all(|t| std::sync::Arc::strong_count(t) == 1);
+            |app: &super::App| (app.file_jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
         app.rename_in_background(&ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("c.png")
