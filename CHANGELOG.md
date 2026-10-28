@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- An EXIF field that says it has no values, or fewer than are read, shows nothing instead of a
+  number made of the bytes beside it (an aperture of count 0, a GPS position with one value).
 - The status bar's Renaming and the message when the keyword tree cannot be saved are in every
   language; three texts no longer shown anywhere are gone from the translations.
 - Stars and marks set in another Glimt window follow the files this window moves or renames, and

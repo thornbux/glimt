@@ -720,6 +720,10 @@ impl Tiff<'_> {
     }
 
     fn int(&self, e: Entry) -> Option<u32> {
+        // No value at all: what lies where it would be is the next entry, not a number.
+        if e.count == 0 {
+            return None;
+        }
         match e.kind {
             SHORT => self.u16(e.at).map(u32::from),
             LONG | SLONG => self.u32(e.at),
@@ -729,6 +733,11 @@ impl Tiff<'_> {
 
     /// Rational number `i` of the entry (signed for SRATIONAL).
     fn ratio(&self, e: Entry, i: usize) -> Option<f64> {
+        // Only the values the entry has: a GPS position of one value read its minutes and
+        // seconds from whatever followed.
+        if i >= e.count as usize {
+            return None;
+        }
         let at = e.at + i * 8;
         let (n, d) = (self.u32(at)?, self.u32(at + 4)?);
         let (n, d) = if e.kind == SRATIONAL {
@@ -1088,6 +1097,19 @@ mod tests {
         let mut bad = d.clone();
         bad.truncate(60);
         super::parse(&bad);
+    }
+
+    /// An entry that says it has no values, or fewer than are read, shows nothing: an
+    /// aperture of count 0 showed an "f/" made of the next entry's tag and type.
+    #[test]
+    fn reads_only_the_values_an_entry_has() {
+        let mut d = sample();
+        // FNumber (0x829d), RATIONAL, its count 1 made 0.
+        let at = d.windows(4).position(|w| w == [0x9d, 0x82, 5, 0]).unwrap();
+        d[at + 4..at + 8].copy_from_slice(&0u32.to_le_bytes());
+        let rows = super::parse(&d);
+        assert!(rows.iter().all(|(k, _)| *k != "Aperture"));
+        assert!(rows.iter().any(|(k, _)| *k == "Exposure"));
     }
 
     /// An EXIF block with strings, rationals, a short and the Exif directory.
