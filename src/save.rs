@@ -169,11 +169,18 @@ fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, S
     Ok(small)
 }
 
+/// The name of `path` without its extension, as its bytes (a name that is not UTF-8 kept as it
+/// is, not made "caf\u{FFFD}"), with `more` after it: a copy's name beside it.
+pub(crate) fn stem_and(path: &Path, more: &str) -> std::ffi::OsString {
+    let mut name = path.file_stem().unwrap_or_default().to_owned();
+    name.push(more);
+    name
+}
+
 /// Save the part `how.crop` of the image as a new file beside it, "NAME-cropped.EXT" or
 /// "NAME-cropped-2.EXT" …, never over another; its sidecar is copied too. Returns the new file.
 pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, String> {
     let (out, format) = copy_bytes(path, how)?;
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
     // The original's own spelling (.jpeg, .JPG) where the format is the same.
     let ext = match path.extension().and_then(|e| e.to_str()) {
         Some(e) if how.format.is_none() && Format::of(path) == format && format != Format::Png => {
@@ -184,8 +191,8 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
     };
     for n in 1.. {
         let name = match n {
-            1 => format!("{stem}-cropped.{ext}"),
-            _ => format!("{stem}-cropped-{n}.{ext}"),
+            1 => stem_and(path, &format!("-cropped.{ext}")),
+            _ => stem_and(path, &format!("-cropped-{n}.{ext}")),
         };
         let new = path.with_file_name(name);
         match land(path, &new, &out, false, how.strip) {
@@ -1000,6 +1007,37 @@ mod tests {
         // Never the image itself, also asked for by name.
         assert!(super::save_as(&file, &how(None, false), &file).is_err());
         assert_eq!(image::image_dimensions(&file).unwrap(), (400, 200));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A crop of a file whose name is not UTF-8 keeps that name's bytes: "caf\xe9.png" became
+    /// "caf\u{FFFD}-cropped.png", a name the user never chose.
+    #[test]
+    fn a_crop_keeps_a_name_that_is_not_utf8() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let dir = std::env::temp_dir().join(format!("glimt-crop-name-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(std::ffi::OsStr::from_bytes(b"caf\xe9.png"));
+        image::RgbImage::new(8, 8)
+            .save_with_format(&file, image::ImageFormat::Png)
+            .unwrap();
+        let how = super::CopyAs {
+            page: 0,
+            rotate: true,
+            turns: 0,
+            mirrored: false,
+            crop: Some([0, 0, 4, 4]),
+            long_side: None,
+            format: None,
+            jpeg_quality: 90,
+            webp_quality: 90,
+            strip: false,
+        };
+        let new = super::save_cropped(&file, &how).unwrap();
+        assert_eq!(
+            new.file_name().unwrap().to_owned().into_vec(),
+            b"caf\xe9-cropped.png"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

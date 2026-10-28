@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Crop and Save As keep a file name that is not UTF-8 (a Latin-1 café.jpg) as it is in the copy's
+  name, instead of a replacement character.
 - A file with a long name (over about 230 bytes) can be saved turned and given keywords, stars and
   comments: the temporary file was named after it with more added, past the limit of 255 bytes.
 - An EXIF field that says it has no values, or fewer than are read, shows nothing instead of a

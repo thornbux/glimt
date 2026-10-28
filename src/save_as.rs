@@ -222,13 +222,12 @@ impl crate::App {
             };
             // "a-1920.jpg" when smaller, "a.webp" in another format, else "a-copy.jpg".
             let path = &dialog.path;
-            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
             let mut name = match how.long_side {
-                Some(long) => format!("{stem}-{long}.{}", format.ext()),
-                None => format!("{stem}.{}", format.ext()),
+                Some(long) => save::stem_and(path, &format!("-{long}.{}", format.ext())),
+                None => save::stem_and(path, &format!(".{}", format.ext())),
             };
             if path.with_file_name(&name) == *path {
-                name = format!("{stem}-copy.{}", format.ext());
+                name = save::stem_and(path, &format!("-copy.{}", format.ext()));
             }
             let start = path.with_file_name(name);
             self.pick(ctx, false, Pick::SaveAs(dialog.path, how, start));
