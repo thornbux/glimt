@@ -85,7 +85,10 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
 
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
     let text = crate::decode::read_limited(file)?;
-    Ok(match is_list(file) {
+    // A list's entries relative to it start from its folder as an absolute path: `glimt
+    // show.m3u` in its own folder gave "" as that folder, and every entry was left out.
+    let file = std::path::absolute(file)?;
+    Ok(match is_list(&file) {
         true => parse_list(&text, file.parent().unwrap_or(Path::new("/"))),
         false => parse(&text),
     })
@@ -300,6 +303,19 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// A list opened by a path relative to where Glimt was started keeps its relative entries:
+    /// `glimt show.m3u` in its own folder showed none of them.
+    #[test]
+    fn a_list_opened_by_a_relative_path_keeps_its_entries() {
+        let dir = std::path::PathBuf::from(format!("glimt-test-list-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("show.m3u"), "a.jpg\nsub/b.jpg\n").unwrap();
+        let got = super::load(&dir.join("show.m3u")).unwrap();
+        let here = std::env::current_dir().unwrap().join(&dir);
+        assert_eq!(got, [here.join("a.jpg"), here.join("sub/b.jpg")]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A window's order: images only in the file (added elsewhere) go last, those taken out
     /// elsewhere stay out.
     #[test]

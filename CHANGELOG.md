@@ -17,6 +17,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
   go with those it deletes, also while a move started in this window is still running: this window
   decided from its own copy of them, which did not have them yet.
 
+## [0.41.1] - 2026-10-28
+
+### Fixed
+
+- A playlist opened by its name in its own folder (glimt show.m3u) shows its images: its entries
+  were joined to an empty folder name and every one was left out. A collection or list opened by a
+  relative name is kept in Open Recent and as the last folder by its full path, so another window
+  opens that file and not one of the same name where it was started.
+
 ## [0.41.0] - 2026-10-26
 
 ### Fixed
@@ -1963,7 +1972,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.41.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.41.1...HEAD
+[0.41.1]: https://github.com/thornbux/glimt/compare/v0.41.0...v0.41.1
 [0.41.0]: https://github.com/thornbux/glimt/compare/v0.40.1...v0.41.0
 [0.40.1]: https://github.com/thornbux/glimt/compare/v0.40.0...v0.40.1
 [0.40.0]: https://github.com/thornbux/glimt/compare/v0.39.0...v0.40.0
