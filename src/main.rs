@@ -3379,11 +3379,12 @@ impl App {
 
     /// The size of the selection, in the background, once it has stayed the same a moment.
     fn selection_size(&mut self, ctx: &egui::Context) {
-        if self
-            .selected_size_due
-            .is_none_or(|due| Instant::now() < due)
-        {
+        let Some(due) = self.selected_size_due else {
             return;
+        };
+        // Asked again each frame: a frame drawn before it is due drops the earlier request.
+        if let Some(wait) = due.checked_duration_since(Instant::now()) {
+            return ctx.request_repaint_after(wait);
         }
         self.selected_size_due = None;
         if self.list.selected.is_empty() {
@@ -5377,8 +5378,12 @@ impl App {
 
     /// The size of the matches, in the background, once the search has stayed the same a moment.
     fn match_size(&mut self, ctx: &egui::Context) {
-        if self.match_size_due.is_none_or(|due| Instant::now() < due) {
+        let Some(due) = self.match_size_due else {
             return;
+        };
+        // Asked again each frame: a frame drawn before it is due drops the earlier request.
+        if let Some(wait) = due.checked_duration_since(Instant::now()) {
+            return ctx.request_repaint_after(wait);
         }
         self.match_size_due = None;
         let Some(m) = &self.list.matches else { return };

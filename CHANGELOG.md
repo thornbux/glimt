@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The size of the selected files in the status bar no longer stays on calculating until the
+  pointer moves.
 - With hundreds of thousands of files marked, each mark or star key after the first no longer
   reads the whole marks file again: the window takes what it wrote itself.
 - In a large folder sorted by EXIF date, giving an image keywords, stars or alt text no longer
