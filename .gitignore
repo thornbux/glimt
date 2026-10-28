@@ -2,3 +2,4 @@
 /demo/
 /build-flatpak
 /.flatpak-builder
+/glimt-test-*
