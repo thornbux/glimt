@@ -4656,14 +4656,22 @@ impl App {
                     if path.as_os_str().is_empty() {
                         return drop(ui.label("…"));
                     }
-                    let caret = match self.tree_open.contains(path) {
+                    let open = self.tree_open.contains(path);
+                    let caret = match open {
                         true => theme::icon::CARET_DOWN,
                         false => theme::icon::CARET_RIGHT,
                     };
-                    if ui.add(egui::Button::new(caret).frame(false)).clicked() {
+                    let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
+                    let toggle = ui.add(egui::Button::new(caret).frame(false));
+                    // Told to a screen reader by the folder's name and whether it is open, not
+                    // by the icon's glyph.
+                    toggle.widget_info(|| {
+                        let role = egui::Role::DisclosureTriangle;
+                        egui::WidgetInfo::selected(role, true, open, &name)
+                    });
+                    if toggle.clicked() {
                         toggled = Some(path.to_path_buf());
                     }
-                    let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
                     let label = ui.selectable_label(path == self.dir, name.as_ref());
                     let label = noted(&label, &name);
                     if label.clicked() {
