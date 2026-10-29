@@ -2558,6 +2558,8 @@ impl App {
         let folders = self.folders.clone();
         // A folder read again in EXIF date order (mostly after Glimt's own sidecar writes) keeps
         // the order shown when no name is new, instead of reading every file's EXIF again.
+        // shortcut: the list copied in the UI thread, 7-9 ms for 500,000 names, once per
+        // refresh; share it with the thread (an Arc in List) if folders grow far past that.
         let exif = matches!(by, files::Sort::ExifOriginal | files::Sort::ExifDigitized);
         let same = Some((self.dir.clone(), by, ascending, case, recursive));
         let before = (exif && !self.list_parts && !self.shuffled && collection.is_none())
