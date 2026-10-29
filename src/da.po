@@ -2302,3 +2302,7 @@ msgstr "Angiv vinduestitel …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel på dette vindue (%name%, %path%, %folder%, %app%; tom: som i Indstillinger):"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Stop {name}"

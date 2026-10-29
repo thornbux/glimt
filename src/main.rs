@@ -1619,6 +1619,8 @@ struct App {
     apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
     /// Edit → Plugins, read at start.
     plugins: Vec<plugins::Plugin>,
+    /// The plugins running, for Stop in their menu.
+    plugins_running: plugins::Running,
     /// Edit → Preferences is open.
     preferences_open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
@@ -2143,6 +2145,7 @@ impl App {
                 (config.desktop_profile).then(|| read_desktop_screen(ctx)),
             ),
             plugins: plugins::find(),
+            plugins_running: plugins::Running::default(),
             apps_rx,
             row_step: 1,
             notices_rx: notices,
@@ -8576,6 +8579,19 @@ impl App {
                     chosen = Some(k);
                 }
             }
+            // A plugin that is still running, an editor left open or a script that hangs: ended
+            // here, with what it started, in the background (it is given a second).
+            let running = self.plugins_running.lock().unwrap().clone();
+            if !running.is_empty() {
+                ui.separator();
+            }
+            for (name, pid) in running {
+                let text = tf!("Stop {name}", name);
+                if noted(&ui.button(iconed(ui, theme::icon::STOP, &text)), &text).clicked() {
+                    (self.plugins_running.lock().unwrap()).retain(|r| r.1 != pid);
+                    std::thread::spawn(move || external::stop(pid));
+                }
+            }
             ui.separator();
             let folder = iconed(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"));
             if noted(&ui.button(folder), tr("Open the Plugins Folder"))
@@ -8597,13 +8613,13 @@ impl App {
                 return;
             }
             let plugin = self.plugins[k].clone();
-            let dir = self.dir.clone();
+            let (dir, running) = (self.dir.clone(), self.plugins_running.clone());
             let deleted = self.deleted_tx.clone();
             let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
             // A plugin may be an editor that stays open for hours: not waited for at closing,
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
-                let result = plugin.run(&files, &dir);
+                let result = plugin.run(&files, &dir, &running);
                 let _ = deleted.send(Deleted {
                     relist: true,
                     changed: files,

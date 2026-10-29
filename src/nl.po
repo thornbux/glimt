@@ -2302,3 +2302,7 @@ msgstr "Venstertitel instellen …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel van dit venster (%name%, %path%, %folder%, %app%; leeg: zoals in Voorkeuren):"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "{name} stoppen"

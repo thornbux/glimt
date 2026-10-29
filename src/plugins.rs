@@ -6,6 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
+/// The plugins running, by name and process ID, for Stop in Edit → Plugins: one may be an
+/// editor that stays open for hours, or a script that never ends.
+pub type Running = std::sync::Arc<std::sync::Mutex<Vec<(String, u32)>>>;
+
 #[derive(Clone)]
 pub struct Plugin {
     pub name: String,
@@ -112,8 +116,10 @@ fn arguments(words: &[String], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
 
 impl Plugin {
     /// Run the plugin on `files` and wait for it: once for each file with %f or %u, once for all
-    /// with %F or %U, and once in `folder` without any. The error output if it failed.
-    pub fn run(&self, files: &[PathBuf], folder: &Path) -> Result<(), String> {
+    /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
+    /// one taken out of it there was stopped, and the runs after it are not made. The error
+    /// output if it failed.
+    pub fn run(&self, files: &[PathBuf], folder: &Path, running: &Running) -> Result<(), String> {
         let words = words(&self.exec);
         let each = words.iter().any(|w| w == "%f" || w == "%u");
         let runs: Vec<&[PathBuf]> = if each {
@@ -133,14 +139,25 @@ impl Plugin {
                 program
             };
             // Its output is not read: a converter writing the image to stdout would else be
-            // kept whole in memory; its errors are.
-            #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
-            let out = crate::external::command(program.to_string_lossy().as_ref())
+            // kept whole in memory; its errors are. In a process group of its own, so Stop ends
+            // what it started too.
+            let child = crate::external::stoppable_command(program.to_string_lossy().as_ref())
                 .args(&args[1..])
                 .current_dir(folder)
                 .stdout(std::process::Stdio::null())
-                .output()
+                .spawn()
                 .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            let pid = child.id();
+            running.lock().unwrap().push((self.name.clone(), pid));
+            #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
+            let out = child.wait_with_output();
+            let mut now = running.lock().unwrap();
+            match now.iter().position(|r| r.1 == pid) {
+                Some(at) => drop(now.remove(at)),
+                None => return Err(crate::lang::tr("stopped").into()),
+            }
+            drop(now);
+            let out = out.map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
                 return Err(err.lines().last().unwrap_or("failed").to_owned());
@@ -198,7 +215,7 @@ mod tests {
         assert_eq!(commented.unwrap().name, "C");
         // Once for each file, in the folder given.
         let files = [dir.join("a b.jpg"), dir.join("c.jpg")];
-        plugin.run(&files, &dir).unwrap();
+        plugin.run(&files, &dir, &Running::default()).unwrap();
         let log = std::fs::read_to_string(dir.join("log")).unwrap();
         assert_eq!(
             log.lines().collect::<Vec<_>>(),
@@ -208,7 +225,28 @@ mod tests {
             "[Desktop Entry]\nName=F\nExec=sh -c \"echo no >&2; exit 1\"\n",
             &dir,
         );
-        assert_eq!(failing.unwrap().run(&files, &dir), Err("no".into()));
+        assert_eq!(
+            failing.unwrap().run(&files, &dir, &Running::default()),
+            Err("no".into())
+        );
+        // One that does not end, stopped from the menu: ended with what it started, and told.
+        let endless = "[Desktop Entry]\nName=Endless\nExec=sh -c \"sleep 30; sleep 30\"\n";
+        let endless = parse(endless, &dir).unwrap();
+        let running = Running::default();
+        let start = std::time::Instant::now();
+        let stopping = {
+            let running = running.clone();
+            std::thread::spawn(move || {
+                while running.lock().unwrap().is_empty() {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                let (_, pid) = running.lock().unwrap().remove(0);
+                crate::external::stop(pid);
+            })
+        };
+        assert_eq!(endless.run(&files, &dir, &running), Err("stopped".into()));
+        stopping.join().unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -2313,3 +2313,7 @@ msgstr "Ustaw tytuł okna…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Zatrzymaj {name}"

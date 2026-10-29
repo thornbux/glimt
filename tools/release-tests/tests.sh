@@ -2082,9 +2082,14 @@ shot plugins-menu
 menu Stamp; sleep 2
 ran=$(cat $d/ran 2>/dev/null)
 answer=$($BIN --remote current 2>/dev/null | tr -d '\0')
+# Still running, it has Stop in the menu, which ends it with its sleep.
+menu Edit Plugins "Stop Stamp"
+until_ok "! pgrep -f /tmp/stub/stamp" 5
+left=$(pgrep -f /tmp/stub/stamp >/dev/null && echo running || echo ended)
 quit
 rm -f /tmp/stub/stamp $XDG_DATA_HOME/glimt/plugins/stamp.desktop
 expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
+expect "Stop Stamp in Edit → Plugins ended the plugin" "$left" "ended"
 
 echo "-- zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -"
 d=/tmp/zoom-keys

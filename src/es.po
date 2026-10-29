@@ -2302,3 +2302,7 @@ msgstr "Establecer título de la ventana…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Título de esta ventana (%name%, %path%, %folder%, %app%; vacío: como en Preferencias):"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Detener {name}"

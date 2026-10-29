@@ -2302,3 +2302,7 @@ msgstr "Définir le titre de la fenêtre…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titre de cette fenêtre (%name%, %path%, %folder%, %app% ; vide : comme dans les Préférences) :"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Arrêter {name}"
