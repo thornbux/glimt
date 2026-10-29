@@ -2302,3 +2302,7 @@ msgstr "Aseta ikkunan otsikko…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten asetuksissa):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} on linkki: sen kautta ei kirjoiteta"

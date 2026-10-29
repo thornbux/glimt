@@ -2313,3 +2313,7 @@ msgstr "Ustaw tytuł okna…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} to dowiązanie: zapis przez nie jest pomijany"

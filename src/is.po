@@ -2302,3 +2302,7 @@ msgstr "Setja gluggatitil…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titill þessa glugga (%name%, %path%, %folder%, %app%; tómt: eins og í kjörstillingum):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} er tengill: ekki skrifað í gegnum hann"

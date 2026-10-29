@@ -2313,3 +2313,7 @@ msgstr "Angi vindustittel …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tittel på dette vinduet (%name%, %path%, %folder%, %app%; tom: som i Innstillinger):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} er en lenke: skrives ikke gjennom"

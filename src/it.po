@@ -2302,3 +2302,7 @@ msgstr "Imposta titolo della finestra…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titolo di questa finestra (%name%, %path%, %folder%, %app%; vuoto: come nelle Preferenze):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} è un collegamento: non si scrive attraverso"
