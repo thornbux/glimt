@@ -128,6 +128,7 @@ start() {
     # may lack an option a new check uses: noted only.
     if [ -z "$WIN" ]; then
         if [ "$V" = new ]; then fail "no window: $*"; else note "old: no window: $*"; fi
+        tail -5 /tmp/glimt.err 2>/dev/null | sed 's/^/     /'
     fi
     # The first image, when there is one, before the keys come: under load (six parts at once)
     # a fixed wait is not enough, and a key before the list is read goes to no image.
