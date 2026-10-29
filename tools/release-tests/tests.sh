@@ -2495,7 +2495,7 @@ for v in new old; do
     config
     start $d/a.gif
     sleep 2
-    click 225 10; click 236 95 2       # Window → Projector
+    menu Window Projector; sleep 1
     key ctrl+Next; sleep 1             # the next frame: blue
     p=$(xdotool search --name "Glimt Projector" 2>/dev/null | head -1)
     [ -n "$p" ] && import -window $p /t/out/projector-frame-$v.png
@@ -2516,7 +2516,7 @@ for v in new old; do
     config
     start $d/a.png
     sleep 2
-    click 225 10; click 236 95 2       # Window → Projector
+    menu Window Projector; sleep 1
     p=$(xdotool search --name "Glimt Projector" 2>/dev/null | head -1)
     # As full screen on a large screen; Xvfb has no window manager to make it so.
     xdotool windowsize $p 1600 1000 2>/dev/null; sleep 4
