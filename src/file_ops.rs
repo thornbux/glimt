@@ -922,7 +922,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
 /// rename, both with `rename_never_over`; a move to another file system is a copy and an unlink.
 pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     let copy = || -> std::io::Result<()> {
         if to.exists() {
             return Err(AlreadyExists.into());
@@ -948,8 +948,11 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         let copied = crate::decode::open(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
+                // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
+                // or sticky, which a copy owned by this user would carry for its owner.
                 let meta = std::fs::metadata(from)?;
-                std::fs::set_permissions(&part, meta.permissions())?;
+                let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
+                std::fs::set_permissions(&part, mode)?;
                 out.set_modified(meta.modified()?)?;
                 out.sync_all()
             })
@@ -1725,7 +1728,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A copy keeps the file's time and permissions; it never replaces a file.
+    /// A copy keeps the file's time and permissions, without set-user-ID and set-group-ID; it
+    /// never replaces a file.
     #[test]
     fn copies_keep_the_time() {
         use std::os::unix::fs::PermissionsExt;
@@ -1740,12 +1744,12 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o6750)).unwrap();
         super::put_file(&a, &b, true).unwrap();
         let meta = std::fs::metadata(&b).unwrap();
         assert_eq!(
-            (meta.modified().unwrap(), meta.permissions().mode() & 0o777),
-            (old, 0o640)
+            (meta.modified().unwrap(), meta.permissions().mode() & 0o7777),
+            (old, 0o750)
         );
         assert!(super::put_file(&a, &b, true).is_err());
         std::fs::remove_dir_all(dir).unwrap();
