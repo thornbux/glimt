@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Two Glimts with the same process ID on two computers sharing a home folder, or in two
+  containers, never use the same temporary file when they save at the same moment.
+
 ## [0.42.0] - 2026-10-29
 
 ### Added
