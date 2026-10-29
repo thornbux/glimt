@@ -4087,6 +4087,11 @@ impl App {
         }
         self.leave_image(ctx);
         self.shuffled = on;
+        // Back on while a random slideshow still reads its list, which random off asked for in
+        // sort order: read again, shuffled whole.
+        if on && self.whole_shuffle && self.listing_rx.is_some() {
+            return self.list(ctx);
+        }
         if !on {
             // A collection back in its own order, which shuffling left only in its file.
             // shortcut: the file read in the UI thread; collections are small text files.
@@ -4099,6 +4104,9 @@ impl App {
                 let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
                     .filter_map(|p| Some(p.strip_prefix(&self.dir).ok()?.as_os_str().to_owned()))
                     .collect();
+                // A random slideshow's listing still on its way would bring its random order.
+                self.listing_rx.clear();
+                self.whole_shuffle = false;
                 self.replace_files(ctx, files, shown);
                 return;
             }
@@ -9976,6 +9984,10 @@ mod tests {
             assert!(app.slideshow.is_some(), "ended before its list came");
             if stop {
                 app.stop_slideshow(&ctx);
+            } else {
+                // Random off and on again while the list is read: it still comes shuffled.
+                app.set_random_order(&ctx, false);
+                app.set_random_order(&ctx, true);
             }
             assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
             if stop {
@@ -9987,6 +9999,9 @@ mod tests {
                     (app.list.files.len(), app.list.files[0].to_str()),
                     (10, Some("4.png"))
                 );
+                let mut sorted = app.list.files.clone();
+                sorted.sort();
+                assert_ne!(app.list.files, sorted, "shuffled");
             }
             std::fs::remove_dir_all(&d).unwrap();
         }
