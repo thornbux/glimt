@@ -3008,6 +3008,19 @@ impl App {
                 self.dir.display().to_string(),
             ),
         };
+        // The shown image's own folder: a collection and several folders are listed as "/".
+        let folder = match self.list.files.get(self.list.cur) {
+            Some(_) => self.path(self.list.cur).parent().map(Path::to_path_buf),
+            None => self
+                .collection
+                .as_ref()
+                .and_then(|f| f.parent())
+                .map(Path::to_path_buf),
+        };
+        let folder = folder
+            .unwrap_or_else(|| self.dir.clone())
+            .display()
+            .to_string();
         // A named Glimt says which it is.
         let app = match remote::given_name() {
             Some(n) => tf!("Glimt ({n})", n),
@@ -3020,7 +3033,7 @@ impl App {
         let own = fill_template(template, |field| match field {
             "name" => name.clone(),
             "path" => path.clone(),
-            "folder" => self.dir.display().to_string(),
+            "folder" => folder.clone(),
             "app" => app.clone(),
             _ => String::new(),
         });
@@ -9548,7 +9561,8 @@ fn fill_template(template: &str, value: impl Fn(&str) -> String) -> String {
                 out += rest;
                 (fields == 0 || filled > 0).then_some(out)
             })
-            .filter(|p| !p.trim().is_empty())
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty())
             .collect();
         (!parts.is_empty()).then(|| parts.join(" · "))
     });
@@ -9663,6 +9677,14 @@ mod tests {
         assert_eq!(app.title_text(), "Left: a.png");
         app.set_window_title(&ctx, "");
         assert_eq!(app.title_text(), "Glimt");
+        // In a collection, listed as "/": the image's own folder; parts joined without spaces
+        // doubled.
+        let gqv = dir.join("c.gqv");
+        let text = format!("#GQview collection\n\"{}\"\n", dir.join("a.png").display());
+        std::fs::write(&gqv, text).unwrap();
+        let (mut col, _) = app_on(&gqv);
+        col.config.window_title = "%folder% | %name%".into();
+        assert_eq!(col.title_text(), format!("{} · a.png", dir.display()));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -10696,7 +10718,7 @@ mod tests {
             _ => String::new(),
         };
         let fill = |t| super::fill_template(t, value);
-        assert_eq!(fill(super::OSD_TEMPLATE), "a.jpg  \nISO 200");
+        assert_eq!(fill(super::OSD_TEMPLATE), "a.jpg\nISO 200");
         assert_eq!(
             fill("%Taken%|x %name%|%comment%\\n%keywords%\\n50%"),
             "x a.jpg\n50%"
