@@ -428,10 +428,15 @@ pub struct Login {
 #[allow(clippy::disallowed_methods)] // waits for gio under its Watchdog, answering its prompts
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
+    // An option, not a place: gio mount takes no -- before its places, and -u or -e would
+    // unmount or eject instead.
+    if uri.starts_with('-') {
+        return Err(Some(format!("Could not mount {uri}: not an address")));
+    }
     // With the usual limit: asked before the mount, this would otherwise wait on a server
     // that never answers, with no watchdog yet.
     let local = || {
-        let out = limited("gio", &["info", "-a", "standard::name", uri], 1 << 16)?;
+        let out = limited("gio", &["info", "-a", "standard::name", "--", uri], 1 << 16)?;
         out.lines()
             .find_map(|l| l.strip_prefix("local path: "))
             .map(PathBuf::from)
@@ -520,6 +525,30 @@ fn unknown_host(uri: &str) -> String {
         true => format!(" (the name {host} is not found)"),
         false => format!(" (the name {host} is not found; try {host}.local or its IP address)"),
     }
+}
+
+/// `uri` without a password written into it (smb://user:secret@nas/share), and that password,
+/// percent-decoded: given to gio as a URI, it would be on gio's command line, which every user
+/// of the computer can read in the process list, and on the screen in "Connecting to …".
+pub fn without_password(uri: &str) -> (String, Option<String>) {
+    let Some((scheme, rest)) = uri.split_once("://") else {
+        return (uri.to_owned(), None);
+    };
+    let end = rest.find('/').unwrap_or(rest.len());
+    let (authority, path) = rest.split_at(end);
+    let Some((info, host)) = authority.rsplit_once('@') else {
+        return (uri.to_owned(), None);
+    };
+    let Some((user, password)) = info.split_once(':') else {
+        return (uri.to_owned(), None);
+    };
+    let password = crate::collections::percent_decoded(password.as_bytes());
+    let password = String::from_utf8_lossy(&password).into_owned();
+    let user = match user.is_empty() {
+        true => String::new(),
+        false => format!("{user}@"),
+    };
+    (format!("{scheme}://{user}{host}{path}"), Some(password))
 }
 
 /// The server's name in `uri`: after the user and password (which may hold a colon), before the
@@ -859,6 +888,29 @@ mod tests {
         assert_eq!(super::unknown_host("smb://user@127.0.0.1/share"), "");
         let hint = super::unknown_host("smb://no-such-glimt-host/share");
         assert!(hint.contains("no-such-glimt-host.local"), "{hint}");
+    }
+
+    /// A password in a URI is taken out of it, decoded, and the user name kept; a URI without
+    /// one is as it was.
+    #[test]
+    fn takes_the_password_out_of_a_uri() {
+        let (uri, password) = super::without_password("smb://me:p%40ss:w@nas:445/share/a@b");
+        assert_eq!(uri, "smb://me@nas:445/share/a@b");
+        assert_eq!(password.as_deref(), Some("p@ss:w"));
+        let (uri, password) = super::without_password("sftp://:secret@host/home");
+        assert_eq!(
+            (uri.as_str(), password.as_deref()),
+            ("sftp://host/home", Some("secret"))
+        );
+        for plain in [
+            "smb://me@nas/share",
+            "smb://nas/a:b@c",
+            "/home/me",
+            "smb://nas",
+        ] {
+            assert_eq!(super::without_password(plain), (plain.to_owned(), None));
+        }
+        assert!(super::gio_mount("-u", None).is_err_and(|e| e.is_some()));
     }
 
     /// A thumbnail's size as ffmpeg's filter: shrunk to fit, never enlarged; none for the view.
