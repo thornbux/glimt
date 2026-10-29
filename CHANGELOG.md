@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A glimt --remote select that waits for a folder to be read is answered for that folder: another
+  script's command sent after it, such as open, waits its turn. At most 64 commands wait; one more
+  is told to try again.
+
 ## [0.42.0] - 2026-10-29
 
 ### Added
