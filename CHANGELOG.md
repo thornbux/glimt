@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A window title of your own in Preferences → Window: a template of %name%, %path%, %folder% and
+  %app%, as the full screen information has. Left empty, the title is as before.
+- Window → Set Window Title… gives this window a title of its own, as a template, until it closes;
+  left empty, the one in Preferences again.
+- glimt --remote title TEXT gives a window a title of its own from a script, and title alone the
+  one in Preferences again.
+
 ### Changed
 
 - Every file operation is held to one contract in the tests: run on a folder with sidecars, stars
