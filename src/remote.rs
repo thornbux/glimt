@@ -7,6 +7,7 @@
 //! share. Both ends are here: `client` sends, `listen` receives.
 
 use std::io::{BufRead, Write};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -86,7 +87,19 @@ pub(crate) fn dir() -> Option<PathBuf> {
     if let Some(id) = std::env::var_os("FLATPAK_ID") {
         dir = dir.join("app").join(id);
     }
-    Some(dir.join("glimt"))
+    let dir = dir.join("glimt");
+    // Another user's folder of this name, where $XDG_RUNTIME_DIR is not private as it should be
+    // (/tmp): its sockets would be theirs to answer and its locks theirs to hold.
+    let uid = std::fs::metadata("/proc/self").ok()?.uid();
+    own_or_none(&dir, uid).then_some(dir)
+}
+
+/// Whether `dir` is a folder of user `uid`, not a link, or not there yet (made by `listen`).
+fn own_or_none(dir: &std::path::Path, uid: u32) -> bool {
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) => m.is_dir() && m.uid() == uid,
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    }
 }
 
 /// This Glimt's name: its process ID, and in a Flatpak, where every instance can have the same
@@ -368,7 +381,10 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             std::thread::spawn(move || {
                 let _ = stream.set_read_timeout(Some(WAIT));
                 let mut out = stream.try_clone().ok();
-                for line in std::io::BufReader::new(stream)
+                // As much as `select` may send, no more: a client that sends without end
+                // does not fill the memory.
+                let most = MAX_SELECT as u64 * 4096 + 64;
+                for line in std::io::BufReader::new(std::io::Read::take(stream, most))
                     .lines()
                     .map_while(Result::ok)
                 {
@@ -470,6 +486,25 @@ mod tests {
             !super::known(&words("subfolders yes")) && !super::known(&words("subfolders on off"))
         );
         assert!(!super::known(&[]));
+    }
+
+    /// The runtime folder is used when it is the user's own folder or not there yet; not when
+    /// it is another user's, a link, or a file.
+    #[test]
+    fn uses_only_its_own_runtime_folder() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-runtime-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let uid = std::fs::metadata(&dir).unwrap().uid();
+        assert!(super::own_or_none(&dir, uid));
+        assert!(!super::own_or_none(&dir, uid + 1));
+        assert!(super::own_or_none(&dir.join("none"), uid));
+        let link = dir.join("link");
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        assert!(!super::own_or_none(&link, uid));
+        std::fs::write(dir.join("file"), "").unwrap();
+        assert!(!super::own_or_none(&dir.join("file"), uid));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A socket that a Glimt answers on is kept; one it left behind is taken over.
