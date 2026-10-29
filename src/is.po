@@ -2302,3 +2302,7 @@ msgstr "Setja gluggatitil…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titill þessa glugga (%name%, %path%, %folder%, %app%; tómt: eins og í kjörstillingum):"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Afrit af myndunum í heimamöppunni þinni: þau af dulkóðuðu drifi eða minnislykli eru þar áfram læsileg"

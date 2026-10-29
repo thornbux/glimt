@@ -2302,3 +2302,7 @@ msgstr "Venstertitel instellen …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel van dit venster (%name%, %path%, %folder%, %app%; leeg: zoals in Voorkeuren):"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kopieën van de afbeeldingen in je thuismap: die van een versleuteld volume of een USB-stick blijven daar leesbaar"

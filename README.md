@@ -642,7 +642,7 @@ only your own Glimt windows on this computer, through a private socket.
 | Decoder plugins | `$XDG_DATA_HOME/glimt/decoders/*.desktop` |
 | Keywords, comment, alt text and extended description, and stars when chosen | `photo.jpg.xmp` beside the image, as darktable and digiKam read them |
 | Remote-control sockets, which only your user can reach | `$XDG_RUNTIME_DIR/glimt` |
-| Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences) | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
+| Thumbnails (new ones saved there unless "Save new thumbnails" is off in Preferences); small copies of the pictures, which stay readable after the photos are on an encrypted volume or a stick taken away | `$XDG_CACHE_HOME/thumbnails/normal` and `large` (`~/.cache/thumbnails`), shared with other programs |
 
 Glimt's own files are plain text, written to a temporary file and renamed, so a crash never
 leaves half of one. Several Glimt windows share them: settings, collections, marks and the

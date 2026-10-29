@@ -2302,3 +2302,7 @@ msgstr "Aseta ikkunan otsikko…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten asetuksissa):"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kuvien kopioita kotikansiossasi: salatun aseman tai muistitikun kuvat ovat yhä luettavissa siellä"

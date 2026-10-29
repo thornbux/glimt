@@ -2302,3 +2302,7 @@ msgstr "Angiv vinduestitel …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel på dette vindue (%name%, %path%, %folder%, %app%; tom: som i Indstillinger):"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kopier af billederne i din hjemmemappe: dem fra et krypteret drev eller en USB-nøgle kan stadig læses der"

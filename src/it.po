@@ -2302,3 +2302,7 @@ msgstr "Imposta titolo della finestra…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titolo di questa finestra (%name%, %path%, %folder%, %app%; vuoto: come nelle Preferenze):"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Copie delle immagini nella tua cartella home: quelle di un volume cifrato o di una chiavetta restano leggibili lì"
