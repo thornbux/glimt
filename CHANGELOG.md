@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-10-30
+
+### Security
+
+- A sidecar (photo.jpg.xmp) that is a link is no longer written through: a downloaded folder could
+  point it at another XMP file of yours, which adding a keyword, a comment or stars then
+  rewrote. Glimt now says the sidecar is a link and leaves both alone.
+- File → Import Lightroom Catalog refuses a catalog in which a table it reads is a view: on
+  sqlite3 older than 3.30 (RHEL 8 has 3.26), such a catalog could write files when it was read.
+  Catalogs made by Lightroom have tables only.
+- Undo after a move to the trash reads a trash folder at the top of a disk (.Trash-1000,
+  .Trash/1000) only when it is your own folder, as the trash specification asks: another user who
+  can write on that disk could otherwise have Undo put their file in the place of yours.
+- A copied file no longer keeps a set-user-ID or set-group-ID bit, as cp does: a program another
+  user had made so could be copied into one that runs as you.
+
 ## [0.42.0] - 2026-10-29
 
 ### Added
@@ -2022,7 +2038,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.42.1...HEAD
+[0.42.1]: https://github.com/thornbux/glimt/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/thornbux/glimt/compare/v0.41.1...v0.42.0
 [0.41.1]: https://github.com/thornbux/glimt/compare/v0.41.0...v0.41.1
 [0.41.0]: https://github.com/thornbux/glimt/compare/v0.40.1...v0.41.0
