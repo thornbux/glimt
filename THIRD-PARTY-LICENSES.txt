@@ -40,8 +40,8 @@ naga 30.0.1 (LICENSE.APACHE)
 owned_ttf_parser 0.25.1 (LICENSE)
 pin-project-lite 0.2.17 (LICENSE-APACHE)
 raw-window-handle 0.6.2 (LICENSE-APACHE.md)
-resvg 0.48.1 (LICENSE-APACHE)
-usvg 0.48.1 (LICENSE-APACHE)
+resvg 0.49.0 (LICENSE-APACHE)
+usvg 0.49.0 (LICENSE-APACHE)
 vello_common 0.2.0 (LICENSE-APACHE)
 vello_cpu 0.2.0 (LICENSE-APACHE)
 wgpu-core-deps-windows-linux-android 30.0.1 (LICENSE.APACHE)
@@ -6580,8 +6580,8 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-resvg 0.48.1 (LICENSE-MIT)
-usvg 0.48.1 (LICENSE-MIT)
+resvg 0.49.0 (LICENSE-MIT)
+usvg 0.49.0 (LICENSE-MIT)
 ------------------------------------------------------------------------------
 
 Copyright 2017 the Resvg Authors
