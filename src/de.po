@@ -2286,3 +2286,19 @@ msgstr "Konnte das Bild nicht speichern: {e}"
 #: src/main.rs
 msgid "Save As"
 msgstr "Speichern unter"
+
+#: src/preferences.rs
+msgid "Custom window title (empty: as above):"
+msgstr "Eigener Fenstertitel (leer: wie oben):"
+
+#: src/preferences.rs
+msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
+msgstr "Felder: %name%, %path%, %folder% und %app%. Ein | beginnt einen Teil, der wegfällt, wenn seine Felder leer sind."
+
+#: src/actions.rs
+msgid "Set Window Title…"
+msgstr "Fenstertitel festlegen …"
+
+#: src/main.rs
+msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
+msgstr "Titel dieses Fensters (%name%, %path%, %folder%, %app%; leer: wie in den Einstellungen):"

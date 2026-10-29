@@ -435,6 +435,9 @@ const MANUAL: &[(&str, &str)] = &[
          Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %Camera% \
          and the other EXIF panel labels, | between parts that are left out when empty, \\n for a \
          new line.\n\n\
+         Preferences → Custom window title makes the window's title from a template of %name%, \
+         %path%, %folder% and %app%, such as %app%: %folder%. Window → Set Window Title… gives \
+         this window a template of its own until it closes, as glimt --remote title does.\n\n\
          Moving the pointer to the bottom shows a film strip of the images around the shown one; a \
          click on one shows it. Thumbnails are read from ~/.cache/thumbnails, which the file \
          manager shares; new ones are saved there only with Save new thumbnails on in \
@@ -543,7 +546,7 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Remote control",
         "glimt --remote with next, prev, first, last, slideshow, random, fullscreen (each also \
-         with on or off), subfolders on|off, open, quit, current, selection or select; \
+         with on or off), subfolders on|off, open, title, quit, current, selection or select; \
          --remote-all sends it to every window",
         "The options themselves go to the running Geeqie (geeqie --next, --tell, \
          --get-selection, --file= …), and there are many more",
@@ -759,6 +762,12 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
         "Image info in full screen (I)",
         "On or off; its template has no :limit, :extra or markup",
         "I cycles through several overlay layouts; :limit, :extra and markup in the template",
+    ),
+    (
+        "Window title",
+        "\"name - Glimt\" or \"Glimt - name\", or a template of %name%, %path%, %folder% and \
+         %app% (Preferences), or one window's own (Window → Set Window Title…)",
+        "The image name and Geeqie; no title of the user's own",
     ),
     (
         "Thumbnail cache",
