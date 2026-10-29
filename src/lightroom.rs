@@ -23,6 +23,12 @@ UNION ALL SELECT 'm', collection, image, '', '' FROM AgLibraryCollectionImage
 UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM AgLibraryKeyword
 UNION ALL SELECT 'w', image, tag, '', '' FROM AgLibraryKeywordImage;";
 
+/// Those of `QUERY`'s names that are views: none in a catalog Lightroom made. sqlite_master is
+/// read without running any view.
+const VIEWS: &str = "SELECT name FROM sqlite_master WHERE type = 'view' AND name IN (\
+'AgLibraryRootFolder', 'Adobe_images', 'AgLibraryFile', 'AgLibraryFolder', \
+'AgLibraryCollection', 'AgLibraryCollectionImage', 'AgLibraryKeyword', 'AgLibraryKeywordImage');";
+
 /// Between the columns and after the rows: neither is in a file name or keyword.
 const COLUMN: u8 = 0x1f;
 const ROW: u8 = 0x1e;
@@ -51,6 +57,21 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if !crate::external::host_has("sqlite3") {
         return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
     }
+    // A catalog may come from anywhere: one with a view in the place of a table it reads would
+    // have sqlite3 run what the view says, its readfile and writefile too. sqlite3 3.30 and
+    // newer refuse those in a view; older ones, still on some systems, do not, and have no
+    // -safe either. So only tables are read.
+    let cant_read = |why: &str| tf!("Not a Lightroom Classic catalog Glimt can read: {why}", why);
+    let mut views = crate::external::stoppable_command("sqlite3");
+    views
+        .args(["-readonly", "-batch", "-noheader"])
+        .arg(file)
+        .arg(VIEWS);
+    let views = crate::external::run_limited(views, 1 << 16, crate::external::LIMIT)
+        .map_err(|e| cant_read(e.trim()))?;
+    if let Some(view) = String::from_utf8_lossy(&views).lines().next() {
+        return Err(cant_read(&format!("{view} is a view, not a table")));
+    }
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
     let mut child = crate::external::stoppable_command("sqlite3")
@@ -70,10 +91,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
     let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
     if !ok {
-        return Err(tf!(
-            "Not a Lightroom Classic catalog Glimt can read: {why}",
-            why = why.trim()
-        ));
+        return Err(cant_read(why.trim()));
     }
     Ok(parse(&out))
 }
@@ -599,6 +617,53 @@ mod tests {
             PathBuf::from("/media/disk")
         );
         assert_eq!(super::root_now("Pictures"), PathBuf::new());
+    }
+
+    /// A catalog with a view in the place of a table is refused before the query runs it: an
+    /// older sqlite3 would run its writefile. One of tables is read.
+    #[test]
+    fn refuses_a_catalog_with_views() {
+        if !crate::external::host_has("sqlite3") {
+            return eprintln!("no sqlite3: not tested");
+        }
+        let dir = std::env::temp_dir().join(format!("glimt-test-lrcat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let make = |name: &str, root: &str| {
+            let file = dir.join(name);
+            let schema = format!(
+                "{root}; CREATE TABLE Adobe_images(id_local, rootFile, rating);
+                CREATE TABLE AgLibraryFile(id_local, folder, baseName, extension);
+                CREATE TABLE AgLibraryFolder(id_local, rootFolder, pathFromRoot);
+                CREATE TABLE AgLibraryCollection(id_local, parent, name, creationId);
+                CREATE TABLE AgLibraryCollectionImage(collection, image);
+                CREATE TABLE AgLibraryKeyword(id_local, parent, name);
+                CREATE TABLE AgLibraryKeywordImage(image, tag);"
+            );
+            let mut sqlite = crate::external::stoppable_command("sqlite3");
+            sqlite.arg(&file).arg(schema);
+            crate::external::run_limited(sqlite, 1 << 16, crate::external::LIMIT).unwrap();
+            file
+        };
+        let tables = make(
+            "tables.lrcat",
+            "CREATE TABLE AgLibraryRootFolder(id_local, absolutePath);
+            INSERT INTO AgLibraryRootFolder VALUES (1, '/Volumes/Photos/')",
+        );
+        let catalog = super::read(&tables).unwrap();
+        assert_eq!(catalog.roots, [(1, "/Volumes/Photos/".to_owned())]);
+        let pwned = dir.join("pwned");
+        let view = format!(
+            "CREATE VIEW AgLibraryRootFolder AS SELECT 1 AS id_local, \
+             writefile('{}', 'x') AS absolutePath",
+            pwned.display()
+        );
+        let refused = super::read(&make("view.lrcat", &view)).err().unwrap();
+        assert!(
+            refused.contains("AgLibraryRootFolder is a view"),
+            "{refused}"
+        );
+        assert!(!pwned.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.
