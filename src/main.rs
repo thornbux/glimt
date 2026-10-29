@@ -4144,7 +4144,10 @@ impl App {
         if !on {
             // A collection back in its own order, which shuffling left only in its file.
             // shortcut: the file read in the UI thread; collections are small text files.
+            // Not while a random slideshow's listing is on its way: read again below instead, in
+            // the saved order, it cannot bring its random order after this one.
             if let Some(file) = self.collection.as_ref().filter(|_| !self.sort_collection)
+                && self.listing_rx.is_none()
                 && let Ok(saved) = collections::load(file)
             {
                 let shown = self.list.files.get(self.list.cur).cloned();
@@ -4153,9 +4156,6 @@ impl App {
                 let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
                     .filter_map(|p| Some(p.strip_prefix(&self.dir).ok()?.as_os_str().to_owned()))
                     .collect();
-                // A random slideshow's listing still on its way would bring its random order.
-                self.listing_rx.clear();
-                self.whole_shuffle = false;
                 self.replace_files(ctx, files, shown);
                 return;
             }
@@ -10101,8 +10101,11 @@ mod tests {
                     (app.list.files.len(), app.list.files[0].to_str()),
                     (10, Some("4.png"))
                 );
+                // Not the sort order with the shown image put first.
                 let mut sorted = app.list.files.clone();
                 sorted.sort();
+                let at = sorted.iter().position(|f| f == "4.png").unwrap();
+                sorted.swap(0, at);
                 assert_ne!(app.list.files, sorted, "shuffled");
             }
             std::fs::remove_dir_all(&d).unwrap();
@@ -10145,6 +10148,14 @@ mod tests {
             // The round starts at the image shown (the first slide may have come since): without
             // Repeat it shows every image.
             assert_eq!(app.list.files[0], shown);
+            // Again, and random off before the list comes: the saved order, and its size.
+            app.stop_slideshow(&ctx);
+            app.start_slideshow(&ctx);
+            app.set_random_order(&ctx, false);
+            assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()
+                && a.size_rx.is_none()));
+            assert_eq!(app.list.files, order);
+            assert!(app.total_size > 0, "size");
             std::fs::remove_dir_all(&d).unwrap();
         }
     }
