@@ -4144,10 +4144,7 @@ impl App {
         if !on {
             // A collection back in its own order, which shuffling left only in its file.
             // shortcut: the file read in the UI thread; collections are small text files.
-            // Not while a random slideshow's listing is on its way: read again below instead, in
-            // the saved order, it cannot bring its random order after this one.
             if let Some(file) = self.collection.as_ref().filter(|_| !self.sort_collection)
-                && self.listing_rx.is_none()
                 && let Ok(saved) = collections::load(file)
             {
                 let shown = self.list.files.get(self.list.cur).cloned();
@@ -4157,6 +4154,11 @@ impl App {
                     .filter_map(|p| Some(p.strip_prefix(&self.dir).ok()?.as_os_str().to_owned()))
                     .collect();
                 self.replace_files(ctx, files, shown);
+                // A listing on its way (a random slideshow's, a refresh's) would bring the order
+                // it was asked for: read again, in the saved order now shown.
+                if self.listing_rx.is_some() {
+                    self.list(ctx);
+                }
                 return;
             }
             // Back to the chosen sort order; listing keeps the shown image.
@@ -10110,6 +10112,35 @@ mod tests {
             }
             std::fs::remove_dir_all(&d).unwrap();
         }
+    }
+
+    /// A playlist back in its own order when random is turned off while it is read again: the
+    /// listing copies the list, which was still shuffled.
+    #[test]
+    fn a_playlist_random_off_during_a_refresh_is_in_its_order() {
+        let d = std::env::temp_dir().join(format!("glimt-test-m3u-off-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let mut m3u = String::new();
+        for i in 0..30 {
+            let f = d.join(format!("{i:02}.png"));
+            image::RgbImage::new(2, 2).save(&f).unwrap();
+            m3u.push_str(&format!("{}\n", f.display()));
+        }
+        let file = d.join("c.m3u");
+        std::fs::write(&file, m3u).unwrap();
+        let (mut app, ctx) = app_on(&file);
+        let order = app.list.files.clone();
+        app.config.random = true;
+        app.start_slideshow(&ctx);
+        assert!(app.shuffled && app.list.files != order);
+        // A refresh on its way.
+        app.list(&ctx);
+        app.set_random_order(&ctx, false);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()
+            && a.size_rx.is_none()));
+        assert_eq!(app.list.files, order);
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     /// A random slideshow of a collection with its subfolders plays in random order, also when
