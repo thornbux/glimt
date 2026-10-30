@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A rotation is not saved while Rename Many or a move is still working on the photo, where it
+  could be saved over another photo that took its name; Glimt says so instead.
 - Sort by name puts a collection in name order with Case on, the default: it kept the collection's
   own order.
 - Refresh (F5) in a folder that has not changed shows the image again, also one an editor saved

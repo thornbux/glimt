@@ -10218,6 +10218,30 @@ mod tests {
         std::fs::remove_dir_all(&d).unwrap();
     }
 
+    /// A turn is not saved while other work changes the file (Rename Many, a move): it could
+    /// be saved over the photo that takes its name.
+    #[test]
+    fn a_turn_waits_for_other_work_on_its_file() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-turn-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.viewing.orient = (1, false);
+        app.viewing.turned = a.clone();
+        let held = app
+            .start_job_of("Moving", 1, false, vec![a.clone()])
+            .unwrap();
+        app.notice = None;
+        app.save_orientation(&ctx);
+        assert!(
+            app.saving.is_empty() && app.notice.is_some(),
+            "saved while held"
+        );
+        drop(held);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Refresh in a folder that has not changed decodes the image shown again (an editor may
     /// have saved it under its own name): it asked for nothing, and the busy pointer stayed.
     #[test]

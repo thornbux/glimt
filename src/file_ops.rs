@@ -588,6 +588,15 @@ impl crate::App {
         if self.saving.contains(&path) {
             return;
         }
+        // Not while other work changes it: Rename Many may give its name to another photo, which
+        // the turn would then be saved over; a move may take it away.
+        if self.renaming.is_some() {
+            return self.notice = Some(tr("Rename Many is still renaming").into());
+        }
+        if self.touched(std::slice::from_ref(&path)) {
+            let busy = tr("Still working on these files: try again in a moment");
+            return self.notice = Some(busy.into());
+        }
         let jpeg = crate::files::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
