@@ -316,9 +316,15 @@ fn stop_group(group: i32, ended: impl Fn() -> bool) {
 /// End the program `pid`, started in a process group of its own and not yet waited for, with what
 /// it started: Stop for a plugin. Once its group is gone (waited for by its own thread), no KILL
 /// follows, which could reach a group that took its number since. In a Flatpak the group is
-/// flatpak-spawn's, which passes TERM on to the program on the host; a KILL is not passed on.
+/// flatpak-spawn's, which passes INT on to the program's group on the host; a KILL is not.
 pub fn stop(pid: u32) {
     let group = -(pid as i32);
+    // In a Flatpak flatpak-spawn passes INT on to the program's whole group on the host, TERM
+    // only to the program: what it started (an ffmpeg, a speech) would go on.
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        // SAFETY: a signal to a group of ours, as in stop_group.
+        unsafe { libc_kill(group, 2) };
+    }
     // SAFETY: as in stop_group; signal 0 only asks whether the group is there.
     stop_group(group, || unsafe { libc_kill(group, 0) } != 0);
 }
