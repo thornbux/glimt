@@ -29,6 +29,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Remote control is used only in the user's own runtime folder: where XDG_RUNTIME_DIR is set to a
   folder others can write, another user could otherwise have answered glimt --remote. A command is
   read no further than the largest select.
+- A network address that begins with - is refused before it reaches gio, which would read it as an
+  option such as unmount or eject.
 
 ## [0.42.2] - 2026-10-30
 
