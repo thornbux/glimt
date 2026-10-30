@@ -2317,3 +2317,7 @@ msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferen
 #: src/meta.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} to dowiązanie: zapis przez nie jest pomijany"
+
+#: src/lightroom.rs
+msgid "{view} is a view, not a table"
+msgstr "{view} to widok, nie tabela"

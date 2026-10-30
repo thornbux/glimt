@@ -2306,3 +2306,7 @@ msgstr "Titel dieses Fensters (%name%, %path%, %folder%, %app%; leer: wie in den
 #: src/meta.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} ist ein Link: wird nicht durchgeschrieben"
+
+#: src/lightroom.rs
+msgid "{view} is a view, not a table"
+msgstr "{view} ist eine Sicht, keine Tabelle"

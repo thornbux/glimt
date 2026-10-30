@@ -2306,3 +2306,7 @@ msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten 
 #: src/meta.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} on linkki: sen kautta ei kirjoiteta"
+
+#: src/lightroom.rs
+msgid "{view} is a view, not a table"
+msgstr "{view} on näkymä, ei taulu"

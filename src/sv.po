@@ -2306,3 +2306,7 @@ msgstr "Titel på det här fönstret (%name%, %path%, %folder%, %app%; tom: som 
 #: src/meta.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} är en länk: skrivs inte igenom"
+
+#: src/lightroom.rs
+msgid "{view} is a view, not a table"
+msgstr "{view} är en vy, inte en tabell"

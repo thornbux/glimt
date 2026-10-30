@@ -2306,3 +2306,7 @@ msgstr "Titre de cette fenêtre (%name%, %path%, %folder%, %app% ; vide : comme 
 #: src/meta.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} est un lien : pas d'écriture à travers"
+
+#: src/lightroom.rs
+msgid "{view} is a view, not a table"
+msgstr "{view} est une vue, pas une table"

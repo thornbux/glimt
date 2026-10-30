@@ -24,10 +24,11 @@ UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM
 UNION ALL SELECT 'w', image, tag, '', '' FROM AgLibraryKeywordImage;";
 
 /// Those of `QUERY`'s names that are views: none in a catalog Lightroom made. sqlite_master is
-/// read without running any view.
-const VIEWS: &str = "SELECT name FROM sqlite_master WHERE type = 'view' AND name IN (\
-'AgLibraryRootFolder', 'Adobe_images', 'AgLibraryFile', 'AgLibraryFolder', \
-'AgLibraryCollection', 'AgLibraryCollectionImage', 'AgLibraryKeyword', 'AgLibraryKeywordImage');";
+/// read without running any view. In any case, as SQLite finds a table by its name: a view named
+/// aglibraryrootfolder is what `QUERY` reads as AgLibraryRootFolder.
+const VIEWS: &str = "SELECT name FROM sqlite_master WHERE type = 'view' AND lower(name) IN (\
+'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
+'aglibrarycollection', 'aglibrarycollectionimage', 'aglibrarykeyword', 'aglibrarykeywordimage');";
 
 /// Between the columns and after the rows: neither is in a file name or keyword.
 const COLUMN: u8 = 0x1f;
@@ -70,7 +71,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     let views = crate::external::run_limited(views, 1 << 16, crate::external::LIMIT)
         .map_err(|e| cant_read(e.trim()))?;
     if let Some(view) = String::from_utf8_lossy(&views).lines().next() {
-        return Err(cant_read(&format!("{view} is a view, not a table")));
+        return Err(cant_read(&tf!("{view} is a view, not a table", view)));
     }
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
@@ -652,17 +653,19 @@ mod tests {
         let catalog = super::read(&tables).unwrap();
         assert_eq!(catalog.roots, [(1, "/Volumes/Photos/".to_owned())]);
         let pwned = dir.join("pwned");
-        let view = format!(
-            "CREATE VIEW AgLibraryRootFolder AS SELECT 1 AS id_local, \
-             writefile('{}', 'x') AS absolutePath",
-            pwned.display()
-        );
-        let refused = super::read(&make("view.lrcat", &view)).err().unwrap();
-        assert!(
-            refused.contains("AgLibraryRootFolder is a view"),
-            "{refused}"
-        );
-        assert!(!pwned.exists());
+        // Named in another case too, which SQLite finds the table by all the same.
+        for name in ["AgLibraryRootFolder", "aglibraryrootfolder"] {
+            let view = format!(
+                "CREATE VIEW {name} AS SELECT 1 AS id_local, \
+                 writefile('{}', 'x') AS absolutePath",
+                pwned.display()
+            );
+            let refused = super::read(&make(&format!("{name}.lrcat"), &view))
+                .err()
+                .unwrap();
+            assert!(refused.contains(&format!("{name} is a view")), "{refused}");
+            assert!(!pwned.exists());
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
