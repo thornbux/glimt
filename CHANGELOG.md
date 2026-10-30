@@ -30,6 +30,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
   folder others can write, another user could otherwise have answered glimt --remote. A command is
   read no further than the largest select.
 
+## [0.42.2] - 2026-10-30
+
+### Security
+
+- A password written into a network address (smb://user:secret@nas/share) is no longer put on
+  gio's command line, where every user of the computer could read it in the process list, nor
+  shown in Connecting to…: it is given to gio when gio asks for it.
+
 ## [0.42.1] - 2026-10-30
 
 ### Security
@@ -2064,7 +2072,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.42.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.42.2...HEAD
+[0.42.2]: https://github.com/thornbux/glimt/compare/v0.42.1...v0.42.2
 [0.42.1]: https://github.com/thornbux/glimt/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/thornbux/glimt/compare/v0.41.1...v0.42.0
 [0.41.1]: https://github.com/thornbux/glimt/compare/v0.41.0...v0.41.1

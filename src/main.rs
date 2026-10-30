@@ -2522,11 +2522,16 @@ impl App {
 
     /// Open a network location such as smb://server/share/folder, mounting it in the background.
     fn mount(&mut self, ctx: &egui::Context, uri: String) {
+        // A password typed into the address is gio's answer to its question, not a part of its
+        // command line, which other users can read.
+        let (uri, password) = external::without_password(&uri);
+        let answer = password.is_some();
         let login = Login {
             uri,
+            password: password.unwrap_or_default(),
             ..Login::default()
         };
-        self.mount_as(ctx, login, false);
+        self.mount_as(ctx, login, answer);
     }
 
     /// Mount `login.uri`, answering gio's questions from `login` if `answer`.
