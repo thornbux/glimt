@@ -42,7 +42,9 @@ A URI such as
 .I smb://server/share
 is mounted with
 .BR gio (1)
-first.
+first. Leave a password out of it: written here, it is in Glimt's own command line, which
+other users of the computer can read while Glimt runs; gio asks for it, as does Go \(-> Connect
+to Server.
 .PP
 It reads JPEG, PNG, WebP, GIF (also animated), TIFF (also with several pages), BMP, ICO,
 QOI, PNM (PBM, PGM, PPM, PAM), Radiance HDR (tone-mapped) and TIFF under other names (Zeiss
