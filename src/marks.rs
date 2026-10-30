@@ -362,8 +362,6 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// Stars set in another window follow a move and go with a delete made in this one, which
-    /// had not read them yet: they stayed on names that were gone.
     /// A name in another encoding (Latin-1) keeps its bytes, read from the marks file.
     #[test]
     fn reads_a_name_that_is_not_utf8() {
@@ -374,6 +372,8 @@ mod tests {
         assert_eq!(value, (3, 2));
     }
 
+    /// Stars set in another window follow a move and go with a delete made in this one, which
+    /// had not read them yet: they stayed on names that were gone.
     #[test]
     fn stars_from_another_window_follow_a_move() {
         let dir =
