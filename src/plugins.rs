@@ -140,11 +140,16 @@ impl Plugin {
             };
             // Its output is not read: a converter writing the image to stdout would else be
             // kept whole in memory; its errors are. In a process group of its own, so Stop ends
-            // what it started too.
-            let child = crate::external::stoppable_command(program.to_string_lossy().as_ref())
+            // what it started too. Not `stoppable_command`: its --watch-bus would end an editor
+            // on the host when the Flatpak's Glimt closes, with its unsaved work.
+            use std::os::unix::process::CommandExt;
+            let child = crate::external::command(program.to_string_lossy().as_ref())
+                .process_group(0)
                 .args(&args[1..])
                 .current_dir(folder)
+                .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
                 .spawn()
                 .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
             let pid = child.id();

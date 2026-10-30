@@ -8607,8 +8607,13 @@ impl App {
             for (name, pid) in running {
                 let text = tf!("Stop {name}", name);
                 if noted(&ui.button(iconed(ui, theme::icon::STOP, &text)), &text).clicked() {
-                    (self.plugins_running.lock().unwrap()).retain(|r| r.1 != pid);
-                    std::thread::spawn(move || external::stop(pid));
+                    let mut running = self.plugins_running.lock().unwrap();
+                    let was = running.len();
+                    running.retain(|r| r.1 != pid);
+                    // Not when it ended meanwhile: its number may be another's by now.
+                    if running.len() < was {
+                        std::thread::spawn(move || external::stop(pid));
+                    }
                 }
             }
             ui.separator();

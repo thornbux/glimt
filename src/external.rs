@@ -313,9 +313,10 @@ fn stop_group(group: i32, ended: impl Fn() -> bool) {
     }
 }
 
-/// End the program `pid`, started with `stoppable_command` and not yet waited for, with what it
-/// started: Stop for a plugin. Once its group is gone (waited for by its own thread), no KILL
-/// follows, which could reach a group that took its number since.
+/// End the program `pid`, started in a process group of its own and not yet waited for, with what
+/// it started: Stop for a plugin. Once its group is gone (waited for by its own thread), no KILL
+/// follows, which could reach a group that took its number since. In a Flatpak the group is
+/// flatpak-spawn's, which passes TERM on to the program on the host; a KILL is not passed on.
 pub fn stop(pid: u32) {
     let group = -(pid as i32);
     // SAFETY: as in stop_group; signal 0 only asks whether the group is there.
