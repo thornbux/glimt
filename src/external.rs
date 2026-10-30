@@ -428,11 +428,6 @@ pub struct Login {
 #[allow(clippy::disallowed_methods)] // waits for gio under its Watchdog, answering its prompts
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
-    // An option, not a place: gio mount takes no -- before its places, and -u or -e would
-    // unmount or eject instead.
-    if uri.starts_with('-') {
-        return Err(Some(format!("Could not mount {uri}: not an address")));
-    }
     // With the usual limit: asked before the mount, this would otherwise wait on a server
     // that never answers, with no watchdog yet.
     let local = || {
@@ -548,7 +543,9 @@ pub fn without_password(uri: &str) -> (String, Option<String>) {
         true => String::new(),
         false => format!("{user}@"),
     };
-    (format!("{scheme}://{user}{host}{path}"), Some(password))
+    // An empty one (smb://me:@nas) is none: the login dialog asks for it, as without it.
+    let password = (!password.is_empty()).then_some(password);
+    (format!("{scheme}://{user}{host}{path}"), password)
 }
 
 /// The server's name in `uri`: after the user and password (which may hold a colon), before the
@@ -897,6 +894,8 @@ mod tests {
         let (uri, password) = super::without_password("smb://me:p%40ss:w@nas:445/share/a@b");
         assert_eq!(uri, "smb://me@nas:445/share/a@b");
         assert_eq!(password.as_deref(), Some("p@ss:w"));
+        // An empty one is none: asked for in the login dialog, as without it.
+        assert_eq!(super::without_password("smb://me:@nas/share").1, None);
         let (uri, password) = super::without_password("sftp://:secret@host/home");
         assert_eq!(
             (uri.as_str(), password.as_deref()),
@@ -910,7 +909,6 @@ mod tests {
         ] {
             assert_eq!(super::without_password(plain), (plain.to_owned(), None));
         }
-        assert!(super::gio_mount("-u", None).is_err_and(|e| e.is_some()));
     }
 
     /// A thumbnail's size as ffmpeg's filter: shrunk to fit, never enlarged; none for the view.
