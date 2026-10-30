@@ -196,7 +196,10 @@ pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
 pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
     // Tests have a home of their own: an App made in a test removed the user's recent list.
     #[cfg(test)]
-    return Some(test_home().join(home_fallback).join(app));
+    return {
+        let _ = var;
+        Some(test_home().join(home_fallback).join(app))
+    };
     #[cfg(not(test))]
     let base = std::env::var_os(var)
         .map(PathBuf::from)
