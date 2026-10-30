@@ -15,6 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Sort by name puts a collection in name order with Case on, the default: it kept the collection's
+  own order.
 - Refresh (F5) in a folder that has not changed shows the image again, also one an editor saved
   under its own name: it asked for nothing, and the busy pointer turned until the next image.
 
