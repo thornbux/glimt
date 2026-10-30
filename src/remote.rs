@@ -480,12 +480,12 @@ pub fn mark_focused() {
     }
 }
 
-/// Glimt is closing: its socket removed, and the answers being written waited for.
+/// Glimt is closing, its socket removed by `close` before the last answers: those being written
+/// waited for. Not removed again here: a new Glimt of the same name may have it by now.
 pub fn stop() {
     if !LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    close();
     // Answers given just now (the selects held back) written whole before the process ends,
     // which would else cut a long one off: a second at most.
     let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
