@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "glimt"
-version = "0.42.1"
+version = "0.42.2"
 dependencies = [
  "arboard",
  "eframe",
