@@ -6061,15 +6061,17 @@ impl App {
     fn answer_held_selects(&mut self) {
         let sent: Vec<_> = self.remote_rx.try_iter().collect();
         let held = std::mem::take(&mut self.waiting_select);
+        let ctx = self.ctx.clone();
         for (command, reply) in held.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
-            let answer = match command.strip_prefix("select ") {
-                Some(paths) => (paths.split('\0').filter(|p| !p.is_empty()))
-                    .flat_map(|p| p.bytes().chain([0]))
-                    .collect(),
-                None => self.remote_query(&command),
-            };
-            let _ = reply.send(answer);
+            match command.strip_prefix("select ") {
+                Some(paths) => {
+                    let paths = paths.split('\0').filter(|p| !p.is_empty());
+                    let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
+                }
+                // Answered as at any other time (`where` too, in the release tests' build).
+                None => self.remote_one(&ctx, &command, Some(reply)),
+            }
         }
     }
 
@@ -9209,6 +9211,8 @@ fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
 impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // No new client first: one coming after the answers would have none.
+        remote::close();
         self.answer_held_selects();
         remote::stop();
         let ctx = self.ctx.clone();

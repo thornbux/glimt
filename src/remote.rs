@@ -480,14 +480,12 @@ pub fn mark_focused() {
     }
 }
 
-/// Glimt is closing: remove its socket.
+/// Glimt is closing: its socket removed, and the answers being written waited for.
 pub fn stop() {
     if !LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
-    if let Some(path) = socket(socket_id()) {
-        let _ = std::fs::remove_file(path);
-    }
+    close();
     // Answers given just now (the selects held back) written whole before the process ends,
     // which would else cut a long one off: a second at most.
     let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
@@ -495,6 +493,15 @@ pub fn stop() {
         && std::time::Instant::now() < until
     {
         std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// No new client: this Glimt's socket removed, as it closes.
+pub fn close() {
+    if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
+        && let Some(path) = socket(socket_id())
+    {
+        let _ = std::fs::remove_file(path);
     }
 }
 
