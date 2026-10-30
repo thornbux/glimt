@@ -9,6 +9,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Two Glimts with the same process ID on two computers sharing a home folder, or in two
   containers, never use the same temporary file when they save at the same moment.
+- A glimt --remote select that waits for a folder to be read is answered for that folder: another
+  script's command sent after it, such as open, waits its turn. At most 64 commands wait; one more
+  is told to try again.
 
 ## [0.42.1] - 2026-10-30
 

@@ -1660,9 +1660,9 @@ struct App {
     notices_rx: mpsc::Receiver<String>,
     /// Commands from `glimt --remote`.
     remote_rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
-    /// A `--remote select` that came while the folder was being read or Delete or Rename asked:
-    /// done once neither is.
-    waiting_select: Vec<(String, remote::Reply)>,
+    /// A `--remote select` that came while the folder was being read or Delete or Rename asked,
+    /// and every command after it: done in the order they came once neither is.
+    waiting_select: Vec<(String, Option<remote::Reply>)>,
 }
 
 /// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
@@ -6016,34 +6016,42 @@ impl App {
     /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
     /// dialog asks about the selection.
     fn receive_remote(&mut self, ctx: &egui::Context) {
-        // Those held back, in the order they came: each gets its own answer (a second one put in
-        // the place of the first dropped its answer, which the script took for all found).
-        if self.listing_rx.is_none() && !self.asking_about_selection() {
-            for (command, reply) in std::mem::take(&mut self.waiting_select) {
-                let _ = reply.send(self.remote_select(ctx, &command));
-            }
+        // After `open`, the folder is still being read: its files are not all listed. A dialog
+        // asking about the selection (Delete, Rename) is answered for the one it asked about, not
+        // one a script put in its place meanwhile.
+        let busy = |app: &Self| app.listing_rx.is_some() || app.asking_about_selection();
+        // Those held back, in the order they came, until one (an `open`) makes the window busy
+        // again: each gets its own answer, from the list as it was when it was sent.
+        while !self.waiting_select.is_empty() && !busy(self) {
+            let (command, reply) = self.waiting_select.remove(0);
+            self.remote_one(ctx, &command, reply);
         }
         while let Ok((command, reply)) = self.remote_rx.try_recv() {
-            match reply {
-                // After `open`, the folder is still being read: its files are not all listed. A
-                // dialog asking about the selection (Delete, Rename) is answered for the one it
-                // asked about, not one a script put in its place meanwhile.
-                Some(reply)
-                    if command.starts_with("select ")
-                        && (self.listing_rx.is_some() || self.asking_about_selection()) =>
-                {
-                    self.waiting_select.push((command, reply));
-                }
-                Some(reply) if command.starts_with("select ") => {
-                    let _ = reply.send(self.remote_select(ctx, &command));
-                }
-                #[cfg(feature = "test-hooks")]
-                Some(reply) if command.starts_with("where ") => {
-                    let _ = reply.send(hooks::position(command.trim_start_matches("where ")));
-                }
-                Some(reply) => drop(reply.send(self.remote_query(&command))),
-                None => self.remote_command(ctx, &command),
+            let select = reply.is_some() && command.starts_with("select ");
+            // Behind a select held back, every command waits its turn (another script's `open`
+            // would else be answered for), but quit, the only way out of a kiosk.
+            let wait = !self.waiting_select.is_empty() || (select && busy(self));
+            if !wait || command.trim() == "quit" {
+                self.remote_one(ctx, &command, reply);
+            } else if self.waiting_select.len() < 64 {
+                self.waiting_select.push((command, reply));
             }
+            // More than that waiting: the answer dropped, so the script is told to try again.
+        }
+    }
+
+    /// One command from `glimt --remote`, with the answer to send if it asks for one.
+    fn remote_one(&mut self, ctx: &egui::Context, command: &str, reply: Option<remote::Reply>) {
+        match reply {
+            Some(reply) if command.starts_with("select ") => {
+                let _ = reply.send(self.remote_select(ctx, command));
+            }
+            #[cfg(feature = "test-hooks")]
+            Some(reply) if command.starts_with("where ") => {
+                let _ = reply.send(hooks::position(command.trim_start_matches("where ")));
+            }
+            Some(reply) => drop(reply.send(self.remote_query(command))),
+            None => self.remote_command(ctx, command),
         }
     }
 
@@ -10426,6 +10434,51 @@ mod tests {
         let got: Vec<Vec<u8>> = answers.iter().map(|a| a.try_recv().unwrap()).collect();
         assert!(got[0].is_empty(), "a.png is there");
         assert!(String::from_utf8_lossy(&got[1]).contains("none.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A command after a select held back waits its turn: another script's `open` does not run
+    /// first and leave the select answered for the other folder. More than 64 waiting: told to
+    /// try again.
+    #[test]
+    fn commands_behind_a_held_select_wait_their_turn() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-turn-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote_rx = rx;
+        let (_reading, listing) = std::sync::mpsc::channel();
+        app.listing_rx = super::Receiving::of(listing);
+        let (reply, answer) = std::sync::mpsc::channel();
+        let select = format!("select {}\0", dir.join("a.png").display());
+        tx.send((select.clone(), Some(reply))).unwrap();
+        tx.send((format!("open {}", other.display()), None))
+            .unwrap();
+        // 64 waiting at most: one more is dropped.
+        let mut more = Vec::new();
+        for _ in 0..63 {
+            let (reply, answer) = std::sync::mpsc::channel();
+            tx.send((select.clone(), Some(reply))).unwrap();
+            more.push(answer);
+        }
+        app.receive_remote(&ctx);
+        assert_eq!(app.dir, dir, "open waits behind the select");
+        assert!(matches!(
+            more[62].try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        ));
+        app.listing_rx = super::Receiving::none();
+        app.receive_remote(&ctx);
+        assert!(
+            answer.try_recv().unwrap().is_empty(),
+            "a.png found in its own folder"
+        );
+        assert_eq!(app.dir, other);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
