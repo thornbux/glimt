@@ -194,6 +194,7 @@ fn clean_in(cache: &Path) -> (usize, usize) {
 
 /// The file a cached thumbnail was made from, from its Thumb::URI (file:// only).
 fn thumb_source(thumb: &Path) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
     let file = std::io::BufReader::new(crate::decode::open(thumb).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
     let info = reader.info();
@@ -203,10 +204,7 @@ fn thumb_source(thumb: &Path) -> Option<PathBuf> {
         .find(|t| t.keyword == "Thumb::URI")?;
     let encoded = uri.text.strip_prefix("file://")?.as_bytes();
     let bytes = crate::collections::percent_decoded(encoded);
-    // SAFETY: on Unix any bytes are a valid OsStr.
-    Some(PathBuf::from(unsafe {
-        std::ffi::OsStr::from_encoded_bytes_unchecked(&bytes)
-    }))
+    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
 
 /// Percent-encode a path as GLib's g_filename_to_uri does, so the cache names match other programs'.

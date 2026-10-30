@@ -308,9 +308,8 @@ fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
     let mut parts = line.splitn(3, |&b| b == b'\t');
     let number = |b: &[u8]| std::str::from_utf8(b).ok()?.parse::<u8>().ok();
     let (bits, stars) = (number(parts.next()?)?, number(parts.next()?)?);
-    // SAFETY: the bytes were written from an OsStr by `save`, or come from the user's file;
-    // on Unix any bytes are a valid OsStr.
-    let path = unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(parts.next()?) };
+    // Any bytes are a name on Unix: those `save` wrote, or the user's own.
+    let path = <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(parts.next()?);
     Some((PathBuf::from(path), (bits & 0x3f, stars.min(5))))
 }
 
@@ -365,6 +364,16 @@ pub fn text((bits, stars): (u8, u8)) -> String {
 mod tests {
     /// Stars set in another window follow a move and go with a delete made in this one, which
     /// had not read them yet: they stayed on names that were gone.
+    /// A name in another encoding (Latin-1) keeps its bytes, read from the marks file.
+    #[test]
+    fn reads_a_name_that_is_not_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let marks = super::parse(b"3\t2\t/p/bl\xe5b\xe6r.jpg\n");
+        let (path, value) = marks.into_iter().next().unwrap();
+        assert_eq!(path.as_os_str().as_bytes(), b"/p/bl\xe5b\xe6r.jpg");
+        assert_eq!(value, (3, 2));
+    }
+
     #[test]
     fn stars_from_another_window_follow_a_move() {
         let dir =
