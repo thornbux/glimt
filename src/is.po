@@ -2310,3 +2310,7 @@ msgstr "{name} er tengill: ekki skrifað í gegnum hann"
 #: src/lightroom.rs
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Til að lesa Lightroom-skrá þarf sqlite3 3.37 eða nýrra"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Afrit af myndunum í heimamöppunni þinni: þau af dulkóðuðu drifi eða minnislykli eru þar áfram læsileg"

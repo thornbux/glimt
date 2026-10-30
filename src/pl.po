@@ -2321,3 +2321,7 @@ msgstr "{name} to dowiązanie: zapis przez nie jest pomijany"
 #: src/lightroom.rs
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Odczyt katalogu Lightroom wymaga sqlite3 w wersji 3.37 lub nowszej"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kopie obrazów w folderze domowym: te z zaszyfrowanego woluminu lub pendrive'a pozostają tam czytelne"

@@ -2310,3 +2310,7 @@ msgstr "{name} es un enlace: no se escribe a través de él"
 #: src/lightroom.rs
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Leer un catálogo de Lightroom requiere sqlite3 3.37 o posterior"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Copias de las imágenes en tu carpeta personal: las de un volumen cifrado o una memoria USB siguen siendo legibles allí"

@@ -441,7 +441,10 @@ const MANUAL: &[(&str, &str)] = &[
          Moving the pointer to the bottom shows a film strip of the images around the shown one; a \
          click on one shows it. Thumbnails are read from ~/.cache/thumbnails, which the file \
          manager shares; new ones are saved there only with Save new thumbnails on in \
-         Preferences.\n\n\
+         Preferences. They are small copies of the pictures, kept in the home folder after the \
+         files: those of photos on an encrypted volume or a stick that is taken away stay \
+         readable there, also after Remove thumbnails of deleted files, which keeps those of disks \
+         not plugged in. Turn the setting off before looking at such photos.\n\n\
          View also shows or hides the toolbar and the folder path, and Preferences the search \
          field and each file's size and date in the list. A click opens a menu; with one open, \
          pointing at another opens that, and it closes a moment after the pointer leaves. Full \

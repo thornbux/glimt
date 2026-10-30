@@ -2310,3 +2310,7 @@ msgstr "{name} is een koppeling: er wordt niet doorheen geschreven"
 #: src/lightroom.rs
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Voor het lezen van een Lightroom-catalogus is sqlite3 3.37 of nieuwer nodig"
+
+#: src/preferences.rs
+msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
+msgstr "Kopieën van de afbeeldingen in je thuismap: die van een versleuteld volume of een USB-stick blijven daar leesbaar"

@@ -510,7 +510,14 @@ impl crate::App {
             )
             .changed();
         let save = tr("Save new thumbnails to ~/.cache/thumbnails (shared with other programs)");
-        if ui.checkbox(&mut c.save_thumbnails, save).changed() {
+        let kept = tr(
+            "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",
+        );
+        if ui
+            .checkbox(&mut c.save_thumbnails, save)
+            .on_hover_text(kept)
+            .changed()
+        {
             self.save_thumbs.store(c.save_thumbnails, Ordering::Relaxed);
             changed = true;
         }
