@@ -303,6 +303,14 @@ fn update(
         return Err("the image was moved, renamed or deleted meanwhile".into());
     }
     let side = sidecar(path);
+    // A link is not written through: a downloaded folder may point IMG.jpg.xmp at another file
+    // of the user's, which a keyword added here would then change.
+    if std::fs::symlink_metadata(&side).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(crate::tf!(
+            "{name} is a link: not written through",
+            name = side.display()
+        ));
+    }
     // One that is there but cannot be read (no permission, not UTF-8) is not written over: it
     // may hold another program's edits.
     let old = match crate::config::read_or_none(&side) {
@@ -319,8 +327,15 @@ fn update(
             .to_owned(),
     };
     let text = change(&old).ok_or("unreadable XMP sidecar")?;
-    // A temporary file with this Glimt's name: two windows may write the same sidecar.
-    crate::config::replace_file(&side, text).map_err(|e| e.to_string())
+    // A temporary file with this Glimt's name: two windows may write the same sidecar. Renamed
+    // onto the name itself, not where it leads (`replace_file` follows a link): a link put
+    // there since the look above is replaced, and the file it points to left alone.
+    use std::io::Write;
+    #[allow(clippy::disallowed_methods)] // the sidecar replaced on purpose, never through a link
+    let land = |tmp: &Path| std::fs::rename(tmp, &side);
+    let tmp = crate::config::tmp_path(&side);
+    crate::config::write_beside(&tmp, &side, |f| f.write_all(text.as_bytes()), land)
+        .map_err(|e| e.to_string())
 }
 
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
@@ -728,6 +743,25 @@ mod tests {
             std::fs::read(sidecar(&file)).unwrap(),
             b"\xff\xfe not UTF-8"
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sidecar that is a link, as a downloaded folder may hold, is not written through: the
+    /// XMP file it points to, elsewhere among the user's files, keeps what it had.
+    #[test]
+    fn never_writes_through_a_linked_sidecar() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-xmp-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (file, elsewhere) = (dir.join("a.jpg"), dir.join("other.xmp"));
+        std::fs::write(&file, b"").unwrap();
+        let theirs = "<x:xmpmeta><rdf:RDF><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>";
+        std::fs::write(&elsewhere, theirs).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, sidecar(&file)).unwrap();
+        let written = write_changed(&file, Some(vec!["x".into()]), None);
+        assert!(written.is_err_and(|e| e.contains("a link")));
+        assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), theirs);
+        let link = std::fs::symlink_metadata(sidecar(&file)).unwrap();
+        assert!(link.file_type().is_symlink());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

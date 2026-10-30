@@ -2302,3 +2302,11 @@ msgstr "Définir le titre de la fenêtre…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titre de cette fenêtre (%name%, %path%, %folder%, %app% ; vide : comme dans les Préférences) :"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} est un lien : pas d'écriture à travers"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "La lecture d'un catalogue Lightroom nécessite sqlite3 3.37 ou plus récent"

@@ -320,7 +320,7 @@ const MANUAL: &[(&str, &str)] = &[
          it; glimt --slideshow show.txt plays it in its order. Glimt never writes a list: what \
          changes in the window stays there.\n\n\
          File → Import Lightroom Catalog… reads a Lightroom Classic catalog (.lrcat, with \
-         Lightroom closed) through the sqlite3 program:\n\n\
+         Lightroom closed) through the sqlite3 program, 3.37 or newer:\n\n\
          - its collections become Glimt's (named with their sets, as Travel - Norway; one of the \
          same name gets the images it lacks)\n\
          - its keywords go into the keyword tree\n\
