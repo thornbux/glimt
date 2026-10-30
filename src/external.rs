@@ -317,6 +317,8 @@ fn stop_group(group: i32, ended: impl Fn() -> bool) {
 /// it started: Stop for a plugin. Once its group is gone (waited for by its own thread), no KILL
 /// follows, which could reach a group that took its number since. In a Flatpak the group is
 /// flatpak-spawn's, which passes INT on to the program's group on the host; a KILL is not.
+/// shortcut: there a child the plugin started in the background (`cmd &` in a script) ignores
+/// INT and goes on; start plugins with --watch-bus in their own session if that matters.
 pub fn stop(pid: u32) {
     let group = -(pid as i32);
     // In a Flatpak flatpak-spawn passes INT on to the program's whole group on the host, TERM
