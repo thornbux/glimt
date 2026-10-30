@@ -346,7 +346,10 @@ pub fn client(
 /// a query.
 pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
     let Some(path) = socket(socket_id()) else {
-        return eprintln!("No remote control: $XDG_RUNTIME_DIR is not set");
+        return match std::env::var_os("XDG_RUNTIME_DIR") {
+            None => eprintln!("No remote control: $XDG_RUNTIME_DIR is not set"),
+            Some(_) => eprintln!("No remote control: its folder there is not this user's own"),
+        };
     };
     // Only the user may connect, even where $XDG_RUNTIME_DIR is not private as it should be.
     {
@@ -357,6 +360,10 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             .mode(0o700)
             .create(dir);
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        // Made by another user meanwhile, between the look in `dir` and here: not used.
+        if dir_of_another(dir) {
+            return eprintln!("No remote control: its folder there is not this user's own");
+        }
     }
     let listener = match claim(&path) {
         Ok(listener) => listener,
@@ -378,36 +385,52 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             // there is one outcome when it runs out: "no answer", exit 1, never an empty
             // answer taken for "all found".
             let (tx, ctx) = (tx.clone(), ctx.clone());
-            std::thread::spawn(move || {
-                let _ = stream.set_read_timeout(Some(WAIT));
-                let mut out = stream.try_clone().ok();
-                // As much as `select` may send, no more: a client that sends without end
-                // does not fill the memory.
-                let most = MAX_SELECT as u64 * 4096 + 64;
-                for line in std::io::BufReader::new(std::io::Read::take(stream, most))
-                    .lines()
-                    .map_while(Result::ok)
-                {
-                    let (reply, answer) = match is_query(&line) {
-                        true => {
-                            let (reply, answer) = mpsc::channel();
-                            (Some(reply), Some(answer))
-                        }
-                        false => (None, None),
-                    };
-                    if tx.send((line, reply)).is_err() {
-                        return;
-                    }
-                    ctx.request_repaint();
-                    if let (Some(answer), Some(out)) = (answer, out.as_mut())
-                        && let Ok(bytes) = answer.recv()
-                    {
-                        let _ = out.write_all(&bytes);
-                    }
-                }
-            });
+            std::thread::spawn(move || serve(stream, &tx, &ctx));
         }
     });
+}
+
+/// One client's commands, each passed to the window, and its answer to a query sent back.
+fn serve(
+    stream: UnixStream,
+    tx: &mpsc::Sender<(String, Option<Reply>)>,
+    ctx: &eframe::egui::Context,
+) {
+    let _ = stream.set_read_timeout(Some(WAIT));
+    let mut out = stream.try_clone().ok();
+    // As much as `select` may send, no more: a client that sends without end does not fill the
+    // memory.
+    let most = MAX_SELECT as u64 * 4096 + 64;
+    for line in std::io::BufReader::new(std::io::Read::take(stream, most))
+        .lines()
+        .map_while(Result::ok)
+    {
+        let (reply, answer) = match is_query(&line) {
+            true => {
+                let (reply, answer) = mpsc::channel();
+                (Some(reply), Some(answer))
+            }
+            false => (None, None),
+        };
+        if tx.send((line, reply)).is_err() {
+            return;
+        }
+        ctx.request_repaint();
+        if let (Some(answer), Some(out)) = (answer, out.as_mut()) {
+            match answer.recv() {
+                Ok(bytes) => drop(out.write_all(&bytes)),
+                // Dropped by the window (too many waiting, or closing): closed now, the client
+                // would read nothing, "all found"; held open, its time limit says "no answer".
+                Err(_) => return std::thread::sleep(WAIT + std::time::Duration::from_secs(1)),
+            }
+        }
+    }
+}
+
+/// Whether `dir` is there and not the user's own folder.
+fn dir_of_another(dir: &std::path::Path) -> bool {
+    let uid = std::fs::metadata("/proc/self").map(|m| m.uid());
+    uid.is_ok_and(|uid| !own_or_none(dir, uid))
 }
 
 /// Whether this Glimt listens for --remote commands.
@@ -505,6 +528,25 @@ mod tests {
         std::fs::write(dir.join("file"), "").unwrap();
         assert!(!super::own_or_none(&dir.join("file"), uid));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A query whose answer the window drops (too many waiting) is not closed at once, which the
+    /// client would read as an empty answer, "all found": it is left to time out, "no answer".
+    #[test]
+    fn a_dropped_answer_is_no_answer() {
+        use std::io::{Read, Write};
+        let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || super::serve(server, &tx, &eframe::egui::Context::default()));
+        writeln!(client, "select /a.jpg\0").unwrap();
+        let (_, reply) = rx.recv().unwrap();
+        drop(reply);
+        client
+            .set_read_timeout(Some(std::time::Duration::from_millis(300)))
+            .unwrap();
+        let mut got = Vec::new();
+        let read = client.read_to_end(&mut got);
+        assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
     }
 
     /// A socket that a Glimt answers on is kept; one it left behind is taken over.

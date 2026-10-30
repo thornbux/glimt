@@ -6038,15 +6038,19 @@ impl App {
         }
         while let Ok((command, reply)) = self.remote_rx.try_recv() {
             let select = reply.is_some() && command.starts_with("select ");
-            // Behind a select held back, every command waits its turn (another script's `open`
-            // would else be answered for), but quit, the only way out of a kiosk.
-            let wait = !self.waiting_select.is_empty() || (select && busy(self));
-            if !wait || command.trim() == "quit" {
+            // Behind a select held back, what can change the list it is answered for waits its
+            // turn: another script's `open`, subfolders, a slideshow with its subfolders. Other
+            // queries and commands are done at once, as without it.
+            let lists = ["open ", "subfolders", "slideshow"];
+            let relists = lists.iter().any(|c| command.starts_with(c));
+            let wait = (relists && !self.waiting_select.is_empty()) || (select && busy(self));
+            if !wait {
                 self.remote_one(ctx, &command, reply);
             } else if self.waiting_select.len() < 64 {
                 self.waiting_select.push((command, reply));
             }
-            // More than that waiting: the answer dropped, so the script is told to try again.
+            // More than that waiting: the answer dropped, which the client is told as "no
+            // answer" (remote::serve), so the script tries again.
         }
     }
 
@@ -10489,7 +10493,11 @@ mod tests {
             tx.send((select.clone(), Some(reply))).unwrap();
             more.push(answer);
         }
+        // A query is answered at once, also behind a held select.
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
         app.receive_remote(&ctx);
+        assert!(current.try_recv().is_ok(), "current answered at once");
         assert_eq!(app.dir, dir, "open waits behind the select");
         assert!(matches!(
             more[62].try_recv(),
