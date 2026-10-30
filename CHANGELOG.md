@@ -7,6 +7,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- A sidecar that is a link (photo.jpg.xmp pointing at another of your files, such as a private
+  key, in a downloaded folder) is no longer copied through by Crop, Save As, Save This Frame, Copy
+  or a move to another disk: the copy gets no sidecar, and a move takes the link as itself.
 - An SVG whose entities would grow to gigabytes (100 KB of text can) is refused instead of using
   up the memory, which ended Glimt each time its folder was opened; also inside another SVG.
 

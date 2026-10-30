@@ -217,10 +217,12 @@ pub(crate) fn land(
     replace: bool,
     strip: bool,
 ) -> std::io::Result<()> {
-    // Read before the copy is written: one that cannot be read leaves no copy behind.
-    let source = match strip {
+    // Read before the copy is written: one that cannot be read leaves no copy behind. One that
+    // is a link is none: what it points to (a private key) is not the photo's.
+    let side = crate::meta::sidecar(path);
+    let source = match strip || crate::meta::linked(&side) {
         true => None,
-        false => crate::config::read_or_none(&crate::meta::sidecar(path))?,
+        false => crate::config::read_or_none(&side)?,
     };
     match replace {
         true => crate::config::replace_file(new, out)?,

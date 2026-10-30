@@ -305,7 +305,7 @@ fn update(
     let side = sidecar(path);
     // A link is not written through: a downloaded folder may point IMG.jpg.xmp at another file
     // of the user's, which a keyword added here would then change.
-    if std::fs::symlink_metadata(&side).is_ok_and(|m| m.file_type().is_symlink()) {
+    if linked(&side) {
         return Err(crate::tf!(
             "{name} is a link: not written through",
             name = side.display()
@@ -338,9 +338,22 @@ fn update(
         .map_err(|e| e.to_string())
 }
 
+/// Whether `path` is a link: a sidecar that is one is never read or written through, as a
+/// downloaded folder may point it at any file of the user's (a private key).
+pub(crate) fn linked(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
 pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     let (side, to) = (sidecar(from), sidecar(to));
+    // A link is no sidecar to copy; moved, it goes as itself on the same disk, or stays.
+    if linked(&side) {
+        return match copy {
+            true => Ok(()),
+            false => crate::file_ops::rename_never_over(&side, &to).or(Ok(())),
+        };
+    }
     if !side.exists() {
         return Ok(());
     }
@@ -1123,6 +1136,39 @@ mod tests {
         .unwrap();
         assert!(follow(&b, &a, true).is_err());
         assert_eq!(read(&a), other);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A sidecar that is a link (a downloaded folder pointing IMG.jpg.xmp at a private key) is
+    /// not copied through: a copy and a crop get none; moved, the link goes as itself.
+    #[test]
+    fn a_linked_sidecar_is_not_copied_through() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-linked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (secret, a, b, c) = (
+            dir.join("key"),
+            dir.join("a.png"),
+            dir.join("b.png"),
+            dir.join("c.png"),
+        );
+        std::fs::write(&secret, "PRIVATE KEY").unwrap();
+        image::RgbaImage::new(2, 2).save(&a).unwrap();
+        std::os::unix::fs::symlink(&secret, sidecar(&a)).unwrap();
+        std::fs::copy(&a, &b).unwrap();
+        follow(&a, &b, true).unwrap();
+        assert!(
+            std::fs::symlink_metadata(sidecar(&b)).is_err(),
+            "copied through the link"
+        );
+        crate::save::land(&a, &c, b"x", false, false).unwrap();
+        assert!(
+            std::fs::symlink_metadata(sidecar(&c)).is_err(),
+            "landed through the link"
+        );
+        std::fs::rename(&a, &b.with_file_name("d.png")).unwrap();
+        follow(&a, &dir.join("d.png"), false).unwrap();
+        assert!(linked(&sidecar(&dir.join("d.png"))), "moved as itself");
+        assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
