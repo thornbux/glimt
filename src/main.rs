@@ -6054,6 +6054,17 @@ impl App {
         }
     }
 
+    /// At closing: each select still held back is answered with all its paths, none of them
+    /// selected. Left without an answer, the closed socket would read as "all found".
+    fn answer_held_selects(&mut self) {
+        for (command, reply) in self.waiting_select.drain(..) {
+            if let (Some(reply), Some(paths)) = (reply, command.strip_prefix("select ")) {
+                let paths = paths.split('\0').filter(|p| !p.is_empty());
+                let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
+            }
+        }
+    }
+
     /// One command from `glimt --remote`, with the answer to send if it asks for one.
     fn remote_one(&mut self, ctx: &egui::Context, command: &str, reply: Option<remote::Reply>) {
         match reply {
@@ -9190,6 +9201,7 @@ fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
 impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.answer_held_selects();
         remote::stop();
         let ctx = self.ctx.clone();
         self.save_meta(&ctx);
@@ -10515,6 +10527,11 @@ mod tests {
             "a.png found in its own folder"
         );
         assert_eq!(app.dir, other);
+        // Closing with selects still held: each told that none of its paths was selected.
+        let (reply, closing) = std::sync::mpsc::channel();
+        app.waiting_select.push((select.clone(), Some(reply)));
+        app.answer_held_selects();
+        assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
