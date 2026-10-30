@@ -678,6 +678,14 @@ fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
     }
 }
 
+/// Whether a texture of `tex` is too small to show an image of `orig` at `scale`: short by more
+/// than a pixel on both sides. The decoders fit an image into a box of whole pixels, so the side
+/// that is not the limit can come out two pixels short (4000×2657 into a box 1328 high is 1998
+/// wide, where 1328.9 high shows it 2000.6 wide), and decoding it again gives the same.
+fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32) -> bool {
+    (0..2).all(|i| tex[i] as f32 + 1.0 < (orig[i] as f32 * scale).min(orig[i] as f32))
+}
+
 /// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
 /// then it is decoded again at that size, not at full resolution. Not the decoders' limit, whose
 /// free side is `long` itself in Fit Width and Fit Height.
@@ -8873,10 +8881,8 @@ impl App {
                 // Texture too small: in fit mode the window has grown, so decode again at window
                 // size (the previous texture is shown meanwhile); when zoomed, load full resolution.
                 let slot = self.list.slots.get(&self.list.cur);
-                let too_small = slot.is_some_and(|s| {
-                    let needed = (s.orig[0] as f32 * scale).min(s.orig[0] as f32);
-                    !s.full && (s.tex.size()[0] as f32) + 1.0 < needed
-                });
+                let too_small =
+                    slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale));
                 // Not zoomed: decoded again to the size shown, which the decoders' limit now
                 // holds; full resolution only where that is larger than a texture may be.
                 let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
@@ -10716,6 +10722,18 @@ mod tests {
         assert!(super::fits_texture([6000, 4000], 0.5, 16384));
         // A panorama shown 20,000 pixels wide does not.
         assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
+    }
+
+    /// A photo fitted into a window whose height is not whole pixels is not decoded again and
+    /// again: its width comes out two pixels short of the scale shown, its height within one.
+    #[test]
+    fn a_texture_short_on_one_side_is_the_size_shown() {
+        let fit = 1328.9 / 2657.0;
+        assert!(!super::too_small([1998, 1328], [4000, 2657], fit));
+        // The window grown, or 1:1: decoded again.
+        assert!(super::too_small([1998, 1328], [4000, 2657], 0.75));
+        assert!(super::too_small([1998, 1328], [4000, 2657], 1.0));
+        assert!(!super::too_small([4000, 2657], [4000, 2657], 1.0));
     }
 
     /// egui-winit sends Ctrl+C, with or without Shift, as a Copy event: Copy to a folder, or

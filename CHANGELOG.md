@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A photo in a window of some sizes is no longer decoded again and again, using every core and
+  showing its thumbnail with no size or zoom in the status bar: on a HiDPI screen a 4000×2657
+  JPEG came out two pixels narrower than the scale shown, which counted as too small. Full
+  screen and back stopped it.
+
 ## [0.43.1] - 2026-10-30
 
 ### Security
