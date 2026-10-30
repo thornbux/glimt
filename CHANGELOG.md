@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- A password written into a network address (smb://user:secret@nas/share) is no longer put on
+  gio's command line, where every user of the computer could read it in the process list, nor
+  shown in Connecting to…: it is given to gio when gio asks for it. An address that begins with -
+  is refused.
+
 ## [0.42.1] - 2026-10-30
 
 ### Security
