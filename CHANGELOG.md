@@ -13,6 +13,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - An SVG whose entities would grow to gigabytes (100 KB of text can) is refused instead of using
   up the memory, which ended Glimt each time its folder was opened; also inside another SVG.
 
+### Fixed
+
+- Refresh (F5) in a folder that has not changed shows the image again, also one an editor saved
+  under its own name: it asked for nothing, and the busy pointer turned until the next image.
+
 ## [0.43.0] - 2026-10-30
 
 ### Added

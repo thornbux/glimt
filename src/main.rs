@@ -6696,6 +6696,11 @@ impl App {
                 self.list.slots.clear();
                 self.list.decodes_pending.clear();
                 self.list.decode_errors.clear();
+                // Decoded again now: a folder read again unchanged keeps its list as it is and
+                // asks for nothing. Thumbnails and the size too, of a file edited elsewhere.
+                self.refill();
+                self.thumbs_changed();
+                self.cur_size = None;
                 self.list(ctx);
             }
             Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
@@ -10211,6 +10216,25 @@ mod tests {
             && a.size_rx.is_none()));
         assert_eq!(app.list.files, order);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Refresh in a folder that has not changed decodes the image shown again (an editor may
+    /// have saved it under its own name): it asked for nothing, and the busy pointer stayed.
+    #[test]
+    fn refresh_decodes_the_shown_image_again() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let cur = app.list.cur;
+        assert!(settle(&mut app, &ctx, |a| a.list.slots.contains_key(&cur)));
+        app.run(&ctx, crate::actions::Action::Refresh);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        let asked = |a: &super::App| {
+            a.list.slots.contains_key(&cur) || a.list.decodes_pending.keys().any(|k| k.0 == cur)
+        };
+        assert!(asked(&app), "the image shown decoded again");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A random slideshow of a collection with its subfolders plays in random order, also when
