@@ -2630,6 +2630,11 @@ impl App {
                 }
                 files.retain(|f| list_dir.join(f).exists());
                 if sort {
+                    // By name with Case on, sort_files keeps the order as listed, a folder's;
+                    // a collection's is its own, so it is put in name order here.
+                    if by == files::Sort::Name && case {
+                        files.sort_unstable();
+                    }
                     sort_files(&list_dir, &mut files, by, ascending, case);
                 }
                 // A random slideshow with its subfolders: read from the file, in its order.
@@ -10216,6 +10221,38 @@ mod tests {
             && a.size_rx.is_none()));
         assert_eq!(app.list.files, order);
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// Sort by name with Case on (the default) puts a collection in name order: it kept the
+    /// collection's own.
+    #[test]
+    fn sort_by_name_orders_a_collection() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-col-sort-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut gqv = String::from("#GQview collection\n");
+        for name in ["b.png", "a.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            gqv.push_str(&format!("\"{}\"\n", dir.join(name).display()));
+        }
+        let file = dir.join("c.gqv");
+        std::fs::write(&file, gqv).unwrap();
+        let (mut app, ctx) = app_on(&file);
+        app.config.sort = crate::files::Sort::Name;
+        app.config.sort_case = true;
+        app.sort_collection = true;
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        let names: Vec<String> = (app.list.files.iter())
+            .map(|f| {
+                std::path::Path::new(f)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, ["a.png", "b.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A turn is not saved while other work changes the file (Rename Many, a move): it could
