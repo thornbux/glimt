@@ -12,8 +12,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A sidecar (photo.jpg.xmp) that is a link is no longer written through: a downloaded folder could
   point it at another XMP file of yours, which adding a keyword, a comment or stars then
   rewrote. Glimt now says the sidecar is a link and leaves both alone.
-- File → Import Lightroom Catalog reads a catalog with sqlite3's safe mode, which refuses to read
-  or write other files whatever the catalog holds: on sqlite3 older than 3.30 (RHEL 8 has 3.26), a
+- File → Import Lightroom Catalog reads a catalog with sqlite3's safe mode, which refuses the
+  functions that write or read other files: on sqlite3 older than 3.30 (RHEL 8 has 3.26), a
   catalog with a view in the place of a table could write files when it was read. Importing now
   needs sqlite3 3.37 or newer, and says so on an older one.
 - Undo after a move to the trash reads a trash folder at the top of a disk (.Trash-1000,
