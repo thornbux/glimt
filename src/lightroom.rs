@@ -51,10 +51,15 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if !crate::external::host_has("sqlite3") {
         return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
     }
+    // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
+    // in the place of a table it reads would have sqlite3 run what the view says, its writefile
+    // and readfile too. -safe refuses those wherever they are. An sqlite3 older than 3.37 has no
+    // -safe and is not used: before 3.30 nothing else stops them.
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
     let mut child = crate::external::stoppable_command("sqlite3")
         .args([
+            "-safe",
             "-readonly",
             "-batch",
             "-noheader",
@@ -70,12 +75,21 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
     let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
     if !ok {
-        return Err(tf!(
-            "Not a Lightroom Classic catalog Glimt can read: {why}",
-            why = why.trim()
-        ));
+        return Err(failed(&why));
     }
     Ok(parse(&out))
+}
+
+/// Why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or the
+/// catalog.
+fn failed(why: &str) -> String {
+    match why.contains("unknown option: -safe") {
+        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
+        false => tf!(
+            "Not a Lightroom Classic catalog Glimt can read: {why}",
+            why = why.trim()
+        ),
+    }
 }
 
 const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
@@ -599,6 +613,63 @@ mod tests {
             PathBuf::from("/media/disk")
         );
         assert_eq!(super::root_now("Pictures"), PathBuf::new());
+    }
+
+    /// A catalog of tables is read with sqlite3's -safe; one with a view in the place of a table,
+    /// in any case, has no file written by its writefile.
+    #[test]
+    fn refuses_a_catalog_with_views() {
+        if !crate::external::host_has("sqlite3") {
+            return eprintln!("no sqlite3: not tested");
+        }
+        let dir = std::env::temp_dir().join(format!("glimt-test-lrcat-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let make = |name: &str, root: &str| {
+            let file = dir.join(name);
+            let schema = format!(
+                "{root}; CREATE TABLE Adobe_images(id_local, rootFile, rating);
+                CREATE TABLE AgLibraryFile(id_local, folder, baseName, extension);
+                CREATE TABLE AgLibraryFolder(id_local, rootFolder, pathFromRoot);
+                CREATE TABLE AgLibraryCollection(id_local, parent, name, creationId);
+                CREATE TABLE AgLibraryCollectionImage(collection, image);
+                CREATE TABLE AgLibraryKeyword(id_local, parent, name);
+                CREATE TABLE AgLibraryKeywordImage(image, tag);"
+            );
+            let mut sqlite = crate::external::stoppable_command("sqlite3");
+            sqlite.arg(&file).arg(schema);
+            crate::external::run_limited(sqlite, 1 << 16, crate::external::LIMIT).unwrap();
+            file
+        };
+        let tables = make(
+            "tables.lrcat",
+            "CREATE TABLE AgLibraryRootFolder(id_local, absolutePath);
+            INSERT INTO AgLibraryRootFolder VALUES (1, '/Volumes/Photos/')",
+        );
+        let catalog = super::read(&tables).unwrap();
+        assert_eq!(catalog.roots, [(1, "/Volumes/Photos/".to_owned())]);
+        let pwned = dir.join("pwned");
+        // Named in another case too, which SQLite finds the table by all the same.
+        for name in ["AgLibraryRootFolder", "aglibraryrootfolder"] {
+            let view = format!(
+                "CREATE VIEW {name} AS SELECT 1 AS id_local, \
+                 writefile('{}', 'x') AS absolutePath",
+                pwned.display()
+            );
+            assert!(super::read(&make(&format!("{name}.lrcat"), &view)).is_err());
+            assert!(!pwned.exists());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An sqlite3 too old for -safe (before 3.37) is told as such, not as a bad catalog.
+    #[test]
+    fn tells_an_sqlite3_without_safe_mode() {
+        let old = "sqlite3: Error: unknown option: -safe\nUse -help for a list of options.\n";
+        assert_eq!(
+            super::failed(old),
+            "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+        );
+        assert!(super::failed("Error: file is not a database\n").ends_with("not a database"));
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.

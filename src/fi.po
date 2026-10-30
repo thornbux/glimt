@@ -2302,3 +2302,11 @@ msgstr "Aseta ikkunan otsikko…"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten asetuksissa):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} on linkki: sen kautta ei kirjoiteta"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Lightroom-luettelon lukeminen vaatii sqlite3:n version 3.37 tai uudemman"

@@ -9626,7 +9626,13 @@ mod tests {
             ..Default::default()
         };
         let start = super::Start::default();
+        // A new window sets the colour settings, which also empties the transforms a colour
+        // test running beside it was looking at.
+        let held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut app = super::App::with(&ctx, config, &[], Some(dir.into()), start);
+        drop(held);
         app.receive_listing(&ctx, std::time::Duration::from_secs(5));
         (app, ctx)
     }

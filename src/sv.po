@@ -2302,3 +2302,11 @@ msgstr "Ange fönstertitel …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel på det här fönstret (%name%, %path%, %folder%, %app%; tom: som i Inställningar):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} är en länk: skrivs inte igenom"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Att läsa en Lightroom-katalog kräver sqlite3 3.37 eller senare"

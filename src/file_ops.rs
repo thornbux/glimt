@@ -922,7 +922,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
 /// rename, both with `rename_never_over`; a move to another file system is a copy and an unlink.
 pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()> {
     use std::io::ErrorKind::{AlreadyExists, CrossesDevices};
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     let copy = || -> std::io::Result<()> {
         if to.exists() {
             return Err(AlreadyExists.into());
@@ -948,8 +948,11 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         let copied = crate::decode::open(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
+                // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
+                // or sticky, which a copy owned by this user would carry for its owner.
                 let meta = std::fs::metadata(from)?;
-                std::fs::set_permissions(&part, meta.permissions())?;
+                let mode = std::fs::Permissions::from_mode(meta.mode() & 0o777);
+                std::fs::set_permissions(&part, mode)?;
                 out.set_modified(meta.modified()?)?;
                 out.sync_all()
             })
@@ -1108,9 +1111,30 @@ fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
     while let Some(up) = top.parent().filter(|up| dev(up) == Some(here)) {
         top = up;
     }
-    dirs.push((top.join(".Trash").join(uid.to_string()), top.to_path_buf()));
-    dirs.push((top.join(format!(".Trash-{uid}")), top.to_path_buf()));
+    let shared = top.join(".Trash");
+    let tops = [
+        (shared.join(uid.to_string()), own_dir(&shared, None, true)),
+        (top.join(format!(".Trash-{uid}")), true),
+    ];
+    for (dir, shared_ok) in tops {
+        if shared_ok && own_dir(&dir, Some(uid), false) {
+            dirs.push((dir, top.to_path_buf()));
+        }
+    }
     dirs
+}
+
+/// Whether `dir` may be read as a trash folder at the top of a file system, as freedesktop.org
+/// asks: a folder, not a link, of user `uid` (any user's for `None`), and `sticky` where every
+/// user shares it (.Trash), so none can put a folder of another's name in it. Another user who
+/// can write at the top (a shared disk, a stick) could else make .Trash-1000 first, with a
+/// .trashinfo of a later date for a file just thrown away, and Undo would put their file in its
+/// place.
+fn own_dir(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(dir).is_ok_and(|m| {
+        m.is_dir() && uid.is_none_or(|uid| m.uid() == uid) && (!sticky || m.mode() & 0o1000 != 0)
+    })
 }
 
 /// What the trash folder `dir` holds, its relative paths read from `top`.
@@ -1538,6 +1562,32 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A trash folder at the top of a file system is read only when it is the user's own folder
+    /// (not a link, not another user's), and one in .Trash only when .Trash has the sticky bit.
+    #[test]
+    fn reads_only_the_users_own_trash_folders() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = std::env::temp_dir().join(format!("glimt-test-own-trash-{}", std::process::id()));
+        let (mine, shared) = (dir.join(".Trash-1000"), dir.join(".Trash"));
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        let uid = std::fs::metadata(&mine).unwrap().uid();
+        assert!(super::own_dir(&mine, Some(uid), false));
+        // Another user's, as one made first by someone who can write there.
+        assert!(!super::own_dir(&mine, Some(uid + 1), false));
+        let link = dir.join(".Trash-link");
+        std::os::unix::fs::symlink(&mine, &link).unwrap();
+        assert!(!super::own_dir(&link, Some(uid), false));
+        assert!(!super::own_dir(&dir.join("none"), Some(uid), false));
+        // .Trash: without the sticky bit anyone could remove the user's folder in it.
+        let mode = |m| std::fs::Permissions::from_mode(m);
+        std::fs::set_permissions(&shared, mode(0o777)).unwrap();
+        assert!(!super::own_dir(&shared, None, true));
+        std::fs::set_permissions(&shared, mode(0o1777)).unwrap();
+        assert!(super::own_dir(&shared, None, true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Undo of a move to the trash puts back what that move put there and nothing else: not an
     /// older sidecar of the same name, which belonged to another file (January's IMG_0001.jpg.xmp
     /// came back on today's IMG_0001.jpg), and not over a file there; with the sidecar it moved.
@@ -1678,7 +1728,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A copy keeps the file's time and permissions; it never replaces a file.
+    /// A copy keeps the file's time and permissions, without set-user-ID and set-group-ID; it
+    /// never replaces a file.
     #[test]
     fn copies_keep_the_time() {
         use std::os::unix::fs::PermissionsExt;
@@ -1693,12 +1744,12 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o6750)).unwrap();
         super::put_file(&a, &b, true).unwrap();
         let meta = std::fs::metadata(&b).unwrap();
         assert_eq!(
-            (meta.modified().unwrap(), meta.permissions().mode() & 0o777),
-            (old, 0o640)
+            (meta.modified().unwrap(), meta.permissions().mode() & 0o7777),
+            (old, 0o750)
         );
         assert!(super::put_file(&a, &b, true).is_err());
         std::fs::remove_dir_all(dir).unwrap();

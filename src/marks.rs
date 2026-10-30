@@ -464,6 +464,10 @@ mod tests {
     #[test]
     fn toggles_rates_and_reads_lines() {
         use std::path::PathBuf;
+        // A marks file of its own, which is not there: not the one of whoever runs the tests.
+        let none =
+            std::env::temp_dir().join(format!("glimt-test-marks-toggle-{}", std::process::id()));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(none.join("marks")));
         let mut m = super::Marks::default();
         let (a, b) = (PathBuf::from("/a.jpg"), PathBuf::from("/b.jpg"));
         let both = [a.clone(), b.clone()];
@@ -509,6 +513,7 @@ mod tests {
                 .starts_with("<xmp:Rating>0<")
         );
         assert_eq!(super::set_rating("nothing", 1), None);
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
     }
 
     /// Marks follow a move and a rename, are kept by a copy, go with a delete, and a new file
@@ -568,6 +573,9 @@ mod tests {
     /// Marks files broken in thousands of ways: read without a panic.
     #[test]
     fn survives_broken_files() {
+        let none =
+            std::env::temp_dir().join(format!("glimt-test-marks-broken-{}", std::process::id()));
+        super::TEST_FILE.with(|f| *f.borrow_mut() = Some(none.join("marks")));
         let mut m = super::Marks::default();
         let a = std::path::PathBuf::from("/a.jpg");
         m.toggle(std::slice::from_ref(&a), 2);
@@ -575,5 +583,6 @@ mod tests {
         for text in crate::broken(&super::to_text(&m.map)) {
             super::parse(&text);
         }
+        super::TEST_FILE.with(|f| *f.borrow_mut() = None);
     }
 }

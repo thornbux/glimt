@@ -2302,3 +2302,11 @@ msgstr "Venstertitel instellen …"
 #: src/main.rs
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel van dit venster (%name%, %path%, %folder%, %app%; leeg: zoals in Voorkeuren):"
+
+#: src/meta.rs
+msgid "{name} is a link: not written through"
+msgstr "{name} is een koppeling: er wordt niet doorheen geschreven"
+
+#: src/lightroom.rs
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Voor het lezen van een Lightroom-catalogus is sqlite3 3.37 of nieuwer nodig"
