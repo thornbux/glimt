@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The Help Manual can be made narrow: the tables' long texts wrap to the window's width, where
+  before the widest row of Differences from Geeqie set the window's least width.
+
 ## [0.43.1] - 2026-10-30
 
 ### Security
