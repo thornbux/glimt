@@ -957,17 +957,23 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
 /// where one would remove the other's file. Not the file's own name with more after it: a name
 /// near the 255-byte limit could then not be saved turned, nor its sidecar written.
 pub fn tmp_path(path: &Path) -> PathBuf {
-    use std::hash::{BuildHasher, Hasher};
     static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    // Random for each process: the standard library seeds its hash keys from the system.
-    static OWN: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
-        std::collections::hash_map::RandomState::new()
-            .build_hasher()
-            .finish() as u32
-    });
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let id = crate::remote::instance_id();
-    path.with_file_name(format!("{id}-{:08x}-{k}.glimt-tmp", *OWN))
+    path.with_file_name(format!("{}-{k}.glimt-tmp", own_tag()))
+}
+
+/// This Glimt's instance ID and a random number of its own, for the names of its temporary
+/// files: two Glimts with one process ID (two computers with one home, two containers) differ.
+pub fn own_tag() -> &'static str {
+    use std::hash::{BuildHasher, Hasher};
+    static OWN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        // Random for each process: the standard library seeds its hash keys from the system.
+        let n = std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish() as u32;
+        format!("{}-{n:08x}", crate::remote::instance_id())
+    });
+    &OWN
 }
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar

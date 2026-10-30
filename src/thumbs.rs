@@ -118,7 +118,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     // This Glimt and the thread in the name: several workers and windows may write at once.
     let tmp = file.with_extension(format!(
         "{}.{:?}.tmp",
-        crate::remote::instance_id(),
+        crate::config::own_tag(),
         std::thread::current().id()
     ));
     // Encoded in memory first: the encoder writes its last chunk when it is dropped, where a
@@ -381,7 +381,7 @@ mod tests {
         std::fs::write(&victim, "keep").unwrap();
         let tmp = file.with_extension(format!(
             "{}.{:?}.tmp",
-            crate::remote::instance_id(),
+            crate::config::own_tag(),
             std::thread::current().id()
         ));
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();

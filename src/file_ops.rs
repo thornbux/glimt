@@ -934,7 +934,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         // shortcut: a third close (which waits for nothing) or a stick pulled out leaves the
         // part under this hidden name, and nothing removes it later; a sweep of
         // .glimt-copy-* at the next start if those are ever seen in numbers.
-        let part = to.with_file_name(format!(".glimt-copy-{}-{k}", remote::instance_id()));
+        let part = to.with_file_name(format!(".glimt-copy-{}-{k}", crate::config::own_tag()));
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.
         #[allow(clippy::disallowed_methods)] // a copy's hidden part, made new
@@ -1241,7 +1241,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     // Next to the file: in a collection the files are in different folders.
     let tmp = |f: &Path, k: usize| {
         // This Glimt's name: Flatpak windows can share a process ID.
-        f.with_file_name(format!(".glimt-rename-{}-{k}", remote::instance_id()))
+        f.with_file_name(format!(".glimt-rename-{}-{k}", crate::config::own_tag()))
     };
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     if swap {
