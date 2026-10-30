@@ -2314,3 +2314,7 @@ msgstr "Lightroom-luettelon lukeminen vaatii sqlite3:n version 3.37 tai uudemman
 #: src/preferences.rs
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Kuvien kopioita kotikansiossasi: salatun aseman tai muistitikun kuvat ovat yhä luettavissa siellä"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Pysäytä {name}"

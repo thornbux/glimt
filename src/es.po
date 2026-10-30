@@ -2314,3 +2314,7 @@ msgstr "Leer un catálogo de Lightroom requiere sqlite3 3.37 o posterior"
 #: src/preferences.rs
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Copias de las imágenes en tu carpeta personal: las de un volumen cifrado o una memoria USB siguen siendo legibles allí"
+
+#: src/main.rs
+msgid "Stop {name}"
+msgstr "Detener {name}"
