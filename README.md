@@ -318,7 +318,7 @@ its `Previews.lrdata` folder) and brings over:
 
 Lightroom keeps the full path of every folder as it was on its own computer (`D:/Photos/` or
 `/Volumes/Photos`): the import shows each top folder of the catalog and asks where it is now.
-It needs the `sqlite3` program, and Lightroom closed. Smart collections, colour labels,
+It needs the `sqlite3` program, 3.37 or newer, and Lightroom closed. Smart collections, colour labels,
 flags, develop settings and keywords on each image are not imported; for the last, turn on
 "Automatically write changes into XMP" in Lightroom, and Glimt reads them from the sidecars
 (RAW files) or from the files themselves (JPEG, TIFF, DNG).
@@ -588,7 +588,7 @@ Sway, X11 with a window manager) are very welcome.
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
 | Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
-| Import Lightroom Catalog | `sqlite3` | none: the import says that sqlite3 is missing |
+| Import Lightroom Catalog | `sqlite3`, 3.37 or newer | none: the import says that sqlite3 is missing or too old |
 | HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none: the image says ffmpeg is missing |
 | Printing | `lp` (CUPS) | Save as PDF |
 | A decoder plugin's format | the program its `Exec` line names | none: the image shows the program's error |
@@ -609,7 +609,8 @@ Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictur
 - **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
   `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
 - **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; in a
-  Flatpak it runs on the host, so install it there.
+  Flatpak it runs on the host, so install it there. It must be 3.37 or newer (2021), which reads
+  a catalog in its safe mode; RHEL 8 and other older systems have an older one.
 - **A format of a decoder plugin shows nothing.** The image area shows the decoder's error:
   check that its program is installed and run its `Exec` line by hand on the file. A decoder
   has 30 seconds and 512 MB, and new decoders are seen after a restart.
