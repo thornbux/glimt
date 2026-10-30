@@ -298,8 +298,9 @@ pub fn sort_files(dir: &Path, files: &mut [OsString], by: Sort, ascending: bool,
             .map_or(0, |d| d.as_nanos())
     };
     match by {
-        // Files are listed byte-wise, which is case-sensitive name order.
-        Sort::Name if case => {}
+        // Byte-wise, as a folder is listed: sorted already then, which costs one pass; a
+        // collection's names come in its own order.
+        Sort::Name if case => files.sort_unstable(),
         Sort::Name => files.sort_by_cached_key(name),
         Sort::Number => {
             // Each name made once, not twice in each of millions of comparisons.
@@ -609,6 +610,10 @@ mod tests {
         let dot = std::path::Path::new(".");
         super::sort_files(dot, &mut v, super::Sort::Number, true, false);
         let os = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        // By name with Case on, from an order of their own (a collection's): sorted.
+        let mut own = os(&["b.png", "a.png", "C.png"]);
+        super::sort_files(dot, &mut own, super::Sort::Name, true, true);
+        assert_eq!(own, os(&["C.png", "a.png", "b.png"]));
         let kept = super::kept_order(os(&["c", "a", "gone", "b"]), &os(&["a", "b", "c"]));
         assert_eq!(kept, Some(os(&["c", "a", "b"])));
         assert_eq!(
