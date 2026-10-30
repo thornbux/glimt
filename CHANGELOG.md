@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.43.2] - 2026-10-31
+
 ### Fixed
 
 - A photo in a window of some sizes is no longer decoded again and again, using every core and
@@ -2104,7 +2106,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.43.1...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.43.2...HEAD
+[0.43.2]: https://github.com/thornbux/glimt/compare/v0.43.1...v0.43.2
 [0.43.1]: https://github.com/thornbux/glimt/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/thornbux/glimt/compare/v0.42.2...v0.43.0
 [0.42.2]: https://github.com/thornbux/glimt/compare/v0.42.1...v0.42.2
