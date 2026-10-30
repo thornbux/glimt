@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- A network address that begins with - is refused before it reaches gio, which would read it as an
+  option such as unmount or eject.
+
 ## [0.42.2] - 2026-10-30
 
 ### Security

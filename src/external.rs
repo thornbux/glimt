@@ -428,6 +428,11 @@ pub struct Login {
 #[allow(clippy::disallowed_methods)] // waits for gio under its Watchdog, answering its prompts
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
+    // An option, not a place: -u or -e would unmount or eject. Not given to gio at all, rather
+    // than after a --, which `gio info` reads as a file of its own as well.
+    if uri.starts_with('-') {
+        return Err(Some(format!("Could not mount {uri}: not an address")));
+    }
     // With the usual limit: asked before the mount, this would otherwise wait on a server
     // that never answers, with no watchdog yet.
     let local = || {
@@ -885,6 +890,14 @@ mod tests {
         assert_eq!(super::unknown_host("smb://user@127.0.0.1/share"), "");
         let hint = super::unknown_host("smb://no-such-glimt-host/share");
         assert!(hint.contains("no-such-glimt-host.local"), "{hint}");
+    }
+
+    /// An address that begins with - is no address: refused before gio sees it, also where no
+    /// gio is installed (issue #7).
+    #[test]
+    fn refuses_an_address_that_is_an_option() {
+        let refused = super::gio_mount("-u", None).unwrap_err().unwrap();
+        assert!(refused.ends_with("not an address"), "{refused}");
     }
 
     /// A password in a URI is taken out of it, decoded, and the user name kept; a URI without
