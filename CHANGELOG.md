@@ -5,6 +5,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Edit → Plugins has Stop for a plugin that is still running, such as a script that hangs: it ends
+  the plugin and what it started, and its runs on further files are not made.
+
+### Changed
+
+- The setting that saves thumbnails, the manual and the README say that saved thumbnails are small
+  copies of the pictures, which stay readable after the photos are on an encrypted volume or a
+  stick taken away.
+
 ### Fixed
 
 - Two Glimts with the same process ID on two computers sharing a home folder, or in two
@@ -12,6 +23,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A glimt --remote select that waits for a folder to be read is answered for that folder: another
   script's command sent after it, such as open, waits its turn. At most 64 commands wait; one more
   is told to try again.
+
+### Security
+
+- Remote control is used only in the user's own runtime folder: where XDG_RUNTIME_DIR is set to a
+  folder others can write, another user could otherwise have answered glimt --remote. A command is
+  read no further than the largest select.
 
 ## [0.42.1] - 2026-10-30
 
