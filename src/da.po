@@ -2308,5 +2308,5 @@ msgid "{name} is a link: not written through"
 msgstr "{name} er et link: skrives ikke igennem"
 
 #: src/lightroom.rs
-msgid "{view} is a view, not a table"
-msgstr "{view} er et view, ikke en tabel"
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Læsning af et Lightroom-katalog kræver sqlite3 3.37 eller nyere"

@@ -23,13 +23,6 @@ UNION ALL SELECT 'm', collection, image, '', '' FROM AgLibraryCollectionImage
 UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM AgLibraryKeyword
 UNION ALL SELECT 'w', image, tag, '', '' FROM AgLibraryKeywordImage;";
 
-/// Those of `QUERY`'s names that are views: none in a catalog Lightroom made. sqlite_master is
-/// read without running any view. In any case, as SQLite finds a table by its name: a view named
-/// aglibraryrootfolder is what `QUERY` reads as AgLibraryRootFolder.
-const VIEWS: &str = "SELECT name FROM sqlite_master WHERE type = 'view' AND lower(name) IN (\
-'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
-'aglibrarycollection', 'aglibrarycollectionimage', 'aglibrarykeyword', 'aglibrarykeywordimage');";
-
 /// Between the columns and after the rows: neither is in a file name or keyword.
 const COLUMN: u8 = 0x1f;
 const ROW: u8 = 0x1e;
@@ -58,25 +51,15 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if !crate::external::host_has("sqlite3") {
         return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
     }
-    // A catalog may come from anywhere: one with a view in the place of a table it reads would
-    // have sqlite3 run what the view says, its readfile and writefile too. sqlite3 3.30 and
-    // newer refuse those in a view; older ones, still on some systems, do not, and have no
-    // -safe either. So only tables are read.
-    let cant_read = |why: &str| tf!("Not a Lightroom Classic catalog Glimt can read: {why}", why);
-    let mut views = crate::external::stoppable_command("sqlite3");
-    views
-        .args(["-readonly", "-batch", "-noheader"])
-        .arg(file)
-        .arg(VIEWS);
-    let views = crate::external::run_limited(views, 1 << 16, crate::external::LIMIT)
-        .map_err(|e| cant_read(e.trim()))?;
-    if let Some(view) = String::from_utf8_lossy(&views).lines().next() {
-        return Err(cant_read(&tf!("{view} is a view, not a table", view)));
-    }
+    // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
+    // in the place of a table it reads would have sqlite3 run what the view says, its writefile
+    // and readfile too. -safe refuses those wherever they are. An sqlite3 older than 3.37 has no
+    // -safe and is not used: before 3.30 nothing else stops them.
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
     let mut child = crate::external::stoppable_command("sqlite3")
         .args([
+            "-safe",
             "-readonly",
             "-batch",
             "-noheader",
@@ -92,9 +75,21 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
     let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
     if !ok {
-        return Err(cant_read(why.trim()));
+        return Err(failed(&why));
     }
     Ok(parse(&out))
+}
+
+/// Why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or the
+/// catalog.
+fn failed(why: &str) -> String {
+    match why.contains("unknown option: -safe") {
+        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
+        false => tf!(
+            "Not a Lightroom Classic catalog Glimt can read: {why}",
+            why = why.trim()
+        ),
+    }
 }
 
 const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
@@ -620,8 +615,8 @@ mod tests {
         assert_eq!(super::root_now("Pictures"), PathBuf::new());
     }
 
-    /// A catalog with a view in the place of a table is refused before the query runs it: an
-    /// older sqlite3 would run its writefile. One of tables is read.
+    /// A catalog of tables is read with sqlite3's -safe; one with a view in the place of a table,
+    /// in any case, has no file written by its writefile.
     #[test]
     fn refuses_a_catalog_with_views() {
         if !crate::external::host_has("sqlite3") {
@@ -660,13 +655,21 @@ mod tests {
                  writefile('{}', 'x') AS absolutePath",
                 pwned.display()
             );
-            let refused = super::read(&make(&format!("{name}.lrcat"), &view))
-                .err()
-                .unwrap();
-            assert!(refused.contains(&format!("{name} is a view")), "{refused}");
+            assert!(super::read(&make(&format!("{name}.lrcat"), &view)).is_err());
             assert!(!pwned.exists());
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An sqlite3 too old for -safe (before 3.37) is told as such, not as a bad catalog.
+    #[test]
+    fn tells_an_sqlite3_without_safe_mode() {
+        let old = "sqlite3: Error: unknown option: -safe\nUse -help for a list of options.\n";
+        assert_eq!(
+            super::failed(old),
+            "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+        );
+        assert!(super::failed("Error: file is not a database\n").ends_with("not a database"));
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.

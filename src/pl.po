@@ -2319,5 +2319,5 @@ msgid "{name} is a link: not written through"
 msgstr "{name} to dowiązanie: zapis przez nie jest pomijany"
 
 #: src/lightroom.rs
-msgid "{view} is a view, not a table"
-msgstr "{view} to widok, nie tabela"
+msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
+msgstr "Odczyt katalogu Lightroom wymaga sqlite3 w wersji 3.37 lub nowszej"
