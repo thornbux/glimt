@@ -601,6 +601,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             // Not a picture image reads, such as an SVG: usvg reads it with these limits, but
             // unpacks one that is gzipped (svgz) without a limit.
             None if data.starts_with(&[0x1f, 0x8b]) => return false,
+            None if entities_too_large(data) => return false,
             None => data.len() as u64,
         };
         let mut spent = spent.lock().unwrap_or_else(|e| e.into_inner());
@@ -638,6 +639,37 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
             string(href, opts)
         }),
     }
+}
+
+/// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them:
+/// 100 KB of a long entity used through a short one is gigabytes, which aborts the process.
+/// The bound: every & a reference to the longest entity, which may hold up to 256 of them.
+/// An SVG with a few short ones (Illustrator's namespaces) passes.
+#[cfg(feature = "svg")]
+fn entities_too_large(data: &[u8]) -> bool {
+    let mut longest = 0u64;
+    let mut nested = false;
+    let mut rest = data;
+    while let Some(at) = rest.windows(8).position(|w| w == b"<!ENTITY") {
+        rest = &rest[at + 8..];
+        let Some(open) = rest.iter().position(|&b| b == b'"' || b == b'\'') else {
+            break;
+        };
+        let quote = rest[open];
+        let value = &rest[open + 1..];
+        let len = value
+            .iter()
+            .position(|&b| b == quote)
+            .unwrap_or(value.len());
+        longest = longest.max(len as u64);
+        nested |= value[..len].contains(&b'&');
+        rest = &value[len..];
+    }
+    let refs = data.iter().filter(|&&b| b == b'&').count() as u64;
+    let grown = refs
+        .saturating_mul(longest)
+        .saturating_mul(if nested { 256 } else { 1 });
+    longest > 0 && grown > 64 << 20
 }
 
 /// Gzipped `data` unpacked, or an error once it would be larger than `limit` bytes.
@@ -681,6 +713,9 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
         if data.starts_with(&[0x1f, 0x8b]) {
             return Err("SVG gzipped twice".into());
         }
+    }
+    if entities_too_large(&data) {
+        return Err("SVG whose entities would grow too large".into());
     }
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
@@ -1398,6 +1433,36 @@ mod tests {
         let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
         let both = ((1u64 << 30) / (1024 * 1024 * 4)).min((256 << 20) / size);
         assert_eq!(taken as u64, both);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An SVG whose entities would grow to gigabytes is refused before usvg expands them; one
+    /// with a few short entities, as Illustrator writes, is drawn.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn refuses_an_svg_of_growing_entities() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-bomb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let long = "x".repeat(100_000);
+        let bomb = format!(
+            "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY b \"{long}\"><!ENTITY a \"{}\">]>\
+             <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><desc>{}</desc></svg>",
+            "&b;".repeat(250),
+            "&a;".repeat(48)
+        );
+        let file = dir.join("bomb.svg");
+        std::fs::write(&file, &bomb).unwrap();
+        let started = std::time::Instant::now();
+        assert!(super::svg(&file, None).is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        let fine = "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY ns \"http://www.w3.org/2000/svg\">]>\
+                    <svg xmlns=\"&ns;\" width=\"10\" height=\"10\"><desc>a &amp; b</desc></svg>";
+        let file = dir.join("fine.svg");
+        std::fs::write(&file, fine).unwrap();
+        assert!(super::svg(&file, None).is_ok());
+        for broken in crate::broken(bomb[..400].as_bytes()) {
+            let _ = super::entities_too_large(&broken);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
