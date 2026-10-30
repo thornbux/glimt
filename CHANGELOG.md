@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-10-30
+
 ### Added
 
 - Edit → Plugins has Stop for a plugin that is still running, such as a script that hangs: it ends
@@ -2076,7 +2078,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.42.2...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/thornbux/glimt/compare/v0.42.2...v0.43.0
 [0.42.2]: https://github.com/thornbux/glimt/compare/v0.42.1...v0.42.2
 [0.42.1]: https://github.com/thornbux/glimt/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/thornbux/glimt/compare/v0.41.1...v0.42.0
