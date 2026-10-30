@@ -951,14 +951,23 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
 }
 
 /// Where a new version of `path` is written before it is renamed over it: this Glimt's instance
-/// ID, a count and ".glimt-tmp" beside it, so that "a.png" and "a.webp", saved at the same time,
-/// or one file saved by two windows at once, never share one. Not the file's own name with more
-/// after it: a name near the 255-byte limit could then not be saved turned, nor its sidecar
-/// written.
+/// ID, a number of its own, a count and ".glimt-tmp" beside it, so that "a.png" and "a.webp",
+/// saved at the same time, or one file saved by two windows at once, never share one; also not
+/// two Glimts with the same process ID on two computers (a shared home) or in two containers,
+/// where one would remove the other's file. Not the file's own name with more after it: a name
+/// near the 255-byte limit could then not be saved turned, nor its sidecar written.
 pub fn tmp_path(path: &Path) -> PathBuf {
+    use std::hash::{BuildHasher, Hasher};
     static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    // Random for each process: the standard library seeds its hash keys from the system.
+    static OWN: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
+        std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish() as u32
+    });
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!("{}-{k}.glimt-tmp", crate::remote::instance_id()))
+    let id = crate::remote::instance_id();
+    path.with_file_name(format!("{id}-{:08x}-{k}.glimt-tmp", *OWN))
 }
 
 /// The temporary file `tmp` for writing `path` again, with the permissions of `path` (a sidecar
@@ -1313,6 +1322,23 @@ mod tests {
         drop(super::new_beside(&tmp, &photo).unwrap());
         assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A temporary name holds a number of this process's own after its ID: two Glimts with the
+    /// same process ID (on two computers with one home) never take each other's.
+    #[test]
+    fn temporary_names_are_this_process_own() {
+        let path = std::path::Path::new("/x/a.png");
+        let (a, b) = (super::tmp_path(path), super::tmp_path(path));
+        assert_ne!(a, b);
+        let name = a.file_name().unwrap().to_str().unwrap();
+        let rest = name.strip_prefix(crate::remote::instance_id()).unwrap();
+        let own = rest.strip_prefix('-').unwrap().split('-').next().unwrap();
+        assert!(
+            own.len() == 8 && own.chars().all(|c| c.is_ascii_hexdigit()),
+            "{name}"
+        );
+        assert_eq!(a.parent(), path.parent());
     }
 
     #[test]
