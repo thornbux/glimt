@@ -18,6 +18,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A GPS position stored as degrees alone, one value where the standard has three, is shown in the
+  EXIF panel instead of no GPS at all.
 - Two Glimts with the same process ID on two computers sharing a home folder, or in two
   containers, never use the same temporary file when they save at the same moment.
 - A glimt --remote select that waits for a folder to be read is answered for that folder: another

@@ -805,7 +805,9 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
     // Degrees, minutes, seconds; negative for south and west.
     let coord = |value: u16, reference: u16, negative: &str| -> Option<f64> {
         let e = find(&gps, value)?;
-        let deg = t.ratio(e, 0)? + t.ratio(e, 1)? / 60.0 + t.ratio(e, 2)? / 3600.0;
+        // Minutes and seconds left out (one value only, against the standard): whole degrees.
+        let part = |i| t.ratio(e, i).unwrap_or(0.0);
+        let deg = t.ratio(e, 0)? + part(1) / 60.0 + part(2) / 3600.0;
         let sign = find(&gps, reference)
             .and_then(|r| t.text(r))
             .is_some_and(|r| r == negative);
@@ -1112,6 +1114,37 @@ mod tests {
         assert!(rows.iter().any(|(k, _)| *k == "Exposure"));
     }
 
+    /// A GPS position stored as degrees alone, one value where the standard has three: shown.
+    #[test]
+    fn reads_a_gps_position_of_degrees_alone() {
+        let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
+        let entry = |d: &mut Vec<u8>, tag: u16, kind: u16, count: u32, value: u32| {
+            d.extend(tag.to_le_bytes());
+            d.extend(kind.to_le_bytes());
+            d.extend(count.to_le_bytes());
+            d.extend(value.to_le_bytes());
+        };
+        // IFD0 at 8 with the GPS directory at 26; its four entries end at 80, the two
+        // rationals (60/1 north, 10/1 east) at 80 and 88.
+        d.extend(1u16.to_le_bytes());
+        entry(&mut d, 0x8825, 4, 1, 26);
+        d.extend(0u32.to_le_bytes());
+        d.extend(4u16.to_le_bytes());
+        entry(&mut d, 1, 2, 2, u32::from(b'N'));
+        entry(&mut d, 2, 5, 1, 80);
+        entry(&mut d, 3, 2, 2, u32::from(b'E'));
+        entry(&mut d, 4, 5, 1, 88);
+        d.extend(0u32.to_le_bytes());
+        for v in [60u32, 1, 10, 1] {
+            d.extend(v.to_le_bytes());
+        }
+        let rows = super::parse(&d);
+        assert!(
+            rows.contains(&("GPS", "60.00000, 10.00000".into())),
+            "{rows:?}"
+        );
+    }
+
     /// An EXIF block with strings, rationals, a short and the Exif directory.
     fn sample() -> Vec<u8> {
         let mut d = b"Exif\0\0II*\0\x08\0\0\0".to_vec();
@@ -1238,7 +1271,9 @@ mod tests {
         assert!(super::oriented(with_exif.clone(), 1, false, true).is_ok());
         for data in crate::broken(&jpeg).chain(crate::broken(&with_exif)) {
             if let Some((segments, _)) = super::jpeg_segments(&data) {
-                segments.iter().for_each(|s| drop(super::segment(&data, s)));
+                segments.iter().for_each(|s| {
+                    let _ = super::segment(&data, s);
+                });
             }
             let _ = super::oriented(data, 1, false, true);
         }
