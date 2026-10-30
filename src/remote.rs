@@ -412,6 +412,8 @@ fn serve(
             }
             false => (None, None),
         };
+        // Counted until its answer is written: `stop` waits for that at closing.
+        let answering = answer.is_some().then(Answering::new);
         if tx.send((line, reply)).is_err() {
             return;
         }
@@ -421,9 +423,13 @@ fn serve(
                 Ok(bytes) => drop(out.write_all(&bytes)),
                 // Dropped by the window (too many waiting, or closing): closed now, the client
                 // would read nothing, "all found"; held open, its time limit says "no answer".
-                Err(_) => return std::thread::sleep(WAIT + std::time::Duration::from_secs(1)),
+                Err(_) => {
+                    drop(answering);
+                    return std::thread::sleep(WAIT + std::time::Duration::from_secs(1));
+                }
             }
         }
+        drop(answering);
     }
 }
 
@@ -481,6 +487,33 @@ pub fn stop() {
     }
     if let Some(path) = socket(socket_id()) {
         let _ = std::fs::remove_file(path);
+    }
+    // Answers given just now (the selects held back) written whole before the process ends,
+    // which would else cut a long one off: a second at most.
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    while ANSWERING.load(std::sync::atomic::Ordering::Relaxed) > 0
+        && std::time::Instant::now() < until
+    {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// Queries sent to the window whose answers are not written yet.
+static ANSWERING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// One of `ANSWERING` while it lives.
+struct Answering;
+
+impl Answering {
+    fn new() -> Self {
+        ANSWERING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Answering
+    }
+}
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        ANSWERING.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

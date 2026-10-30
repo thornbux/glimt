@@ -6056,12 +6056,20 @@ impl App {
 
     /// At closing: each select still held back is answered with all its paths, none of them
     /// selected. Left without an answer, the closed socket would read as "all found".
+    /// Also those sent just before, not yet taken from the channel: a query is answered as
+    /// usual (current, selection).
     fn answer_held_selects(&mut self) {
-        for (command, reply) in self.waiting_select.drain(..) {
-            if let (Some(reply), Some(paths)) = (reply, command.strip_prefix("select ")) {
-                let paths = paths.split('\0').filter(|p| !p.is_empty());
-                let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
-            }
+        let sent: Vec<_> = self.remote_rx.try_iter().collect();
+        let held = std::mem::take(&mut self.waiting_select);
+        for (command, reply) in held.into_iter().chain(sent) {
+            let Some(reply) = reply else { continue };
+            let answer = match command.strip_prefix("select ") {
+                Some(paths) => (paths.split('\0').filter(|p| !p.is_empty()))
+                    .flat_map(|p| p.bytes().chain([0]))
+                    .collect(),
+                None => self.remote_query(&command),
+            };
+            let _ = reply.send(answer);
         }
     }
 
@@ -10527,11 +10535,15 @@ mod tests {
             "a.png found in its own folder"
         );
         assert_eq!(app.dir, other);
-        // Closing with selects still held: each told that none of its paths was selected.
+        // Closing with selects still held, and one sent just before: each told that none of its
+        // paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();
         app.waiting_select.push((select.clone(), Some(reply)));
+        let (reply, late) = std::sync::mpsc::channel();
+        tx.send((select.clone(), Some(reply))).unwrap();
         app.answer_held_selects();
         assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
+        assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
