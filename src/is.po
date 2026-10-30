@@ -2318,3 +2318,7 @@ msgstr "Afrit af myndunum í heimamöppunni þinni: þau af dulkóðuðu drifi e
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "Stöðva {name}"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Snúningurinn var ekki vistaður: önnur vinna er enn að breyta skránni"

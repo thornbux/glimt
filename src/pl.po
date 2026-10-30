@@ -2329,3 +2329,7 @@ msgstr "Kopie obrazów w folderze domowym: te z zaszyfrowanego woluminu lub pend
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "Zatrzymaj {name}"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Obrót nie został zapisany: inna praca wciąż zmienia plik"

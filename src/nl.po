@@ -2318,3 +2318,7 @@ msgstr "Kopieën van de afbeeldingen in je thuismap: die van een versleuteld vol
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "{name} stoppen"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "De draaiing is niet opgeslagen: ander werk wijzigt het bestand nog"

@@ -2318,3 +2318,7 @@ msgstr "Kopien der Bilder in deinem Home-Ordner: die von einem verschlüsselten 
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "{name} anhalten"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Die Drehung wurde nicht gespeichert: andere Arbeit ändert die Datei noch"

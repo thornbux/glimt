@@ -2318,3 +2318,7 @@ msgstr "Des copies des images dans votre dossier personnel : celles d'un volume 
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "Arrêter {name}"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "La rotation n'a pas été enregistrée : un autre travail modifie encore le fichier"

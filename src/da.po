@@ -2318,3 +2318,7 @@ msgstr "Kopier af billederne i din hjemmemappe: dem fra et krypteret drev eller 
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "Stop {name}"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Rotationen blev ikke gemt: andet arbejde ændrer stadig filen"

@@ -2318,3 +2318,7 @@ msgstr "Copie delle immagini nella tua cartella home: quelle di un volume cifrat
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "Ferma {name}"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "La rotazione non è stata salvata: un altro lavoro sta ancora modificando il file"

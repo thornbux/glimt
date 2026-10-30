@@ -2318,3 +2318,7 @@ msgstr "Kuvien kopioita kotikansiossasi: salatun aseman tai muistitikun kuvat ov
 #: src/main.rs
 msgid "Stop {name}"
 msgstr "Pysäytä {name}"
+
+#: src/file_ops.rs
+msgid "The rotation was not saved: other work is still changing the file"
+msgstr "Kiertoa ei tallennettu: muu työ muuttaa tiedostoa yhä"
