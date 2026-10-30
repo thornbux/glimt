@@ -644,32 +644,47 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
 /// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them:
 /// 100 KB of a long entity used through a short one is gigabytes, which aborts the process.
 /// The bound: every & a reference to the longest entity, which may hold up to 256 of them.
-/// An SVG with a few short ones (Illustrator's namespaces) passes.
+/// An SVG with a few short ones (Illustrator's namespaces) passes. The DTD's internal subset is
+/// read as XML reads it: comments and processing instructions skipped and every quoted literal
+/// measured (an entity's value, or an attribute default: an overestimate), so a quote hidden in
+/// a comment cannot make it miss the long one.
 #[cfg(feature = "svg")]
 fn entities_too_large(data: &[u8]) -> bool {
-    let mut longest = 0u64;
-    let mut nested = false;
-    let mut rest = data;
-    while let Some(at) = rest.windows(8).position(|w| w == b"<!ENTITY") {
-        rest = &rest[at + 8..];
-        let Some(open) = rest.iter().position(|&b| b == b'"' || b == b'\'') else {
-            break;
+    let find = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).position(|w| w == needle);
+    let Some(doctype) = find(data, b"<!DOCTYPE") else {
+        return false;
+    };
+    let Some(open) = data[doctype..].iter().position(|&b| b == b'[' || b == b'>') else {
+        return false;
+    };
+    if data[doctype + open] != b'[' {
+        return false;
+    }
+    let (mut longest, mut nested, mut entities) = (0u64, false, false);
+    let mut rest = &data[doctype + open + 1..];
+    while let Some(&b) = rest.first() {
+        let skip = |end: &[u8]| find(rest, end).map_or(rest.len(), |at| at + end.len());
+        let step = match b {
+            b']' => break,
+            b'<' if rest.starts_with(b"<!--") => skip(b"-->"),
+            b'<' if rest.starts_with(b"<?") => skip(b"?>"),
+            b'"' | b'\'' => {
+                let value = &rest[1..];
+                let len = value.iter().position(|&c| c == b).unwrap_or(value.len());
+                longest = longest.max(len as u64);
+                nested |= value[..len].contains(&b'&');
+                len + 2
+            }
+            _ => {
+                entities |= rest.starts_with(b"<!ENTITY");
+                1
+            }
         };
-        let quote = rest[open];
-        let value = &rest[open + 1..];
-        let len = value
-            .iter()
-            .position(|&b| b == quote)
-            .unwrap_or(value.len());
-        longest = longest.max(len as u64);
-        nested |= value[..len].contains(&b'&');
-        rest = &value[len..];
+        rest = &rest[step.min(rest.len())..];
     }
     let refs = data.iter().filter(|&&b| b == b'&').count() as u64;
-    let grown = refs
-        .saturating_mul(longest)
-        .saturating_mul(if nested { 256 } else { 1 });
-    longest > 0 && grown > 64 << 20
+    let grown = refs.saturating_mul(longest);
+    entities && grown.saturating_mul(if nested { 256 } else { 1 }) > 64 << 20
 }
 
 /// Gzipped `data` unpacked, or an error once it would be larger than `limit` bytes.
@@ -1460,6 +1475,17 @@ mod tests {
         let file = dir.join("fine.svg");
         std::fs::write(&file, fine).unwrap();
         assert!(super::svg(&file, None).is_ok());
+        // A quote hidden in a comment, a processing instruction or an attribute default before
+        // the long entity: still measured.
+        let hides = [
+            "<!-- <!ENTITY z ' -->",
+            "<?x <!ENTITY z ' ?>",
+            "<!ATTLIST svg a CDATA \"<!ENTITY z '\">",
+        ];
+        for hide in hides {
+            let hidden = bomb.replacen("<!ENTITY b \"", &format!("{hide}<!ENTITY b \"'"), 1);
+            assert!(super::entities_too_large(hidden.as_bytes()), "{hide}");
+        }
         for broken in crate::broken(bomb[..400].as_bytes()) {
             let _ = super::entities_too_large(&broken);
         }
