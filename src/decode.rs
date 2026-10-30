@@ -644,47 +644,31 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
 /// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them:
 /// 100 KB of a long entity used through a short one is gigabytes, which aborts the process.
 /// The bound: every & a reference to the longest entity, which may hold up to 256 of them.
-/// An SVG with a few short ones (Illustrator's namespaces) passes. The DTD's internal subset is
-/// read as XML reads it: comments and processing instructions skipped and every quoted literal
-/// measured (an entity's value, or an attribute default: an overestimate), so a quote hidden in
-/// a comment cannot make it miss the long one.
+/// An SVG with a few short ones (Illustrator's namespaces) passes. The DTD's structure is not
+/// read, as a reader that differs from roxmltree's can be led past an entity (a `]` or a quote
+/// in another declaration, a DOCTYPE in a comment): each `<!ENTITY` anywhere is measured, its
+/// value the first quoted text after it, before any `<`, as a name cannot hold a quote. One in
+/// a comment counts too, which only overestimates.
 #[cfg(feature = "svg")]
 fn entities_too_large(data: &[u8]) -> bool {
-    let find = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).position(|w| w == needle);
-    let Some(doctype) = find(data, b"<!DOCTYPE") else {
-        return false;
-    };
-    let Some(open) = data[doctype..].iter().position(|&b| b == b'[' || b == b'>') else {
-        return false;
-    };
-    if data[doctype + open] != b'[' {
-        return false;
-    }
-    let (mut longest, mut nested, mut entities) = (0u64, false, false);
-    let mut rest = &data[doctype + open + 1..];
-    while let Some(&b) = rest.first() {
-        let skip = |end: &[u8]| find(rest, end).map_or(rest.len(), |at| at + end.len());
-        let step = match b {
-            b']' => break,
-            b'<' if rest.starts_with(b"<!--") => skip(b"-->"),
-            b'<' if rest.starts_with(b"<?") => skip(b"?>"),
-            b'"' | b'\'' => {
-                let value = &rest[1..];
-                let len = value.iter().position(|&c| c == b).unwrap_or(value.len());
-                longest = longest.max(len as u64);
-                nested |= value[..len].contains(&b'&');
-                len + 2
-            }
-            _ => {
-                entities |= rest.starts_with(b"<!ENTITY");
-                1
-            }
-        };
-        rest = &rest[step.min(rest.len())..];
+    let (mut longest, mut nested) = (0u64, false);
+    let mut rest = data;
+    while let Some(at) = rest.windows(8).position(|w| w == b"<!ENTITY") {
+        rest = &rest[at + 8..];
+        let quote =
+            (rest.iter().take_while(|&&b| b != b'<')).position(|&b| b == b'"' || b == b'\'');
+        let Some(open) = quote else { continue };
+        let value = &rest[open + 1..];
+        let len = value
+            .iter()
+            .position(|&b| b == rest[open])
+            .unwrap_or(value.len());
+        longest = longest.max(len as u64);
+        nested |= value[..len].contains(&b'&');
     }
     let refs = data.iter().filter(|&&b| b == b'&').count() as u64;
     let grown = refs.saturating_mul(longest);
-    entities && grown.saturating_mul(if nested { 256 } else { 1 }) > 64 << 20
+    longest > 0 && grown.saturating_mul(if nested { 256 } else { 1 }) > 64 << 20
 }
 
 /// Gzipped `data` unpacked, or an error once it would be larger than `limit` bytes.
@@ -1485,6 +1469,21 @@ mod tests {
         for hide in hides {
             let hidden = bomb.replacen("<!ENTITY b \"", &format!("{hide}<!ENTITY b \"'"), 1);
             assert!(super::entities_too_large(hidden.as_bytes()), "{hide}");
+        }
+        // Read otherwise than roxmltree reads the DTD: a DOCTYPE in a comment before it, a >
+        // in its SYSTEM literal, a ] or a quote in another declaration around the entities.
+        let around = [
+            (
+                "<?xml version=\"1.0\"?>",
+                "<?xml version=\"1.0\"?><!-- <!DOCTYPE x> -->",
+            ),
+            ("<!DOCTYPE svg [", "<!DOCTYPE svg SYSTEM \"a>b\" ["),
+            ("<!DOCTYPE svg [", "<!DOCTYPE svg [<!ATTLIST svg a ]>"),
+            ("<!DOCTYPE svg [", "<!DOCTYPE svg [<!ATTLIST svg a CDATA '>"),
+        ];
+        for (at, put) in around {
+            let led = bomb.replacen(at, put, 1);
+            assert!(super::entities_too_large(led.as_bytes()), "{put}");
         }
         for broken in crate::broken(bomb[..400].as_bytes()) {
             let _ = super::entities_too_large(&broken);
