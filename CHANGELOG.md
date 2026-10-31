@@ -18,9 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- A keyword or star saved while its photo is moved (or moved back by Undo) no longer leaves a
-  sidecar under the old name, which a later file of that name would take over: the move waits
-  for the write, and a write that waited finds the photo gone.
+- A keyword or star saved while its photo is moved, renamed or deleted (or moved back by Undo)
+  no longer leaves a sidecar under the old name, which a later file of that name would take
+  over: the operation waits for the write, and a write that waited finds the photo gone.
 - Putting back a Rename Many cut short by a power cut puts every file back: the count of the last
   steps done can be lost then, and a photo was left under a hidden temporary name. The steps
   done are now found by the names too.
