@@ -380,6 +380,8 @@ struct Deleted {
     overwritten: Vec<PathBuf>,
     /// A folder renamed (old, new), which the window follows.
     folder_renamed: Option<(PathBuf, PathBuf)>,
+    /// A folder made (New Folder): the tree reads its parent again, the list its folder.
+    folder_made: Option<PathBuf>,
 }
 
 /// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
@@ -7872,40 +7874,34 @@ impl App {
             }
             _ => self.dir.join(text),
         };
-        let result = match prompt {
-            // shortcut: in the window's thread, which a share that stopped answering holds
-            // until create_dir returns; through `background` as Rename Folder if that happens.
+        match prompt {
+            // In the background, as a share that stopped answering would hold the window until
+            // create_dir returns; `folder_made` reads the folder again.
             Prompt::NewFolder => {
-                self.tree.remove(&self.dir);
-                std::fs::create_dir(&target)
+                let deleted_tx = self.deleted_tx.clone();
+                self.background(ctx, Vec::new(), move || {
+                    if let Err(e) = std::fs::create_dir(&target) {
+                        return Some(format!("{display}: {e}", display = target.display()));
+                    }
+                    let _ = deleted_tx.send(Deleted {
+                        folder_made: Some(target),
+                        ..Default::default()
+                    });
+                    None
+                });
             }
-            Prompt::Rename if self.list.files.is_empty() => return,
-            Prompt::Rename if target == self.path(self.list.cur) => return,
-            Prompt::RenameMany => return self.rename_many(ctx, text),
+            Prompt::Rename if self.list.files.is_empty() => {}
+            Prompt::Rename if target == self.path(self.list.cur) => {}
+            Prompt::RenameMany => self.rename_many(ctx, text),
             Prompt::NewCollection
             | Prompt::RenameCollection
             | Prompt::SaveTheme
             | Prompt::RenameFolder
-            | Prompt::WindowTitle => return,
+            | Prompt::WindowTitle => {}
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
                 self.rename_in_background(ctx, vec![self.path(self.list.cur)], vec![target]);
-                return;
-            }
-        };
-        match (result, prompt) {
-            (Ok(()), Prompt::NewFolder) => self.list(ctx),
-            // The list keeps its folder and mode; the shown entry takes the new name.
-            (Ok(()), _) => {
-                if let Ok(rel) = target.strip_prefix(&self.dir) {
-                    self.list.files[self.list.cur] = rel.as_os_str().to_owned();
-                }
-                self.title(ctx);
-                self.list(ctx);
-            }
-            (Err(e), _) => {
-                self.notice = Some(format!("{display}: {e}", display = target.display()))
             }
         }
     }
@@ -10552,6 +10548,23 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// New Folder makes the folder in the background, and the list and the tree show it.
+    #[test]
+    fn makes_a_new_folder_in_the_background() {
+        let d = contract_folder("new-folder");
+        let (mut app, ctx) = app_on(&d);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        app.answer_prompt(&ctx, super::Prompt::NewFolder, "trip");
+        assert!(settle(&mut app, &ctx, |a| {
+            a.listing_rx.is_none() && a.subdirs.iter().any(|s| s.ends_with("trip"))
+        }));
+        assert!(d.join("trip").is_dir());
+        // There already: said, and nothing else made.
+        app.answer_prompt(&ctx, super::Prompt::NewFolder, "trip");
+        assert!(settle(&mut app, &ctx, |a| a.notice.is_some()));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// Every operation that starts a job or background work is in the contract above, or says
     /// here why it is not: a new one cannot leave out what follows its files unseen.
     #[test]
@@ -10573,6 +10586,10 @@ mod tests {
                 "a new file beside the image: save::land's tests; it needs a decoded image",
             ),
             ("trash_folder", "gio trash; Undo's restore has its own test"),
+            (
+                "answer_prompt",
+                "New Folder: an empty folder, nothing to follow; makes_a_new_folder_in_the_background",
+            ),
             ("trash_collection", "gio trash of the collection's own file"),
             ("back_up", "Glimt's own folders, no file of the user's"),
             (
