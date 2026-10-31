@@ -515,6 +515,8 @@ config! {
     checkerboard: bool = false,
     /// Window → Projector: a ring on the projector where the pointer is over the image.
     projector_pointer: bool = true,
+    /// In full screen the pointer is hidden while the mouse is still, unless work goes on.
+    hide_pointer: bool = true,
     /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows
     /// the desktop's light or dark style), or a file in `$XDG_CONFIG_HOME/glimt/themes`.
     theme: String = String::from("Dark"),

@@ -2322,3 +2322,7 @@ msgstr "Arrêter {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "La rotation n'a pas été enregistrée : un autre travail modifie encore le fichier"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Masquer le pointeur en plein écran quand la souris est immobile"

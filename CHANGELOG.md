@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- In full screen the pointer hides when the mouse has been still for two seconds, and comes
+  back when it moves; while work goes on (the folder read or sorted again, as after a
+  slideshow, or a file job) it stays, as the busy pointer. Preferences → Image turns it off.
+
 ## [0.44.0] - 2026-10-31
 
 ### Security

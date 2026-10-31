@@ -2322,3 +2322,7 @@ msgstr "Ferma {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "La rotazione non è stata salvata: un altro lavoro sta ancora modificando il file"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Nascondi il puntatore a schermo intero quando il mouse è fermo"

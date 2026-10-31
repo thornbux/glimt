@@ -432,6 +432,9 @@ const MANUAL: &[(&str, &str)] = &[
          - Ctrl+E a window with every EXIF field\n\
          - Ctrl+H hides the file list\n\
          - F or F11 shows the image full screen, Esc leaves full screen.\n\n\
+         In full screen the pointer hides when the mouse has been still for two seconds, and \
+         comes back when it moves; while work goes on (a folder read or sorted, a file job) it \
+         stays, as the busy pointer. Preferences → Image turns this off.\n\n\
          In full screen, I shows or hides the name, place and EXIF over the image. Preferences → \
          Image info template says what it shows, in Geeqie's form: %name%, %keywords%, %Camera% \
          and the other EXIF panel labels, | between parts that are left out when empty, \\n for a \

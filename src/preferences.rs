@@ -192,7 +192,8 @@ impl crate::App {
         changed
     }
 
-    /// Preferences: rotation by EXIF and saving it, the background, enlarging, zoom and the wheel.
+    /// Preferences: rotation by EXIF and saving it, the background, enlarging, zoom, the wheel and
+    /// the pointer in full screen.
     pub(crate) fn image_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         let mut rotate = self.config.exif_rotate;
@@ -228,6 +229,12 @@ impl crate::App {
             .checkbox(
                 &mut c.wheel_zoom,
                 tr("Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"),
+            )
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut c.hide_pointer,
+                tr("Hide the pointer in full screen when the mouse is still"),
             )
             .changed();
         changed
