@@ -6289,6 +6289,10 @@ impl App {
         if moved || !fullscreen {
             self.pointer_moved = std::time::Instant::now();
         }
+        if fullscreen && self.config.hide_pointer && self.working() {
+            // A job may end without a repaint; look again, for the pointer to hide then.
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
         if !self.pointer_hides(fullscreen) || window_shown(ctx) {
             return;
         }
@@ -11055,6 +11059,44 @@ mod tests {
         assert!(app.working() && app.pointer_hides(true));
         app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert!(!app.pointer_hides(true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Work in full screen keeps the pointer, and the window looks again soon, so the pointer
+    /// hides when the work ends even if nothing else repaints.
+    #[test]
+    fn the_pointer_hides_after_work_without_a_repaint() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-work-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.hide_pointer = true;
+        app.pointer_moved = std::time::Instant::now() - super::POINTER_STILL * 2;
+        let pass = |app: &mut super::App| {
+            let out = ctx.run_ui(Default::default(), |ui| {
+                app.hide_still_pointer(ui.ctx(), true)
+            });
+            let delay = out.viewport_output[&eframe::egui::ViewportId::ROOT].repaint_delay;
+            (
+                out.platform_output.cursor_icon == eframe::egui::CursorIcon::None,
+                delay,
+            )
+        };
+        // egui repaints at once for a few passes after a change (the first, the cursor).
+        app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..3 {
+            let _ = pass(&mut app);
+        }
+        let (hidden, delay) = pass(&mut app);
+        assert!(
+            !hidden && delay <= std::time::Duration::from_secs(1),
+            "{delay:?}"
+        );
+        app.busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let (hidden, delay) = pass(&mut app);
+        assert!(
+            hidden && delay > std::time::Duration::from_secs(1),
+            "{delay:?}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
