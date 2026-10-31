@@ -160,36 +160,46 @@ impl crate::App {
         let collection = self.collection.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
-            // The photos' sidecars held until they too are gone: a keyword written meanwhile
-            // would else make one under the name of a photo no longer there.
-            let _held = meta::held_all(&paths);
             let since = std::time::SystemTime::now();
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
             ctx.request_repaint();
             let mut errors = Vec::new();
-            if trash {
-                // Many files per gio call, so thousands of files do not become thousands of
-                // processes; few enough that Stop and the count in the status bar keep up.
-                for chunk in paths.chunks(100) {
-                    if job.stopped() {
-                        break;
-                    }
+            // Of the files gone, the sidecars that went with them.
+            let (mut gone, mut sides) = (Vec::new(), Vec::new());
+            // Many files per gio call, so thousands of files do not become thousands of
+            // processes; few enough that Stop and the count in the status bar keep up.
+            let per = if trash { 100 } else { 1 };
+            for chunk in paths.chunks(per) {
+                if job.stopped() {
+                    break;
+                }
+                // A chunk's sidecars held until they too are gone: a keyword written meanwhile
+                // would else make one under the name of a photo no longer there. Only for the
+                // chunk, so a sidecar write in another window waits for one chunk, not the job.
+                let _held = meta::held_all(chunk);
+                if trash {
                     if let Err(e) = crate::external::trash(chunk) {
                         errors.push(e);
                     }
-                    job.did(chunk.len());
+                } else if let Err(e) = std::fs::remove_file(&chunk[0]) {
+                    errors.push(format!("{display}: {e}", display = chunk[0].display()));
                 }
-            } else {
-                for path in &paths {
-                    if job.stopped() {
-                        break;
-                    }
-                    if let Err(e) = std::fs::remove_file(path) {
-                        errors.push(format!("{display}: {e}", display = path.display()));
-                    }
-                    job.did(1);
+                // Their sidecars go the same way; a new file of the same name must not get
+                // their keywords.
+                let went: Vec<PathBuf> = chunk.iter().filter(|p| !p.exists()).cloned().collect();
+                let side: Vec<PathBuf> = (went.iter())
+                    .map(|p| meta::sidecar(p))
+                    .filter(|s| s.exists())
+                    .collect();
+                if trash && !side.is_empty() {
+                    let _ = crate::external::trash(&side);
+                } else {
+                    side.iter().for_each(|s| drop(std::fs::remove_file(s)));
                 }
+                gone.extend(went);
+                sides.extend(side);
+                job.did(chunk.len());
             }
             if let Some(first) = errors.first() {
                 let _ = tx.send(tf!(
@@ -206,24 +216,10 @@ impl crate::App {
             }) {
                 let _ = tx.send(text);
             }
-            let gone: Vec<PathBuf> = paths.iter().filter(|p| !p.exists()).cloned().collect();
             let removed = forget_in_collection(collection.as_deref(), &gone).unwrap_or_else(|e| {
                 let _ = tx.send(e);
                 Vec::new()
             });
-            // Their sidecars go the same way; a new file of the same name must not get their
-            // keywords.
-            let sides: Vec<PathBuf> = (gone.iter())
-                .map(|p| meta::sidecar(p))
-                .filter(|s| s.exists())
-                .collect();
-            for chunk in sides.chunks(500) {
-                if trash {
-                    let _ = crate::external::trash(chunk);
-                } else {
-                    chunk.iter().for_each(|s| drop(std::fs::remove_file(s)));
-                }
-            }
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(Thrown {
                     files: gone.clone(),
