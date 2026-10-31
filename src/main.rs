@@ -6289,7 +6289,7 @@ impl App {
         if moved || !fullscreen {
             self.pointer_moved = std::time::Instant::now();
         }
-        if fullscreen && self.config.hide_pointer && self.working() {
+        if fullscreen && self.config.hide_pointer && self.working_besides_image() {
             // A job may end without a repaint; look again, for the pointer to hide then.
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
@@ -11092,6 +11092,14 @@ mod tests {
             "{delay:?}"
         );
         app.busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let (hidden, delay) = pass(&mut app);
+        assert!(
+            hidden && delay > std::time::Duration::from_secs(1),
+            "{delay:?}"
+        );
+        // The shown image decoded does not keep the pointer, so it needs no look again either.
+        app.list.files = vec!["a.png".into()];
+        assert!(app.working());
         let (hidden, delay) = pass(&mut app);
         assert!(
             hidden && delay > std::time::Duration::from_secs(1),
