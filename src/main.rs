@@ -6264,14 +6264,20 @@ impl App {
         let decoding = !self.list.files.is_empty()
             && !self.list.slots.contains_key(&self.list.cur)
             && !self.list.decode_errors.contains_key(&self.list.cur);
+        decoding || self.working_besides_image()
+    }
+
+    /// `working` but for the shown image's decode, which a full-screen slideshow waits on at
+    /// every image not preloaded.
+    fn working_besides_image(&self) -> bool {
         self.listing_rx.is_some()
-            || decoding
             || self.mounting_rx.is_some()
             || self.busy.load(Ordering::Relaxed) > 0
     }
 
     /// In full screen, with the setting on, the pointer hidden once the mouse has been still for
-    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it), nor while a window,
+    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it; the shown image
+    /// decoded does not count, or it would flash at each image of a slideshow), nor while a window,
     /// menu or popup shows (Help, the EXIF window, pan view, a dialog): one reads it, and wants
     /// the pointer there at once.
     fn hide_still_pointer(&mut self, ctx: &egui::Context, fullscreen: bool) {
@@ -6293,9 +6299,12 @@ impl App {
     }
 
     /// Whether the pointer may be hidden while still: full screen, the setting on, no work going
-    /// on and no dialog open.
+    /// on but the shown image's decode, and no dialog open.
     fn pointer_hides(&self, fullscreen: bool) -> bool {
-        fullscreen && self.config.hide_pointer && !self.working() && !self.dialog_open()
+        fullscreen
+            && self.config.hide_pointer
+            && !self.working_besides_image()
+            && !self.dialog_open()
     }
 
     fn dialog_open(&self) -> bool {
@@ -10957,6 +10966,21 @@ mod tests {
         // The frame after it closed still counts it (shown last frame), the next not.
         let _ = pass(false);
         assert!(!pass(false));
+    }
+
+    /// The shown image still decoded keeps the busy pointer, but not the pointer from hiding in
+    /// full screen: a slideshow would flash it at each image not preloaded.
+    #[test]
+    fn the_shown_image_decoded_lets_the_pointer_hide() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-decode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        app.config.hide_pointer = true;
+        app.list.files = vec!["a.png".into()];
+        assert!(app.working() && app.pointer_hides(true));
+        app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        assert!(!app.pointer_hides(true));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Fitted, an image is decoded again only for a larger box than its texture was made for:
