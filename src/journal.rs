@@ -346,42 +346,64 @@ mod tests {
         assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
         std::fs::remove_file(p("a.jpg")).unwrap();
         std::fs::remove_file(p("b.jpg")).unwrap();
-        // Two steps done and the third linked, one counted: b and .tmp-0 one file.
-        std::fs::write(p(".tmp-0"), "a").unwrap();
-        std::fs::write(p(".tmp-1"), "b").unwrap();
-        std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
-        let plan = plans.join("cut");
-        let mut cut = super::begin(&plans, &moves).unwrap();
-        cut.done();
-        std::fs::copy(&cut.path, &plan).unwrap();
-        drop(cut);
-        assert_eq!(super::settle(&plan, &moves, Some(1), true), Some((3, 0)));
-        assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
-        assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
-        std::fs::remove_file(p("a.jpg")).unwrap();
-        std::fs::remove_file(p("b.jpg")).unwrap();
-        // A chain without swaps, a → A … d → D: three done and the fourth linked, one counted.
-        let chain: Vec<_> = ["a", "b", "c", "d"]
-            .map(|n| {
-                (
-                    p(&format!("{n}.png")),
-                    p(&format!("{}.png", n.to_uppercase())),
-                )
-            })
-            .into();
-        for n in ["A", "B", "C", "d"] {
-            std::fs::write(p(&format!("{n}.png")), n.to_lowercase()).unwrap();
-        }
-        std::fs::hard_link(p("d.png"), p("D.png")).unwrap();
-        let mut cut = super::begin(&plans, &chain).unwrap();
-        cut.done();
-        std::fs::copy(&cut.path, &plan).unwrap();
-        drop(cut);
-        assert_eq!(super::settle(&plan, &chain, Some(1), true), Some((4, 0)));
-        for n in ["a", "b", "c", "d"] {
-            assert_eq!(std::fs::read_to_string(p(&format!("{n}.png"))).unwrap(), n);
-            assert!(!p(&format!("{}.png", n.to_uppercase())).exists());
-            std::fs::remove_file(p(&format!("{n}.png"))).unwrap();
+        for undo in [true, false] {
+            // Two steps done and the third linked, one counted: b and .tmp-0 one file. Put
+            // back, the link goes first; finished, the third step is the link's unlink.
+            std::fs::write(p(".tmp-0"), "a").unwrap();
+            std::fs::write(p(".tmp-1"), "b").unwrap();
+            std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
+            let plan = plans.join("cut");
+            let mut cut = super::begin(&plans, &moves).unwrap();
+            cut.done();
+            std::fs::copy(&cut.path, &plan).unwrap();
+            drop(cut);
+            let (a, b, steps) = match undo {
+                true => ("a", "b", 3),
+                false => ("b", "a", 2),
+            };
+            assert_eq!(
+                super::settle(&plan, &moves, Some(1), undo),
+                Some((steps, 0))
+            );
+            assert_eq!((text("a.jpg"), text("b.jpg")), (a.into(), b.into()));
+            assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
+            std::fs::remove_file(p("a.jpg")).unwrap();
+            std::fs::remove_file(p("b.jpg")).unwrap();
+            // A chain without swaps, a → A … d → D: three done and the fourth linked, one
+            // counted.
+            let chain: Vec<_> = ["a", "b", "c", "d"]
+                .map(|n| {
+                    (
+                        p(&format!("{n}.png")),
+                        p(&format!("{}.png", n.to_uppercase())),
+                    )
+                })
+                .into();
+            for n in ["A", "B", "C", "d"] {
+                std::fs::write(p(&format!("{n}.png")), n.to_lowercase()).unwrap();
+            }
+            std::fs::hard_link(p("d.png"), p("D.png")).unwrap();
+            let mut cut = super::begin(&plans, &chain).unwrap();
+            cut.done();
+            std::fs::copy(&cut.path, &plan).unwrap();
+            drop(cut);
+            let steps = if undo { 4 } else { 1 };
+            assert_eq!(
+                super::settle(&plan, &chain, Some(1), undo),
+                Some((steps, 0))
+            );
+            for n in ["a", "b", "c", "d"] {
+                let (keep, gone) = match undo {
+                    true => (n.to_string(), n.to_uppercase()),
+                    false => (n.to_uppercase(), n.to_string()),
+                };
+                assert_eq!(
+                    std::fs::read_to_string(p(&format!("{keep}.png"))).unwrap(),
+                    n
+                );
+                assert!(!p(&format!("{gone}.png")).exists());
+                std::fs::remove_file(p(&format!("{keep}.png"))).unwrap();
+            }
         }
         for undo in [true, false] {
             // Two steps done, one counted.
