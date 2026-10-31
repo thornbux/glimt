@@ -1031,6 +1031,7 @@ const MEMORY: &[&str] = &[
     "Memory use:",
     "One malloc arena: much less memory, decoding up to ~8 % slower",
     "Preload next and previous images:",
+    "Up to ≈ {mb} MB, each image at most {w}×{h}",
     "images decoded at once",
     "images on each side",
 ];
@@ -1078,12 +1079,20 @@ mod tests {
     /// what those do: `self.list` is not a setting).
     fn texts(code: &str, out: &mut Vec<String>) {
         let sources = [include_str!("preferences.rs"), include_str!("main.rs")];
-        for (at, _) in code.match_indices("tr(") {
-            if code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
-                continue;
-            }
-            if let Some(rest) = code[at + 3..].trim_start().strip_prefix('"') {
-                out.push(literal(rest));
+        // tf!'s templates too: the search matches their words, not the values put in. Not the
+        // notices a setting's button sends, which are not on the window.
+        for call in ["tr(", "tf!("] {
+            for (at, _) in code.match_indices(call) {
+                let before = code[..at].trim_end();
+                if before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                    || before.ends_with("send(")
+                    || before.ends_with("notice = Some(")
+                {
+                    continue;
+                }
+                if let Some(rest) = code[at + call.len()..].trim_start().strip_prefix('"') {
+                    out.push(literal(rest));
+                }
             }
         }
         for (at, _) in code.match_indices("self.") {
@@ -1144,5 +1153,7 @@ mod tests {
         assert!(found("save theme", LOOK, &[]));
         assert!(!found("theme slideshow", LOOK, &[]));
         assert!(found("rotate", KEYBOARD, &["Rotate Clockwise"]));
+        // The preload estimate, made with tf!: its template's words.
+        assert!(found("each image at most", MEMORY, &[]));
     }
 }
