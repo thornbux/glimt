@@ -10529,30 +10529,37 @@ mod tests {
             app.delete_now(&ctx, false, vec![at]);
         });
         assert!(!d.join("c.png.xmp").exists());
-        // Many files: held a chunk at a time, so one held up in a sidecar write holds up only its
-        // own chunk, and those before it go meanwhile. Two of other lock slots, deleted for good
-        // (a chunk of one file).
+        // Many files: held a chunk (100) at a time, so one held up in a sidecar write holds up
+        // only its own chunk, and those before it go meanwhile. Deleted for good: a chunk of
+        // 100 files of other lock slots, then one more.
         let slot = |n: &str| crate::meta::lock_slot(&crate::meta::sidecar(&d.join(n)));
-        let names: Vec<String> = (0..20).map(|k| format!("d{k:02}.png")).collect();
-        let x = &names[0];
-        let y = names.iter().find(|n| slot(n) != slot(x)).unwrap();
-        for n in [x, y] {
+        let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
+        let y = &names[0];
+        let first: Vec<&String> = names
+            .iter()
+            .filter(|n| slot(n) != slot(y))
+            .take(100)
+            .collect();
+        assert_eq!(first.len(), 100);
+        for n in first.iter().copied().chain([y]) {
             std::fs::write(d.join(n), "").unwrap();
+        }
+        for n in [first[0], y] {
             std::fs::write(crate::meta::sidecar(&d.join(n)), n).unwrap();
         }
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
         let at = |app: &super::App, n: &str| (app.list.files.iter()).position(|f| f == n).unwrap();
-        let (x, y) = (d.join(x), d.join(y));
+        let (x, y) = (d.join(first[0]), d.join(y));
         let held = crate::meta::held(&y);
-        let both = vec![
-            at(&app, "d00.png"),
-            at(&app, &y.file_name().unwrap().to_string_lossy()),
-        ];
-        app.delete_now(&ctx, false, both);
+        let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
+        all.push(at(&app, &y.file_name().unwrap().to_string_lossy()));
+        app.delete_now(&ctx, false, all);
         assert!(
-            settle(&mut app, &ctx, |_| !x.exists()),
-            "the first waits for the second"
+            settle(&mut app, &ctx, |_| first
+                .iter()
+                .all(|n| !d.join(n).exists())),
+            "the first chunk waits not for the second"
         );
         assert!(y.exists() && crate::meta::sidecar(&y).exists());
         drop(held);
