@@ -1083,11 +1083,10 @@ mod tests {
         // notices a setting's button sends, which are not on the window.
         for call in ["tr(", "tf!("] {
             for (at, _) in code.match_indices(call) {
+                // Part of a longer name (`str(`), not a call after `return`.
+                let named = code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
                 let before = code[..at].trim_end();
-                if before.ends_with(|c: char| c.is_alphanumeric() || c == '_')
-                    || before.ends_with("send(")
-                    || before.ends_with("notice = Some(")
-                {
+                if named || before.ends_with("send(") || before.ends_with("notice = Some(") {
                     continue;
                 }
                 if let Some(rest) = code[at + call.len()..].trim_start().strip_prefix('"') {
@@ -1114,6 +1113,16 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The texts a piece of code shows: after `return` too, not a longer name's or a notice's.
+    #[test]
+    fn texts_finds_the_calls_shown() {
+        let code = r#"if a { return tr("A"); } ui.label(tr("B")); ui.weak(tf!("C {x}", x));
+            let _ = tx.send(tf!("D")); self.notice = Some(tf!("E")); attr("F");"#;
+        let mut out = Vec::new();
+        texts(code, &mut out);
+        assert_eq!(out, ["A", "B", "C {x}"]);
     }
 
     /// Each section's list has every text the section shows, and no other.
