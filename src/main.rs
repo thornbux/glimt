@@ -10899,7 +10899,7 @@ mod tests {
         let ctx = eframe::egui::Context::default();
         let pass = |window: bool| {
             let _ = ctx.run_ui(Default::default(), |ui| {
-                eframe::egui::CentralPanel::default().show_inside(ui, |ui| ui.label("image"));
+                eframe::egui::CentralPanel::default().show(ui, |ui| ui.label("image"));
                 if window {
                     eframe::egui::Window::new("Help").show(ui.ctx(), |ui| ui.label("text"));
                 }
