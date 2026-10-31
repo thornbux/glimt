@@ -2326,3 +2326,11 @@ msgstr "Kiertoa ei tallennettu: muu työ muuttaa tiedostoa yhä"
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Piilota osoitin koko näytön tilassa, kun hiiri on paikallaan"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Hae asetuksista"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Mikään asetus ei sisällä näitä sanoja"

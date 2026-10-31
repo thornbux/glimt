@@ -2326,3 +2326,11 @@ msgstr "La rotación no se guardó: otra tarea sigue cambiando el archivo"
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Ocultar el puntero en pantalla completa cuando el ratón está quieto"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Buscar en los ajustes"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Ningún ajuste contiene estas palabras"

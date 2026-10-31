@@ -2326,3 +2326,11 @@ msgstr "Rotationen sparades inte: annat arbete ändrar fortfarande filen"
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Dölj pekaren i helskärm när musen står still"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Sök i inställningarna"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Ingen inställning har de här orden"

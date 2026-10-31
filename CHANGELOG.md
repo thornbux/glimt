@@ -10,6 +10,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - In full screen the pointer hides when the mouse has been still for two seconds, and comes
   back when it moves; while work goes on (the folder read or sorted again, as after a
   slideshow, or a file job) it stays, as the busy pointer. Preferences → Image turns it off.
+- A search field at the top of Preferences: only the sections with the words typed show, in
+  English or in the language shown, and Keyboard shortcuts only the actions it finds.
 
 ## [0.44.0] - 2026-10-31
 

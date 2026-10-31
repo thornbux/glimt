@@ -2326,3 +2326,11 @@ msgstr "Die Drehung wurde nicht gespeichert: andere Arbeit ändert die Datei noc
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Mauszeiger im Vollbild ausblenden, wenn die Maus stillsteht"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Einstellungen durchsuchen"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Keine Einstellung enthält diese Wörter"

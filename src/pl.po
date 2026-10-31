@@ -2337,3 +2337,11 @@ msgstr "Obrót nie został zapisany: inna praca wciąż zmienia plik"
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Ukryj wskaźnik na pełnym ekranie, gdy mysz się nie porusza"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Szukaj w ustawieniach"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Żadne ustawienie nie zawiera tych słów"

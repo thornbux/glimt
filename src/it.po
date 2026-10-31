@@ -2326,3 +2326,11 @@ msgstr "La rotazione non è stata salvata: un altro lavoro sta ancora modificand
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Nascondi il puntatore a schermo intero quando il mouse è fermo"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Cerca nelle impostazioni"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Nessuna impostazione contiene queste parole"

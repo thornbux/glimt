@@ -488,6 +488,9 @@ const MANUAL: &[(&str, &str)] = &[
         "Preferences",
         "Edit → Preferences (Ctrl+O) has the settings: preloading, slideshow, thumbnails, the \
          theme, what is shown, window and memory use, and how deleting works.\n\n\
+         The search field at the top takes the keys when Preferences opens: only the sections \
+         with every word typed show, in English or in the language shown, and Keyboard shortcuts \
+         only the actions it finds. Esc clears it, and closes Preferences when it is empty.\n\n\
          Language: the interface in English, Danish, Dutch, Finnish, French, German, Icelandic, \
          Italian, Norwegian bokmål, Polish, Spanish or Swedish, by the system's language (LANG) \
          or as chosen; a text not translated shows in English, and this manual stays English. \

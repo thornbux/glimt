@@ -2326,3 +2326,11 @@ msgstr "Snúningurinn var ekki vistaður: önnur vinna er enn að breyta skránn
 #: src/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Fela bendilinn á öllum skjánum þegar músin er kyrr"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Leita í stillingum"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Engin stilling inniheldur þessi orð"
