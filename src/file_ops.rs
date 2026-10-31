@@ -993,12 +993,18 @@ fn restore(
     // early, for a move that began in the second before.
     let secs = (thrown.since.duration_since(std::time::UNIX_EPOCH)).map_or(0, |d| d.as_secs());
     let since = crate::local_time(secs as i64 - 2).replacen(' ', "T", 1);
+    // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
+    // give every file to whoever mounts it) may hold an entry of the same name dated in the
+    // future, which as the newest would come back instead of the user's file.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    let until = crate::local_time(now.map_or(0, |d| d.as_secs()) as i64 + 60).replacen(' ', "T", 1);
     let mut find = |path: &Path| {
         let mut latest: Option<Trashed> = None;
         for (dir, top) in dirs_of(path) {
             let all =
                 (trashes.entry(dir.clone())).or_insert_with(|| newest(read_trash(&dir, &top)));
             if let Some(t) = all.get(path)
+                && t.date <= until
                 && latest.as_ref().is_none_or(|l| t.date > l.date)
             {
                 latest = Some(t.clone());
@@ -1653,6 +1659,29 @@ mod tests {
         assert_eq!(error, None);
         assert_eq!(back, [photos.join("IMG_0002.jpg")]);
         assert!(photos.join("IMG_0002.jpg.xmp").exists());
+        // Another trash folder (a stick from someone else) with one of the same name dated next
+        // year: the user's own comes back, not that one.
+        trashed("IMG_0003.jpg", "IMG_0003.jpg", now);
+        let stick = dir.join("stick");
+        for d in [stick.join("files"), stick.join("info")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(stick.join("files/IMG_0003.jpg"), "planted").unwrap();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let next_year = crate::local_time(secs + 365 * 24 * 3600).replacen(' ', "T", 1);
+        let info = format!(
+            "[Trash Info]\nPath={}\nDeletionDate={next_year}\n",
+            photos.join("IMG_0003.jpg").display()
+        );
+        std::fs::write(stick.join("info/IMG_0003.jpg.trashinfo"), info).unwrap();
+        let both = |_: &std::path::Path| {
+            let root = std::path::PathBuf::from("/");
+            vec![(trash.clone(), root.clone()), (stick.clone(), root)]
+        };
+        let (back, error) = super::restore(&thrown(&["IMG_0003.jpg"], &[]), both);
+        assert_eq!((back, error), (vec![photos.join("IMG_0003.jpg")], None));
+        let got = std::fs::read_to_string(photos.join("IMG_0003.jpg")).unwrap();
+        assert_eq!(got, "IMG_0003.jpg");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

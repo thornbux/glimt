@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Undo of a move to the trash passes over an entry dated in the future: a trash folder on a
+  memory stick from someone else could hold one of the same name, which came back instead of
+  your file (yours stayed in the trash).
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed
