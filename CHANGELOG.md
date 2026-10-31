@@ -11,6 +11,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   before anything is read from it: sqlite3's safe mode lets a virtual table through, and one
   such as zipfile reads any file it is given into the import.
 
+### Fixed
+
+- Importing a Lightroom catalog works for a user whose sqliterc changes sqlite3's output (such
+  as .mode json): sqlite3 is started without it.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed

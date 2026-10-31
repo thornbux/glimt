@@ -41,6 +41,22 @@ UNION ALL SELECT 'm', collection, image, '', '' FROM AgLibraryCollectionImage
 UNION ALL SELECT 'k', id_local, coalesce(parent, 0), coalesce(name, ''), '' FROM AgLibraryKeyword
 UNION ALL SELECT 'w', image, tag, '', '' FROM AgLibraryKeywordImage;";
 
+/// sqlite3's options for reading a catalog. -init /dev/null: the user's sqliterc (.mode json,
+/// .output /dev/null) would change what is printed, and the import would find nothing in it.
+const ARGS: [&str; 11] = [
+    "-init",
+    "/dev/null",
+    "-safe",
+    "-readonly",
+    "-bail",
+    "-batch",
+    "-noheader",
+    "-separator",
+    "\x1f",
+    "-newline",
+    "\x1e",
+];
+
 /// Between the columns and after the rows: neither is in a file name or keyword.
 const COLUMN: u8 = 0x1f;
 const ROW: u8 = 0x1e;
@@ -78,17 +94,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
     let mut child = crate::external::stoppable_command("sqlite3")
-        .args([
-            "-safe",
-            "-readonly",
-            "-bail",
-            "-batch",
-            "-noheader",
-            "-separator",
-            "\x1f",
-            "-newline",
-            "\x1e",
-        ])
+        .args(ARGS)
         .arg(file)
         .arg(check() + QUERY)
         .spawn()
@@ -701,6 +707,28 @@ mod tests {
             "{why}"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A user's sqliterc that changes the output (as JSON) changes nothing read. sqlite3 finds
+    /// it in $XDG_CONFIG_HOME/sqlite3 (3.44 and newer), or in the home folder from the user
+    /// database, which a test cannot point elsewhere.
+    #[test]
+    fn ignores_the_users_sqliterc() {
+        if !crate::external::host_has("sqlite3") {
+            return eprintln!("no sqlite3: not tested");
+        }
+        let config = std::env::temp_dir().join(format!("glimt-test-rc-{}", std::process::id()));
+        std::fs::create_dir_all(config.join("sqlite3")).unwrap();
+        std::fs::write(config.join("sqlite3/sqliterc"), ".mode json\n").unwrap();
+        let mut sqlite = crate::external::stoppable_command("sqlite3");
+        sqlite
+            .env("XDG_CONFIG_HOME", &config)
+            .args(super::ARGS)
+            .arg(":memory:");
+        sqlite.arg("SELECT 'r', 1, '/Photos/', '', '';");
+        let out = crate::external::run_limited(sqlite, 1 << 16, crate::external::LIMIT).unwrap();
+        assert_eq!(super::parse(&out).roots, [(1, "/Photos/".to_owned())]);
+        std::fs::remove_dir_all(config).unwrap();
     }
 
     /// An sqlite3 too old for -safe (before 3.37) is told as such, not as a bad catalog.
