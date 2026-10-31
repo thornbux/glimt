@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- glimt --remote select sent just as Glimt closes is answered (none of its paths selected), not
+  left with an empty answer that reads as all found: closing waits for each client still
+  connected, up to a second, and answers what it sends.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed
