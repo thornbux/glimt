@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A keyword or star saved while its photo is moved (or moved back by Undo) no longer leaves a
+  sidecar under the old name, which a later file of that name would take over: the move waits
+  for the write, and a write that waited finds the photo gone.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed
