@@ -33,8 +33,8 @@ pub struct Journal {
 impl Journal {
     /// One more rename done: a NUL byte after the plan, so that the next start knows which. The
     /// file names cannot tell, as a swap has the same names before and after.
-    // shortcut: not synced, which a crash of Glimt does not need; a power cut may lose the last
-    // steps' bytes, and then the existence checks in `settle` are what is left.
+    // Not synced, which a crash of Glimt does not need; a power cut may lose the last steps'
+    // bytes, which `settle` finds again by the names (`done_by_names`).
     pub fn done(&mut self) {
         let _ = self.file.write_all(&[0]);
     }
@@ -222,6 +222,7 @@ pub fn settle(
     // it too would do the same steps again, on files already put right. Also one that opened it
     // just before the first deleted it, and got the lock once that one let go.
     let _held = crate::decode::open(plan).ok().filter(free).filter(linked)?;
+    let done = done.map(|d| done_by_names(moves, d));
     let mut first = 0;
     // Put back: the step cut short between its link and its unlink, the first not counted, has
     // its new name taken away first, so the steps before it can be undone.
@@ -245,6 +246,22 @@ pub fn settle(
     Some((renamed + first, left))
 }
 
+/// `done`, and the steps after it that the names show were done too, as a power cut may lose the
+/// last counts: a step whose old name is gone and whose new one is there. Undone from the count
+/// alone, a swap cut short after a → .t0 and b → .t1 but counted at one put a back and left b's
+/// photo under its hidden name for good, the plan deleted. A step cut short between its link and
+/// its unlink has both names, and stays the first not done.
+fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
+    let mut d = done;
+    while let Some((a, b)) = moves.get(d)
+        && !a.exists()
+        && b.exists()
+    {
+        d += 1;
+    }
+    d
+}
+
 /// Whether `file` still has a name: a plan another window put right and deleted has none.
 fn linked(file: &File) -> bool {
     use std::os::unix::fs::MetadataExt;
@@ -262,6 +279,45 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A power cut lost the count of the last step done: undone by the names too, so no photo
+    /// stays under a hidden name; finished all the same.
+    #[test]
+    fn puts_back_the_steps_whose_count_was_lost() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-lost-count-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let plans = dir.join("plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        let p = |n: &str| dir.join(n);
+        let text = |n| std::fs::read_to_string(p(n)).unwrap();
+        let moves = vec![
+            (p("a.jpg"), p(".tmp-0")),
+            (p("b.jpg"), p(".tmp-1")),
+            (p(".tmp-0"), p("b.jpg")),
+            (p(".tmp-1"), p("a.jpg")),
+        ];
+        for undo in [true, false] {
+            // Two steps done, one counted.
+            std::fs::write(p(".tmp-0"), "a").unwrap();
+            std::fs::write(p(".tmp-1"), "b").unwrap();
+            let plan = plans.join("cut");
+            let mut cut = super::begin(&plans, &moves).unwrap();
+            cut.done();
+            std::fs::copy(&cut.path, &plan).unwrap();
+            drop(cut);
+            let (a, b) = match undo {
+                true => ("a", "b"),
+                false => ("b", "a"),
+            };
+            assert_eq!(super::settle(&plan, &moves, Some(1), undo), Some((2, 0)));
+            assert_eq!((text("a.jpg"), text("b.jpg")), (a.into(), b.into()));
+            assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
+            std::fs::remove_file(p("a.jpg")).unwrap();
+            std::fs::remove_file(p("b.jpg")).unwrap();
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A pipe in the plans folder is passed over, not opened: opening it would hold Glimt's
     /// start for good.
     #[test]
