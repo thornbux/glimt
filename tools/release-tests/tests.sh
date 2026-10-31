@@ -3339,6 +3339,8 @@ for v in new old; do
         [ $grow -lt 300 ] && pass "memory grew $grow MB while printing" ||
             fail "memory grew $grow MB while printing (the PDF is $(du -m $pdf | cut -f1) MB)"
     else note "old: memory grew $grow MB"; fi
+    # Some 900 MB each: /tmp is the container's disk where it is no tmpfs.
+    rm -f $pdf
 done
 
 echo "-- printing a contact sheet on landscape paper, with image and page text from templates"
@@ -3402,7 +3404,7 @@ for v in new old; do
         expect "the PDF whole, 80 pages" "$pages" "80"
         expect "no temporary file left" "$left" 0
     else note "old: pages '$pages', temporary files $left"; fi
-    rm -f /tmp/*.glimt-tmp
+    rm -f /tmp/*.glimt-tmp $pdf
 done
 as_version new
 
@@ -3572,6 +3574,7 @@ for s in range(10):
     done; done
     as_version new
     expect "sorted within 1.5 times the last release's time" "$(within $exif_ms_new $exif_ms_old 100)" yes
+    rm -rf $e   # 3 GB
 fi
 
 echo "-- the folder tree: 100,000 folders, opened at the folder shown, one opened by a click"
