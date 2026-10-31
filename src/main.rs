@@ -10959,6 +10959,81 @@ mod tests {
         assert!(!pass(false));
     }
 
+    /// In full screen the pointer hides once still for `POINTER_STILL`, and comes back when the
+    /// mouse moves, outside full screen, or while a dialog is open.
+    #[test]
+    fn a_still_pointer_hides_after_the_timer() {
+        use eframe::egui::{CursorIcon, Event, RawInput, pos2};
+        let dir = std::env::temp_dir().join(format!("glimt-test-pointer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.hide_pointer = true;
+        let pass = |app: &mut super::App, events: Vec<Event>, fullscreen: bool| {
+            let input = RawInput {
+                events,
+                ..Default::default()
+            };
+            let out = ctx.run_ui(input, |ui| app.hide_still_pointer(ui.ctx(), fullscreen));
+            out.platform_output.cursor_icon == CursorIcon::None
+        };
+        let long_ago = || std::time::Instant::now() - super::POINTER_STILL * 2;
+        // Just moved: shown, until the timer has run.
+        app.pointer_moved = std::time::Instant::now();
+        assert!(!pass(&mut app, vec![], true));
+        app.pointer_moved = long_ago();
+        assert!(pass(&mut app, vec![], true));
+        // The mouse moves: shown again, and the timer starts anew.
+        let moved = |x| vec![Event::PointerMoved(pos2(x, 10.0))];
+        let _ = pass(&mut app, moved(10.0), true);
+        assert!(!pass(&mut app, moved(20.0), true));
+        assert!(app.pointer_moved.elapsed() < super::POINTER_STILL);
+        // Outside full screen it never hides, and the timer starts when full screen begins.
+        app.pointer_moved = long_ago();
+        assert!(!pass(&mut app, vec![], false));
+        assert!(!pass(&mut app, vec![], true));
+        // A dialog keeps it.
+        app.pointer_moved = long_ago();
+        app.preferences_open = true;
+        assert!(!pass(&mut app, vec![], true));
+        app.preferences_open = false;
+        assert!(pass(&mut app, vec![], true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Esc in Preferences clears a search first and closes the window the next time; with no
+    /// search, or one of only spaces, it closes at once.
+    #[test]
+    fn escape_clears_the_preferences_search_then_closes() {
+        use eframe::egui::{Event, Key, RawInput};
+        let dir = std::env::temp_dir().join(format!("glimt-test-esc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let escape = |app: &mut super::App| {
+            let input = RawInput {
+                events: vec![Event::Key {
+                    key: Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
+        };
+        app.preferences_open = true;
+        app.preferences_query = "zoom".into();
+        escape(&mut app);
+        assert!(app.preferences_open && app.preferences_query.is_empty());
+        escape(&mut app);
+        assert!(!app.preferences_open);
+        app.preferences_open = true;
+        app.preferences_query = "  ".into();
+        escape(&mut app);
+        assert!(!app.preferences_open && app.preferences_query.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Fitted, an image is decoded again only for a larger box than its texture was made for:
     /// the same box gives the same texture, whatever the decoders round (a JPEG of 13484×2499
     /// in Fit Height came out 6014 wide where 6021 were shown, again and again), and a texture
