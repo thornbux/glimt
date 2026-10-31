@@ -385,7 +385,13 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             // there is one outcome when it runs out: "no answer", exit 1, never an empty
             // answer taken for "all found".
             let (tx, ctx) = (tx.clone(), ctx.clone());
-            std::thread::spawn(move || serve(stream, &tx, &ctx));
+            // Counted from here, before its query is read: a client that came just before the
+            // socket went is waited for at closing too.
+            let client = Answering::new();
+            std::thread::spawn(move || {
+                serve(stream, &tx, &ctx);
+                drop(client);
+            });
         }
     });
 }
@@ -480,18 +486,24 @@ pub fn mark_focused() {
     }
 }
 
-/// Glimt is closing, its socket removed by `close` before the last answers: those being written
-/// waited for. Not removed again here: a new Glimt of the same name may have it by now.
-pub fn stop() {
-    if !LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
-        return;
+/// Glimt is closing, its socket removed by `close` before the last answers: the clients still
+/// connected waited for, with `answer` answering the queries they send meanwhile. Not removed
+/// again here: a new Glimt of the same name may have it by now.
+pub fn stop(answer: impl FnMut()) {
+    if LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
+        wait_answered(answer, std::time::Duration::from_secs(1));
     }
-    // Answers given just now (the selects held back) written whole before the process ends,
-    // which would else cut a long one off: a second at most.
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+}
+
+/// Until no client is left or `limit` has passed, `answer` called again and again: a query that
+/// came after the window last looked is answered too, and an answer is written whole before the
+/// process ends. A client left without one would read an empty answer, for select "all found".
+fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
+    let until = std::time::Instant::now() + limit;
     while ANSWERING.load(std::sync::atomic::Ordering::Relaxed) > 0
         && std::time::Instant::now() < until
     {
+        answer();
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
@@ -505,7 +517,7 @@ pub fn close() {
     }
 }
 
-/// Queries sent to the window whose answers are not written yet.
+/// Clients connected, and queries sent to the window whose answers are not written yet.
 static ANSWERING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// One of `ANSWERING` while it lives.
@@ -568,6 +580,28 @@ mod tests {
         std::fs::write(dir.join("file"), "").unwrap();
         assert!(!super::own_or_none(&dir.join("file"), uid));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// At closing, a client that sends its query after the window last answered is answered
+    /// too: the window is asked again until no client is left, not only waited for.
+    #[test]
+    fn answers_a_query_that_comes_while_closing() {
+        let mut client = Some(super::Answering::new());
+        let (query, queries) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let _ = query.send(());
+        });
+        let mut answered = 0;
+        let answer = || {
+            for () in queries.try_iter() {
+                answered += 1;
+                client = None;
+            }
+        };
+        super::wait_answered(answer, std::time::Duration::from_secs(30));
+        assert_eq!(answered, 1);
+        assert!(client.is_none());
     }
 
     /// A query whose answer the window drops (too many waiting) is not closed at once, which the

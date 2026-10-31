@@ -9230,7 +9230,7 @@ impl eframe::App for App {
         // No new client first: one coming after the answers would have none.
         remote::close();
         self.answer_held_selects();
-        remote::stop();
+        remote::stop(|| self.answer_held_selects());
         let ctx = self.ctx.clone();
         self.save_meta(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
