@@ -7,9 +7,6 @@ use crate::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// One query, so the catalog is read in one go: a row for each root folder (r), image (i),
-/// collection (c), image in a collection (m), keyword (k) and keyword of an image (w), with five
-/// columns each.
 /// The tables `QUERY` reads, in lower case as SQLite matches names.
 const TABLES: &str = "'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
     'aglibrarycollection', 'aglibrarycollectionimage', 'aglibrarykeyword', 'aglibrarykeywordimage'";
@@ -28,6 +25,9 @@ fn check() -> String {
     )
 }
 
+/// One query, so the catalog is read in one go: a row for each root folder (r), image (i),
+/// collection (c), image in a collection (m), keyword (k) and keyword of an image (w), with five
+/// columns each.
 const QUERY: &str = "\
 SELECT 'r', id_local, absolutePath, '', '' FROM AgLibraryRootFolder
 UNION ALL SELECT 'i', i.id_local, f.rootFolder,
