@@ -2322,3 +2322,11 @@ msgstr "Detener {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "La rotación no se guardó: otra tarea sigue cambiando el archivo"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Buscar en los ajustes"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Ningún ajuste contiene estas palabras"

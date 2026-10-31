@@ -2322,3 +2322,11 @@ msgstr "Stöðva {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Snúningurinn var ekki vistaður: önnur vinna er enn að breyta skránni"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Leita í stillingum"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Engin stilling inniheldur þessi orð"

@@ -2322,3 +2322,11 @@ msgstr "Stop {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Rotationen blev ikke gemt: andet arbejde ændrer stadig filen"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Søg i indstillingerne"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Ingen indstilling har disse ord"

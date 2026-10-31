@@ -2333,3 +2333,11 @@ msgstr "Zatrzymaj {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Obrót nie został zapisany: inna praca wciąż zmienia plik"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Szukaj w ustawieniach"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Żadne ustawienie nie zawiera tych słów"

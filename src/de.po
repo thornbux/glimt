@@ -2322,3 +2322,11 @@ msgstr "{name} anhalten"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Die Drehung wurde nicht gespeichert: andere Arbeit ändert die Datei noch"
+
+#: src/preferences.rs
+msgid "Search the settings"
+msgstr "Einstellungen durchsuchen"
+
+#: src/preferences.rs
+msgid "No setting has these words"
+msgstr "Keine Einstellung enthält diese Wörter"

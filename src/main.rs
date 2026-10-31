@@ -1654,6 +1654,10 @@ struct App {
     preferences_open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
     preferences_unsaved: bool,
+    /// The search field of Preferences: only the sections with these words show.
+    preferences_query: String,
+    /// Preferences was just opened: its search field takes the keys.
+    focus_preferences_search: bool,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
     /// Open text dialog and the text typed so far.
@@ -2187,6 +2191,8 @@ impl App {
             rotate,
             preferences_open: false,
             preferences_unsaved: false,
+            preferences_query: String::new(),
+            focus_preferences_search: false,
             help: None,
             confirm_delete: None,
             folder_target: None,
@@ -6476,7 +6482,12 @@ impl App {
             Action::Preferences if config::locked() => {
                 self.notice = Some(tr("The settings are locked (--lock-settings)").into());
             }
-            Action::Preferences => self.preferences_open = true,
+            Action::Preferences => {
+                // A search from last time would hide settings without saying why.
+                self.preferences_open = true;
+                self.preferences_query.clear();
+                self.focus_preferences_search = true;
+            }
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),

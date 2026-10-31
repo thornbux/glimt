@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A search field at the top of Preferences: only the sections with the words typed show, in
+  English or in the language shown, and Keyboard shortcuts only the actions it finds.
+
 ## [0.44.0] - 2026-10-31
 
 ### Security
