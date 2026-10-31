@@ -15,7 +15,7 @@ impl crate::App {
             && self.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
-            open = !self.preferences_query.is_empty();
+            open = !self.preferences_query.trim().is_empty();
             self.preferences_query.clear();
         }
         egui::Window::new(tr("Preferences"))
@@ -42,7 +42,8 @@ impl crate::App {
                 let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
                     .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
                     .collect();
-                let actions: Vec<&str> = SHORTCUTS.iter().map(|s| s.0.label()).collect();
+                let names = |s: &(Action, _, _)| [s.0.english(), s.0.label()];
+                let actions: Vec<&str> = SHORTCUTS.iter().flat_map(names).collect();
                 let shown = [
                     shows(LOOK, &[]),
                     shows(KEYBOARD, &actions),
@@ -801,7 +802,7 @@ impl crate::App {
             }
         }
         // Those a search finds, or all when it finds none (it found the section's own words).
-        let has = |a: &Action| found(query, &[], &[a.label()]);
+        let has = |a: &Action| found(query, &[], &[a.english(), a.label()]);
         if actions.iter().any(has) {
             actions.retain(has);
         }
@@ -1126,6 +1127,10 @@ mod tests {
             listed.sort();
             if shown != listed {
                 wrong.push(format!("{}: {shown:#?}", list[0]));
+            }
+            // The titles go through tr from the lists, which the translation test cannot see.
+            if !include_str!("no_nb.po").contains(&format!("msgid \"{}\"\n", list[0])) {
+                wrong.push(format!("{} is not translated", list[0]));
             }
         }
         assert!(wrong.is_empty(), "{}", wrong.join("\n"));

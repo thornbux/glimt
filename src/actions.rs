@@ -191,8 +191,13 @@ impl Action {
 
     /// The name shown in menus and in the help window.
     pub fn label(self) -> &'static str {
+        crate::lang::tr(self.english())
+    }
+
+    /// The name in English, as Preferences' search also looks for it.
+    pub fn english(self) -> &'static str {
         use Action::*;
-        crate::lang::tr(match self {
+        match self {
             OpenFile => "Open File…",
             OpenFolder => "Open Folder…",
             OpenFolders => "Open Several Folders…",
@@ -338,7 +343,7 @@ impl Action {
             Shortcuts => "Keyboard Shortcuts",
             KeyboardMap => "Keyboard Map",
             About => "About Glimt",
-        })
+        }
     }
 
     /// The Phosphor icon before the label in the menus (theme::icon has the others).
