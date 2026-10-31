@@ -528,7 +528,7 @@ fn queued(fd: i32) -> bool {
         revents: i16,
     }
     unsafe extern "C" {
-        fn poll(fds: *mut PollFd, n: u64, timeout: i32) -> i32;
+        fn poll(fds: *mut PollFd, n: std::ffi::c_ulong, timeout: i32) -> i32;
     }
     const POLLIN: i16 = 1;
     let mut p = PollFd {
