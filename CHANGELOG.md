@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-31
+
 ### Changed
 
 - New Folder makes the folder in the background: on a share that stopped answering the window
@@ -2167,7 +2169,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/thornbux/glimt/compare/v0.45.0...v0.46.0
 [0.45.0]: https://github.com/thornbux/glimt/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/thornbux/glimt/compare/v0.43.2...v0.44.0
 [0.43.2]: https://github.com/thornbux/glimt/compare/v0.43.1...v0.43.2
