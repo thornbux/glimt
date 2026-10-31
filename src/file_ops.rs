@@ -263,10 +263,15 @@ impl crate::App {
             changed,
             overwritten,
             folder_renamed,
+            folder_made,
         } in self.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
+            }
+            if let Some(made) = folder_made {
+                self.forget_folder(&made);
+                self.relist = true;
             }
             // Moved before their sources are taken for deleted ones: the marks go along first.
             self.paths_moved(moved, copied);
