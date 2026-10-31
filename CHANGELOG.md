@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Putting back a Rename Many cut short by a power cut puts every file back: the count of the last
+  steps done can be lost then, and a photo was left under a hidden temporary name. The steps
+  done are now found by the names too.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed
