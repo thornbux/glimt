@@ -7,6 +7,7 @@ disallowed-methods = [
     { path = "std::io::Read::read_to_end", reason = "decode::read_limited, or bound the reader with take" },
     { path = "std::fs::write", reason = "config::replace_file or create_file: whole or not at all" },
     { path = "std::fs::File::create", reason = "config::create_file or replace_file: never through a link, never half-written" },
+    { path = "std::fs::File::create_new", reason = "config::create_file: never through a link, never half-written" },
     { path = "std::fs::OpenOptions::open", reason = "config's writers or decode::read_limited" },
     { path = "std::fs::rename", reason = "file_ops::rename_never_over, or config::replace_file to replace" },
     { path = "std::fs::copy", reason = "file_ops::put_file: never over a file, never half-copied" },
