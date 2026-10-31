@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A very long strip (10000×5) is sharp again after the window grows: since 0.43.2 it was only
+  decoded again when its short side grew by more than a pixel too.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed
