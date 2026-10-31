@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- In a full-screen slideshow the busy pointer no longer flashes up at each image not preloaded:
+  the shown image being decoded no longer keeps a still pointer from hiding.
+- In full screen the pointer hides when work that kept it ends, even if nothing else redraws
+  the window; it could stay on the screen until the mouse moved.
+- The Preferences search finds the preload estimate under Memory and CPU ("Up to ≈ … MB, each
+  image at most …").
+
 ## [0.46.0] - 2026-10-31
 
 ### Changed
