@@ -304,7 +304,7 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
 
 /// Which of the 64 lock files a sidecar has: FNV-1a of its path's bytes, the same in every
 /// Glimt, also one built with another Rust, whose own hasher may differ.
-fn lock_slot(side: &Path) -> u64 {
+pub(crate) fn lock_slot(side: &Path) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let fnv = (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
         (h ^ b as u64).wrapping_mul(0x100_0000_01b3)

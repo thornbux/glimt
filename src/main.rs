@@ -10520,6 +10520,35 @@ mod tests {
             app.delete_now(&ctx, false, vec![at]);
         });
         assert!(!d.join("c.png.xmp").exists());
+        // Many files: held a chunk at a time, so one held up in a sidecar write holds up only its
+        // own chunk, and those before it go meanwhile. Two of other lock slots, deleted for good
+        // (a chunk of one file).
+        let slot = |n: &str| crate::meta::lock_slot(&crate::meta::sidecar(&d.join(n)));
+        let names: Vec<String> = (0..20).map(|k| format!("d{k:02}.png")).collect();
+        let x = &names[0];
+        let y = names.iter().find(|n| slot(n) != slot(x)).unwrap();
+        for n in [x, y] {
+            std::fs::write(d.join(n), "").unwrap();
+            std::fs::write(crate::meta::sidecar(&d.join(n)), n).unwrap();
+        }
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        let at = |app: &super::App, n: &str| (app.list.files.iter()).position(|f| f == n).unwrap();
+        let (x, y) = (d.join(x), d.join(y));
+        let held = crate::meta::held(&y);
+        let both = vec![
+            at(&app, "d00.png"),
+            at(&app, &y.file_name().unwrap().to_string_lossy()),
+        ];
+        app.delete_now(&ctx, false, both);
+        assert!(
+            settle(&mut app, &ctx, |_| !x.exists()),
+            "the first waits for the second"
+        );
+        assert!(y.exists() && crate::meta::sidecar(&y).exists());
+        drop(held);
+        assert!(settle(&mut app, &ctx, |app| idle(app) && !y.exists()));
+        assert!(!crate::meta::sidecar(&x).exists() && !crate::meta::sidecar(&y).exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 
