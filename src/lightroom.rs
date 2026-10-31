@@ -10,6 +10,24 @@ use std::path::{Path, PathBuf};
 /// One query, so the catalog is read in one go: a row for each root folder (r), image (i),
 /// collection (c), image in a collection (m), keyword (k) and keyword of an image (w), with five
 /// columns each.
+/// The tables `QUERY` reads, in lower case as SQLite matches names.
+const TABLES: &str = "'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
+    'aglibrarycollection', 'aglibrarycollectionimage', 'aglibrarykeyword', 'aglibrarykeywordimage'";
+
+/// Before `QUERY`, with -bail: each table it reads that is not a table (a view, or a virtual
+/// table such as zipfile('/any/file'), which -safe does not stop) printed as a 'v' row, and then
+/// an error (an integer overflow) that ends the run before anything is read from it.
+fn check() -> String {
+    let not_tables = format!(
+        "FROM pragma_table_list WHERE schema = 'main' AND lower(name) IN ({TABLES}) \
+         AND type <> 'table'"
+    );
+    format!(
+        "SELECT 'v', name, type, '', '' {not_tables};\n\
+         SELECT abs(-9223372036854775808) {not_tables} LIMIT 1;\n"
+    )
+}
+
 const QUERY: &str = "\
 SELECT 'r', id_local, absolutePath, '', '' FROM AgLibraryRootFolder
 UNION ALL SELECT 'i', i.id_local, f.rootFolder,
@@ -41,6 +59,8 @@ pub struct Catalog {
     keywords: HashMap<i64, (i64, String)>,
     /// (image, keyword)
     tagged: Vec<(i64, i64)>,
+    /// The tables read that are something else: (name, type).
+    not_tables: Vec<(String, String)>,
 }
 
 /// Read `file`; an error says why in words for the user.
@@ -61,6 +81,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
         .args([
             "-safe",
             "-readonly",
+            "-bail",
             "-batch",
             "-noheader",
             "-separator",
@@ -69,15 +90,19 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
             "\x1e",
         ])
         .arg(file)
-        .arg(QUERY)
+        .arg(check() + QUERY)
         .spawn()
         .map_err(|e| format!("{NEEDS}: {e}"))?;
     let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
     let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
+    let catalog = parse(&out);
+    if let Some((name, kind)) = catalog.not_tables.first() {
+        return Err(failed(&format!("{name} is of type {kind}, not a table")));
+    }
     if !ok {
         return Err(failed(&why));
     }
-    Ok(parse(&out))
+    Ok(catalog)
 }
 
 /// Why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or the
@@ -103,6 +128,10 @@ fn parse(text: &[u8]) -> Catalog {
         let [kind, id, a, b, d] = &cols[..] else {
             continue;
         };
+        if kind == "v" {
+            c.not_tables.push((id.clone(), a.clone()));
+            continue;
+        }
         let (Ok(id), n) = (id.parse::<i64>(), a.parse::<i64>()) else {
             continue;
         };
@@ -616,7 +645,8 @@ mod tests {
     }
 
     /// A catalog of tables is read with sqlite3's -safe; one with a view in the place of a table,
-    /// in any case, has no file written by its writefile.
+    /// in any case, has no file written by its writefile, and one with a virtual table is refused
+    /// before it is read.
     #[test]
     fn refuses_a_catalog_with_views() {
         if !crate::external::host_has("sqlite3") {
@@ -658,6 +688,18 @@ mod tests {
             assert!(super::read(&make(&format!("{name}.lrcat"), &view)).is_err());
             assert!(!pwned.exists());
         }
+        // A virtual table, which -safe lets through: zipfile reads any file it is given.
+        let secret = dir.join("secret");
+        std::fs::write(&secret, "private").unwrap();
+        let zip = format!(
+            "CREATE VIRTUAL TABLE AgLibraryRootFolder USING zipfile('{}')",
+            secret.display()
+        );
+        let why = super::read(&make("virtual.lrcat", &zip)).err().unwrap();
+        assert!(
+            why.contains("AgLibraryRootFolder is of type virtual, not a table"),
+            "{why}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

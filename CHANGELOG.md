@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- A Lightroom catalog whose tables Glimt reads include a virtual table or a view is refused
+  before anything is read from it: sqlite3's safe mode lets a virtual table through, and one
+  such as zipfile reads any file it is given into the import.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed
