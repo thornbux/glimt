@@ -38,6 +38,11 @@ impl Journal {
     pub fn done(&mut self) {
         let _ = self.file.write_all(&[0]);
     }
+
+    /// The steps counted so far on the disk, past a power cut.
+    pub fn sync(&mut self) {
+        let _ = self.file.sync_data();
+    }
 }
 
 impl Journal {
@@ -424,6 +429,37 @@ mod tests {
             std::fs::remove_file(p("a.jpg")).unwrap();
             std::fs::remove_file(p("b.jpg")).unwrap();
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A swap done to the end with only its first half counted (synced there): finished, the
+    /// files stay swapped. With nothing counted the names alone would take it for not begun, and
+    /// finishing it would swap them back.
+    #[test]
+    fn a_whole_swap_counted_at_half_stays_swapped() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-half-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let plans = dir.join("plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        let p = |n: &str| dir.join(n);
+        let moves = vec![
+            (p("a.jpg"), p(".tmp-0")),
+            (p("b.jpg"), p(".tmp-1")),
+            (p(".tmp-0"), p("b.jpg")),
+            (p(".tmp-1"), p("a.jpg")),
+        ];
+        std::fs::write(p("a.jpg"), "b").unwrap();
+        std::fs::write(p("b.jpg"), "a").unwrap();
+        let plan = plans.join("cut");
+        let mut cut = super::begin(&plans, &moves).unwrap();
+        cut.done();
+        cut.done();
+        std::fs::copy(&cut.path, &plan).unwrap();
+        drop(cut);
+        assert_eq!(super::settle(&plan, &moves, Some(2), false), Some((0, 0)));
+        let text = |n| std::fs::read_to_string(p(n)).unwrap();
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
+        assert!(!plan.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
