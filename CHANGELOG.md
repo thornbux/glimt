@@ -5,6 +5,25 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- New Folder makes the folder in the background: on a share that stopped answering the window
+  no longer freezes until it is made. Opening a path is the last of these left in the window.
+- A delete holds the sidecars of one chunk of files at a time, not of every file for the whole
+  job, so a keyword saved in another window meanwhile waits for one chunk, not thousands.
+
+### Fixed
+
+- Undo of a move to the trash takes the move's own file, not another file of the same name
+  trashed in the two seconds before the move.
+- Rename Many keeps its plan on the disk once a swap's files are all under hidden names: after a
+  power cut that lost every count of a finished swap, the next start took it for not begun, and
+  finishing it would have swapped the files back.
+- A `--remote` command that connected just as Glimt closed is answered too; it could get an
+  empty answer, which `select` reads as "all found".
+- Two threads of one Glimt never hold one sidecar at once, also when the lock file in the
+  runtime folder could be made for one of them and not the other.
+
 ## [0.45.0] - 2026-10-31
 
 ### Added
