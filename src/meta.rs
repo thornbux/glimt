@@ -245,19 +245,41 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 /// within this Glimt alone; not both, so a sidecar on a share that stopped answering holds up
 /// only the sidecars of its own lock file, not every write of the window. Held by a move too,
 /// so a write that waited finds the photo gone, not its old name free for a sidecar.
-pub(crate) fn held(
-    path: &Path,
-) -> (
-    Option<std::fs::File>,
-    Option<std::sync::MutexGuard<'static, ()>>,
-) {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) fn held(path: &Path) -> Held {
     let side = sidecar(path);
     match crate::remote::dir().and_then(|d| lock_file(&d.join("sidecar-locks"), &side)) {
         Some(file) => (Some(file), None),
         None => (None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))),
     }
 }
+
+/// `held` for many files at once, as Rename Many and a delete move a photo and then its
+/// sidecar: each lock file once (two in one would wait for itself), in the order of their
+/// numbers, which every Glimt takes them in, so two of these never wait for each other.
+pub(crate) fn held_all<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<Held> {
+    let Some(dir) = crate::remote::dir().map(|d| d.join("sidecar-locks")) else {
+        return vec![(None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner())))];
+    };
+    let mut sides: Vec<(u64, PathBuf)> = (paths.into_iter())
+        .map(|p| sidecar(p))
+        .map(|s| (lock_slot(&s), s))
+        .collect();
+    sides.sort_by_key(|s| s.0);
+    sides.dedup_by_key(|s| s.0);
+    (sides.iter())
+        .filter_map(|(_, side)| lock_file(&dir, side))
+        .map(|file| (Some(file), None))
+        .collect()
+}
+
+/// A sidecar's lock while held: the lock file, or within this Glimt alone the mutex.
+pub(crate) type Held = (
+    Option<std::fs::File>,
+    Option<std::sync::MutexGuard<'static, ()>>,
+);
+
+/// The lock where there is no runtime folder.
+static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;

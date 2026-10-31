@@ -419,7 +419,9 @@ impl crate::App {
                 };
                 // The file, then its sidecar, which is told by its own name when it fails: the
                 // photo went, its keywords did not. A move holds the sidecar as a write does: one
-                // that waited lands on no old name. Not a copy, which may take minutes.
+                // that waited lands on no old name. Not a copy, where the photo stays; a move to
+                // another disk holds it while the photo is copied, which only makes writes of
+                // the same lock wait.
                 let _held = (!keep).then(|| meta::held(path));
                 if let Some(at) = taken(&target, &HashSet::new()) {
                     failed(&at, std::io::ErrorKind::AlreadyExists.into());
@@ -1260,6 +1262,9 @@ pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
 /// file's, through temporary names when names swap, with the plan on disk while it runs, and
 /// undone on a failure. Never replaces a file, also one another program makes meanwhile.
 pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> Result<(), String> {
+    // Held as a sidecar write holds them, from before the look at which have one: a keyword
+    // written meanwhile would else land on an old name.
+    let _held = meta::held_all(&from);
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))

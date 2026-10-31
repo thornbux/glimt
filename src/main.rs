@@ -10429,6 +10429,42 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// A move, a rename and a delete wait for a sidecar write of their files that holds the
+    /// sidecar's lock, so the write never lands on a name the photo has left.
+    #[test]
+    fn file_operations_wait_for_a_sidecar_write() {
+        let d = contract_folder("held");
+        let (mut app, ctx) = app_on(&d);
+        let idle =
+            |app: &super::App| (app.file_jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
+        let waits =
+            |app: &mut super::App, file: &std::path::Path, start: &dyn Fn(&mut super::App)| {
+                let held = crate::meta::held(file);
+                start(app);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                assert!(file.exists(), "{} gone while held", file.display());
+                drop(held);
+                assert!(settle(app, &ctx, |app| idle(app) && !file.exists()));
+            };
+        let (a, b) = (d.join("a.png"), d.join("b.png"));
+        waits(&mut app, &a, &|app| {
+            app.transfer(&ctx, vec![a.clone()], d.join("sub"), false)
+        });
+        assert!(d.join("sub/a.png").exists() && d.join("sub/a.png.xmp").exists());
+        let c = d.join("c.png");
+        waits(&mut app, &b, &|app| {
+            app.rename_in_background(&ctx, vec![b.clone()], vec![c.clone()])
+        });
+        assert!(c.exists() && d.join("c.png.xmp").exists());
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        waits(&mut app, &c, &|app| {
+            let at = (app.list.files.iter()).position(|f| f == "c.png").unwrap();
+            app.delete_now(&ctx, false, vec![at]);
+        });
+        assert!(!d.join("c.png.xmp").exists());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
     /// Every operation that starts a job or background work is in the contract above, or says
     /// here why it is not: a new one cannot leave out what follows its files unseen.
     #[test]
