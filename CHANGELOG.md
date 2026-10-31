@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-10-31
+
 ### Added
 
 - In full screen the pointer hides when the mouse has been still for two seconds, and comes
@@ -2146,7 +2148,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/thornbux/glimt/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/thornbux/glimt/compare/v0.43.2...v0.44.0
 [0.43.2]: https://github.com/thornbux/glimt/compare/v0.43.1...v0.43.2
 [0.43.1]: https://github.com/thornbux/glimt/compare/v0.43.0...v0.43.1

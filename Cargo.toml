@@ -1,6 +1,6 @@
 [package]
 name = "glimt"
-version = "0.44.0"
+version = "0.45.0"
 edition = "2024"
 # The oldest Rust that builds it: egui's. Checked with the rust:1.95 image.
 rust-version = "1.95"
