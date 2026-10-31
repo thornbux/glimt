@@ -250,9 +250,9 @@ pub fn settle(
 /// may lose the last counts. The names each step leaves are followed from the start, and the
 /// first count from `done` on whose names are all as on disk is taken. Undone from the count
 /// alone, a swap cut short after a → .t0 and b → .t1 but counted at one put a back and left b's
-/// photo under its hidden name for good, the plan deleted. Where no count fits (a step cut
-/// short between its link and its unlink has both names; a file changed by hand since), the
-/// count stays. One look at each name, so thousands of steps take no longer than their names.
+/// photo under its hidden name for good, the plan deleted. A step cut short between its link
+/// and its unlink has both names, one file: that count, with it the first not done. Where no
+/// count fits (a file changed by hand since), the count stays. One look at each name.
 fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     // Each name once, by number; whether it is there after the steps so far, and on disk.
     let mut number: std::collections::HashMap<&Path, usize> = Default::default();
@@ -269,15 +269,20 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
         on_disk[n] = p.exists();
     }
     // Before the first step: each step's old name that no earlier step made.
-    let mut there = vec![false; number.len()];
-    for (k, [a, _]) in steps.iter().enumerate() {
-        if !steps[..k].iter().any(|[_, b]| b == a) {
-            there[*a] = true;
-        }
+    let (mut there, mut made) = (vec![false; number.len()], vec![false; number.len()]);
+    for &[a, b] in &steps {
+        there[a] |= !made[a];
+        made[b] = true;
     }
     let mut wrong = (0..there.len()).filter(|&n| there[n] != on_disk[n]).count();
     for (k, &[a, b]) in steps.iter().enumerate() {
         if k >= done && wrong == 0 {
+            return k;
+        }
+        // Cut short between this step's link and its unlink: the names of the count before it,
+        // and its new name too, the same file as its old one; `settle` takes that name away.
+        let (from, to) = (&moves[k].0, &moves[k].1);
+        if k >= done && wrong == 1 && !there[b] && on_disk[b] && same_file(from, to) {
             return k;
         }
         for (n, now) in [(a, false), (b, true)] {
@@ -341,6 +346,43 @@ mod tests {
         assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
         std::fs::remove_file(p("a.jpg")).unwrap();
         std::fs::remove_file(p("b.jpg")).unwrap();
+        // Two steps done and the third linked, one counted: b and .tmp-0 one file.
+        std::fs::write(p(".tmp-0"), "a").unwrap();
+        std::fs::write(p(".tmp-1"), "b").unwrap();
+        std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
+        let plan = plans.join("cut");
+        let mut cut = super::begin(&plans, &moves).unwrap();
+        cut.done();
+        std::fs::copy(&cut.path, &plan).unwrap();
+        drop(cut);
+        assert_eq!(super::settle(&plan, &moves, Some(1), true), Some((3, 0)));
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
+        assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
+        std::fs::remove_file(p("a.jpg")).unwrap();
+        std::fs::remove_file(p("b.jpg")).unwrap();
+        // A chain without swaps, a → A … d → D: three done and the fourth linked, one counted.
+        let chain: Vec<_> = ["a", "b", "c", "d"]
+            .map(|n| {
+                (
+                    p(&format!("{n}.png")),
+                    p(&format!("{}.png", n.to_uppercase())),
+                )
+            })
+            .into();
+        for n in ["A", "B", "C", "d"] {
+            std::fs::write(p(&format!("{n}.png")), n.to_lowercase()).unwrap();
+        }
+        std::fs::hard_link(p("d.png"), p("D.png")).unwrap();
+        let mut cut = super::begin(&plans, &chain).unwrap();
+        cut.done();
+        std::fs::copy(&cut.path, &plan).unwrap();
+        drop(cut);
+        assert_eq!(super::settle(&plan, &chain, Some(1), true), Some((4, 0)));
+        for n in ["a", "b", "c", "d"] {
+            assert_eq!(std::fs::read_to_string(p(&format!("{n}.png"))).unwrap(), n);
+            assert!(!p(&format!("{}.png", n.to_uppercase())).exists());
+            std::fs::remove_file(p(&format!("{n}.png"))).unwrap();
+        }
         for undo in [true, false] {
             // Two steps done, one counted.
             std::fs::write(p(".tmp-0"), "a").unwrap();
