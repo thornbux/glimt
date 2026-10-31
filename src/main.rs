@@ -11344,6 +11344,10 @@ mod tests {
     #[test]
     fn cpu_levels() {
         use super::{background_threads, cores, set_cpu_use, thumb_threads};
+        // A new window (`app_on`, under this lock) sets the level from its settings.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         set_cpu_use(0);
         assert_eq!(
             (thumb_threads(4), background_threads()),
