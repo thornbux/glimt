@@ -247,7 +247,7 @@ impl crate::App {
 
     /// What deletes and moves report: files moved (their marks go along), and files gone, which
     /// leave the list, the marks and Find Duplicates; or the folder read again after a failure.
-    pub(crate) fn receive_deleted(&mut self) {
+    pub(crate) fn receive_deleted(&mut self, ctx: &egui::Context) {
         for Deleted {
             paths,
             gone,
@@ -259,8 +259,12 @@ impl crate::App {
             restored_marks,
             changed,
             overwritten,
+            folder_renamed,
         } in self.deleted_rx.try_iter().collect::<Vec<_>>()
         {
+            if let Some((old, new)) = folder_renamed {
+                self.folder_renamed(ctx, old, new);
+            }
             // Moved before their sources are taken for deleted ones: the marks go along first.
             self.paths_moved(moved, copied);
             // Another image under a name: its marks are not this one's, as its sidecar was not.
@@ -655,14 +659,27 @@ impl crate::App {
             return;
         };
         let new = old.with_file_name(name);
-        if new == old || !self.none_saving(std::slice::from_ref(&old)) {
+        if new == old {
             return;
         }
-        // Never over an empty folder of that name, also one made since the look.
-        if let Err(e) = rename_never_over(&old, &new) {
-            self.notice = Some(format!("{display}: {e}", display = new.display()));
-            return;
-        }
+        // In the background, as a folder on a share that stopped answering would hold the
+        // window until the rename returns; what follows it comes back through `deleted_tx`.
+        let deleted_tx = self.deleted_tx.clone();
+        self.background(ctx, vec![old.clone()], move || {
+            // Never over an empty folder of that name, also one made since the look.
+            if let Err(e) = rename_never_over(&old, &new) {
+                return Some(format!("{display}: {e}", display = new.display()));
+            }
+            let _ = deleted_tx.send(Deleted {
+                folder_renamed: Some((old, new)),
+                ..Default::default()
+            });
+            None
+        });
+    }
+
+    /// The folder `old` renamed to `new`: the window follows it.
+    fn folder_renamed(&mut self, ctx: &egui::Context, old: PathBuf, new: PathBuf) {
         self.forget_folder(&old);
         // Several folders shown together: the renamed one is read under its new name.
         for folder in &mut self.folders {

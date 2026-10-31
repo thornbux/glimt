@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename Folder runs in the background: a folder on a network share that stopped answering no
+  longer holds the window until the share comes back.
+
 ## [0.43.2] - 2026-10-31
 
 ### Fixed

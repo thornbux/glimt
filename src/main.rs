@@ -369,6 +369,8 @@ struct Deleted {
     /// Files written over by another image (Save As, Save This Frame onto a file there): read
     /// again, and their marks and stars go, as their sidecar did.
     overwritten: Vec<PathBuf>,
+    /// A folder renamed (old, new), which the window follows.
+    folder_renamed: Option<(PathBuf, PathBuf)>,
 }
 
 /// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
@@ -2295,6 +2297,9 @@ impl App {
     // ---- Opening a folder, a collection or several folders, and listing it ----
 
     /// Open a folder, or the folder of a file with that file shown.
+    // shortcut: is_dir and canonicalize here, in the window's thread, are what hold it on a share
+    // that stopped answering (the listing is in the background already); move them to the
+    // listing thread if a stalled mount makes opening hang in use.
     fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
         if collections::is_collection(&path) {
             return self.open_collection(ctx, path);
@@ -6893,7 +6898,7 @@ impl App {
         self.receive_listing(ctx, std::time::Duration::ZERO);
         self.receive_sizes();
         self.receive_exif_index(ctx);
-        self.receive_deleted();
+        self.receive_deleted(ctx);
         self.selection_size(ctx);
         self.match_size(ctx);
         let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
@@ -7790,6 +7795,8 @@ impl App {
             _ => self.dir.join(text),
         };
         let result = match prompt {
+            // shortcut: in the window's thread, which a share that stopped answering holds
+            // until create_dir returns; through `background` as Rename Folder if that happens.
             Prompt::NewFolder => {
                 self.tree.remove(&self.dir);
                 std::fs::create_dir(&target)
@@ -10352,7 +10359,8 @@ mod tests {
         }
     }
 
-    /// The same in a collection: its file follows a rename, a move and a delete.
+    /// The same in a collection: its file follows a rename, a move, a folder renamed and a
+    /// delete.
     #[test]
     fn a_collection_follows_its_files() {
         let d = contract_folder("collection");
@@ -10369,6 +10377,12 @@ mod tests {
         app.transfer(&ctx, vec![d.join("c.png")], d.join("sub"), false);
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("sub/c.png")));
+        // A folder renamed, in the background: its images in the collection follow.
+        app.folder_target = Some(d.join("sub"));
+        app.rename_folder(&ctx, "moved");
+        assert!(settle(&mut app, &ctx, |app| idle(app)
+            && entries(&gqv).contains("moved/c.png")));
+        assert!(d.join("moved/c.png").exists());
         let b = app
             .list
             .files
@@ -10392,6 +10406,7 @@ mod tests {
             "save_as_to",
             "export_frames",
             "write_sidecars",
+            "rename_folder",
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
@@ -10509,7 +10524,7 @@ mod tests {
             ..Default::default()
         };
         app.deleted_tx.send(over).unwrap();
-        app.receive_deleted();
+        app.receive_deleted(&ctx);
         assert!(app.exif_stale.contains(std::ffi::OsStr::new("b.png")));
         #[cfg(feature = "marks")]
         assert_eq!(app.marks.get(&b), (0, 0));
