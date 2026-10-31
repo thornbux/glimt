@@ -1004,7 +1004,8 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
 /// What `thrown` moved to the trash put back where it was, with the sidecars that went with
 /// it: of each, the first of its name put in the trash folders `dirs_of` gives (the home trash,
 /// and those at the top of its file system) since the move began, as an older one of the same
-/// name is another file's, and a later one too (a new file of that name trashed since). Each trash folder is read once, into a map by
+/// name is another file's, and a later one too (a new file of that name trashed since); one
+/// from the two seconds before only when there is none. Each trash folder is read once, into a map by
 /// name. Read from the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has
 /// it): `gio trash --restore` needs gvfs, which KDE and containers often lack. Never over a file
 /// that has taken the name since. The files put back, and the first error.
@@ -1018,6 +1019,10 @@ fn restore(
     // early, for a move that began in the second before.
     let secs = (thrown.since.duration_since(std::time::UNIX_EPOCH)).map_or(0, |d| d.as_secs());
     let since = crate::local_time(secs as i64 - 2).replacen(' ', "T", 1);
+    // Those from the move's own second on before those two seconds: one of the same name
+    // trashed just before the move is another file's.
+    let at = crate::local_time(secs as i64).replacen(' ', "T", 1);
+    let rank = |t: &Trashed| (t.date < at, t.date.clone());
     // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
     // give every file to whoever mounts it) may hold an entry of the same name dated in the
     // future, which would else come back where the user's own is gone. An hour and a minute
@@ -1031,10 +1036,10 @@ fn restore(
         for (dir, top) in dirs_of(path) {
             let all = (trashes.entry(dir.clone())).or_insert_with(|| {
                 let all = read_trash(&dir, &top).into_iter();
-                first_of_each(all.filter(|t| t.date >= since && t.date <= until))
+                first_of_each(all.filter(|t| t.date >= since && t.date <= until), rank)
             });
             if let Some(t) = all.get(path)
-                && first.as_ref().is_none_or(|f| t.date < f.date)
+                && first.as_ref().is_none_or(|f| rank(t) < rank(f))
             {
                 first = Some(t.clone());
             }
@@ -1077,12 +1082,15 @@ fn restore(
     (back, None)
 }
 
-/// Of each name in a trash folder, the one put there first.
-fn first_of_each(all: impl Iterator<Item = Trashed>) -> HashMap<PathBuf, Trashed> {
+/// Of each name in a trash folder, the one put there first, by `rank`.
+fn first_of_each<K: Ord>(
+    all: impl Iterator<Item = Trashed>,
+    rank: impl Fn(&Trashed) -> K,
+) -> HashMap<PathBuf, Trashed> {
     let mut by_name: HashMap<PathBuf, Trashed> = HashMap::new();
     for t in all {
         match by_name.get(&t.from) {
-            Some(had) if had.date <= t.date => {}
+            Some(had) if rank(had) <= rank(&t) => {}
             _ => drop(by_name.insert(t.from.clone(), t)),
         }
     }
@@ -1737,6 +1745,25 @@ mod tests {
         assert_eq!((back, error), (vec![photos.join("IMG_0005.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0005.jpg")).unwrap();
         assert_eq!(got, "mine");
+        // One of the same name trashed a second before the move: another file's, the move's own
+        // comes back. Alone, it is taken, as the move may have begun in that second.
+        let before = crate::local_time(secs - 1).replacen(' ', "T", 1);
+        let img6 = photos.join("IMG_0006.jpg").display().to_string();
+        at("IMG_0006.jpg", &img6, &before, "other");
+        at("IMG_0006.2.jpg", &img6, &today, "mine");
+        let thrown6 = super::Thrown {
+            since: now,
+            ..thrown(&["IMG_0006.jpg"], &[])
+        };
+        let (back, error) = super::restore(&thrown6, both);
+        assert_eq!((back, error), (vec![photos.join("IMG_0006.jpg")], None));
+        let got = std::fs::read_to_string(photos.join("IMG_0006.jpg")).unwrap();
+        assert_eq!(got, "mine");
+        std::fs::remove_file(photos.join("IMG_0006.jpg")).unwrap();
+        let (back, error) = super::restore(&thrown6, both);
+        assert_eq!((back, error), (vec![photos.join("IMG_0006.jpg")], None));
+        let got = std::fs::read_to_string(photos.join("IMG_0006.jpg")).unwrap();
+        assert_eq!(got, "other");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
