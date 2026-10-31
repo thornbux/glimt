@@ -33,6 +33,7 @@ pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
         .id(egui::Id::unique("help"))
         .open(&mut open)
         .collapsible(false)
+        .default_width(560.0)
         .default_height(520.0)
         .show(ctx, |ui| {
             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
@@ -797,7 +798,7 @@ fn manual(ui: &mut egui::Ui) {
         ui.add_space(6.0);
     }
     egui::CollapsingHeader::new("Differences from Geeqie").show(ui, |ui| {
-        egui::Grid::new("differences").striped(true).show(ui, |ui| {
+        grid(ui, "differences", 3).show(ui, |ui| {
             ui.strong("");
             ui.strong("Glimt");
             ui.strong("Geeqie");
@@ -812,9 +813,18 @@ fn manual(ui: &mut egui::Ui) {
     });
 }
 
+/// A striped grid whose columns share the window's width, so long texts wrap and the
+/// window can be made narrow.
+fn grid(ui: &egui::Ui, id: &str, columns: usize) -> egui::Grid {
+    let each = ui.available_width() / columns as f32 - ui.spacing().item_spacing.x;
+    egui::Grid::new(id)
+        .striped(true)
+        .max_col_width(each.max(80.0))
+}
+
 /// Two columns, the first in code: options or commands and what they do.
 fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
-    egui::Grid::new(id).striped(true).show(ui, |ui| {
+    grid(ui, id, 2).show(ui, |ui| {
         for (what, does) in rows {
             ui.code(*what);
             ui.label(*does);
@@ -859,7 +869,7 @@ fn shortcuts(ui: &mut egui::Ui) {
         }
     }
     rows.sort_by_key(|r| r.0 as usize);
-    egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
+    grid(ui, "shortcuts", 2).show(ui, |ui| {
         for (action, keys) in rows {
             ui.label(keys.join(", "));
             ui.label(action.label());
@@ -1162,7 +1172,7 @@ fn about(ui: &mut egui::Ui) {
             ui.label("Inspired by Geeqie (geeqie.org); Glimt shares no code with it.");
             ui.label("Written with Claude Code (Anthropic).");
             ui.add_space(4.0);
-            egui::Grid::new("credits").striped(true).show(ui, |ui| {
+            grid(ui, "credits", 3).show(ui, |ui| {
                 for (what, who, license) in CREDITS {
                     ui.label(*what);
                     ui.weak(*who);
