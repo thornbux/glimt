@@ -5,16 +5,36 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-31
+
 ### Security
 
 - A Lightroom catalog whose tables Glimt reads include a virtual table or a view is refused
   before anything is read from it: sqlite3's safe mode lets a virtual table through, and one
   such as zipfile reads any file it is given into the import.
+- Undo of a move to the trash passes over an entry dated in the future: a trash folder on a
+  memory stick from someone else could hold one of the same name, which came back instead of
+  your file (yours stayed in the trash).
 
 ### Fixed
 
+- A keyword or star saved while its photo is moved (or moved back by Undo) no longer leaves a
+  sidecar under the old name, which a later file of that name would take over: the move waits
+  for the write, and a write that waited finds the photo gone.
+- Putting back a Rename Many cut short by a power cut puts every file back: the count of the last
+  steps done can be lost then, and a photo was left under a hidden temporary name. The steps
+  done are now found by the names too.
+- glimt --remote select sent just as Glimt closes is answered (none of its paths selected), not
+  left with an empty answer that reads as all found: closing waits for each client still
+  connected, up to a second, and answers what it sends.
+- Rename Folder runs in the background: a folder on a network share that stopped answering no
+  longer holds the window until the share comes back.
 - Importing a Lightroom catalog works for a user whose sqliterc changes sqlite3's output (such
   as .mode json): sqlite3 is started without it.
+- A very long strip (10000×5) is sharp again after the window grows: since 0.43.2 it was only
+  decoded again when its short side grew by more than a pixel too.
+- The Help Manual can be made narrow: the tables' long texts wrap to the window's width, where
+  before the widest row of Differences from Geeqie set the window's least width.
 
 ## [0.43.2] - 2026-10-31
 
@@ -2117,7 +2137,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.43.2...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/thornbux/glimt/compare/v0.43.2...v0.44.0
 [0.43.2]: https://github.com/thornbux/glimt/compare/v0.43.1...v0.43.2
 [0.43.1]: https://github.com/thornbux/glimt/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/thornbux/glimt/compare/v0.42.2...v0.43.0
