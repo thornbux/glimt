@@ -266,10 +266,19 @@ pub(crate) fn held_all<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<
         .collect();
     sides.sort_by_key(|s| s.0);
     sides.dedup_by_key(|s| s.0);
-    (sides.iter())
-        .filter_map(|(_, side)| lock_file(&dir, side))
-        .map(|file| (Some(file), None))
-        .collect()
+    let mut held: Vec<Held> = Vec::new();
+    let mut failed = false;
+    for (_, side) in &sides {
+        match lock_file(&dir, side) {
+            Some(file) => held.push((Some(file), None)),
+            None => failed = true,
+        }
+    }
+    // As `held` does when a lock file cannot be made (a full runtime folder): within this Glimt.
+    if failed {
+        held.push((None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))));
+    }
+    held
 }
 
 /// A sidecar's lock while held: the lock file, or within this Glimt alone the mutex.
