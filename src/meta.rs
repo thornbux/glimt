@@ -239,56 +239,57 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 
 /// Held while the sidecar of `path` is read and written again, by this window's threads and by
 /// every other Glimt window: keywords added in the background, stars saved and a comment edited
-/// in another window meanwhile each keep what the others wrote. A lock file in Glimt's runtime
-/// folder, one of 64 chosen by the sidecar's path, not one beside it in the user's folder; two
-/// threads of one Glimt wait for each other on it too. Where there is no runtime folder, a lock
-/// within this Glimt alone; not both, so a sidecar on a share that stopped answering holds up
-/// only the sidecars of its own lock file, not every write of the window. Held by a move too,
-/// so a write that waited finds the photo gone, not its old name free for a sidecar.
+/// in another window meanwhile each keep what the others wrote. One of 64 locks chosen by the
+/// sidecar's path: within this Glimt a mutex, and across windows a lock file in Glimt's runtime
+/// folder, not one beside it in the user's folder. The mutex always, so two threads of this
+/// Glimt wait for each other also when the lock file cannot be made for one of them (a full
+/// runtime folder) and can for the other. One of 64, so a sidecar on a share that stopped
+/// answering holds up only the sidecars of its own lock, not every write of the window. Held by
+/// a move too, so a write that waited finds the photo gone, not its old name free for a sidecar.
 pub(crate) fn held(path: &Path) -> Held {
+    held_in(locks().as_deref(), path)
+}
+
+fn held_in(dir: Option<&Path>, path: &Path) -> Held {
     let side = sidecar(path);
-    match crate::remote::dir().and_then(|d| lock_file(&d.join("sidecar-locks"), &side)) {
-        Some(file) => (Some(file), None),
-        None => (None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))),
-    }
+    let guard = SLOTS[lock_slot(&side) as usize]
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    (dir.and_then(|d| lock_file(d, &side)), guard)
 }
 
 /// `held` for many files at once, as Rename Many and a delete move a photo and then its
-/// sidecar: each lock file once (two in one would wait for itself), in the order of their
-/// numbers, which every Glimt takes them in, so two of these never wait for each other.
+/// sidecar: each lock once (two of one would wait for itself), in the order of their numbers,
+/// which every Glimt and every thread takes them in, so two of these never wait for each other.
 pub(crate) fn held_all<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<Held> {
-    let Some(dir) = crate::remote::dir().map(|d| d.join("sidecar-locks")) else {
-        return vec![(None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner())))];
-    };
+    held_all_in(locks().as_deref(), paths)
+}
+
+fn held_all_in<'a>(dir: Option<&Path>, paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<Held> {
     let mut sides: Vec<(u64, PathBuf)> = (paths.into_iter())
         .map(|p| sidecar(p))
         .map(|s| (lock_slot(&s), s))
         .collect();
     sides.sort_by_key(|s| s.0);
     sides.dedup_by_key(|s| s.0);
-    let mut held: Vec<Held> = Vec::new();
-    let mut failed = false;
-    for (_, side) in &sides {
-        match lock_file(&dir, side) {
-            Some(file) => held.push((Some(file), None)),
-            None => failed = true,
-        }
-    }
-    // As `held` does when a lock file cannot be made (a full runtime folder): within this Glimt.
-    if failed {
-        held.push((None, Some(LOCK.lock().unwrap_or_else(|e| e.into_inner()))));
-    }
-    held
+    (sides.iter())
+        .map(|(n, side)| {
+            let guard = SLOTS[*n as usize].lock().unwrap_or_else(|e| e.into_inner());
+            (dir.and_then(|d| lock_file(d, side)), guard)
+        })
+        .collect()
 }
 
-/// A sidecar's lock while held: the lock file, or within this Glimt alone the mutex.
-pub(crate) type Held = (
-    Option<std::fs::File>,
-    Option<std::sync::MutexGuard<'static, ()>>,
-);
+/// The folder of the lock files, where there is a runtime folder.
+fn locks() -> Option<PathBuf> {
+    crate::remote::dir().map(|d| d.join("sidecar-locks"))
+}
 
-/// The lock where there is no runtime folder.
-static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// A sidecar's lock while held: the lock file, if it could be made, and the mutex of its slot.
+pub(crate) type Held = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
+
+/// The 64 locks within this Glimt, by `lock_slot`.
+static SLOTS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;
@@ -732,6 +733,31 @@ mod tests {
         use std::path::Path;
         assert_eq!(super::lock_slot(Path::new("")), 0xcbf2_9ce4_8422_2325 % 64);
         assert_eq!(super::lock_slot(Path::new("a")), 0xaf63_dc4c_8601_ec8c % 64);
+    }
+
+    /// Within one Glimt, a holder whose lock file could not be made waits for one whose could,
+    /// and the other way round: neither goes by another lock than the other.
+    #[test]
+    fn a_failed_lock_file_still_waits_in_this_glimt() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-slots-{}", std::process::id()));
+        let photo = std::path::PathBuf::from("/photos/slot.jpg");
+        for (first, then) in [(Some(dir.as_path()), None), (None, Some(dir.as_path()))] {
+            let held = super::held_in(first, &photo);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (dir2, p) = (then.map(|d| d.to_path_buf()), photo.clone());
+            let waiter = std::thread::spawn(move || {
+                let all = super::held_all_in(dir2.as_deref(), [&p]);
+                tx.send(()).unwrap();
+                drop(all);
+            });
+            let waited = rx
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err();
+            drop(held);
+            waiter.join().unwrap();
+            assert!(waited, "{first:?} then {then:?}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The lock of a sidecar holds off another holder of it, as another window would be, until
