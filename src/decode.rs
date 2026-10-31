@@ -1451,9 +1451,10 @@ mod tests {
         );
         let file = dir.join("bomb.svg");
         std::fs::write(&file, &bomb).unwrap();
-        let started = std::time::Instant::now();
-        assert!(super::svg(&file, None).is_err());
-        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        // Refused by the check, before usvg: not by usvg after expanding it, nor by a timing
+        // that a busy machine running every test at once can miss.
+        let why = super::svg(&file, None).err().unwrap();
+        assert_eq!(why, "SVG whose entities would grow too large");
         let fine = "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY ns \"http://www.w3.org/2000/svg\">]>\
                     <svg xmlns=\"&ns;\" width=\"10\" height=\"10\"><desc>a &amp; b</desc></svg>";
         let file = dir.join("fine.svg");
