@@ -680,12 +680,21 @@ fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
     }
 }
 
-/// Whether a texture of `tex` is too small to show an image of `orig` at `scale`: short by more
-/// than a pixel on both sides. The decoders fit an image into a box of whole pixels, so the side
-/// that is not the limit can come out two pixels short (4000×2657 into a box 1328 high is 1998
-/// wide, where 1328.9 high shows it 2000.6 wide), and decoding it again gives the same.
-fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32) -> bool {
-    (0..2).all(|i| tex[i] as f32 + 1.0 < (orig[i] as f32 * scale).min(orig[i] as f32))
+/// Whether a texture of `tex` is too small to show an image of `orig` at `scale` in a view of
+/// `view` pixels (all unturned). The decoders fit an image into a box of whole pixels: the side
+/// that fills the view comes out within a pixel or so of it, and the other is worked out from
+/// it, so one pixel there is `orig` side to side here (4000×2657 into a box 1328 high is 1998
+/// wide, where 1328.9 high shows it 2000.6 wide). Short by more than that on any side: decoded
+/// again, which then gives a texture within it, so never again and again. A strip of 10000×5
+/// grown from 1920 to 3840 wide is too small by its width, as its height fills nothing.
+fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> bool {
+    (0..2).any(|i| {
+        let j = 1 - i;
+        let [o, other] = [orig[i] as f32, orig[j] as f32];
+        let fills = other * scale >= view[j] - 1.0;
+        let slack = 1.5 + if fills { o / other.max(1.0) } else { 0.0 };
+        tex[i] as f32 + slack < (o * scale).min(o)
+    })
 }
 
 /// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
@@ -8888,8 +8897,14 @@ impl App {
                 // Texture too small: in fit mode the window has grown, so decode again at window
                 // size (the previous texture is shown meanwhile); when zoomed, load full resolution.
                 let slot = self.list.slots.get(&self.list.cur);
+                let view = area.size() * ppp;
+                let view = if quarter {
+                    [view.y, view.x]
+                } else {
+                    [view.x, view.y]
+                };
                 let too_small =
-                    slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale));
+                    slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale, view));
                 // Not zoomed: decoded again to the size shown, which the decoders' limit now
                 // holds; full resolution only where that is larger than a texture may be.
                 let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
@@ -10741,14 +10756,40 @@ mod tests {
 
     /// A photo fitted into a window whose height is not whole pixels is not decoded again and
     /// again: its width comes out two pixels short of the scale shown, its height within one.
+    /// A grown window, 1:1, and a strip whose window grew only along it are decoded again.
     #[test]
     fn a_texture_short_on_one_side_is_the_size_shown() {
+        let view = [2614.0, 1328.9];
         let fit = 1328.9 / 2657.0;
-        assert!(!super::too_small([1998, 1328], [4000, 2657], fit));
-        // The window grown, or 1:1: decoded again.
-        assert!(super::too_small([1998, 1328], [4000, 2657], 0.75));
-        assert!(super::too_small([1998, 1328], [4000, 2657], 1.0));
-        assert!(!super::too_small([4000, 2657], [4000, 2657], 1.0));
+        assert!(!super::too_small([1998, 1328], [4000, 2657], fit, view));
+        assert!(super::too_small(
+            [1998, 1328],
+            [4000, 2657],
+            0.75,
+            [4000.0, 2000.0]
+        ));
+        assert!(super::too_small([1998, 1328], [4000, 2657], 1.0, view));
+        assert!(!super::too_small([4000, 2657], [4000, 2657], 1.0, view));
+        // Fit Width: the width fills, the height is worked out from it.
+        assert!(!super::too_small(
+            [2000, 1328],
+            [4000, 2657],
+            2000.6 / 4000.0,
+            [2000.6, 8192.0]
+        ));
+        // A strip of 10000×5: fitted 1920 wide, then the window 3840 wide.
+        assert!(!super::too_small(
+            [1920, 1],
+            [10000, 5],
+            0.192,
+            [1920.0, 1000.0]
+        ));
+        assert!(super::too_small(
+            [1920, 1],
+            [10000, 5],
+            0.384,
+            [3840.0, 1000.0]
+        ));
     }
 
     /// egui-winit sends Ctrl+C, with or without Shift, as a Copy event: Copy to a folder, or
