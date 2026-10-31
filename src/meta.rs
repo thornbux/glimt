@@ -243,8 +243,9 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
 /// folder, one of 64 chosen by the sidecar's path, not one beside it in the user's folder; two
 /// threads of one Glimt wait for each other on it too. Where there is no runtime folder, a lock
 /// within this Glimt alone; not both, so a sidecar on a share that stopped answering holds up
-/// only the sidecars of its own lock file, not every write of the window.
-fn held(
+/// only the sidecars of its own lock file, not every write of the window. Held by a move too,
+/// so a write that waited finds the photo gone, not its old name free for a sidecar.
+pub(crate) fn held(
     path: &Path,
 ) -> (
     Option<std::fs::File>,
@@ -661,6 +662,29 @@ pub(crate) fn keyword_tree_changed(
 
 #[cfg(test)]
 mod tests {
+    /// A keyword written while the photo is moved, which waited for the move, lands on no old
+    /// name: no sidecar is left there without its photo, for a later file of that name.
+    #[test]
+    fn a_write_that_waits_for_a_move_leaves_no_sidecar() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-meta-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("to")).unwrap();
+        let (from, to) = (dir.join("IMG.jpg"), dir.join("to/IMG.jpg"));
+        std::fs::write(&from, b"photo").unwrap();
+        let move_held = super::held(&from);
+        let writer = {
+            let from = from.clone();
+            std::thread::spawn(move || super::add_keywords(&from, &["Oslo".to_owned()]))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        crate::file_ops::put_file(&from, &to, false).unwrap();
+        super::follow(&from, &to, false).unwrap();
+        drop(move_held);
+        assert!(writer.join().unwrap().is_err());
+        assert!(!super::sidecar(&from).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A million '&' and then one ';' (a crafted keyword): read at once, not in hours.
     #[test]
     fn unescapes_in_one_pass() {

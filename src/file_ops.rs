@@ -411,7 +411,9 @@ impl crate::App {
                     errors.push(format!("{display}: {e}", display = at.display()));
                 };
                 // The file, then its sidecar, which is told by its own name when it fails: the
-                // photo went, its keywords did not.
+                // photo went, its keywords did not. A move holds the sidecar as a write does: one
+                // that waited lands on no old name. Not a copy, which may take minutes.
+                let _held = (!keep).then(|| meta::held(path));
                 if let Some(at) = taken(&target, &HashSet::new()) {
                     failed(&at, std::io::ErrorKind::AlreadyExists.into());
                 } else if let Err(e) = put_file(path, &target, keep) {
@@ -772,6 +774,7 @@ impl crate::App {
             Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
                 let (mut errors, mut back) = (Vec::new(), Vec::new());
                 for (from, to) in pairs {
+                    let _held = meta::held(&to);
                     let result = match taken(&from, &HashSet::new()) {
                         Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
                         None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
