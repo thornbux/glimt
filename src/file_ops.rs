@@ -160,6 +160,9 @@ impl crate::App {
         let collection = self.collection.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
+            // The photos' sidecars held until they too are gone: a keyword written meanwhile
+            // would else make one under the name of a photo no longer there.
+            let _held = meta::held_all(&paths);
             let since = std::time::SystemTime::now();
             // Read the size before deleting, so the status bar can subtract it.
             let _ = freed_tx.send(total_size(&paths));
@@ -1015,16 +1018,20 @@ fn restore(
     let since = crate::local_time(secs as i64 - 2).replacen(' ', "T", 1);
     // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
     // give every file to whoever mounts it) may hold an entry of the same name dated in the
-    // future, which as the newest would come back instead of the user's file.
+    // future, which as the newest would come back instead of the user's file. Left out before
+    // the newest of each name is taken, as the user's own may be in that same folder. An hour
+    // and a minute ahead: local time, which goes back an hour in autumn.
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    let until = crate::local_time(now.map_or(0, |d| d.as_secs()) as i64 + 60).replacen(' ', "T", 1);
+    let until = now.map_or(0, |d| d.as_secs()) as i64 + 3660;
+    let until = crate::local_time(until).replacen(' ', "T", 1);
     let mut find = |path: &Path| {
         let mut latest: Option<Trashed> = None;
         for (dir, top) in dirs_of(path) {
-            let all =
-                (trashes.entry(dir.clone())).or_insert_with(|| newest(read_trash(&dir, &top)));
+            let all = (trashes.entry(dir.clone())).or_insert_with(|| {
+                let all = read_trash(&dir, &top);
+                newest(all.into_iter().filter(|t| t.date <= until).collect())
+            });
             if let Some(t) = all.get(path)
-                && t.date <= until
                 && latest.as_ref().is_none_or(|l| t.date > l.date)
             {
                 latest = Some(t.clone());
@@ -1702,6 +1709,20 @@ mod tests {
         assert_eq!((back, error), (vec![photos.join("IMG_0003.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0003.jpg")).unwrap();
         assert_eq!(got, "IMG_0003.jpg");
+        // The same in one trash folder, the stick's own, where the user's file went too.
+        let at = |kept: &str, from: &str, date: &str, text: &str| {
+            std::fs::write(stick.join("files").join(kept), text).unwrap();
+            let info = format!("[Trash Info]\nPath={from}\nDeletionDate={date}\n");
+            std::fs::write(stick.join("info").join(format!("{kept}.trashinfo")), info).unwrap();
+        };
+        let today = crate::local_time(secs).replacen(' ', "T", 1);
+        let img4 = photos.join("IMG_0004.jpg").display().to_string();
+        at("IMG_0004.jpg", &img4, &next_year, "planted");
+        at("IMG_0004.2.jpg", &img4, &today, "mine");
+        let (back, error) = super::restore(&thrown(&["IMG_0004.jpg"], &[]), both);
+        assert_eq!((back, error), (vec![photos.join("IMG_0004.jpg")], None));
+        let got = std::fs::read_to_string(photos.join("IMG_0004.jpg")).unwrap();
+        assert_eq!(got, "mine");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
