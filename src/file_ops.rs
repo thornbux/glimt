@@ -1343,6 +1343,12 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
         }
         if let Some(plan) = plan.as_mut() {
             plan.done();
+            // Every file under its hidden name: synced, as the names on disk are those of the
+            // start again once the swap is done, and could not tell a power cut after it from
+            // one before it.
+            if swap && k + 1 == moves.len() / 2 {
+                plan.sync();
+            }
         }
         // Counted as a file lands under its name: the later half of a swap's steps, the
         // sidecars not.
