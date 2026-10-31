@@ -1002,9 +1002,9 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
 }
 
 /// What `thrown` moved to the trash put back where it was, with the sidecars that went with
-/// it: of each, the newest of its name in the trash folders `dirs_of` gives (the home trash, and
-/// those at the top of its file system), and only one put there since the move began, as an
-/// older one of the same name is another file's. Each trash folder is read once, into a map by
+/// it: of each, the first of its name put in the trash folders `dirs_of` gives (the home trash,
+/// and those at the top of its file system) since the move began, as an older one of the same
+/// name is another file's, and a later one too (a new file of that name trashed since). Each trash folder is read once, into a map by
 /// name. Read from the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has
 /// it): `gio trash --restore` needs gvfs, which KDE and containers often lack. Never over a file
 /// that has taken the name since. The files put back, and the first error.
@@ -1020,26 +1020,26 @@ fn restore(
     let since = crate::local_time(secs as i64 - 2).replacen(' ', "T", 1);
     // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
     // give every file to whoever mounts it) may hold an entry of the same name dated in the
-    // future, which as the newest would come back instead of the user's file. Left out before
-    // the newest of each name is taken, as the user's own may be in that same folder. An hour
-    // and a minute ahead: local time, which goes back an hour in autumn.
+    // future, which would else come back where the user's own is gone. An hour and a minute
+    // ahead: local time, which goes back an hour in autumn. The first since the move, so one
+    // dated within that hour comes after the user's own.
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let until = now.map_or(0, |d| d.as_secs()) as i64 + 3660;
     let until = crate::local_time(until).replacen(' ', "T", 1);
     let mut find = |path: &Path| {
-        let mut latest: Option<Trashed> = None;
+        let mut first: Option<Trashed> = None;
         for (dir, top) in dirs_of(path) {
             let all = (trashes.entry(dir.clone())).or_insert_with(|| {
-                let all = read_trash(&dir, &top);
-                newest(all.into_iter().filter(|t| t.date <= until).collect())
+                let all = read_trash(&dir, &top).into_iter();
+                first_of_each(all.filter(|t| t.date >= since && t.date <= until))
             });
             if let Some(t) = all.get(path)
-                && latest.as_ref().is_none_or(|l| t.date > l.date)
+                && first.as_ref().is_none_or(|f| t.date < f.date)
             {
-                latest = Some(t.clone());
+                first = Some(t.clone());
             }
         }
-        latest.filter(|t| t.date >= since)
+        first
     };
     let mut found = Vec::new();
     for path in &thrown.files {
@@ -1077,12 +1077,12 @@ fn restore(
     (back, None)
 }
 
-/// Of each name in a trash folder, the one put there last.
-fn newest(all: Vec<Trashed>) -> HashMap<PathBuf, Trashed> {
+/// Of each name in a trash folder, the one put there first.
+fn first_of_each(all: impl Iterator<Item = Trashed>) -> HashMap<PathBuf, Trashed> {
     let mut by_name: HashMap<PathBuf, Trashed> = HashMap::new();
     for t in all {
         match by_name.get(&t.from) {
-            Some(had) if had.date >= t.date => {}
+            Some(had) if had.date <= t.date => {}
             _ => drop(by_name.insert(t.from.clone(), t)),
         }
     }
@@ -1727,6 +1727,15 @@ mod tests {
         let (back, error) = super::restore(&thrown(&["IMG_0004.jpg"], &[]), both);
         assert_eq!((back, error), (vec![photos.join("IMG_0004.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0004.jpg")).unwrap();
+        assert_eq!(got, "mine");
+        // One dated half an hour ahead, within the hour let through: still after the user's.
+        let soon = crate::local_time(secs + 1800).replacen(' ', "T", 1);
+        let img5 = photos.join("IMG_0005.jpg").display().to_string();
+        at("IMG_0005.jpg", &img5, &soon, "planted");
+        at("IMG_0005.2.jpg", &img5, &today, "mine");
+        let (back, error) = super::restore(&thrown(&["IMG_0005.jpg"], &[]), both);
+        assert_eq!((back, error), (vec![photos.join("IMG_0005.jpg")], None));
+        let got = std::fs::read_to_string(photos.join("IMG_0005.jpg")).unwrap();
         assert_eq!(got, "mine");
         std::fs::remove_dir_all(dir).unwrap();
     }
