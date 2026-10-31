@@ -172,6 +172,15 @@ mod hooks {
     }
 }
 
+/// Whether a window, menu or popup was on the screen in this frame or the last; the panels
+/// of the main window do not count.
+fn window_shown(ctx: &egui::Context) -> bool {
+    use egui::Order::{Foreground, Middle};
+    ctx.memory(|m| {
+        (m.areas().visible_layer_ids().iter()).any(|l| matches!(l.order, Middle | Foreground))
+    })
+}
+
 /// The text of a widget as the release tests name it: the label without the icon before it.
 fn noted(response: &egui::Response, text: &str) -> egui::Response {
     #[cfg(feature = "test-hooks")]
@@ -6260,7 +6269,9 @@ impl App {
     }
 
     /// In full screen, with the setting on, the pointer hidden once the mouse has been still for
-    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it) or a dialog is open.
+    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it), nor while a window,
+    /// menu or popup shows (Help, the EXIF window, pan view, a dialog): one reads it, and wants
+    /// the pointer there at once.
     fn hide_still_pointer(&mut self, ctx: &egui::Context, fullscreen: bool) {
         let moved = ctx.input(|i| {
             i.pointer.delta() != egui::Vec2::ZERO
@@ -6270,7 +6281,7 @@ impl App {
         if moved || !fullscreen {
             self.pointer_moved = std::time::Instant::now();
         }
-        if !self.pointer_hides(fullscreen) {
+        if !self.pointer_hides(fullscreen) || window_shown(ctx) {
             return;
         }
         match POINTER_STILL.checked_sub(self.pointer_moved.elapsed()) {
@@ -10880,6 +10891,26 @@ mod tests {
         app.config.hide_pointer = false;
         assert!(!app.pointer_hides(true));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A window, a menu or a popup on the screen keeps the pointer; the panels do not.
+    #[test]
+    fn a_window_on_the_screen_keeps_the_pointer() {
+        let ctx = eframe::egui::Context::default();
+        let pass = |window: bool| {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                eframe::egui::CentralPanel::default().show_inside(ui, |ui| ui.label("image"));
+                if window {
+                    eframe::egui::Window::new("Help").show(ui.ctx(), |ui| ui.label("text"));
+                }
+            });
+            super::window_shown(&ctx)
+        };
+        assert!(!pass(false) && !pass(false));
+        assert!(pass(true));
+        // The frame after it closed still counts it (shown last frame), the next not.
+        let _ = pass(false);
+        assert!(!pass(false));
     }
 
     /// Fitted, an image is decoded again only for a larger box than its texture was made for:
