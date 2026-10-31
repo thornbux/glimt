@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-31
+
 ### Fixed
 
 - In a full-screen slideshow the busy pointer no longer flashes up at each image not preloaded:
@@ -2178,7 +2180,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.46.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.47.0...HEAD
+[0.47.0]: https://github.com/thornbux/glimt/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/thornbux/glimt/compare/v0.45.0...v0.46.0
 [0.45.0]: https://github.com/thornbux/glimt/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/thornbux/glimt/compare/v0.43.2...v0.44.0
