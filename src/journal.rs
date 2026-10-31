@@ -246,20 +246,52 @@ pub fn settle(
     Some((renamed + first, left))
 }
 
-/// `done`, and the steps after it that the names show were done too, as a power cut may lose the
-/// last counts: a step whose old name is gone and whose new one is there. Undone from the count
+/// How many steps were done: `done`, or more where the names on disk show it, as a power cut
+/// may lose the last counts. The names each step leaves are followed from the start, and the
+/// first count from `done` on whose names are all as on disk is taken. Undone from the count
 /// alone, a swap cut short after a → .t0 and b → .t1 but counted at one put a back and left b's
-/// photo under its hidden name for good, the plan deleted. A step cut short between its link and
-/// its unlink has both names, and stays the first not done.
+/// photo under its hidden name for good, the plan deleted. Where no count fits (a step cut
+/// short between its link and its unlink has both names; a file changed by hand since), the
+/// count stays. One look at each name, so thousands of steps take no longer than their names.
 fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
-    let mut d = done;
-    while let Some((a, b)) = moves.get(d)
-        && !a.exists()
-        && b.exists()
-    {
-        d += 1;
+    // Each name once, by number; whether it is there after the steps so far, and on disk.
+    let mut number: std::collections::HashMap<&Path, usize> = Default::default();
+    let steps: Vec<[usize; 2]> = (moves.iter())
+        .map(|(a, b)| {
+            [a, b].map(|p| {
+                let n = number.len();
+                *number.entry(p.as_path()).or_insert(n)
+            })
+        })
+        .collect();
+    let mut on_disk = vec![false; number.len()];
+    for (p, &n) in &number {
+        on_disk[n] = p.exists();
     }
-    d
+    // Before the first step: each step's old name that no earlier step made.
+    let mut there = vec![false; number.len()];
+    for (k, [a, _]) in steps.iter().enumerate() {
+        if !steps[..k].iter().any(|[_, b]| b == a) {
+            there[*a] = true;
+        }
+    }
+    let mut wrong = (0..there.len()).filter(|&n| there[n] != on_disk[n]).count();
+    for (k, &[a, b]) in steps.iter().enumerate() {
+        if k >= done && wrong == 0 {
+            return k;
+        }
+        for (n, now) in [(a, false), (b, true)] {
+            if there[n] != now {
+                wrong =
+                    wrong + usize::from(now != on_disk[n]) - usize::from(there[n] != on_disk[n]);
+                there[n] = now;
+            }
+        }
+    }
+    match wrong == 0 && steps.len() >= done {
+        true => steps.len(),
+        false => done,
+    }
 }
 
 /// Whether `file` still has a name: a plan another window put right and deleted has none.
@@ -296,6 +328,19 @@ mod tests {
             (p(".tmp-0"), p("b.jpg")),
             (p(".tmp-1"), p("a.jpg")),
         ];
+        // Three steps done, one counted: b is there again, made by the third.
+        std::fs::write(p("b.jpg"), "a").unwrap();
+        std::fs::write(p(".tmp-1"), "b").unwrap();
+        let plan = plans.join("cut");
+        let mut cut = super::begin(&plans, &moves).unwrap();
+        cut.done();
+        std::fs::copy(&cut.path, &plan).unwrap();
+        drop(cut);
+        assert_eq!(super::settle(&plan, &moves, Some(1), true), Some((3, 0)));
+        assert_eq!((text("a.jpg"), text("b.jpg")), ("a".into(), "b".into()));
+        assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
+        std::fs::remove_file(p("a.jpg")).unwrap();
+        std::fs::remove_file(p("b.jpg")).unwrap();
         for undo in [true, false] {
             // Two steps done, one counted.
             std::fs::write(p(".tmp-0"), "a").unwrap();
