@@ -681,7 +681,7 @@ fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
 }
 
 /// Whether a texture of `tex` is too small to show an image of `orig` at `scale` in a view of
-/// `view` pixels (all unturned). The decoders fit an image into a box of whole pixels: the side
+/// `view` pixels (all unturned), zoomed: then full resolution is loaded, once. The decoders fit an image into a box of whole pixels: the side
 /// that fills the view comes out within a pixel or so of it, and the other is worked out from
 /// it, so one pixel there is `orig` side to side here (4000×2657 into a box 1328 high is 1998
 /// wide, where 1328.9 high shows it 2000.6 wide). Short by more than that on any side: decoded
@@ -695,6 +695,13 @@ fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> b
         let slack = 1.5 + if fills { o / other.max(1.0) } else { 0.0 };
         tex[i] as f32 + slack < (o * scale).min(o)
     })
+}
+
+/// Whether an image decoded into the box `was`, to a texture of `tex`, is decoded again for the
+/// box `now`: when that is larger on a side, unless the texture is the whole image already.
+fn grown(now: [u32; 2], was: [u32; 2], tex: [usize; 2], orig: [usize; 2]) -> bool {
+    let larger = (0..2).any(|i| now[i] > was[i]);
+    larger && (0..2).any(|i| tex[i] < orig[i])
 }
 
 /// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
@@ -1220,6 +1227,8 @@ struct Slot {
     hist: Box<Hist>,
     /// Pages of a multi-page TIFF; 1 for other files.
     pages: usize,
+    /// The box it was decoded into (`decode_box`): decoded again only for a larger one.
+    decoded_for: [u32; 2],
 }
 
 impl Slot {
@@ -1294,8 +1303,9 @@ struct List {
     slots: HashMap<usize, Slot>,
     decode_errors: HashMap<usize, String>,
     /// Decodes asked for, with the number of the job: only its result is taken, so one asked
-    /// for before the list, the page, the look or the file changed is dropped.
-    decodes_pending: HashMap<(usize, bool), (u64, PathBuf)>,
+    /// for before the list, the page, the look or the file changed is dropped; and the box it
+    /// was asked for in.
+    decodes_pending: HashMap<(usize, bool), (u64, PathBuf, [u32; 2])>,
     matches: Option<Vec<usize>>,
     /// Total size of the search matches, summed in the background like `total_size`.
     match_size: u64,
@@ -3557,18 +3567,18 @@ impl App {
         {
             self.decodes_sent += 1;
             let path = self.path(idx);
+            let max = match full {
+                true => [self.max_side; 2],
+                false => self.decode_box(idx),
+            };
             self.list
                 .decodes_pending
-                .insert((idx, full), (self.decodes_sent, path.clone()));
+                .insert((idx, full), (self.decodes_sent, path.clone(), max));
             // The neighbours are preloaded at their first page.
             let page = if idx == self.list.cur {
                 self.viewing.page
             } else {
                 0
-            };
-            let max = match full {
-                true => [self.max_side; 2],
-                false => self.decode_box(idx),
             };
             let _ = (self.decode_jobs).send((idx, full, path, page, self.decodes_sent, max));
         }
@@ -3635,7 +3645,8 @@ impl App {
             else {
                 continue;
             };
-            self.list.decodes_pending.remove(&(idx, full));
+            let decoded_for =
+                (self.list.decodes_pending.remove(&(idx, full))).map_or([0; 2], |j| j.2);
             let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.list.cur { self.viewing.page } else { 0 }
@@ -3675,6 +3686,7 @@ impl App {
                             anim,
                             hist,
                             pages,
+                            decoded_for,
                         },
                     );
                     // A full-resolution decode keeps fewer frames of a large animation (its
@@ -8894,9 +8906,16 @@ impl App {
                     self.max_pan = max;
                 }
 
-                // Texture too small: in fit mode the window has grown, so decode again at window
-                // size (the previous texture is shown meanwhile); when zoomed, load full resolution.
+                // Not zoomed: decoded again at window size when the box the view decodes into has
+                // grown past the one the texture was made for (the previous texture is shown
+                // meanwhile). By the box, not the texture's size: the decoders round, and the
+                // same box gives the same texture, so never again and again. Zoomed: full
+                // resolution, also where the size shown is larger than a texture may be.
                 let slot = self.list.slots.get(&self.list.cur);
+                let decode_box = self.decode_box(self.list.cur);
+                let grown = slot.is_some_and(|s| {
+                    !s.full && grown(decode_box, s.decoded_for, s.tex.size(), s.orig)
+                });
                 let view = area.size() * ppp;
                 let view = if quarter {
                     [view.y, view.x]
@@ -8908,10 +8927,11 @@ impl App {
                 // Not zoomed: decoded again to the size shown, which the decoders' limit now
                 // holds; full resolution only where that is larger than a texture may be.
                 let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
-                if too_small && self.zoom.is_none() && fits {
+                let fitted = self.zoom.is_none() && fits;
+                if fitted && grown {
                     self.list.slots.remove(&self.list.cur);
                     self.request(self.list.cur, false);
-                } else if too_small {
+                } else if !fitted && too_small {
                     self.request(self.list.cur, true);
                 }
                 self.paint_shown(ctx, ui, area, scale, max_fit);
@@ -10752,6 +10772,46 @@ mod tests {
         assert!(super::fits_texture([6000, 4000], 0.5, 16384));
         // A panorama shown 20,000 pixels wide does not.
         assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
+    }
+
+    /// Fitted, an image is decoded again only for a larger box than its texture was made for:
+    /// the same box gives the same texture, whatever the decoders round (a JPEG of 13484×2499
+    /// in Fit Height came out 6014 wide where 6021 were shown, again and again), and a texture
+    /// of the whole image needs no larger one.
+    #[test]
+    fn decodes_again_only_for_a_larger_box() {
+        assert!(!super::grown(
+            [16384, 1115],
+            [16384, 1115],
+            [6014, 1115],
+            [13484, 2499]
+        ));
+        assert!(super::grown(
+            [16384, 1116],
+            [16384, 1115],
+            [6014, 1115],
+            [13484, 2499]
+        ));
+        // A strip of 10000×5 fitted 1920 wide, the window then 3840 wide.
+        assert!(super::grown(
+            [3840, 1000],
+            [1920, 1000],
+            [1920, 1],
+            [10000, 5]
+        ));
+        // Smaller, or a small image whole already: not again.
+        assert!(!super::grown(
+            [1000, 600],
+            [1920, 1080],
+            [960, 540],
+            [4000, 2250]
+        ));
+        assert!(!super::grown(
+            [3840, 2160],
+            [1920, 1080],
+            [640, 480],
+            [640, 480]
+        ));
     }
 
     /// A photo fitted into a window whose height is not whole pixels is not decoded again and
