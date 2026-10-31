@@ -704,6 +704,9 @@ fn grown(now: [u32; 2], was: [u32; 2], tex: [usize; 2], orig: [usize; 2]) -> boo
     larger && (0..2).any(|i| tex[i] < orig[i])
 }
 
+/// How long the mouse is still in full screen before the pointer hides.
+const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
 /// then it is decoded again at that size, not at full resolution. Not the decoders' limit, whose
 /// free side is `long` itself in Fit Width and Fit Height.
@@ -1613,6 +1616,8 @@ struct App {
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
+    /// When the mouse last moved, or full screen began: the pointer hides after `POINTER_STILL`.
+    pointer_moved: std::time::Instant,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     file_jobs: Vec<Arc<Job>>,
     /// What `background` work changes, held by its thread as long as it runs.
@@ -2281,6 +2286,7 @@ impl App {
             saved_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
+            pointer_moved: std::time::Instant::now(),
             file_jobs: Vec::new(),
             touching: Vec::new(),
             closing: 0,
@@ -6235,6 +6241,44 @@ impl App {
         self.confirm_delete.is_some() || self.prompt.is_some()
     }
 
+    /// Busy pointer while the folder is read (also sorted anew), a share mounted, work done in
+    /// the background, or the shown image still decoded.
+    fn working(&self) -> bool {
+        let decoding = !self.list.files.is_empty()
+            && !self.list.slots.contains_key(&self.list.cur)
+            && !self.list.decode_errors.contains_key(&self.list.cur);
+        self.listing_rx.is_some()
+            || decoding
+            || self.mounting_rx.is_some()
+            || self.busy.load(Ordering::Relaxed) > 0
+    }
+
+    /// In full screen, with the setting on, the pointer hidden once the mouse has been still for
+    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it) or a dialog is open.
+    fn hide_still_pointer(&mut self, ctx: &egui::Context, fullscreen: bool) {
+        let moved = ctx.input(|i| {
+            i.pointer.delta() != egui::Vec2::ZERO
+                || i.pointer.any_down()
+                || i.smooth_scroll_delta != egui::Vec2::ZERO
+        });
+        if moved || !fullscreen {
+            self.pointer_moved = std::time::Instant::now();
+        }
+        if !self.pointer_hides(fullscreen) {
+            return;
+        }
+        match POINTER_STILL.checked_sub(self.pointer_moved.elapsed()) {
+            Some(left) if !left.is_zero() => ctx.request_repaint_after(left),
+            _ => ctx.set_cursor_icon(egui::CursorIcon::None),
+        }
+    }
+
+    /// Whether the pointer may be hidden while still: full screen, the setting on, no work going
+    /// on and no dialog open.
+    fn pointer_hides(&self, fullscreen: bool) -> bool {
+        fullscreen && self.config.hide_pointer && !self.working() && !self.dialog_open()
+    }
+
     fn dialog_open(&self) -> bool {
         self.preferences_open
             || self.confirm_delete.is_some()
@@ -6971,16 +7015,7 @@ impl App {
             self.visit(ctx, path);
         }
         self.receive_mount(ctx);
-        // Busy pointer while the folder is read, a share mounted, work done in the background,
-        // or the shown image still decoded.
-        let decoding = !self.list.files.is_empty()
-            && !self.list.slots.contains_key(&self.list.cur)
-            && !self.list.decode_errors.contains_key(&self.list.cur);
-        if self.listing_rx.is_some()
-            || decoding
-            || self.mounting_rx.is_some()
-            || self.busy.load(Ordering::Relaxed) > 0
-        {
+        if self.working() {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
         if self.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
@@ -9326,6 +9361,7 @@ impl App {
         let mut act = self.read_keys(ctx);
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = self.track_window(ctx);
+        self.hide_still_pointer(ctx, fullscreen);
         let bare = fullscreen || self.hide_file_list || self.kiosk;
         if !bare {
             self.menu_bar(ui, &mut act);
@@ -10808,6 +10844,31 @@ mod tests {
         assert!(super::fits_texture([6000, 4000], 0.5, 16384));
         // A panorama shown 20,000 pixels wide does not.
         assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
+    }
+
+    /// In full screen the pointer hides while the mouse is still, but not with the setting off,
+    /// out of full screen, while work goes on (the list sorted anew after a slideshow, a file
+    /// job), or with a dialog open.
+    #[test]
+    fn hides_the_pointer_only_when_nothing_goes_on() {
+        let dir = contract_folder("pointer");
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        app.config.hide_pointer = true;
+        assert!(app.pointer_hides(true));
+        assert!(!app.pointer_hides(false));
+        let job = super::Working::new(&app.busy);
+        assert!(!app.pointer_hides(true));
+        drop(job);
+        app.list(&ctx);
+        assert!(app.listing_rx.is_some() && !app.pointer_hides(true));
+        assert!(settle(&mut app, &ctx, |a| a.pointer_hides(true)));
+        app.preferences_open = true;
+        assert!(!app.pointer_hides(true));
+        app.preferences_open = false;
+        app.config.hide_pointer = false;
+        assert!(!app.pointer_hides(true));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Fitted, an image is decoded again only for a larger box than its texture was made for:

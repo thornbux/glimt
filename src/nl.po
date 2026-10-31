@@ -2322,3 +2322,7 @@ msgstr "{name} stoppen"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "De draaiing is niet opgeslagen: ander werk wijzigt het bestand nog"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Aanwijzer verbergen op volledig scherm als de muis stilstaat"

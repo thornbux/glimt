@@ -2333,3 +2333,7 @@ msgstr "Zatrzymaj {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Obrót nie został zapisany: inna praca wciąż zmienia plik"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Ukryj wskaźnik na pełnym ekranie, gdy mysz się nie porusza"

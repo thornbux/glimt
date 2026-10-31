@@ -2322,3 +2322,7 @@ msgstr "Detener {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "La rotación no se guardó: otra tarea sigue cambiando el archivo"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Ocultar el puntero en pantalla completa cuando el ratón está quieto"

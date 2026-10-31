@@ -2322,3 +2322,7 @@ msgstr "Pysäytä {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Kiertoa ei tallennettu: muu työ muuttaa tiedostoa yhä"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Piilota osoitin koko näytön tilassa, kun hiiri on paikallaan"

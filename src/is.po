@@ -2322,3 +2322,7 @@ msgstr "Stöðva {name}"
 #: src/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Snúningurinn var ekki vistaður: önnur vinna er enn að breyta skránni"
+
+#: src/preferences.rs
+msgid "Hide the pointer in full screen when the mouse is still"
+msgstr "Fela bendilinn á öllum skjánum þegar músin er kyrr"
