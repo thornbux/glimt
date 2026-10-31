@@ -732,6 +732,23 @@ pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Every action's name is in the translations: it reaches tr through `english`, where the
+    /// translation test, which looks for tr("…"), cannot see it. The stars are the same in
+    /// every language.
+    #[test]
+    fn every_action_name_is_translated() {
+        let src = include_str!("actions.rs");
+        let start = src.find("pub fn english(").unwrap();
+        let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
+        let po = include_str!("no_nb.po");
+        let lacking: Vec<&str> = (body.split("=> \"").skip(1))
+            .map(|rest| &rest[..rest.find('"').unwrap()])
+            .filter(|name| name.chars().any(char::is_alphabetic))
+            .filter(|name| !po.contains(&format!("msgid \"{name}\"\n")))
+            .collect();
+        assert!(lacking.is_empty(), "not in no_nb.po: {lacking:?}");
+    }
+
     /// The names in keys= of the settings file are frozen since 1.0: an action or a key name
     /// changed would take every user's own keys away. src/keys-1.0.txt holds the names of 1.0;
     /// new ones are added there, never one taken out or changed.
