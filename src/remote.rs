@@ -376,6 +376,11 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
         Err(Some(e)) => return eprintln!("No remote control: {}: {e}", path.display()),
     };
     LISTENING.store(true, std::sync::atomic::Ordering::Relaxed);
+    // The accept thread below keeps the listener, so its number stays valid for `queued`.
+    LISTENER.store(
+        std::os::fd::AsRawFd::as_raw_fd(&listener),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     mark_focused();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -498,15 +503,45 @@ pub fn stop(answer: impl FnMut()) {
 /// Until no client is left or `limit` has passed, `answer` called again and again: a query that
 /// came after the window last looked is answered too, and an answer is written whole before the
 /// process ends. A client left without one would read an empty answer, for select "all found".
+/// Also a client still queued for accept: it connected before `close` removed the socket.
+/// Quiet twice, 10 ms apart, so one the accept thread has just taken from the queue is counted.
 fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
     let until = std::time::Instant::now() + limit;
-    while ANSWERING.load(std::sync::atomic::Ordering::Relaxed) > 0
-        && std::time::Instant::now() < until
-    {
+    let busy = || {
+        ANSWERING.load(std::sync::atomic::Ordering::Relaxed) > 0
+            || queued(LISTENER.load(std::sync::atomic::Ordering::Relaxed))
+    };
+    let mut quiet = 0;
+    while quiet < 2 && std::time::Instant::now() < until {
+        quiet = if busy() { 0 } else { quiet + 1 };
         answer();
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
+
+/// Whether a client waits to be accepted on the listening socket `fd` (-1: none).
+fn queued(fd: i32) -> bool {
+    #[repr(C)]
+    struct PollFd {
+        fd: i32,
+        events: i16,
+        revents: i16,
+    }
+    unsafe extern "C" {
+        fn poll(fds: *mut PollFd, n: u64, timeout: i32) -> i32;
+    }
+    const POLLIN: i16 = 1;
+    let mut p = PollFd {
+        fd,
+        events: POLLIN,
+        revents: 0,
+    };
+    // SAFETY: one pollfd, and no wait; a closed or negative fd is only reported, not used.
+    fd >= 0 && unsafe { poll(&mut p, 1, 0) } == 1 && p.revents & POLLIN != 0
+}
+
+/// The listening socket's file number, -1 when this Glimt does not listen.
+static LISTENER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
 /// No new client: this Glimt's socket removed, as it closes.
 pub fn close() {
@@ -602,6 +637,23 @@ mod tests {
         super::wait_answered(answer, std::time::Duration::from_secs(30));
         assert_eq!(answered, 1);
         assert!(client.is_none());
+    }
+
+    /// A client that connected before the socket went, but that the accept thread has not
+    /// taken yet, is seen as waiting: closing waits for it too.
+    #[test]
+    fn sees_a_client_queued_for_accept() {
+        let path = std::env::temp_dir().join(format!("glimt-queued-{}.sock", std::process::id()));
+        let listener = super::claim(&path).unwrap();
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&listener);
+        assert!(!super::queued(fd));
+        let _client = std::os::unix::net::UnixStream::connect(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(super::queued(fd));
+        let _served = listener.accept().unwrap();
+        assert!(!super::queued(fd));
+        assert!(!super::queued(-1));
+        let _ = std::fs::remove_file(path.with_extension("lock"));
     }
 
     /// A query whose answer the window drops (too many waiting) is not closed at once, which the
