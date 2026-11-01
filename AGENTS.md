@@ -93,8 +93,9 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
 | `examples/decoders/` | Decoder plugins: desktop files and their scripts |
 | `examples/plugins/` | Plugins (describe a photo with a local model, read the alt text aloud), and `test-model.py`, a stand-in model |
-| `flatpak/` | The Flatpak manifest |
+| `flatpak/` | The Flatpak manifest, and `cargo-sources.json`: the crates it builds from without the network |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
+| `tools/flatpak-sources.py` | Writes `flatpak/cargo-sources.json` from `Cargo.lock` |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb; `samples.txt` lists real files of each format, downloaded once |
 | `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures with `shots.sh`, using `tests.sh`'s setup (`SHOTS=1`) |
 
@@ -195,6 +196,7 @@ cargo test --release
 cargo clippy --release --all-features -- -D warnings
 cargo test --release --all-features
 python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt in step with Cargo.lock
+python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak's crates
 ```
 
 - **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
@@ -317,7 +319,8 @@ the binary's mount goes when the first window closes; only when the binary is in
 
 The release workflow also builds a Flatpak bundle from `flatpak/io.github.thornbux.Glimt.yml`, in
 Flathub's `freedesktop-26.08` image, pinned by its digest (change both with `runtime-version`), and adds it to the
-release in a job of its own. Dependabot does not move a container's digest: before a release,
+release in a job of its own. It builds without the network, as Flathub does: the crates are
+sources in `flatpak/cargo-sources.json`, so a `Cargo.lock` changed without it fails there. Dependabot does not move a container's digest: before a release,
 take the tag's current one (the command is in `release.yml`), which brings the image's fixes. To build it locally: its runtime, SDK and Rust extension take about
 4 GB, so they can live on `/tmp` through `FLATPAK_USER_DIR`:
 

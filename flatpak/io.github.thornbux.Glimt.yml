@@ -1,9 +1,9 @@
 # Flatpak, built from this checkout:
 #   flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 #       build-flatpak flatpak/io.github.thornbux.Glimt.yml
-# The release workflow makes a bundle of it. Cargo fetches the crates during the build, so it
-# needs the network; fine locally and in the workflow, not on Flathub. ffmpeg, zenity and gio
-# run on the host through flatpak-spawn, so the sandbox is loose.
+# The release workflow makes a bundle of it. The crates come from cargo-sources.json (made by
+# tools/flatpak-sources.py from Cargo.lock), so the build needs no network, as on Flathub.
+# ffmpeg, zenity and gio run on the host through flatpak-spawn, so the sandbox is loose.
 id: io.github.thornbux.Glimt
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"
@@ -26,12 +26,10 @@ modules:
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
-      build-args:
-        - --share=network
       env:
         CARGO_HOME: /run/build/glimt/cargo
     build-commands:
-      - cargo build --release --locked --features full
+      - cargo build --release --offline --locked --features full
       - install -Dm755 target/release/glimt /app/bin/glimt
       - install -Dm644 assets/glimt.desktop /app/share/applications/glimt.desktop
       # Its launchable is renamed with the desktop file.
@@ -50,3 +48,4 @@ modules:
           - demo
           - build-flatpak
           - .flatpak-builder
+      - cargo-sources.json
