@@ -1,6 +1,7 @@
 //! Edit → Preferences: one window of every setting, in sections, saved when one changes (when
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
+use crate::dialogs::Pick;
 use crate::*;
 
 impl crate::App {

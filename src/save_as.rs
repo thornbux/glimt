@@ -1,6 +1,7 @@
 //! File → Save As: the shown image saved again, smaller or in another format, through the file
 //! dialog; never over the image itself.
 
+use crate::dialogs::Pick;
 use crate::save::{CopyAs, Format};
 use crate::*;
 
