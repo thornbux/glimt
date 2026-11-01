@@ -25,6 +25,7 @@ use files::{
 use format::{count, fill_template, human_size, local_time, middle_cut, size_text, thousands};
 use lang::tr;
 use meta::Meta;
+use print::{PrintDialog, PrintJob, PrintTo};
 use save::save_rotated;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -819,44 +820,8 @@ enum Pick {
     ExportFrames(PathBuf),
 }
 
-/// Images to print, and how.
-struct PrintJob {
-    paths: Vec<PathBuf>,
-    layout: print::Layout,
-    /// The template of the text under each image, if there is one.
-    caption: Option<String>,
-    /// On both sides of the paper (a printer, not a PDF).
-    two_sided: bool,
-    rotate: bool,
-    copies: u32,
-}
-
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
 type Ender = Box<dyn FnOnce() + Send>;
-
-/// Where a print job goes.
-enum PrintTo {
-    Printer(String),
-    File(PathBuf),
-}
-
-/// The Print dialog (Ctrl+P).
-struct PrintDialog {
-    paths: Vec<PathBuf>,
-    /// The printers and the default, from lpstat in the background; `None` until known.
-    printers: Option<Vec<String>>,
-    printers_rx: mpsc::Receiver<(Vec<String>, Option<String>)>,
-    copies: u32,
-    /// The first page's images, small, for the preview, as they come from the background, with
-    /// their sizes upright as printed (for %dimensions%); `decoded` once all have come.
-    previews: Vec<Option<egui::TextureHandle>>,
-    sizes: Vec<Option<[usize; 2]>>,
-    preview_rx: mpsc::Receiver<(usize, [usize; 2], egui::ColorImage)>,
-    decoded: bool,
-    /// Their texts from the template they were made of; being made again after it changed.
-    captions: Option<(String, Vec<String>)>,
-    captions_rx: Receiving<(String, Vec<String>)>,
-}
 
 /// What the one-line text dialog is asking for.
 #[derive(Clone, Copy)]

@@ -630,6 +630,42 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
 
 // ---- Print: the dialog and the job in the background ----
 
+/// Images to print, and how.
+pub(crate) struct PrintJob {
+    pub(crate) paths: Vec<PathBuf>,
+    layout: Layout,
+    /// The template of the text under each image, if there is one.
+    caption: Option<String>,
+    /// On both sides of the paper (a printer, not a PDF).
+    two_sided: bool,
+    rotate: bool,
+    copies: u32,
+}
+
+/// Where a print job goes.
+pub(crate) enum PrintTo {
+    Printer(String),
+    File(PathBuf),
+}
+
+/// The Print dialog (Ctrl+P).
+pub(crate) struct PrintDialog {
+    paths: Vec<PathBuf>,
+    /// The printers and the default, from lpstat in the background; `None` until known.
+    printers: Option<Vec<String>>,
+    printers_rx: mpsc::Receiver<(Vec<String>, Option<String>)>,
+    copies: u32,
+    /// The first page's images, small, for the preview, as they come from the background, with
+    /// their sizes upright as printed (for %dimensions%); `decoded` once all have come.
+    previews: Vec<Option<egui::TextureHandle>>,
+    sizes: Vec<Option<[usize; 2]>>,
+    preview_rx: mpsc::Receiver<(usize, [usize; 2], egui::ColorImage)>,
+    decoded: bool,
+    /// Their texts from the template they were made of; being made again after it changed.
+    captions: Option<(String, Vec<String>)>,
+    captions_rx: Receiving<(String, Vec<String>)>,
+}
+
 impl crate::App {
     /// File → Print: the printer or a PDF, the paper, and images or contact sheets.
     pub(crate) fn print_dialog(&mut self, ctx: &egui::Context) {
