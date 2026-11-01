@@ -16,6 +16,7 @@ use crate::tr;
 use crate::{exif, meta, small_alloc_threads};
 use eframe::egui;
 use std::collections::HashMap;
+#[cfg(feature = "marks")]
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::Path;

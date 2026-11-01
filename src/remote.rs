@@ -7,6 +7,7 @@
 //! share. Both ends are here: `client` sends, `listen` receives.
 
 use crate::Action;
+#[cfg(feature = "test-hooks")]
 use crate::hooks;
 use eframe::egui;
 use std::collections::HashSet;

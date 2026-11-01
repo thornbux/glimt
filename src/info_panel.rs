@@ -8,6 +8,7 @@ use crate::decode;
 use crate::exif;
 use crate::human_size;
 use crate::keyword_tree_path;
+#[cfg(feature = "marks")]
 use crate::marks;
 use crate::meta;
 use crate::noted;
