@@ -1192,6 +1192,12 @@ msgstr "Rimozione delle parole chiave"
 msgid "Tell upper and lower case apart"
 msgstr "Distingui maiuscole e minuscole"
 
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Cerca nei nomi dei file (3+ lettere), re: modello o exif: fotocamera, data …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Filtra i nomi dei file per modello o exif: fotocamera, data …"
+
 #: src/main.rs
 msgid "Regular expression instead of fuzzy search"
 msgstr "Espressione regolare invece della ricerca approssimata"

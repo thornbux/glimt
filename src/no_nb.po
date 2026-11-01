@@ -1324,6 +1324,12 @@ msgstr "Tar av nøkkelord"
 msgid "Tell upper and lower case apart"
 msgstr "Skill mellom store og små bokstaver"
 
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Søk i filnavn (3+ bokstaver), re: mønster eller exif: kamera, dato …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Filtrer filnavn etter mønster eller exif: kamera, dato …"
+
 #: src/main.rs
 msgid "Regular expression instead of fuzzy search"
 msgstr "Regulært uttrykk i stedet for omtrentlig søk"

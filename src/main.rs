@@ -5489,8 +5489,8 @@ impl App {
             // A fixed ID: the X button appearing in front of it must not make it a new
             // widget, which would lose the focus after the first letter.
             let hint = match self.config.fuzzy_search {
-                true => "Search file names (3+ letters), re: pattern, or exif: camera, date …",
-                false => "Filter file names by pattern, or exif: camera, date …",
+                true => tr("Search file names (3+ letters), re: pattern, or exif: camera, date …"),
+                false => tr("Filter file names by pattern, or exif: camera, date …"),
             };
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::unique("file search"))

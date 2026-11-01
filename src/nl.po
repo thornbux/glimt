@@ -1192,6 +1192,12 @@ msgstr "Trefwoorden verwijderen"
 msgid "Tell upper and lower case apart"
 msgstr "Hoofdletters en kleine letters onderscheiden"
 
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Zoek in bestandsnamen (3+ letters), re: patroon of exif: camera, datum …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Filter bestandsnamen op patroon of exif: camera, datum …"
+
 #: src/main.rs
 msgid "Regular expression instead of fuzzy search"
 msgstr "Reguliere expressie in plaats van vaag zoeken"
