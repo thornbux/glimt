@@ -120,7 +120,8 @@ pub fn page_of(path: &Path, page: usize) -> Result<image::DynamicImage, String> 
 /// crate shows first (most bits per pixel, then largest; the last of equals), then the others
 /// the same way. Reads only the directory.
 fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
-    let head = read_head(path, 6 + 16 * 256).map_err(|e| e.to_string())?;
+    // As many entries as the count can say (1 MB at most): the image crate picks among all.
+    let head = read_head(path, 6 + 16 * u64::from(u16::MAX)).map_err(|e| e.to_string())?;
     let le16 = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
     if head.len() < 6 || le16(&head, 0) != 0 || le16(&head, 2) != 1 {
         return Err("not an ICO".into());
@@ -1019,6 +1020,28 @@ mod tests {
             .encode_images(&[frame(32, [255, 0, 0, 255]), frame(16, [0, 0, 255, 255])])
             .unwrap();
         out
+    }
+
+    /// An ICO of more than 256 sizes, the best one last: shown first, and each size a page.
+    #[test]
+    fn reads_every_size_of_a_large_ico() {
+        use image::codecs::ico::{IcoEncoder, IcoFrame};
+        let frame = |side: u32| {
+            let img = image::RgbaImage::from_pixel(side, side, image::Rgba([0, 0, 255, 255]));
+            IcoFrame::as_png(&img, side, side, image::ExtendedColorType::Rgba8).unwrap()
+        };
+        let mut frames: Vec<_> = (0..256).map(|_| frame(16)).collect();
+        frames.push(frame(32));
+        let mut out = Vec::new();
+        IcoEncoder::new(&mut out).encode_images(&frames).unwrap();
+        let dir = std::env::temp_dir().join(format!("glimt-test-bigico-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ico = dir.join("many.ico");
+        std::fs::write(&ico, out).unwrap();
+        assert_eq!(super::pages(&ico), 257);
+        assert_eq!(super::page_of(&ico, 0).unwrap().width(), 32);
+        assert_eq!(super::page_of(&ico, 256).unwrap().width(), 16);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A damaged GIF is refused or shown as far as it goes, never a panic.
