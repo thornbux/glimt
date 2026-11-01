@@ -169,8 +169,8 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
 
 /// `path` opened in an application the user picks in the desktop's chooser (the open URI
 /// portal, asked to ask): Open With in the Flatpak, which cannot list the host's applications.
-/// Waits for the choice.
-pub fn open_with(path: &std::path::Path) -> Result<(), String> {
+/// Waits for the choice: false when the user cancelled.
+pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
     let conn = Connection::session().map_err(|e| e.to_string())?;
     // Only for its descriptor, which says which file: the portal opens it itself.
     #[allow(clippy::disallowed_methods)]
@@ -189,5 +189,5 @@ pub fn open_with(path: &std::path::Path) -> Result<(), String> {
         &token,
         &body,
     )
-    .map(drop)
+    .map(|r| r.is_some())
 }

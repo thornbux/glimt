@@ -8869,9 +8869,12 @@ impl App {
                         self.targets().iter().map(|&i| self.path(i)).collect();
                     let tx = self.notices_tx.clone();
                     std::thread::spawn(move || {
+                        // Cancel ends them all, not only the one asked about.
                         for path in files {
-                            if let Err(e) = crate::portal::open_with(&path) {
-                                let _ = tx.send(e);
+                            match crate::portal::open_with(&path) {
+                                Ok(true) => {}
+                                Ok(false) => break,
+                                Err(e) => drop(tx.send(e)),
                             }
                         }
                     });
