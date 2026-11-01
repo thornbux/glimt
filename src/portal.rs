@@ -133,3 +133,34 @@ pub fn print(
         None => Ok(None),
     }
 }
+
+/// The screen kept from going idle (no screen saver, no blanking) through the inhibit portal,
+/// until the sender returned is dropped: the request is closed then.
+pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String> {
+    let e = |e: zbus::Error| e.to_string();
+    let conn = Connection::session().map_err(e)?;
+    let token = token();
+    let options = HashMap::from([
+        ("handle_token", Value::from(token.as_str())),
+        ("reason", Value::from(reason)),
+    ]);
+    // 8: idle.
+    let body = ("", 8u32, options);
+    let reply = (conn.call_method(
+        Some(DEST),
+        PATH,
+        Some("org.freedesktop.portal.Inhibit"),
+        "Inhibit",
+        &body,
+    ))
+    .map_err(e)?;
+    let handle: zbus::zvariant::OwnedObjectPath = reply.body().deserialize().map_err(e)?;
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        // Until the sender is dropped; the connection, and with it the inhibition, lives here.
+        let _ = rx.recv();
+        let request = Some("org.freedesktop.portal.Request");
+        let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+    });
+    Ok(tx)
+}
