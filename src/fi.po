@@ -1192,6 +1192,12 @@ msgstr "Poistetaan avainsanoja"
 msgid "Tell upper and lower case apart"
 msgstr "Erota isot ja pienet kirjaimet"
 
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Hae tiedostonimiä (3+ kirjainta), re: kuvio tai exif: kamera, päivämäärä …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Suodata tiedostonimiä kuviolla tai exif: kamera, päivämäärä …"
+
 #: src/main.rs
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "Kokoelma {file} on poissa (nimetty uudelleen tai poistettu toisessa ikkunassa): ei tallennettu"

@@ -1192,6 +1192,12 @@ msgstr "Tekur efnisorð af"
 msgid "Tell upper and lower case apart"
 msgstr "Gera greinarmun á há- og lágstöfum"
 
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Leita í skráarheitum (3+ stafir), re: mynstur eða exif: myndavél, dagsetning …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Sía skráarheiti eftir mynstri eða exif: myndavél, dagsetning …"
+
 #: src/main.rs
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "Safnið {file} er horfið (endurnefnt eða fjarlægt í öðrum glugga): ekki vistað"

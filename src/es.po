@@ -1192,6 +1192,12 @@ msgstr "Quitando palabras clave"
 msgid "Tell upper and lower case apart"
 msgstr "Distinguir mayúsculas y minúsculas"
 
+msgid "Search file names (3+ letters), re: pattern, or exif: camera, date …"
+msgstr "Buscar nombres de archivo (3+ letras), re: patrón o exif: cámara, fecha …"
+
+msgid "Filter file names by pattern, or exif: camera, date …"
+msgstr "Filtrar nombres de archivo por patrón o exif: cámara, fecha …"
+
 #: src/main.rs
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "La colección {file} ya no existe (renombrada o eliminada en otra ventana): no se guardó"
