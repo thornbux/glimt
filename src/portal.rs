@@ -98,7 +98,9 @@ pub fn print(
     let printer = (chosen.get("settings"))
         .and_then(|s| HashMap::<String, OwnedValue>::try_from(s.try_clone().ok()?).ok())
         .and_then(|s| String::try_from(s.get("printer")?.try_clone().ok()?).ok())
-        .unwrap_or_default();
+        // A backend that does not name it: the dialog, for the message.
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| crate::lang::tr(crate::print::SYSTEM_DIALOG).into());
     let ticket = (chosen.get("token"))
         .and_then(|t| u32::try_from(t).ok())
         .ok_or("no token from the print dialog")?;
