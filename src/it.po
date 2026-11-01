@@ -2353,3 +2353,6 @@ msgstr "Finestra di stampa del sistema"
 
 msgid "Printing cancelled"
 msgstr "Stampa annullata"
+
+msgid "Choose Application…"
+msgstr "Scegli applicazione…"

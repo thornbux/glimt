@@ -2364,3 +2364,6 @@ msgstr "Systemowe okno drukowania"
 
 msgid "Printing cancelled"
 msgstr "Drukowanie anulowane"
+
+msgid "Choose Application…"
+msgstr "Wybierz aplikację…"

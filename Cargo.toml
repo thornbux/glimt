@@ -60,8 +60,9 @@ test-hooks = []
 # Screen readers such as Orca, through AccessKit: the menus, buttons and lists, and the shown
 # image as text (its name, place, stars, keywords and comment).
 accessibility = ["eframe/accesskit"]
-# In the Flatpak, printing through the desktop's print dialog and no screen saver in full
-# screen, through the desktop portals, where CUPS's lp and the session's inhibitors are not.
+# In the Flatpak, through the desktop portals: printing in the desktop's print dialog, no screen
+# saver in full screen, and Open With in the desktop's application chooser, where CUPS's lp,
+# the session's inhibitors and the host's applications are not.
 portals = ["dep:zbus"]
 # Every optional feature: cargo build --release --features full (same as --all-features).
 full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portals"]
