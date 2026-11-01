@@ -3,9 +3,9 @@
 use crate::Receiving;
 use crate::Took;
 use crate::Viewing;
-use crate::drain;
+use crate::folder::drain;
+use crate::folder::total_size;
 use crate::thousands;
-use crate::total_size;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::Path;

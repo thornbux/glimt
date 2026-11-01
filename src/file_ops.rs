@@ -2,6 +2,7 @@
 //! the orientation, and the jobs that run them in the background with their progress and Stop.
 //! Copies are written under a hidden name and get their own once whole; no file is overwritten.
 
+use crate::folder::total_size;
 use crate::*;
 
 /// A Rename Many running in the background: the list as it was (`App::files_gen`), the files
