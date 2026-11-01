@@ -834,6 +834,10 @@ mod tests {
     /// Rotate on, as it is without, and in both cases with an upright orientation after.
     #[test]
     fn saves_rotated_as_seen() {
+        // The copy's colours go through the colour settings, which another test changes.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use image::{ImageDecoder, ImageEncoder};
         let dir = std::env::temp_dir().join(format!("glimt-seen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -905,6 +909,10 @@ mod tests {
     /// second never over the first, and the image itself untouched.
     #[test]
     fn saves_a_cropped_copy() {
+        // The copy's colours go through the colour settings, which another test changes.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         use image::ImageDecoder;
         let dir = std::env::temp_dir().join(format!("glimt-crop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1049,6 +1057,10 @@ mod tests {
     #[test]
     fn a_copy_has_its_own_sidecar_and_page() {
         use tiff::encoder::{TiffEncoder, colortype};
+        // The copy's colours go through the colour settings, which another test changes.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-copy-own-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (a, b) = (dir.join("a.png"), dir.join("b.png"));
@@ -1139,6 +1151,10 @@ mod tests {
     /// "a.png" and "a.webp" saved turned at the same time: each keeps its own pixels and format.
     #[test]
     fn saves_same_names_at_once() {
+        // The copy's colours go through the colour settings, which another test changes.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-same-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (png, webp) = (dir.join("a.png"), dir.join("a.webp"));
