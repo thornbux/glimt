@@ -456,6 +456,7 @@ mod tests {
             ("slideshow.rs", include_str!("slideshow.rs")),
             ("threads.rs", include_str!("threads.rs")),
             ("view.rs", include_str!("view.rs")),
+            ("workers.rs", include_str!("workers.rs")),
         ];
         // Every source file is among them: one left out would go unchecked.
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
