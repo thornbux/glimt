@@ -284,7 +284,11 @@ impl<T> Receiving<T> {
 /// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
 /// pan view.
 fn background_threads() -> usize {
-    match CPU_USE.load(Ordering::Relaxed) {
+    background_threads_at(CPU_USE.load(Ordering::Relaxed))
+}
+
+fn background_threads_at(level: usize) -> usize {
+    match level {
         0 => cores().min(2),
         _ => cores(),
     }
@@ -293,7 +297,11 @@ fn background_threads() -> usize {
 /// Thumbnails made at once; Balanced keeps one with the low memory level (`decoders` 1), so
 /// two full-size images are not decoded at once.
 fn thumb_threads(decoders: usize) -> usize {
-    match CPU_USE.load(Ordering::Relaxed) {
+    thumb_threads_at(CPU_USE.load(Ordering::Relaxed), decoders)
+}
+
+fn thumb_threads_at(level: usize, decoders: usize) -> usize {
+    match level {
         0 => 1,
         1 => decoders.min(2),
         _ => cores(),
@@ -11358,17 +11366,13 @@ mod tests {
     /// CPU use: thumbnails and background threads for each level.
     #[test]
     fn cpu_levels() {
-        use super::{background_threads, cores, set_cpu_use, thumb_threads};
-        set_cpu_use(0);
-        assert_eq!(
-            (thumb_threads(4), background_threads()),
-            (1, cores().min(2))
-        );
-        set_cpu_use(2);
-        assert_eq!((thumb_threads(4), background_threads()), (cores(), cores()));
-        set_cpu_use(1);
-        assert_eq!((thumb_threads(4), thumb_threads(1)), (2.min(4), 1));
-        assert_eq!(background_threads(), cores());
+        use super::{background_threads_at, cores, thumb_threads_at};
+        // By level, not the global one: a window made by a test beside it sets that.
+        let at = |level| (thumb_threads_at(level, 4), background_threads_at(level));
+        assert_eq!(at(0), (1, cores().min(2)));
+        assert_eq!(at(1), (2, cores()));
+        assert_eq!(at(2), (cores(), cores()));
+        assert_eq!(thumb_threads_at(1, 1), 1);
     }
 
     /// Start options in front of the file or folder; the rest is left as it was.
