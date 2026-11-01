@@ -990,6 +990,9 @@ struct PrintJob {
     copies: u32,
 }
 
+/// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
+type Ender = Box<dyn FnOnce() + Send>;
+
 /// Where a print job goes.
 enum PrintTo {
     Printer(String),
@@ -1506,7 +1509,7 @@ struct App {
     /// The screen saver inhibitor running while in full screen, and how many times full screen
     /// was turned on or off: the inhibitor is looked for and started in a thread, and one that
     /// comes after full screen ended again is ended at once.
-    inhibitor: Arc<Mutex<(u64, Option<std::process::Child>)>>,
+    inhibitor: Arc<Mutex<(u64, Option<Ender>)>>,
     /// Whether it was asked for: tried once, not on every frame where none could be started.
     inhibit_on: bool,
     /// Since when the pointer has been away from an open menu of the menu bar.
@@ -7486,7 +7489,8 @@ impl App {
     }
 
     /// Keep the screen saver off while `on`: gnome-session-inhibit (GNOME), else systemd-inhibit.
-    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash.
+    /// The inhibitor runs `cat` on a pipe from Glimt, so it ends with Glimt even after a crash. In
+    /// the Flatpak, which has neither, the inhibit portal, held by a connection of Glimt's.
     fn inhibit(&mut self, on: bool) {
         if on == self.inhibit_on {
             return;
@@ -7497,13 +7501,8 @@ impl App {
         let turn = held.0;
         let old = held.1.take();
         drop(held);
-        let end = |mut child: std::process::Child| {
-            let _ = child.kill();
-            #[allow(clippy::disallowed_methods)] // killed just now, reaped in a thread of its own
-            std::thread::spawn(move || child.wait());
-        };
-        if let Some(child) = old {
-            end(child);
+        if let Some(end) = old {
+            end();
         }
         if !on {
             return;
@@ -7529,25 +7528,41 @@ impl App {
         // flatpak-spawn there, so in a thread, not each time full screen starts on the UI thread.
         let inhibitor = self.inhibitor.clone();
         std::thread::spawn(move || {
-            let found = commands.iter().find(|c| external::host_has(c[0]));
-            let Some(child) = found.and_then(|c| {
-                external::host_command(c[0])
-                    .args(&c[1..])
-                    .stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                    .ok()
-            }) else {
-                return;
+            #[cfg(feature = "portals")]
+            let portal = (crate::portal::in_flatpak())
+                .then(|| crate::portal::inhibit_idle("Glimt full screen"))
+                .and_then(|held| held.map_err(|e| eprintln!("inhibit portal: {e}")).ok());
+            #[cfg(not(feature = "portals"))]
+            let portal: Option<std::sync::mpsc::Sender<()>> = None;
+            let end: Ender = if let Some(held) = portal {
+                Box::new(move || drop(held))
+            } else {
+                let found = commands.iter().find(|c| external::host_has(c[0]));
+                let Some(mut child) = found.and_then(|c| {
+                    external::host_command(c[0])
+                        .args(&c[1..])
+                        .stdin(std::process::Stdio::piped())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn()
+                        .ok()
+                }) else {
+                    return;
+                };
+                Box::new(move || {
+                    let _ = child.kill();
+                    #[allow(clippy::disallowed_methods)]
+                    // killed just now, reaped in its own thread
+                    std::thread::spawn(move || child.wait());
+                })
             };
             let mut held = inhibitor.lock().unwrap_or_else(|e| e.into_inner());
             // Full screen ended or started again meanwhile: this one is not wanted.
             if held.0 == turn {
-                held.1 = Some(child);
+                held.1 = Some(end);
             } else {
                 drop(held);
-                end(child);
+                end();
             }
         });
     }
