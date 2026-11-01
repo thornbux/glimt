@@ -179,9 +179,11 @@ const MANUAL: &[(&str, &str)] = &[
          exif:canon 2024:05 for photos from a Canon camera taken in May 2024; every word must \
          match. Start with re: for a regular expression instead, ignoring case: \
          re:^img_\\d+\\.jpe?g$, or exif:re:canon.*2024:0[5-7] for the EXIF.\n\n\
-         A setting in Preferences makes the field a regular expression always, from the first \
-         letter and in list order, as Geeqie's file filter; Case beside the field then tells upper \
-         and lower case apart. The first EXIF search in a folder reads all files once, which takes \
+         The .* button beside the field (or the setting in Preferences → File List) makes the \
+         field a regular expression always, from the first letter and in list order, as Geeqie's \
+         file filter; Case beside it then tells upper and lower case apart. Plain words then find \
+         the names that contain them, but . ( ) [ ] + * ? | ^ $ and \\ have their meaning in a \
+         pattern. The first EXIF search in a folder reads all files once, which takes \
          a while in large folders.\n\n\
          With the marks feature, 1–6 toggle a mark, Ctrl+1–6 select the files with it and Alt+0–5 \
          give stars. mark:2 or stars:3 in the search field shows those files; a setting also \
@@ -704,8 +706,8 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     (
         "Search field",
         "Above the file list; fuzzy (like fzf) by default, re: for a regular expression, exif:, \
-         mark: and stars:, combined with -, | and ( ); a setting makes it a regular expression \
-         always, as Geeqie's, with a Case checkbox beside it",
+         mark: and stars:, combined with -, | and ( ); the .* button beside it (or a setting) \
+         makes it a regular expression always, as Geeqie's, with a Case checkbox beside it",
         "File filter (View → Show File Filter): a regular expression, with a Case checkbox",
     ),
     (

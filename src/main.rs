@@ -5495,23 +5495,35 @@ impl App {
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::unique("file search"))
                 .hint_text(hint);
-            // Geeqie's file filter has its Case checkbox to the right.
+            // Geeqie's file filter has its Case checkbox to the right; before it, the switch
+            // between fuzzy and regular expression search. Laid out from the right, so the
+            // field takes what is left: a row wider than the panel would widen it every frame.
             let geeqie = !self.config.fuzzy_search;
-            let width = ui.available_width() - if geeqie { 64.0 } else { 0.0 };
-            let field = ui.add(edit.desired_width(width));
-            if std::mem::take(&mut self.focus_search) {
-                field.request_focus();
-            }
-            let mut changed = field.changed();
-            if geeqie
-                && ui
-                    .checkbox(&mut self.config.search_case, tr("Case"))
-                    .on_hover_text(tr("Tell upper and lower case apart"))
-                    .changed()
-            {
-                self.config.save();
-                changed = true;
-            }
+            let mut changed = false;
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if geeqie
+                    && ui
+                        .checkbox(&mut self.config.search_case, tr("Case"))
+                        .on_hover_text(tr("Tell upper and lower case apart"))
+                        .changed()
+                {
+                    self.config.save();
+                    changed = true;
+                }
+                if noted(&ui.selectable_label(geeqie, ".*"), ".*")
+                    .on_hover_text(tr("Regular expression instead of fuzzy search"))
+                    .clicked()
+                {
+                    self.config.fuzzy_search = geeqie;
+                    self.config.save();
+                    changed = true;
+                }
+                let field = ui.add(edit.desired_width(ui.available_width()));
+                if std::mem::take(&mut self.focus_search) {
+                    field.request_focus();
+                }
+                changed |= field.changed();
+            });
             if changed {
                 self.update_search(ui.ctx());
             }
