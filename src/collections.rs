@@ -4,10 +4,10 @@
 
 use crate::actions::Action;
 use crate::file_ops;
-use crate::iconed;
-use crate::menu_item;
+use crate::menus::iconed;
+use crate::menus::menu_item;
+use crate::menus::scroll_menu;
 use crate::noted;
-use crate::scroll_menu;
 use crate::tf;
 use crate::theme;
 use crate::tr;
