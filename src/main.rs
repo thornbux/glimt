@@ -26,6 +26,7 @@ use files::{
 use format::{count, fill_template, human_size, local_time, middle_cut, size_text, thousands};
 use lang::tr;
 use meta::Meta;
+use pan::Pan;
 use print::{PrintDialog, PrintJob, PrintTo};
 use save::save_rotated;
 use std::collections::{HashMap, HashSet};
@@ -152,36 +153,6 @@ fn noted(response: &egui::Response, text: &str) -> egui::Response {
     #[cfg(not(feature = "test-hooks"))]
     let _ = text;
     response.clone()
-}
-
-/// The pan view's window (Ctrl+J). Closed, the days being made for it are not read on.
-#[derive(Default)]
-struct Pan {
-    /// Days from the EXIF dates instead of the file dates.
-    exif: bool,
-    /// The days, and the version of the file list they are for (`App::files_gen`).
-    days: Option<(Vec<pan::Day>, usize)>,
-    /// The days so far, the list version they are for, and whether they are all of them.
-    days_rx: Receiving<(Vec<pan::Day>, usize, bool)>,
-    /// Set when the days being made are no longer wanted: the thread stops reading.
-    days_stop: Arc<AtomicBool>,
-    /// The list version the days being made are for.
-    days_for: usize,
-    /// The rows for this many columns, and their height.
-    rows: Vec<(f32, pan::Row)>,
-    columns: usize,
-    height: f32,
-    /// The calendar instead of the timeline, its months, and a day picked there for the
-    /// timeline to scroll to.
-    calendar: bool,
-    months: Vec<pan::Month>,
-    jump: Option<usize>,
-}
-
-impl Drop for Pan {
-    fn drop(&mut self) {
-        self.days_stop.store(true, Ordering::Relaxed);
-    }
 }
 
 /// What belongs to the image shown, beside its place in the list (`List.cur`): the page of a
