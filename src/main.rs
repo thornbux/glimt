@@ -5495,14 +5495,24 @@ impl App {
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(egui::Id::unique("file search"))
                 .hint_text(hint);
-            // Geeqie's file filter has its Case checkbox to the right.
+            // Geeqie's file filter has its Case checkbox to the right; before it, the switch
+            // between fuzzy and regular expression search.
             let geeqie = !self.config.fuzzy_search;
-            let width = ui.available_width() - if geeqie { 64.0 } else { 0.0 };
+            let width = ui.available_width() - if geeqie { 92.0 } else { 28.0 };
             let field = ui.add(edit.desired_width(width));
             if std::mem::take(&mut self.focus_search) {
                 field.request_focus();
             }
             let mut changed = field.changed();
+            if ui
+                .selectable_label(geeqie, ".*")
+                .on_hover_text(tr("Regular expression instead of fuzzy search"))
+                .clicked()
+            {
+                self.config.fuzzy_search = geeqie;
+                self.config.save();
+                changed = true;
+            }
             if geeqie
                 && ui
                     .checkbox(&mut self.config.search_case, tr("Case"))

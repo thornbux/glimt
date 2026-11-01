@@ -1193,6 +1193,10 @@ msgid "Tell upper and lower case apart"
 msgstr "Hoofdletters en kleine letters onderscheiden"
 
 #: src/main.rs
+msgid "Regular expression instead of fuzzy search"
+msgstr "Reguliere expressie in plaats van vaag zoeken"
+
+#: src/main.rs
 msgid "The collection {file} is gone (renamed or removed in another window): not saved"
 msgstr "De verzameling {file} is weg (hernoemd of verwijderd in een ander venster): niet opgeslagen"
 
