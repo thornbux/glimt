@@ -123,8 +123,9 @@ The images in the screenshots are generated for the purpose.
 
 ## Supported formats
 
-- **Everyday:** JPEG, PNG, WebP, GIF, TIFF, BMP, ICO (the largest of its sizes), QOI and PNM
-  (PBM, PGM, PPM, PAM), with animated GIF, WebP and PNG (APNG) playing in a loop,
+- **Everyday:** JPEG, PNG, WebP, GIF, TIFF, BMP, ICO (the largest of its sizes first, the
+  others as pages), QOI and PNM (PBM, PGM, PPM, PAM), with animated GIF, WebP and PNG (APNG)
+  playing in a loop,
   every page of a multi-page TIFF, and grey TIFFs of floats or signed numbers as science writes
   them (height models, microscopy), stretched from their lowest value to their highest. TIFFs
   under other names are read too: Zeiss `.lsm` from microscopes and `.gel` from gel scanners.

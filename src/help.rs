@@ -81,8 +81,8 @@ const MANUAL: &[(&str, &str)] = &[
          The images on each side are decoded in advance, so browsing is instant. Click a name in \
          the file list to show it.\n\n\
          In a TIFF with several pages, Ctrl+Page Down and Ctrl+Page Up go to the next and previous \
-         page. In an animation (GIF, WebP, APNG) they stop it at the next or previous frame, and A \
-         plays on.\n\n\
+         page, and in an ICO to its next and previous size, the largest first. In an animation \
+         (GIF, WebP, APNG) they stop it at the next or previous frame, and A plays on.\n\n\
          For such a file, File → Save This Frame… saves the frame or page shown as a PNG, and \
          Export Frames… every one of them, at full size, in a new folder.",
     ),

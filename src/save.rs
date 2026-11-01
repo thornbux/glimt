@@ -129,7 +129,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
     // A later page as the view decodes it: the image crate reads only the first.
     let (img, icc) = match how.page {
         0 => load_icc(path, how.rotate)?,
-        page => (crate::decode::tiff_page(path, page)?, None),
+        page => (crate::decode::page_of(path, page)?, None),
     };
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {

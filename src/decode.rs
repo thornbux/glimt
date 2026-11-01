@@ -71,11 +71,7 @@ pub fn decode(
     if let Some((frames, orig)) = animation(path, max) {
         return Ok((frames, orig, 1));
     }
-    let pages = if has_ext(path, &["tif", "tiff"]) {
-        tiff_pages(path)
-    } else {
-        1
-    };
+    let pages = pages(path);
     let (img, icc, orig) = match scaled_jpeg(path, max, rotate) {
         Some(scaled) => scaled,
         None => {
@@ -83,12 +79,7 @@ pub fn decode(
             // real size from the probe; the others whole, and shrunk here.
             let to_box = crate::external::ffmpeg_decodes(path).then_some(max);
             let (img, icc, turn, size) = if page > 0 {
-                (
-                    tiff_page(path, page)?,
-                    None,
-                    Orientation::NoTransforms,
-                    None,
-                )
+                (page_of(path, page)?, None, Orientation::NoTransforms, None)
             } else {
                 load_unturned(path, rotate, to_box)?
             };
@@ -104,6 +95,68 @@ pub fn decode(
     };
     let img = to_display(shrink(img, max)?, icc.as_deref());
     Ok((vec![(color_image(img), 0)], orig, pages))
+}
+
+/// The number of pages of a multi-page TIFF, or of sizes in an ICO; 1 for other files.
+pub fn pages(path: &Path) -> usize {
+    if has_ext(path, &["tif", "tiff"]) {
+        tiff_pages(path)
+    } else if has_ext(path, &["ico"]) {
+        ico_sizes(path).map_or(1, |sizes| sizes.len().max(1))
+    } else {
+        1
+    }
+}
+
+/// Page `page` (from 1) of a multi-page TIFF, or the next size of an ICO.
+pub fn page_of(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
+    match has_ext(path, &["ico"]) {
+        true => ico_size(path, page),
+        false => tiff_page(path, page),
+    }
+}
+
+/// An ICO's images, as their directory entries, in the order they are shown: the one the image
+/// crate shows first (most bits per pixel, then largest; the last of equals), then the others
+/// the same way. Reads only the directory.
+fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
+    let head = read_head(path, 6 + 16 * 256).map_err(|e| e.to_string())?;
+    let le16 = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
+    if head.len() < 6 || le16(&head, 0) != 0 || le16(&head, 2) != 1 {
+        return Err("not an ICO".into());
+    }
+    let n = (le16(&head, 4) as usize).min((head.len() - 6) / 16);
+    let mut sizes: Vec<(u16, u32, usize, [u8; 16])> = (0..n)
+        .map(|k| {
+            let e: [u8; 16] = head[6 + 16 * k..][..16].try_into().unwrap();
+            let side = |b: u8| if b == 0 { 256 } else { b as u32 };
+            (le16(&e, 6), side(e[0]) * side(e[1]), k, e)
+        })
+        .collect();
+    sizes.sort_by_key(|&(bits, area, k, _)| std::cmp::Reverse((bits, area, k)));
+    Ok(sizes.into_iter().map(|s| s.3).collect())
+}
+
+/// Image `k` of an ICO in the order of `ico_sizes`, given to the image crate (which shows only
+/// one) as an ICO of that image alone.
+fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
+    use std::io::{Read, Seek};
+    let mut entry = *ico_sizes(path)?.get(k).ok_or("no such size in the ICO")?;
+    let le32 = |e: &[u8; 16], at: usize| u32::from_le_bytes(e[at..at + 4].try_into().unwrap());
+    let (len, offset) = (le32(&entry, 8), le32(&entry, 12));
+    let mut file = open(path).map_err(|e| e.to_string())?;
+    file.seek(std::io::SeekFrom::Start(offset.into()))
+        .map_err(|e| e.to_string())?;
+    let mut one = vec![0, 0, 1, 0, 1, 0];
+    entry[12..].copy_from_slice(&22u32.to_le_bytes());
+    one.extend_from_slice(&entry);
+    // The length is the file's word: no more than is there, and no more than 64 MB, which a
+    // 256×256 image is far from.
+    #[allow(clippy::disallowed_methods)] // bounded by take
+    file.take(u64::from(len).min(1 << 26))
+        .read_to_end(&mut one)
+        .map_err(|e| e.to_string())?;
+    image::load_from_memory_with_format(&one, image::ImageFormat::Ico).map_err(|e| e.to_string())
 }
 
 /// The number of pages (images) in a TIFF file; reads only their directories.
@@ -327,16 +380,12 @@ pub fn each_frame(
         }
         return Ok(done);
     }
-    let pages = if has_ext(path, &["tif", "tiff"]) {
-        tiff_pages(path)
-    } else {
-        1
-    };
+    let pages = pages(path);
     for k in (0..pages).filter(|&k| wanted(k)) {
         let img = if k == 0 {
             load(path, rotate)?
         } else {
-            tiff_page(path, k)?
+            page_of(path, k)?
         };
         each(k, img)?;
         done += 1;
@@ -930,7 +979,7 @@ mod tests {
         }
     }
 
-    /// A damaged TIFF is refused or shown as far as it goes, never a panic.
+    /// A damaged TIFF or ICO is refused or shown as far as it goes, never a panic.
     #[test]
     fn survives_broken_tiffs() {
         let dir = std::env::temp_dir().join(format!("glimt-test-btiff-{}", std::process::id()));
@@ -948,7 +997,28 @@ mod tests {
             let _ = super::tiff_pages(&file);
             let _ = super::tiff_page(&file, 0);
         }
+        let file = dir.join("a.ico");
+        for bytes in crate::broken(&two_sizes_ico()) {
+            std::fs::write(&file, &bytes).unwrap();
+            for k in 0..super::pages(&file) {
+                let _ = super::page_of(&file, k);
+            }
+        }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An ICO of a red 32×32 image and a blue 16×16.
+    fn two_sizes_ico() -> Vec<u8> {
+        use image::codecs::ico::{IcoEncoder, IcoFrame};
+        let frame = |side: u32, rgba: [u8; 4]| {
+            let img = image::RgbaImage::from_pixel(side, side, image::Rgba(rgba));
+            IcoFrame::as_png(&img, side, side, image::ExtendedColorType::Rgba8).unwrap()
+        };
+        let mut out = Vec::new();
+        IcoEncoder::new(&mut out)
+            .encode_images(&[frame(32, [255, 0, 0, 255]), frame(16, [0, 0, 255, 255])])
+            .unwrap();
+        out
     }
 
     /// A damaged GIF is refused or shown as far as it goes, never a panic.
@@ -1025,6 +1095,10 @@ mod tests {
     /// Every frame of a GIF and every page of a TIFF, one at a time, or only the one asked for.
     #[test]
     fn gives_each_frame() {
+        // The ICO's colours go through the colour settings, which another test changes.
+        let _held = crate::colour::COLOUR_TEST
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-frames-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let gif = std::fs::File::create(dir.join("a.gif")).unwrap();
@@ -1065,6 +1139,24 @@ mod tests {
             Ok(())
         });
         assert_eq!((n, pages), (Ok(2), vec![(0, 0), (1, 200)]));
+        // An ICO of two sizes: the largest first, as the image crate shows it, then the other.
+        let ico = dir.join("b.ico");
+        std::fs::write(&ico, two_sizes_ico()).unwrap();
+        assert_eq!(super::pages(&ico), 2);
+        let mut sizes = Vec::new();
+        let n = super::each_frame(&ico, None, true, |k, img| {
+            sizes.push((k, img.width(), img.to_rgba8().get_pixel(0, 0).0));
+            Ok(())
+        });
+        assert_eq!(
+            (n, sizes),
+            (
+                Ok(2),
+                vec![(0, 32, [255, 0, 0, 255]), (1, 16, [0, 0, 255, 255])]
+            )
+        );
+        let (_, orig, pages) = super::decode(&ico, [100, 100], true, 1).unwrap();
+        assert_eq!((orig, pages), ([16, 16], 2));
         // A picture with EXIF orientation 6: turned upright with Auto Rotate on, as it is off.
         use image::ImageEncoder;
         let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
