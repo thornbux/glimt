@@ -2344,3 +2344,6 @@ msgstr "Einstellungen durchsuchen"
 #: src/preferences.rs
 msgid "No setting has these words"
 msgstr "Keine Einstellung enthält diese Wörter"
+
+msgid "{program} runs outside the Flatpak, which needs: {how}"
+msgstr "{program} läuft außerhalb des Flatpaks, dafür nötig: {how}"

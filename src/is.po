@@ -2344,3 +2344,6 @@ msgstr "Leita í stillingum"
 #: src/preferences.rs
 msgid "No setting has these words"
 msgstr "Engin stilling inniheldur þessi orð"
+
+msgid "{program} runs outside the Flatpak, which needs: {how}"
+msgstr "{program} keyrir utan Flatpak, sem krefst: {how}"

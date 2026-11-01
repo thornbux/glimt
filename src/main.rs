@@ -7301,7 +7301,7 @@ impl App {
                 cmd.arg("--title").arg(title).arg(mode).arg(&start);
                 cmd.output()
             };
-            let output = match (external::host_has("zenity"), external::host_has("kdialog")) {
+            let output = match (external::has("zenity"), external::has("kdialog")) {
                 (true, _) => zenity(),
                 (false, true) => kdialog(),
                 (false, false) => Err(std::io::ErrorKind::NotFound.into()),
@@ -7529,7 +7529,7 @@ impl App {
         std::thread::spawn(move || {
             let found = commands.iter().find(|c| external::host_has(c[0]));
             let Some(child) = found.and_then(|c| {
-                command(c[0])
+                external::host_command(c[0])
                     .args(&c[1..])
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::null())
@@ -8855,7 +8855,7 @@ impl App {
                 std::thread::spawn(move || {
                     #[allow(clippy::disallowed_methods)]
                     // the chosen application may stay open: its own thread
-                    let out = command("gio")
+                    let out = external::host_command("gio")
                         .arg("launch")
                         .arg(&desktop)
                         .args(&files)
@@ -8880,26 +8880,30 @@ impl App {
         let (path, tx) = (self.path(self.list.cur), self.notices_tx.clone());
         let mut words = plugins::words(player);
         std::thread::spawn(move || {
-            let run = |cmd: &str, args: &[String]| {
+            let run = |name: &str, mut cmd: std::process::Command| {
                 // Only its errors are read: a program that prints for hours is not kept.
                 #[allow(clippy::disallowed_methods)]
                 // the player stays open as long as it plays: its own thread
-                let out = command(cmd)
-                    .args(args)
-                    .arg(&path)
-                    .stdout(std::process::Stdio::null())
-                    .output();
-                out.map_err(|e| format!("{cmd}: {e}"))
+                let out = cmd.arg(&path).stdout(std::process::Stdio::null()).output();
+                out.map_err(|e| format!("{name}: {e}"))
             };
             let out = if words.is_empty() {
-                // gio is part of glib; xdg-open covers systems without it.
-                match external::host_has("gio") {
-                    true => run("gio", &["open".into()]),
-                    false => run("xdg-open", &[]),
+                // gio is part of glib; xdg-open covers systems without it. In a Flatpak both
+                // ask the portal for the default application.
+                match external::has("gio") {
+                    true => run("gio", {
+                        let mut gio = command("gio");
+                        gio.arg("open");
+                        gio
+                    }),
+                    false => run("xdg-open", command("xdg-open")),
                 }
             } else {
-                let cmd = words.remove(0);
-                run(&cmd, &words)
+                // The user's player, on the host in a Flatpak.
+                let name = words.remove(0);
+                let mut player = external::host_command(&name);
+                player.args(&words);
+                run(&name, player)
             };
             match out {
                 Ok(o) if o.status.success() => {}

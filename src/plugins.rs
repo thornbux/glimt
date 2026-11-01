@@ -144,7 +144,7 @@ impl Plugin {
             // `stoppable_command`: its --watch-bus would end an editor
             // on the host when the Flatpak's Glimt closes, with its unsaved work.
             use std::os::unix::process::CommandExt;
-            let child = crate::external::command(program.to_string_lossy().as_ref())
+            let child = crate::external::host_command(program.to_string_lossy().as_ref())
                 .process_group(0)
                 .args(&args[1..])
                 .current_dir(folder)

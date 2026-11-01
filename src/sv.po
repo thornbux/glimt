@@ -2344,3 +2344,6 @@ msgstr "Sök i inställningarna"
 #: src/preferences.rs
 msgid "No setting has these words"
 msgstr "Ingen inställning har de här orden"
+
+msgid "{program} runs outside the Flatpak, which needs: {how}"
+msgstr "{program} körs utanför Flatpak, vilket kräver: {how}"
