@@ -37,6 +37,9 @@ jxl-oxide = { version = "0.12.6", default-features = false, features = ["image"]
 resvg = { version = "0.49.0", optional = true }
 # A .svgz unpacked with a limit, which usvg's own unpacking has not (already in through usvg).
 flate2 = { version = "1.1.10", optional = true }
+# Optional: the desktop portals that pass a file or await a dialog (feature portals); already in
+# through AccessKit.
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 
 [features]
 # Video previews via the ffmpeg program and playing in an external player.
@@ -57,8 +60,11 @@ test-hooks = []
 # Screen readers such as Orca, through AccessKit: the menus, buttons and lists, and the shown
 # image as text (its name, place, stars, keywords and comment).
 accessibility = ["eframe/accesskit"]
+# Printing in the Flatpak through the desktop's print dialog (the print portal), where CUPS's lp
+# and lpstat are not.
+portals = ["dep:zbus"]
 # Every optional feature: cargo build --release --features full (same as --all-features).
-full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility"]
+full = ["video", "heic", "avif", "jxl", "svg", "marks", "accessibility", "portals"]
 
 # The .deb package (cargo deb), built by the release workflow.
 [package.metadata.deb]

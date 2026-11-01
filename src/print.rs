@@ -433,8 +433,17 @@ fn pdf_text(text: &str) -> String {
         .collect()
 }
 
-/// The printers CUPS knows, and its default, from `lpstat`.
+/// The printer choice that hands the PDF to the desktop's print dialog (the print portal): the
+/// one in the Flatpak, which has no lpstat or lp.
+pub const SYSTEM_DIALOG: &str = "System print dialog";
+
+/// The printers CUPS knows, and its default, from `lpstat`; in the Flatpak the desktop's print
+/// dialog.
 pub fn printers() -> (Vec<String>, Option<String>) {
+    #[cfg(feature = "portals")]
+    if crate::portal::in_flatpak() {
+        return (vec![SYSTEM_DIALOG.into()], Some(SYSTEM_DIALOG.into()));
+    }
     // With the usual limit: a CUPS server that does not answer would else hold the dialog.
     let run = |arg: &str| crate::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
     let names = run("-e").lines().map(str::to_owned).collect();
@@ -667,12 +676,17 @@ impl crate::App {
                     preview(ui, &dialog, c);
                     egui::Grid::new("print fields").show(ui, |ui| {
                             ui.label(tr("Printer:"));
-                            let shown = |p: &str| if p.is_empty() { tr("PDF file") } else { p }.to_owned();
+                            let shown = |p: &str| match p {
+                                "" => tr("PDF file"),
+                                SYSTEM_DIALOG => tr(SYSTEM_DIALOG),
+                                p => p,
+                            }
+                            .to_owned();
                             egui::ComboBox::from_id_salt("printer")
                                 .selected_text(shown(&c.print_printer))
                                 .show_ui(ui, |ui| {
                                     for p in dialog.printers.iter().flatten() {
-                                        ui.selectable_value(&mut c.print_printer, p.clone(), p);
+                                        ui.selectable_value(&mut c.print_printer, p.clone(), shown(p));
                                     }
                                     ui.selectable_value(
                                         &mut c.print_printer,
@@ -922,13 +936,33 @@ impl crate::App {
             // makes the count one too high at the end of a sheet. Read them all first to know.
             let total = job.paths.len().div_ceil(job.layout.per_page.max(1));
             let title = format!("Glimt: {}", count(job.paths.len(), "image"));
+            let sides = job.two_sided.then(|| print::sides(&job.layout));
+            // The printer chosen in the desktop's print dialog, for the message.
+            #[cfg_attr(not(feature = "portals"), allow(unused_mut))]
+            let mut chosen: Option<String> = None;
             let done = match &to {
-                PrintTo::Printer(printer) => {
-                    let sides = job.two_sided.then(|| print::sides(&job.layout));
-                    print::send(printer, job.copies, sides, &title, |w| {
+                #[cfg(feature = "portals")]
+                PrintTo::Printer(printer) if printer == print::SYSTEM_DIALOG => {
+                    let sent = crate::portal::print(job.copies, sides, &title, |w| {
                         print::pdf(pages, &job.layout, total, w)
-                    })
+                    });
+                    match sent {
+                        Ok(Some(printer)) => {
+                            chosen = Some(printer);
+                            Ok(())
+                        }
+                        Ok(None) => {
+                            let _ = tx.send(tr("Printing cancelled").into());
+                            drop(pointer);
+                            ctx.request_repaint();
+                            return;
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
+                PrintTo::Printer(printer) => print::send(printer, job.copies, sides, &title, |w| {
+                    print::pdf(pages, &job.layout, total, w)
+                }),
                 // Beside it first: the file chosen is replaced only by a whole PDF, after every
                 // image was read (one of them may be the file chosen).
                 PrintTo::File(file) => {
@@ -941,6 +975,7 @@ impl crate::App {
                     .map_err(|e| e.to_string())
                 }
             };
+            let to = chosen.map_or(to, PrintTo::Printer);
             // Images, and the pages they fill: a contact sheet holds several on each.
             let n = job.paths.len() - failed.get();
             let what = match job.layout.per_page {

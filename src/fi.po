@@ -2347,3 +2347,9 @@ msgstr "Mikään asetus ei sisällä näitä sanoja"
 
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} toimii Flatpakin ulkopuolella, mikä vaatii: {how}"
+
+msgid "System print dialog"
+msgstr "Järjestelmän tulostusikkuna"
+
+msgid "Printing cancelled"
+msgstr "Tulostus peruttu"

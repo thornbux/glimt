@@ -2358,3 +2358,9 @@ msgstr "Ingen innstilling har disse ordene"
 
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} kjører utenfor Flatpak, og det krever: {how}"
+
+msgid "System print dialog"
+msgstr "Systemets utskriftsdialog"
+
+msgid "Printing cancelled"
+msgstr "Utskriften ble avbrutt"

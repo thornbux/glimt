@@ -8296,7 +8296,8 @@
     "pkg:cargo/regex@1.13.1",
     "pkg:cargo/resvg@0.49.0",
     "pkg:cargo/tiff@0.11.3",
-    "pkg:cargo/winit@0.30.13"
+    "pkg:cargo/winit@0.30.13",
+    "pkg:cargo/zbus@5.19.0"
    ]
   },
   {

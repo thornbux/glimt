@@ -1309,6 +1309,7 @@ dependencies = [
  "resvg",
  "tiff",
  "winit",
+ "zbus",
 ]
 
 [[package]]

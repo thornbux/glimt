@@ -233,7 +233,8 @@ const MANUAL: &[(&str, &str)] = &[
          %Camera%, %keywords%, %comment% and the other fields. Text at the top and bottom of each \
          page may hold %page% and %pages%.\n\n\
          It goes to a printer through CUPS (lp), on both sides of the paper if the printer can, or \
-         into a PDF file. Every choice is remembered.",
+         into a PDF file; in the Flatpak, the System print dialog choice hands it to the \
+         desktop's own, which picks the printer. Every choice is remembered.",
     ),
     (
         "Plugins",
