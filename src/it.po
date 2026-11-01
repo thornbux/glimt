@@ -2347,3 +2347,9 @@ msgstr "Nessuna impostazione contiene queste parole"
 
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} viene eseguito fuori dal Flatpak, il che richiede: {how}"
+
+msgid "System print dialog"
+msgstr "Finestra di stampa del sistema"
+
+msgid "Printing cancelled"
+msgstr "Stampa annullata"

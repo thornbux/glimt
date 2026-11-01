@@ -2347,3 +2347,9 @@ msgstr "Ningún ajuste contiene estas palabras"
 
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} se ejecuta fuera del Flatpak, lo que requiere: {how}"
+
+msgid "System print dialog"
+msgstr "Diálogo de impresión del sistema"
+
+msgid "Printing cancelled"
+msgstr "Impresión cancelada"

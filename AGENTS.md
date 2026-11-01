@@ -260,7 +260,8 @@ the large folder and the EXIF timings. Screenshots of the steps are in
 
 By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
 `--remote-all next` to both and `--remote-all quit`; Delete and Ctrl+Z (the trash portal), File →
-Open File (the file chooser portal), a video, and a plugin, which without the host permission
+Open File (the file chooser portal), Print through the System print dialog (the print portal;
+its Print to File shows the PDF), a video, and a plugin, which without the host permission
 says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
 that stays when the first one closes.
 

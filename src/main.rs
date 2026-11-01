@@ -55,6 +55,8 @@ mod marks;
 mod meta;
 mod pan;
 mod plugins;
+#[cfg(feature = "portals")]
+mod portal;
 mod preferences;
 mod print;
 mod raw;

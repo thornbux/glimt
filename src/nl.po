@@ -2347,3 +2347,9 @@ msgstr "Geen instelling bevat deze woorden"
 
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} draait buiten de Flatpak, wat dit vereist: {how}"
+
+msgid "System print dialog"
+msgstr "Afdrukvenster van het systeem"
+
+msgid "Printing cancelled"
+msgstr "Afdrukken geannuleerd"

@@ -245,6 +245,7 @@ Extra file types are optional features, so the default build stays small:
 | `svg` | SVG images, drawn in Rust (resvg) | nothing |
 | `marks` | Marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
 | `accessibility` | Screen readers such as Orca: menus, buttons and lists, and the shown image read as its alt text, name, place, stars, keywords, comment and extended description | a screen reader (AT-SPI), when you use one |
+| `portals` | Printing in the Flatpak through the desktop's print dialog, where CUPS's `lp` is not | the print portal (xdg-desktop-portal), in the Flatpak |
 
 ```sh
 cargo build --release --features video,heic,marks
@@ -601,7 +602,7 @@ Sway, X11 with a window manager) are very welcome.
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
 | Import Lightroom Catalog | `sqlite3`, 3.37 or newer | none: the import says that sqlite3 is missing or too old |
 | HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none: the image says ffmpeg is missing |
-| Printing | `lp` (CUPS) | Save as PDF |
+| Printing | `lp` (CUPS); in the Flatpak the desktop's print dialog (portal) | Save as PDF |
 | A decoder plugin's format | the program its `Exec` line names | none: the image shows the program's error |
 
 ## Troubleshooting

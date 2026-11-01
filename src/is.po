@@ -2347,3 +2347,9 @@ msgstr "Engin stilling inniheldur þessi orð"
 
 msgid "{program} runs outside the Flatpak, which needs: {how}"
 msgstr "{program} keyrir utan Flatpak, sem krefst: {how}"
+
+msgid "System print dialog"
+msgstr "Prentgluggi kerfisins"
+
+msgid "Printing cancelled"
+msgstr "Hætt við prentun"
