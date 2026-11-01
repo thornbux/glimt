@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-11-01
+
+### Added
+
+- A `.*` button beside the search field switches between fuzzy search and regular expressions,
+  as the setting in Preferences → File List does. It is lit while regular expressions are on,
+  and the Case checkbox shows beside it then.
+
+### Fixed
+
+- The hint text in the empty search field is shown in the chosen language; it was English in all.
+- An ICO with more than 256 sizes shows its best size first, and each size as a page; one past
+  the 256th was left out.
+- A background job split over several cores can no longer put results on the wrong images if
+  one of its parts fails: it stops instead.
+
 ## [0.48.0] - 2026-11-01
 
 ### Added
@@ -2204,7 +2220,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.48.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.49.0...HEAD
+[0.49.0]: https://github.com/thornbux/glimt/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/thornbux/glimt/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/thornbux/glimt/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/thornbux/glimt/compare/v0.45.0...v0.46.0
