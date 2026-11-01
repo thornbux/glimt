@@ -179,7 +179,7 @@ impl crate::App {
                 // chunk, so a sidecar write in another window waits for one chunk, not the job.
                 let _held = meta::held_all(chunk);
                 if trash {
-                    if let Err(e) = crate::external::trash(chunk) {
+                    if let Err(e) = self::trash(chunk) {
                         errors.push(e);
                     }
                 } else {
@@ -197,7 +197,7 @@ impl crate::App {
                     .filter(|s| s.exists())
                     .collect();
                 if trash && !side.is_empty() {
-                    let _ = crate::external::trash(&side);
+                    let _ = self::trash(&side);
                 } else {
                     side.iter().for_each(|s| drop(std::fs::remove_file(s)));
                 }
@@ -737,7 +737,7 @@ impl crate::App {
         let collection = self.collection.clone();
         self.background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
-            let error = crate::external::trash(std::slice::from_ref(&dir)).err();
+            let error = trash(std::slice::from_ref(&dir)).err();
             // Failed: listed again, as a failed delete of files is.
             let gone = if error.is_none() {
                 vec![dir.clone()]
@@ -1117,6 +1117,92 @@ fn put_back(all: &mut Vec<PathBuf>, removed: &[(usize, PathBuf)]) {
         all.push(path.clone());
     }
     all.extend(left);
+}
+
+/// `paths` moved to the trash with gio; in a Flatpak, one the trash portal refused (a file that
+/// is not writable: GLib hands the portal a descriptor open for writing, though a move needs only
+/// the folder) by hand into the home trash, as 0.49's gio on the host did.
+pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
+    let refused = crate::external::trash(paths);
+    let Err(e) = refused else {
+        return Ok(());
+    };
+    let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/Trash"));
+    let (Some(_), Some(home)) = (std::env::var_os("FLATPAK_ID"), home) else {
+        return Err(e);
+    };
+    let left = paths
+        .iter()
+        .filter(|p| std::fs::symlink_metadata(p).is_ok());
+    match left.map(|p| trash_by_hand(p, &home)).all(|r| r.is_ok()) {
+        true => Ok(()),
+        false => Err(e),
+    }
+}
+
+/// `path` into the trash folder `trash` by hand, as freedesktop.org's trash spec says: its
+/// .trashinfo made first under a name not taken (name.1.ext …), then the file renamed into
+/// files/. Only within one file system: a file on another keeps its error.
+fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let (files, info) = (trash.join("files"), trash.join("info"));
+    for dir in [&files, &info] {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+    }
+    let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    if dev(path.parent().unwrap_or(path)) != dev(&files) {
+        return Err(std::io::ErrorKind::CrossesDevices.into());
+    }
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    let date = crate::local_time(secs.map_or(0, |d| d.as_secs()) as i64).replacen(' ', "T", 1);
+    let text = format!(
+        "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+        crate::thumbs::uri_path(path)
+    );
+    let name = path.file_name().unwrap_or_default();
+    let (stem, ext) = (Path::new(name).file_stem(), Path::new(name).extension());
+    for n in 0..10_000 {
+        let mut taken = OsString::new();
+        match n {
+            0 => taken.push(name),
+            n => {
+                taken.push(stem.unwrap_or_default());
+                taken.push(format!(".{n}"));
+                if let Some(ext) = ext {
+                    taken.push(".");
+                    taken.push(ext);
+                }
+            }
+        }
+        let mut trashinfo = taken.clone();
+        trashinfo.push(".trashinfo");
+        let trashinfo = info.join(trashinfo);
+        #[allow(clippy::disallowed_methods)] // made new, never over another's
+        let made = std::fs::File::options()
+            .write(true)
+            .create_new(true)
+            .open(&trashinfo);
+        let mut made = match made {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            made => made?,
+        };
+        let moved = std::io::Write::write_all(&mut made, text.as_bytes())
+            .and_then(|()| rename_never_over(path, &files.join(&taken)));
+        match moved {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                let _ = std::fs::remove_file(&trashinfo);
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&trashinfo);
+                return Err(e);
+            }
+            Ok(()) => return Ok(()),
+        }
+    }
+    Err(std::io::ErrorKind::AlreadyExists.into())
 }
 
 /// What a move to the trash did, as it did it, for Undo to put back: the files or folder it
@@ -1590,6 +1676,38 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 
 #[cfg(test)]
 mod tests {
+    /// A file that is not writable goes into the trash by hand as the trash spec says, a second
+    /// of the same name beside it, and the trash reader of Undo finds both where they were.
+    #[test]
+    fn trashes_by_hand() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-byhand-{}", std::process::id()));
+        let (pics, trash) = (dir.join("pics"), dir.join("Trash"));
+        std::fs::create_dir_all(pics.join("sub")).unwrap();
+        let (a, b) = (pics.join("a.png"), pics.join("sub/a.png"));
+        for f in [&a, &b] {
+            std::fs::write(f, "x").unwrap();
+            std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o444)).unwrap();
+            super::trash_by_hand(f, &trash).unwrap();
+            assert!(!f.exists());
+        }
+        let mut names: Vec<_> = std::fs::read_dir(trash.join("files"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.1.png", "a.png"]);
+        let mut back: Vec<_> = (super::read_trash(&trash, std::path::Path::new("/")).into_iter())
+            .map(|t| (t.from, t.file.file_name().unwrap().to_owned()))
+            .collect();
+        back.sort();
+        let want: [(std::path::PathBuf, std::ffi::OsString); 2] =
+            [(a, "a.png".into()), (b, "a.1.png".into())];
+        assert_eq!(back, want);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     /// A moved file, a file in a moved folder, and one not moved; no trailing slash.
     #[test]
     fn reads_the_trash() {

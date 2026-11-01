@@ -3210,7 +3210,7 @@ impl App {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            Some(match external::trash(std::slice::from_ref(&file)) {
+            Some(match file_ops::trash(std::slice::from_ref(&file)) {
                 Ok(()) => tf!("Collection {name} moved to the trash", name),
                 Err(err) => tf!("Could not trash {name}: {err}", name, err),
             })
