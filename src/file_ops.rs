@@ -167,10 +167,10 @@ impl crate::App {
             let mut errors = Vec::new();
             // Of the files gone, the sidecars that went with them.
             let (mut gone, mut sides) = (Vec::new(), Vec::new());
-            // Many files per gio call, so thousands of files do not become thousands of
-            // processes; few enough that Stop and the count in the status bar keep up.
-            let per = if trash { 100 } else { 1 };
-            for chunk in paths.chunks(per) {
+            // Many files per gio call (and per taking of the locks), so thousands of files do
+            // not become thousands of processes; few enough that Stop and the count in the
+            // status bar keep up.
+            for chunk in paths.chunks(100) {
                 if job.stopped() {
                     break;
                 }
@@ -182,8 +182,12 @@ impl crate::App {
                     if let Err(e) = crate::external::trash(chunk) {
                         errors.push(e);
                     }
-                } else if let Err(e) = std::fs::remove_file(&chunk[0]) {
-                    errors.push(format!("{display}: {e}", display = chunk[0].display()));
+                } else {
+                    for p in chunk {
+                        if let Err(e) = std::fs::remove_file(p) {
+                            errors.push(format!("{display}: {e}", display = p.display()));
+                        }
+                    }
                 }
                 // Their sidecars go the same way; a new file of the same name must not get
                 // their keywords.
