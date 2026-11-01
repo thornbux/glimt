@@ -1148,7 +1148,7 @@ struct Trashed {
 /// start from: the home trash, and the two at the top of the file system `path` is on.
 fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
     use std::os::unix::fs::MetadataExt;
-    // In a Flatpak, gio trash runs on the host, into the host's trash.
+    // In a Flatpak, gio trash goes through the trash portal, into the host's trash.
     let home = match std::env::var_os("FLATPAK_ID") {
         Some(_) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/Trash")),
         None => config::xdg_dir("XDG_DATA_HOME", ".local/share", "Trash"),
