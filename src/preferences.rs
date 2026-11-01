@@ -1079,7 +1079,7 @@ mod tests {
     /// The `tr("…")` texts of `code`, and of the settings methods it calls (theirs, not
     /// what those do: `self.list` is not a setting).
     fn texts(code: &str, out: &mut Vec<String>) {
-        let sources = [include_str!("preferences.rs"), include_str!("main.rs")];
+        let sources = [include_str!("preferences.rs"), include_str!("menus.rs")];
         // tf!'s templates too: the search matches their words, not the values put in. Not the
         // notices a setting's button sends, which are not on the window.
         for call in ["tr(", "tf!("] {

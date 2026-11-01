@@ -442,7 +442,31 @@ mod tests {
             ("theme.rs", include_str!("theme.rs")),
             ("thumbs.rs", include_str!("thumbs.rs")),
             ("video.rs", include_str!("video.rs")),
+            ("check.rs", include_str!("check.rs")),
+            ("crop.rs", include_str!("crop.rs")),
+            ("dialogs.rs", include_str!("dialogs.rs")),
+            ("file_list.rs", include_str!("file_list.rs")),
+            ("folder.rs", include_str!("folder.rs")),
+            ("format.rs", include_str!("format.rs")),
+            ("info_panel.rs", include_str!("info_panel.rs")),
+            ("menus.rs", include_str!("menus.rs")),
+            ("portal.rs", include_str!("portal.rs")),
+            ("save_as.rs", include_str!("save_as.rs")),
+            ("selection.rs", include_str!("selection.rs")),
+            ("slideshow.rs", include_str!("slideshow.rs")),
+            ("threads.rs", include_str!("threads.rs")),
+            ("view.rs", include_str!("view.rs")),
         ];
+        // Every source file is among them: one left out would go unchecked.
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        for entry in std::fs::read_dir(src).unwrap() {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            let checked = SOURCES.iter().any(|(n, _)| *n == name);
+            assert!(
+                checked || !name.ends_with(".rs"),
+                "{name} is not in SOURCES"
+            );
+        }
         // What Inter has, of the signs the texts use; the Phosphor icons are U+E000–F8FF.
         const IN_INTER: &str = "©«°±·»¿×–“”„…⁴←↑→↓≈★✓⬆";
         for (name, text) in SOURCES {
