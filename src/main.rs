@@ -119,7 +119,8 @@ fn small_alloc_threads() -> usize {
 }
 
 /// `work` on `items` cut into one part for each of `threads`, run at once; the results in the
-/// order of the parts. `work` gets a part and the place in `items` where it starts.
+/// order of the parts. `work` gets a part and the place in `items` where it starts. A part that
+/// panics panics the caller too: a list short of it would put results on the wrong items.
 fn in_parts<T: Sync, R: Send>(
     items: &[T],
     threads: usize,
@@ -134,7 +135,7 @@ fn in_parts<T: Sync, R: Send>(
             })
             .collect();
         (parts.into_iter())
-            .flat_map(|p| p.join().unwrap_or_default())
+            .flat_map(|p| p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
             .collect()
     })
 }
@@ -9836,6 +9837,21 @@ mod tests {
         drop(held);
         app.receive_listing(&ctx, std::time::Duration::from_secs(5));
         (app, ctx)
+    }
+
+    /// A part that panics is no shorter list of results, which the callers would zip with the
+    /// wrong items, but a panic of the caller.
+    #[test]
+    fn in_parts_passes_a_panic_on() {
+        let items: Vec<u32> = (0..100).collect();
+        let got = std::panic::catch_unwind(|| {
+            super::in_parts(&items, 4, |part, at| match at {
+                25 => panic!("a part breaks"),
+                _ => part.to_vec(),
+            })
+        });
+        assert!(got.is_err());
+        assert_eq!(super::in_parts(&items, 4, |part, _| part.to_vec()), items);
     }
 
     /// Moving the end of a Shift range changes the selection as selecting the range anew does,
