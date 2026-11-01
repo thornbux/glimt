@@ -10539,7 +10539,9 @@ mod tests {
         assert!(!d.join("c.png.xmp").exists());
         // Many files: held a chunk (100) at a time, so one held up in a sidecar write holds up
         // only its own chunk, and those before it go meanwhile. Deleted for good: a chunk of
-        // 100 files of other lock slots, then one more.
+        // 100 files of other lock slots, then two more, of which the second is held; the first
+        // of them waits too, as it is in its chunk (not one gio call and one taking of the locks
+        // per file).
         let slot = |n: &str| crate::meta::lock_slot(&crate::meta::sidecar(&d.join(n)));
         let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
         let y = &names[0];
@@ -10549,7 +10551,10 @@ mod tests {
             .take(100)
             .collect();
         assert_eq!(first.len(), 100);
-        for n in first.iter().copied().chain([y]) {
+        let z = (names.iter())
+            .find(|n| slot(n) != slot(y) && !first.contains(n))
+            .unwrap();
+        for n in first.iter().copied().chain([y, z]) {
             std::fs::write(d.join(n), "").unwrap();
         }
         for n in [first[0], y] {
@@ -10558,10 +10563,10 @@ mod tests {
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
         let at = |app: &super::App, n: &str| (app.list.files.iter()).position(|f| f == n).unwrap();
-        let (x, y) = (d.join(first[0]), d.join(y));
-        let held = crate::meta::held(&y);
         let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
-        all.push(at(&app, &y.file_name().unwrap().to_string_lossy()));
+        all.extend([at(&app, z), at(&app, y)]);
+        let (x, y, z) = (d.join(first[0]), d.join(y), d.join(z));
+        let held = crate::meta::held(&y);
         app.delete_now(&ctx, false, all);
         assert!(
             settle(&mut app, &ctx, |_| first
@@ -10570,8 +10575,11 @@ mod tests {
             "the first chunk waits not for the second"
         );
         assert!(y.exists() && crate::meta::sidecar(&y).exists());
+        assert!(z.exists(), "the second chunk is one");
         drop(held);
-        assert!(settle(&mut app, &ctx, |app| idle(app) && !y.exists()));
+        assert!(settle(&mut app, &ctx, |app| idle(app)
+            && !y.exists()
+            && !z.exists()));
         assert!(!crate::meta::sidecar(&x).exists() && !crate::meta::sidecar(&y).exists());
         std::fs::remove_dir_all(d).unwrap();
     }
