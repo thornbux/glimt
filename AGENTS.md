@@ -56,7 +56,8 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its fields by group, its decode, thumbnail and EXIF workers, opening and listing a folder, browsing, painting the image, the file list, menus, panels and dialogs, `run` for every action, and the command line. Also helpers other modules use: threads (`in_parts`, `background_threads`, `small_alloc_threads`), `Job`, text (`count`, `thousands`, `human_size`, `local_time`) and `crate::broken` for tests |
+| `src/main.rs` | The app: `App` and its fields by group, its decode, thumbnail and EXIF workers, opening and listing a folder, browsing, painting the image, the file list, menus, panels and dialogs, `run` for every action, and the command line. Also helpers other modules use: threads (`in_parts`, `background_threads`, `small_alloc_threads`), `Job`, and `crate::broken` for tests |
+| `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys; variants are stored by name, never rename one |
 | `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths; the writer thread (`write_later`, `flush`), `edit_shared` for the files the windows share, `replace_file`/`create_file`/`write_atomic`, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |

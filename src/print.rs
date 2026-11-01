@@ -216,7 +216,7 @@ pub fn caption(
 ) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
-    let text = crate::fill_template(template, |field| match field {
+    let text = crate::format::fill_template(template, |field| match field {
         "name" => name.to_string(),
         "path" => path.display().to_string(),
         "position" => format!("{}/{n}", k + 1),
@@ -230,7 +230,7 @@ pub fn caption(
             .map(|(w, h)| format!("{w} × {h}"))
             .unwrap_or_default(),
         "File size" => std::fs::metadata(path)
-            .map(|m| crate::human_size(m.len()))
+            .map(|m| crate::format::human_size(m.len()))
             .unwrap_or_default(),
         "keywords" => meta
             .get_or_init(|| crate::meta::read(path))
