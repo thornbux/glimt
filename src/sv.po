@@ -2353,3 +2353,6 @@ msgstr "Systemets utskriftsdialog"
 
 msgid "Printing cancelled"
 msgstr "Utskriften avbröts"
+
+msgid "Choose Application…"
+msgstr "Välj program …"

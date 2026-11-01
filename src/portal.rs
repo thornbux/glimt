@@ -164,3 +164,28 @@ pub fn inhibit_idle(reason: &str) -> Result<std::sync::mpsc::Sender<()>, String>
     });
     Ok(tx)
 }
+
+/// `path` opened in an application the user picks in the desktop's chooser (the open URI
+/// portal, asked to ask): Open With in the Flatpak, which cannot list the host's applications.
+/// Waits for the choice.
+pub fn open_with(path: &std::path::Path) -> Result<(), String> {
+    let conn = Connection::session().map_err(|e| e.to_string())?;
+    // Only for its descriptor, which says which file: the portal opens it itself.
+    #[allow(clippy::disallowed_methods)]
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let token = token();
+    let options = HashMap::from([
+        ("handle_token", Value::from(token.as_str())),
+        ("ask", Value::from(true)),
+    ]);
+    use std::os::fd::AsFd;
+    let body = ("", zbus::zvariant::Fd::from(file.as_fd()), options);
+    request(
+        &conn,
+        "org.freedesktop.portal.OpenURI",
+        "OpenFile",
+        &token,
+        &body,
+    )
+    .map(drop)
+}

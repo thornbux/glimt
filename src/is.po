@@ -2353,3 +2353,6 @@ msgstr "Prentgluggi kerfisins"
 
 msgid "Printing cancelled"
 msgstr "Hætt við prentun"
+
+msgid "Choose Application…"
+msgstr "Velja forrit…"

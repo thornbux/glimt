@@ -2353,3 +2353,6 @@ msgstr "Boîte d'impression du système"
 
 msgid "Printing cancelled"
 msgstr "Impression annulée"
+
+msgid "Choose Application…"
+msgstr "Choisir une application…"

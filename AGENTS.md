@@ -262,7 +262,8 @@ By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused 
 `--remote-all next` to both and `--remote-all quit`; Delete and Ctrl+Z (the trash portal), File →
 Open File (the file chooser portal), Print through the System print dialog (the print portal;
 its Print to File shows the PDF), full screen (an Inhibit call to the portal, and Close after,
-in `dbus-monitor`), a video, and a plugin, which without the host permission
+in `dbus-monitor`), Open With → Choose Application… (the chooser, cancelled), a video, and a
+plugin, which without the host permission
 says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
 that stays when the first one closes.
 

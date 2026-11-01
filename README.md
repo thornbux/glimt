@@ -245,7 +245,7 @@ Extra file types are optional features, so the default build stays small:
 | `svg` | SVG images, drawn in Rust (resvg) | nothing |
 | `marks` | Marks 1–6 and 0–5 stars, shown in the list and searchable | nothing |
 | `accessibility` | Screen readers such as Orca: menus, buttons and lists, and the shown image read as its alt text, name, place, stars, keywords, comment and extended description | a screen reader (AT-SPI), when you use one |
-| `portals` | In the Flatpak, printing through the desktop's print dialog and no screen saver in full screen, where CUPS's `lp` and the session's inhibitors are not | the desktop portals (xdg-desktop-portal), in the Flatpak |
+| `portals` | In the Flatpak, printing through the desktop's print dialog, no screen saver in full screen, and Open With through the desktop's application chooser, where CUPS's `lp`, the session's inhibitors and the host's applications are not | the desktop portals (xdg-desktop-portal), in the Flatpak |
 
 ```sh
 cargo build --release --features video,heic,marks
@@ -598,7 +598,7 @@ Sway, X11 with a window manager) are very welcome.
 | Showing images | OpenGL 3 (Mesa, EGL), xkbcommon, Wayland or X11; the `.deb` and `.rpm` install them | none |
 | Open / Copy / Move dialogs | `zenity` | `kdialog` |
 | Move to trash | `gio` (glib) | none: Delete reports that gio is missing |
-| Open With | `gio open`, `gio mime` and `gio launch` | `xdg-open` (default application only) |
+| Open With | `gio open`, `gio mime` and `gio launch`; in the Flatpak without the host permission the desktop's application chooser (portal) | `xdg-open` (default application only) |
 | smb://, sftp:// … in the folder field or on the command line | `gio mount` (GVfs) | none: mount the share yourself |
 | Import Lightroom Catalog | `sqlite3`, 3.37 or newer | none: the import says that sqlite3 is missing or too old |
 | HEIC, AVIF, video previews | `ffmpeg` and `ffprobe` (8.0 or newer for HEIC) | none: the image says ffmpeg is missing |

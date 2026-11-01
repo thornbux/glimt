@@ -2353,3 +2353,6 @@ msgstr "Järjestelmän tulostusikkuna"
 
 msgid "Printing cancelled"
 msgstr "Tulostus peruttu"
+
+msgid "Choose Application…"
+msgstr "Valitse sovellus…"

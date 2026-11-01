@@ -2353,3 +2353,6 @@ msgstr "Druckdialog des Systems"
 
 msgid "Printing cancelled"
 msgstr "Drucken abgebrochen"
+
+msgid "Choose Application…"
+msgstr "Anwendung wählen …"

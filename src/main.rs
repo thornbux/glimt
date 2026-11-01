@@ -8857,6 +8857,22 @@ impl App {
                 ui.label("…");
                 return;
             };
+            #[cfg(feature = "portals")]
+            if apps.is_empty() && crate::portal::in_flatpak() {
+                // The Flatpak, without the host's applications: the desktop's own chooser.
+                if ui
+                    .button(iconed(ui, theme::icon::APP, tr("Choose Application…")))
+                    .clicked()
+                {
+                    let (tx, path) = (self.notices_tx.clone(), self.path(self.list.cur));
+                    std::thread::spawn(move || {
+                        if let Err(e) = crate::portal::open_with(&path) {
+                            let _ = tx.send(e);
+                        }
+                    });
+                }
+                return;
+            }
             if apps.is_empty() {
                 ui.label(tr("No applications found"));
             }
