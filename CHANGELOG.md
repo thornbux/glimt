@@ -5,6 +5,30 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-11-01
+
+### Added
+
+- Every size of an ICO file is shown, as pages: the largest first, as before, and Ctrl+Page
+  Down and Ctrl+Page Up go to the next and previous size. Save This Frame, Export Frames, Crop,
+  Save As and Copy Image take the size shown.
+- A Code of Conduct (Contributor Covenant) for the project.
+
+### Changed
+
+- Find Duplicates by similarity groups the images on all cores, and compares fewer pairs:
+  100,000 images in 4–10 s instead of 25–86 s, with the same groups. The progress bar now also
+  counts the grouping, where it stood still before.
+- Deleting files for good goes in chunks of 100, as moving them to the trash does, instead of
+  taking the sidecar locks for each file on its own.
+- The Flatpak builds without the network, from the crates listed in
+  `flatpak/cargo-sources.json`, as Flathub requires.
+
+### Fixed
+
+- In full screen, Glimt no longer redraws the window every half second while only the shown
+  image is being decoded.
+
 ## [0.47.0] - 2026-10-31
 
 ### Fixed
@@ -2180,7 +2204,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.47.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.48.0...HEAD
+[0.48.0]: https://github.com/thornbux/glimt/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/thornbux/glimt/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/thornbux/glimt/compare/v0.45.0...v0.46.0
 [0.45.0]: https://github.com/thornbux/glimt/compare/v0.44.0...v0.45.0
