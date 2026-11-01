@@ -68,7 +68,7 @@ jobs:
           echo "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c  zig.tar.xz" | sha256sum -c
           tar xJf zig.tar.xz && rm zig.tar.xz
           echo "$PWD/zig-x86_64-linux-0.14.1" >> "$GITHUB_PATH"
-      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-zigbuild,cargo-deb,cargo-generate-rpm,cargo-audit
       - name: Known vulnerabilities in the crates (RustSec)
