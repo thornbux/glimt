@@ -5510,8 +5510,7 @@ impl App {
                     self.config.save();
                     changed = true;
                 }
-                if ui
-                    .selectable_label(geeqie, ".*")
+                if noted(&ui.selectable_label(geeqie, ".*"), ".*")
                     .on_hover_text(tr("Regular expression instead of fuzzy search"))
                     .clicked()
                 {
