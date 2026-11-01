@@ -1625,22 +1625,25 @@ for v in new old; do
     config
     start $d
     sleep 2
-    menu ".*"; sleep 1
+    # The panel's edge and the image's top beside it, before and after: a row wider than the
+    # panel widened it every frame, which moved both.
+    shot search-mode-$v-0
+    menu ".*"; sleep 3
+    shot search-mode-$v-1
+    view() { convert /t/out/search-mode-$v-$1.png -crop 1280x60+0+60 +repage rgb:- | md5sum; }
+    same=$([ "$(view 0)" = "$(view 1)" ] && echo yes)
     mode=$(grep -o '^fuzzy_search=.*' $XDG_CONFIG_HOME/glimt/config)
     # A pattern fuzzy search finds nothing with: a class of two letters at the start.
     click 120 284; key ctrl+a; xdotool type '^[bc]'; sleep 2
     click 150 337; key ctrl+a; sleep 1
     found=$($BIN --remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
-    # A row wider than the panel widened it every frame: two looks a few seconds apart.
-    shot search-mode-$v-1; sleep 3; shot search-mode-$v-2
-    same=$([ "$(md5sum </t/out/search-mode-$v-1.png)" = "$(md5sum </t/out/search-mode-$v-2.png)" ] && echo yes)
     menu ".*"; sleep 1
     back=$(grep -o '^fuzzy_search=.*' $XDG_CONFIG_HOME/glimt/config)
     quit
     if [ $v = new ]; then
         expect "the button turns regular expressions on, saved" "$mode" fuzzy_search=false
         expect "^[bc] finds b and c" "$found" "b.jpg c.jpg "
-        expect "the window stays as it was" "$same" yes
+        expect "the image beside the list stays where it was" "$same" yes
         expect "pressed again: fuzzy search" "$back" fuzzy_search=true
     else note "old: '$mode' '$found' '$same' '$back'"; fi
 done
