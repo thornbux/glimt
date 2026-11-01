@@ -7,7 +7,6 @@ Run it from the repository root after the tag is pushed:
     python3 tools/flathub-manifest.py v0.50.0 ../flathub-glimt"""
 
 import os
-import shutil
 import subprocess
 import sys
 
@@ -17,9 +16,15 @@ tag, out = sys.argv[1], sys.argv[2]
 # The tag's commit, which Flathub checks the tag against: a tag moved later fails the build.
 commit = subprocess.run(["git", "rev-list", "-n", "1", tag], capture_output=True, text=True,
                         check=True).stdout.strip()
+# Both as the tag has them: the working tree may be past it (a crate updated since), and the
+# tag's source builds only with the tag's crates.
+def at_tag(path):
+    return subprocess.run(["git", "show", f"{tag}:{path}"], capture_output=True, text=True,
+                          check=True).stdout
+
+
 manifest = "flatpak/io.github.thornbux.Glimt.yml"
-with open(manifest) as f:
-    text = f.read()
+text = at_tag(manifest)
 local = """      - type: dir
         path: ..
         skip:
@@ -42,5 +47,6 @@ os.makedirs(out, exist_ok=True)
 with open(os.path.join(out, "io.github.thornbux.Glimt.yml"), "w") as f:
     f.write(f"# Glimt {tag}, made by tools/flathub-manifest.py in github.com/thornbux/glimt.\n")
     f.write(text)
-shutil.copy("flatpak/cargo-sources.json", out)
+with open(os.path.join(out, "cargo-sources.json"), "w") as f:
+    f.write(at_tag("flatpak/cargo-sources.json"))
 print(f"{out}: io.github.thornbux.Glimt.yml ({tag}, {commit[:7]}) and cargo-sources.json")
