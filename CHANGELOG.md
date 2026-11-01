@@ -5,6 +5,31 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-11-01
+
+### Changed
+
+- The Flatpak is fit for Flathub: Glimt's own programs (the file dialog, the trash, ffmpeg,
+  sqlite3) are the runtime's, in the sandbox, and go through the desktop portals there, so the
+  host needs none of them installed. **Plugins, decoder plugins, a video player of your own, the
+  applications listed in Open With, and network shares (smb://, sftp://) run on the host, which
+  the Flatpak now reaches only after**
+  `flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`;
+  until then they say so.
+- In the Flatpak, File → Print offers the System print dialog, the desktop's own, which picks
+  the printer; full screen keeps the screen saver off through the inhibit portal; and without
+  the host permission, Open With → Choose Application… shows the desktop's application chooser.
+- In the Flatpak a read-only file, which the trash portal refuses, goes into the trash by hand,
+  as the trash spec says, and Undo puts it back.
+- GNOME's Large Text is read from the desktop portal, as the dark style already was, instead of
+  from gsettings.
+
+### Added
+
+- `tools/flathub-manifest.py` writes the Flathub repository's manifest and crates for a release.
+- An optional feature `portals` (in `full`) for the portals that pass a file or wait for a
+  dialog.
+
 ## [0.49.0] - 2026-11-01
 
 ### Added
@@ -2220,7 +2245,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.49.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.50.0...HEAD
+[0.50.0]: https://github.com/thornbux/glimt/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/thornbux/glimt/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/thornbux/glimt/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/thornbux/glimt/compare/v0.46.0...v0.47.0
