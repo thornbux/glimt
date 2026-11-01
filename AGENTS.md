@@ -259,7 +259,9 @@ the large folder and the EXIF timings. Screenshots of the steps are in
   and Dependabot (`.github/dependabot.yml`) proposes updates of the crates and pinned actions.
 
 By hand: the Flatpak, with two windows (Ctrl+N), `--remote next` to the focused one,
-`--remote-all next` to both and `--remote-all quit`; the AppImage, with a second window (Ctrl+N)
+`--remote-all next` to both and `--remote-all quit`; Delete and Ctrl+Z (the trash portal), File →
+Open File (the file chooser portal), a video, and a plugin, which without the host permission
+says how to give it and with it runs; the AppImage, with a second window (Ctrl+N)
 that stays when the first one closes.
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
@@ -332,8 +334,11 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
-- In the sandbox, external programs go through `command()` in `src/external.rs`, which runs them on
-  the host with `flatpak-spawn --host`; use it for every new external program.
+- Glimt's own external programs go through `command()` or `stoppable_command()` in
+  `src/external.rs`, which in the Flatpak run the runtime's, in the sandbox (Flathub allows no
+  `flatpak-spawn --host`). The user's own programs, and those only the host has, go through
+  `host_command()` or `stoppable_host_command()`: on the host, after `flatpak override --user
+  --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`, else an error saying so.
 - To run it in a virtual X display, add `--nosocket=wayland --nosocket=fallback-x11
   --socket=x11`, and `--filesystem=/tmp/...` for test files: `/tmp` is private in the sandbox.
 

@@ -108,7 +108,7 @@ impl Decoder {
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
         let program = if local.is_file() { local } else { program };
-        let mut child = crate::external::stoppable_command(program.to_string_lossy().as_ref())
+        let mut child = crate::external::stoppable_host_command(program.to_string_lossy().as_ref())
             .args(&args[1..])
             .spawn()
             .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;

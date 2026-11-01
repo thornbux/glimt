@@ -331,7 +331,7 @@ pub const HIGH_CONTRAST: &str = "High Contrast";
 /// The desktop's dark style, accent colour and contrast, from the XDG desktop portal; `None`
 /// and false where it says nothing. Runs `gdbus`, so it belongs in a background thread.
 pub fn desktop() -> Desktop {
-    let read = |key: &str| {
+    let read = |namespace: &str, key: &str| {
         let args = [
             "call",
             "--session",
@@ -341,27 +341,26 @@ pub fn desktop() -> Desktop {
             "/org/freedesktop/portal/desktop",
             "--method",
             "org.freedesktop.portal.Settings.ReadOne",
-            "org.freedesktop.appearance",
+            namespace,
             key,
         ];
         crate::external::limited("gdbus", &args, 1 << 16).unwrap_or_default()
     };
     Desktop {
-        dark: parse_scheme(&read("color-scheme")),
-        accent: parse_accent(&read("accent-color")),
-        high_contrast: parse_contrast(&read("contrast")),
-        text_scale: text_scale(),
+        dark: parse_scheme(&read("org.freedesktop.appearance", "color-scheme")),
+        accent: parse_accent(&read("org.freedesktop.appearance", "accent-color")),
+        high_contrast: parse_contrast(&read("org.freedesktop.appearance", "contrast")),
+        // GNOME's text scaling factor, from the portal too: gsettings in a Flatpak reads the
+        // sandbox's settings, not the desktop's.
+        text_scale: parse_scale(&read("org.gnome.desktop.interface", "text-scaling-factor")),
     }
 }
 
-/// GNOME's text scaling factor (1.25 for Large Text); `None` elsewhere, or outside 0.5–3.
-fn text_scale() -> Option<f32> {
-    let args = ["get", "org.gnome.desktop.interface", "text-scaling-factor"];
-    parse_scale(&crate::external::limited("gsettings", &args, 1 << 10)?)
-}
-
+/// "(<1.25>,)": GNOME's text scaling factor (1.25 for Large Text); `None` elsewhere, or
+/// outside 0.5–3.
 fn parse_scale(text: &str) -> Option<f32> {
-    (text.trim().parse::<f32>().ok()).filter(|s| (0.5..=3.0).contains(s))
+    let n = text.trim().trim_start_matches("(<").split('>').next()?;
+    (n.parse::<f32>().ok()).filter(|s| (0.5..=3.0).contains(s))
 }
 
 /// "(<uint32 1>,)": 1 is high contrast, 0 none.
@@ -461,10 +460,10 @@ mod tests {
         }
     }
 
-    /// gdbus's and gsettings' answers broken in thousands of ways: no panic.
+    /// The portal's answers broken in thousands of ways: no panic.
     #[test]
     fn survives_broken_desktop_answers() {
-        for seed in ["(<uint32 1>,)", "(<(0.93, 0.36, 0.0)>,)", "1.25"] {
+        for seed in ["(<uint32 1>,)", "(<(0.93, 0.36, 0.0)>,)", "(<1.25>,)"] {
             for bytes in crate::broken(seed.as_bytes()) {
                 let text = String::from_utf8_lossy(&bytes);
                 super::parse_scheme(&text);
@@ -482,8 +481,8 @@ mod tests {
         assert_eq!(super::parse_scheme(""), None);
         assert!(super::parse_contrast("(<uint32 1>,)\n"));
         assert!(!super::parse_contrast("(<uint32 0>,)\n") && !super::parse_contrast(""));
-        assert_eq!(super::parse_scale("1.25\n"), Some(1.25));
-        assert_eq!(super::parse_scale("9.0"), None);
+        assert_eq!(super::parse_scale("(<1.25>,)\n"), Some(1.25));
+        assert_eq!(super::parse_scale("(<9.0>,)"), None);
         assert_eq!(super::parse_scale(""), None);
         let orange = super::parse_accent("(<(0.92941176891326904, 0.35686275362968445, 0.0)>,)\n");
         assert_eq!(orange, Some(eframe::egui::Color32::from_rgb(237, 91, 0)));

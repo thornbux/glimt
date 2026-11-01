@@ -298,9 +298,17 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
-The sandbox is loose: Glimt sees every file, and runs ffmpeg, zenity, gio and sqlite3 on the host
-through `flatpak-spawn --host`, so those must be installed there. The thumbnail cache is the
-host's. Settings are in `~/.var/app/io.github.thornbux.Glimt/config/glimt/config`, not in
+Glimt sees every file, as an image viewer must. Its own programs (ffmpeg, zenity, gio, sqlite3)
+are the runtime's, in the sandbox, and file dialogs, the trash and the default application go
+through the desktop portals. Your own programs (plugins, decoders, a video player, the
+applications of Open With) and network shares are on the host, which the Flatpak may reach only
+after
+
+```sh
+flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt
+```
+
+until then they say so instead. The thumbnail cache is the host's. Settings are in `~/.var/app/io.github.thornbux.Glimt/config/glimt/config`, not in
 `~/.config/glimt`, so a Flatpak and a package each have their own. Remote control works between
 Flatpak instances: `flatpak run io.github.thornbux.Glimt --remote next`.
 
@@ -501,7 +509,8 @@ Exec=ffmpeg -v error -protocol_whitelist file -format_whitelist j2k_pipe -f j2k_
   is found there, so a decoder can bring its own script.
 - The program has 30 seconds and may write at most 512 MB; it is stopped after that, with
   everything it started.
-- New decoders are seen after a restart. In a Flatpak they run on the host, as other programs.
+- New decoders are seen after a restart. In a Flatpak they run on the host, as plugins do: see
+  [Flatpak](#flatpak) for the permission that needs.
 
 [`examples/decoders`](examples/decoders) (in `/usr/share/doc/glimt/examples` from the `.deb` or
 `.rpm`) has these, each tested in Glimt's release tests:
@@ -610,8 +619,8 @@ Glimt writes what goes wrong to the terminal: start it from one (`glimt ~/Pictur
 - **Open, Copy or Move show no dialog.** Install `zenity` (or `kdialog` on KDE).
 - **Delete says gio is missing**, or network shares do not open: install `gio` (glib, in
   `libglib2.0-bin` on Debian and Ubuntu) and GVfs.
-- **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; in a
-  Flatpak it runs on the host, so install it there. It must be 3.37 or newer (2021), which reads
+- **Import Lightroom Catalog says sqlite3 is missing.** Install the `sqlite3` program; the
+  Flatpak has its own. It must be 3.37 or newer (2021), which reads
   a catalog in its safe mode; RHEL 8 and other older systems have an older one.
 - **A format of a decoder plugin shows nothing.** The image area shows the decoder's error:
   check that its program is installed and run its `Exec` line by hand on the file. A decoder

@@ -84,7 +84,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if file.with_extension("lrcat.lock").exists() {
         return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
-    if !crate::external::host_has("sqlite3") {
+    if !crate::external::has("sqlite3") {
         return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
     }
     // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
@@ -655,7 +655,7 @@ mod tests {
     /// before it is read.
     #[test]
     fn refuses_a_catalog_with_views() {
-        if !crate::external::host_has("sqlite3") {
+        if !crate::external::has("sqlite3") {
             return eprintln!("no sqlite3: not tested");
         }
         let dir = std::env::temp_dir().join(format!("glimt-test-lrcat-{}", std::process::id()));
@@ -714,7 +714,7 @@ mod tests {
     /// database, which a test cannot point elsewhere.
     #[test]
     fn ignores_the_users_sqliterc() {
-        if !crate::external::host_has("sqlite3") {
+        if !crate::external::has("sqlite3") {
             return eprintln!("no sqlite3: not tested");
         }
         let config = std::env::temp_dir().join(format!("glimt-test-rc-{}", std::process::id()));

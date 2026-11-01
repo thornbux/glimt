@@ -3,7 +3,12 @@
 #       build-flatpak flatpak/io.github.thornbux.Glimt.yml
 # The release workflow makes a bundle of it. The crates come from cargo-sources.json (made by
 # tools/flatpak-sources.py from Cargo.lock), so the build needs no network, as on Flathub.
-# ffmpeg, zenity and gio run on the host through flatpak-spawn, so the sandbox is loose.
+# Glimt's own programs (ffmpeg, zenity, gio, gdbus, sqlite3) are the runtime's, in the sandbox;
+# GTK and gio use the desktop portals there. The user's own (plugins, decoders, a player, Open
+# With's applications) run on the host only after
+#   flatpak override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt
+# The whole file system, as an image viewer's (Geeqie's on Flathub too): any folder, sidecars
+# beside the photos, and the thumbnails shared with the file manager.
 id: io.github.thornbux.Glimt
 runtime: org.freedesktop.Platform
 runtime-version: "26.08"
@@ -20,7 +25,8 @@ finish-args:
   - --device=dri
   - --filesystem=host
   - --filesystem=xdg-run/gvfs
-  - --talk-name=org.freedesktop.Flatpak
+  # The screen's colour profile.
+  - --system-talk-name=org.freedesktop.ColorManager
 modules:
   - name: glimt
     buildsystem: simple

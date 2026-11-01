@@ -197,7 +197,7 @@ pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// `program`'s output on `args`, at most `max` bytes, within `LIMIT`: `None` when it could not
 /// run, failed, gave too much or did not end in time. For a question whose answer is all there
-/// is (gio info, gio mime, lpstat, gdbus, gsettings).
+/// is (gio info, lpstat, gdbus).
 pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -> Option<String> {
     let mut command = stoppable_command(program);
     command.args(args);
@@ -454,7 +454,9 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     // With the usual limit: asked before the mount, this would otherwise wait on a server
     // that never answers, with no watchdog yet.
     let local = || {
-        let out = limited("gio", &["info", "-a", "standard::name", "--", uri], 1 << 16)?;
+        let mut info = stoppable_host_command("gio");
+        info.args(["info", "-a", "standard::name", "--", uri]);
+        let out = String::from_utf8(run_limited(info, 1 << 16, LIMIT).ok()?).ok()?;
         out.lines()
             .find_map(|l| l.strip_prefix("local path: "))
             .map(PathBuf::from)
@@ -462,7 +464,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     if let Some(path) = local() {
         return Ok(path);
     }
-    let mut child = stoppable_command("gio")
+    let mut child = stoppable_host_command("gio")
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
         .spawn()
@@ -587,7 +589,13 @@ fn uri_host(uri: &str) -> &str {
 /// itself left out.
 pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
     // With the usual limit: a file on a share that went away would else hold the menu at "…".
-    let gio = |args: &[&std::ffi::OsStr]| limited("gio", args, 1 << 16).unwrap_or_default();
+    // On the host, which has the applications.
+    let gio = |args: &[&std::ffi::OsStr]| {
+        let mut gio = stoppable_host_command("gio");
+        gio.args(args);
+        let out = run_limited(gio, 1 << 16, LIMIT).unwrap_or_default();
+        String::from_utf8_lossy(&out).into_owned()
+    };
     let info = gio(&[
         "info".as_ref(),
         "-a".as_ref(),
@@ -609,7 +617,7 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
         .map(str::trim)
         // Glimt itself, as a package or as the Flatpak.
         .filter(|id| !matches!(*id, "glimt.desktop" | "io.github.thornbux.Glimt.desktop"));
-    named(stoppable_command("sh"), &ids.collect::<Vec<_>>())
+    named(stoppable_host_command("sh"), &ids.collect::<Vec<_>>())
 }
 
 /// The names and desktop files of the applications `ids`, found by `sh`: on the host in a
@@ -679,22 +687,41 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
     run_limited(gdbus, 1 << 16, LIMIT).map(drop)
 }
 
-/// An external program: ffmpeg, gio, zenity, a player. Inside a Flatpak it runs on the host,
-/// which has them, through `flatpak-spawn --host`.
+/// A program for Glimt's own work: ffmpeg, gio, zenity, gdbus, sqlite3. In a Flatpak it runs in
+/// the sandbox, whose runtime has them, and GTK and gio go through the desktop portals there.
+#[allow(clippy::disallowed_methods)] // one of the two places a program is named to run
 pub fn command(program: &str) -> std::process::Command {
-    host_command(program, &[])
+    std::process::Command::new(program)
+}
+
+/// The user's own program, or one only the host has: a plugin, a decoder, a player, an
+/// application of Open With, gio mount, an idle inhibitor. In a Flatpak it runs on the host
+/// through `flatpak-spawn --host`, which needs a permission the Flatpak does not ask for (Flathub
+/// allows none); without it, a command that fails saying how to give it, so each caller's error
+/// tells the user.
+pub fn host_command(program: &str) -> std::process::Command {
+    host(program, &[])
 }
 
 /// As `command`, for a program Glimt may have to stop, with what every such program needs: a
 /// process group of its own, so its children are stopped with it; no terminal for its input, as
 /// one started from a shell would stop itself (SIGTTOU) touching the terminal from the
 /// background; and its output and errors piped, for `output_of`. One fed on its input sets
-/// `.stdin(Stdio::piped())` after. Inside a Flatpak it runs on the host, out of reach of a
-/// signal to its process group, and `--watch-bus` ends it when its flatpak-spawn is killed.
+/// `.stdin(Stdio::piped())` after.
 pub fn stoppable_command(program: &str) -> std::process::Command {
+    stoppable(command(program))
+}
+
+/// As `host_command`, stoppable as `stoppable_command`. In a Flatpak it runs on the host, out of
+/// reach of a signal to its process group, and `--watch-bus` ends it when its flatpak-spawn is
+/// killed.
+pub fn stoppable_host_command(program: &str) -> std::process::Command {
+    stoppable(host(program, &["--watch-bus"]))
+}
+
+fn stoppable(mut command: std::process::Command) -> std::process::Command {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
-    let mut command = host_command(program, &["--watch-bus"]);
     command
         .process_group(0)
         .stdin(Stdio::null())
@@ -703,33 +730,80 @@ pub fn stoppable_command(program: &str) -> std::process::Command {
     command
 }
 
-/// Whether `program` is there to run: on the host in a Flatpak, where flatpak-spawn starts
-/// even for one the host lacks and fails only afterwards. Asked of the shell and remembered
-/// once it is there; one that is not is asked for again, so a program installed while Glimt
-/// runs is found without a restart. The one way every fallback decides: zenity or kdialog, gio
-/// or xdg-open, which screen saver inhibitor, sqlite3.
+/// Whether `program` is there for `command`. Asked of the shell and remembered once it is
+/// there; one that is not is asked for again, so a program installed while Glimt runs is found
+/// without a restart. The one way every fallback decides: zenity or kdialog, gio or xdg-open,
+/// sqlite3.
+pub fn has(program: &str) -> bool {
+    knows(false, program)
+}
+
+/// Whether `program` is there for `host_command`: on the host in a Flatpak, where flatpak-spawn
+/// starts even for one the host lacks and fails only afterwards. Which idle inhibitor.
 pub fn host_has(program: &str) -> bool {
-    static KNOWN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, bool>>> =
-        std::sync::OnceLock::new();
+    knows(true, program)
+}
+
+fn knows(on_host: bool, program: &str) -> bool {
+    type Known = std::sync::Mutex<std::collections::HashMap<(bool, String), bool>>;
+    static KNOWN: std::sync::OnceLock<Known> = std::sync::OnceLock::new();
     let known = KNOWN.get_or_init(Default::default);
-    if let Some(&has) = known.lock().unwrap().get(program) {
+    let key = (on_host, program.to_owned());
+    if let Some(&has) = known.lock().unwrap().get(&key) {
         return has;
     }
-    let mut sh = stoppable_command("sh");
+    let mut sh = match on_host {
+        true => stoppable_host_command("sh"),
+        false => stoppable_command("sh"),
+    };
     sh.args(["-c", "command -v -- \"$1\" >/dev/null 2>&1", "sh", program]);
     let has = run_limited(sh, 1 << 10, LIMIT).is_ok();
     if has {
-        known.lock().unwrap().insert(program.to_owned(), true);
+        known.lock().unwrap().insert(key, true);
     }
     has
 }
 
-#[allow(clippy::disallowed_methods)] // the one place a program is named to run
-fn host_command(program: &str, flags: &[&str]) -> std::process::Command {
-    if std::env::var_os("FLATPAK_ID").is_none() {
-        return std::process::Command::new(program);
+/// Whether the Flatpak may run programs on the host: `flatpak override --user
+/// --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`, which counts from the next
+/// start. Asked once.
+fn host_allowed() -> bool {
+    static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALLOWED.get_or_init(|| {
+        let mut spawn = stoppable(command("flatpak-spawn"));
+        spawn.args(["--host", "true"]);
+        run_limited(spawn, 1 << 10, LIMIT).is_ok()
+    })
+}
+
+fn host(program: &str, flags: &[&str]) -> std::process::Command {
+    host_for(std::env::var_os("FLATPAK_ID"), host_allowed, program, flags)
+}
+
+/// `host` for the Flatpak `id` (none: not in one), with `allowed` asked only in one.
+fn host_for(
+    id: Option<std::ffi::OsString>,
+    allowed: impl FnOnce() -> bool,
+    program: &str,
+    flags: &[&str],
+) -> std::process::Command {
+    let Some(id) = id else {
+        return command(program);
+    };
+    if !allowed() {
+        let why = crate::tf!(
+            "{program} runs outside the Flatpak, which needs: {how}",
+            program,
+            how = format!(
+                "flatpak override --user --talk-name=org.freedesktop.Flatpak {}",
+                id.to_string_lossy()
+            )
+        );
+        let mut sh = command("sh");
+        sh.args(["-c", "echo \"$1\" >&2; exit 1", "sh", &why]);
+        return sh;
     }
-    let mut cmd = std::process::Command::new("flatpak-spawn");
+    let mut cmd = command("flatpak-spawn");
     let home = std::env::var("HOME").unwrap_or_default();
     (cmd.arg("--host").args(flags))
         .args(host_data_dirs(&home))
@@ -751,6 +825,29 @@ fn host_data_dirs(home: &str) -> [String; 2] {
 
 #[cfg(test)]
 mod tests {
+    /// In a Flatpak a host program goes through flatpak-spawn, and without the permission
+    /// fails saying how to give it; outside one it is just the program.
+    #[test]
+    fn host_programs_need_the_permission_in_a_flatpak() {
+        let args = |c: &std::process::Command| {
+            let mut all = vec![c.get_program().to_string_lossy().into_owned()];
+            all.extend(c.get_args().map(|a| a.to_string_lossy().into_owned()));
+            all
+        };
+        let id = || Some("io.github.thornbux.Glimt".into());
+        let plain = super::host_for(None, || unreachable!(), "mpv", &[]);
+        assert_eq!(args(&plain), ["mpv"]);
+        let spawn = super::host_for(id(), || true, "mpv", &["--watch-bus"]);
+        let spawn = args(&spawn);
+        assert_eq!(spawn[..3], ["flatpak-spawn", "--host", "--watch-bus"]);
+        assert_eq!(spawn.last().unwrap(), "mpv");
+        let mut refused = super::stoppable(super::host_for(id(), || false, "mpv", &[]));
+        refused.arg("x");
+        let why = super::run_limited(refused, 1 << 10, super::LIMIT).unwrap_err();
+        assert!(why.starts_with("mpv runs outside the Flatpak"), "{why}");
+        assert!(why.ends_with("--talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt"));
+    }
+
     /// A program that is there is remembered; one that is not is asked for again, so it is
     /// found once installed.
     #[test]
