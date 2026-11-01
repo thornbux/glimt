@@ -96,6 +96,7 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `flatpak/` | The Flatpak manifest, and `cargo-sources.json`: the crates it builds from without the network |
 | `tools/sbom.py` | Writes `sbom.cdx.json` and `THIRD-PARTY-LICENSES.txt` |
 | `tools/flatpak-sources.py` | Writes `flatpak/cargo-sources.json` from `Cargo.lock` |
+| `tools/flathub-manifest.py` | Writes the Flathub repository's manifest and `cargo-sources.json` for a release tag |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb; `samples.txt` lists real files of each format, downloaded once |
 | `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures with `shots.sh`, using `tests.sh`'s setup (`SHOTS=1`) |
 
@@ -337,6 +338,13 @@ flatpak-builder --user --install --install-deps-from=flathub --force-clean \
 flatpak run io.github.thornbux.Glimt
 ```
 
+- **Flathub** builds its own repository, `flathub/io.github.thornbux.Glimt`, not this one: after
+  each release tag, `python3 tools/flathub-manifest.py vX.Y.Z <its checkout>` writes the
+  manifest with Glimt from the tag (and its commit) and `cargo-sources.json` there, for a pull
+  request; Flathub builds it and publishes once it is merged. Check it with Flathub's linter:
+  `docker run --rm -v <dir>:/m ghcr.io/flathub/flatpak-builder-lint manifest /m/io.github.thornbux.Glimt.yml`.
+  On a local build (`builddir`) the linter's only complaints are the screenshots and icons not
+  mirrored, which Flathub's builder does.
 - Glimt's own external programs go through `command()` or `stoppable_command()` in
   `src/external.rs`, which in the Flatpak run the runtime's, in the sandbox (Flathub allows no
   `flatpak-spawn --host`). The user's own programs, and those only the host has, go through
