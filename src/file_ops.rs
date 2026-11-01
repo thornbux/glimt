@@ -1131,12 +1131,16 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     let (Some(_), Some(home)) = (std::env::var_os("FLATPAK_ID"), home) else {
         return Err(e);
     };
+    // Each one left tried, and the first that still fails told as it failed.
     let left = paths
         .iter()
         .filter(|p| std::fs::symlink_metadata(p).is_ok());
-    match left.map(|p| trash_by_hand(p, &home)).all(|r| r.is_ok()) {
-        true => Ok(()),
-        false => Err(e),
+    let failed: Vec<String> = (left.map(|p| (p, trash_by_hand(p, &home))))
+        .filter_map(|(p, done)| done.err().map(|e| format!("{}: {e}", p.display())))
+        .collect();
+    match failed.into_iter().next() {
+        None => Ok(()),
+        Some(first) => Err(first),
     }
 }
 
