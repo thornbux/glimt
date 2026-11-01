@@ -1710,8 +1710,16 @@ echo "-- the size of menus and lists: a setting, and GNOME's text scaling follow
 d=/tmp/ui-scale
 mkdir -p $d
 convert -size 3000x2000 xc:red $d/a.jpg
+# GNOME's 1.5 as the settings portal says it (gdbus), and as gsettings did before 0.50.0.
+cat >/tmp/stub/gdbus <<'STUB'
+#!/bin/sh
+case "$*" in
+*text-scaling-factor*) echo "(<1.5>,)" ;;
+*) exit 1 ;;
+esac
+STUB
 printf '#!/bin/sh\necho 1.5\n' >/tmp/stub/gsettings
-chmod +x /tmp/stub/gsettings
+chmod +x /tmp/stub/gdbus /tmp/stub/gsettings
 for v in new old; do
     as_version $v
     # The file list is 240 points wide: twice as wide at 200 %, 1.5 times with GNOME's 1.5.
@@ -1724,7 +1732,7 @@ for v in new old; do
         quit
     done
 done
-rm /tmp/stub/gsettings
+rm /tmp/stub/gsettings /tmp/stub/gdbus
 as_version new
 differ "at 200 %, the list where the image began" "$(colour scale-new-ui_scale=200-false 400 400)" red
 differ "GNOME's text scaling followed" "$(colour scale-new-ui_scale=100-true 300 400)" red
