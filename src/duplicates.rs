@@ -246,10 +246,19 @@ fn mean(s: &[u8]) -> f32 {
     s.iter().map(|&v| v as f32).sum::<f32>() / s.len() as f32
 }
 
-/// The means of the four bands of a signature, top to bottom.
+/// The means of `N` equal parts of a signature, top to bottom: four bands, or its 16 rows.
+fn parts<const N: usize>(s: &[u8]) -> [f32; N] {
+    let mut each = s.chunks(s.len().div_ceil(N)).map(mean);
+    [(); N].map(|_| each.next().unwrap_or(0.0))
+}
+
 fn bands(s: &[u8]) -> [f32; 4] {
-    let mut each = s.chunks(s.len().div_ceil(4)).map(mean);
-    [(); 4].map(|_| each.next().unwrap_or(0.0))
+    parts(s)
+}
+
+/// The sum of the differences of two lists of part means.
+fn apart(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).map(|(x, y)| (x - y).abs()).sum()
 }
 
 /// How alike two signatures are, 0–100: 100 less the mean difference of their values.
@@ -258,58 +267,112 @@ fn likeness(a: &[u8], b: &[u8]) -> f32 {
     100.0 - diff as f32 * 100.0 / (255.0 * a.len() as f32)
 }
 
+/// Whether two signatures are at least `percent` alike, as `likeness` says; given up on, a row
+/// at a time, once they differ too much.
+fn alike(a: &[u8], b: &[u8], percent: u8) -> bool {
+    let most = ((100 - percent) as u32 * 255 * a.len() as u32) / 100;
+    let mut diff = 0;
+    for (x, y) in a.chunks(48).zip(b.chunks(48)) {
+        diff += x
+            .iter()
+            .zip(y)
+            .map(|(&p, &q)| p.abs_diff(q) as u32)
+            .sum::<u32>();
+        if diff > most {
+            return false;
+        }
+    }
+    likeness(a, b) >= percent as f32
+}
+
+/// A picture to compare: its mean, its place in the list, its band and row means, its signature.
+type Item = (f32, usize, [f32; 4], [f32; 16], Vec<u8>);
+
 /// Groups of pictures at least `percent` alike, each around its first picture as in Geeqie,
 /// so a chain of small changes does not make one long group. Pictures are taken in order of
 /// mean value, and each is compared only with those whose mean is close enough to match at
 /// all: pictures `percent` alike differ by at most that much in mean too, so none are missed.
-/// Within that, the means of the four bands of the picture rule out most pairs before all 768
-/// values are compared: their differences add up to at most four times as much.
-/// shortcut: a four-step check for every pair about as bright, slow when hundreds of thousands
-/// of pictures are; sort them into buckets by their bands if that gets common.
+/// Within that, the means of the four bands and then of the 16 rows rule out most pairs before
+/// all 768 values are compared: their differences add up to at most 4 and 16 times as much.
+/// The pairs left are still about n × n / 50 (100,000 photos: 86 s on one thread), so a block of
+/// pictures finds its matches on all cores, and the groups are then made in order from them,
+/// as one thread would make them.
 fn similar(
     paths: Vec<PathBuf>,
     signatures: Vec<Option<Vec<u8>>>,
     percent: u8,
     p: &Progress,
 ) -> Vec<Vec<PathBuf>> {
-    let mut items: Vec<(f32, usize, [f32; 4], Vec<u8>)> = (signatures.into_iter().enumerate())
+    let mut items: Vec<Item> = (signatures.into_iter().enumerate())
         .filter_map(|(i, s)| {
             let s = s?;
-            Some((mean(&s), i, bands(&s), s))
+            Some((mean(&s), i, bands(&s), parts(&s), s))
         })
         .collect();
     items.sort_by(|a, b| a.0.total_cmp(&b.0));
     let reach = (100.0 - percent as f32) * 255.0 / 100.0;
-    let mut grouped = vec![false; items.len()];
-    let mut found = Vec::new();
-    for k in 0..items.len() {
-        if p.cancel.load(Ordering::Relaxed) {
-            return Vec::new();
-        }
-        if grouped[k] {
-            continue;
-        }
-        let (mean, i, bands, sig) = &items[k];
-        let mut group = vec![paths[*i].clone()];
-        for (n, (other_mean, j, other_bands, other)) in items.iter().enumerate().skip(k + 1) {
+    // Those alike enough with `k` after it, of those not in a group when its block began.
+    let matches = |k: usize, grouped: &[bool]| -> Vec<usize> {
+        let (mean, _, bands, rows, sig) = &items[k];
+        let mut out = Vec::new();
+        for (n, (other_mean, _, other_bands, other_rows, other)) in
+            items.iter().enumerate().skip(k + 1)
+        {
             if other_mean - mean > reach {
                 break;
             }
-            let apart: f32 = bands
-                .iter()
-                .zip(other_bands)
-                .map(|(a, b)| (a - b).abs())
-                .sum();
-            // A little room for rounding: this only rules out pairs that cannot match.
-            let near = apart <= 4.0 * reach + 0.01;
-            if !grouped[n] && near && likeness(sig, other) >= percent as f32 {
-                grouped[n] = true;
-                group.push(paths[*j].clone());
+            // A little room for rounding: these only rule out pairs that cannot match.
+            if !grouped[n]
+                && apart(bands, other_bands) <= 4.0 * reach + 0.01
+                && apart(rows, other_rows) <= 16.0 * reach + 0.01
+                && alike(sig, other, percent)
+            {
+                out.push(n);
             }
         }
-        if group.len() > 1 {
-            found.push(group);
+        out
+    };
+    p.total.store(items.len(), Ordering::Relaxed);
+    p.done.store(0, Ordering::Relaxed);
+    let mut grouped = vec![false; items.len()];
+    let mut found = Vec::new();
+    // Small while many match (thousands of copies of one picture), so the matches kept for a
+    // block stay few (a million: 8 MB); up to 512 pictures once they match few.
+    let (mut k, mut block) = (0, 1);
+    while k < items.len() {
+        if p.cancel.load(Ordering::Relaxed) {
+            return Vec::new();
         }
+        let ks: Vec<usize> = (k..(k + block).min(items.len()))
+            .filter(|&k| !grouped[k])
+            .collect();
+        let each = in_parts(&ks, crate::background_threads(), |part, _| {
+            part.iter().map(|&k| matches(k, &grouped)).collect()
+        });
+        let mut kept = 0;
+        for (&k, alike) in ks.iter().zip(each) {
+            kept += alike.len();
+            // Taken by a picture before it in the block: not a group of its own.
+            if grouped[k] {
+                continue;
+            }
+            let mut group = vec![paths[items[k].1].clone()];
+            for n in alike {
+                if !grouped[n] {
+                    grouped[n] = true;
+                    group.push(paths[items[n].1].clone());
+                }
+            }
+            if group.len() > 1 {
+                found.push(group);
+            }
+        }
+        k += block;
+        p.done.store(k.min(items.len()), Ordering::Relaxed);
+        block = match kept > 1_000_000 {
+            true => (block / 2).max(1),
+            false => (block * 2).min(512),
+        };
     }
     found
 }
@@ -537,7 +600,7 @@ mod tests {
 
     use super::*;
 
-    /// The band means never rule out a pair that is alike enough.
+    /// The band and row means never rule out a pair that is alike enough.
     #[test]
     fn bands_never_miss_a_match() {
         let mut seed = 1u32;
@@ -561,7 +624,132 @@ mod tests {
                 .sum();
             let reach = (100.0 - alike) * 255.0 / 100.0;
             assert!(apart <= 4.0 * reach + 0.01, "{apart} > 4 × {reach}");
+            let rows = super::apart(&parts::<16>(&a), &parts::<16>(&b));
+            assert!(rows <= 16.0 * reach + 0.01, "{rows} > 16 × {reach}");
         }
+    }
+
+    /// Groups made on all cores are those one thread makes comparing every pair, also with
+    /// thousands of copies of one picture (the blocks shrink) and pictures that chain.
+    #[test]
+    fn groups_as_one_thread_makes_them() {
+        let mut seed = 5u32;
+        let mut next = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            seed >> 16
+        };
+        // Pictures, and near copies of the one before.
+        let mut sigs: Vec<Option<Vec<u8>>> = Vec::new();
+        for k in 0..3000 {
+            let sig: Vec<u8> = match (k % 3, sigs.last()) {
+                (2, Some(Some(last))) => last
+                    .iter()
+                    .map(|&v| v.saturating_add((next() % 12) as u8))
+                    .collect(),
+                _ => {
+                    // Of a few brightnesses, each row its own.
+                    let base = 60 + (next() % 4) as i32 * 40;
+                    let rows: Vec<i32> = (0..16).map(|_| (next() % 200) as i32 - 100).collect();
+                    (0..768)
+                        .map(|i| (base + rows[i / 48]).clamp(0, 255) as u8)
+                        .collect()
+                }
+            };
+            sigs.push(Some(sig));
+        }
+        // Then 2,000 copies of one, and one that could not be read.
+        let first = sigs[0].clone();
+        sigs.extend((0..2000).map(|_| first.clone()));
+        sigs.push(None);
+        let paths: Vec<PathBuf> = (0..sigs.len()).map(|i| format!("/p/{i}").into()).collect();
+        for percent in [95, 90, 85] {
+            let got = similar(paths.clone(), sigs.clone(), percent, &Progress::default());
+            // One thread, every pair, in the same order of means.
+            let mut items: Vec<(f32, usize)> = (sigs.iter().enumerate())
+                .filter_map(|(i, s)| Some((mean(s.as_ref()?), i)))
+                .collect();
+            items.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut grouped = vec![false; items.len()];
+            let mut want = Vec::new();
+            for k in 0..items.len() {
+                if grouped[k] {
+                    continue;
+                }
+                let mut group = vec![paths[items[k].1].clone()];
+                for n in k + 1..items.len() {
+                    let (a, b) = (sigs[items[k].1].as_ref(), sigs[items[n].1].as_ref());
+                    if !grouped[n] && likeness(a.unwrap(), b.unwrap()) >= percent as f32 {
+                        grouped[n] = true;
+                        group.push(paths[items[n].1].clone());
+                    }
+                }
+                if group.len() > 1 {
+                    want.push(group);
+                }
+            }
+            assert!(want.len() > 10, "{percent}%: {} groups", want.len());
+            assert_eq!(got, want, "{percent}%");
+        }
+    }
+
+    /// Similarity on many pictures, timed: run by hand with photos in GLIMT_PHOTOS, as
+    /// `GLIMT_PHOTOS=~/Pictures cargo test --release similarity_at_scale -- --ignored
+    /// --nocapture`. Each picture is a crop of one of them at its own place and size, so each has
+    /// a photo's light and shapes, and few are alike.
+    #[test]
+    #[ignore]
+    fn similarity_at_scale() {
+        let dir = std::env::var("GLIMT_PHOTOS").expect("GLIMT_PHOTOS, a folder of photos");
+        let photos: Vec<image::RgbaImage> = (walkdir_images(std::path::Path::new(&dir)).iter())
+            .filter_map(|p| image::open(p).ok())
+            .map(|i| i.thumbnail(256, 256).to_rgba8())
+            .filter(|i| i.width().min(i.height()) > 32)
+            .collect();
+        println!("{} photos", photos.len());
+        let mut seed = 13u32;
+        let mut next = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            seed >> 8
+        };
+        for n in [5_000, 20_000, 50_000, 100_000] {
+            let sigs: Vec<Option<Vec<u8>>> = (0..n)
+                .map(|k| {
+                    let photo = &photos[k % photos.len()];
+                    let (w, h) = photo.dimensions();
+                    let side = 32 + next() % (w.min(h) - 32);
+                    let (x, y) = (next() % (w - side + 1), next() % (h - side + 1));
+                    Some(signature(
+                        &image::imageops::crop_imm(photo, x, y, side, side).to_image(),
+                    ))
+                })
+                .collect();
+            let paths: Vec<PathBuf> = (0..n).map(|i| format!("/p/{i}").into()).collect();
+            for percent in [95, 90, 85] {
+                let start = std::time::Instant::now();
+                let groups = similar(paths.clone(), sigs.clone(), percent, &Progress::default());
+                println!(
+                    "{n:>7} {percent}%: {:>6.0} ms, {} groups",
+                    start.elapsed().as_secs_f64() * 1000.0,
+                    groups.len()
+                );
+            }
+        }
+    }
+
+    /// The JPEG and PNG files in `dir` and below.
+    fn walkdir_images(dir: &std::path::Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                out.extend(walkdir_images(&p));
+            } else if (p.extension().and_then(|e| e.to_str()))
+                .is_some_and(|e| matches!(e.to_lowercase().as_str(), "jpg" | "jpeg" | "png"))
+            {
+                out.push(p);
+            }
+        }
+        out
     }
 
     #[test]
