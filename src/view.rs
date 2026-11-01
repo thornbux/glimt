@@ -2,9 +2,9 @@
 
 use crate::Action;
 use crate::Decoded;
-use crate::KIOSK_ACTIONS;
 use crate::LAYOUTS;
 use crate::Slot;
+use crate::actions::KIOSK_ACTIONS;
 use crate::app_id;
 use crate::decode;
 use crate::fill_template;
