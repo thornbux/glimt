@@ -337,7 +337,7 @@ fn similar(
     let mut grouped = vec![false; items.len()];
     let mut found = Vec::new();
     // Small while many match (thousands of copies of one picture), so the matches kept for a
-    // block stay few (a million: 8 MB); up to 512 pictures once they match few.
+    // block stay few; up to 512 pictures once they match few.
     let (mut k, mut block) = (0, 1);
     while k < items.len() {
         if p.cancel.load(Ordering::Relaxed) {
@@ -346,16 +346,16 @@ fn similar(
         let ks: Vec<usize> = (k..(k + block).min(items.len()))
             .filter(|&k| !grouped[k])
             .collect();
-        let each = in_parts(&ks, crate::background_threads(), |part, _| {
-            part.iter().map(|&k| matches(k, &grouped)).collect()
-        });
+        let each = in_block(&ks, crate::background_threads(), |k| matches(k, &grouped));
         let mut kept = 0;
         for (&k, alike) in ks.iter().zip(each) {
-            kept += alike.len();
             // Taken by a picture before it in the block: not a group of its own.
             if grouped[k] {
                 continue;
             }
+            // Left out as found by a picture before it, which another group took after all.
+            let alike = alike.unwrap_or_else(|| matches(k, &grouped));
+            kept += alike.len();
             let mut group = vec![paths[items[k].1].clone()];
             for n in alike {
                 if !grouped[n] {
@@ -375,6 +375,29 @@ fn similar(
         };
     }
     found
+}
+
+/// `matches` of each of `ks` (in order, from low to high), on `threads` at once; `None` for one
+/// that a picture before it in the same part found, which then takes it. Without that, a block
+/// of 512 that met 50,000 copies of one picture kept every copy 512 times over.
+fn in_block(
+    ks: &[usize],
+    threads: usize,
+    matches: impl Fn(usize) -> Vec<usize> + Sync,
+) -> Vec<Option<Vec<usize>>> {
+    in_parts(ks, threads, |part, _| {
+        let mut found = std::collections::HashSet::new();
+        (part.iter())
+            .map(|&k| {
+                if found.contains(&k) {
+                    return None;
+                }
+                let alike = matches(k);
+                found.extend(alike.iter().copied());
+                Some(alike)
+            })
+            .collect()
+    })
 }
 
 // ---- The Find Duplicates window ----
@@ -630,7 +653,19 @@ mod tests {
     }
 
     /// Groups made on all cores are those one thread makes comparing every pair, also with
-    /// thousands of copies of one picture (the blocks shrink) and pictures that chain.
+    /// thousands of copies of one picture and pictures that chain.
+    /// A block that meets 5,000 copies of one picture keeps them once for each part, not once
+    /// for each picture of the block: a picture found by one before it in its part is not
+    /// compared again.
+    #[test]
+    fn a_block_keeps_a_crowd_once_a_part() {
+        let ks: Vec<usize> = (0..512).collect();
+        let each = in_block(&ks, 4, |k| (k + 1..5000).collect());
+        let kept: Vec<usize> = (each.iter().flatten()).map(Vec::len).collect();
+        assert_eq!(kept, [4999, 4871, 4743, 4615]);
+        assert_eq!(each.len(), 512);
+    }
+
     #[test]
     fn groups_as_one_thread_makes_them() {
         let mut seed = 5u32;
