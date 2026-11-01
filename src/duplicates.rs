@@ -652,8 +652,6 @@ mod tests {
         }
     }
 
-    /// Groups made on all cores are those one thread makes comparing every pair, also with
-    /// thousands of copies of one picture and pictures that chain.
     /// A block that meets 5,000 copies of one picture keeps them once for each part, not once
     /// for each picture of the block: a picture found by one before it in its part is not
     /// compared again.
@@ -666,6 +664,8 @@ mod tests {
         assert_eq!(each.len(), 512);
     }
 
+    /// Groups made on all cores are those one thread makes comparing every pair, also with
+    /// thousands of copies of one picture and pictures that chain.
     #[test]
     fn groups_as_one_thread_makes_them() {
         let mut seed = 5u32;
