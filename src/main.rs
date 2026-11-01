@@ -8864,10 +8864,15 @@ impl App {
                     .button(iconed(ui, theme::icon::APP, tr("Choose Application…")))
                     .clicked()
                 {
-                    let (tx, path) = (self.notices_tx.clone(), self.path(self.list.cur));
+                    // Each selected file (or the shown one), the chooser asking for each.
+                    let files: Vec<PathBuf> =
+                        self.targets().iter().map(|&i| self.path(i)).collect();
+                    let tx = self.notices_tx.clone();
                     std::thread::spawn(move || {
-                        if let Err(e) = crate::portal::open_with(&path) {
-                            let _ = tx.send(e);
+                        for path in files {
+                            if let Err(e) = crate::portal::open_with(&path) {
+                                let _ = tx.send(e);
+                            }
                         }
                     });
                 }
