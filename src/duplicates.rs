@@ -736,6 +736,33 @@ mod tests {
         }
     }
 
+    /// `find` by similarity over every file in `GLIMT_PHOTOS`, on all threads: the signatures
+    /// made, then read from the thumbnail cache.
+    #[test]
+    #[ignore]
+    fn find_similar_at_scale() {
+        let dir = std::env::var("GLIMT_PHOTOS").expect("GLIMT_PHOTOS, a folder of photos");
+        let paths = walkdir_images(std::path::Path::new(&dir));
+        let n = paths.len();
+        // Saved to the cache the first time and read from it the second.
+        for _ in 0..2 {
+            let start = std::time::Instant::now();
+            let groups = find(
+                paths.clone(),
+                By::Similar(90),
+                true,
+                true,
+                &Progress::default(),
+            );
+            let s = start.elapsed().as_secs_f64();
+            println!(
+                "{n} files: {s:.1} s, {:.2} ms each, {} groups",
+                s * 1000.0 / n as f64,
+                groups.len()
+            );
+        }
+    }
+
     /// The JPEG and PNG files in `dir` and below.
     fn walkdir_images(dir: &std::path::Path) -> Vec<PathBuf> {
         let mut out = Vec::new();
