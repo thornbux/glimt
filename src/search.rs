@@ -206,12 +206,16 @@ fn in_parallel(
     names: &[std::ffi::OsString],
     score_one: impl Fn(&std::ffi::OsString, &mut Vec<u8>) -> Option<i32> + Sync,
 ) -> Vec<(i32, usize)> {
-    crate::in_parts(names, crate::background_threads().min(8), |part, at| {
-        let mut buf = Vec::new();
-        (part.iter().enumerate())
-            .filter_map(|(i, n)| Some((score_one(n, &mut buf)?, at + i)))
-            .collect()
-    })
+    crate::threads::in_parts(
+        names,
+        crate::threads::background_threads().min(8),
+        |part, at| {
+            let mut buf = Vec::new();
+            (part.iter().enumerate())
+                .filter_map(|(i, n)| Some((score_one(n, &mut buf)?, at + i)))
+                .collect()
+        },
+    )
 }
 
 /// The EXIF fields of every file as one lowercase line, read in parallel (small_alloc_threads).
@@ -220,7 +224,7 @@ pub fn exif_index(
     files: &[OsString],
     stop: &std::sync::atomic::AtomicBool,
 ) -> HashMap<OsString, String> {
-    let index = crate::in_parts(files, small_alloc_threads(), |part, _| {
+    let index = crate::threads::in_parts(files, small_alloc_threads(), |part, _| {
         let mut out = Vec::with_capacity(part.len());
         for name in part {
             // Left: the folder is gone from the window, and no one waits for this.

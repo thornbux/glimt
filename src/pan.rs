@@ -80,7 +80,7 @@ fn each<T: Send>(
     stop: &AtomicBool,
     f: impl Fn(&Path) -> Option<T> + Sync,
 ) -> Vec<Option<T>> {
-    crate::in_parts(files, crate::small_alloc_threads(), |part, _| {
+    crate::threads::in_parts(files, crate::threads::small_alloc_threads(), |part, _| {
         let mut path = dir.to_path_buf();
         let mut out = Vec::with_capacity(part.len());
         for name in part {
@@ -542,7 +542,9 @@ mod tests {
             Some(count.fetch_add(1, Ordering::Relaxed))
         });
         assert_eq!(got.len(), 4);
-        assert!(got.iter().filter(|g| g.is_some()).count() <= crate::small_alloc_threads());
+        assert!(
+            got.iter().filter(|g| g.is_some()).count() <= crate::threads::small_alloc_threads()
+        );
     }
 
     /// A file whose reader panics gets no value; the others keep their own.

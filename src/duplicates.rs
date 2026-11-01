@@ -149,7 +149,7 @@ fn parallel<T: Send>(
     p.total.store(paths.len(), Ordering::Relaxed);
     p.done.store(0, Ordering::Relaxed);
     let next = AtomicUsize::new(0);
-    let threads = crate::background_threads();
+    let threads = crate::threads::background_threads();
     let mut results: Vec<(usize, Option<T>)> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..threads)
             .map(|_| {
@@ -346,7 +346,9 @@ fn similar(
         let ks: Vec<usize> = (k..(k + block).min(items.len()))
             .filter(|&k| !grouped[k])
             .collect();
-        let each = in_block(&ks, crate::background_threads(), |k| matches(k, &grouped));
+        let each = in_block(&ks, crate::threads::background_threads(), |k| {
+            matches(k, &grouped)
+        });
         let mut kept = 0;
         for (&k, alike) in ks.iter().zip(each) {
             // Taken by a picture before it in the block: not a group of its own.

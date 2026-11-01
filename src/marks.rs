@@ -260,7 +260,7 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 fn save(edit: Edit) {
     // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
     // a mark set, or moved with its file, just before closing is not lost.
-    let writing = crate::Working::new(&WRITING);
+    let writing = crate::threads::Working::new(&WRITING);
     crate::config::write_later(move || {
         let _writing = writing;
         if let Some(file) = file() {
