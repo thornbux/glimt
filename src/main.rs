@@ -19,6 +19,7 @@ use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, survi
 use duplicates::Dups;
 use eframe::egui;
 use external::{Login, Mounted, apps_for, command, gio_mount, is_video, open_url};
+use file_ops::RenameJob;
 use files::{
     SORTS, Types, has_ext, is_listed, list_folder, list_tree, merge_shuffled, pattern_name,
     shuffle, sort_files, walk,
@@ -703,18 +704,6 @@ fn layout_grid(layout: &str) -> [usize; 2] {
         .iter()
         .find(|l| l.0 == layout)
         .map_or([1, 1], |l| l.2)
-}
-
-/// A Rename Many running in the background: the list as it was (`App::files_gen`), the files
-/// renamed with their new names, and which of them was shown.
-struct RenameJob {
-    files_gen: usize,
-    /// The old names, for the marks and a collection's entries to follow.
-    from: Vec<PathBuf>,
-    to: Vec<PathBuf>,
-    shown: Option<usize>,
-    /// Undo giving the old names back: not itself undone.
-    undoing: bool,
 }
 
 /// What a file dialog (zenity or kdialog) was opened for.
