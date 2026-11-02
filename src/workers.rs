@@ -1,28 +1,16 @@
-//! The background workers: decoding thumbnails, and what the window collects from every background job each frame.
+//! The background workers: decoding thumbnails, and what the window collects from every background
+//! job each frame.
 
-use crate::CPU_CHANGED;
-use crate::Job;
-use crate::LARGE_THUMBS;
-use crate::ThumbView;
-use crate::Took;
-use crate::color_image;
-use crate::config;
-use crate::cores;
-use crate::lightroom;
-use crate::malloc_trim;
-use crate::remote;
-use crate::srgb_to_display;
-use crate::tf;
-use crate::thumb_threads;
-use crate::thumbs;
-use crate::tr;
+use crate::colour::srgb_to_display;
+use crate::decode::color_image;
+use crate::lang::tr;
+use crate::threads::{CPU_CHANGED, Took, cores, thumb_threads};
+use crate::{Job, LARGE_THUMBS, ThumbView, config, lightroom, malloc_trim, remote, tf, thumbs};
 use eframe::egui;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+
 /// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
 /// take jobs: so scrolling the list never delays the shown image.
 #[allow(clippy::type_complexity)]

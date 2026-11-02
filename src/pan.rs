@@ -2,9 +2,16 @@
 //! each day, oldest first, or as a calendar of the months that have images. The days come from
 //! the file dates, or from the EXIF dates.
 
-use crate::*;
+use crate::format::{count, thousands};
+use crate::lang::tr;
+use crate::threads::{Receiving, Took, Working};
+use crate::{pan, tf};
+use eframe::egui;
 use std::ffi::OsString;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
+use std::time::Instant;
 
 /// A day ("2024-05-06", or "No date") and the list indices of its images, in time order.
 pub type Day = (String, Vec<usize>);
@@ -559,6 +566,7 @@ impl crate::App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
 
     /// Stopped, nothing more is read: every file after gets no value.
     #[test]

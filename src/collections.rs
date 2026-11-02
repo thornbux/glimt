@@ -3,18 +3,12 @@
 //! collections can be opened too.
 
 use crate::actions::Action;
-use crate::file_ops;
-use crate::menus::iconed;
-use crate::menus::menu_item;
-use crate::menus::scroll_menu;
-use crate::noted;
-use crate::tf;
-use crate::theme;
-use crate::tr;
+use crate::lang::tr;
+use crate::menus::{iconed, menu_item, scroll_menu};
+use crate::{file_ops, noted, tf, theme};
 use eframe::egui;
 use std::collections::HashSet;
-use std::ffi::OsStr;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 

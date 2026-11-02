@@ -1,43 +1,26 @@
-//! The side panel: the folder list, the file list or icon grid with its thumbnails, dragging and the rubber band, and the status bar under it.
+//! The side panel: the folder list, the file list or icon grid with its thumbnails, dragging and
+//! the rubber band, and the status bar under it.
 
-use crate::Action;
-use crate::CELL_EXTRA;
-use crate::DATE_WIDTH;
-use crate::DETAILS_WIDTH;
-use crate::LARGE_THUMBS;
-use crate::MAX_THUMBS;
-use crate::Receiving;
-use crate::SORTS;
-use crate::THUMB_MARGIN;
-use crate::THUMBS;
-use crate::Types;
-use crate::collections;
-use crate::config;
-use crate::count;
-use crate::dialogs::Pick;
-use crate::dialogs::Prompt;
-use crate::is_video;
-use crate::list_folder;
-use crate::local_time;
-use crate::menus::scroll_menu;
-use crate::menus::tool_button;
-use crate::middle_cut;
-use crate::noted;
-use crate::size_text;
-use crate::sort_folders_from;
-use crate::sort_folders_path;
-use crate::tf;
-use crate::theme;
-use crate::thousands;
-use crate::tr;
-use crate::view::broken_mark;
-use crate::view::pane_map;
+use crate::actions::Action;
+use crate::config::{sort_folders_from, sort_folders_path};
+use crate::dialogs::{Pick, Prompt};
+use crate::external::is_video;
+use crate::files::{SORTS, Types, list_folder};
+use crate::format::{count, local_time, middle_cut, size_text, thousands};
+use crate::lang::tr;
+use crate::menus::{scroll_menu, tool_button};
+use crate::threads::Receiving;
+use crate::view::{broken_mark, pane_map};
+use crate::{
+    CELL_EXTRA, DATE_WIDTH, DETAILS_WIDTH, LARGE_THUMBS, MAX_THUMBS, THUMB_MARGIN, THUMBS,
+    collections, config, noted, tf, theme,
+};
 use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+
 /// A rectangle being dragged in the icon grid to select.
 pub(crate) struct RubberBand {
     /// Where it started, from the top left of the grid's content, so it scrolls along.

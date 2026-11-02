@@ -4,47 +4,31 @@
 //! is decoded only when the user zooms past what that covers. Only a small window around
 //! the current image is kept in memory.
 
-use crate::dialogs::Pick;
-use crate::dialogs::Prompt;
+use crate::dialogs::{Pick, Prompt};
 use crate::file_list::RubberBand;
-use crate::info_panel::ExifRead;
-use crate::info_panel::MetaEdit;
-use crate::info_panel::spawn_exif_reader;
-use crate::selection::round_ends;
-use crate::view::DecodeJob;
-use crate::view::Shown;
-use crate::view::View;
-use crate::view::layout_grid;
-use crate::view::spawn_decoders;
+use crate::info_panel::{ExifRead, MetaEdit, spawn_exif_reader};
+use crate::view::{DecodeJob, Shown, View, spawn_decoders};
 use crate::window::Ender;
 use crate::workers::spawn_thumbnailers;
-use actions::{Action, OWN_KEYS, SHORTCUTS, shortcut_text, shortcuts};
+use actions::{Action, OWN_KEYS};
 use check::Check;
 use colour::{
-    COLOR_MANAGEMENT, FILTERS, INPUT_PROFILES, INTENTS, SCREEN_WAIT, SCREEN_WAIT_MS, VIEW_FILTER,
-    colour_source, read_desktop_screen, set_colour, set_input, set_intent, set_screen,
-    srgb_to_display,
+    COLOR_MANAGEMENT, SCREEN_WAIT, SCREEN_WAIT_MS, VIEW_FILTER, read_desktop_screen, set_colour,
+    set_input, set_intent, set_screen,
 };
 use config::{
-    CPU_LEVELS, Config, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE, WindowState,
-    keyword_tree_path, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
-    write_atomic, xdg_dir,
+    Config, FADES, WindowState, keyword_tree_path, parse_last_dir, sort_folders_from,
+    sort_folders_path, state_path, write_atomic,
 };
-use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, survive};
+use decode::{Decoded, Hist, MAX_ANIMATION, decode};
 use duplicates::Dups;
 use eframe::egui;
-use external::{Login, Mounted, apps_for, command, gio_mount, is_video, open_url};
+use external::{Login, Mounted};
 use file_ops::RenameJob;
-use files::{
-    SORTS, Types, has_ext, is_listed, list_folder, list_tree, merge_shuffled, pattern_name,
-    shuffle, sort_files, walk,
-};
-use format::{count, fill_template, human_size, local_time, middle_cut, size_text, thousands};
-use lang::tr;
-use meta::Meta;
+use files::{Types, has_ext};
+use format::{count, human_size, local_time, thousands};
 use pan::Pan;
-use print::{PrintDialog, PrintJob, PrintTo};
-use save::save_rotated;
+use print::PrintDialog;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -52,8 +36,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 use threads::{
-    CPU_CHANGED, ONE_ARENA, Receiving, Took, Working, background_threads, cores, in_parts,
-    set_cpu_use, small_alloc_threads, thread_cpu_us, thumb_threads,
+    ONE_ARENA, Receiving, Working, cores, set_cpu_use, small_alloc_threads, thread_cpu_us,
 };
 
 #[cfg(feature = "accessibility")]

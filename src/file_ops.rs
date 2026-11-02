@@ -2,8 +2,20 @@
 //! the orientation, and the jobs that run them in the background with their progress and Stop.
 //! Copies are written under a hidden name and get their own once whole; no file is overwritten.
 
+use crate::decode::survive;
+use crate::files::pattern_name;
 use crate::folder::total_size;
-use crate::*;
+use crate::format::count;
+use crate::lang::tr;
+use crate::save::save_rotated;
+use crate::threads::{Receiving, Working};
+use crate::{Deleted, Job, Undo, collections, config, decode, exif, journal, meta, tf};
+use eframe::egui;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 
 /// A Rename Many running in the background: the list as it was (`App::files_gen`), the files
 /// renamed with their new names, and which of them was shown.

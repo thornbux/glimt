@@ -6,7 +6,7 @@
 //! folder is in the app's own runtime folder, the part of `$XDG_RUNTIME_DIR` its instances
 //! share. Both ends are here: `client` sends, `listen` receives.
 
-use crate::Action;
+use crate::actions::Action;
 #[cfg(feature = "test-hooks")]
 use crate::hooks;
 use eframe::egui;

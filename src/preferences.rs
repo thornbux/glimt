@@ -1,8 +1,18 @@
 //! Edit → Preferences: one window of every setting, in sections, saved when one changes (when
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
+use crate::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
+use crate::colour::{INPUT_PROFILES, INTENTS};
+use crate::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
+use crate::decode::MAX_ANIMATION;
 use crate::dialogs::Pick;
-use crate::*;
+use crate::format::thousands;
+use crate::lang::tr;
+use crate::threads::{Working, set_cpu_use};
+use crate::{actions, config, lang, tf, theme, thumbs};
+use eframe::egui;
+use std::path::Path;
+use std::sync::atomic::Ordering;
 
 impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.

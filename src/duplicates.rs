@@ -1,12 +1,17 @@
 //! Find Duplicates, as in Geeqie: groups of images that are the same file, have the same name,
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
-use crate::*;
-use std::collections::HashMap;
+use crate::format::{count, human_size, thousands};
+use crate::lang::tr;
+use crate::threads::{Receiving, Took, in_parts};
+use crate::{duplicates, tf};
+use eframe::egui;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum By {

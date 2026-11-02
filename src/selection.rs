@@ -1,17 +1,15 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
-use crate::Receiving;
-use crate::Took;
 use crate::Viewing;
-use crate::folder::drain;
-use crate::folder::total_size;
-use crate::thousands;
+use crate::folder::{drain, total_size};
+use crate::format::thousands;
+use crate::threads::{Receiving, Took};
 use eframe::egui;
 use std::ffi::OsString;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Instant;
+
 /// The row `delta` on from `row` of `n` rows, wrapping round or stopping at the ends; from
 /// before the first row (`None`, the shown file hidden by a search) the step counts from there.
 pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -> Option<usize> {
