@@ -5,6 +5,18 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-11-02
+
+### Changed
+
+- The source is organised for whoever reads it next; Glimt itself works as before. `main.rs`,
+  a third of the code at 11,600 lines, is down to about 3,100: the window's parts are each in
+  a module of their own (the image area, the file list, menus, dialogs, the info panel,
+  folders, the selection, the slideshow, Check Images and more), and helpers for text and
+  threads are in `format.rs` and `threads.rs`. Every module names what it uses instead of
+  `use crate::*`, two tuples of five and six fields became structs with named fields, and long
+  comments are wrapped. AGENTS.md lists the modules.
+
 ## [0.50.0] - 2026-11-01
 
 ### Changed
@@ -2245,7 +2257,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.50.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.51.0...HEAD
+[0.51.0]: https://github.com/thornbux/glimt/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/thornbux/glimt/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/thornbux/glimt/compare/v0.48.0...v0.49.0
 [0.48.0]: https://github.com/thornbux/glimt/compare/v0.47.0...v0.48.0
