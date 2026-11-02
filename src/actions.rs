@@ -797,23 +797,6 @@ impl crate::App {
         self.confirm_delete.is_some() || self.prompt.is_some()
     }
 
-    /// Busy pointer while the folder is read (also sorted anew), a share mounted, work done in
-    /// the background, or the shown image still decoded.
-    pub(crate) fn working(&self) -> bool {
-        let decoding = !self.list.files.is_empty()
-            && !self.list.slots.contains_key(&self.list.cur)
-            && !self.list.decode_errors.contains_key(&self.list.cur);
-        decoding || self.working_besides_image()
-    }
-
-    /// `working` but for the shown image's decode, which a full-screen slideshow waits on at
-    /// every image not preloaded.
-    pub(crate) fn working_besides_image(&self) -> bool {
-        self.listing_rx.is_some()
-            || self.mounting_rx.is_some()
-            || self.busy.load(Ordering::Relaxed) > 0
-    }
-
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
     pub(crate) fn shortcut(
