@@ -8,7 +8,7 @@ use crate::external::is_video;
 use crate::files::{SORTS, Types, list_folder};
 use crate::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::lang::tr;
-use crate::menus::{scroll_menu, tool_button};
+use crate::menus::scroll_menu;
 use crate::threads::Receiving;
 use crate::view::{broken_mark, pane_map};
 use crate::{
@@ -743,47 +743,6 @@ impl crate::App {
                     .join(" + "),
             };
         }
-    }
-
-    /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
-    pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
-        let size = [14.0, 20.0, 28.0][self.config.toolbar_icons.min(2)];
-        egui::Panel::top("toolbar").show(ui, |ui| {
-            ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
-            ui.horizontal(|ui| {
-                tool_button(ui, act, theme::icon::BACK, Action::Back, false);
-                tool_button(ui, act, theme::icon::FORWARD, Action::Forward, false);
-                tool_button(ui, act, theme::icon::UP, Action::Up, false);
-                tool_button(ui, act, theme::icon::HOME, Action::Home, false);
-                tool_button(ui, act, theme::icon::REFRESH, Action::Refresh, false);
-                ui.separator();
-                tool_button(ui, act, theme::icon::ZOOM_IN, Action::ZoomIn, false);
-                tool_button(ui, act, theme::icon::ZOOM_OUT, Action::ZoomOut, false);
-                tool_button(ui, act, "1:1", Action::Zoom1To1, false);
-                tool_button(
-                    ui,
-                    act,
-                    theme::icon::FIT,
-                    Action::ZoomFit,
-                    self.zoom.is_none(),
-                );
-                ui.separator();
-                tool_button(
-                    ui,
-                    act,
-                    theme::icon::THUMBNAILS,
-                    Action::Thumbnails,
-                    self.config.thumbnails,
-                );
-                let show = if self.slideshow.is_some() {
-                    theme::icon::STOP
-                } else {
-                    theme::icon::PLAY
-                };
-                tool_button(ui, act, show, Action::Slideshow, self.slideshow.is_some());
-                tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
-            });
-        });
     }
 
     /// The left side as in Geeqie: the path, the folders at the top, the search and the files
