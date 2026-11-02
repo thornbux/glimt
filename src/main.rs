@@ -462,12 +462,8 @@ struct App {
     /// The file list with everything indexed into it.
     list: List,
     // ---- Settings ----
-    /// The desktop's dark style and accent colour, once read from the portal.
-    desktop_look: theme::Desktop,
-    desktop_rx: Receiving<theme::Desktop>,
-    /// The desktop's screen profile file, once read from colord.
-    desktop_screen: Option<String>,
-    desktop_screen_rx: Receiving<Option<String>>,
+    /// What the desktop says: its dark style and accent, and its screen profile.
+    desktop: theme::FromDesktop,
     /// The Preferences window: open or not, its search, and the action whose key is being chosen.
     prefs: preferences::Prefs,
     config: Config,
@@ -692,18 +688,11 @@ impl App {
             remote_rx,
             ctx: ctx.clone(),
             list: List::default(),
-            desktop_look: Default::default(),
-            desktop_rx: Receiving::of(desktop_rx),
-            desktop_screen: None,
-            desktop_screen_rx: (config.desktop_profile)
-                .then(|| read_desktop_screen(ctx))
-                .map_or_else(Receiving::none, Receiving::of),
             plugins: plugins::find(),
             plugins_running: plugins::Running::default(),
             notices_rx: notices,
             notice: screen_error.or_else(|| config_notice(problems)),
             help: None,
-            config,
             last_view: None,
             image_id: None,
             focus_by_keys: false,
@@ -893,6 +882,16 @@ impl App {
                 tx: apps_tx,
                 rx: apps_rx,
             },
+            desktop: theme::FromDesktop {
+                look: Default::default(),
+                look_rx: Receiving::of(desktop_rx),
+                screen: None,
+                screen_rx: (config.desktop_profile)
+                    .then(|| read_desktop_screen(ctx))
+                    .map_or_else(Receiving::none, Receiving::of),
+            },
+            // Last: the fields before it read it.
+            config,
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {

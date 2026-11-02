@@ -1,6 +1,8 @@
 //! Glimt's look: Inter for text, Phosphor icons, rounder widgets with more room, and the
 //! desktop's light or dark style and accent colour, from the XDG desktop portal (GNOME, KDE).
 
+use crate::Receiving;
+use crate::theme;
 use eframe::egui;
 use std::sync::Arc;
 
@@ -175,6 +177,16 @@ pub struct Desktop {
     pub high_contrast: bool,
     /// The size of text, as GNOME's Large Text and text scaling set it.
     pub text_scale: Option<f32>,
+}
+
+/// What the desktop says: its dark style and accent, and its screen profile.
+pub(crate) struct FromDesktop {
+    /// The desktop's dark style and accent colour, once read from the portal.
+    pub(crate) look: theme::Desktop,
+    pub(crate) look_rx: Receiving<theme::Desktop>,
+    /// The desktop's screen profile file, once read from colord.
+    pub(crate) screen: Option<String>,
+    pub(crate) screen_rx: Receiving<Option<String>>,
 }
 
 /// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then

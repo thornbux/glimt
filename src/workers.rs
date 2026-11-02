@@ -21,13 +21,13 @@ impl crate::App {
         if let Some(error) = config::take_save_error() {
             self.notice = Some(error);
         }
-        if let Took::Answer(look) = self.desktop_rx.take() {
-            self.desktop_look = look;
+        if let Took::Answer(look) = self.desktop.look_rx.take() {
+            self.desktop.look = look;
             self.apply_theme(ctx);
         }
-        if let Took::Answer(path) = self.desktop_screen_rx.take() {
-            self.desktop_screen = path;
-            if self.desktop_screen.is_some() {
+        if let Took::Answer(path) = self.desktop.screen_rx.take() {
+            self.desktop.screen = path;
+            if self.desktop.screen.is_some() {
                 self.use_screen();
             }
         }

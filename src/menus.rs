@@ -37,7 +37,7 @@ impl crate::App {
     /// The chosen theme, read from its file again, with the desktop's look where it sets none;
     /// High Contrast while the desktop asks for it, unless that is turned off.
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
-        let look = self.desktop_look;
+        let look = self.desktop.look;
         let name = match look.high_contrast && self.config.follow_contrast {
             true => theme::HIGH_CONTRAST,
             false => &self.config.theme,
@@ -137,8 +137,8 @@ impl crate::App {
     pub(crate) fn set_desktop_profile(&mut self, on: bool, ctx: &egui::Context) {
         self.config.desktop_profile = on;
         self.config.save();
-        if on && self.desktop_screen.is_none() {
-            self.desktop_screen_rx = Receiving::of(read_desktop_screen(ctx));
+        if on && self.desktop.screen.is_none() {
+            self.desktop.screen_rx = Receiving::of(read_desktop_screen(ctx));
         }
         self.use_screen();
     }
@@ -146,7 +146,7 @@ impl crate::App {
     /// Show through the desktop's screen profile when it counts and colord has one, else through
     /// the chosen one.
     pub(crate) fn use_screen(&mut self) {
-        let path = match &self.desktop_screen {
+        let path = match &self.desktop.screen {
             Some(p) if self.config.desktop_profile => p.clone(),
             _ => self.config.screen_profile.clone(),
         };
