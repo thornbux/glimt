@@ -3,6 +3,7 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
+use crate::dialogs::Pick;
 use crate::*;
 use std::io::Write;
 

@@ -3,9 +3,18 @@
 //! collections can be opened too.
 
 use crate::actions::Action;
+use crate::file_ops;
+use crate::menus::iconed;
+use crate::menus::menu_item;
+use crate::menus::scroll_menu;
+use crate::noted;
 use crate::tf;
+use crate::theme;
+use crate::tr;
+use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -69,7 +78,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     let name = valid(name)?;
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
-    #[allow(clippy::disallowed_methods)] // a collection's own lock, as collections::edit
+    #[allow(clippy::disallowed_methods)] // a collection's own lock, as edit
     let _held = crate::config::file_lock(file);
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
@@ -317,6 +326,179 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
     let at = rest.iter().take_while(|&&i| i < to).count();
     rest.splice(at..at, first);
     rest
+}
+
+impl crate::App {
+    // ---- Collections ----
+
+    /// Make `change` to the open collection's file as it is now, with what other windows changed.
+    pub(crate) fn edit_collection(&mut self, change: impl FnOnce(&mut Vec<PathBuf>)) {
+        let Some(file) = &self.collection else { return };
+        // A plain list is the user's own: shown, never written.
+        if is_list(file) {
+            return;
+        }
+        // shortcut: read and written in the UI thread, small text files; move to
+        // config::write_later if collections of hundreds of thousands are edited.
+        match edit(file, false, change) {
+            Ok(()) => {}
+            // Renamed or moved to the trash in another window since it was opened here: not
+            // made again under its old name.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.notice = Some(tf!(
+                    "The collection {file} is gone (renamed or removed in another window): not saved",
+                    file = file.display()
+                ))
+            }
+            Err(e) => self.notice = Some(tf!("Could not save the collection: {e}", e)),
+        }
+    }
+
+    /// The collection's file put in the order of the list, unless shuffled for a slideshow.
+    pub(crate) fn save_collection_order(&mut self) {
+        if self.shuffled {
+            return;
+        }
+        let ours: Vec<PathBuf> = (0..self.list.files.len()).map(|i| self.path(i)).collect();
+        self.edit_collection(|all| reorder(all, &ours));
+    }
+
+    /// Move the selected images (or the shown one) of the open collection one place earlier or
+    /// later, or to its start or end, and save its new order: a slideshow plays it so. Several
+    /// selected keep their order among themselves; the shown image and the selection follow.
+    // shortcut: the whole list put together again for each move, some milliseconds for 100,000
+    // images; move the indices alone if collections that large are moved image by image.
+    pub(crate) fn move_in_collection(
+        &mut self,
+        ctx: &egui::Context,
+        picked: HashSet<usize>,
+        order: Vec<usize>,
+    ) {
+        if self.collection.is_none() {
+            self.notice = Some(tr("Only the images of a collection can be moved").into());
+            return;
+        }
+        // An empty collection: nothing to move, and no shown image to keep.
+        if self.list.files.is_empty() {
+            return;
+        }
+        if self.shuffled {
+            self.notice = Some(tr("Random order is on: R turns it off to move images").into());
+            return;
+        }
+        let shown = self.list.files.get(self.list.cur).cloned();
+        let names: HashSet<OsString> = picked.iter().map(|&i| self.list.files[i].clone()).collect();
+        let files: Vec<OsString> = order.iter().map(|&i| self.list.files[i].clone()).collect();
+        let selected = !self.list.selected.is_empty();
+        self.replace_files(ctx, files, shown);
+        if selected {
+            self.reselect(ctx, &names);
+        }
+        self.save_collection_order();
+    }
+
+    /// The open collection's file to the trash, through gio in the background; the images stay,
+    /// and the window shows the shown image's folder.
+    pub(crate) fn trash_collection(&mut self, ctx: &egui::Context) {
+        let Some(file) = self.collection.clone() else {
+            return;
+        };
+        if !self.background(ctx, vec![file.clone()], move || {
+            let name = file
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            Some(match file_ops::trash(std::slice::from_ref(&file)) {
+                Ok(()) => tf!("Collection {name} moved to the trash", name),
+                Err(err) => tf!("Could not trash {name}: {err}", name, err),
+            })
+        }) {
+            return;
+        }
+        let folder = (!self.list.files.is_empty())
+            .then(|| self.path(self.list.cur))
+            .and_then(|p| p.parent().map(Path::to_path_buf));
+        if let Some(folder) = folder.or_else(std::env::home_dir) {
+            self.visit(ctx, folder);
+        }
+    }
+
+    /// Add the selected files, or the shown image, to the collection in `file`.
+    pub(crate) fn add_to_collection(&mut self, file: &Path) {
+        let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
+        let name = file.file_stem().unwrap_or_default().to_string_lossy();
+        self.notice = Some(match append(file, &paths) {
+            Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
+            Err(e) => tf!("Could not save the collection: {e}", e),
+        });
+    }
+
+    /// File menu entries for collections; the ones listing collections read the folder only
+    /// while open.
+    pub(crate) fn collections_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::NewCollection);
+        menu_item(ui, act, Action::OpenCollection);
+        menu_item(ui, act, Action::ImportLightroom);
+        let mut open = None;
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::STACK, tr("Collections")),
+            |ui| {
+                let all = list();
+                if all.is_empty() {
+                    ui.label(tr("No collections yet"));
+                }
+                for (name, file) in all {
+                    if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked() {
+                        open = Some(file);
+                    }
+                }
+            },
+        );
+        if !self.list.files.is_empty() {
+            scroll_menu(
+                ui,
+                iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
+                |ui| {
+                    let all = list();
+                    if all.is_empty() {
+                        ui.label(tr("No collections yet"));
+                    }
+                    for (name, file) in all {
+                        if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked()
+                        {
+                            self.add_to_collection(&file);
+                        }
+                    }
+                },
+            );
+        }
+        if let Some(file) = &self.collection {
+            menu_item(ui, act, Action::RemoveFromCollection);
+            // A plain list is the user's own file: Glimt never writes it.
+            if !is_list(file) {
+                menu_item(ui, act, Action::RenameCollection);
+                menu_item(ui, act, Action::TrashCollection);
+            }
+            ui.menu_button(
+                iconed(ui, theme::icon::MOVE_IN, tr("Move in Collection")),
+                |ui| {
+                    for action in [
+                        Action::MoveEarlier,
+                        Action::MoveLater,
+                        Action::MoveFirst,
+                        Action::MoveLast,
+                    ] {
+                        menu_item(ui, act, action);
+                    }
+                },
+            );
+        }
+        if let Some(file) = open {
+            self.visit(ui.ctx(), file);
+        }
+    }
 }
 
 #[cfg(test)]
