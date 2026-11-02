@@ -814,18 +814,6 @@ impl crate::App {
             || self.busy.load(Ordering::Relaxed) > 0
     }
 
-    pub(crate) fn dialog_open(&self) -> bool {
-        self.preferences_open
-            || self.confirm_delete.is_some()
-            || self.confirm_folder
-            || self.prompt.is_some()
-            || self.login.is_some()
-            || self.print_window.is_some()
-            || self.lightroom.is_some()
-            || self.save_as.is_some()
-            || !self.cut_short.is_empty()
-    }
-
     /// The action for a shortcut pressed this frame, if any.
     /// `delete_key` false: the Delete key does nothing (Ctrl+D still deletes), as in Geeqie.
     pub(crate) fn shortcut(
