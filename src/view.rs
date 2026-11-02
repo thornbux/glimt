@@ -195,10 +195,20 @@ pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
         .map_or([1, 1], |l| l.2)
 }
 
-/// (index, full resolution, path, page, the job's number in `pending`).
-/// Index, full resolution, path, page, job number, and the box to shrink into (sent with the
-/// job, so a decode is at the size asked for when it was asked, whatever the view did since).
-pub(crate) type DecodeJob = (usize, bool, PathBuf, usize, u64, [u32; 2]);
+/// An image for the decode workers.
+pub(crate) struct DecodeJob {
+    /// Its place in the list.
+    pub(crate) idx: usize,
+    /// At full resolution (zoomed in), not the view's size.
+    pub(crate) full: bool,
+    pub(crate) path: PathBuf,
+    pub(crate) page: usize,
+    /// The job's number, as `pending` knows it.
+    pub(crate) job: u64,
+    /// The box to shrink into, sent with the job, so a decode is at the size asked for when it
+    /// was asked, whatever the view did since.
+    pub(crate) max: [u32; 2],
+}
 
 /// The decode workers: `workers` threads that take jobs and send back what they decoded,
 /// skipping images the list has moved past (`keep`).
@@ -223,7 +233,15 @@ pub(crate) fn spawn_decoders(
         );
         std::thread::spawn(move || {
             loop {
-                let Ok((idx, full, path, page, job, max)) = job_rx.lock().unwrap().recv() else {
+                let Ok(DecodeJob {
+                    idx,
+                    full,
+                    path,
+                    page,
+                    job,
+                    max,
+                }) = job_rx.lock().unwrap().recv()
+                else {
                     return;
                 };
                 // Cancellation: skip images the user has already moved past.
@@ -341,7 +359,15 @@ impl crate::App {
             } else {
                 0
             };
-            let _ = (self.decode_jobs).send((idx, full, path, page, self.decodes_sent, max));
+            let job = self.decodes_sent;
+            let _ = (self.decode_jobs).send(DecodeJob {
+                idx,
+                full,
+                path,
+                page,
+                job,
+                max,
+            });
         }
     }
 
