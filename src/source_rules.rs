@@ -20,17 +20,83 @@ pub(crate) fn sources() -> Vec<(String, String)> {
     files
 }
 
+/// `text` with its comments and the insides of its string and char literals blanked, line for
+/// line, so a check reads code only: a line of a string or a comment is never taken for an
+/// item, an import or a function.
+fn code_only(text: &str) -> String {
+    let b: Vec<char> = text.chars().collect();
+    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    let ident = |k: usize| k < b.len() && (b[k] == '_' || b[k].is_alphanumeric());
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < b.len() {
+        let (c, next) = (b[i], b.get(i + 1).copied());
+        // How many # follow an r that starts a raw string (r"…", r#"…"#, br"…"), if one does.
+        let raw = (c == 'r'
+            && (i == 0 || !ident(i - 1) || (b[i - 1] == 'b' && (i < 2 || !ident(i - 2)))))
+        .then(|| b[i + 1..].iter().take_while(|&&h| h == '#').count())
+        .filter(|&h| b.get(i + 1 + h) == Some(&'"'));
+        let end = if c == '/' && next == Some('/') {
+            (i..b.len()).find(|&k| b[k] == '\n').unwrap_or(b.len())
+        } else if c == '/' && next == Some('*') {
+            (i + 2..b.len())
+                .find(|&k| b[k - 1] == '*' && b[k] == '/')
+                .map_or(b.len(), |k| k + 1)
+        } else if let Some(h) = raw {
+            let close: Vec<char> = std::iter::once('"')
+                .chain(std::iter::repeat_n('#', h))
+                .collect();
+            (i + 2 + h..b.len())
+                .find(|&k| b[k..].starts_with(&close))
+                .map_or(b.len(), |k| k + close.len())
+        } else if c == '"' {
+            let mut k = i + 1;
+            while k < b.len() && b[k] != '"' {
+                k += if b[k] == '\\' { 2 } else { 1 };
+            }
+            k + 1
+        } else if c == '\'' && (next == Some('\\') || b.get(i + 2) == Some(&'\'')) {
+            // A char literal, not a lifetime.
+            (i + 2..b.len())
+                .find(|&k| b[k] == '\'')
+                .map_or(b.len(), |k| k + 1)
+        } else {
+            out.push(c);
+            i += 1;
+            continue;
+        };
+        let end = end.min(b.len());
+        out.extend(b[i..end].iter().map(|&c| blank(c)));
+        i = end;
+    }
+    out
+}
+
+/// `line` without what may come before `fn`, `struct` and the like: visibility, `unsafe`,
+/// `async`, and `const` when a function follows (a const fn is a function, not a constant).
+fn qualifiers_off(line: &str) -> &str {
+    let mut l = line;
+    loop {
+        let before = l;
+        for prefix in ["pub(crate) ", "pub(super) ", "pub ", "unsafe ", "async "] {
+            l = l.strip_prefix(prefix).unwrap_or(l);
+        }
+        if let Some(rest) = l
+            .strip_prefix("const ")
+            .filter(|r| qualifiers_off(r).starts_with("fn "))
+        {
+            l = rest;
+        }
+        if l == before {
+            return l;
+        }
+    }
+}
+
 /// The place of a top-level item in a file's order, from the line it starts on; `None` for a
 /// line that starts none (a comment, an attribute, the rest of an item).
 fn rank(line: &str) -> Option<(u8, &'static str)> {
-    let mut l = line;
-    for prefix in ["pub(crate) ", "pub(super) ", "pub ", "unsafe ", "async "] {
-        l = l.strip_prefix(prefix).unwrap_or(l);
-    }
-    // A const fn is a function, not a constant.
-    if let Some(rest) = l.strip_prefix("const ").filter(|r| r.starts_with("fn ")) {
-        l = rest;
-    }
+    let l = qualifiers_off(line);
     let starts = |word: &str| {
         l.strip_prefix(word)
             .is_some_and(|rest| rest.starts_with([' ', '<', '!', '(', '"']))
@@ -71,7 +137,14 @@ fn items_are_in_order() {
     let mut wrong = Vec::new();
     for (name, text) in sources().into_iter().filter(|(n, _)| n.ends_with(".rs")) {
         let (mut last, mut last_what, mut apps) = (0, "use and mod", 0);
-        for (i, line) in text.lines().enumerate() {
+        let code = code_only(&text);
+        let mut in_tests = false;
+        for (i, line) in code.lines().enumerate() {
+            // Inside the tests module nothing is ranked; after its end, everything is.
+            if in_tests {
+                in_tests = line != "}";
+                continue;
+            }
             let Some((r, what)) = rank(line) else {
                 continue;
             };
@@ -85,6 +158,7 @@ fn items_are_in_order() {
                 wrong.push(format!("{name}:{}: {what} after {last_what}", i + 1));
             }
             (last, last_what) = (r, what);
+            in_tests = r == 5 && !line.trim_end().ends_with('}');
         }
     }
     assert!(wrong.is_empty(), "out of order:\n{}", wrong.join("\n"));
@@ -157,22 +231,21 @@ fn functions_stay_short() {
     const ARM: usize = 6;
     let mut wrong = Vec::new();
     for (file, text) in sources().into_iter().filter(|(n, _)| n.ends_with(".rs")) {
-        let lines: Vec<&str> = text.lines().collect();
+        let code = code_only(&text);
+        let lines: Vec<&str> = code.lines().collect();
         let end = (lines.iter())
             .position(|l| l.starts_with("mod tests"))
             .unwrap_or(lines.len());
         for i in 0..end {
             let line = lines[i];
-            let Some(at) = line.find("fn ") else {
+            let indent = line.len() - line.trim_start().len();
+            let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") else {
                 continue;
             };
-            let head = &line[..at];
-            let words = ["", "pub(crate) ", "pub ", "const ", "unsafe "];
-            let indent = head.len() - head.trim_start().len();
-            if !words.iter().any(|w| head.trim_start() == *w) || line.trim_end().ends_with(';') {
+            if line.trim_end().ends_with(';') {
                 continue;
             }
-            let name = line[at + 3..].split(['(', '<']).next().unwrap_or("");
+            let name = rest.split(['(', '<']).next().unwrap_or("");
             // On one line: nothing to measure, and its indent's next `}` is another item's.
             if line.trim_end().ends_with('}') {
                 continue;
@@ -184,7 +257,8 @@ fn functions_stay_short() {
             if TABLES.contains(&(file.as_str(), name)) {
                 for k in i..last {
                     // An arm's block opens after `=>`, or on a line of its own after a guard.
-                    let opens = lines[k].trim_end().ends_with("=> {")
+                    // (`=> {`, `=> if … {`, `=> match … {`).
+                    let opens = (lines[k].contains("=> ") && lines[k].trim_end().ends_with('{'))
                         || (lines[k].trim() == "{" && lines[k - 1].trim_end().ends_with("=>"));
                     if !opens {
                         continue;
@@ -216,70 +290,100 @@ fn functions_stay_short() {
 /// stops using it. main.rs names its modules the same way, `crate::actions::…`.
 #[test]
 fn imports_name_where_defined() {
-    // Built from parts, so this test's own text does not match them.
-    const CRATE: &str = concat!("crate", "::");
-    const SUPER: &str = concat!("super", "::");
     let all = sources();
     let rust = || all.iter().filter(|(n, _)| n.ends_with(".rs"));
     let modules: Vec<&str> = rust().map(|(n, _)| n.trim_end_matches(".rs")).collect();
     let main = &all.iter().find(|(n, _)| n == "main.rs").unwrap().1;
-    let main_items = main.split("\nmod tests {").next().unwrap();
+    let main_code = code_only(main);
+    let main_items = main_code.split("\nmod tests {").next().unwrap();
     // What main.rs defines itself, the macros, and main.rs's tests module.
     let defined = |name: &str| {
         let words = [
-            "struct", "enum", "fn", "type", "const", "static", "trait", "mod",
+            "struct ", "enum ", "fn ", "type ", "const ", "static ", "trait ", "mod ",
         ];
         let defines = |l: &str| {
-            let l = l.trim_start();
-            let l = l.strip_prefix("pub(crate) ").unwrap_or(l);
+            let l = qualifiers_off(l.trim_start());
             words.iter().any(|w| {
-                l.strip_prefix(w)
-                    .and_then(|r| r.strip_prefix(' '))
-                    .is_some_and(|r| {
-                        r.starts_with(name)
-                            && !r[name.len()..]
-                                .starts_with(|c: char| c == '_' || c.is_alphanumeric())
-                    })
+                l.strip_prefix(w).is_some_and(|r| {
+                    r.starts_with(name)
+                        && !r[name.len()..].starts_with(|c: char| c == '_' || c.is_alphanumeric())
+                })
             })
         };
         main_items.lines().any(defines)
             || rust().any(|(_, t)| t.contains(&format!("macro_rules! {name} ")))
             || name == "tests"
     };
+    let first_word = |s: &str| -> String {
+        let s = s.trim_start();
+        s.chars()
+            .take_while(|c| *c == '_' || c.is_alphanumeric())
+            .collect()
+    };
     let mut wrong = Vec::new();
     for (file, text) in rust() {
-        let mut in_tests = false;
-        for (i, line) in text.lines().enumerate() {
-            if line.trim_start().starts_with("//") {
+        let code = code_only(text);
+        let line_of = |at: usize| code[..at].matches('\n').count() + 1;
+        // Every `crate::` path: its first name, or in `crate::{…}` (over several lines too)
+        // the first name of each entry at the top of the braces.
+        for (at, _) in code.match_indices("crate::") {
+            let before = code[..at].chars().next_back();
+            if before.is_some_and(|c| c == '$' || c == '_' || c.is_alphanumeric()) {
                 continue;
             }
-            let mut rest = line;
-            while let Some(at) = rest.find(CRATE) {
-                rest = &rest[at + CRATE.len()..];
-                // `crate::{a, b}`: each name in the braces.
-                let names: Vec<&str> = match rest.strip_prefix('{') {
-                    Some(inner) => (inner.split('}').next().unwrap_or("").split(','))
-                        .map(|n| n.trim().split("::").next().unwrap_or(""))
-                        .collect(),
-                    None => vec![rest],
-                };
-                for name in names {
-                    let name: String = (name.chars())
-                        .take_while(|c| *c == '_' || c.is_alphanumeric())
-                        .collect();
-                    if !name.is_empty() && !modules.contains(&name.as_str()) && !defined(&name) {
-                        wrong.push(format!("{file}:{}: {CRATE}{name}", i + 1));
+            let rest = &code[at + "crate::".len()..];
+            let mut names = Vec::new();
+            match rest.strip_prefix('{') {
+                Some(inner) => {
+                    // The first name of each entry at depth 1; a nested `{…}` is that name's.
+                    let (mut depth, mut name, mut taking) = (1, String::new(), true);
+                    for c in inner.chars() {
+                        match c {
+                            '{' => (depth, taking) = (depth + 1, false),
+                            '}' => depth -= 1,
+                            ',' if depth == 1 => {
+                                names.push(std::mem::take(&mut name));
+                                taking = true;
+                            }
+                            c if depth == 1 && taking && (c == '_' || c.is_alphanumeric()) => {
+                                name.push(c)
+                            }
+                            _ if !name.is_empty() => taking = false,
+                            _ => {}
+                        }
+                        if depth == 0 {
+                            names.push(name);
+                            break;
+                        }
                     }
                 }
+                None => names.push(first_word(rest)),
             }
-            let bare = line.strip_prefix("use ").and_then(|l| l.split("::").next());
-            if file == "main.rs" && bare.is_some_and(|m| modules.contains(&m)) {
-                wrong.push(format!("main.rs:{}: use without {CRATE}", i + 1));
+            for name in &names {
+                if !name.is_empty() && !modules.contains(&name.as_str()) && !defined(name) {
+                    wrong.push(format!("{file}:{}: crate::{name}", line_of(at)));
+                }
             }
-            // A module's super is the crate root, main.rs: the same way round its imports.
-            in_tests |= line.starts_with("mod tests");
-            if !in_tests && line.contains(SUPER) {
-                wrong.push(format!("{file}:{}: {SUPER} outside the tests", i + 1));
+        }
+        // A file's super is the crate root, main.rs, outside its tests and inline modules: the
+        // same way round its imports.
+        let mut inside = false;
+        for (i, line) in code.lines().enumerate() {
+            if inside {
+                inside = line != "}";
+                continue;
+            }
+            let item = qualifiers_off(line);
+            if item.starts_with("mod ") && line.trim_end().ends_with('{') {
+                inside = true;
+                continue;
+            }
+            if line.contains("super::") {
+                wrong.push(format!("{file}:{}: super:: outside the tests", i + 1));
+            }
+            let bare = line.strip_prefix("use ").map(first_word);
+            if file == "main.rs" && bare.is_some_and(|m| modules.contains(&m.as_str())) {
+                wrong.push(format!("main.rs:{}: use without crate::", i + 1));
             }
         }
     }
