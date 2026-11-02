@@ -159,6 +159,13 @@ fn block_end(lines: &[String], i: usize) -> Option<usize> {
     (i + 1..lines.len()).find(|j| closes(j) && lines[*j].trim_start().starts_with('}'))
 }
 
+/// The line where the tests module starts in `lines`, or their end without one.
+fn tests_start(lines: &[String]) -> usize {
+    (lines.iter())
+        .position(|l| qualifiers_off(l) == "mod tests {")
+        .unwrap_or(lines.len())
+}
+
 /// The place of the top-level item that starts on `line` (a line of `code_lines`); `None` for a
 /// line that starts none (an attribute, the rest of an item, a blank).
 fn place(line: &str) -> Option<Place> {
@@ -238,16 +245,12 @@ fn tests_sit_beside_their_code() {
         "parses_start_options",
         "new_window_program",
     ];
-    let text = source("main.rs");
-    let tests = text.split("\nmod tests {").nth(1).unwrap();
-    let mut lines = tests.lines();
+    let code = code_lines(&source("main.rs"));
+    let mut lines = code[tests_start(&code)..].iter().map(|l| l.trim());
     while let Some(line) = lines.next() {
-        if line.trim() == "#[test]" {
+        if line == "#[test]" {
             // Past other attributes, such as #[ignore], to the function.
-            let name = (lines.by_ref())
-                .map(str::trim)
-                .find(|l| !l.starts_with("#["))
-                .unwrap();
+            let name = (lines.by_ref()).find(|l| !l.starts_with("#[")).unwrap();
             let name = name.trim_start_matches("fn ").split('(').next().unwrap();
             assert!(
                 OWN.contains(&name),
@@ -289,12 +292,11 @@ fn functions_stay_short() {
         ("actions.rs", "run"),
     ];
     const ARM: usize = 6;
+    const SETUP: usize = 20;
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
-        let end = (lines.iter())
-            .position(|l| l == "mod tests {")
-            .unwrap_or(lines.len());
+        let end = tests_start(&lines);
         for i in 0..end {
             let Some(rest) = qualifiers_off(lines[i].trim_start()).strip_prefix("fn ") else {
                 continue;
@@ -316,14 +318,25 @@ fn functions_stay_short() {
                 }
                 continue;
             }
+            // Before its match, a table does little: a few lines that set it up.
+            let setup = (i..last).take_while(|&j| !lines[j].trim_start().starts_with("match "));
+            if setup.filter(|&j| !lines[j].is_empty()).count() > SETUP {
+                wrong.push(format!(
+                    "{file}:{}: {name} does much before its match",
+                    i + 1
+                ));
+            }
             for k in (i..last).filter(|&k| lines[k].contains("=>")) {
-                // From the `=>` line, or the `{` after a guard, to where the next arm starts.
+                // From the `=>` line, or the `{` after a guard, to where the next arm starts;
+                // a comment (blank as code) inside an arm is part of it.
                 let start = if lines[k + 1].trim() == "{" { k + 1 } else { k };
-                let stop = (start + 1..=last)
-                    .find(|&j| indent(&lines[j]) <= indent(&lines[start]))
-                    .unwrap_or(last);
+                let next = |j: &usize| {
+                    !lines[*j].is_empty() && indent(&lines[*j]) <= indent(&lines[start])
+                };
+                let stop = (start + 1..=last).find(next).unwrap_or(last);
                 let closes = lines[stop].trim_start().starts_with(['}', ')', ']']);
-                if stop - start + usize::from(closes) > ARM {
+                let n = (start..stop).filter(|&j| !lines[j].is_empty()).count();
+                if n + usize::from(closes) > ARM {
                     wrong.push(format!("{file}:{}: an arm of {name} is long", k + 1));
                 }
             }
@@ -360,20 +373,28 @@ fn crate_paths(lines: &[String]) -> Vec<(usize, String)> {
             continue;
         };
         let (mut depth, mut name, mut taking) = (1, String::new(), true);
-        for c in inner.chars() {
+        // Where the name being read starts in `code`, for its line.
+        let mut entry = at;
+        let base = code.len() - inner.len();
+        for (from, c) in inner.char_indices().map(|(k, c)| (base + k, c)) {
             match c {
                 '{' => (depth, taking) = (depth + 1, false),
                 '}' => depth -= 1,
                 ',' if depth == 1 => {
-                    paths.push((line_of(at), std::mem::take(&mut name)));
+                    paths.push((line_of(entry), std::mem::take(&mut name)));
                     taking = true;
                 }
-                c if depth == 1 && taking && (word(c) || c == '*') => name.push(c),
+                c if depth == 1 && taking && (word(c) || c == '*') => {
+                    if name.is_empty() {
+                        entry = from;
+                    }
+                    name.push(c)
+                }
                 _ if !name.is_empty() => taking = false,
                 _ => {}
             }
             if depth == 0 {
-                paths.push((line_of(at), name));
+                paths.push((line_of(entry), name));
                 break;
             }
         }
@@ -393,34 +414,31 @@ fn imports_name_where_defined() {
         .map(|(n, _)| n.trim_end_matches(".rs"))
         .collect();
     let main = code_lines(&source("main.rs"));
-    let main_end = (main.iter())
-        .position(|l| l == "mod tests {")
-        .unwrap_or(main.len());
-    // An item main.rs defines at its top level, a macro, or main.rs's tests module.
+    let main_end = tests_start(&main);
     let words = [
         "struct ", "enum ", "fn ", "type ", "const ", "static ", "trait ", "mod ",
     ];
+    // main.rs's lines at the top level, and in a top-level extern block (malloc_trim).
+    let mut in_extern = false;
+    let top: Vec<&str> = (main[..main_end].iter())
+        .filter(|l| {
+            let opens = qualifiers_off(l).starts_with("extern ") && l.ends_with('{');
+            in_extern = (in_extern || opens) && l.as_str() != "}";
+            indent(l) == 0 || in_extern
+        })
+        .map(|l| qualifiers_off(l.trim_start()))
+        .collect();
+    // An item main.rs defines there, a macro, or main.rs's tests module.
     let defined = |name: &str| {
-        let defines = |l: &&String| {
-            let l = qualifiers_off(l.trim_start());
+        let defines = |l: &&str| {
             words.iter().any(|w| {
                 (l.strip_prefix(w).and_then(|r| r.strip_prefix(name)))
                     .is_some_and(|r| !r.starts_with(|c: char| c == '_' || c.is_alphanumeric()))
             })
         };
-        // At the top level, or declared in a top-level extern block (malloc_trim).
-        let mut in_extern = false;
-        let top: Vec<&String> = (main[..main_end].iter())
-            .filter(|l| {
-                let opens = qualifiers_off(l).starts_with("extern ") && l.ends_with('{');
-                in_extern = (in_extern || opens) && l.as_str() != "}";
-                indent(l) == 0 || in_extern
-            })
-            .collect();
+        let macro_rule = format!("macro_rules! {name} ");
         top.iter().any(defines)
-            || files
-                .iter()
-                .any(|(_, t)| t.contains(&format!("macro_rules! {name} ")))
+            || files.iter().any(|(_, t)| t.contains(&macro_rule))
             || name == "tests"
     };
     let mut wrong = Vec::new();
@@ -465,7 +483,8 @@ fn super_only_inside_modules() {
     );
 }
 
-/// main.rs names its modules as every other file does, `crate::actions::…`, not `actions::…`.
+/// main.rs imports from its modules as every other file does, `use crate::actions::…`, not
+/// `use actions::…`.
 #[test]
 fn main_names_its_modules_with_crate() {
     let modules: Vec<String> = (rust_sources().into_iter())
