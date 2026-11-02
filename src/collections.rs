@@ -17,6 +17,11 @@ use std::path::{Path, PathBuf};
 const LISTS: &[&str] = &["txt", "m3u", "m3u8"];
 
 impl crate::App {
+    /// The collection shown is a plain list (.txt, .m3u), which Glimt reads but never writes.
+    pub(crate) fn collection_is_list(&self) -> bool {
+        self.folder.collection.as_deref().is_some_and(is_list)
+    }
+
     // ---- Collections ----
 
     /// Make `change` to the open collection's file as it is now, with what other windows changed.

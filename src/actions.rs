@@ -820,13 +820,7 @@ impl crate::App {
                 self.remove_from_collection(ctx)
             }
             Action::RemoveFromCollection => {}
-            Action::RenameCollection | Action::TrashCollection
-                if self
-                    .folder
-                    .collection
-                    .as_deref()
-                    .is_some_and(collections::is_list) =>
-            {
+            Action::RenameCollection | Action::TrashCollection if self.collection_is_list() => {
                 self.notice = Some(tr("A plain list is not renamed or trashed by Glimt").into());
             }
             Action::RenameCollection => {
@@ -921,15 +915,7 @@ impl crate::App {
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
             Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.
-            Action::NextPage | Action::PrevPage
-                if self
-                    .list
-                    .slots
-                    .get(&self.list.cur)
-                    .is_some_and(|s| s.anim.len() > 1) =>
-            {
-                self.step_frame(action)
-            }
+            Action::NextPage | Action::PrevPage if self.animated() => self.step_frame(action),
             Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info.exif_window = !self.info.exif_window,
             Action::Keywords => {

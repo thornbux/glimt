@@ -792,6 +792,11 @@ impl crate::App {
         }
     }
 
+    /// The shown image is an animation, of more than one frame.
+    pub(crate) fn animated(&self) -> bool {
+        (self.list.slots.get(&self.list.cur)).is_some_and(|s| s.anim.len() > 1)
+    }
+
     /// Frames, or pages, of the shown file: for the status bar and the File menu's entries.
     pub(crate) fn frame_count(&self) -> usize {
         (self.list.slots.get(&self.list.cur)).map_or(1, |s| s.anim.len().max(s.pages))

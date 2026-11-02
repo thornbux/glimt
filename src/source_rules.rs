@@ -250,7 +250,9 @@ fn tests_sit_beside_their_code() {
     while let Some(line) = lines.next() {
         if line == "#[test]" {
             // Past other attributes, such as #[ignore], to the function.
-            let name = (lines.by_ref()).find(|l| !l.starts_with("#[")).unwrap();
+            let name = (lines.by_ref())
+                .find(|l| !l.is_empty() && !l.starts_with("#["))
+                .unwrap();
             let name = name.trim_start_matches("fn ").split('(').next().unwrap();
             assert!(
                 OWN.contains(&name),
@@ -281,8 +283,8 @@ fn app_stays_small() {
 }
 
 /// A function a reader takes in whole: at most 120 lines outside the tests. The exceptions are
-/// tables of one arm per action, whose arms stay a few lines each: a longer arm is a method
-/// of its own, in the module of what it does.
+/// tables of one arm per action (`table_is_short`), whose arms stay a few lines each: a longer
+/// arm is a method of its own, in the module of what it does.
 #[test]
 fn functions_stay_short() {
     const MOST: usize = 120;
@@ -291,8 +293,6 @@ fn functions_stay_short() {
         ("actions.rs", "icon"),
         ("actions.rs", "run"),
     ];
-    const ARM: usize = 6;
-    const SETUP: usize = 20;
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
         let lines = code_lines(&text);
@@ -318,27 +318,8 @@ fn functions_stay_short() {
                 }
                 continue;
             }
-            // Before its match, a table does little: a few lines that set it up.
-            let setup = (i..last).take_while(|&j| !lines[j].trim_start().starts_with("match "));
-            if setup.filter(|&j| !lines[j].is_empty()).count() > SETUP {
-                wrong.push(format!(
-                    "{file}:{}: {name} does much before its match",
-                    i + 1
-                ));
-            }
-            for k in (i..last).filter(|&k| lines[k].contains("=>")) {
-                // From the `=>` line, or the `{` after a guard, to where the next arm starts;
-                // a comment (blank as code) inside an arm is part of it.
-                let start = if lines[k + 1].trim() == "{" { k + 1 } else { k };
-                let next = |j: &usize| {
-                    !lines[*j].is_empty() && indent(&lines[*j]) <= indent(&lines[start])
-                };
-                let stop = (start + 1..=last).find(next).unwrap_or(last);
-                let closes = lines[stop].trim_start().starts_with(['}', ')', ']']);
-                let n = (start..stop).filter(|&j| !lines[j].is_empty()).count();
-                if n + usize::from(closes) > ARM {
-                    wrong.push(format!("{file}:{}: an arm of {name} is long", k + 1));
-                }
+            if let Err(e) = table_is_short(&lines, i, last) {
+                wrong.push(format!("{file}:{}: {name} {e}", i + 1));
             }
         }
     }
@@ -347,6 +328,39 @@ fn functions_stay_short() {
         "split these into functions of what each part does:\n{}",
         wrong.join("\n")
     );
+}
+
+/// A table, lines `first..=last` of a function: a few lines that set it up, then one `match`
+/// that ends it, whose arms (pattern, guard and body, a pattern's `| …` lines aside) are short.
+fn table_is_short(lines: &[String], first: usize, last: usize) -> Result<(), String> {
+    const SETUP: usize = 20;
+    const ARM: usize = 8;
+    let solid = |range: std::ops::Range<usize>| range.filter(|&j| !lines[j].is_empty()).count();
+    let body = indent(&lines[first]) + 4;
+    // The last match at the body's indent, which must end the function.
+    let table = (first + 1..last)
+        .rev()
+        .find(|&j| indent(&lines[j]) == body && lines[j].trim_start().starts_with("match "))
+        .filter(|&m| block_end(lines, m) == Some(last - 1))
+        .ok_or("does not end in its match")?;
+    if solid(first..table) > SETUP {
+        return Err("does much before its match".into());
+    }
+    // An arm starts at the arms' indent with anything but the rest of a pattern or a brace.
+    let arm = indent(&lines[table]) + 4;
+    let starts: Vec<usize> = (table + 1..last - 1)
+        .filter(|&j| {
+            indent(&lines[j]) == arm && !lines[j].trim_start().starts_with(['|', '{', '}'])
+        })
+        .chain([last - 1])
+        .collect();
+    for pair in starts.windows(2) {
+        let pattern = (pair[0]..pair[1]).filter(|&j| lines[j].trim_start().starts_with('|'));
+        if solid(pair[0]..pair[1]) - pattern.count() > ARM {
+            return Err(format!("has a long arm at line {}", pair[0] + 1));
+        }
+    }
+    Ok(())
 }
 
 /// The first name of every `crate::` path in `lines`, with its line number: in `crate::{…}`,
