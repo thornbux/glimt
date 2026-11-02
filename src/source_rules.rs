@@ -97,3 +97,31 @@ fn items_are_in_order() {
     }
     assert!(wrong.is_empty(), "out of order:\n{}", wrong.join("\n"));
 }
+
+/// A test sits in the tests of the module whose code it tests. main.rs's tests module has what
+/// such tests start from (`app_on`, `settle`), which drew every test that needed a whole `App`
+/// into it once; only the tests of main.rs's own code stay there.
+#[test]
+fn tests_sit_beside_their_code() {
+    const OWN: &[&str] = &[
+        "an_app_lists_its_folder_without_a_window",
+        "tells_settings_problems_but_unknown_ones",
+        "parses_start_options",
+        "new_window_program",
+    ];
+    let text =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
+    let tests = text.split("\nmod tests {").nth(1).unwrap();
+    let mut lines = tests.lines();
+    while let Some(line) = lines.next() {
+        if line.trim() == "#[test]" {
+            let name = lines.next().unwrap().trim();
+            let name = name.trim_start_matches("fn ").split('(').next().unwrap();
+            assert!(
+                OWN.contains(&name),
+                "{name} is in main.rs: put it in the tests of the module it tests, with \
+                 crate::tests::app_on for an App, or list it in OWN if it tests main.rs"
+            );
+        }
+    }
+}

@@ -56,7 +56,7 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its fields by group, `List`, `Slot`, `Viewing` and `Start`, starting up, the frame (`eframe::App`), `Job`, `noted` for the release tests' hook, `main()` and the command line; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. The tests that need a whole `App` (`tests::app_on`) are here too, for every part: the slideshow, the view, file operations, remote selects |
+| `src/main.rs` | The app: `App` and its fields by group, `List`, `Slot`, `Viewing` and `Start`, starting up, the frame (`eframe::App`), `Job`, `noted` for the release tests' hook, `main()` and the command line; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. Its tests module has what tests that need a whole `App` start from (`app_on`, `settle`, `contract_folder`); each module's tests use them, so a test sits beside the code it tests |
 | `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
@@ -148,7 +148,7 @@ Every `.rs` file has its items in this order, so a reader finds things where the
   settings shown in Preferences only when built in. Never break the default build. "Plugin"
   means only the desktop files in Edit → Plugins, and decoder plugins.
 - **A file operation** (one that starts a job or background work) joins
-  `file_operations_keep_their_contract` in main.rs: a line with what it does to the contract's
+  `file_operations_keep_their_contract` in file_ops.rs: a line with what it does to the contract's
   folder and what must hold after (the file, its sidecar, its stars, the collection's entry, held
   back while other work changes its files). `every_file_operation_is_in_the_contract` fails
   until it is there, or listed with the reason it is not.
@@ -302,8 +302,9 @@ without the host permission says how to give it and with it runs; the AppImage, 
 that stays when the first one closes.
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
-without a window: `tests::app_on(dir)` in main.rs makes an `App` on `egui::Context::default()`
-with settings of its own, listed, in milliseconds. A fix there gets such a test.
+without a window: `crate::tests::app_on(dir)` makes an `App` on `egui::Context::default()`
+with settings of its own, listed, in milliseconds. A fix there gets such a test, in the tests of
+the module the fix is in, not in main.rs (`source_rules::tests_sit_beside_their_code`).
 
 A fix in the window code that a unit test cannot reach (painting, keys, clicks) gets a check in `tests.sh`: the steps
 with keys, `--remote` and clicks by text (`menu File "Open With"`, through the `test-hooks`

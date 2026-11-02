@@ -244,3 +244,227 @@ pub(crate) fn next_slide(
         false => Slide::Step(next),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{app_on, settle};
+
+    /// A random slideshow with subfolders, without Repeat, started on the last image: it does
+    /// not end before its list is read, and stopped before that, the list comes back in sort
+    /// order with no image moved.
+    #[test]
+    fn a_random_slideshow_waits_for_its_list() {
+        for stop in [false, true] {
+            let d = std::env::temp_dir()
+                .join(format!("glimt-test-slides-{stop}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(d.join("sub")).unwrap();
+            for i in 0..5 {
+                image::RgbImage::new(2, 2)
+                    .save(d.join(format!("{i}.png")))
+                    .unwrap();
+                image::RgbImage::new(2, 2)
+                    .save(d.join("sub").join(format!("{i}.png")))
+                    .unwrap();
+            }
+            let (mut app, ctx) = app_on(&d);
+            let sorted = app.list.files.clone();
+            app.go(&ctx, 4);
+            app.config.slideshow_subfolders = true;
+            app.config.random = true;
+            app.config.slideshow_repeat = false;
+            app.start_slideshow(&ctx);
+            app.slideshow_tick(&ctx);
+            assert!(app.slideshow.is_some(), "ended before its list came");
+            if stop {
+                app.stop_slideshow(&ctx);
+            } else {
+                // Random off and on again while the list is read: it still comes shuffled.
+                app.set_random_order(&ctx, false);
+                app.set_random_order(&ctx, true);
+            }
+            assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+            if stop {
+                assert_eq!(app.list.files, sorted);
+            } else {
+                // Shuffled, its round starting at the image shown (the first slide may have
+                // come since).
+                assert_eq!(
+                    (app.list.files.len(), app.list.files[0].to_str()),
+                    (10, Some("4.png"))
+                );
+                // Not the sort order with the shown image put first.
+                let mut sorted = app.list.files.clone();
+                sorted.sort();
+                let at = sorted.iter().position(|f| f == "4.png").unwrap();
+                sorted.swap(0, at);
+                assert_ne!(app.list.files, sorted, "shuffled");
+            }
+            std::fs::remove_dir_all(&d).unwrap();
+        }
+    }
+
+    /// A playlist back in its own order when random is turned off while it is read again: the
+    /// listing copies the list, which was still shuffled.
+    #[test]
+    fn a_playlist_random_off_during_a_refresh_is_in_its_order() {
+        let d = std::env::temp_dir().join(format!("glimt-test-m3u-off-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let mut m3u = String::new();
+        for i in 0..30 {
+            let f = d.join(format!("{i:02}.png"));
+            image::RgbImage::new(2, 2).save(&f).unwrap();
+            m3u.push_str(&format!("{}\n", f.display()));
+        }
+        let file = d.join("c.m3u");
+        std::fs::write(&file, m3u).unwrap();
+        let (mut app, ctx) = app_on(&file);
+        let order = app.list.files.clone();
+        app.config.random = true;
+        app.start_slideshow(&ctx);
+        assert!(app.shuffled && app.list.files != order);
+        // A refresh on its way.
+        app.list(&ctx);
+        app.set_random_order(&ctx, false);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()
+            && a.size_rx.is_none()));
+        assert_eq!(app.list.files, order);
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A random slideshow of a collection with its subfolders plays in random order, also when
+    /// the list was shuffled (R) before: the collection is read again from its file for it.
+    #[test]
+    fn a_random_slideshow_of_a_collection_is_shuffled() {
+        for shuffled_first in [false, true] {
+            let d = std::env::temp_dir().join(format!(
+                "glimt-test-shuffle-{shuffled_first}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut gqv = String::from("#GQview collection\n");
+            for i in 0..30 {
+                let f = d.join(format!("{i:02}.png"));
+                image::RgbImage::new(2, 2).save(&f).unwrap();
+                gqv.push_str(&format!("\"{}\"\n", f.display()));
+            }
+            let file = d.join("c.gqv");
+            std::fs::write(&file, gqv).unwrap();
+            let (mut app, ctx) = app_on(&file);
+            let order = app.list.files.clone();
+            app.config.slideshow_subfolders = true;
+            app.config.random = true;
+            if shuffled_first {
+                app.shuffle_list(&ctx, true);
+            }
+            let shown = app.list.files[app.list.cur].clone();
+            app.start_slideshow(&ctx);
+            assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+            assert!(
+                app.shuffled && app.list.files != order,
+                "R first: {shuffled_first}"
+            );
+            // The round starts at the image shown (the first slide may have come since): without
+            // Repeat it shows every image.
+            assert_eq!(app.list.files[0], shown);
+            // Again, and random off before the list comes: the saved order, and its size.
+            app.stop_slideshow(&ctx);
+            app.start_slideshow(&ctx);
+            app.set_random_order(&ctx, false);
+            assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()
+                && a.size_rx.is_none()));
+            assert_eq!(app.list.files, order);
+            assert!(app.total_size > 0, "size");
+            std::fs::remove_dir_all(&d).unwrap();
+        }
+    }
+
+    /// A slideshow goes on, tick after tick, whatever the layout, order and search: the image
+    /// shown is another one after every step, a round of a random order shuffles once and goes
+    /// on, a search that hides the image or shows one image never holds it, and without repeat
+    /// it stops at the end of the round and not before.
+    #[test]
+    fn slideshow_advances_on_every_tick() {
+        use super::{Place, Slide, next_slide};
+        use crate::selection::next_row;
+        // (files, rows shown by a search or all, step: the panes changed at once)
+        let cases: Vec<(usize, Option<Vec<usize>>, usize)> = vec![
+            (3, None, 1),
+            (7, None, 1),
+            (7, None, 4),
+            (3, None, 4),
+            (7, Some(vec![1, 3, 5]), 1),
+            (7, Some(vec![1, 3, 5]), 4),
+            (7, Some(vec![6]), 1),
+            (7, Some(vec![]), 1),
+        ];
+        for (len, matches, delta) in cases {
+            for (repeat, shuffled) in [(true, false), (true, true), (false, false)] {
+                let m = matches.as_deref();
+                let shown = m.map_or(len, <[usize]>::len);
+                let (mut from, mut steps, mut shuffles, mut stopped) = (0usize, 0, 0, false);
+                for _ in 0..30 {
+                    let row = m.map_or(Some(from), |m| m.iter().position(|&i| i == from));
+                    let next =
+                        next_row(row, delta as isize, shown, true).map(|r| m.map_or(r, |m| m[r]));
+                    let case = format!(
+                        "{len} files, {m:?} shown, step {delta}, repeat {repeat}, shuffled {shuffled}, from {from}"
+                    );
+                    let at = Place {
+                        row,
+                        delta,
+                        shown,
+                        len,
+                    };
+                    match next_slide(at, next, repeat, shuffled, false) {
+                        Slide::Hold => assert_eq!(shown, 0, "held: {case}"),
+                        Slide::Stop => {
+                            assert!(!repeat, "stopped: {case}");
+                            stopped = true;
+                            break;
+                        }
+                        Slide::Shuffle => {
+                            shuffles += 1;
+                            assert!(shuffles == 1 || steps > 0, "shuffled again at once: {case}");
+                            // As shuffle_list: the shown image first in the new order.
+                            (from, steps) = (0, 0);
+                        }
+                        Slide::Step(next) => {
+                            assert!(
+                                next < len && (next != from || shown == 1),
+                                "no advance: {case}"
+                            );
+                            from = next;
+                            steps += 1;
+                        }
+                    }
+                }
+                if !repeat && shown > 0 {
+                    assert!(stopped, "never stopped: {len} files, {m:?}, step {delta}");
+                }
+            }
+        }
+        // Held only while the next image is still being decoded.
+        let at = Place {
+            row: Some(0),
+            delta: 1,
+            shown: 3,
+            len: 3,
+        };
+        assert_eq!(next_slide(at, Some(1), true, false, true), Slide::Hold);
+        assert_eq!(next_row(None, 1, 3, true), Some(0));
+        assert_eq!(next_row(Some(2), 1, 3, false), Some(2));
+    }
+
+    #[test]
+    fn slideshow_round_ends_past_the_last() {
+        // Ten images in three panes: 0, 3, 6, 9, then a new round.
+        assert!(!crate::selection::round_ends(Some(6), 3, 10));
+        assert!(crate::selection::round_ends(Some(9), 3, 10));
+        assert!(crate::selection::round_ends(Some(8), 3, 10));
+        assert!(crate::selection::round_ends(Some(0), 1, 1));
+        assert!(crate::selection::round_ends(None, 1, 5));
+    }
+}

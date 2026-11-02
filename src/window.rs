@@ -249,3 +249,190 @@ impl crate::App {
             && !self.dialog_open()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{app_on, contract_folder, settle};
+
+    /// The window title from the template in Preferences, and the default order when it is
+    /// empty or all its fields are.
+    #[test]
+    fn window_title_from_the_template() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-title-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert_eq!(app.title_text(), "a.png - Glimt");
+        app.config.window_title = "%app%: %name% in %folder%".into();
+        assert_eq!(
+            app.title_text(),
+            format!("Glimt: a.png in {}", dir.display())
+        );
+        app.config.window_title = "%path%".into();
+        assert_eq!(app.title_text(), dir.join("a.png").display().to_string());
+        app.config.window_title = "%nothing%".into();
+        assert_eq!(app.title_text(), "a.png - Glimt");
+        // This window's own title before the one in Preferences, until it is emptied.
+        app.config.window_title = "%app%".into();
+        app.set_window_title(&ctx, "Left: %name%");
+        assert_eq!(app.title_text(), "Left: a.png");
+        app.set_window_title(&ctx, "");
+        assert_eq!(app.title_text(), "Glimt");
+        // In a collection, listed as "/": the image's own folder; parts joined without spaces
+        // doubled.
+        let gqv = dir.join("c.gqv");
+        let text = format!("#GQview collection\n\"{}\"\n", dir.join("a.png").display());
+        std::fs::write(&gqv, text).unwrap();
+        let (mut col, _) = app_on(&gqv);
+        col.config.window_title = "%folder% | %name%".into();
+        assert_eq!(col.title_text(), format!("{} · a.png", dir.display()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// In full screen the pointer hides while the mouse is still, but not with the setting off,
+    /// out of full screen, while work goes on (the list sorted anew after a slideshow, a file
+    /// job), or with a dialog open.
+    #[test]
+    fn hides_the_pointer_only_when_nothing_goes_on() {
+        let dir = contract_folder("pointer");
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        app.config.hide_pointer = true;
+        assert!(app.pointer_hides(true));
+        assert!(!app.pointer_hides(false));
+        let job = crate::threads::Working::new(&app.busy);
+        assert!(!app.pointer_hides(true));
+        drop(job);
+        app.list(&ctx);
+        assert!(app.listing_rx.is_some() && !app.pointer_hides(true));
+        assert!(settle(&mut app, &ctx, |a| a.pointer_hides(true)));
+        app.preferences_open = true;
+        assert!(!app.pointer_hides(true));
+        app.preferences_open = false;
+        app.config.hide_pointer = false;
+        assert!(!app.pointer_hides(true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A window, a menu or a popup on the screen keeps the pointer; the panels do not.
+    #[test]
+    fn a_window_on_the_screen_keeps_the_pointer() {
+        let ctx = eframe::egui::Context::default();
+        let pass = |window: bool| {
+            let _ = ctx.run_ui(Default::default(), |ui| {
+                eframe::egui::CentralPanel::default().show(ui, |ui| ui.label("image"));
+                if window {
+                    eframe::egui::Window::new("Help").show(ui.ctx(), |ui| ui.label("text"));
+                }
+            });
+            crate::window_shown(&ctx)
+        };
+        assert!(!pass(false) && !pass(false));
+        assert!(pass(true));
+        // The frame after it closed still counts it (shown last frame), the next not.
+        let _ = pass(false);
+        assert!(!pass(false));
+    }
+
+    /// In full screen the pointer hides once still for `POINTER_STILL`, and comes back when the
+    /// mouse moves, outside full screen, or while a dialog is open.
+    #[test]
+    fn a_still_pointer_hides_after_the_timer() {
+        use eframe::egui::{CursorIcon, Event, RawInput, pos2};
+        let dir = std::env::temp_dir().join(format!("glimt-test-pointer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.hide_pointer = true;
+        let pass = |app: &mut crate::App, events: Vec<Event>, fullscreen: bool| {
+            let input = RawInput {
+                events,
+                ..Default::default()
+            };
+            let out = ctx.run_ui(input, |ui| app.hide_still_pointer(ui.ctx(), fullscreen));
+            out.platform_output.cursor_icon == CursorIcon::None
+        };
+        let long_ago = || std::time::Instant::now() - crate::POINTER_STILL * 2;
+        // Just moved: shown, until the timer has run.
+        app.pointer_moved = std::time::Instant::now();
+        assert!(!pass(&mut app, vec![], true));
+        app.pointer_moved = long_ago();
+        assert!(pass(&mut app, vec![], true));
+        // The mouse moves: shown again, and the timer starts anew.
+        let moved = |x| vec![Event::PointerMoved(pos2(x, 10.0))];
+        let _ = pass(&mut app, moved(10.0), true);
+        assert!(!pass(&mut app, moved(20.0), true));
+        assert!(app.pointer_moved.elapsed() < crate::POINTER_STILL);
+        // Outside full screen it never hides, and the timer starts when full screen begins.
+        app.pointer_moved = long_ago();
+        assert!(!pass(&mut app, vec![], false));
+        assert!(!pass(&mut app, vec![], true));
+        // A dialog keeps it.
+        app.pointer_moved = long_ago();
+        app.preferences_open = true;
+        assert!(!pass(&mut app, vec![], true));
+        app.preferences_open = false;
+        assert!(pass(&mut app, vec![], true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The shown image still decoded keeps the busy pointer, but not the pointer from hiding in
+    /// full screen: a slideshow would flash it at each image not preloaded.
+    #[test]
+    fn the_shown_image_decoded_lets_the_pointer_hide() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-decode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        app.config.hide_pointer = true;
+        app.list.files = vec!["a.png".into()];
+        assert!(app.working() && app.pointer_hides(true));
+        app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        assert!(!app.pointer_hides(true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Work in full screen keeps the pointer, and the window looks again soon, so the pointer
+    /// hides when the work ends even if nothing else repaints.
+    #[test]
+    fn the_pointer_hides_after_work_without_a_repaint() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-work-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.hide_pointer = true;
+        app.pointer_moved = std::time::Instant::now() - crate::POINTER_STILL * 2;
+        let pass = |app: &mut crate::App| {
+            let out = ctx.run_ui(Default::default(), |ui| {
+                app.hide_still_pointer(ui.ctx(), true)
+            });
+            let delay = out.viewport_output[&eframe::egui::ViewportId::ROOT].repaint_delay;
+            (
+                out.platform_output.cursor_icon == eframe::egui::CursorIcon::None,
+                delay,
+            )
+        };
+        // egui repaints at once for a few passes after a change (the first, the cursor).
+        app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        for _ in 0..3 {
+            let _ = pass(&mut app);
+        }
+        let (hidden, delay) = pass(&mut app);
+        assert!(
+            !hidden && delay <= std::time::Duration::from_secs(1),
+            "{delay:?}"
+        );
+        app.busy.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let (hidden, delay) = pass(&mut app);
+        assert!(
+            hidden && delay > std::time::Duration::from_secs(1),
+            "{delay:?}"
+        );
+        // The shown image decoded does not keep the pointer, so it needs no look again either.
+        app.list.files = vec!["a.png".into()];
+        assert!(app.working());
+        let (hidden, delay) = pass(&mut app);
+        assert!(
+            hidden && delay > std::time::Duration::from_secs(1),
+            "{delay:?}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

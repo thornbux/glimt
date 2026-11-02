@@ -1309,3 +1309,36 @@ pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range
     let first = ((lo - size) / step).floor() + 1.0;
     first.max(0.0) as usize..(hi / step).ceil().max(0.0) as usize
 }
+
+#[cfg(test)]
+mod tests {
+
+    /// Cells 100 high every 110: a band from 50 to 230 touches rows 0, 1 and 2; one in the gap
+    /// from 101 to 109 none; one above the grid none.
+    #[test]
+    fn finds_the_cells_a_rectangle_touches() {
+        use super::touched;
+        assert_eq!(touched(50.0, 230.0, 110.0, 100.0), 0..3);
+        assert_eq!(touched(101.0, 109.0, 110.0, 100.0), 1..1);
+        assert_eq!(touched(-80.0, -10.0, 110.0, 100.0), 0..0);
+    }
+
+    /// Thumbnails are kept by rows of the list as shown: with search matches spread over a large
+    /// folder, a few hundred names, not the whole folder.
+    #[test]
+    fn keeps_thumbnails_near_the_rows() {
+        use std::ffi::OsString;
+        let files: Vec<OsString> = (0..100_000)
+            .map(|i| OsString::from(i.to_string()))
+            .collect();
+        let matches = [12, 99_000, 50_000, 7, 80_000];
+        let keep = super::thumbs_to_keep(&files, Some(&matches), 0..2, 6);
+        let mut names: Vec<_> = keep.into_iter().map(|n| n.to_str().unwrap()).collect();
+        names.sort();
+        assert_eq!(names, ["12", "50000", "7", "99000"]);
+        assert_eq!(
+            super::thumbs_to_keep(&files, None, 500..510, 600).len(),
+            410
+        );
+    }
+}

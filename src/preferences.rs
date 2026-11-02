@@ -1075,6 +1075,8 @@ fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::app_on;
+
     use super::*;
 
     /// The texts of a string literal at the start of `rest`, after its `"`, as Rust reads it.
@@ -1184,5 +1186,39 @@ mod tests {
         assert!(found("rotate", KEYBOARD, &["Rotate Clockwise"]));
         // The preload estimate, made with tf!: its template's words.
         assert!(found("each image at most", MEMORY, &[]));
+    }
+
+    /// Esc in Preferences clears a search first and closes the window the next time; with no
+    /// search, or one of only spaces, it closes at once.
+    #[test]
+    fn escape_clears_the_preferences_search_then_closes() {
+        use eframe::egui::{Event, Key, RawInput};
+        let dir = std::env::temp_dir().join(format!("glimt-test-esc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let escape = |app: &mut crate::App| {
+            let input = RawInput {
+                events: vec![Event::Key {
+                    key: Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
+        };
+        app.preferences_open = true;
+        app.preferences_query = "zoom".into();
+        escape(&mut app);
+        assert!(app.preferences_open && app.preferences_query.is_empty());
+        escape(&mut app);
+        assert!(!app.preferences_open);
+        app.preferences_open = true;
+        app.preferences_query = "  ".into();
+        escape(&mut app);
+        assert!(!app.preferences_open && app.preferences_query.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

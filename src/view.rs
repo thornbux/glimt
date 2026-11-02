@@ -1402,3 +1402,160 @@ pub(crate) fn frame_at(frame_ms: &[u32], share: f64) -> usize {
     }))
     .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::app_on;
+
+    /// Going to another image leaves nothing of the one before: its turn, page, frame and crop
+    /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets
+    /// (a crop once outlived its image).
+    #[test]
+    fn another_image_starts_afresh() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-viewing-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = false;
+        app.viewing.orient = (1, true);
+        app.viewing.page = 2;
+        app.viewing.frame = Some(3);
+        app.viewing.turned = dir.join("a.png");
+        app.go(&ctx, 1);
+        let v = &app.viewing;
+        assert_eq!((v.orient, v.page, v.frame), ((0, false), 0, None));
+        assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The median, 90 % and the slowest frame from the counts by milliseconds.
+    #[test]
+    fn frame_shares() {
+        let mut ms = [0; 256];
+        assert_eq!(super::frame_at(&ms, 0.5), 0);
+        ms[2] = 5;
+        ms[3] = 4;
+        ms[90] = 1;
+        let at = |share| super::frame_at(&ms, share);
+        assert_eq!((at(0.5), at(0.9), at(1.0)), (2, 3, 90));
+    }
+
+    /// The fit modes: a 4:3 image in a 2:1 view, the whole, the width, the height, filled.
+    #[test]
+    fn fits_in_each_mode() {
+        let view = eframe::egui::vec2(200.0, 100.0);
+        let fits = [0, 1, 2, 3].map(|m| super::fit_scale(view, [400.0, 300.0], m));
+        assert_eq!(fits, [1.0 / 3.0, 0.5, 1.0 / 3.0, 0.5]);
+    }
+
+    /// Images of a collection moved: each one place, never past another moved one, and to the
+    /// start or the end in their own order.
+    /// A photo shown larger after the window grew is decoded again at the size shown, whatever
+    /// the fit mode; only one shown larger than a texture may be needs full resolution.
+    #[test]
+    fn decodes_again_at_the_size_shown() {
+        // 6000×4000 shown at 0.5 in a texture of at most 16384: 3000×2000 fits.
+        assert!(super::fits_texture([6000, 4000], 0.5, 16384));
+        // A panorama shown 20,000 pixels wide does not.
+        assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
+    }
+
+    /// Fitted, an image is decoded again only for a larger box than its texture was made for:
+    /// the same box gives the same texture, whatever the decoders round (a JPEG of 13484×2499
+    /// in Fit Height came out 6014 wide where 6021 were shown, again and again), and a texture
+    /// of the whole image needs no larger one.
+    #[test]
+    fn decodes_again_only_for_a_larger_box() {
+        assert!(!super::grown(
+            [16384, 1115],
+            [16384, 1115],
+            [6014, 1115],
+            [13484, 2499]
+        ));
+        assert!(super::grown(
+            [16384, 1116],
+            [16384, 1115],
+            [6014, 1115],
+            [13484, 2499]
+        ));
+        // A strip of 10000×5 fitted 1920 wide, the window then 3840 wide.
+        assert!(super::grown(
+            [3840, 1000],
+            [1920, 1000],
+            [1920, 1],
+            [10000, 5]
+        ));
+        // Smaller, or a small image whole already: not again.
+        assert!(!super::grown(
+            [1000, 600],
+            [1920, 1080],
+            [960, 540],
+            [4000, 2250]
+        ));
+        assert!(!super::grown(
+            [3840, 2160],
+            [1920, 1080],
+            [640, 480],
+            [640, 480]
+        ));
+    }
+
+    /// A photo fitted into a window whose height is not whole pixels is not decoded again and
+    /// again: its width comes out two pixels short of the scale shown, its height within one.
+    /// A grown window, 1:1, and a strip whose window grew only along it are decoded again.
+    #[test]
+    fn a_texture_short_on_one_side_is_the_size_shown() {
+        let view = [2614.0, 1328.9];
+        let fit = 1328.9 / 2657.0;
+        assert!(!super::too_small([1998, 1328], [4000, 2657], fit, view));
+        assert!(super::too_small(
+            [1998, 1328],
+            [4000, 2657],
+            0.75,
+            [4000.0, 2000.0]
+        ));
+        assert!(super::too_small([1998, 1328], [4000, 2657], 1.0, view));
+        assert!(!super::too_small([4000, 2657], [4000, 2657], 1.0, view));
+        // Fit Width: the width fills, the height is worked out from it.
+        assert!(!super::too_small(
+            [2000, 1328],
+            [4000, 2657],
+            2000.6 / 4000.0,
+            [2000.6, 8192.0]
+        ));
+        // A strip of 10000×5: fitted 1920 wide, then the window 3840 wide.
+        assert!(!super::too_small(
+            [1920, 1],
+            [10000, 5],
+            0.192,
+            [1920.0, 1000.0]
+        ));
+        assert!(super::too_small(
+            [1920, 1],
+            [10000, 5],
+            0.384,
+            [3840.0, 1000.0]
+        ));
+    }
+
+    /// The box turns with the shown image only, Fill has the turn in its view already, a Fill
+    /// neighbour gets the longer side's square, and the projector counts, turned with the image.
+    #[test]
+    fn decode_box_turns_with_the_shown_image_only() {
+        let b = |shown, quarter, fill| {
+            super::decode_box([1920, 1080], [1920, 1080], fill, shown, quarter, [0, 0])
+        };
+        assert_eq!(b(true, false, false), [1920, 1080]);
+        assert_eq!(b(true, true, false), [1080, 1920]);
+        assert_eq!(b(false, true, false), [1920, 1080]);
+        assert_eq!(b(false, false, true), [1920, 1920]);
+        assert_eq!(b(true, true, true), [1920, 1080]);
+        let with_projector =
+            super::decode_box([800, 600], [800, 600], false, true, true, [1920, 1080]);
+        assert_eq!(with_projector, [1080, 1920]);
+        let neighbour = super::decode_box([800, 600], [800, 600], false, false, true, [1920, 1080]);
+        assert_eq!(neighbour, [1920, 1080]);
+    }
+}

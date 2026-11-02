@@ -1634,4 +1634,25 @@ mod tests {
         );
         super::OWN_KEYS.write().unwrap().clear();
     }
+
+    /// egui-winit sends Ctrl+C, with or without Shift, as a Copy event: Copy to a folder, or
+    /// with Shift the image to the clipboard.
+    #[test]
+    fn copy_event_with_shift_copies_the_image() {
+        use eframe::egui;
+        let pressed = |shift| {
+            let ctx = egui::Context::default();
+            let modifiers = egui::Modifiers {
+                shift,
+                ..super::CTRL
+            };
+            ctx.begin_pass(egui::RawInput {
+                events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Copy],
+                ..Default::default()
+            });
+            crate::App::shortcut(&ctx, true, false)
+        };
+        assert_eq!(pressed(false), Some(crate::Action::Copy));
+        assert_eq!(pressed(true), Some(crate::Action::CopyImage));
+    }
 }

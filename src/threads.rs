@@ -265,4 +265,19 @@ mod tests {
         assert_eq!(at(2), (cores(), cores()));
         assert_eq!(thumb_threads_at(1, 1), 1);
     }
+
+    /// The busy pointer goes when its work ends, also by a panic.
+    #[test]
+    fn busy_ends_with_a_panic() {
+        use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering};
+        let count = Arc::new(AtomicUsize::new(0));
+        let pointer = super::Working::new(&count);
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        let _ = std::thread::spawn(move || {
+            let _pointer = pointer;
+            panic!("a broken file");
+        })
+        .join();
+        assert_eq!(count.load(Ordering::Relaxed), 0);
+    }
 }

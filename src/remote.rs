@@ -747,6 +747,8 @@ pub fn close() {
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::app_on;
+
     /// Only the commands Glimt knows go out, with a path only where one is taken.
     #[test]
     fn knows_its_commands() {
@@ -865,5 +867,93 @@ mod tests {
         assert!(taken);
         std::fs::remove_file(path.with_extension("lock")).unwrap();
         std::fs::remove_file(path).unwrap();
+    }
+
+    /// Two `--remote select` held back while the folder is read each get their answer: the
+    /// second took the first one's place, and the first script got no answer, which it read as
+    /// every file found.
+    #[test]
+    fn selects_held_back_each_get_their_answer() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-selects-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote_rx = rx;
+        // A folder still being read.
+        let (_reading, listing) = std::sync::mpsc::channel();
+        app.listing_rx = crate::Receiving::of(listing);
+        let mut answers = Vec::new();
+        for name in ["a.png", "none.png"] {
+            let (reply, answer) = std::sync::mpsc::channel();
+            let command = format!("select {}\0", dir.join(name).display());
+            tx.send((command, Some(reply))).unwrap();
+            answers.push(answer);
+        }
+        app.receive_remote(&ctx);
+        app.listing_rx = crate::Receiving::none();
+        app.receive_remote(&ctx);
+        let got: Vec<Vec<u8>> = answers.iter().map(|a| a.try_recv().unwrap()).collect();
+        assert!(got[0].is_empty(), "a.png is there");
+        assert!(String::from_utf8_lossy(&got[1]).contains("none.png"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A command after a select held back waits its turn: another script's `open` does not run
+    /// first and leave the select answered for the other folder. More than 64 waiting: told to
+    /// try again.
+    #[test]
+    fn commands_behind_a_held_select_wait_their_turn() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-turn-{}", std::process::id()));
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        image::RgbImage::new(4, 4)
+            .save(other.join("b.png"))
+            .unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.remote_rx = rx;
+        let (_reading, listing) = std::sync::mpsc::channel();
+        app.listing_rx = crate::Receiving::of(listing);
+        let (reply, answer) = std::sync::mpsc::channel();
+        let select = format!("select {}\0", dir.join("a.png").display());
+        tx.send((select.clone(), Some(reply))).unwrap();
+        tx.send((format!("open {}", other.display()), None))
+            .unwrap();
+        // 64 waiting at most: one more is dropped.
+        let mut more = Vec::new();
+        for _ in 0..63 {
+            let (reply, answer) = std::sync::mpsc::channel();
+            tx.send((select.clone(), Some(reply))).unwrap();
+            more.push(answer);
+        }
+        // A query is answered at once, also behind a held select.
+        let (reply, current) = std::sync::mpsc::channel();
+        tx.send(("current".to_owned(), Some(reply))).unwrap();
+        app.receive_remote(&ctx);
+        assert!(current.try_recv().is_ok(), "current answered at once");
+        assert_eq!(app.dir, dir, "open waits behind the select");
+        assert!(matches!(
+            more[62].try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Disconnected)
+        ));
+        app.listing_rx = crate::Receiving::none();
+        app.receive_remote(&ctx);
+        assert!(
+            answer.try_recv().unwrap().is_empty(),
+            "a.png found in its own folder"
+        );
+        assert_eq!(app.dir, other);
+        // Closing with selects still held, and one sent just before: each told that none of its
+        // paths was selected.
+        let (reply, closing) = std::sync::mpsc::channel();
+        app.waiting_select.push((select.clone(), Some(reply)));
+        let (reply, late) = std::sync::mpsc::channel();
+        tx.send((select.clone(), Some(reply))).unwrap();
+        app.answer_held_selects();
+        assert!(String::from_utf8_lossy(&closing.try_recv().unwrap()).contains("a.png"));
+        assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

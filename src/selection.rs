@@ -307,3 +307,40 @@ pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -
 pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
     row.is_none_or(|r| r + delta >= len)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::app_on;
+
+    /// Moving the end of a Shift range changes the selection as selecting the range anew does,
+    /// in the list and among search matches, also across the anchor.
+    #[test]
+    fn a_range_end_moved_is_the_range_anew() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-range-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list.files = (0..10).map(|i| format!("{i}.png").into()).collect();
+        for matches in [None, Some(vec![1, 3, 4, 6, 8, 9])] {
+            app.list.matches = matches.clone();
+            let shown = app.shown_files();
+            let (anchor, mut end) = (shown[2], shown[2]);
+            app.list.selected = [anchor].into();
+            app.list.range_end = Some(end);
+            for &to in [shown[4], shown[5], shown[0], shown[3], shown[5]].iter() {
+                assert!(app.move_range_end(anchor, end, to));
+                let moved = std::mem::take(&mut app.list.selected);
+                app.select_range(anchor, to);
+                assert_eq!(moved, app.list.selected, "{matches:?} to {to}");
+                end = to;
+                app.list.range_end = Some(end);
+            }
+        }
+        // Ctrl-clicks since (on 9, then 2, the image shown 0): a selection of three that looks
+        // like the range 2..=0 but holds 9; it is made anew, not moved.
+        app.list.matches = None;
+        app.list.selected = [0, 2, 9].into();
+        app.selection_changed(&ctx);
+        assert!(!app.move_range_end(2, 0, 1));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

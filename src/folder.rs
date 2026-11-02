@@ -792,3 +792,122 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
         .map(|m| m.len())
         .sum()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::{app_on, contract_folder, settle};
+
+    /// A refresh of a collection that started before a rename landed (auto refresh saw the
+    /// folder change first) loses neither the image in the list nor its entry in the file.
+    #[test]
+    fn a_collection_refreshed_before_a_rename_landed_keeps_it() {
+        let d = contract_folder("collection-race");
+        let gqv = d.join("col.gqv");
+        let (mut app, ctx) = app_on(&gqv);
+        let (a, c) = (d.join("a.png"), d.join("c.png"));
+        // Renamed on disk, the refresh reads, and only then the rename is reported.
+        std::fs::rename(&a, &c).unwrap();
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        app.paths_moved(vec![(a, c)], false);
+        let has_c = |app: &crate::App| {
+            (app.list.files.iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
+        };
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none() && has_c(app)));
+        assert!(std::fs::read_to_string(&gqv).unwrap().contains("c.png"));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A folder in EXIF date order read again keeps its order, but Refresh sorts it anew: a date
+    /// changed by another program under the same name takes its place.
+    #[test]
+    fn refresh_sorts_an_exif_date_order_anew() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-exif-order-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.config.sort = crate::files::Sort::ExifOriginal;
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        assert!(app.listed_as.is_some());
+        app.run(&ctx, crate::actions::Action::Refresh);
+        assert!(app.listed_as.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Refresh in a folder that has not changed decodes the image shown again (an editor may
+    /// have saved it under its own name): it asked for nothing, and the busy pointer stayed.
+    #[test]
+    fn refresh_decodes_the_shown_image_again() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        let cur = app.list.cur;
+        assert!(settle(&mut app, &ctx, |a| a.list.slots.contains_key(&cur)));
+        app.run(&ctx, crate::actions::Action::Refresh);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        let asked = |a: &crate::App| {
+            a.list.slots.contains_key(&cur) || a.list.decodes_pending.keys().any(|k| k.0 == cur)
+        };
+        assert!(asked(&app), "the image shown decoded again");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Sort by name with Case on (the default) puts a collection in name order: it kept the
+    /// collection's own.
+    #[test]
+    fn sort_by_name_orders_a_collection() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-col-sort-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut gqv = String::from("#GQview collection\n");
+        for name in ["b.png", "a.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
+            gqv.push_str(&format!("\"{}\"\n", dir.join(name).display()));
+        }
+        let file = dir.join("c.gqv");
+        std::fs::write(&file, gqv).unwrap();
+        let (mut app, ctx) = app_on(&file);
+        app.config.sort = crate::files::Sort::Name;
+        app.config.sort_case = true;
+        app.sort_collection = true;
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        let names: Vec<String> = (app.list.files.iter())
+            .map(|f| {
+                std::path::Path::new(f)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, ["a.png", "b.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A list opened by a relative name is the collection by its absolute path, as Open Recent
+    /// and the last folder keep it: a window started elsewhere opened another list or none.
+    #[test]
+    fn a_list_opened_by_a_relative_name_is_kept_absolute() {
+        let dir = std::path::PathBuf::from(format!("glimt-test-app-list-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
+        std::fs::write(dir.join("show.m3u"), "a.png\n").unwrap();
+        let (app, _ctx) = app_on(&dir.join("show.m3u"));
+        let here = std::env::current_dir().unwrap().join(&dir);
+        assert_eq!(app.collection, Some(here.join("show.m3u")));
+        assert_eq!(app.list.files.len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn without_indices_shifts_down() {
+        let map = std::collections::HashMap::from([(1, 'a'), (2, 'b'), (4, 'c'), (6, 'd')]);
+        let expected = std::collections::HashMap::from([(1, 'a'), (3, 'd')]);
+        assert_eq!(super::without_indices(map, &[2, 4, 5]), expected);
+    }
+}
