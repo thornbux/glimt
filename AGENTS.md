@@ -56,11 +56,22 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its fields by group, its decode, thumbnail and EXIF workers, opening and listing a folder, browsing, painting the image, the file list, menus, panels and dialogs, `run` for every action, and the command line. Also `Job`, which other modules use, and `crate::broken` for tests |
+| `src/main.rs` | The app: `App` and its fields by group, `List` and `Slot`, starting up, the frame (`eframe::App`), `Job`, `noted` for the release tests' hook, `main()` and the command line; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
+| `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
+| `src/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
+| `src/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`) and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
+| `src/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails, dragging, the rubber band, and the status bar |
+| `src/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar |
+| `src/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
+| `src/menus.rs` | The menu bar and toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `iconed`) |
+| `src/selection.rs` | Moving through the list (next, previous, a page, random) and the selection |
+| `src/slideshow.rs` | The slideshow: its timer, order, fade and the next slide's rule (`next_slide`) |
+| `src/view.rs` | The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare, painting, the wheel |
+| `src/window.rs` | The window's size and place remembered, and the screen saver kept off in full screen |
+| `src/workers.rs` | The thumbnail workers, and what the window collects from every background job each frame (`poll_background`) |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys; variants are stored by name, never rename one |
 | `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths; the writer thread (`write_later`, `flush`), `edit_shared` for the files the windows share, `replace_file`/`create_file`/`write_atomic`, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/decoders.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
