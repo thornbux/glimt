@@ -189,6 +189,15 @@ impl crate::App {
             self.visit(ui.ctx(), file);
         }
     }
+
+    /// Collection → Remove: the targets out of the collection's file at once; the files stay where they are.
+    pub(crate) fn remove_from_collection(&mut self, ctx: &egui::Context) {
+        let targets = self.targets();
+        // Out of the collection's file here, at once: the files stay where they are.
+        let out: HashSet<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
+        self.edit_collection(|all| all.retain(|p| !out.contains(p)));
+        self.remove_indices(ctx, &targets);
+    }
 }
 
 /// Where new collections go.

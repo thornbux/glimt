@@ -120,6 +120,20 @@ pub(crate) struct Listener {
     pub(crate) waiting_select: Vec<(String, Option<remote::Reply>)>,
 }
 
+impl Listener {
+    /// Listening for `--remote` if `listen`.
+    pub(crate) fn new(ctx: &egui::Context, listen: bool) -> Self {
+        let (tx, rx) = mpsc::channel();
+        if listen {
+            self::listen(tx, ctx.clone());
+        }
+        Listener {
+            rx,
+            waiting_select: Vec::new(),
+        }
+    }
+}
+
 impl crate::App {
     // ---- Remote control ----
 

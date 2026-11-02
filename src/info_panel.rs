@@ -123,6 +123,26 @@ pub(crate) struct Info {
     pub(crate) new_keyword: String,
 }
 
+impl Info {
+    /// The EXIF reader started, and the keyword tree read from its file.
+    pub(crate) fn new(ctx: &egui::Context) -> Self {
+        let (exif_jobs, exif_rx) = spawn_exif_reader(ctx);
+        Info {
+            exif_jobs,
+            exif_rx,
+            exif_asked: None,
+            exif: None,
+            exif_all: Vec::new(),
+            exif_window: false,
+            meta: None,
+            focus_keywords: false,
+            keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
+                .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
+            new_keyword: String::new(),
+        }
+    }
+}
+
 impl crate::App {
     // ---- EXIF, keywords, comment and marks ----
 

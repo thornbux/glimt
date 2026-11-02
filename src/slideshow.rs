@@ -1,7 +1,9 @@
 //! The slideshow: its timer, its order, the fade and the next image.
 
+use crate::actions::Action;
 use crate::collections;
 use crate::config::FADES;
+use crate::config::MAX_DELAY;
 use crate::files::shuffle;
 use crate::selection::round_ends;
 use eframe::egui;
@@ -33,6 +35,7 @@ pub(crate) struct Place {
 }
 
 /// The slideshow: whether it runs, its order and the pane it changes next.
+#[derive(Default)]
 pub(crate) struct Slideshow {
     /// When the image shown last came up; `None`: the slideshow is off.
     pub(crate) shown_at: Option<Instant>,
@@ -241,6 +244,18 @@ impl crate::App {
             self.shuffle_list(ctx, on);
             self.title(ctx);
         }
+    }
+
+    /// Ctrl+= and Ctrl+-: the slideshow's delay a second shorter or longer.
+    pub(crate) fn change_delay(&mut self, ctx: &egui::Context, action: Action) {
+        let step = if action == Action::Faster { -1 } else { 1 };
+        self.config.delay = self
+            .config
+            .delay
+            .saturating_add_signed(step)
+            .clamp(1, MAX_DELAY);
+        self.config.save();
+        self.title(ctx);
     }
 }
 

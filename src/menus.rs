@@ -31,6 +31,17 @@ pub(crate) struct OpenWith {
     pub(crate) rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
 }
 
+impl Default for OpenWith {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel();
+        OpenWith {
+            apps: HashMap::new(),
+            tx,
+            rx,
+        }
+    }
+}
+
 impl crate::App {
     // ---- Settings and the menus that change them ----
 
@@ -678,6 +689,32 @@ impl crate::App {
                 tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
             });
         });
+    }
+
+    /// The View menu's toggles of a setting: the path bar, toolbar, panels, overlay, icons,
+    /// histogram scale and animation. A stepped through an animation plays it on instead.
+    pub(crate) fn toggle_setting(&mut self, action: Action) {
+        self.panel.scroll_to_cur = true;
+        let c = &mut self.config;
+        let flag = match action {
+            Action::PathBar => &mut c.path_bar,
+            Action::Toolbar => &mut c.toolbar,
+            Action::Overlay => &mut c.osd,
+            Action::Icons => &mut c.icons,
+            Action::FolderTree => &mut c.folder_tree,
+            Action::HistogramLog => &mut c.histogram_log,
+            Action::Animate => {
+                // Stepped to a frame: A plays on from there, without turning it off.
+                if self.viewing.frame.take().is_some() {
+                    return;
+                }
+                &mut c.animate
+            }
+            Action::SortManager => &mut c.sort_manager,
+            _ => &mut c.exif_panel,
+        };
+        *flag = !*flag;
+        c.save();
     }
 }
 

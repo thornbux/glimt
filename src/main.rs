@@ -6,33 +6,28 @@
 
 use crate::file_list::{RubberBand, ThumbView};
 use crate::file_ops::Deleted;
-use crate::info_panel::spawn_exif_reader;
+use crate::view::View;
 use crate::view::{LAYOUTS, frame_at};
-use crate::view::{View, spawn_decoders};
 use crate::workers::spawn_thumbnailers;
 use actions::OWN_KEYS;
 use check::Check;
-use colour::{
-    COLOR_MANAGEMENT, SCREEN_WAIT, SCREEN_WAIT_MS, VIEW_FILTER, read_desktop_screen, set_colour,
-    set_input, set_intent, set_screen,
-};
 use config::{
-    Config, FADES, WindowState, keyword_tree_path, parse_last_dir, sort_folders_from,
-    sort_folders_path, state_path, write_atomic,
+    Config, FADES, WindowState, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
+    write_atomic,
 };
 use decode::{Hist, MAX_ANIMATION, decode};
 use duplicates::Dups;
 use eframe::egui;
 use external::Mounted;
-use files::{Types, has_ext};
+use files::has_ext;
 use format::{count, human_size, local_time, thousands};
 use pan::Pan;
 use print::PrintDialog;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Instant;
 use threads::{
     ONE_ARENA, Receiving, Working, cores, set_cpu_use, small_alloc_threads, thread_cpu_us,
@@ -581,8 +576,6 @@ impl App {
         path: Option<PathBuf>,
         start: Start,
     ) -> Self {
-        let keep = Arc::new(Mutex::new(vec![0]));
-        let full_ok = Arc::new(AtomicUsize::new(1));
         lang::set(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
@@ -595,17 +588,7 @@ impl App {
         if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
         }
-        COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
-        VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
-        let screen_error = (set_screen(&config.screen_profile))
-            .and_then(|_| set_input(&config.input_profile))
-            .err();
-        set_colour(|c| c.own = config.own_profile);
-        set_intent(&config.rendering_intent);
-        if config.desktop_profile && config.color_management {
-            let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
-            *SCREEN_WAIT.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(deadline);
-        }
+        let screen_error = colour::set_up(&config);
         if let Ok(mut own) = OWN_KEYS.write() {
             own.clone_from(&config.keys.0);
         }
@@ -617,277 +600,67 @@ impl App {
                 })
             })
             .unwrap_or_else(|| ".".into());
-        // No list kept: one of before goes too, also when the setting was changed in the file.
-        let recent = match config::recent_path() {
-            Some(file) if !config.keep_recent => {
-                config::write_later(move || config::remove_shared(&file));
-                Vec::new()
-            }
-            Some(file) => crate::decode::read_limited(file)
-                .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
-            None => Vec::new(),
-        };
-        let preload = Arc::new(AtomicUsize::new(config.preload));
-        let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
         set_cpu_use(config.cpu_use);
-        let workers = cores().min(config.decode_threads);
-        let (jobs, done) = spawn_decoders(ctx, workers, &keep, &full_ok, &rotate);
-        // Thumbnails have their own workers, so scrolling the list never delays the shown image.
-        let thumb_view: ThumbView = Arc::default();
-        let save_thumbs = Arc::new(AtomicBool::new(config.save_thumbnails));
-        let (thumb_jobs, thumbs_rx) =
-            spawn_thumbnailers(ctx, workers, &rotate, &thumb_view, &save_thumbs);
-        let (exif_jobs, exif_rx) = spawn_exif_reader(ctx);
         theme::fonts(ctx);
         theme::apply(ctx, &theme::load(&config.theme), None, None);
         // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
-        // gdbus takes a moment; the window shows meanwhile and takes the desktop's look after.
-        let (desktop_tx, desktop_rx) = mpsc::channel();
-        let repaint = ctx.clone();
-        std::thread::spawn(move || {
-            let _ = desktop_tx.send(theme::desktop());
-            repaint.request_repaint();
-        });
-        let (notices_tx, notices) = mpsc::channel();
-        let (tree_tx, tree_rx) = mpsc::channel();
-        let (apps_tx, apps_rx) = mpsc::channel();
-        let (remote_tx, remote_rx) = mpsc::channel();
+        let workers = cores().min(config.decode_threads);
+        let decoding = view::Decoding::new(ctx, &config, workers);
+        let thumbs = file_list::Thumbs::new(ctx, workers, &decoding.rotate, config.save_thumbnails);
         // A name is only of use with remote control, so it listens anyway; a kiosk too, as
         // --remote quit is its way out.
-        if config.remote_control || remote::given_name().is_some() || start.kiosk {
-            remote::listen(remote_tx, ctx.clone());
-        }
-        let (freed_tx, freed_rx) = mpsc::channel();
-        let (deleted_tx, deleted_rx) = mpsc::channel();
-        let (saved_tx, saved_rx) = mpsc::channel();
-        let (changed_tx, changed_rx) = mpsc::channel();
+        let listen = config.remote_control || remote::given_name().is_some() || start.kiosk;
+        let (notices_tx, notices_rx) = mpsc::channel();
         let mut app = App {
+            ctx: ctx.clone(),
+            desktop: theme::FromDesktop::new(ctx, config.desktop_profile),
+            folder: folder::Folder::new(&config),
+            list: List::default(),
+            work: file_ops::Work::new(),
+            busy: Arc::default(),
+            panel: file_list::Panel::default(),
+            tree: file_list::Tree::default(),
+            thumbs,
+            search: search::Search::default(),
+            status: file_list::StatusBar::default(),
+            broken_files: HashSet::new(),
+            #[cfg(feature = "marks")]
+            marks: marks::Marks::load(),
+            decoding,
+            viewing: Viewing::default(),
+            zoom: view::Zoom::default(),
+            compare: false,
+            last_view: None,
+            image_id: None,
+            focus_by_keys: false,
+            slideshow: slideshow::Slideshow {
+                at_start: start.slideshow,
+                ..Default::default()
+            },
+            window: window::Window::new(start.kiosk),
+            info: info_panel::Info::new(ctx),
+            notice: screen_error.or_else(|| config_notice(problems)),
             notices_tx,
+            notices_rx,
+            dialogs: dialogs::Dialogs::default(),
+            prefs: preferences::Prefs::default(),
+            open_with: menus::OpenWith::default(),
+            plugins: plugins::find(),
+            plugins_running: plugins::Running::default(),
+            help: None,
             print_window: None,
             lightroom_rx: Receiving::none(),
             lightroom: None,
             pan_window: None,
-            viewing: Viewing::default(),
             save_as: None,
             save_as_last: Default::default(),
-            compare: false,
             dups: None,
             check: None,
-            broken_files: HashSet::new(),
-            #[cfg(feature = "marks")]
-            marks: marks::Marks::load(),
-            ctx: ctx.clone(),
-            list: List::default(),
-            plugins: plugins::find(),
-            plugins_running: plugins::Running::default(),
-            notices_rx: notices,
-            notice: screen_error.or_else(|| config_notice(problems)),
-            help: None,
-            last_view: None,
-            image_id: None,
-            focus_by_keys: false,
-            busy: Arc::new(AtomicUsize::new(0)),
-            slideshow: slideshow::Slideshow {
-                shown_at: None,
-                shuffled: false,
-                whole_shuffle: false,
-                paused: false,
-                at_start: start.slideshow,
-                next_pane: 0,
-            },
-            thumbs: file_list::Thumbs {
-                stale: HashSet::new(),
-                textures: HashMap::new(),
-                pending: HashSet::new(),
-                jobs: thumb_jobs,
-                rx: thumbs_rx,
-                view: thumb_view,
-                list_rows: 0..0,
-                save: save_thumbs,
-            },
-            panel: file_list::Panel {
-                hidden: false,
-                grid_cols: 1,
-                row_step: 1,
-                scroll_to_cur: true,
-            },
-            tree: file_list::Tree {
-                children: HashMap::new(),
-                tx: tree_tx,
-                rx: tree_rx,
-                shown: PathBuf::new(),
-                open: HashSet::new(),
-            },
-            search: search::Search {
-                query: String::new(),
-                error: None,
-                focus: false,
-                match_rows: Default::default(),
-                match_rx: Receiving::none(),
-                match_size_due: None,
-                exif_index: None,
-                exif_stale: HashSet::new(),
-                exif_index_rx: Receiving::none(),
-                exif_index_stop: Arc::default(),
-            },
-            info: info_panel::Info {
-                exif_jobs,
-                exif_rx,
-                exif_asked: None,
-                exif: None,
-                exif_all: Vec::new(),
-                exif_window: false,
-                meta: None,
-                focus_keywords: false,
-                keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
-                    .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
-                new_keyword: String::new(),
-            },
-            status: file_list::StatusBar {
-                cur_size: None,
-                pane_info: Vec::new(),
-                pane: 0,
-                grid: [1, 1],
-                place: None,
-                total_size: 0,
-                size_rx: Receiving::none(),
-                freed_tx,
-                freed_rx,
-                selected_size: None,
-                selected_rx: Receiving::none(),
-                selected_size_due: None,
-            },
-            decoding: view::Decoding {
-                keep,
-                full_ok,
-                preload,
-                rotate,
-                view_box: [1920, 1080],
-                view_area: [1920, 1080],
-                max_side: 8192,
-                jobs,
-                rx: done,
-                sent: 0,
-                last_drawn: None,
-                fade: None,
-                opened: Instant::now(),
-                started: Some(Instant::now()),
-                frame_ms: [0; 256],
-            },
-            zoom: view::Zoom {
-                level: None,
-                offset: egui::Vec2::ZERO,
-                max_pan: egui::Vec2::ZERO,
-                last_scale: 1.0,
-                wheel: 0.0,
-            },
-            window: window::Window {
-                state: WindowState::default(),
-                kiosk: start.kiosk,
-                kiosk_quit: false,
-                projector: false,
-                projector_size: [0, 0],
-                inhibitor: Arc::default(),
-                inhibit_on: false,
-                menu_away: None,
-                has_focus: true,
-                pointer_moved: std::time::Instant::now(),
-                title: String::new(),
-                closing: 0,
-            },
-            folder: folder::Folder {
-                dir: PathBuf::new(),
-                subdirs: Vec::new(),
-                path_text: String::new(),
-                opened_type: Types::NONE,
-                recursive: false,
-                collection: None,
-                sort_collection: false,
-                folders: Vec::new(),
-                together: None,
-                listing_rx: Receiving::none(),
-                subdirs_rx: Receiving::none(),
-                part_rx: Receiving::none(),
-                list_parts: false,
-                listed_as: None,
-                went_to: None,
-                listing_stop: Arc::default(),
-                relist: false,
-                watching: Arc::new(AtomicUsize::new(0)),
-                changed_tx,
-                changed_rx,
-                recent,
-                back: Vec::new(),
-                forward: Vec::new(),
-                mounting_rx: Receiving::none(),
-                login: None,
-                sort_folders: (sort_folders_path()
-                    .and_then(|p| crate::decode::read_limited(p).ok()))
-                .map_or_else(Vec::new, |t| sort_folders_from(&t)),
-            },
-            work: file_ops::Work {
-                jobs: Vec::new(),
-                touching: Vec::new(),
-                renaming: None,
-                renaming_rx: Receiving::none(),
-                deleting: HashSet::new(),
-                deleted_tx,
-                deleted_rx,
-                saving: HashSet::new(),
-                saved_tx,
-                saved_rx,
-                undo: None,
-                cut_short: Vec::new(),
-                cut_short_rx: Receiving::of({
-                    let (tx, rx) = mpsc::channel();
-                    std::thread::spawn(move || {
-                        let _ = tx.send(
-                            journal::dir().map_or_else(Vec::new, |d| journal::interrupted(&d)),
-                        );
-                    });
-                    rx
-                }),
-                clipboard: None,
-                clip_rx: Receiving::none(),
-            },
-            prefs: preferences::Prefs {
-                open: false,
-                unsaved: false,
-                query: String::new(),
-                focus_search: false,
-                capturing: None,
-            },
-            dialogs: dialogs::Dialogs {
-                prompt: None,
-                confirm_delete: None,
-                folder_target: None,
-                confirm_folder: false,
-                file_dialog: None,
-                file_dialog_rx: Receiving::none(),
-                asked_for: (0, Vec::new()),
-            },
-            open_with: menus::OpenWith {
-                apps: HashMap::new(),
-                tx: apps_tx,
-                rx: apps_rx,
-            },
-            desktop: theme::FromDesktop {
-                look: Default::default(),
-                look_rx: Receiving::of(desktop_rx),
-                screen: None,
-                screen_rx: (config.desktop_profile)
-                    .then(|| read_desktop_screen(ctx))
-                    .map_or_else(Receiving::none, Receiving::of),
-            },
-            // Last: the fields before it read it.
+            remote: remote::Listener::new(ctx, listen),
             config,
-            remote: remote::Listener {
-                rx: remote_rx,
-                waiting_select: Vec::new(),
-            },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {

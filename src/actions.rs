@@ -2,12 +2,9 @@
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
 use crate::colour::FILTERS;
-use crate::config::MAX_DELAY;
 use crate::decode::{color_image, survive};
 use crate::dialogs::{Pick, Prompt};
 use crate::duplicates::Dups;
-#[cfg(feature = "video")]
-use crate::external::is_video;
 #[cfg(feature = "marks")]
 use crate::format::count;
 use crate::lang::tr;
@@ -16,11 +13,10 @@ use crate::marks;
 use crate::pan::Pan;
 use crate::threads::{Receiving, Working};
 use crate::view::LAYOUTS;
-use crate::view::layout_grid;
-use crate::{collections, config, external, help, own_program, remote, save, tf};
+use crate::{collections, config, help, own_program, remote, save, tf};
 use eframe::egui;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Instant;
@@ -821,11 +817,7 @@ impl crate::App {
             Action::RemoveFromCollection
                 if self.folder.collection.is_some() && !self.list.files.is_empty() =>
             {
-                let targets = self.targets();
-                // Out of the collection's file here, at once: the files stay where they are.
-                let out: HashSet<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
-                self.edit_collection(|all| all.retain(|p| !out.contains(p)));
-                self.remove_indices(ctx, &targets);
+                self.remove_from_collection(ctx)
             }
             Action::RemoveFromCollection => {}
             Action::RenameCollection | Action::TrashCollection
@@ -854,53 +846,17 @@ impl crate::App {
             Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.kiosk => {}
-            Action::FocusSearch => {
-                // The field shows if it was hidden, with the file list (out of full screen),
-                // and the / itself is not typed into it.
-                if !self.config.search_bar {
-                    self.config.search_bar = true;
-                    self.config.save();
-                }
-                self.panel.hidden = false;
-                if fullscreen {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
-                }
-                ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
-                // Given when the field is drawn: egui drops focus on a widget not drawn yet.
-                self.search.focus = true;
-            }
+            Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
             Action::Copy | Action::Move if !self.list.files.is_empty() => {
-                let paths = self.targets().iter().map(|&i| self.path(i)).collect();
-                let purpose = match action {
-                    Action::Copy => Pick::CopyTo(paths),
-                    _ => Pick::MoveTo(paths),
-                };
-                self.pick(ctx, true, purpose);
+                self.pick_copy_or_move(ctx, action)
             }
             Action::Copy | Action::Move => {}
             // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.launch(""),
-            Action::SetWallpaper if !self.list.files.is_empty() => {
-                let (path, tx) = (self.path(self.list.cur), self.notices_tx.clone());
-                std::thread::spawn(move || {
-                    if let Err(e) = external::set_wallpaper(&path) {
-                        let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
-                    }
-                });
-            }
+            Action::SetWallpaper if !self.list.files.is_empty() => self.set_wallpaper(),
             Action::SetWallpaper => {}
             // Enter: videos play in a player (images have nothing to play).
-            Action::Play => {
-                #[cfg(feature = "video")]
-                if is_video(&self.location()) {
-                    self.launch(&self.config.video_player);
-                    // The slideshow waits while the video plays; P resumes it.
-                    if self.slideshow.shown_at.is_some() {
-                        self.slideshow.paused = true;
-                        self.title(ctx);
-                    }
-                }
-            }
+            Action::Play => self.play_video(ctx),
             Action::Delete => self.request_delete(ctx, self.config.trash),
             Action::DeletePermanently => self.request_delete(ctx, false),
             Action::Undo => self.undo(ctx),
@@ -908,52 +864,9 @@ impl crate::App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close)
             }
             Action::First | Action::Prev | Action::Next | Action::Last => {
-                // Along the list as shown: the search matches while searching.
-                let row = self.panel.row_step;
-                let delta = match action {
-                    Action::First => -isize::MAX / 2,
-                    Action::Prev => -row,
-                    Action::Next => row,
-                    _ => isize::MAX / 2,
-                };
-                let Some(to) = self.step(delta, false) else {
-                    return;
-                };
-                // With Shift the selection runs from where it started to the new image, as in
-                // a file manager; moving without Shift clears it.
-                let shift = ctx.input(|i| i.modifiers.shift);
-                if shift {
-                    let anchor = *self.list.anchor.get_or_insert(self.list.cur);
-                    if !self.move_range_end(anchor, self.list.cur, to) {
-                        self.list.selected.clear();
-                        self.select_range(anchor, to);
-                    }
-                    self.selection_changed(ctx);
-                } else {
-                    self.list.anchor = None;
-                    if !self.list.selected.is_empty() {
-                        self.list.selected.clear();
-                        self.selection_changed(ctx);
-                    }
-                }
-                self.go(ctx, to);
-                if shift {
-                    self.list.range_end = Some(to);
-                }
+                self.move_along(ctx, action)
             }
-            Action::Back | Action::Forward => {
-                let here = self.back_step();
-                let (from, to) = if action == Action::Back {
-                    (&mut self.folder.back, &mut self.folder.forward)
-                } else {
-                    (&mut self.folder.forward, &mut self.folder.back)
-                };
-                if let Some(path) = from.pop() {
-                    to.push(here);
-                    self.notice = None;
-                    self.open(ctx, path);
-                }
-            }
+            Action::Back | Action::Forward => self.back_or_forward(ctx, action),
             Action::Home => {
                 if let Some(home) = std::env::var_os("HOME") {
                     self.visit(ctx, home.into());
@@ -979,14 +892,7 @@ impl crate::App {
                 self.selection_changed(ctx);
             }
             Action::CopyPath | Action::CopyPathUnquoted if !self.list.files.is_empty() => {
-                let quote = action == Action::CopyPath;
-                let paths: Vec<String> = self
-                    .targets()
-                    .iter()
-                    .map(|&i| self.path(i).to_string_lossy().into_owned())
-                    .map(|p| if quote { format!("\"{p}\"") } else { p })
-                    .collect();
-                ctx.copy_text(paths.join(" "));
+                self.copy_paths(ctx, action)
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             // Decoded at full size in the background; egui hands it to the clipboard.
@@ -1013,14 +919,7 @@ impl crate::App {
             Action::Crop => self.start_crop(),
             Action::SaveAs => self.start_save_as(),
             Action::Subfolders => self.set_subfolders(ctx, !self.config.show_subfolders),
-            Action::HiddenFiles => {
-                self.config.show_hidden = !self.config.show_hidden;
-                self.config.save();
-                // Read again, and scrolled back to the open folder.
-                self.tree.children.clear();
-                self.tree.shown = PathBuf::new();
-                self.list(ctx);
-            }
+            Action::HiddenFiles => self.toggle_hidden_files(ctx),
             // An animation: stopped at the frame before or after the one shown, which A plays on.
             Action::NextPage | Action::PrevPage
                 if self
@@ -1029,32 +928,9 @@ impl crate::App {
                     .get(&self.list.cur)
                     .is_some_and(|s| s.anim.len() > 1) =>
             {
-                let n = self
-                    .list
-                    .slots
-                    .get(&self.list.cur)
-                    .map_or(1, |s| s.anim.len());
-                let at = self.viewing.frame.unwrap_or_else(|| self.playing_frame());
-                self.viewing.frame = Some(match action {
-                    Action::NextPage => (at + 1) % n,
-                    _ => (at + n - 1) % n,
-                });
+                self.step_frame(action)
             }
-            Action::NextPage | Action::PrevPage => {
-                let pages = self.list.slots.get(&self.list.cur).map_or(1, |s| s.pages);
-                let page = match action {
-                    Action::NextPage => (self.viewing.page + 1).min(pages - 1),
-                    _ => self.viewing.page.saturating_sub(1),
-                };
-                if page != self.viewing.page {
-                    self.viewing.page = page;
-                    self.list.slots.remove(&self.list.cur);
-                    self.list
-                        .decodes_pending
-                        .retain(|p, _| p.0 != self.list.cur);
-                    self.refill();
-                }
-            }
+            Action::NextPage | Action::PrevPage => self.step_page(action),
             Action::ExifWindow => self.info.exif_window = !self.info.exif_window,
             Action::Keywords => {
                 self.config.exif_panel = true;
@@ -1071,35 +947,14 @@ impl crate::App {
             Action::AboveEachOther => self.set_layout("1x2"),
             // As a click on that pane: its image becomes the shown one, in the first pane.
             Action::PaneLeft | Action::PaneRight | Action::PaneUp | Action::PaneDown => {
-                let cols = layout_grid(&self.config.layout)[0] as isize;
-                let step = match action {
-                    Action::PaneLeft => -1,
-                    Action::PaneRight => 1,
-                    Action::PaneUp => -cols,
-                    _ => cols,
-                };
-                // Forward, the panes say which image is there (a slideshow may change them
-                // one at a time); back, the list does.
-                let pane = (step > 0)
-                    .then(|| self.list.panes.get(step as usize - 1))
-                    .flatten();
-                if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
-                    self.go(ctx, i);
-                }
+                self.go_to_pane(ctx, action)
             }
             Action::NextLayout => {
                 let at = LAYOUTS.iter().position(|l| l.0 == self.config.layout);
                 let next = LAYOUTS[at.map_or(0, |k| (k + 1) % LAYOUTS.len())].0;
                 self.set_layout(next);
             }
-            Action::Compare => {
-                self.compare = !self.compare;
-                if self.compare && self.config.layout != "1" {
-                    self.config.layout = "1".into();
-                    self.config.save();
-                }
-                self.refill();
-            }
+            Action::Compare => self.toggle_compare(),
             #[cfg(feature = "marks")]
             Action::Mark1
             | Action::Mark2
@@ -1131,29 +986,7 @@ impl crate::App {
             | Action::Icons
             | Action::FolderTree
             | Action::HistogramLog
-            | Action::Animate => {
-                self.panel.scroll_to_cur = true;
-                let c = &mut self.config;
-                let flag = match action {
-                    Action::PathBar => &mut c.path_bar,
-                    Action::Toolbar => &mut c.toolbar,
-                    Action::Overlay => &mut c.osd,
-                    Action::Icons => &mut c.icons,
-                    Action::FolderTree => &mut c.folder_tree,
-                    Action::HistogramLog => &mut c.histogram_log,
-                    Action::Animate => {
-                        // Stepped to a frame: A plays on from there, without turning it off.
-                        if self.viewing.frame.take().is_some() {
-                            return;
-                        }
-                        &mut c.animate
-                    }
-                    Action::SortManager => &mut c.sort_manager,
-                    _ => &mut c.exif_panel,
-                };
-                *flag = !*flag;
-                c.save();
-            }
+            | Action::Animate => self.toggle_setting(action),
             // A collection, or several folders shown together, is no folder to make one in: it
             // would be made in /.
             Action::NewFolder
@@ -1177,24 +1010,7 @@ impl crate::App {
                 self.ask_about_targets();
                 self.dialogs.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
-            Action::Rename => {
-                // The one file selected, as Delete and Move take it (right-clicked in the list,
-                // say), not the image shown beside it.
-                if let Some(&i) = self.list.selected.first().filter(|&&i| i != self.list.cur) {
-                    self.go(ctx, i);
-                }
-                // The name only: in the list with subfolders the entry has its folders too.
-                if let Some(name) = self
-                    .list
-                    .files
-                    .get(self.list.cur)
-                    .and_then(|f| Path::new(f).file_name())
-                {
-                    self.dialogs.prompt =
-                        Some((Prompt::Rename, name.to_string_lossy().into_owned()));
-                    self.ask_about_targets();
-                }
-            }
+            Action::Rename => self.start_rename(ctx),
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
@@ -1218,60 +1034,19 @@ impl crate::App {
             | Action::RotateCcw
             | Action::Rotate180
             | Action::Mirror
-            | Action::Flip => {
-                // Nothing shown: nothing to turn.
-                if self.list.files.is_empty() {
-                    return;
-                }
-                // Until it is saved the old picture shows: turned again, it would be saved twice,
-                // into the same temporary file.
-                if self.work.saving.contains(&self.path(self.list.cur)) {
-                    self.notice = Some(tr("Still saving the last rotation of this file").into());
-                    return;
-                }
-                let (q, m) = self.viewing.orient;
-                self.viewing.turned = self.path(self.list.cur);
-                self.viewing.orient = match action {
-                    Action::RotateCw => ((q + 1) % 4, m),
-                    Action::RotateCcw => ((q + 3) % 4, m),
-                    Action::Rotate180 => ((q + 2) % 4, m),
-                    Action::Mirror => ((4 - q) % 4, !m),
-                    _ => ((6 - q) % 4, !m),
-                };
-            }
+            | Action::Flip => self.turn(action),
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
             Action::Zoom1To1 => self.zoom.level = Some(1.0),
             // Modes that stay for the next images, as ImageGlass's; X goes back to the whole.
             Action::ZoomFit | Action::FitWidth | Action::FitHeight | Action::FitFill => {
-                self.zoom.level = None;
-                self.zoom.offset = egui::Vec2::ZERO;
-                self.config.fit_mode = match action {
-                    Action::FitWidth => 1,
-                    Action::FitHeight => 2,
-                    Action::FitFill => 3,
-                    _ => 0,
-                };
-                self.config.save();
+                self.set_fit_mode(action)
             }
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
             Action::HideTools => self.panel.hidden = !self.panel.hidden,
-            Action::Refresh => {
-                // Asked for: sorted anew, also in an EXIF date order whose names stayed.
-                self.folder.listed_as = None;
-                self.tree.children.clear();
-                self.list.slots.clear();
-                self.list.decodes_pending.clear();
-                self.list.decode_errors.clear();
-                // Decoded again now: a folder read again unchanged keeps its list as it is and
-                // asks for nothing. Thumbnails and the size too, of a file edited elsewhere.
-                self.refill();
-                self.thumbs_changed();
-                self.status.cur_size = None;
-                self.list(ctx);
-            }
+            Action::Refresh => self.refresh(ctx),
             Action::Slideshow if self.slideshow.shown_at.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
             // Resuming gives the shown image the full delay again.
@@ -1282,26 +1057,9 @@ impl crate::App {
             }
             Action::Pause => {}
             Action::RandomOrder => self.set_random_order(ctx, !self.config.random),
-            Action::Faster | Action::Slower => {
-                let step = if action == Action::Faster { -1 } else { 1 };
-                self.config.delay = self
-                    .config
-                    .delay
-                    .saturating_add_signed(step)
-                    .clamp(1, MAX_DELAY);
-                self.config.save();
-                self.title(ctx);
-            }
+            Action::Faster | Action::Slower => self.change_delay(ctx, action),
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
-            Action::Escape => {
-                self.help = None;
-                if self.slideshow.shown_at.is_some() {
-                    self.stop_slideshow(ctx);
-                }
-                if fullscreen {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
-                }
-            }
+            Action::Escape => self.escape(ctx, fullscreen),
         }
     }
 

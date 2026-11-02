@@ -159,6 +159,7 @@ const START: &[&str] = &[
 ];
 
 /// The Preferences window: open or not, its search, and the action whose key is being chosen.
+#[derive(Default)]
 pub(crate) struct Prefs {
     /// Edit → Preferences is open.
     pub(crate) open: bool,

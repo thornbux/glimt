@@ -49,6 +49,26 @@ pub(crate) struct Window {
     pub(crate) closing: u8,
 }
 
+impl Window {
+    /// The window at start, a kiosk's if `kiosk`: held in full screen until --remote quit.
+    pub(crate) fn new(kiosk: bool) -> Self {
+        Window {
+            state: WindowState::default(),
+            kiosk,
+            kiosk_quit: false,
+            projector: false,
+            projector_size: [0, 0],
+            inhibitor: Arc::default(),
+            inhibit_on: false,
+            menu_away: None,
+            has_focus: true,
+            pointer_moved: Instant::now(),
+            title: String::new(),
+            closing: 0,
+        }
+    }
+}
+
 impl crate::App {
     /// Keeps a kiosk in full screen and the screensaver off in full screen, and remembers the
     /// window's size and place; whether the window is full screen.
@@ -294,6 +314,18 @@ impl crate::App {
             && self.config.hide_pointer
             && !self.working_besides_image()
             && !self.dialog_open()
+    }
+
+    /// Esc: as in Geeqie it never quits; it closes help, stops the slideshow and leaves full
+    /// screen.
+    pub(crate) fn escape(&mut self, ctx: &egui::Context, fullscreen: bool) {
+        self.help = None;
+        if self.slideshow.shown_at.is_some() {
+            self.stop_slideshow(ctx);
+        }
+        if fullscreen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
     }
 }
 

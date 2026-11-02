@@ -2,7 +2,11 @@
 //! the orientation, and the jobs that run them in the background with their progress and Stop.
 //! Copies are written under a hidden name and get their own once whole; no file is overwritten.
 
+use crate::actions::Action;
 use crate::decode::survive;
+use crate::dialogs::Pick;
+use crate::dialogs::Prompt;
+use crate::external;
 use crate::files::pattern_name;
 use crate::folder::total_size;
 use crate::format::count;
@@ -126,6 +130,36 @@ pub(crate) struct Work {
     pub(crate) clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
     pub(crate) clip_rx: Receiving<egui::ColorImage>,
+}
+
+impl Work {
+    /// Nothing running; Rename Many's steps cut short by a crash are looked for in the
+    /// background.
+    pub(crate) fn new() -> Self {
+        let (deleted_tx, deleted_rx) = mpsc::channel();
+        let (saved_tx, saved_rx) = mpsc::channel();
+        let (tx, cut_short_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(journal::dir().map_or_else(Vec::new, |d| journal::interrupted(&d)));
+        });
+        Work {
+            jobs: Vec::new(),
+            touching: Vec::new(),
+            renaming: None,
+            renaming_rx: Receiving::none(),
+            deleting: HashSet::new(),
+            deleted_tx,
+            deleted_rx,
+            saving: HashSet::new(),
+            saved_tx,
+            saved_rx,
+            undo: None,
+            cut_short: Vec::new(),
+            cut_short_rx: Receiving::of(cut_short_rx),
+            clipboard: None,
+            clip_rx: Receiving::none(),
+        }
+    }
 }
 
 impl crate::App {
@@ -1198,6 +1232,59 @@ impl crate::App {
             drop(job);
             Some(done)
         });
+    }
+
+    /// Copy or Move: the targets, to a folder the file chooser asks for.
+    pub(crate) fn pick_copy_or_move(&mut self, ctx: &egui::Context, action: Action) {
+        let paths = self.targets().iter().map(|&i| self.path(i)).collect();
+        let purpose = match action {
+            Action::Copy => Pick::CopyTo(paths),
+            _ => Pick::MoveTo(paths),
+        };
+        self.pick(ctx, true, purpose);
+    }
+
+    /// File → Set as Wallpaper: the shown image, through the desktop portal, in the background.
+    pub(crate) fn set_wallpaper(&mut self) {
+        let (path, tx) = (self.path(self.list.cur), self.notices_tx.clone());
+        std::thread::spawn(move || {
+            if let Err(e) = external::set_wallpaper(&path) {
+                let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
+            }
+        });
+    }
+
+    /// Copy Path: the targets' paths as text, quoted for Copy Path, not for Copy Path Unquoted.
+    pub(crate) fn copy_paths(&mut self, ctx: &egui::Context, action: Action) {
+        let quote = action == Action::CopyPath;
+        let paths: Vec<String> = self
+            .targets()
+            .iter()
+            .map(|&i| self.path(i).to_string_lossy().into_owned())
+            .map(|p| if quote { format!("\"{p}\"") } else { p })
+            .collect();
+        ctx.copy_text(paths.join(" "));
+    }
+
+    /// Rename: the one file selected, as Delete and Move take it (right-clicked in the list, say),
+    /// not the image shown beside it; its name only, without the folders a list with subfolders
+    /// gives it.
+    pub(crate) fn start_rename(&mut self, ctx: &egui::Context) {
+        // The one file selected, as Delete and Move take it (right-clicked in the list,
+        // say), not the image shown beside it.
+        if let Some(&i) = self.list.selected.first().filter(|&&i| i != self.list.cur) {
+            self.go(ctx, i);
+        }
+        // The name only: in the list with subfolders the entry has its folders too.
+        if let Some(name) = self
+            .list
+            .files
+            .get(self.list.cur)
+            .and_then(|f| Path::new(f).file_name())
+        {
+            self.dialogs.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
+            self.ask_about_targets();
+        }
     }
 }
 

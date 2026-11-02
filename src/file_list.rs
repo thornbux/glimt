@@ -9,6 +9,7 @@ use crate::files::{SORTS, Types, list_folder};
 use crate::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::lang::tr;
 use crate::menus::scroll_menu;
+use crate::spawn_thumbnailers;
 use crate::threads::Receiving;
 use crate::view::{broken_mark, pane_map};
 use crate::{collections, config, noted, tf, theme};
@@ -85,6 +86,31 @@ pub(crate) struct Thumbs {
     pub(crate) save: Arc<AtomicBool>,
 }
 
+impl Thumbs {
+    /// Thumbnails with workers of their own, so scrolling the list never delays the shown
+    /// image; `rotate` is the decoders' Auto Rotate.
+    pub(crate) fn new(
+        ctx: &egui::Context,
+        workers: usize,
+        rotate: &Arc<AtomicBool>,
+        save: bool,
+    ) -> Self {
+        let view: ThumbView = Arc::default();
+        let save = Arc::new(AtomicBool::new(save));
+        let (jobs, rx) = spawn_thumbnailers(ctx, workers, rotate, &view, &save);
+        Thumbs {
+            stale: HashSet::new(),
+            textures: HashMap::new(),
+            pending: HashSet::new(),
+            jobs,
+            rx,
+            view,
+            list_rows: 0..0,
+            save,
+        }
+    }
+}
+
 /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to
 /// the shown image.
 pub(crate) struct Panel {
@@ -98,6 +124,17 @@ pub(crate) struct Panel {
     pub(crate) scroll_to_cur: bool,
 }
 
+impl Default for Panel {
+    fn default() -> Self {
+        Panel {
+            hidden: false,
+            grid_cols: 1,
+            row_step: 1,
+            scroll_to_cur: true,
+        }
+    }
+}
+
 /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
 pub(crate) struct Tree {
     /// Subfolders by folder for the folder tree; `None` while being read.
@@ -108,6 +145,19 @@ pub(crate) struct Tree {
     pub(crate) shown: PathBuf,
     /// The folders open in the tree.
     pub(crate) open: HashSet<PathBuf>,
+}
+
+impl Default for Tree {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel();
+        Tree {
+            children: HashMap::new(),
+            tx,
+            rx,
+            shown: PathBuf::new(),
+            open: HashSet::new(),
+        }
+    }
 }
 
 /// The status bar's numbers: the shown image's size and place, the folder's total, and the
@@ -135,6 +185,26 @@ pub(crate) struct StatusBar {
     pub(crate) selected_rx: Receiving<u64>,
     /// When to work out that size: once the selection has stayed the same a moment.
     pub(crate) selected_size_due: Option<Instant>,
+}
+
+impl Default for StatusBar {
+    fn default() -> Self {
+        let (freed_tx, freed_rx) = mpsc::channel();
+        StatusBar {
+            cur_size: None,
+            pane_info: Vec::new(),
+            pane: 0,
+            grid: [1, 1],
+            place: None,
+            total_size: 0,
+            size_rx: Receiving::none(),
+            freed_tx,
+            freed_rx,
+            selected_size: None,
+            selected_rx: Receiving::none(),
+            selected_size_due: None,
+        }
+    }
 }
 
 impl crate::App {

@@ -31,6 +31,7 @@ pub enum Query {
 }
 
 /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
+#[derive(Default)]
 pub(crate) struct Search {
     /// File name search above the file list, and the matching files best first while it has
     /// at least three letters.
@@ -408,6 +409,24 @@ impl crate::App {
     #[cfg(not(feature = "marks"))]
     pub(crate) fn mark_matches(&self, _: &str) -> Option<Vec<usize>> {
         None
+    }
+
+    /// /: the search field, shown with the file list (out of full screen) if it was hidden, and
+    /// the / itself not typed into it.
+    pub(crate) fn focus_search_field(&mut self, ctx: &egui::Context, fullscreen: bool) {
+        // The field shows if it was hidden, with the file list (out of full screen),
+        // and the / itself is not typed into it.
+        if !self.config.search_bar {
+            self.config.search_bar = true;
+            self.config.save();
+        }
+        self.panel.hidden = false;
+        if fullscreen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        }
+        ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
+        // Given when the field is drawn: egui drops focus on a widget not drawn yet.
+        self.search.focus = true;
     }
 }
 

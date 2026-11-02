@@ -2,6 +2,7 @@
 //! profile chosen for images without one) to sRGB or to the screen's profile, with moxcms. The
 //! screen profile can come from colord.
 
+use crate::Config;
 use crate::exif;
 use eframe::egui;
 use image::ImageDecoder;
@@ -433,6 +434,23 @@ pub fn transformed(
         }
     }
     rgba.into()
+}
+
+/// The colour settings in effect at start; the screen profile's or input profile's error, if
+/// either could not be read. With the desktop's profile asked for, images wait a moment for it.
+pub(crate) fn set_up(config: &Config) -> Option<String> {
+    COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
+    VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);
+    let error = (set_screen(&config.screen_profile))
+        .and_then(|_| set_input(&config.input_profile))
+        .err();
+    set_colour(|c| c.own = config.own_profile);
+    set_intent(&config.rendering_intent);
+    if config.desktop_profile && config.color_management {
+        let deadline = Instant::now() + std::time::Duration::from_millis(SCREEN_WAIT_MS);
+        *SCREEN_WAIT.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(deadline);
+    }
+    error
 }
 
 #[cfg(test)]

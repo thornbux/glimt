@@ -1,6 +1,7 @@
 //! The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare,
 //! painting, the wheel.
 
+use crate::Config;
 use crate::actions::{Action, KIOSK_ACTIONS};
 use crate::decode::{Decoded, decode, histogram, survive};
 use crate::external::is_video;
@@ -96,6 +97,34 @@ pub(crate) struct Decoding {
     pub(crate) frame_ms: [u32; 256],
 }
 
+impl Decoding {
+    /// The decoder workers started, `workers` of them, with the settings they read.
+    pub(crate) fn new(ctx: &egui::Context, config: &Config, workers: usize) -> Self {
+        let keep = Arc::new(Mutex::new(vec![0]));
+        let full_ok = Arc::new(AtomicUsize::new(1));
+        let preload = Arc::new(AtomicUsize::new(config.preload));
+        let rotate = Arc::new(AtomicBool::new(config.exif_rotate));
+        let (jobs, rx) = spawn_decoders(ctx, workers, &keep, &full_ok, &rotate);
+        Decoding {
+            keep,
+            full_ok,
+            preload,
+            rotate,
+            view_box: [1920, 1080],
+            view_area: [1920, 1080],
+            max_side: 8192,
+            jobs,
+            rx,
+            sent: 0,
+            last_drawn: None,
+            fade: None,
+            opened: Instant::now(),
+            started: Some(Instant::now()),
+            frame_ms: [0; 256],
+        }
+    }
+}
+
 /// The zoom, and where the zoomed image is in the view.
 pub(crate) struct Zoom {
     /// Physical screen pixels per original pixel; `None` = fit to window.
@@ -108,6 +137,18 @@ pub(crate) struct Zoom {
     pub(crate) last_scale: f32,
     /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
     pub(crate) wheel: f32,
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Zoom {
+            level: None,
+            offset: egui::Vec2::ZERO,
+            max_pan: egui::Vec2::ZERO,
+            last_scale: 1.0,
+            wheel: 0.0,
+        }
+    }
 }
 
 impl crate::App {
@@ -1179,6 +1220,123 @@ impl crate::App {
             }
         }
         step
+    }
+
+    /// Enter: a video plays in the player (an image has nothing to play), and a slideshow waits
+    /// meanwhile; P resumes it.
+    #[cfg_attr(not(feature = "video"), allow(unused_variables))]
+    pub(crate) fn play_video(&mut self, ctx: &egui::Context) {
+        #[cfg(feature = "video")]
+        if is_video(&self.location()) {
+            self.launch(&self.config.video_player);
+            // The slideshow waits while the video plays; P resumes it.
+            if self.slideshow.shown_at.is_some() {
+                self.slideshow.paused = true;
+                self.title(ctx);
+            }
+        }
+    }
+
+    /// Ctrl+Page Up/Down on an animation: stopped at the frame before or after the one shown,
+    /// which A plays on from.
+    pub(crate) fn step_frame(&mut self, action: Action) {
+        let n = self
+            .list
+            .slots
+            .get(&self.list.cur)
+            .map_or(1, |s| s.anim.len());
+        let at = self.viewing.frame.unwrap_or_else(|| self.playing_frame());
+        self.viewing.frame = Some(match action {
+            Action::NextPage => (at + 1) % n,
+            _ => (at + n - 1) % n,
+        });
+    }
+
+    /// Ctrl+Page Up/Down: the next or previous page of a multi-page image, decoded anew.
+    pub(crate) fn step_page(&mut self, action: Action) {
+        let pages = self.list.slots.get(&self.list.cur).map_or(1, |s| s.pages);
+        let page = match action {
+            Action::NextPage => (self.viewing.page + 1).min(pages - 1),
+            _ => self.viewing.page.saturating_sub(1),
+        };
+        if page != self.viewing.page {
+            self.viewing.page = page;
+            self.list.slots.remove(&self.list.cur);
+            self.list
+                .decodes_pending
+                .retain(|p, _| p.0 != self.list.cur);
+            self.refill();
+        }
+    }
+
+    /// Alt+arrow: as a click on that pane, its image becomes the shown one, in the first pane.
+    /// Forward, the panes say which image is there (a slideshow may change them one at a time);
+    /// back, the list does.
+    pub(crate) fn go_to_pane(&mut self, ctx: &egui::Context, action: Action) {
+        let cols = layout_grid(&self.config.layout)[0] as isize;
+        let step = match action {
+            Action::PaneLeft => -1,
+            Action::PaneRight => 1,
+            Action::PaneUp => -cols,
+            _ => cols,
+        };
+        // Forward, the panes say which image is there (a slideshow may change them
+        // one at a time); back, the list does.
+        let pane = (step > 0)
+            .then(|| self.list.panes.get(step as usize - 1))
+            .flatten();
+        if let Some(i) = pane.copied().or_else(|| self.step(step, false)) {
+            self.go(ctx, i);
+        }
+    }
+
+    /// E: two images side by side, in one pane.
+    pub(crate) fn toggle_compare(&mut self) {
+        self.compare = !self.compare;
+        if self.compare && self.config.layout != "1" {
+            self.config.layout = "1".into();
+            self.config.save();
+        }
+        self.refill();
+    }
+
+    /// Turn or mirror the shown image for viewing, until it is saved. Mirroring or flipping what
+    /// is on screen after a turn: mirror the image first and turn the other way (a flip is a mirror
+    /// and half a turn).
+    pub(crate) fn turn(&mut self, action: Action) {
+        // Nothing shown: nothing to turn.
+        if self.list.files.is_empty() {
+            return;
+        }
+        // Until it is saved the old picture shows: turned again, it would be saved twice,
+        // into the same temporary file.
+        if self.work.saving.contains(&self.path(self.list.cur)) {
+            self.notice = Some(tr("Still saving the last rotation of this file").into());
+            return;
+        }
+        let (q, m) = self.viewing.orient;
+        self.viewing.turned = self.path(self.list.cur);
+        self.viewing.orient = match action {
+            Action::RotateCw => ((q + 1) % 4, m),
+            Action::RotateCcw => ((q + 3) % 4, m),
+            Action::Rotate180 => ((q + 2) % 4, m),
+            Action::Mirror => ((4 - q) % 4, !m),
+            _ => ((6 - q) % 4, !m),
+        };
+    }
+
+    /// Fit, Fit Width, Fit Height and Fill: modes that stay for the next images, as ImageGlass's;
+    /// X goes back to the whole.
+    pub(crate) fn set_fit_mode(&mut self, action: Action) {
+        self.zoom.level = None;
+        self.zoom.offset = egui::Vec2::ZERO;
+        self.config.fit_mode = match action {
+            Action::FitWidth => 1,
+            Action::FitHeight => 2,
+            Action::FitFill => 3,
+            _ => 0,
+        };
+        self.config.save();
     }
 }
 

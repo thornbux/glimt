@@ -1,12 +1,16 @@
 //! Opening a folder, a collection or several folders, listing them, and following changes.
 
+use crate::Config;
 use crate::Mounted;
+use crate::actions::Action;
 use crate::external::{Login, gio_mount};
 use crate::files::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::lang::tr;
 use crate::menus::{iconed, scroll_menu};
+use crate::sort_folders_from;
+use crate::sort_folders_path;
 use crate::threads::{Receiving, Took};
 use crate::{List, Slot, Viewing, collections, config, external, files, noted, tf, theme};
 use eframe::egui;
@@ -73,6 +77,52 @@ pub(crate) struct Folder {
     pub(crate) login: Option<Login>,
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
     pub(crate) sort_folders: Vec<PathBuf>,
+}
+
+impl Folder {
+    /// Nothing open yet; the recent list and the sort manager's folders read from their files.
+    /// No list kept: one of before goes too, also when the setting was changed in the file.
+    pub(crate) fn new(config: &Config) -> Self {
+        let recent = match config::recent_path() {
+            Some(file) if !config.keep_recent => {
+                config::write_later(move || config::remove_shared(&file));
+                Vec::new()
+            }
+            Some(file) => crate::decode::read_limited(file)
+                .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
+            None => Vec::new(),
+        };
+        let (changed_tx, changed_rx) = mpsc::channel();
+        Folder {
+            dir: PathBuf::new(),
+            subdirs: Vec::new(),
+            path_text: String::new(),
+            opened_type: Types::NONE,
+            recursive: false,
+            collection: None,
+            sort_collection: false,
+            folders: Vec::new(),
+            together: None,
+            listing_rx: Receiving::none(),
+            subdirs_rx: Receiving::none(),
+            part_rx: Receiving::none(),
+            list_parts: false,
+            listed_as: None,
+            went_to: None,
+            listing_stop: Arc::default(),
+            relist: false,
+            watching: Arc::new(AtomicUsize::new(0)),
+            changed_tx,
+            changed_rx,
+            recent,
+            back: Vec::new(),
+            forward: Vec::new(),
+            mounting_rx: Receiving::none(),
+            login: None,
+            sort_folders: (sort_folders_path().and_then(|p| crate::decode::read_limited(p).ok()))
+                .map_or_else(Vec::new, |t| sort_folders_from(&t)),
+        }
+    }
 }
 
 impl crate::App {
@@ -822,6 +872,49 @@ impl crate::App {
         }
         drain(&mut self.search.match_rx, &mut self.list.match_size);
         drain(&mut self.status.size_rx, &mut self.status.total_size);
+    }
+
+    /// Go → Back and Forward: the folder opened before or after this one.
+    pub(crate) fn back_or_forward(&mut self, ctx: &egui::Context, action: Action) {
+        let here = self.back_step();
+        let (from, to) = if action == Action::Back {
+            (&mut self.folder.back, &mut self.folder.forward)
+        } else {
+            (&mut self.folder.forward, &mut self.folder.back)
+        };
+        if let Some(path) = from.pop() {
+            to.push(here);
+            self.notice = None;
+            self.open(ctx, path);
+        }
+    }
+
+    /// View → Show Hidden Files: the list and the tree read again, scrolled back to the open
+    /// folder.
+    pub(crate) fn toggle_hidden_files(&mut self, ctx: &egui::Context) {
+        self.config.show_hidden = !self.config.show_hidden;
+        self.config.save();
+        // Read again, and scrolled back to the open folder.
+        self.tree.children.clear();
+        self.tree.shown = PathBuf::new();
+        self.list(ctx);
+    }
+
+    /// F5: the folder read and sorted anew (also in an EXIF date order whose names stayed), and the
+    /// shown image, thumbnails and size of a file edited elsewhere made again.
+    pub(crate) fn refresh(&mut self, ctx: &egui::Context) {
+        // Asked for: sorted anew, also in an EXIF date order whose names stayed.
+        self.folder.listed_as = None;
+        self.tree.children.clear();
+        self.list.slots.clear();
+        self.list.decodes_pending.clear();
+        self.list.decode_errors.clear();
+        // Decoded again now: a folder read again unchanged keeps its list as it is and
+        // asks for nothing. Thumbnails and the size too, of a file edited elsewhere.
+        self.refill();
+        self.thumbs_changed();
+        self.status.cur_size = None;
+        self.list(ctx);
     }
 }
 

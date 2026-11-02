@@ -1,6 +1,7 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::Viewing;
+use crate::actions::Action;
 use crate::folder::total_size;
 use crate::format::thousands;
 use crate::threads::Receiving;
@@ -285,6 +286,44 @@ impl crate::App {
     pub(crate) fn first_target(&self) -> (usize, usize) {
         let first = self.list.selected.first().copied().unwrap_or(self.list.cur);
         (self.list.selected.len().max(1), first)
+    }
+
+    /// First, Previous, Next and Last, along the list as shown (the search matches while
+    /// searching); with Shift the selection runs from where it started to the new image, as in a
+    /// file manager, and moving without Shift clears it.
+    pub(crate) fn move_along(&mut self, ctx: &egui::Context, action: Action) {
+        // Along the list as shown: the search matches while searching.
+        let row = self.panel.row_step;
+        let delta = match action {
+            Action::First => -isize::MAX / 2,
+            Action::Prev => -row,
+            Action::Next => row,
+            _ => isize::MAX / 2,
+        };
+        let Some(to) = self.step(delta, false) else {
+            return;
+        };
+        // With Shift the selection runs from where it started to the new image, as in
+        // a file manager; moving without Shift clears it.
+        let shift = ctx.input(|i| i.modifiers.shift);
+        if shift {
+            let anchor = *self.list.anchor.get_or_insert(self.list.cur);
+            if !self.move_range_end(anchor, self.list.cur, to) {
+                self.list.selected.clear();
+                self.select_range(anchor, to);
+            }
+            self.selection_changed(ctx);
+        } else {
+            self.list.anchor = None;
+            if !self.list.selected.is_empty() {
+                self.list.selected.clear();
+                self.selection_changed(ctx);
+            }
+        }
+        self.go(ctx, to);
+        if shift {
+            self.list.range_end = Some(to);
+        }
     }
 }
 

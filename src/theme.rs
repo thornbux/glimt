@@ -5,6 +5,7 @@ use crate::Receiving;
 use crate::theme;
 use eframe::egui;
 use std::sync::Arc;
+use std::sync::mpsc;
 
 /// Phosphor icons (regular), by code point.
 pub mod icon {
@@ -187,6 +188,27 @@ pub(crate) struct FromDesktop {
     /// The desktop's screen profile file, once read from colord.
     pub(crate) screen: Option<String>,
     pub(crate) screen_rx: Receiving<Option<String>>,
+}
+
+impl FromDesktop {
+    /// The desktop asked in the background: gdbus takes a moment, and the window shows
+    /// meanwhile and takes the desktop's look after. Its screen profile only if `profile`.
+    pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let repaint = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(desktop());
+            repaint.request_repaint();
+        });
+        FromDesktop {
+            look: Default::default(),
+            look_rx: Receiving::of(rx),
+            screen: None,
+            screen_rx: profile
+                .then(|| crate::colour::read_desktop_screen(ctx))
+                .map_or_else(Receiving::none, Receiving::of),
+        }
+    }
 }
 
 /// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then
