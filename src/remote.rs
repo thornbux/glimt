@@ -9,6 +9,7 @@
 use crate::actions::Action;
 #[cfg(feature = "test-hooks")]
 use crate::hooks;
+use crate::remote;
 use eframe::egui;
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
@@ -110,6 +111,15 @@ impl Drop for Answering {
     }
 }
 
+/// Commands from --remote, and selects held back until the list is read.
+pub(crate) struct Listener {
+    /// Commands from `glimt --remote`.
+    pub(crate) rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
+    /// A `--remote select` that came while the folder was being read or Delete or Rename asked,
+    /// and every command after it: done in the order they came once neither is.
+    pub(crate) waiting_select: Vec<(String, Option<remote::Reply>)>,
+}
+
 impl crate::App {
     // ---- Remote control ----
 
@@ -122,22 +132,23 @@ impl crate::App {
         let busy = |app: &Self| app.folder.listing_rx.is_some() || app.asking_about_selection();
         // Those held back, in the order they came, until one (an `open`) makes the window busy
         // again: each gets its own answer, from the list as it was when it was sent.
-        while !self.waiting_select.is_empty() && !busy(self) {
-            let (command, reply) = self.waiting_select.remove(0);
+        while !self.remote.waiting_select.is_empty() && !busy(self) {
+            let (command, reply) = self.remote.waiting_select.remove(0);
             self.remote_one(ctx, &command, reply);
         }
-        while let Ok((command, reply)) = self.remote_rx.try_recv() {
+        while let Ok((command, reply)) = self.remote.rx.try_recv() {
             let select = reply.is_some() && command.starts_with("select ");
             // Behind a select held back, what can change the list it is answered for waits its
             // turn: another script's `open`, subfolders, a slideshow with its subfolders. Other
             // queries and commands are done at once, as without it.
             let lists = ["open ", "subfolders", "slideshow"];
             let relists = lists.iter().any(|c| command.starts_with(c));
-            let wait = (relists && !self.waiting_select.is_empty()) || (select && busy(self));
+            let wait =
+                (relists && !self.remote.waiting_select.is_empty()) || (select && busy(self));
             if !wait {
                 self.remote_one(ctx, &command, reply);
-            } else if self.waiting_select.len() < 64 {
-                self.waiting_select.push((command, reply));
+            } else if self.remote.waiting_select.len() < 64 {
+                self.remote.waiting_select.push((command, reply));
             }
             // More than that waiting: the answer dropped, which the client is told as "no
             // answer" (serve), so the script tries again.
@@ -149,8 +160,8 @@ impl crate::App {
     /// Also those sent just before, not yet taken from the channel: a query is answered as
     /// usual (current, selection).
     pub(crate) fn answer_held_selects(&mut self) {
-        let sent: Vec<_> = self.remote_rx.try_iter().collect();
-        let held = std::mem::take(&mut self.waiting_select);
+        let sent: Vec<_> = self.remote.rx.try_iter().collect();
+        let held = std::mem::take(&mut self.remote.waiting_select);
         let ctx = self.ctx.clone();
         for (command, reply) in held.into_iter().chain(sent) {
             let Some(reply) = reply else { continue };
@@ -879,7 +890,7 @@ mod tests {
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
         let (tx, rx) = std::sync::mpsc::channel();
-        app.remote_rx = rx;
+        app.remote.rx = rx;
         // A folder still being read.
         let (_reading, listing) = std::sync::mpsc::channel();
         app.folder.listing_rx = crate::Receiving::of(listing);
@@ -913,7 +924,7 @@ mod tests {
             .unwrap();
         let (mut app, ctx) = app_on(&dir);
         let (tx, rx) = std::sync::mpsc::channel();
-        app.remote_rx = rx;
+        app.remote.rx = rx;
         let (_reading, listing) = std::sync::mpsc::channel();
         app.folder.listing_rx = crate::Receiving::of(listing);
         let (reply, answer) = std::sync::mpsc::channel();
@@ -948,7 +959,9 @@ mod tests {
         // Closing with selects still held, and one sent just before: each told that none of its
         // paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();
-        app.waiting_select.push((select.clone(), Some(reply)));
+        app.remote
+            .waiting_select
+            .push((select.clone(), Some(reply)));
         let (reply, late) = std::sync::mpsc::channel();
         tx.send((select.clone(), Some(reply))).unwrap();
         app.answer_held_selects();

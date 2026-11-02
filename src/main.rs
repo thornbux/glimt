@@ -560,11 +560,8 @@ struct App {
     /// Messages from background tasks (deleting, copying), to become the notice.
     notices_tx: mpsc::Sender<String>,
     notices_rx: mpsc::Receiver<String>,
-    /// Commands from `glimt --remote`.
-    remote_rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
-    /// A `--remote select` that came while the folder was being read or Delete or Rename asked,
-    /// and every command after it: done in the order they came once neither is.
-    waiting_select: Vec<(String, Option<remote::Reply>)>,
+    /// Commands from --remote, and selects held back until the list is read.
+    remote: remote::Listener,
 }
 
 /// A file of the list and its row among the search matches (`None`: not among them).
@@ -685,7 +682,6 @@ impl App {
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
-            remote_rx,
             ctx: ctx.clone(),
             list: List::default(),
             plugins: plugins::find(),
@@ -696,7 +692,6 @@ impl App {
             last_view: None,
             image_id: None,
             focus_by_keys: false,
-            waiting_select: Vec::new(),
             busy: Arc::new(AtomicUsize::new(0)),
             slideshow: slideshow::Slideshow {
                 shown_at: None,
@@ -892,6 +887,10 @@ impl App {
             },
             // Last: the fields before it read it.
             config,
+            remote: remote::Listener {
+                rx: remote_rx,
+                waiting_select: Vec::new(),
+            },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {
