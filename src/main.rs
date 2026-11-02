@@ -16,6 +16,7 @@ use config::{
     write_atomic, xdg_dir,
 };
 use decode::{Decoded, Hist, MAX_ANIMATION, color_image, decode, histogram, survive};
+use duplicates::Dups;
 use eframe::egui;
 use external::{Login, Mounted, apps_for, command, gio_mount, is_video, open_url};
 use files::{
@@ -306,50 +307,6 @@ impl Job {
         } else {
             None
         }
-    }
-}
-
-/// The Find Duplicates window: what to compare by, the search running and its results.
-struct Dups {
-    by: duplicates::By,
-    progress: Arc<duplicates::Progress>,
-    groups_rx: Receiving<Vec<Vec<PathBuf>>>,
-    groups: Vec<Vec<PathBuf>>,
-    /// (group, file) of each row: the file `usize::MAX` for the group's heading.
-    rows: Vec<(usize, usize)>,
-    checked: HashSet<PathBuf>,
-    /// Images searched, for the line above the results.
-    searched: usize,
-    /// File sizes, read once when a row is first shown, not on every frame.
-    sizes: HashMap<PathBuf, u64>,
-}
-
-impl Dups {
-    fn new() -> Self {
-        Dups {
-            by: duplicates::By::Checksum,
-            progress: Arc::default(),
-            groups_rx: Receiving::none(),
-            groups: Vec::new(),
-            sizes: HashMap::new(),
-            rows: Vec::new(),
-            checked: HashSet::new(),
-            searched: 0,
-        }
-    }
-
-    /// Take out files that are gone; groups of one are no groups.
-    fn remove(&mut self, gone: &HashSet<&Path>) {
-        for g in &mut self.groups {
-            g.retain(|p| !gone.contains(p.as_path()));
-        }
-        self.groups.retain(|g| g.len() > 1);
-        self.checked.retain(|p| !gone.contains(p.as_path()));
-        self.rows = (self.groups.iter().enumerate())
-            .flat_map(|(g, files)| {
-                std::iter::once((g, usize::MAX)).chain((0..files.len()).map(move |f| (g, f)))
-            })
-            .collect();
     }
 }
 
