@@ -1,7 +1,9 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
-use crate::external;
+use crate::format::fill_template;
+use crate::{external, remote, tf};
 use eframe::egui;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
@@ -144,5 +146,71 @@ impl crate::App {
                 end();
             }
         });
+    }
+}
+
+impl crate::App {
+    pub(crate) fn title(&self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text()));
+    }
+
+    /// Window → Set Window Title: this window's own template, until it closes; empty, the one
+    /// in Preferences again.
+    pub(crate) fn set_window_title(&mut self, ctx: &egui::Context, template: &str) {
+        self.window_title = template.to_owned();
+        self.title(ctx);
+    }
+
+    /// "image name - Glimt" (or "Glimt - image name", Preferences); the folder when it has no
+    /// images. Or this window's own template, else the one in Preferences, unless its fields
+    /// are all empty.
+    pub(crate) fn title_text(&self) -> String {
+        let (name, path) = match (self.list.files.get(self.list.cur), &self.collection) {
+            (Some(_), _) => (
+                self.name(self.list.cur).into_owned(),
+                self.path(self.list.cur).display().to_string(),
+            ),
+            (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
+            (None, None) => (
+                self.dir.display().to_string(),
+                self.dir.display().to_string(),
+            ),
+        };
+        // The shown image's own folder: a collection and several folders are listed as "/".
+        let folder = match self.list.files.get(self.list.cur) {
+            Some(_) => self.path(self.list.cur).parent().map(Path::to_path_buf),
+            None => self
+                .collection
+                .as_ref()
+                .and_then(|f| f.parent())
+                .map(Path::to_path_buf),
+        };
+        let folder = folder
+            .unwrap_or_else(|| self.dir.clone())
+            .display()
+            .to_string();
+        // A named Glimt says which it is.
+        let app = match remote::given_name() {
+            Some(n) => tf!("Glimt ({n})", n),
+            None => "Glimt".to_owned(),
+        };
+        let template = match self.window_title.as_str() {
+            "" => &self.config.window_title,
+            own => own,
+        };
+        let own = fill_template(template, |field| match field {
+            "name" => name.clone(),
+            "path" => path.clone(),
+            "folder" => folder.clone(),
+            "app" => app.clone(),
+            _ => String::new(),
+        });
+        if !own.trim().is_empty() {
+            own
+        } else if self.config.app_name_first {
+            format!("{app} - {name}")
+        } else {
+            format!("{name} - {app}")
+        }
     }
 }
