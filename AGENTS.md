@@ -56,7 +56,8 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its fields by group, its decode, thumbnail and EXIF workers, opening and listing a folder, browsing, painting the image, the file list, menus, panels and dialogs, `run` for every action, and the command line. Also helpers other modules use: threads (`in_parts`, `background_threads`, `small_alloc_threads`), `Job`, and `crate::broken` for tests |
+| `src/main.rs` | The app: `App` and its fields by group, its decode, thumbnail and EXIF workers, opening and listing a folder, browsing, painting the image, the file list, menus, panels and dialogs, `run` for every action, and the command line. Also `Job`, which other modules use, and `crate::broken` for tests |
+| `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys; variants are stored by name, never rename one |
