@@ -1023,10 +1023,10 @@ fn restore(
     // not the .trashinfo's own time, which a share stamps with its server's clock. Two seconds
     // early, for a move that began in the second before.
     let secs = (thrown.since.duration_since(std::time::UNIX_EPOCH)).map_or(0, |d| d.as_secs());
-    let since = crate::local_time(secs as i64 - 2).replacen(' ', "T", 1);
+    let since = crate::format::local_time(secs as i64 - 2).replacen(' ', "T", 1);
     // Those from the move's own second on before those two seconds: one of the same name
     // trashed just before the move is another file's.
-    let at = crate::local_time(secs as i64).replacen(' ', "T", 1);
+    let at = crate::format::local_time(secs as i64).replacen(' ', "T", 1);
     let rank = |t: &Trashed| (t.date < at, t.date.clone());
     // Nor one dated later than now: a trash folder on a stick from someone else (FAT and exFAT
     // give every file to whoever mounts it) may hold an entry of the same name dated in the
@@ -1035,7 +1035,7 @@ fn restore(
     // dated within that hour comes after the user's own.
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
     let until = now.map_or(0, |d| d.as_secs()) as i64 + 3660;
-    let until = crate::local_time(until).replacen(' ', "T", 1);
+    let until = crate::format::local_time(until).replacen(' ', "T", 1);
     let mut find = |path: &Path| {
         let mut first: Option<Trashed> = None;
         for (dir, top) in dirs_of(path) {
@@ -1161,7 +1161,8 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
         return Err(std::io::ErrorKind::CrossesDevices.into());
     }
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    let date = crate::local_time(secs.map_or(0, |d| d.as_secs()) as i64).replacen(' ', "T", 1);
+    let date =
+        crate::format::local_time(secs.map_or(0, |d| d.as_secs()) as i64).replacen(' ', "T", 1);
     let text = format!(
         "[Trash Info]\nPath={}\nDeletionDate={date}\n",
         crate::thumbs::uri_path(path)
@@ -1792,7 +1793,7 @@ mod tests {
             let info = trash.join("info").join(format!("{kept}.trashinfo"));
             let from = photos.join(name);
             let secs = at.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-            let date = crate::local_time(secs).replacen(' ', "T", 1);
+            let date = crate::format::local_time(secs).replacen(' ', "T", 1);
             let text = format!(
                 "[Trash Info]\nPath={}\nDeletionDate={date}\n",
                 from.display()
@@ -1841,7 +1842,7 @@ mod tests {
         }
         std::fs::write(stick.join("files/IMG_0003.jpg"), "planted").unwrap();
         let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-        let next_year = crate::local_time(secs + 365 * 24 * 3600).replacen(' ', "T", 1);
+        let next_year = crate::format::local_time(secs + 365 * 24 * 3600).replacen(' ', "T", 1);
         let info = format!(
             "[Trash Info]\nPath={}\nDeletionDate={next_year}\n",
             photos.join("IMG_0003.jpg").display()
@@ -1861,7 +1862,7 @@ mod tests {
             let info = format!("[Trash Info]\nPath={from}\nDeletionDate={date}\n");
             std::fs::write(stick.join("info").join(format!("{kept}.trashinfo")), info).unwrap();
         };
-        let today = crate::local_time(secs).replacen(' ', "T", 1);
+        let today = crate::format::local_time(secs).replacen(' ', "T", 1);
         let img4 = photos.join("IMG_0004.jpg").display().to_string();
         at("IMG_0004.jpg", &img4, &next_year, "planted");
         at("IMG_0004.2.jpg", &img4, &today, "mine");
@@ -1870,7 +1871,7 @@ mod tests {
         let got = std::fs::read_to_string(photos.join("IMG_0004.jpg")).unwrap();
         assert_eq!(got, "mine");
         // One dated half an hour ahead, within the hour let through: still after the user's.
-        let soon = crate::local_time(secs + 1800).replacen(' ', "T", 1);
+        let soon = crate::format::local_time(secs + 1800).replacen(' ', "T", 1);
         let img5 = photos.join("IMG_0005.jpg").display().to_string();
         at("IMG_0005.jpg", &img5, &soon, "planted");
         at("IMG_0005.2.jpg", &img5, &today, "mine");
@@ -1880,7 +1881,7 @@ mod tests {
         assert_eq!(got, "mine");
         // One of the same name trashed a second before the move: another file's, the move's own
         // comes back. Alone, it is taken, as the move may have begun in that second.
-        let before = crate::local_time(secs - 1).replacen(' ', "T", 1);
+        let before = crate::format::local_time(secs - 1).replacen(' ', "T", 1);
         let img6 = photos.join("IMG_0006.jpg").display().to_string();
         at("IMG_0006.jpg", &img6, &before, "other");
         at("IMG_0006.2.jpg", &img6, &today, "mine");

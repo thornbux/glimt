@@ -26,7 +26,7 @@ impl App {
             }
             #[cfg(feature = "marks")]
             if let stars @ 1.. = self.marks.get(&path).1 {
-                text += &format!(", {}", crate::count(stars as usize, "star"));
+                text += &format!(", {}", crate::format::count(stars as usize, "star"));
             }
             if let Some(meta) = self.meta.as_ref().filter(|m| m.path == path) {
                 if !meta.saved.keywords.is_empty() {

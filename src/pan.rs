@@ -34,7 +34,7 @@ pub fn timeline(
     let mut last = (i64::MIN, String::new());
     let day = move |&t: &i64| {
         if t.div_euclid(900) != last.0 {
-            let local = crate::local_time(t);
+            let local = crate::format::local_time(t);
             last = (
                 t.div_euclid(900),
                 local.get(..10).unwrap_or(&local).to_owned(),
