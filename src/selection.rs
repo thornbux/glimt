@@ -1,9 +1,9 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::Viewing;
-use crate::folder::{drain, total_size};
+use crate::folder::total_size;
 use crate::format::thousands;
-use crate::threads::{Receiving, Took};
+use crate::threads::Receiving;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -289,22 +289,6 @@ impl crate::App {
             }
         });
         self.selected_rx = Receiving::of(rx);
-    }
-
-    pub(crate) fn receive_sizes(&mut self) {
-        while let Ok(freed) = self.freed_rx.try_recv() {
-            // shortcut: a delete while the sum is still being computed can make it slightly off;
-            // fine for a status bar figure.
-            self.total_size = self.total_size.saturating_sub(freed);
-        }
-        match self.selected_rx.take() {
-            Took::Answer(size) => self.selected_size = Some(size),
-            // The summing thread broke: no size, instead of "calculating…" for good.
-            Took::Gone => self.selected_size = Some(0),
-            Took::Nothing => {}
-        }
-        drain(&mut self.match_rx, &mut self.list.match_size);
-        drain(&mut self.size_rx, &mut self.total_size);
     }
 
     /// File operations act on the selected files, otherwise on the shown image. Sorted.

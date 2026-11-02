@@ -841,3 +841,21 @@ impl crate::App {
         }
     }
 }
+
+impl crate::App {
+    pub(crate) fn receive_sizes(&mut self) {
+        while let Ok(freed) = self.freed_rx.try_recv() {
+            // shortcut: a delete while the sum is still being computed can make it slightly off;
+            // fine for a status bar figure.
+            self.total_size = self.total_size.saturating_sub(freed);
+        }
+        match self.selected_rx.take() {
+            Took::Answer(size) => self.selected_size = Some(size),
+            // The summing thread broke: no size, instead of "calculating…" for good.
+            Took::Gone => self.selected_size = Some(0),
+            Took::Nothing => {}
+        }
+        drain(&mut self.match_rx, &mut self.list.match_size);
+        drain(&mut self.size_rx, &mut self.total_size);
+    }
+}
