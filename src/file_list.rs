@@ -11,15 +11,13 @@ use crate::lang::tr;
 use crate::menus::scroll_menu;
 use crate::threads::Receiving;
 use crate::view::{broken_mark, pane_map};
-use crate::{
-    CELL_EXTRA, DATE_WIDTH, DETAILS_WIDTH, LARGE_THUMBS, MAX_THUMBS, THUMB_MARGIN, THUMBS,
-    collections, config, noted, tf, theme,
-};
+use crate::{collections, config, noted, tf, theme};
 use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// A rectangle being dragged in the icon grid to select.
 pub(crate) struct RubberBand {
@@ -1282,3 +1280,32 @@ impl crate::App {
         });
     }
 }
+
+/// Thumbnail box in the file list, in points (Geeqie's default 96×72).
+pub(crate) const THUMBS: [egui::Vec2; 3] = [
+    egui::vec2(96.0, 72.0),
+    egui::vec2(128.0, 96.0),
+    egui::vec2(192.0, 144.0),
+];
+
+/// A cell of the thumbnail grid: the thumbnail with its name below.
+pub(crate) const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
+
+/// Thumbnails come from the freedesktop "large" cache, for big ones or a scaled screen; read by
+/// the workers.
+pub(crate) static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
+
+/// Thumbnail jobs further than this from the visible rows are skipped.
+pub(crate) const THUMB_MARGIN: usize = 20;
+
+/// The files whose thumbnails are on screen, for the thumbnail workers to make first: `[0]` in the
+/// file list, `[1]` in pan view.
+pub(crate) type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
+
+/// Width of the size and date columns in the file list (points).
+pub(crate) const DATE_WIDTH: f32 = 140.0;
+
+pub(crate) const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
+
+/// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
+pub(crate) const MAX_THUMBS: usize = 600;

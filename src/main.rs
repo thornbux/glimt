@@ -5,7 +5,7 @@
 //! the current image is kept in memory.
 
 use crate::dialogs::{Pick, Prompt};
-use crate::file_list::RubberBand;
+use crate::file_list::{RubberBand, ThumbView};
 use crate::file_ops::{Deleted, Undo};
 use crate::info_panel::{ExifRead, MetaEdit, spawn_exif_reader};
 use crate::view::{DecodeJob, Shown, View, spawn_decoders};
@@ -89,28 +89,6 @@ mod video;
 mod view;
 mod window;
 mod workers;
-
-/// Thumbnail box in the file list, in points (Geeqie's default 96×72).
-const THUMBS: [egui::Vec2; 3] = [
-    egui::vec2(96.0, 72.0),
-    egui::vec2(128.0, 96.0),
-    egui::vec2(192.0, 144.0),
-];
-/// A cell of the thumbnail grid: the thumbnail with its name below.
-const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
-/// Thumbnails come from the freedesktop "large" cache, for big ones or a scaled screen; read by
-/// the workers.
-static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
-/// Thumbnail jobs further than this from the visible rows are skipped.
-const THUMB_MARGIN: usize = 20;
-/// The files whose thumbnails are on screen, for the thumbnail workers to make first: `[0]` in the
-/// file list, `[1]` in pan view.
-type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
-/// Width of the size and date columns in the file list (points).
-const DATE_WIDTH: f32 = 140.0;
-const DETAILS_WIDTH: f32 = DATE_WIDTH + 90.0;
-/// Thumbnails kept in memory (≈ 64 kB each) before those far from view are dropped.
-const MAX_THUMBS: usize = 600;
 
 /// The release tests' hook (`test-hooks`): `glimt --remote where LABEL` tells where the menu
 /// item, button or choice with that text was drawn last frame, so the tests click by text and
