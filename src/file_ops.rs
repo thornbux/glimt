@@ -4,6 +4,18 @@
 
 use crate::*;
 
+/// A Rename Many running in the background: the list as it was (`App::files_gen`), the files
+/// renamed with their new names, and which of them was shown.
+pub(crate) struct RenameJob {
+    files_gen: usize,
+    /// The old names, for the marks and a collection's entries to follow.
+    from: Vec<PathBuf>,
+    to: Vec<PathBuf>,
+    shown: Option<usize>,
+    /// Undo giving the old names back: not itself undone.
+    undoing: bool,
+}
+
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
