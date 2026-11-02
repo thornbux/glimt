@@ -247,7 +247,7 @@ impl crate::App {
             .extend(targets.iter().map(|&i| self.list.files[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let (freed_tx, deleted_tx) = (self.freed_tx.clone(), self.deleted_tx.clone());
+        let (freed_tx, deleted_tx) = (self.status.freed_tx.clone(), self.deleted_tx.clone());
         let collection = self.collection.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
@@ -494,7 +494,11 @@ impl crate::App {
                 .collect();
             self.remove_indices(ctx, &gone);
         }
-        let (tx, freed_tx, ctx) = (self.notices_tx.clone(), self.freed_tx.clone(), ctx.clone());
+        let (tx, freed_tx, ctx) = (
+            self.notices_tx.clone(),
+            self.status.freed_tx.clone(),
+            ctx.clone(),
+        );
         let deleted_tx = self.deleted_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
@@ -751,7 +755,7 @@ impl crate::App {
             }
         }
         // Their size changed: the status bar and the list read it again.
-        self.cur_size = None;
+        self.status.cur_size = None;
         self.refill();
     }
 

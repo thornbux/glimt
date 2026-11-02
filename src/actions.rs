@@ -1262,7 +1262,7 @@ impl crate::App {
                 // asks for nothing. Thumbnails and the size too, of a file edited elsewhere.
                 self.refill();
                 self.thumbs_changed();
-                self.cur_size = None;
+                self.status.cur_size = None;
                 self.list(ctx);
             }
             Action::Slideshow if self.slideshow.shown_at.is_some() => self.stop_slideshow(ctx),

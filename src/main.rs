@@ -535,11 +535,8 @@ struct App {
     tree: file_list::Tree,
 
     // ---- The selection ----
-    /// Size of the selected files; computed in the background when the selection changes.
-    selected_size: Option<u64>,
-    selected_rx: Receiving<u64>,
-    /// When to work out that size: once the selection has stayed the same a moment.
-    selected_size_due: Option<Instant>,
+    /// The status bar's numbers: the shown image's size and place, the folder's total, and the selection's size.
+    status: file_list::StatusBar,
 
     // ---- Decoding: the shown image and its neighbours ----
     /// The images to keep decoded, the shown one first: its neighbours in list order.
@@ -644,23 +641,6 @@ struct App {
     // ---- The search ----
 
     // ---- The status bar ----
-    /// Size in bytes of the shown file, for the status bar.
-    cur_size: Option<(PathBuf, u64)>,
-    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
-    /// one under the pointer, else the first) and the panes as [columns, rows].
-    pane_info: Vec<(usize, Option<f32>)>,
-    status_pane: usize,
-    status_grid: [usize; 2],
-    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
-    status_place: Option<(usize, usize, String)>,
-    /// Total size of the images in the folder, summed in the background after listing.
-    /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
-    total_size: u64,
-    /// Partial sums from the background; `None` once all have arrived.
-    size_rx: Receiving<u64>,
-    /// Bytes freed by deletions in the background.
-    freed_tx: mpsc::Sender<u64>,
-    freed_rx: mpsc::Receiver<u64>,
 
     // ---- File operations in the background ----
     /// A Rename Many running in the background.
@@ -977,18 +957,6 @@ impl App {
             image_id: None,
             focus_by_keys: false,
             waiting_select: Vec::new(),
-            total_size: 0,
-            size_rx: Receiving::none(),
-            freed_tx,
-            freed_rx,
-            selected_size: None,
-            selected_rx: Receiving::none(),
-            selected_size_due: None,
-            cur_size: None,
-            pane_info: Vec::new(),
-            status_pane: 0,
-            status_grid: [1, 1],
-            status_place: None,
             path_text: String::new(),
             window_state: WindowState::default(),
             inhibitor: Arc::default(),
@@ -1063,6 +1031,20 @@ impl App {
                 keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
                     .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
                 new_keyword: String::new(),
+            },
+            status: file_list::StatusBar {
+                cur_size: None,
+                pane_info: Vec::new(),
+                pane: 0,
+                grid: [1, 1],
+                place: None,
+                total_size: 0,
+                size_rx: Receiving::none(),
+                freed_tx,
+                freed_rx,
+                selected_size: None,
+                selected_rx: Receiving::none(),
+                selected_size_due: None,
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

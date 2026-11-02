@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
 pub(crate) const THUMBS: [egui::Vec2; 3] = [
@@ -106,6 +107,32 @@ pub(crate) struct Tree {
     pub(crate) shown: PathBuf,
     /// The folders open in the tree.
     pub(crate) open: HashSet<PathBuf>,
+}
+
+/// The status bar's numbers: the shown image's size and place, the folder's total, and the selection's size.
+pub(crate) struct StatusBar {
+    /// Size in bytes of the shown file, for the status bar.
+    pub(crate) cur_size: Option<(PathBuf, u64)>,
+    /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
+    /// one under the pointer, else the first) and the panes as [columns, rows].
+    pub(crate) pane_info: Vec<(usize, Option<f32>)>,
+    pub(crate) pane: usize,
+    pub(crate) grid: [usize; 2],
+    /// The place "[n/m]" of an image in another pane than the first, by image and list length.
+    pub(crate) place: Option<(usize, usize, String)>,
+    /// Total size of the images in the folder, summed in the background after listing.
+    /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
+    pub(crate) total_size: u64,
+    /// Partial sums from the background; `None` once all have arrived.
+    pub(crate) size_rx: Receiving<u64>,
+    /// Bytes freed by deletions in the background.
+    pub(crate) freed_tx: mpsc::Sender<u64>,
+    pub(crate) freed_rx: mpsc::Receiver<u64>,
+    /// Size of the selected files; computed in the background when the selection changes.
+    pub(crate) selected_size: Option<u64>,
+    pub(crate) selected_rx: Receiving<u64>,
+    /// When to work out that size: once the selection has stayed the same a moment.
+    pub(crate) selected_size_due: Option<Instant>,
 }
 
 impl crate::App {
@@ -1206,8 +1233,8 @@ impl crate::App {
                 self.selection_changed(ctx);
             } else {
                 self.list.selected.clear();
-                self.selected_size = None;
-                self.selected_rx = Receiving::none();
+                self.status.selected_size = None;
+                self.status.selected_rx = Receiving::none();
                 self.list.anchor = None;
                 go_to = Some(i);
             }
@@ -1232,7 +1259,12 @@ impl crate::App {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 let n = self.list.files.len();
-                let size = size_text(self.size_rx.is_none().then_some(self.total_size));
+                let size = size_text(
+                    self.status
+                        .size_rx
+                        .is_none()
+                        .then_some(self.status.total_size),
+                );
                 let mut left = match &self.list.matches {
                     _ if self.listing_rx.is_some() => tr("Reading folder…").to_owned(),
                     // A search shows the matches: count and size of what the list shows.
@@ -1253,7 +1285,7 @@ impl crate::App {
                 };
                 if !self.list.selected.is_empty() {
                     let m = thousands(self.list.selected.len());
-                    let size = size_text(self.selected_size);
+                    let size = size_text(self.status.selected_size);
                     left += &tf!(", {m} selected ({size})", m, size);
                 }
                 self.sort_menu(ctx, ui);
@@ -1285,17 +1317,17 @@ impl crate::App {
                     }
                     // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom;
                     // with several panes, of the one under the pointer.
-                    let (idx, scale) = (self.pane_info.get(self.status_pane).copied())
+                    let (idx, scale) = (self.status.pane_info.get(self.status.pane).copied())
                         .filter(|p| p.0 < n)
                         .unwrap_or((self.list.cur, Some(self.last_scale)));
                     let path = self.path(idx);
-                    if self.cur_size.as_ref().is_none_or(|c| c.0 != path) {
+                    if self.status.cur_size.as_ref().is_none_or(|c| c.0 != path) {
                         // shortcut: one stat in the UI thread per image change; move it to
                         // a thread if slow network folders make browsing stutter.
                         let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
-                        self.cur_size = Some((path, bytes));
+                        self.status.cur_size = Some((path, bytes));
                     }
-                    let bytes = self.cur_size.as_ref().map_or(0, |c| c.1);
+                    let bytes = self.status.cur_size.as_ref().map_or(0, |c| c.1);
                     let place = if idx == self.list.cur {
                         self.place()
                     } else {
@@ -1328,8 +1360,8 @@ impl crate::App {
                             ui.label(format!("{bytes} {place}"));
                         }
                     }
-                    if self.status_grid != [1, 1] {
-                        pane_map(ui, self.status_grid, self.status_pane);
+                    if self.status.grid != [1, 1] {
+                        pane_map(ui, self.status.grid, self.status.pane);
                     }
                 });
             });
