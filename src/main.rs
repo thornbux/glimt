@@ -535,11 +535,8 @@ struct App {
     dialogs: dialogs::Dialogs,
 
     // ---- Dialogs, windows and messages ----
-    /// "Open With" applications by file extension, found once per extension.
-    /// `None` while `apps_for` runs in the background.
-    apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
-    apps_tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
-    apps_rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
+    /// Open With's programs for each file type, read in the background.
+    open_with: menus::OpenWith,
     /// Edit → Plugins, read at start.
     plugins: Vec<plugins::Plugin>,
     /// The plugins running, for Stop in their menu.
@@ -695,8 +692,6 @@ impl App {
             remote_rx,
             ctx: ctx.clone(),
             list: List::default(),
-            apps: HashMap::new(),
-            apps_tx,
             desktop_look: Default::default(),
             desktop_rx: Receiving::of(desktop_rx),
             desktop_screen: None,
@@ -705,7 +700,6 @@ impl App {
                 .map_or_else(Receiving::none, Receiving::of),
             plugins: plugins::find(),
             plugins_running: plugins::Running::default(),
-            apps_rx,
             notices_rx: notices,
             notice: screen_error.or_else(|| config_notice(problems)),
             help: None,
@@ -893,6 +887,11 @@ impl App {
                 file_dialog: None,
                 file_dialog_rx: Receiving::none(),
                 asked_for: (0, Vec::new()),
+            },
+            open_with: menus::OpenWith {
+                apps: HashMap::new(),
+                tx: apps_tx,
+                rx: apps_rx,
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

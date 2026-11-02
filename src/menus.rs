@@ -13,12 +13,23 @@ use crate::lang::tr;
 use crate::threads::Receiving;
 use crate::{Deleted, collections, config, external, noted, plugins, tf, theme};
 use eframe::egui;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::sync::mpsc;
 use std::time::Instant;
 
 /// Where the popup IDs of the menu bar's menus are kept, for `scroll_menu` and `close_menus`.
 pub(crate) const BAR_MENUS: &str = "menu bar menus";
+
+/// Open With's programs for each file type, read in the background.
+pub(crate) struct OpenWith {
+    /// "Open With" applications by file extension, found once per extension.
+    /// `None` while `apps_for` runs in the background.
+    pub(crate) apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
+    pub(crate) tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    pub(crate) rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
+}
 
 impl crate::App {
     // ---- Settings and the menus that change them ----
@@ -509,12 +520,12 @@ impl crate::App {
         scroll_menu(ui, iconed(ui, theme::icon::APP, tr("Open With")), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            for (ext, apps) in self.apps_rx.try_iter() {
-                self.apps.insert(ext, Some(apps));
+            for (ext, apps) in self.open_with.rx.try_iter() {
+                self.open_with.apps.insert(ext, Some(apps));
             }
             // apps_for runs gio twice: in the background, so the menu never stalls.
-            let apps = self.apps.entry(ext.clone()).or_insert_with(|| {
-                let (tx, ctx) = (self.apps_tx.clone(), ui.ctx().clone());
+            let apps = self.open_with.apps.entry(ext.clone()).or_insert_with(|| {
+                let (tx, ctx) = (self.open_with.tx.clone(), ui.ctx().clone());
                 std::thread::spawn(move || {
                     let _ = tx.send((ext, apps_for(&path)));
                     ctx.request_repaint();
