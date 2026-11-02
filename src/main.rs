@@ -429,7 +429,8 @@ const M_ARENA_MAX: i32 = -8;
 /// (`full`) at full resolution.
 struct Slot {
     tex: egui::TextureHandle,
-    /// The file the texture was made from; decides whether it can be kept when the file list changes.
+    /// The file the texture was made from; decides whether it can be kept when the file list
+    /// changes.
     path: PathBuf,
     full: bool,
     /// Original size after EXIF rotation.
@@ -629,7 +630,8 @@ struct App {
     decode_jobs: mpsc::Sender<DecodeJob>,
     decoded_rx: mpsc::Receiver<Decoded>,
     decodes_sent: u64,
-    /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a black screen.
+    /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a
+    /// black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// A slideshow's change of image fading in: when it began, and what each pane (the first,
     /// then the others) showed before, kept until it has faded out.
@@ -657,7 +659,8 @@ struct App {
     pan_offset: egui::Vec2,
     /// How far the shown image can be panned each way (points); zero where it fits.
     max_pan: egui::Vec2,
-    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in the status bar.
+    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in
+    /// the status bar.
     last_scale: f32,
     /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
     wheel: f32,
@@ -1200,7 +1203,8 @@ impl App {
             }
             None => app.open(ctx, path),
         }
-        // Small folders are listed before the first frame; large ones hold startup back at most 50 ms.
+        // Small folders are listed before the first frame; large ones hold startup back at most 50
+        // ms.
         app.receive_listing(ctx, std::time::Duration::from_millis(50));
         app
     }
@@ -1848,7 +1852,8 @@ mod tests {
                 "undo a move",
                 |app, ctx, d| {
                     app.transfer(ctx, vec![d.join("a.png")], d.join("sub"), false);
-                    // Only when it started: held back, it says so, and there is nothing to wait for.
+                    // Only when it started: held back, it says so, and there is nothing to wait
+                    // for.
                     if app.notice.is_none() {
                         settle(app, ctx, |app| app.undo.is_some());
                     }
@@ -1866,7 +1871,8 @@ mod tests {
                 "undo a rename",
                 |app, ctx, d| {
                     app.rename_in_background(ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
-                    // Only when it started: held back, it says so, and there is nothing to wait for.
+                    // Only when it started: held back, it says so, and there is nothing to wait
+                    // for.
                     if app.notice.is_none() {
                         settle(app, ctx, |app| app.undo.is_some());
                     }

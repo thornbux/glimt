@@ -1031,14 +1031,14 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
     }
 }
 
-/// What `thrown` moved to the trash put back where it was, with the sidecars that went with
-/// it: of each, the first of its name put in the trash folders `dirs_of` gives (the home trash,
-/// and those at the top of its file system) since the move began, as an older one of the same
-/// name is another file's, and a later one too (a new file of that name trashed since); one
-/// from the two seconds before only when there is none. Each trash folder is read once, into a map by
-/// name. Read from the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has
-/// it): `gio trash --restore` needs gvfs, which KDE and containers often lack. Never over a file
-/// that has taken the name since. The files put back, and the first error.
+/// What `thrown` moved to the trash put back where it was, with the sidecars that went with it: of
+/// each, the first of its name put in the trash folders `dirs_of` gives (the home trash, and those
+/// at the top of its file system) since the move began, as an older one of the same name is another
+/// file's, and a later one too (a new file of that name trashed since); one from the two seconds
+/// before only when there is none. Each trash folder is read once, into a map by name. Read from
+/// the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has it): `gio trash
+/// --restore` needs gvfs, which KDE and containers often lack. Never over a file that has taken the
+/// name since. The files put back, and the first error.
 fn restore(
     thrown: &Thrown,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf)>,
@@ -1146,7 +1146,7 @@ fn put_back(all: &mut Vec<PathBuf>, removed: &[(usize, PathBuf)]) {
 
 /// `paths` moved to the trash with gio; in a Flatpak, one the trash portal refused (a file that
 /// is not writable: GLib hands the portal a descriptor open for writing, though a move needs only
-/// the folder) by hand into the home trash, as 0.49's gio on the host did.
+/// the folder) by hand into the home trash, as gio on the host would.
 pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     let refused = crate::external::trash(paths);
     let Err(e) = refused else {
@@ -1537,9 +1537,9 @@ impl crate::App {
 
     /// Write the sidecars of `paths` in the background, through one thread for this window's
     /// keywords, stars and Lightroom import (`sidecar_writer`), so changes to one file land in the
-    /// order they were made and never cross. The status bar counts them; `report` words the end from how many
-    /// failed. A thread of its own, not `config::write_later`'s: settings saved meanwhile must
-    /// not wait behind 3,000 sidecars.
+    /// order they were made and never cross. The status bar counts them; `report` words the end
+    /// from how many failed. A thread of its own, not `config::write_later`'s: settings saved
+    /// meanwhile must not wait behind 3,000 sidecars.
     pub(crate) fn write_sidecars(
         &mut self,
         ctx: &egui::Context,

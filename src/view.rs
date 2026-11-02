@@ -109,12 +109,13 @@ pub(crate) fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
 }
 
 /// Whether a texture of `tex` is too small to show an image of `orig` at `scale` in a view of
-/// `view` pixels (all unturned), zoomed: then full resolution is loaded, once. The decoders fit an image into a box of whole pixels: the side
-/// that fills the view comes out within a pixel or so of it, and the other is worked out from
-/// it, so one pixel there is `orig` side to side here (4000×2657 into a box 1328 high is 1998
-/// wide, where 1328.9 high shows it 2000.6 wide). Short by more than that on any side: decoded
-/// again, which then gives a texture within it, so never again and again. A strip of 10000×5
-/// grown from 1920 to 3840 wide is too small by its width, as its height fills nothing.
+/// `view` pixels (all unturned), zoomed: then full resolution is loaded, once. The decoders fit an
+/// image into a box of whole pixels: the side that fills the view comes out within a pixel or so of
+/// it, and the other is worked out from it, so one pixel there is `orig` side to side here
+/// (4000×2657 into a box 1328 high is 1998 wide, where 1328.9 high shows it 2000.6 wide). Short by
+/// more than that on any side: decoded again, which then gives a texture within it, so never again
+/// and again. A strip of 10000×5 grown from 1920 to 3840 wide is too small by its width, as its
+/// height fills nothing.
 pub(crate) fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> bool {
     (0..2).any(|i| {
         let j = 1 - i;
