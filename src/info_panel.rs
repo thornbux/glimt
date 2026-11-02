@@ -1,25 +1,20 @@
-//! The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, and marks.
+//! The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt
+//! text, and marks.
 
-use crate::Meta;
-use crate::colour_source;
-use crate::config;
-use crate::count;
-use crate::decode;
-use crate::exif;
-use crate::human_size;
-use crate::keyword_tree_path;
+use crate::colour::colour_source;
+use crate::config::keyword_tree_path;
+use crate::external::open_url;
+use crate::format::{count, human_size, thousands};
+use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
-use crate::meta;
-use crate::noted;
-use crate::open_url;
-use crate::tf;
-use crate::thousands;
-use crate::tr;
+use crate::meta::Meta;
+use crate::{config, decode, exif, meta, noted, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc;
+
 /// A file's EXIF from the reader thread.
 pub(crate) struct ExifRead {
     path: PathBuf,

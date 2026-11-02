@@ -3,6 +3,7 @@
 use crate::external;
 use eframe::egui;
 use std::sync::atomic::Ordering;
+
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
 pub(crate) type Ender = Box<dyn FnOnce() + Send>;
 

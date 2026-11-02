@@ -1,32 +1,18 @@
-//! The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare, painting, the wheel.
+//! The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare,
+//! painting, the wheel.
 
-use crate::Action;
-use crate::Decoded;
-use crate::LAYOUTS;
-use crate::Slot;
-use crate::actions::KIOSK_ACTIONS;
-use crate::app_id;
-use crate::decode;
-use crate::fill_template;
-use crate::histogram;
-use crate::is_video;
-use crate::malloc_trim;
-use crate::menus::iconed;
-use crate::menus::menu_item;
-use crate::menus::scroll_menu;
-use crate::noted;
-use crate::survive;
-use crate::theme;
-use crate::tr;
+use crate::actions::{Action, KIOSK_ACTIONS};
+use crate::decode::{Decoded, decode, histogram, survive};
+use crate::external::is_video;
+use crate::format::fill_template;
+use crate::lang::tr;
+use crate::menus::{iconed, menu_item, scroll_menu};
+use crate::{LAYOUTS, Slot, app_id, malloc_trim, noted, theme};
 use eframe::egui;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+
 /// Where an image of `orig` is drawn in `rect`, and its scale: at the `zoom` and pan given, else
 /// fitted in fit `mode`, centred, and larger than its size only with `enlarge`.
 pub(crate) fn placed(

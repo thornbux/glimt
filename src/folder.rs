@@ -1,42 +1,22 @@
 //! Opening a folder, a collection or several folders, listing them, and following changes.
 
-use crate::List;
-use crate::Login;
-use crate::Receiving;
-use crate::Slot;
-use crate::Took;
-use crate::Types;
-use crate::Viewing;
-use crate::collections;
-use crate::config;
-use crate::external;
-use crate::files;
-use crate::fill_template;
-use crate::gio_mount;
-use crate::is_listed;
-use crate::list_folder;
-use crate::list_tree;
-use crate::menus::iconed;
-use crate::menus::scroll_menu;
-use crate::merge_shuffled;
-use crate::noted;
-use crate::remote;
-use crate::shuffle;
-use crate::sort_files;
-use crate::tf;
-use crate::theme;
-use crate::tr;
-use crate::walk;
+use crate::external::{Login, gio_mount};
+use crate::files::{
+    Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
+};
+use crate::format::fill_template;
+use crate::lang::tr;
+use crate::menus::{iconed, scroll_menu};
+use crate::threads::{Receiving, Took};
+use crate::{List, Slot, Viewing, collections, config, external, files, noted, remote, tf, theme};
 use eframe::egui;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Instant;
+
 /// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
 /// before them.
 pub(crate) fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {

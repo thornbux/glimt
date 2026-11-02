@@ -3,9 +3,16 @@
 //! own files. Only columns that have been the same for many Lightroom versions are read. Also
 //! File → Import Lightroom Catalog's dialog, what it will do (`Catalog::plan`) and the import.
 
-use crate::*;
-use std::collections::HashMap;
+use crate::format::count;
+use crate::lang::tr;
+#[cfg(feature = "marks")]
+use crate::marks;
+use crate::threads::{Receiving, Working};
+use crate::{collections, meta, tf};
+use eframe::egui;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 /// The tables `QUERY` reads, in lower case as SQLite matches names.
 const TABLES: &str = "'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \

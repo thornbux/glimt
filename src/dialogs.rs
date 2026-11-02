@@ -1,29 +1,19 @@
-//! The file chooser (zenity or kdialog) and the small dialogs: a name asked for, a delete confirmed, a share's login, a job cut short.
+//! The file chooser (zenity or kdialog) and the small dialogs: a name asked for, a delete
+//! confirmed, a share's login, a job cut short.
 
-use crate::Deleted;
-use crate::Login;
-use crate::PrintJob;
-use crate::PrintTo;
-use crate::Receiving;
-use crate::Took;
-use crate::collections;
-use crate::command;
-use crate::config;
-use crate::count;
-use crate::external;
-use crate::journal;
-use crate::noted;
-use crate::pattern_name;
-use crate::save;
-use crate::tf;
-use crate::theme;
-use crate::tr;
-use crate::xdg_dir;
+use crate::config::xdg_dir;
+use crate::external::{Login, command};
+use crate::files::pattern_name;
+use crate::format::count;
+use crate::lang::tr;
+use crate::print::{PrintJob, PrintTo};
+use crate::threads::{Receiving, Took};
+use crate::{Deleted, collections, config, external, journal, noted, save, tf, theme};
 use eframe::egui;
 use std::ffi::OsString;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+
 /// What a file dialog (zenity or kdialog) was opened for.
 pub(crate) enum Pick {
     Open,

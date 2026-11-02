@@ -1,13 +1,14 @@
 //! The slideshow: its timer, its order, the fade and the next image.
 
-use crate::FADES;
 use crate::collections;
-use crate::round_ends;
-use crate::shuffle;
+use crate::config::FADES;
+use crate::files::shuffle;
+use crate::selection::round_ends;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Instant;
+
 impl crate::App {
     // ---- The slideshow ----
 

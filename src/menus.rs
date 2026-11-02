@@ -1,35 +1,22 @@
-//! The menu bar and toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with.
+//! The menu bar and toolbar, the menus that change settings, Plugins and Open With, and the helpers
+//! every menu is drawn with.
 
-use crate::Action;
-use crate::COLOR_MANAGEMENT;
-use crate::Deleted;
-use crate::FILTERS;
-use crate::Receiving;
-use crate::VIEW_FILTER;
-use crate::apps_for;
-use crate::collections;
-use crate::command;
-use crate::config;
+use crate::actions::{Action, shortcut_text};
+use crate::colour::{
+    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, read_desktop_screen, set_colour, set_input, set_intent,
+    set_screen,
+};
+use crate::config::xdg_dir;
 use crate::dialogs::Prompt;
-use crate::external;
-use crate::noted;
-use crate::open_url;
-use crate::plugins;
-use crate::read_desktop_screen;
-use crate::set_colour;
-use crate::set_input;
-use crate::set_intent;
-use crate::set_screen;
-use crate::shortcut_text;
-use crate::tf;
-use crate::theme;
-use crate::tr;
-use crate::xdg_dir;
+use crate::external::{apps_for, command, open_url};
+use crate::lang::tr;
+use crate::threads::Receiving;
+use crate::{Deleted, collections, config, external, noted, plugins, tf, theme};
 use eframe::egui;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
+
 /// A menu that scrolls when it is taller than the window, instead of running off it.
 pub(crate) fn scroll_menu<R>(
     ui: &mut egui::Ui,

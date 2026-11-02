@@ -1,39 +1,28 @@
 //! Everything the user can do from a menu or a key: the Action list with menu labels, Geeqie's
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
-use crate::Dups;
-use crate::FILTERS;
-use crate::LAYOUTS;
-use crate::MAX_DELAY;
-use crate::POINTER_STILL;
-use crate::Pan;
-use crate::Pick;
-use crate::Prompt;
-use crate::Receiving;
-use crate::Working;
-use crate::collections;
-use crate::color_image;
-use crate::config;
-use crate::external;
+use crate::colour::FILTERS;
+use crate::config::MAX_DELAY;
+use crate::decode::{color_image, survive};
+use crate::dialogs::{Pick, Prompt};
+use crate::duplicates::Dups;
 #[cfg(feature = "video")]
 use crate::external::is_video;
 #[cfg(feature = "marks")]
 use crate::format::count;
-use crate::help;
-use crate::layout_grid;
+use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
-use crate::own_program;
-use crate::remote;
-use crate::save;
-use crate::survive;
-use crate::tf;
-use crate::tr;
-use crate::window_shown;
+use crate::pan::Pan;
+use crate::threads::{Receiving, Working};
+use crate::view::layout_grid;
+use crate::{
+    LAYOUTS, POINTER_STILL, collections, config, external, help, own_program, remote, save, tf,
+    window_shown,
+};
 use eframe::egui;
 use std::collections::HashSet;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Instant;

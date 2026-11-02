@@ -1,6 +1,14 @@
 //! File → Check Images: every image of the list decoded in the background, the broken ones listed.
 
-use crate::*;
+use crate::format::{count, thousands};
+use crate::lang::tr;
+use crate::threads::{Working, background_threads};
+use crate::{decode, noted, tf};
+use eframe::egui;
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 
 /// Check Images: every image of the list opened in the background, as the viewer would; those
 /// that cannot be are listed, and marked in the file list.

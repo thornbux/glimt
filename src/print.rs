@@ -3,9 +3,16 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
+use crate::decode::survive;
 use crate::dialogs::Pick;
-use crate::*;
+use crate::format::count;
+use crate::lang::tr;
+use crate::threads::{Receiving, Took, Working};
+use crate::{config, decode, print, tf};
+use eframe::egui;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 /// Paper sizes in points (1/72 inch), portrait: office papers, and photo papers in cm.
 pub const PAPERS: [(&str, [f32; 2]); 7] = [

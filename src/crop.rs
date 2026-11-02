@@ -1,6 +1,13 @@
 //! Edit → Crop: a part of the shown image dragged out over it, saved as a new file beside it.
 
-use crate::*;
+#[cfg(feature = "video")]
+use crate::external::is_video;
+use crate::lang::tr;
+use crate::{Deleted, tf};
+use eframe::egui;
+#[cfg(feature = "video")]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// The part being chosen of the image `path`, as fractions (0–1) of the image as shown, turned;
 /// `None` until a drag. Held by its path and with the copy as it was shown (`how`), not by a

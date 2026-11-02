@@ -2,8 +2,18 @@
 //! dialog; never over the image itself.
 
 use crate::dialogs::Pick;
+#[cfg(feature = "video")]
+use crate::external::is_video;
+use crate::lang::tr;
+use crate::noted;
+use crate::save;
 use crate::save::{CopyAs, Format};
-use crate::*;
+use crate::tf;
+use crate::{Deleted, decode};
+use eframe::egui;
+#[cfg(feature = "video")]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// What the Save As dialog asks; kept from one use to the next while Glimt runs.
 #[derive(Clone, Copy)]
