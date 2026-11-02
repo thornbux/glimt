@@ -209,6 +209,36 @@ fn days_in_month(y: i32, m: u32) -> u32 {
 
 // ---- The pan view's window: the timeline and the calendar ----
 
+/// The pan view's window (Ctrl+J). Closed, the days being made for it are not read on.
+#[derive(Default)]
+pub(crate) struct Pan {
+    /// Days from the EXIF dates instead of the file dates.
+    exif: bool,
+    /// The days, and the version of the file list they are for (`App::files_gen`).
+    days: Option<(Vec<pan::Day>, usize)>,
+    /// The days so far, the list version they are for, and whether they are all of them.
+    days_rx: Receiving<(Vec<pan::Day>, usize, bool)>,
+    /// Set when the days being made are no longer wanted: the thread stops reading.
+    days_stop: Arc<AtomicBool>,
+    /// The list version the days being made are for.
+    days_for: usize,
+    /// The rows for this many columns, and their height.
+    rows: Vec<(f32, pan::Row)>,
+    columns: usize,
+    height: f32,
+    /// The calendar instead of the timeline, its months, and a day picked there for the
+    /// timeline to scroll to.
+    calendar: bool,
+    months: Vec<pan::Month>,
+    jump: Option<usize>,
+}
+
+impl Drop for Pan {
+    fn drop(&mut self) {
+        self.days_stop.store(true, Ordering::Relaxed);
+    }
+}
+
 impl crate::App {
     /// The pan view (Ctrl+J): the images of the list by day. A click shows one, a double click
     /// also closes the view.
