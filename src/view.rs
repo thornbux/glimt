@@ -53,7 +53,8 @@ pub(crate) struct DecodeJob {
     pub(crate) max: [u32; 2],
 }
 
-/// Decoding the shown image and its neighbours: the workers, which images they keep, and the size they decode to.
+/// Decoding the shown image and its neighbours: the workers, which images they keep, and the size
+/// they decode to.
 pub(crate) struct Decoding {
     /// The images to keep decoded, the shown one first: its neighbours in list order.
     /// Shared with the workers, which skip jobs outside it.

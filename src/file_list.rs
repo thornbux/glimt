@@ -85,7 +85,8 @@ pub(crate) struct Thumbs {
     pub(crate) save: Arc<AtomicBool>,
 }
 
-/// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
+/// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to
+/// the shown image.
 pub(crate) struct Panel {
     /// View → Hide File List: only the image, as in full screen but in a window.
     pub(crate) hidden: bool,
@@ -109,7 +110,8 @@ pub(crate) struct Tree {
     pub(crate) open: HashSet<PathBuf>,
 }
 
-/// The status bar's numbers: the shown image's size and place, the folder's total, and the selection's size.
+/// The status bar's numbers: the shown image's size and place, the folder's total, and the
+/// selection's size.
 pub(crate) struct StatusBar {
     /// Size in bytes of the shown file, for the status bar.
     pub(crate) cur_size: Option<(PathBuf, u64)>,

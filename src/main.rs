@@ -456,81 +456,84 @@ struct List {
     version: usize,
 }
 
+/// The window's state. Each part is a struct in the module whose code uses it; a new part's
+/// state goes there too, not in a field of its own here (`source_rules::app_stays_small`).
 struct App {
     /// The window's context, for the one caller that gets none: on_exit.
     ctx: egui::Context,
-    /// The file list with everything indexed into it.
-    list: List,
-    // ---- Settings ----
+    config: Config,
     /// What the desktop says: its dark style and accent, and its screen profile.
     desktop: theme::FromDesktop,
-    /// The Preferences window: open or not, its search, and the action whose key is being chosen.
-    prefs: preferences::Prefs,
-    config: Config,
 
-    // ---- The list: the folder (or collection, or several folders) and its files ----
-    /// What is open (a folder, a collection or several folders), its listing in the background, the way back and forward, and the folders sorted into.
+    // ---- What is open and its files ----
+    /// What is open (a folder, a collection or several folders), its listing in the
+    /// background, the way back and forward, and the folders sorted into.
     folder: folder::Folder,
-    /// File operations in the background: the jobs, the files they touch, what they report, and Undo.
+    /// The file list with everything indexed into it.
+    list: List,
+    /// File operations in the background: the jobs, the files they touch, what they report,
+    /// and Undo.
     work: file_ops::Work,
-    /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
+    /// Work still running in the background, for the busy pointer: deletes, copies and moves,
+    /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
+    busy: Arc<AtomicUsize>,
+
+    // ---- The side panel ----
+    /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it
+    /// scrolls to the shown image.
     panel: file_list::Panel,
     /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
     tree: file_list::Tree,
-
-    // ---- The selection ----
-    /// The status bar's numbers: the shown image's size and place, the folder's total, and the selection's size.
+    /// Thumbnails for the file list: those made, those being made, and the workers making them.
+    thumbs: file_list::Thumbs,
+    /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
+    search: search::Search,
+    /// The status bar's numbers: the shown image's size and place, the folder's total, and the
+    /// selection's size.
     status: file_list::StatusBar,
+    /// Files Check Images found broken, marked in the list until another list is shown.
+    broken_files: HashSet<OsString>,
+    #[cfg(feature = "marks")]
+    marks: marks::Marks,
 
-    // ---- Decoding: the shown image and its neighbours ----
-    /// Decoding the shown image and its neighbours: the workers, which images they keep, and the size they decode to.
+    // ---- The image and the window ----
+    /// Decoding the shown image and its neighbours: the workers, which images they keep, and
+    /// the size they decode to.
     decoding: view::Decoding,
-
-    // ---- The view: zoom, panes, the window ----
+    /// What belongs to the image shown, made anew when it is left.
+    viewing: Viewing,
+    /// The zoom, and where the zoomed image is in the view.
+    zoom: view::Zoom,
+    /// Two images side by side (E): the shown one and `compare_other`.
+    compare: bool,
+    /// What the image area showed in the last frame, for the projector to show the same.
+    last_view: Option<View>,
     /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
     /// takes the keys from the shortcuts.
     image_id: Option<egui::Id>,
     /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
     focus_by_keys: bool,
-    /// The zoom, and where the zoomed image is in the view.
-    zoom: view::Zoom,
-    /// What belongs to the image shown, made anew when it is left.
-    viewing: Viewing,
-    /// Two images side by side (E): the shown one and `compare_other`.
-    compare: bool,
-    /// The window: its state remembered, the kiosk, the projector, the screen saver, the pointer and the title.
-    window: window::Window,
-    /// What the image area showed in the last frame, for the projector to show the same.
-    last_view: Option<View>,
-
-    // ---- The slideshow ----
     /// The slideshow: whether it runs, its order and the pane it changes next.
     slideshow: slideshow::Slideshow,
-
-    // ---- Thumbnails ----
-    /// Thumbnails for the file list: those made, those being made, and the workers making them.
-    thumbs: file_list::Thumbs,
-
-    // ---- EXIF, keywords, comment and marks ----
-    /// The info panel and the EXIF window: what is read of the shown image, and what is being edited.
+    /// The window: its state remembered, the kiosk, the projector, the screen saver, the
+    /// pointer and the title.
+    window: window::Window,
+    /// The info panel and the EXIF window: what is read of the shown image, and what is being
+    /// edited.
     info: info_panel::Info,
-    /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
-    search: search::Search,
-    #[cfg(feature = "marks")]
-    marks: marks::Marks,
+    /// The message shown over the image, until the next image.
+    notice: Option<String>,
+    /// Messages from background tasks (deleting, copying), to become the notice.
+    notices_tx: mpsc::Sender<String>,
+    notices_rx: mpsc::Receiver<String>,
 
-    // ---- The search ----
-
-    // ---- The status bar ----
-
-    // ---- File operations in the background ----
-    /// Work still running in the background, for the busy pointer: deletes, copies and moves,
-    /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
-    busy: Arc<AtomicUsize>,
-    /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file chooser.
+    // ---- Menus, dialogs and windows ----
+    /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the
+    /// file chooser.
     dialogs: dialogs::Dialogs,
-
-    // ---- Dialogs, windows and messages ----
+    /// The Preferences window: open or not, its search, and the action whose key is being
+    /// chosen.
+    prefs: preferences::Prefs,
     /// Open With's programs for each file type, read in the background.
     open_with: menus::OpenWith,
     /// Edit → Plugins, read at start.
@@ -539,6 +542,7 @@ struct App {
     plugins_running: plugins::Running,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
+    /// File → Print's dialog, while open.
     print_window: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
@@ -553,13 +557,6 @@ struct App {
     dups: Option<Dups>,
     /// The Check Images window: `None` closed, `Some(None)` open and not started.
     check: Option<Option<Check>>,
-    /// Files Check Images found broken, marked in the list until another list is shown.
-    broken_files: HashSet<OsString>,
-    /// The message shown over the image, until the next image.
-    notice: Option<String>,
-    /// Messages from background tasks (deleting, copying), to become the notice.
-    notices_tx: mpsc::Sender<String>,
-    notices_rx: mpsc::Receiver<String>,
     /// Commands from --remote, and selects held back until the list is read.
     remote: remote::Listener,
 }

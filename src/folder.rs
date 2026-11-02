@@ -19,7 +19,8 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
-/// What is open (a folder, a collection or several folders), its listing in the background, the way back and forward, and the folders sorted into.
+/// What is open (a folder, a collection or several folders), its listing in the background, the way
+/// back and forward, and the folders sorted into.
 pub(crate) struct Folder {
     pub(crate) dir: PathBuf,
     pub(crate) subdirs: Vec<PathBuf>,

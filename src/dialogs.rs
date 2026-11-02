@@ -65,7 +65,8 @@ pub(crate) enum Prompt {
     WindowTitle,
 }
 
-/// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file chooser.
+/// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file
+/// chooser.
 pub(crate) struct Dialogs {
     /// Open text dialog and the text typed so far.
     pub(crate) prompt: Option<(Prompt, String)>,

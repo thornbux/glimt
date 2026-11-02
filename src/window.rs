@@ -16,7 +16,8 @@ const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
 pub(crate) type Ender = Box<dyn FnOnce() + Send>;
 
-/// The window: its state remembered, the kiosk, the projector, the screen saver, the pointer and the title.
+/// The window: its state remembered, the kiosk, the projector, the screen saver, the pointer and
+/// the title.
 pub(crate) struct Window {
     /// Window geometry seen in the last frame, saved at exit.
     pub(crate) state: WindowState,

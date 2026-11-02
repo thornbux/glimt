@@ -56,7 +56,7 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its fields by group, `List`, `Slot`, `Viewing` and `Start`, starting up, the frame (`eframe::App`), `Job`, `noted` for the release tests' hook, `main()` and the command line; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. Its tests module has what tests that need a whole `App` start from (`app_on`, `settle`, `contract_folder`); each module's tests use them, so a test sits beside the code it tests |
+| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), `List`, `Slot`, `Viewing` and `Start`, starting up, the frame (`eframe::App`), `Job`, `noted` for the release tests' hook, `main()` and the command line; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. Its tests module has what tests that need a whole `App` start from (`app_on`, `settle`, `contract_folder`); each module's tests use them, so a test sits beside the code it tests |
 | `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
@@ -152,6 +152,9 @@ Every `.rs` file has its items in this order, so a reader finds things where the
   folder and what must hold after (the file, its sidecar, its stars, the collection's entry, held
   back while other work changes its files). `every_file_operation_is_in_the_contract` fails
   until it is there, or listed with the reason it is not.
+- **State for a feature:** a field in the struct of the part it belongs to (`self.slideshow`,
+  `self.folder`, `self.work`, …), or a struct of its own in the feature's module held by one
+  field in `App`; never loose fields in `App` (`source_rules::app_stays_small`).
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and

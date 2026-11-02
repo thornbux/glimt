@@ -125,3 +125,24 @@ fn tests_sit_beside_their_code() {
         }
     }
 }
+
+/// App holds its parts, each a struct in the module whose code uses it, and not much else:
+/// 170 fields side by side once made every module free to touch every other's state. A new
+/// part's state goes in a struct in its module; a field more here fails this.
+#[test]
+fn app_stays_small() {
+    const MOST: usize = 42;
+    let text =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
+    let app = text.split("\nstruct App {\n").nth(1).unwrap();
+    let app = app.split("\n}\n").next().unwrap();
+    let fields = (app.lines())
+        .filter(|l| l.starts_with("    ") && !l.starts_with("     "))
+        .filter(|l| !l.trim_start().starts_with("//") && !l.trim_start().starts_with("#["))
+        .count();
+    assert!(
+        fields <= MOST,
+        "App has {fields} fields: put a new part's state in a struct in its module, as \
+         slideshow::Slideshow is, rather than in App"
+    );
+}
