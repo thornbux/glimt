@@ -521,9 +521,9 @@ pub const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
     ..egui::Modifiers::COMMAND
 };
 
-/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh).
-/// The first one for an action is shown in the menu.
-/// egui ignores an extra Shift or Alt when matching, so those combinations come before the plain key.
+/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh). The first
+/// one for an action is shown in the menu. egui ignores an extra Shift or Alt when matching, so
+/// those combinations come before the plain key.
 pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
     use Action::*;
     use egui::Key;

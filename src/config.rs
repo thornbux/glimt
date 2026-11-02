@@ -527,7 +527,8 @@ config! {
     search_case: bool = false,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
-    /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif information").
+    /// Rotate images by their EXIF orientation (Geeqie: "Auto rotate image using Exif
+    /// information").
     exif_rotate: bool = true,
     /// List images (Types menu in the status bar).
     list_images: bool = true,

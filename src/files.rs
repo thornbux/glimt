@@ -215,8 +215,8 @@ pub fn kind(entry: &std::fs::DirEntry) -> (bool, bool) {
     }
 }
 
-/// One pass over the folder: (subfolders, image file names), both sorted by name.
-/// The file type comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
+/// One pass over the folder: (subfolders, image file names), both sorted by name. The file type
+/// comes from the directory entry, so there is no `stat` per file (only symlinks are resolved).
 pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
     let (mut dirs, mut images) = (Vec::new(), Vec::new());
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {

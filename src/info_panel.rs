@@ -202,7 +202,8 @@ impl crate::App {
                             ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
                             ui.end_row();
                         }
-                        // The old rows stay until the new ones arrive, so the panel does not flicker.
+                        // The old rows stay until the new ones arrive, so the panel does not
+                        // flicker.
                         for (label, value) in self.exif.iter().flat_map(|e| &e.1) {
                             ui.weak(*label);
                             // The place opens on a map in the browser.
@@ -401,9 +402,9 @@ impl crate::App {
         );
     }
 
-    /// Save the keywords, comment, alt text and extended description being edited, if they
-    /// changed: in the thread that writes this window's sidecars, which closing waits for, not
-    /// in the window's, as a sidecar on a slow share would hold the window up for its read, write and
+    /// Save the keywords, comment, alt text and extended description being edited, if they changed:
+    /// in the thread that writes this window's sidecars, which closing waits for, not in the
+    /// window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
     pub(crate) fn save_meta(&mut self, ctx: &egui::Context) {
         let Some(edit) = &mut self.meta else { return };

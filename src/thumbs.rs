@@ -207,7 +207,8 @@ fn thumb_source(thumb: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
 
-/// Percent-encode a path as GLib's g_filename_to_uri does, so the cache names match other programs'.
+/// Percent-encode a path as GLib's g_filename_to_uri does, so the cache names match other
+/// programs'.
 pub(crate) fn uri_path(path: &Path) -> String {
     path.as_os_str()
         .as_encoded_bytes()

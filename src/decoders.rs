@@ -128,8 +128,8 @@ mod tests {
     use std::path::Path;
     use std::time::Duration;
 
-    /// A decoder file read, a program run on a file of its own format and its image taken; one
-    /// that takes too long stopped, also when it ignores TERM; a file without %f or extensions left out.
+    /// A decoder file read, a program run on a file of its own format and its image taken; one that
+    /// takes too long stopped, also when it ignores TERM; a file without %f or extensions left out.
     #[test]
     fn decodes_through_a_program() {
         let dir = std::env::temp_dir().join(format!("glimt-test-decoders-{}", std::process::id()));

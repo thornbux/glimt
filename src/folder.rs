@@ -86,7 +86,8 @@ impl crate::App {
         };
         // Canonical path once here, so ⬆ .. and "remember folder" need no system calls later.
         let dir = dir.canonicalize().unwrap_or(dir);
-        // Show a given file at once; the folder is listed in the background and the list merged in afterwards.
+        // Show a given file at once; the folder is listed in the background and the list merged in
+        // afterwards.
         let shown = file
             .as_deref()
             .and_then(Path::file_name)
@@ -482,8 +483,8 @@ impl crate::App {
             }
             ctx2.request_repaint();
             // Sizes afterwards: read the folder once more and sum from the directory entries in
-            // chunks, so the status bar fills in gradually without a copy of the whole list in memory.
-            // A tree a folder at a time, unsorted.
+            // chunks, so the status bar fills in gradually without a copy of the whole list in
+            // memory. A tree a folder at a time, unsorted.
             if recursive {
                 let sizes = walk(&list_dir, types).flat_map(|(rel, _, files)| {
                     let folder = list_dir.join(rel);

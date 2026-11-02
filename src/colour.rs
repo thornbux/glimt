@@ -523,7 +523,8 @@ mod tests {
         super::set_screen(&srgb).unwrap();
         assert!(super::COLOUR.read().unwrap().screen.is_none());
         assert_eq!(super::to_display(red(), None), red());
-        // Images without a profile taken as Adobe RGB: in sRGB the same numbers mean another colour.
+        // Images without a profile taken as Adobe RGB: in sRGB the same numbers mean another
+        // colour.
         super::set_input("adobe").unwrap();
         let grey = || {
             image::DynamicImage::from(image::RgbaImage::from_pixel(
