@@ -341,7 +341,9 @@ fn table_is_short(lines: &[String], first: usize, last: usize) -> Result<(), Str
     let table = (first + 1..last)
         .rev()
         .find(|&j| indent(&lines[j]) == body && lines[j].trim_start().starts_with("match "))
-        .filter(|&m| block_end(lines, m) == Some(last - 1))
+        .filter(|&m| {
+            block_end(lines, m).is_some_and(|e| (e + 1..last).all(|j| lines[j].is_empty()))
+        })
         .ok_or("does not end in its match")?;
     if solid(first..table) > SETUP {
         return Err("does much before its match".into());
@@ -350,12 +352,15 @@ fn table_is_short(lines: &[String], first: usize, last: usize) -> Result<(), Str
     let arm = indent(&lines[table]) + 4;
     let starts: Vec<usize> = (table + 1..last - 1)
         .filter(|&j| {
-            indent(&lines[j]) == arm && !lines[j].trim_start().starts_with(['|', '{', '}'])
+            indent(&lines[j]) == arm
+                && !lines[j].trim_start().starts_with(['|', '{', '}', ')', ']'])
         })
         .chain([last - 1])
         .collect();
     for pair in starts.windows(2) {
-        let pattern = (pair[0]..pair[1]).filter(|&j| lines[j].trim_start().starts_with('|'));
+        // A pattern's `| …` lines sit at the arms' indent; a `||` or closure in a body is deeper.
+        let pattern = (pair[0]..pair[1])
+            .filter(|&j| indent(&lines[j]) == arm && lines[j].trim_start().starts_with('|'));
         if solid(pair[0]..pair[1]) - pattern.count() > ARM {
             return Err(format!("has a long arm at line {}", pair[0] + 1));
         }
