@@ -44,7 +44,7 @@ impl crate::App {
         let were_writing = sidecars(&self.file_jobs);
         self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
         // Keywords written: an `exif:` search reads what it held back for them.
-        let held = !self.exif_stale.is_empty() && self.search.contains("exif:");
+        let held = !self.search.exif_stale.is_empty() && self.search.query.contains("exif:");
         if were_writing && !sidecars(&self.file_jobs) && held {
             self.update_search(ctx);
         }

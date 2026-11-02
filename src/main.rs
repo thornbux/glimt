@@ -653,33 +653,12 @@ struct App {
     keyword_tree: Vec<String>,
     /// A path being typed to add to the keyword tree.
     new_keyword: String,
-    /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
-    /// first one, dropped with the folder.
-    exif_index: Option<HashMap<OsString, String>>,
-    /// Files whose keywords or comment changed since they were indexed: read again, alone,
-    /// at the next "exif:" search.
-    exif_stale: HashSet<OsString>,
-    exif_index_rx: Receiving<HashMap<OsString, String>>,
-    /// Set when the index being read is no longer wanted (another folder): the thread stops.
-    exif_index_stop: Arc<AtomicBool>,
+    /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
+    search: search::Search,
     #[cfg(feature = "marks")]
     marks: marks::Marks,
 
     // ---- The search ----
-    /// The search field takes the focus when it is next drawn (/).
-    focus_search: bool,
-    /// File name search above the file list, and the matching files best first while it has
-    /// at least three letters.
-    search: String,
-    /// The rows among the matches of the shown file and of the one a slideshow of several panes
-    /// steps from, as (file, row): found once per image and search, not in every frame, as the
-    /// matches can be 300,000 long.
-    match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
-    /// Why a re: search pattern is not one, shown under the search field.
-    search_error: Option<String>,
-    match_rx: Receiving<u64>,
-    /// When to sum the matches' size: once the search has stayed the same a moment.
-    match_size_due: Option<Instant>,
 
     // ---- The status bar ----
     /// Size in bytes of the shown file, for the status bar.
@@ -996,7 +975,6 @@ impl App {
             frame_ms: [0; 256],
             file_dialog: None,
             file_dialog_rx: Receiving::none(),
-            focus_search: false,
             kiosk: start.kiosk,
             menu_away: None,
             projector: false,
@@ -1056,15 +1034,6 @@ impl App {
             file_jobs: Vec::new(),
             touching: Vec::new(),
             closing: 0,
-            search: String::new(),
-            match_rows: Default::default(),
-            search_error: None,
-            match_rx: Receiving::none(),
-            match_size_due: None,
-            exif_index: None,
-            exif_stale: HashSet::new(),
-            exif_index_rx: Receiving::none(),
-            exif_index_stop: Arc::default(),
             opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
             slideshow: slideshow::Slideshow {
@@ -1097,6 +1066,18 @@ impl App {
                 rx: tree_rx,
                 shown: PathBuf::new(),
                 open: HashSet::new(),
+            },
+            search: search::Search {
+                query: String::new(),
+                error: None,
+                focus: false,
+                match_rows: Default::default(),
+                match_rx: Receiving::none(),
+                match_size_due: None,
+                exif_index: None,
+                exif_stale: HashSet::new(),
+                exif_index_rx: Receiving::none(),
+                exif_index_stop: Arc::default(),
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

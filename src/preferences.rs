@@ -779,7 +779,7 @@ impl crate::App {
         {
             changed = true;
             if !c.search_bar {
-                self.search.clear();
+                self.search.query.clear();
                 self.update_search(ctx);
             }
         }

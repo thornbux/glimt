@@ -125,13 +125,13 @@ impl crate::App {
 
     /// The row of `file` among the search matches `m`, kept for the shown file and one other.
     pub(crate) fn row_of(&self, m: &[usize], file: usize) -> Option<usize> {
-        let mut rows = self.match_rows.get();
+        let mut rows = self.search.match_rows.get();
         if let Some((_, row)) = rows.iter().flatten().find(|r| r.0 == file) {
             return *row;
         }
         let row = m.iter().position(|&i| i == file);
         rows[(file != self.list.cur) as usize] = Some((file, row));
-        self.match_rows.set(rows);
+        self.search.match_rows.set(rows);
         row
     }
 

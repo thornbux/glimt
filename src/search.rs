@@ -3,18 +3,18 @@
 //! together, at the start of a word or early in the name rank first. Also the EXIF index that
 //! `exif:` terms search: each file's fields and keywords as one line.
 
+use crate::FileRow;
 use crate::folder::send_sizes;
 use crate::lang::tr;
 use crate::threads::{Receiving, Took, Working, background_threads, in_parts};
 use crate::{exif, meta, small_alloc_threads};
 use crate::{noted, tf, theme};
 use eframe::egui;
-use std::collections::HashMap;
-#[cfg(feature = "marks")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -30,14 +30,41 @@ pub enum Query {
     Or(Vec<Query>),
 }
 
+/// The search field: its query, the matches, and the EXIF index that exif: terms look in.
+pub(crate) struct Search {
+    /// File name search above the file list, and the matching files best first while it has
+    /// at least three letters.
+    pub(crate) query: String,
+    /// Why a re: search pattern is not one, shown under the search field.
+    pub(crate) error: Option<String>,
+    /// The search field takes the focus when it is next drawn (/).
+    pub(crate) focus: bool,
+    /// The rows among the matches of the shown file and of the one a slideshow of several panes
+    /// steps from, as (file, row): found once per image and search, not in every frame, as the
+    /// matches can be 300,000 long.
+    pub(crate) match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
+    pub(crate) match_rx: Receiving<u64>,
+    /// When to sum the matches' size: once the search has stayed the same a moment.
+    pub(crate) match_size_due: Option<Instant>,
+    /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
+    /// first one, dropped with the folder.
+    pub(crate) exif_index: Option<HashMap<OsString, String>>,
+    /// Files whose keywords or comment changed since they were indexed: read again, alone,
+    /// at the next "exif:" search.
+    pub(crate) exif_stale: HashSet<OsString>,
+    pub(crate) exif_index_rx: Receiving<HashMap<OsString, String>>,
+    /// Set when the index being read is no longer wanted (another folder): the thread stops.
+    pub(crate) exif_index_stop: Arc<AtomicBool>,
+}
+
 impl crate::App {
     // ---- The search ----
 
     /// Fuzzy search box above the file list.
     pub(crate) fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if !self.search.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
-                self.search.clear();
+            if !self.search.query.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
+                self.search.query.clear();
                 self.update_search(ui.ctx());
                 self.panel.scroll_to_cur = true;
             }
@@ -47,7 +74,7 @@ impl crate::App {
                 true => tr("Search file names (3+ letters), re: pattern, or exif: camera, date …"),
                 false => tr("Filter file names by pattern, or exif: camera, date …"),
             };
-            let edit = egui::TextEdit::singleline(&mut self.search)
+            let edit = egui::TextEdit::singleline(&mut self.search.query)
                 .id(egui::Id::unique("file search"))
                 .hint_text(hint);
             // Geeqie's file filter has its Case checkbox to the right; before it, the switch
@@ -74,7 +101,7 @@ impl crate::App {
                     changed = true;
                 }
                 let field = ui.add(edit.desired_width(ui.available_width()));
-                if std::mem::take(&mut self.focus_search) {
+                if std::mem::take(&mut self.search.focus) {
                     field.request_focus();
                 }
                 changed |= field.changed();
@@ -83,42 +110,42 @@ impl crate::App {
                 self.update_search(ui.ctx());
             }
         });
-        if let Some(e) = &self.search_error {
+        if let Some(e) = &self.search.error {
             ui.colored_label(ui.visuals().error_fg_color, tf!("Not a pattern: {e}", e));
         }
     }
 
     /// Run the search again; file indices change when the list does.
     pub(crate) fn update_search(&mut self, ctx: &egui::Context) {
-        let query = self.search.trim().to_owned();
+        let query = self.search.query.trim().to_owned();
         let query = query.as_str();
-        self.match_rows.set(Default::default());
+        self.search.match_rows.set(Default::default());
         // Other rows: a Shift range of the keys is no longer the rows it was.
         self.list.range_end = None;
         // A place "[n/m]" told for another pane: another search may have as many matches.
         self.status_place = None;
-        self.search_error = None;
+        self.search.error = None;
         self.list.matches = self.search_matches(ctx, query);
         // Size of the matches in the background; a new search drops the receiver, which
         // stops the old sum.
         self.list.match_size = 0;
-        self.match_rx = Receiving::none();
+        self.search.match_rx = Receiving::none();
         // Not at each letter typed: each would copy every match's name, 500,000 for an "a".
         let wait = std::time::Duration::from_millis(200);
-        self.match_size_due = self.list.matches.is_some().then(|| Instant::now() + wait);
+        self.search.match_size_due = self.list.matches.is_some().then(|| Instant::now() + wait);
         ctx.request_repaint_after(wait);
     }
 
     /// The size of the matches, in the background, once the search has stayed the same a moment.
     pub(crate) fn match_size(&mut self, ctx: &egui::Context) {
-        let Some(due) = self.match_size_due else {
+        let Some(due) = self.search.match_size_due else {
             return;
         };
         // Asked again each frame: a frame drawn before it is due drops the earlier request.
         if let Some(wait) = due.checked_duration_since(Instant::now()) {
             return ctx.request_repaint_after(wait);
         }
-        self.match_size_due = None;
+        self.search.match_size_due = None;
         let Some(m) = &self.list.matches else { return };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
@@ -129,12 +156,12 @@ impl crate::App {
                 .filter_map(|n| Some(dir.join(n).metadata().ok()?.len()));
             send_sizes(sizes, tx, &ctx);
         });
-        self.match_rx = Receiving::of(rx);
+        self.search.match_rx = Receiving::of(rx);
     }
 
     /// The exif: search index once it is read, and the search again with it.
     pub(crate) fn receive_exif_index(&mut self, ctx: &egui::Context) {
-        let index = match self.exif_index_rx.take() {
+        let index = match self.search.exif_index_rx.take() {
             Took::Nothing => return,
             Took::Answer(index) => index,
             // Without any index the search would start reading again at once: an empty one,
@@ -145,9 +172,9 @@ impl crate::App {
             }
         };
         // The files read again go into the index there is; else this is the whole index.
-        match &mut self.exif_index {
+        match &mut self.search.exif_index {
             Some(old) => old.extend(index),
-            None => self.exif_index = Some(index),
+            None => self.search.exif_index = Some(index),
         }
         // Read from the list as it was: names that came since are read too.
         self.exif_follow_list();
@@ -158,9 +185,9 @@ impl crate::App {
     /// folder read again, from subfolders turned on) are read with the next search, as edited
     /// ones are: a name it lacked was found by no `exif:` search at all.
     pub(crate) fn exif_follow_list(&mut self) {
-        if let Some(index) = &self.exif_index {
+        if let Some(index) = &self.search.exif_index {
             let missing = self.list.files.iter().filter(|n| !index.contains_key(*n));
-            self.exif_stale.extend(missing.cloned());
+            self.search.exif_stale.extend(missing.cloned());
         }
     }
 
@@ -242,7 +269,7 @@ impl crate::App {
         let regex = |this: &mut Self, pattern: &str| match regex(pattern, case) {
             Ok(re) => regex_matches(&this.list.files, &re),
             Err(e) => {
-                this.search_error = Some(e);
+                this.search.error = Some(e);
                 Vec::new()
             }
         };
@@ -270,7 +297,7 @@ impl crate::App {
     pub(crate) fn exif_matches(&mut self, ctx: &egui::Context, words: &str) -> Vec<usize> {
         let re = match words.strip_prefix("re:").map(|p| regex(p, false)) {
             Some(Err(e)) => {
-                self.search_error = Some(e);
+                self.search.error = Some(e);
                 return Vec::new();
             }
             Some(Ok(re)) => Some(re),
@@ -282,40 +309,40 @@ impl crate::App {
         // end searches again).
         let writing = (self.file_jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
         if !writing
-            && self.exif_index.is_some()
-            && !self.exif_stale.is_empty()
-            && self.exif_index_rx.is_none()
+            && self.search.exif_index.is_some()
+            && !self.search.exif_stale.is_empty()
+            && self.search.exif_index_rx.is_none()
         {
             let (tx, rx) = mpsc::channel();
-            let names: Vec<OsString> = self.exif_stale.drain().collect();
+            let names: Vec<OsString> = self.search.exif_stale.drain().collect();
             let (dir, ctx) = (self.dir.clone(), ctx.clone());
             let pointer = Working::new(&self.busy);
-            self.exif_index_stop = Arc::default();
-            let stop = self.exif_index_stop.clone();
+            self.search.exif_index_stop = Arc::default();
+            let stop = self.search.exif_index_stop.clone();
             std::thread::spawn(move || {
                 let _ = tx.send(exif_index(&dir, &names, &stop));
                 drop(pointer);
                 ctx.request_repaint();
             });
-            self.exif_index_rx = Receiving::of(rx);
+            self.search.exif_index_rx = Receiving::of(rx);
         }
-        let Some(index) = &self.exif_index else {
-            if self.exif_index_rx.is_none() {
+        let Some(index) = &self.search.exif_index else {
+            if self.search.exif_index_rx.is_none() {
                 // Marks made while keywords are written are kept for after this first index.
                 if !writing {
-                    self.exif_stale.clear();
+                    self.search.exif_stale.clear();
                 }
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (self.dir.clone(), self.list.files.clone(), ctx.clone());
                 let pointer = Working::new(&self.busy);
-                self.exif_index_stop = Arc::default();
-                let stop = self.exif_index_stop.clone();
+                self.search.exif_index_stop = Arc::default();
+                let stop = self.search.exif_index_stop.clone();
                 std::thread::spawn(move || {
                     let _ = tx.send(exif_index(&dir, &files, &stop));
                     drop(pointer);
                     ctx.request_repaint();
                 });
-                self.exif_index_rx = Receiving::of(rx);
+                self.search.exif_index_rx = Receiving::of(rx);
             }
             return Vec::new();
         };

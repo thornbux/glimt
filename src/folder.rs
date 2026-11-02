@@ -153,11 +153,11 @@ impl crate::App {
         self.slideshow.shuffled = false;
         self.thumbs.textures.clear();
         self.thumbs.pending.clear();
-        self.exif_index = None;
-        self.exif_stale.clear();
-        self.exif_index_rx = Receiving::none();
+        self.search.exif_index = None;
+        self.search.exif_stale.clear();
+        self.search.exif_index_rx = Receiving::none();
         // Its reading of every file ends: no one waits for it now.
-        self.exif_index_stop.store(true, Ordering::Relaxed);
+        self.search.exif_index_stop.store(true, Ordering::Relaxed);
     }
 
     /// Show the collection in `file` as the list.
@@ -752,7 +752,7 @@ impl crate::App {
             Took::Gone => self.selected_size = Some(0),
             Took::Nothing => {}
         }
-        drain(&mut self.match_rx, &mut self.list.match_size);
+        drain(&mut self.search.match_rx, &mut self.list.match_size);
         drain(&mut self.size_rx, &mut self.total_size);
     }
 }

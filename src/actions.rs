@@ -863,7 +863,7 @@ impl crate::App {
                 }
                 ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
                 // Given when the field is drawn: egui drops focus on a widget not drawn yet.
-                self.focus_search = true;
+                self.search.focus = true;
             }
             Action::Copy | Action::Move if !self.list.files.is_empty() => {
                 let paths = self.targets().iter().map(|&i| self.path(i)).collect();
@@ -1344,7 +1344,7 @@ impl crate::App {
             }
         }
         // A "mark:" or "stars:" search shows the new state.
-        if self.search.starts_with("mark:") || self.search.starts_with("stars:") {
+        if self.search.query.starts_with("mark:") || self.search.query.starts_with("stars:") {
             self.update_search(ctx);
         }
     }
