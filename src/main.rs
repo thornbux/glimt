@@ -10,7 +10,6 @@ use crate::file_ops::{Deleted, Undo};
 use crate::info_panel::spawn_exif_reader;
 use crate::view::{LAYOUTS, frame_at};
 use crate::view::{View, spawn_decoders};
-use crate::window::Ender;
 use crate::workers::spawn_thumbnailers;
 use actions::{Action, OWN_KEYS};
 use check::Check;
@@ -554,29 +553,10 @@ struct App {
     viewing: Viewing,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
-    /// Window geometry seen in the last frame, saved at exit.
-    window_state: WindowState,
-    /// The screen saver inhibitor running while in full screen, and how many times full screen
-    /// was turned on or off: the inhibitor is looked for and started in a thread, and one that
-    /// comes after full screen ended again is ended at once.
-    inhibitor: Arc<Mutex<(u64, Option<Ender>)>>,
-    /// Whether it was asked for: tried once, not on every frame where none could be started.
-    inhibit_on: bool,
-    /// Since when the pointer has been away from an open menu of the menu bar.
-    menu_away: Option<Instant>,
-    /// Window → Projector: a second window with only the image, following this one.
-    projector: bool,
-    /// The projector's image area in pixels, which images are decoded to cover too.
-    projector_size: [u32; 2],
+    /// The window: its state remembered, the kiosk, the projector, the screen saver, the pointer and the title.
+    window: window::Window,
     /// What the image area showed in the last frame, for the projector to show the same.
     last_view: Option<View>,
-    /// --kiosk: full screen, only the image, only actions that show and browse.
-    kiosk: bool,
-    /// `--remote quit` came: a kiosk may close.
-    kiosk_quit: bool,
-    /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
-    /// talks to.
-    has_focus: bool,
 
     // ---- The slideshow ----
     /// The slideshow: whether it runs, its order and the pane it changes next.
@@ -609,15 +589,10 @@ struct App {
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
-    /// When the mouse last moved, or full screen began: the pointer hides after `POINTER_STILL`.
-    pointer_moved: std::time::Instant,
     /// File operations running, for the status bar; one is over when its thread let go of it.
     file_jobs: Vec<Arc<Job>>,
     /// What `background` work changes, held by its thread as long as it runs.
     touching: Vec<Arc<Vec<PathBuf>>>,
-    /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
-    /// they are stopped after the file at hand and it waits for that; a third close ends at once.
-    closing: u8,
     /// What deletes, moves and copies report (`Deleted`). A plugin and Move Folder to Trash
     /// send it too, only for the list to be read again.
     deleted_tx: mpsc::Sender<Deleted>,
@@ -660,8 +635,6 @@ struct App {
     help: Option<help::Page>,
     /// Open text dialog and the text typed so far.
     prompt: Option<(Prompt, String)>,
-    /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
-    window_title: String,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
     confirm_delete: Option<bool>,
     /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
@@ -843,7 +816,6 @@ impl App {
             remote_rx,
             ctx: ctx.clone(),
             list: List::default(),
-            has_focus: true,
             apps: HashMap::new(),
             apps_tx,
             desktop_look: Default::default(),
@@ -869,16 +841,10 @@ impl App {
             confirm_folder: false,
             opened_type: Types::NONE,
             prompt: None,
-            window_title: String::new(),
             config,
             file_dialog: None,
             file_dialog_rx: Receiving::none(),
-            kiosk: start.kiosk,
-            menu_away: None,
-            projector: false,
-            projector_size: [0, 0],
             last_view: None,
-            kiosk_quit: false,
             watching: Arc::new(AtomicUsize::new(0)),
             changed_tx,
             changed_rx,
@@ -896,9 +862,6 @@ impl App {
             focus_by_keys: false,
             waiting_select: Vec::new(),
             path_text: String::new(),
-            window_state: WindowState::default(),
-            inhibitor: Arc::default(),
-            inhibit_on: false,
             deleting: HashSet::new(),
             undo: None,
             recent,
@@ -908,10 +871,8 @@ impl App {
             saved_rx,
             saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
-            pointer_moved: std::time::Instant::now(),
             file_jobs: Vec::new(),
             touching: Vec::new(),
-            closing: 0,
             slideshow: slideshow::Slideshow {
                 shown_at: None,
                 shuffled: false,
@@ -1006,6 +967,20 @@ impl App {
                 last_scale: 1.0,
                 wheel: 0.0,
             },
+            window: window::Window {
+                state: WindowState::default(),
+                kiosk: start.kiosk,
+                kiosk_quit: false,
+                projector: false,
+                projector_size: [0, 0],
+                inhibitor: Arc::default(),
+                inhibit_on: false,
+                menu_away: None,
+                has_focus: true,
+                pointer_moved: std::time::Instant::now(),
+                title: String::new(),
+                closing: 0,
+            },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {
@@ -1035,7 +1010,7 @@ impl App {
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
-        let bare = fullscreen || self.panel.hidden || self.kiosk;
+        let bare = fullscreen || self.panel.hidden || self.window.kiosk;
         if !bare {
             self.menu_bar(ui, &mut act);
         }
@@ -1078,7 +1053,7 @@ impl App {
             self.save_meta(ui.ctx());
         }
         self.image_area(ctx, ui, fullscreen, bare);
-        if self.projector {
+        if self.window.projector {
             self.projector_window(ctx);
         }
     }
@@ -1104,7 +1079,7 @@ impl eframe::App for App {
             state += &format!("last_dir={}\n", last.display());
         }
         if self.config.remember_window {
-            state += &self.window_state.to_text();
+            state += &self.window.state.to_text();
         }
         // Nothing to keep: the folder and window of before go too, not left for a later start.
         match state_path() {
@@ -1115,7 +1090,7 @@ impl eframe::App for App {
         self.inhibit(false);
         // The state above, the settings, and the keywords queued at the first close: waited for,
         // a few seconds at most. Not after a third close, which ends at once whatever runs.
-        if self.closing < 2 {
+        if self.window.closing < 2 {
             config::flush();
         }
         let at = |share| frame_at(&self.decoding.frame_ms, share);

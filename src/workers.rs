@@ -51,7 +51,7 @@ impl crate::App {
         self.touching.retain(|t| Arc::strong_count(t) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        } else if self.closing > 0 {
+        } else if self.window.closing > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         while let Ok((path, result)) = self.saved_rx.try_recv() {
@@ -67,15 +67,15 @@ impl crate::App {
             self.start_slideshow(ctx);
         }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
-        if focus && !self.has_focus && self.config.remote_control {
+        if focus && !self.window.has_focus && self.config.remote_control {
             remote::mark_focused();
         }
         // Back from another window, which may have marked files meanwhile.
         #[cfg(feature = "marks")]
-        if focus && !self.has_focus {
+        if focus && !self.window.has_focus {
             self.marks.refresh();
         }
-        self.has_focus = focus;
+        self.window.has_focus = focus;
         self.receive_remote(ctx);
         if let Took::Answer(img) = self.clip_rx.take() {
             ctx.copy_image(img);
@@ -85,7 +85,7 @@ impl crate::App {
             let mut paths = i.raw.dropped_files.iter().map(|f| f.path().to_path_buf());
             paths.find(|p| !p.as_os_str().is_empty())
         });
-        if let Some(path) = dropped.filter(|_| !self.kiosk) {
+        if let Some(path) = dropped.filter(|_| !self.window.kiosk) {
             self.visit(ctx, path);
         }
         self.receive_mount(ctx);
