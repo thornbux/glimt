@@ -9,7 +9,7 @@ use crate::format::count;
 use crate::lang::tr;
 use crate::save::save_rotated;
 use crate::threads::{Receiving, Working};
-use crate::{Deleted, Job, Undo, collections, config, decode, exif, journal, meta, tf};
+use crate::{Job, collections, config, decode, exif, journal, meta, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -1702,6 +1702,47 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
             false => to.join(rest),
         })
     })
+}
+
+/// What a delete, move, copy or plugin reports, in one message: the files it was asked to
+/// delete or move, those gone now (found out in its thread, not one `stat` each in the
+/// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
+/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, the
+/// marks an Undo puts back, and files changed or written over. The one report of what happened
+/// to files on disk, and `receive_deleted` the one place that brings everything that follows a
+/// file along: marks, the collection, a turn not saved, decoded images, thumbnails, details and
+/// the `exif:` index. One message, so nothing depends on the order two would arrive in.
+#[derive(Default)]
+pub(crate) struct Deleted {
+    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) gone: Vec<PathBuf>,
+    pub(crate) failed: bool,
+    pub(crate) moved: Vec<(PathBuf, PathBuf)>,
+    pub(crate) copied: bool,
+    /// The folder is to be read again: a plugin edited files in it, a repair renamed them.
+    pub(crate) relist: bool,
+    /// What Undo puts back, when this was a move to the trash or a move.
+    pub(crate) undo: Option<Undo>,
+    /// Marks and stars to put back: of files Undo brought back from the trash.
+    pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
+    /// Files a plugin changed in place: what is shown of them is read again. (A turn saved
+    /// comes through `saved_rx`, which also ends its guard, into the same `files_changed`.)
+    pub(crate) changed: Vec<PathBuf>,
+    /// Files written over by another image (Save As, Save This Frame onto a file there): read
+    /// again, and their marks and stars go, as their sidecar did.
+    pub(crate) overwritten: Vec<PathBuf>,
+    /// A folder renamed (old, new), which the window follows.
+    pub(crate) folder_renamed: Option<(PathBuf, PathBuf)>,
+    /// A folder made (New Folder): the tree reads its parent again, the list its folder.
+    pub(crate) folder_made: Option<PathBuf>,
+}
+
+/// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
+/// moved `(from, to)`, or the last renamed (old names, new names).
+pub(crate) enum Undo {
+    Trash(Thrown),
+    Move(Vec<(PathBuf, PathBuf)>),
+    Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
 #[cfg(test)]

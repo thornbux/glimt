@@ -6,6 +6,7 @@
 
 use crate::dialogs::{Pick, Prompt};
 use crate::file_list::RubberBand;
+use crate::file_ops::{Deleted, Undo};
 use crate::info_panel::{ExifRead, MetaEdit, spawn_exif_reader};
 use crate::view::{DecodeJob, Shown, View, spawn_decoders};
 use crate::window::Ender;
@@ -184,47 +185,6 @@ struct Viewing {
     turned: PathBuf,
     /// Edit → Crop: the part of the shown image being chosen.
     crop: Option<crop::Crop>,
-}
-
-/// What a delete, move, copy or plugin reports, in one message: the files it was asked to
-/// delete or move, those gone now (found out in its thread, not one `stat` each in the
-/// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
-/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, the
-/// marks an Undo puts back, and files changed or written over. The one report of what happened
-/// to files on disk, and `receive_deleted` the one place that brings everything that follows a
-/// file along: marks, the collection, a turn not saved, decoded images, thumbnails, details and
-/// the `exif:` index. One message, so nothing depends on the order two would arrive in.
-#[derive(Default)]
-struct Deleted {
-    paths: Vec<PathBuf>,
-    gone: Vec<PathBuf>,
-    failed: bool,
-    moved: Vec<(PathBuf, PathBuf)>,
-    copied: bool,
-    /// The folder is to be read again: a plugin edited files in it, a repair renamed them.
-    relist: bool,
-    /// What Undo puts back, when this was a move to the trash or a move.
-    undo: Option<Undo>,
-    /// Marks and stars to put back: of files Undo brought back from the trash.
-    restored_marks: Vec<(PathBuf, (u8, u8))>,
-    /// Files a plugin changed in place: what is shown of them is read again. (A turn saved
-    /// comes through `saved_rx`, which also ends its guard, into the same `files_changed`.)
-    changed: Vec<PathBuf>,
-    /// Files written over by another image (Save As, Save This Frame onto a file there): read
-    /// again, and their marks and stars go, as their sidecar did.
-    overwritten: Vec<PathBuf>,
-    /// A folder renamed (old, new), which the window follows.
-    folder_renamed: Option<(PathBuf, PathBuf)>,
-    /// A folder made (New Folder): the tree reads its parent again, the list its folder.
-    folder_made: Option<PathBuf>,
-}
-
-/// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
-/// moved `(from, to)`, or the last renamed (old names, new names).
-enum Undo {
-    Trash(file_ops::Thrown),
-    Move(Vec<(PathBuf, PathBuf)>),
-    Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
@@ -1652,7 +1612,10 @@ mod tests {
         app.delete_now(&ctx, false, vec![0]);
         assert!(a.exists() && app.notice.is_some());
         assert_eq!(app.list.files.len(), 2);
-        app.undo = Some(super::Undo::Move(vec![(a.clone(), dir.join("c.png"))]));
+        app.undo = Some(crate::file_ops::Undo::Move(vec![(
+            a.clone(),
+            dir.join("c.png"),
+        )]));
         app.undo(&ctx);
         assert!(app.undo.is_some());
         // Once that work is over, the delete goes ahead.
@@ -2464,7 +2427,7 @@ mod tests {
         let b = dir.join("b.png");
         #[cfg(feature = "marks")]
         app.marks.rate(std::slice::from_ref(&b), 3);
-        let over = super::Deleted {
+        let over = crate::file_ops::Deleted {
             overwritten: vec![b.clone()],
             ..Default::default()
         };
