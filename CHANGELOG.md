@@ -5,6 +5,23 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-11-02
+
+### Changed
+
+- The source reads more like a reader expects, and stays that way; Glimt itself works as
+  before. The window's state, 170 fields side by side in `App`, is in structs of the modules
+  that use it (`self.slideshow`, `self.folder`, `self.work`, `self.thumbs` …), each with its
+  own constructor. Every file has its items in one order (imports, constants, types, the
+  `App` block, functions, tests), tests sit beside the code they test, and functions over 120
+  lines are split by what their parts do. Imports name the module that defines them, and three
+  modules have names that say what they hold: `listing.rs`, `xmp.rs` and `decoder_plugins.rs`.
+- Tests in `src/source_rules.rs` keep the layout AGENTS.md describes: a file out of order, a
+  test in main.rs that belongs elsewhere, a field more in `App`, a function too long, an
+  import through main.rs, a module missing from AGENTS.md or a comment too wide fails them,
+  so the layout cannot drift back unnoticed. They read the code with comments and strings
+  blanked, so neither is taken for code.
+
 ## [0.51.0] - 2026-11-02
 
 ### Changed
