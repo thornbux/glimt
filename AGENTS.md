@@ -155,7 +155,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   `Config::parse`. Settings stay in `Config` even when their feature is not built in, so saving
   never drops them.
 - **A format:** built in when the `image` crate reads it with no new dependency (its feature in
-  `Cargo.toml`, the extension in `files::EXTS`, a test in `decode.rs`). Otherwise a decoder
+  `Cargo.toml`, the extension in `listing::EXTS`, a test in `decode.rs`). Otherwise a decoder
   plugin in `examples/decoders` (`src/decoder_plugins.rs`), with a check in `tests.sh`, not code or a
   dependency in Glimt.
 - **An optional feature** (chosen when building, not a plugin): a Cargo feature in `[features]`

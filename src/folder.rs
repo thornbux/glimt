@@ -81,8 +81,8 @@ pub(crate) struct Folder {
 
 impl Folder {
     /// Nothing open yet; the recent list and the sort manager's folders read from their files.
-    /// No list kept: one of before goes too, also when the setting was changed in the file.
     pub(crate) fn new(config: &Config) -> Self {
+        // No list kept: one of before goes too, also when the setting was changed in the file.
         let recent = match config::recent_path() {
             Some(file) if !config.keep_recent => {
                 config::write_later(move || config::remove_shared(&file));

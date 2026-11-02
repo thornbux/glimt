@@ -24,17 +24,12 @@ pub(crate) fn sources() -> Vec<(String, String)> {
 /// line that starts none (a comment, an attribute, the rest of an item).
 fn rank(line: &str) -> Option<(u8, &'static str)> {
     let mut l = line;
-    for prefix in [
-        "pub(crate) ",
-        "pub(super) ",
-        "pub ",
-        "unsafe ",
-        "async ",
-        "const fn",
-    ] {
-        if let Some(rest) = l.strip_prefix(prefix) {
-            l = if prefix == "const fn" { "fn" } else { rest };
-        }
+    for prefix in ["pub(crate) ", "pub(super) ", "pub ", "unsafe ", "async "] {
+        l = l.strip_prefix(prefix).unwrap_or(l);
+    }
+    // A const fn is a function, not a constant.
+    if let Some(rest) = l.strip_prefix("const ").filter(|r| r.starts_with("fn ")) {
+        l = rest;
     }
     let starts = |word: &str| {
         l.strip_prefix(word)
@@ -90,9 +85,6 @@ fn items_are_in_order() {
                 wrong.push(format!("{name}:{}: {what} after {last_what}", i + 1));
             }
             (last, last_what) = (r, what);
-            if r == 5 {
-                break;
-            }
         }
     }
     assert!(wrong.is_empty(), "out of order:\n{}", wrong.join("\n"));
@@ -115,7 +107,11 @@ fn tests_sit_beside_their_code() {
     let mut lines = tests.lines();
     while let Some(line) = lines.next() {
         if line.trim() == "#[test]" {
-            let name = lines.next().unwrap().trim();
+            // Past other attributes, such as #[ignore], to the function.
+            let name = (lines.by_ref())
+                .map(str::trim)
+                .find(|l| !l.starts_with("#["))
+                .unwrap();
             let name = name.trim_start_matches("fn ").split('(').next().unwrap();
             assert!(
                 OWN.contains(&name),
@@ -153,7 +149,11 @@ fn app_stays_small() {
 #[test]
 fn functions_stay_short() {
     const MOST: usize = 120;
-    const TABLES: &[&str] = &["english", "icon", "run"];
+    const TABLES: &[(&str, &str)] = &[
+        ("actions.rs", "english"),
+        ("actions.rs", "icon"),
+        ("actions.rs", "run"),
+    ];
     const ARM: usize = 6;
     let mut wrong = Vec::new();
     for (file, text) in sources().into_iter().filter(|(n, _)| n.ends_with(".rs")) {
@@ -173,13 +173,20 @@ fn functions_stay_short() {
                 continue;
             }
             let name = line[at + 3..].split(['(', '<']).next().unwrap_or("");
+            // On one line: nothing to measure, and its indent's next `}` is another item's.
+            if line.trim_end().ends_with('}') {
+                continue;
+            }
             let close = format!("{}}}", " ".repeat(indent));
             let Some(last) = (i..end).find(|&j| lines[j] == close) else {
                 continue;
             };
-            if TABLES.contains(&name) {
+            if TABLES.contains(&(file.as_str(), name)) {
                 for k in i..last {
-                    if !lines[k].trim_end().ends_with("=> {") {
+                    // An arm's block opens after `=>`, or on a line of its own after a guard.
+                    let opens = lines[k].trim_end().ends_with("=> {")
+                        || (lines[k].trim() == "{" && lines[k - 1].trim_end().ends_with("=>"));
+                    if !opens {
                         continue;
                     }
                     let pad = lines[k].len() - lines[k].trim_start().len();
@@ -209,6 +216,9 @@ fn functions_stay_short() {
 /// stops using it. main.rs names its modules the same way, `crate::actions::…`.
 #[test]
 fn imports_name_where_defined() {
+    // Built from parts, so this test's own text does not match them.
+    const CRATE: &str = concat!("crate", "::");
+    const SUPER: &str = concat!("super", "::");
     let all = sources();
     let rust = || all.iter().filter(|(n, _)| n.ends_with(".rs"));
     let modules: Vec<&str> = rust().map(|(n, _)| n.trim_end_matches(".rs")).collect();
@@ -238,23 +248,38 @@ fn imports_name_where_defined() {
     };
     let mut wrong = Vec::new();
     for (file, text) in rust() {
+        let mut in_tests = false;
         for (i, line) in text.lines().enumerate() {
             if line.trim_start().starts_with("//") {
                 continue;
             }
             let mut rest = line;
-            while let Some(at) = rest.find("crate::") {
-                rest = &rest[at + 7..];
-                let name: String = (rest.chars())
-                    .take_while(|c| *c == '_' || c.is_alphanumeric())
-                    .collect();
-                if !name.is_empty() && !modules.contains(&name.as_str()) && !defined(&name) {
-                    wrong.push(format!("{file}:{}: crate::{name}", i + 1));
+            while let Some(at) = rest.find(CRATE) {
+                rest = &rest[at + CRATE.len()..];
+                // `crate::{a, b}`: each name in the braces.
+                let names: Vec<&str> = match rest.strip_prefix('{') {
+                    Some(inner) => (inner.split('}').next().unwrap_or("").split(','))
+                        .map(|n| n.trim().split("::").next().unwrap_or(""))
+                        .collect(),
+                    None => vec![rest],
+                };
+                for name in names {
+                    let name: String = (name.chars())
+                        .take_while(|c| *c == '_' || c.is_alphanumeric())
+                        .collect();
+                    if !name.is_empty() && !modules.contains(&name.as_str()) && !defined(&name) {
+                        wrong.push(format!("{file}:{}: {CRATE}{name}", i + 1));
+                    }
                 }
             }
             let bare = line.strip_prefix("use ").and_then(|l| l.split("::").next());
             if file == "main.rs" && bare.is_some_and(|m| modules.contains(&m)) {
-                wrong.push(format!("main.rs:{}: use without crate::", i + 1));
+                wrong.push(format!("main.rs:{}: use without {CRATE}", i + 1));
+            }
+            // A module's super is the crate root, main.rs: the same way round its imports.
+            in_tests |= line.starts_with("mod tests");
+            if !in_tests && line.contains(SUPER) {
+                wrong.push(format!("{file}:{}: {SUPER} outside the tests", i + 1));
             }
         }
     }

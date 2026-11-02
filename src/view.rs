@@ -90,10 +90,9 @@ pub(crate) struct Decoding {
     /// standard error that the release tests read.
     pub(crate) started: Option<Instant>,
     /// How many frames after the first image took each number of milliseconds of the window
-    /// thread's processor time (the last: that
-    /// many or more), for the "frames:" line at exit that the release
-    /// tests read: work that grows with the list makes every frame slow, while the slowest alone
-    /// varies with one-off work such as Select All.
+    /// thread's processor time (the last: that many or more), for the "frames:" line at exit
+    /// that the release tests read: work that grows with the list makes every frame slow, while
+    /// the slowest alone varies with one-off work such as Select All.
     pub(crate) frame_ms: [u32; 256],
 }
 

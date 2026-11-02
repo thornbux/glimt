@@ -73,7 +73,7 @@ pub(crate) struct Dups {
 
 impl Dups {
     /// The groups found: their count, buttons to check and uncheck, and the list, where a
-    /// click on a name sets `show`. Whether Move to Trash was clicked.
+    /// click on a name sets `show`. Returns whether Move to Trash was clicked.
     fn results(&mut self, ui: &mut egui::Ui, show: &mut Option<PathBuf>) -> bool {
         let files: usize = self.groups.iter().map(Vec::len).sum();
         ui.label(tf!(
@@ -148,9 +148,7 @@ impl Dups {
         );
         trash
     }
-}
 
-impl Dups {
     pub(crate) fn new() -> Self {
         Dups {
             by: duplicates::By::Checksum,
