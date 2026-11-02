@@ -1293,9 +1293,9 @@ impl crate::App {
                 self.types_menu(ctx, ui);
                 ui.separator();
                 ui.label(left);
-                if let Some(job) = self.file_jobs.first() {
+                if let Some(job) = self.work.jobs.first() {
                     ui.separator();
-                    let more = match self.file_jobs.len() - 1 {
+                    let more = match self.work.jobs.len() - 1 {
                         0 => String::new(),
                         n => tf!(", and {n} more", n),
                     };
@@ -1307,7 +1307,8 @@ impl crate::App {
                         more
                     ));
                     if ui.small_button(tr("Stop")).clicked() {
-                        self.file_jobs
+                        self.work
+                            .jobs
                             .iter()
                             .for_each(|j| j.stop.store(true, Ordering::Relaxed));
                     }

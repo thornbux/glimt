@@ -75,7 +75,7 @@ impl crate::App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.closing += 1;
             if self.window.closing == 2 {
-                (self.file_jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
+                (self.work.jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
             }
             self.notice = Some(
                 match self.window.closing {

@@ -95,6 +95,39 @@ pub(crate) enum Undo {
     Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
+/// File operations in the background: the jobs, the files they touch, what they report, and Undo.
+pub(crate) struct Work {
+    /// File operations running, for the status bar; one is over when its thread let go of it.
+    pub(crate) jobs: Vec<Arc<Job>>,
+    /// What `background` work changes, held by its thread as long as it runs.
+    pub(crate) touching: Vec<Arc<Vec<PathBuf>>>,
+    /// A Rename Many running in the background.
+    pub(crate) renaming: Option<RenameJob>,
+    pub(crate) renaming_rx: Receiving<Result<(), String>>,
+    /// Names being deleted in the background; kept out of refreshed listings until done.
+    pub(crate) deleting: HashSet<OsString>,
+    /// What deletes, moves and copies report (`Deleted`). A plugin and Move Folder to Trash
+    /// send it too, only for the list to be read again.
+    pub(crate) deleted_tx: mpsc::Sender<Deleted>,
+    pub(crate) deleted_rx: mpsc::Receiver<Deleted>,
+    /// Those still being saved.
+    pub(crate) saving: HashSet<PathBuf>,
+    /// PNG and WebP files saved turned in the background; a plugin sends its files too, as it may
+    /// have changed them, so they are decoded again.
+    pub(crate) saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
+    pub(crate) saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
+    /// What Edit → Undo puts back: the last move to the trash, move or rename.
+    pub(crate) undo: Option<Undo>,
+    pub(crate) cut_short: Vec<journal::CutShort>,
+    /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
+    /// right; read in the background.
+    pub(crate) cut_short_rx: Receiving<Vec<journal::CutShort>>,
+    /// Our own clipboard for file lists, kept so it can serve them (X11).
+    pub(crate) clipboard: Option<arboard::Clipboard>,
+    /// An image decoded for the clipboard; egui takes it only during a frame.
+    pub(crate) clip_rx: Receiving<egui::ColorImage>,
+}
+
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
@@ -165,11 +198,11 @@ impl crate::App {
     /// an Undo would put files back over a move. `start_job` and `background` ask it themselves,
     /// so no operation can leave it out.
     pub(crate) fn none_saving(&mut self, paths: &[PathBuf]) -> bool {
-        let saving = (self.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
-        let writing = (self.file_jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
+        let saving = (self.work.saving.iter()).any(|s| paths.iter().any(|p| s.starts_with(p)));
+        let writing = (self.work.jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
         // One Rename Many at a time, and nothing else on files while it runs: a step would
         // find its file gone, and its undo could not put the others back.
-        let renaming = self.renaming.is_some();
+        let renaming = self.work.renaming.is_some();
         let busy = !saving && !writing && !renaming && self.touched(paths);
         if saving {
             self.notice = Some(tr("Still saving a rotation: try again in a moment").into());
@@ -188,11 +221,11 @@ impl crate::App {
     /// has let go of it yet. Looked up by name and by the folders above, not path against path:
     /// a delete of 1,000 files beside a keywords job on 100,000 was 10^8 comparisons.
     fn touched(&self, paths: &[PathBuf]) -> bool {
-        let running = (self.file_jobs.iter())
+        let running = (self.work.jobs.iter())
             .filter(|j| Arc::strong_count(j) > 1)
             .flat_map(|j| &j.touches)
             .chain(
-                (self.touching.iter())
+                (self.work.touching.iter())
                     .filter(|t| Arc::strong_count(t) > 1)
                     .flat_map(|t| t.iter()),
             );
@@ -237,7 +270,7 @@ impl crate::App {
             return None;
         }
         let job = Arc::new(Job::new(doing, total, sidecars, touches));
-        self.file_jobs.push(job.clone());
+        self.work.jobs.push(job.clone());
         Some(job)
     }
 
@@ -248,11 +281,12 @@ impl crate::App {
         let Some(job) = self.start_job(tr("Deleting"), paths.len(), paths.clone()) else {
             return;
         };
-        self.deleting
+        self.work
+            .deleting
             .extend(targets.iter().map(|&i| self.list.files[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let (freed_tx, deleted_tx) = (self.status.freed_tx.clone(), self.deleted_tx.clone());
+        let (freed_tx, deleted_tx) = (self.status.freed_tx.clone(), self.work.deleted_tx.clone());
         let collection = self.folder.collection.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
@@ -360,7 +394,7 @@ impl crate::App {
             overwritten,
             folder_renamed,
             folder_made,
-        } in self.deleted_rx.try_iter().collect::<Vec<_>>()
+        } in self.work.deleted_rx.try_iter().collect::<Vec<_>>()
         {
             if let Some((old, new)) = folder_renamed {
                 self.folder_renamed(ctx, old, new);
@@ -391,7 +425,7 @@ impl crate::App {
             #[cfg(not(feature = "marks"))]
             drop(restored_marks);
             if undo.is_some() {
-                self.undo = undo;
+                self.work.undo = undo;
             }
             if let Some(dups) = &mut self.dups {
                 // Those that failed are still there.
@@ -406,7 +440,7 @@ impl crate::App {
                 let Ok(rel) = p.strip_prefix(&self.folder.dir) else {
                     continue;
                 };
-                unknown |= !self.deleting.remove(rel.as_os_str());
+                unknown |= !self.work.deleting.remove(rel.as_os_str());
             }
             self.folder.relist |= unknown;
             // The files that are still there come back into the list, from its folder or
@@ -495,7 +529,9 @@ impl crate::App {
                 .map(Path::as_os_str)
                 .collect();
             // Kept out of a listing that is running, as files being deleted are.
-            self.deleting.extend(names.iter().map(|n| n.to_os_string()));
+            self.work
+                .deleting
+                .extend(names.iter().map(|n| n.to_os_string()));
             let gone: Vec<usize> = (0..self.list.files.len())
                 .filter(|&i| names.contains(self.list.files[i].as_os_str()))
                 .collect();
@@ -506,7 +542,7 @@ impl crate::App {
             self.status.freed_tx.clone(),
             ctx.clone(),
         );
-        let deleted_tx = self.deleted_tx.clone();
+        let deleted_tx = self.work.deleted_tx.clone();
         let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir.as_path());
         // Into the folder, or one below it in the list with subfolders: the files join the list.
         let listed = dest == self.folder.dir
@@ -637,8 +673,8 @@ impl crate::App {
             drop(pointer);
             ctx.request_repaint();
         });
-        self.renaming = Some(job);
-        self.renaming_rx = Receiving::of(rx);
+        self.work.renaming = Some(job);
+        self.work.renaming_rx = Receiving::of(rx);
     }
 
     /// Rename Many has run: the list follows, the shown image under its new name.
@@ -658,7 +694,7 @@ impl crate::App {
         // renamed: the names stay.
         // Undone, it is not undone again: Ctrl+Z twice does not give the new names back.
         if !failed && !job.undoing {
-            self.undo = Some(Undo::Rename(job.from.clone(), job.to.clone()));
+            self.work.undo = Some(Undo::Rename(job.from.clone(), job.to.clone()));
         }
         if !failed {
             self.paths_moved(
@@ -704,21 +740,21 @@ impl crate::App {
             return;
         }
         // Being saved already, with this rotation: the rotate keys wait for the save.
-        if self.saving.contains(&path) {
+        if self.work.saving.contains(&path) {
             return;
         }
         // Not while other work changes it: Rename Many may give its name to another photo, which
         // the turn would then be saved over; a move may take it away.
         // Told as not saved: when the image is left, the turn goes with it.
-        if self.renaming.is_some() || self.touched(std::slice::from_ref(&path)) {
+        if self.work.renaming.is_some() || self.touched(std::slice::from_ref(&path)) {
             let held = tr("The rotation was not saved: other work is still changing the file");
             return self.notice = Some(held.into());
         }
         let jpeg = crate::files::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
-        let (saved, notices) = (self.saved_tx.clone(), self.notices_tx.clone());
+        let (saved, notices) = (self.work.saved_tx.clone(), self.notices_tx.clone());
         let ctx = ctx.clone();
-        self.saving.insert(path.clone());
+        self.work.saving.insert(path.clone());
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&config::WRITING);
         std::thread::spawn(move || {
@@ -779,7 +815,7 @@ impl crate::App {
         }
         // In the background, as a folder on a share that stopped answering would hold the
         // window until the rename returns; what follows it comes back through `deleted_tx`.
-        let deleted_tx = self.deleted_tx.clone();
+        let deleted_tx = self.work.deleted_tx.clone();
         self.background(ctx, vec![old.clone()], move || {
             // Never over an empty folder of that name, also one made since the look.
             if let Err(e) = rename_never_over(&old, &new) {
@@ -836,7 +872,7 @@ impl crate::App {
         {
             self.visit(ctx, parent.to_path_buf());
         }
-        let deleted_tx = self.deleted_tx.clone();
+        let deleted_tx = self.work.deleted_tx.clone();
         let collection = self.folder.collection.clone();
         self.background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
@@ -878,7 +914,7 @@ impl crate::App {
     /// is not undone again. Nothing is put over a file that has taken the name meanwhile.
     pub(crate) fn undo(&mut self, ctx: &egui::Context) {
         // Asked before it is taken: one refused stays to be done again.
-        let touches: Vec<PathBuf> = match &self.undo {
+        let touches: Vec<PathBuf> = match &self.work.undo {
             Some(Undo::Move(pairs)) => (pairs.iter())
                 .flat_map(|(from, to)| [from.clone(), to.clone()])
                 .collect(),
@@ -889,15 +925,15 @@ impl crate::App {
         if !self.none_saving(&touches) {
             return;
         }
-        let Some(undo) = self.undo.take() else {
+        let Some(undo) = self.work.undo.take() else {
             self.notice = Some(tr("Nothing to undo").into());
             return;
         };
-        let deleted_tx = self.deleted_tx.clone();
+        let deleted_tx = self.work.deleted_tx.clone();
         match undo {
             Undo::Rename(from, to) => {
                 self.rename_in_background(ctx, to, from);
-                if let Some(job) = &mut self.renaming {
+                if let Some(job) = &mut self.work.renaming {
                     job.undoing = true;
                 }
             }
@@ -998,7 +1034,7 @@ impl crate::App {
             return false;
         }
         let touching = Arc::new(touches);
-        self.touching.push(touching.clone());
+        self.work.touching.push(touching.clone());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&config::WRITING);
@@ -1082,7 +1118,7 @@ impl crate::App {
         let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
             return;
         };
-        let deleted = self.deleted_tx.clone();
+        let deleted = self.work.deleted_tx.clone();
         self.background(ctx, Vec::new(), move || {
             // One frame over the animation itself would put a still in its place and take its
             // sidecar, marks and stars with it: refused, as Save As refuses, here in the
@@ -2186,9 +2222,9 @@ mod tests {
         app.delete_now(&ctx, false, vec![0]);
         assert!(a.exists() && app.notice.is_some());
         assert_eq!(app.list.files.len(), 2);
-        app.undo = Some(super::Undo::Move(vec![(a.clone(), dir.join("c.png"))]));
+        app.work.undo = Some(super::Undo::Move(vec![(a.clone(), dir.join("c.png"))]));
         app.undo(&ctx);
-        assert!(app.undo.is_some());
+        assert!(app.work.undo.is_some());
         // Once that work is over, the delete goes ahead.
         go.send(()).unwrap();
         let wait_for = |done: &dyn Fn() -> bool| {
@@ -2208,7 +2244,7 @@ mod tests {
             now
         });
         assert!(free);
-        app.undo = None;
+        app.work.undo = None;
         app.delete_now(&ctx, false, vec![0]);
         assert!(wait_for(&|| !a.exists()));
         // Thousands against thousands are answered at once, not path against path (10^8
@@ -2219,7 +2255,7 @@ mod tests {
                 .collect()
         };
         let held = std::sync::Arc::new(many("busy"));
-        app.touching.push(held.clone());
+        app.work.touching.push(held.clone());
         let asked = many("free");
         let start = std::time::Instant::now();
         assert!(app.none_saving(&asked));
@@ -2280,7 +2316,7 @@ mod tests {
                     to.exists()
                         && !d.join("a.png").exists()
                         && side(&to) == "a"
-                        && app.renaming.is_none()
+                        && app.work.renaming.is_none()
                         && (!cfg!(feature = "marks") || stars(app, &to) == 3)
                 },
             ),
@@ -2293,7 +2329,7 @@ mod tests {
                 |app, d| {
                     side(&d.join("x1.png")) == "a"
                         && side(&d.join("x2.png")) == "b"
-                        && app.renaming.is_none()
+                        && app.work.renaming.is_none()
                         && (!cfg!(feature = "marks")
                             || (stars(app, &d.join("x1.png")) == 3
                                 && stars(app, &d.join("x2.png")) == 2))
@@ -2334,7 +2370,7 @@ mod tests {
                     // Only when it started: held back, it says so, and there is nothing to wait
                     // for.
                     if app.notice.is_none() {
-                        settle(app, ctx, |app| app.undo.is_some());
+                        settle(app, ctx, |app| app.work.undo.is_some());
                     }
                     app.undo(ctx);
                 },
@@ -2353,7 +2389,7 @@ mod tests {
                     // Only when it started: held back, it says so, and there is nothing to wait
                     // for.
                     if app.notice.is_none() {
-                        settle(app, ctx, |app| app.undo.is_some());
+                        settle(app, ctx, |app| app.work.undo.is_some());
                     }
                     app.undo(ctx);
                 },
@@ -2362,7 +2398,7 @@ mod tests {
                     a.exists()
                         && !d.join("c.png").exists()
                         && side(&a) == "a"
-                        && app.renaming.is_none()
+                        && app.work.renaming.is_none()
                         && (!cfg!(feature = "marks") || stars(app, &a) == 3)
                 },
             ),
@@ -2420,6 +2456,7 @@ mod tests {
             }
             go.send(()).unwrap();
             assert!(settle(&mut app, &ctx, |app| app
+                .work
                 .touching
                 .iter()
                 .all(|t| std::sync::Arc::strong_count(t) == 1)));
@@ -2516,7 +2553,7 @@ mod tests {
         let d = contract_folder("held");
         let (mut app, ctx) = app_on(&d);
         let idle =
-            |app: &crate::App| (app.file_jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
+            |app: &crate::App| (app.work.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
         let waits =
             |app: &mut crate::App, file: &std::path::Path, start: &dyn Fn(&mut crate::App)| {
                 let held = crate::meta::held(file);
@@ -2612,7 +2649,7 @@ mod tests {
         app.notice = None;
         app.save_orientation(&ctx);
         assert!(
-            app.saving.is_empty() && app.notice.is_some(),
+            app.work.saving.is_empty() && app.notice.is_some(),
             "saved while held"
         );
         drop(held);
@@ -2706,7 +2743,7 @@ mod tests {
             overwritten: vec![b.clone()],
             ..Default::default()
         };
-        app.deleted_tx.send(over).unwrap();
+        app.work.deleted_tx.send(over).unwrap();
         app.receive_deleted(&ctx);
         assert!(
             app.search
@@ -2728,7 +2765,7 @@ mod tests {
         let entries = |gqv: &std::path::Path| std::fs::read_to_string(gqv).unwrap();
         // Each step's work ended too: the next would be held back while it still runs.
         let idle =
-            |app: &crate::App| (app.file_jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
+            |app: &crate::App| (app.work.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
         app.rename_in_background(&ctx, vec![d.join("a.png")], vec![d.join("c.png")]);
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("c.png")

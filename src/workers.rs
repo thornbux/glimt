@@ -41,21 +41,21 @@ impl crate::App {
         self.selection_size(ctx);
         self.match_size(ctx);
         let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
-        let were_writing = sidecars(&self.file_jobs);
-        self.file_jobs.retain(|job| Arc::strong_count(job) > 1);
+        let were_writing = sidecars(&self.work.jobs);
+        self.work.jobs.retain(|job| Arc::strong_count(job) > 1);
         // Keywords written: an `exif:` search reads what it held back for them.
         let held = !self.search.exif_stale.is_empty() && self.search.query.contains("exif:");
-        if were_writing && !sidecars(&self.file_jobs) && held {
+        if were_writing && !sidecars(&self.work.jobs) && held {
             self.update_search(ctx);
         }
-        self.touching.retain(|t| Arc::strong_count(t) > 1);
+        self.work.touching.retain(|t| Arc::strong_count(t) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else if self.window.closing > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        while let Ok((path, result)) = self.saved_rx.try_recv() {
-            self.saving.remove(&path);
+        while let Ok((path, result)) = self.work.saved_rx.try_recv() {
+            self.work.saving.remove(&path);
             match result {
                 Ok(()) => self.files_changed(&[path]),
                 Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
@@ -77,7 +77,7 @@ impl crate::App {
         }
         self.window.has_focus = focus;
         self.receive_remote(ctx);
-        if let Took::Answer(img) = self.clip_rx.take() {
+        if let Took::Answer(img) = self.work.clip_rx.take() {
             ctx.copy_image(img);
         }
         // A file or folder dropped on the window opens there, as File → Open would.
@@ -111,21 +111,21 @@ impl crate::App {
             }
             Took::Answer(Err(e)) => self.notice = Some(e),
         }
-        match self.renaming_rx.take() {
+        match self.work.renaming_rx.take() {
             Took::Answer(result) => {
-                if let Some(job) = self.renaming.take() {
+                if let Some(job) = self.work.renaming.take() {
                     self.renamed(ctx, job, result);
                 }
             }
             // Gone without a word: not waited for at closing, Rename Many not refused for ever.
             Took::Gone => {
-                self.renaming = None;
+                self.work.renaming = None;
                 self.stopped(tr("Rename Many"));
             }
             Took::Nothing => {}
         }
-        match self.cut_short_rx.take() {
-            Took::Answer(found) => self.cut_short = found,
+        match self.work.cut_short_rx.take() {
+            Took::Answer(found) => self.work.cut_short = found,
             Took::Gone => self.stopped(tr("Looking for renames cut short")),
             Took::Nothing => {}
         }

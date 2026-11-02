@@ -307,7 +307,7 @@ impl crate::App {
         // Not while keywords are still being written: the marks stay until they are, so files
         // read before their sidecar landed are read again after (the frame that sees the job
         // end searches again).
-        let writing = (self.file_jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
+        let writing = (self.work.jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1);
         if !writing
             && self.search.exif_index.is_some()
             && !self.search.exif_stale.is_empty()

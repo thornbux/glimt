@@ -6,7 +6,7 @@
 
 use crate::dialogs::{Pick, Prompt};
 use crate::file_list::{RubberBand, ThumbView};
-use crate::file_ops::{Deleted, Undo};
+use crate::file_ops::Deleted;
 use crate::info_panel::spawn_exif_reader;
 use crate::view::{LAYOUTS, frame_at};
 use crate::view::{View, spawn_decoders};
@@ -25,7 +25,6 @@ use decode::{Hist, MAX_ANIMATION, decode};
 use duplicates::Dups;
 use eframe::egui;
 use external::Mounted;
-use file_ops::RenameJob;
 use files::{Types, has_ext};
 use format::{count, human_size, local_time, thousands};
 use pan::Pan;
@@ -477,10 +476,8 @@ struct App {
     // ---- The list: the folder (or collection, or several folders) and its files ----
     /// What is open (a folder, a collection or several folders), its listing in the background, the way back and forward, and the folders sorted into.
     folder: folder::Folder,
-    /// Names being deleted in the background; kept out of refreshed listings until done.
-    deleting: HashSet<OsString>,
-    /// What Edit → Undo puts back: the last move to the trash, move or rename.
-    undo: Option<Undo>,
+    /// File operations in the background: the jobs, the files they touch, what they report, and Undo.
+    work: file_ops::Work,
     /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
     panel: file_list::Panel,
     /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
@@ -532,37 +529,12 @@ struct App {
     // ---- The status bar ----
 
     // ---- File operations in the background ----
-    /// A Rename Many running in the background.
-    renaming: Option<RenameJob>,
-    renaming_rx: Receiving<Result<(), String>>,
-    /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
-    /// right; read in the background.
-    cut_short_rx: Receiving<Vec<journal::CutShort>>,
-    cut_short: Vec<journal::CutShort>,
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
-    /// File operations running, for the status bar; one is over when its thread let go of it.
-    file_jobs: Vec<Arc<Job>>,
-    /// What `background` work changes, held by its thread as long as it runs.
-    touching: Vec<Arc<Vec<PathBuf>>>,
-    /// What deletes, moves and copies report (`Deleted`). A plugin and Move Folder to Trash
-    /// send it too, only for the list to be read again.
-    deleted_tx: mpsc::Sender<Deleted>,
-    deleted_rx: mpsc::Receiver<Deleted>,
-    /// Those still being saved.
-    saving: HashSet<PathBuf>,
-    /// PNG and WebP files saved turned in the background; a plugin sends its files too, as it may
-    /// have changed them, so they are decoded again.
-    saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
-    saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
     /// The files Rename or a delete asked about, by their names in the list, and where the list
     /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
     asked_for: (u64, Vec<OsString>),
-    /// Our own clipboard for file lists, kept so it can serve them (X11).
-    clipboard: Option<arboard::Clipboard>,
-    /// An image decoded for the clipboard; egui takes it only during a frame.
-    clip_rx: Receiving<egui::ColorImage>,
 
     // ---- Dialogs, windows and messages ----
     /// "Open With" applications by file extension, found once per extension.
@@ -730,17 +702,6 @@ impl App {
             print_window: None,
             lightroom_rx: Receiving::none(),
             lightroom: None,
-            cut_short_rx: Receiving::of({
-                let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ =
-                        tx.send(journal::dir().map_or_else(Vec::new, |d| journal::interrupted(&d)));
-                });
-                rx
-            }),
-            cut_short: Vec::new(),
-            renaming: None,
-            renaming_rx: Receiving::none(),
             pan_window: None,
             viewing: Viewing::default(),
             save_as: None,
@@ -753,8 +714,6 @@ impl App {
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
-            clip_rx: Receiving::none(),
-            clipboard: None,
             remote_rx,
             ctx: ctx.clone(),
             list: List::default(),
@@ -787,16 +746,7 @@ impl App {
             image_id: None,
             focus_by_keys: false,
             waiting_select: Vec::new(),
-            deleting: HashSet::new(),
-            undo: None,
-            deleted_tx,
-            deleted_rx,
-            saved_tx,
-            saved_rx,
-            saving: HashSet::new(),
             busy: Arc::new(AtomicUsize::new(0)),
-            file_jobs: Vec::new(),
-            touching: Vec::new(),
             slideshow: slideshow::Slideshow {
                 shown_at: None,
                 shuffled: false,
@@ -934,6 +884,31 @@ impl App {
                 sort_folders: (sort_folders_path()
                     .and_then(|p| crate::decode::read_limited(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
+            },
+            work: file_ops::Work {
+                jobs: Vec::new(),
+                touching: Vec::new(),
+                renaming: None,
+                renaming_rx: Receiving::none(),
+                deleting: HashSet::new(),
+                deleted_tx,
+                deleted_rx,
+                saving: HashSet::new(),
+                saved_tx,
+                saved_rx,
+                undo: None,
+                cut_short: Vec::new(),
+                cut_short_rx: Receiving::of({
+                    let (tx, rx) = mpsc::channel();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(
+                            journal::dir().map_or_else(Vec::new, |d| journal::interrupted(&d)),
+                        );
+                    });
+                    rx
+                }),
+                clipboard: None,
+                clip_rx: Receiving::none(),
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

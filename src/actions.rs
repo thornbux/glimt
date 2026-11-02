@@ -1224,7 +1224,7 @@ impl crate::App {
                 }
                 // Until it is saved the old picture shows: turned again, it would be saved twice,
                 // into the same temporary file.
-                if self.saving.contains(&self.path(self.list.cur)) {
+                if self.work.saving.contains(&self.path(self.list.cur)) {
                     self.notice = Some(tr("Still saving the last rotation of this file").into());
                     return;
                 }
@@ -1387,7 +1387,7 @@ impl crate::App {
         let (path, how) = (self.path(self.list.cur), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
-        self.clip_rx = Receiving::of(clip_rx);
+        self.work.clip_rx = Receiving::of(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
@@ -1405,14 +1405,14 @@ impl crate::App {
     /// manager copies them.
     pub(crate) fn copy_files(&mut self) {
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let clipboard = match self.clipboard.take() {
+        let clipboard = match self.work.clipboard.take() {
             Some(c) => Ok(c),
             None => arboard::Clipboard::new(),
         };
         let result = clipboard.and_then(|mut c| {
             let set = c.set().file_list(&paths);
             // On X11 the clipboard is served from this object: keep it.
-            self.clipboard = Some(c);
+            self.work.clipboard = Some(c);
             set
         });
         if let Err(e) = result {
