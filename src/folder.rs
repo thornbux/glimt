@@ -151,8 +151,8 @@ impl crate::App {
         self.subdirs.clear();
         self.deleting.clear();
         self.slideshow.shuffled = false;
-        self.thumbs.clear();
-        self.thumbs_pending.clear();
+        self.thumbs.textures.clear();
+        self.thumbs.pending.clear();
         self.exif_index = None;
         self.exif_stale.clear();
         self.exif_index_rx = Receiving::none();

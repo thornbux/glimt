@@ -736,7 +736,7 @@ impl crate::App {
             .on_hover_text(kept)
             .changed()
         {
-            self.save_thumbs.store(c.save_thumbnails, Ordering::Relaxed);
+            self.thumbs.save.store(c.save_thumbnails, Ordering::Relaxed);
             changed = true;
         }
         // Geeqie's cache maintenance: thumbnails of files that are gone.

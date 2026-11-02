@@ -743,8 +743,8 @@ impl crate::App {
             self.list.slots.retain(|_, s| s.path != *path);
             if let Ok(name) = path.strip_prefix(&self.dir) {
                 let name = name.as_os_str();
-                self.thumbs.remove(name);
-                self.thumbs_pending.remove(name);
+                self.thumbs.textures.remove(name);
+                self.thumbs.pending.remove(name);
                 self.list.details.remove(name);
                 // Also while the first index is being read, which may have read it before.
                 self.exif_stale.insert(name.to_owned());

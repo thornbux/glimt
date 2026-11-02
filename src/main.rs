@@ -642,24 +642,8 @@ struct App {
     slideshow: slideshow::Slideshow,
 
     // ---- Thumbnails ----
-    /// Thumbnails still being made when a setting changed how they look: their results are
-    /// dropped once, as they come back in the old look.
-    stale_thumbs: HashSet<OsString>,
-    /// File list thumbnails by file name; `None` = could not be made.
-    thumbs: HashMap<OsString, Option<egui::TextureHandle>>,
-    thumbs_pending: HashSet<OsString>,
-    /// (image index, file)
-    thumb_jobs: mpsc::Sender<(usize, PathBuf)>,
-    /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
-    thumbs_rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
-    /// The files the file list (or film strip) shows, with some rows around them, and those pan
-    /// view shows, both sorted: a thumbnail job for another file is skipped. Files, not a range:
-    /// the matches of a search, or pan view's days, are spread over the whole folder.
-    thumb_view: ThumbView,
-    /// The rows the file list showed last, in the list as shown; thumbnails near them are kept.
-    list_rows: std::ops::Range<usize>,
-    /// Workers write new thumbnails to the shared cache (Preferences).
-    save_thumbs: Arc<AtomicBool>,
+    /// Thumbnails for the file list: those made, those being made, and the workers making them.
+    thumbs: file_list::Thumbs,
 
     // ---- EXIF, keywords, comment and marks ----
     /// To the EXIF reader thread, and its answers.
@@ -1025,7 +1009,6 @@ impl App {
             decode_jobs: jobs,
             decoded_rx: done,
             decodes_sent: 0,
-            stale_thumbs: HashSet::new(),
             zoom: None,
             pan_offset: egui::Vec2::ZERO,
             started: Some(Instant::now()),
@@ -1064,13 +1047,6 @@ impl App {
             selected_rx: Receiving::none(),
             selected_size_due: None,
             scroll_to_cur: true,
-            thumbs: HashMap::new(),
-            thumbs_pending: HashSet::new(),
-            thumb_jobs,
-            thumbs_rx,
-            thumb_view,
-            list_rows: 0..0,
-            save_thumbs,
             exif_jobs,
             exif_rx,
             exif_all: Vec::new(),
@@ -1119,6 +1095,16 @@ impl App {
                 paused: false,
                 at_start: start.slideshow,
                 next_pane: 0,
+            },
+            thumbs: file_list::Thumbs {
+                stale: HashSet::new(),
+                textures: HashMap::new(),
+                pending: HashSet::new(),
+                jobs: thumb_jobs,
+                rx: thumbs_rx,
+                view: thumb_view,
+                list_rows: 0..0,
+                save: save_thumbs,
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

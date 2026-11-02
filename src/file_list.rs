@@ -13,10 +13,12 @@ use crate::threads::Receiving;
 use crate::view::{broken_mark, pane_map};
 use crate::{collections, config, noted, tf, theme};
 use eframe::egui;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 /// Thumbnail box in the file list, in points (Geeqie's default 96×72).
@@ -60,6 +62,28 @@ pub(crate) struct RubberBand {
 /// file list, `[1]` in pan view.
 pub(crate) type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
 
+/// Thumbnails for the file list: those made, those being made, and the workers making them.
+pub(crate) struct Thumbs {
+    /// Thumbnails still being made when a setting changed how they look: their results are
+    /// dropped once, as they come back in the old look.
+    pub(crate) stale: HashSet<OsString>,
+    /// File list thumbnails by file name; `None` = could not be made.
+    pub(crate) textures: HashMap<OsString, Option<egui::TextureHandle>>,
+    pub(crate) pending: HashSet<OsString>,
+    /// (image index, file)
+    pub(crate) jobs: mpsc::Sender<(usize, PathBuf)>,
+    /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
+    pub(crate) rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+    /// The files the file list (or film strip) shows, with some rows around them, and those pan
+    /// view shows, both sorted: a thumbnail job for another file is skipped. Files, not a range:
+    /// the matches of a search, or pan view's days, are spread over the whole folder.
+    pub(crate) view: ThumbView,
+    /// The rows the file list showed last, in the list as shown; thumbnails near them are kept.
+    pub(crate) list_rows: std::ops::Range<usize>,
+    /// Workers write new thumbnails to the shared cache (Preferences).
+    pub(crate) save: Arc<AtomicBool>,
+}
+
 impl crate::App {
     // ---- The file list, folders and thumbnails ----
 
@@ -81,8 +105,8 @@ impl crate::App {
     /// The thumbnails look otherwise now (their size, source or colours): the made ones go, and
     /// those being made are marked stale, so the results are made again.
     pub(crate) fn thumbs_changed(&mut self) {
-        self.thumbs.clear();
-        self.stale_thumbs.extend(self.thumbs_pending.drain());
+        self.thumbs.textures.clear();
+        self.thumbs.stale.extend(self.thumbs.pending.drain());
     }
 
     /// A cell of the icon grid: the thumbnail with its name below.
@@ -102,8 +126,8 @@ impl crate::App {
         self.config.thumbnails = on;
         self.config.save();
         if !on {
-            self.thumbs.clear();
-            self.thumbs_pending.clear();
+            self.thumbs.textures.clear();
+            self.thumbs.pending.clear();
         }
         self.scroll_to_cur = true;
     }
@@ -118,14 +142,14 @@ impl crate::App {
     }
 
     pub(crate) fn receive_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok((path, result)) = self.thumbs_rx.try_recv() {
+        while let Ok((path, result)) = self.thumbs.rx.try_recv() {
             // The name as the list has it: with its folders in a slideshow with subfolders.
             let Ok(name) = path.strip_prefix(&self.dir).map(Path::as_os_str) else {
                 continue;
             };
-            self.thumbs_pending.remove(name);
+            self.thumbs.pending.remove(name);
             // Made before a setting changed its look: asked for again, in the new one.
-            if self.stale_thumbs.remove(name) {
+            if self.thumbs.stale.remove(name) {
                 continue;
             }
             if let Some(img) = result {
@@ -136,7 +160,7 @@ impl crate::App {
                         egui::TextureOptions::LINEAR,
                     )
                 });
-                self.thumbs.insert(name.to_owned(), tex);
+                self.thumbs.textures.insert(name.to_owned(), tex);
             }
         }
     }
@@ -151,7 +175,7 @@ impl crate::App {
         } else {
             MAX_THUMBS
         };
-        if self.thumbs.len() <= max {
+        if self.thumbs.textures.len() <= max {
             return;
         }
         let mut keep = thumbs_to_keep(&self.list.files, self.list.matches.as_deref(), rows, max);
@@ -161,7 +185,7 @@ impl crate::App {
                 .iter()
                 .filter_map(|&i| self.list.files.get(i)),
         );
-        self.thumbs.retain(|name, _| keep.contains(name));
+        self.thumbs.textures.retain(|name, _| keep.contains(name));
     }
 
     /// A file list row with a thumbnail; true when clicked.
@@ -326,7 +350,7 @@ impl crate::App {
     /// Thumbnail `i` fitted into `frame`, or a request for it.
     pub(crate) fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
         let name = &self.list.files[i];
-        match self.thumbs.get(name) {
+        match self.thumbs.textures.get(name) {
             Some(Some(tex)) => {
                 // Fit the box, but never enlarge a small image. One the cache cut down to its
                 // size (256 pixels) does fill a box larger on a scaled screen.
@@ -357,8 +381,8 @@ impl crate::App {
             }
             Some(None) => {}
             None => {
-                if self.thumbs_pending.insert(name.clone()) {
-                    let _ = self.thumb_jobs.send((i, self.path(i)));
+                if self.thumbs.pending.insert(name.clone()) {
+                    let _ = self.thumbs.jobs.send((i, self.path(i)));
                 }
             }
         }
@@ -382,7 +406,7 @@ impl crate::App {
         if !shown.is_empty() {
             let mut view = shown.clone();
             view.sort_unstable();
-            self.thumb_view.lock().unwrap()[0] = view;
+            self.thumbs.view.lock().unwrap()[0] = view;
             let row = match self.list.matches.as_deref() {
                 Some(m) => self.cur_row(m).unwrap_or(0),
                 None => self.list.cur,
@@ -901,8 +925,8 @@ impl crate::App {
                     None => near.collect(),
                 };
                 view.sort_unstable();
-                self.thumb_view.lock().unwrap()[0] = view;
-                self.list_rows = rows.clone();
+                self.thumbs.view.lock().unwrap()[0] = view;
+                self.thumbs.list_rows = rows.clone();
                 self.trim_thumbs(rows);
             }
             let mut line = egui::Rect::NOTHING;

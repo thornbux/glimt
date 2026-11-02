@@ -80,7 +80,7 @@ impl crate::App {
         let mut view = std::mem::take(&mut self.list.pan_thumbs);
         view.sort_unstable();
         view.dedup();
-        self.thumb_view.lock().unwrap()[1] = view;
+        self.thumbs.view.lock().unwrap()[1] = view;
         let Some(mut pan) = self.pan_window.take() else {
             return;
         };
@@ -247,7 +247,7 @@ impl crate::App {
             });
         // Its cells' thumbnails are let go here too: the file list, which also does it, may be
         // hidden (Hide File List). Kept are the same as there, so the two never undo each other.
-        self.trim_thumbs(self.list_rows.clone());
+        self.trim_thumbs(self.thumbs.list_rows.clone());
         if let Some(i) = show {
             self.go(ctx, i);
         }

@@ -272,7 +272,7 @@ impl crate::App {
     /// stood under its play button.
     pub(crate) fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
         let name = self.list.files.get(self.list.cur)?;
-        if let Some(Some(t)) = self.thumbs.get(name) {
+        if let Some(Some(t)) = self.thumbs.textures.get(name) {
             return Some((t.clone(), t.size(), true));
         }
         if is_video(Path::new(name)) {
