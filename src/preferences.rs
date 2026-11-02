@@ -158,20 +158,34 @@ const START: &[&str] = &[
     "Start in the last used folder",
 ];
 
+/// The Preferences window: open or not, its search, and the action whose key is being chosen.
+pub(crate) struct Prefs {
+    /// Edit → Preferences is open.
+    pub(crate) open: bool,
+    /// Preferences changed while the pointer is down: saved when it is let go.
+    pub(crate) unsaved: bool,
+    /// The search field of Preferences: only the sections with these words show.
+    pub(crate) query: String,
+    /// Preferences was just opened: its search field takes the keys.
+    pub(crate) focus_search: bool,
+    /// The action whose key is being chosen in Preferences: the next key press goes to it.
+    pub(crate) capturing: Option<Action>,
+}
+
 impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.preferences_open;
+        let mut open = self.prefs.open;
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for; a search in its field is cleared first.
         if open
             && self.prompt.is_none()
             && self.confirm_delete.is_none()
-            && self.capturing.is_none()
+            && self.prefs.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
-            open = !self.preferences_query.trim().is_empty();
-            self.preferences_query.clear();
+            open = !self.prefs.query.trim().is_empty();
+            self.prefs.query.clear();
         }
         egui::Window::new(tr("Preferences"))
             .open(&mut open)
@@ -182,16 +196,16 @@ impl crate::App {
                 // takes its own space instead of covering the text.
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 // Above the settings, so it stays when they scroll.
-                let search = egui::TextEdit::singleline(&mut self.preferences_query)
+                let search = egui::TextEdit::singleline(&mut self.prefs.query)
                     .hint_text(tr("Search the settings"))
                     .desired_width(f32::INFINITY);
                 let search = ui.add(search);
                 // Until it has it: the window's first frame only measures it.
-                if self.focus_preferences_search {
+                if self.prefs.focus_search {
                     search.request_focus();
-                    self.focus_preferences_search = !search.has_focus();
+                    self.prefs.focus_search = !search.has_focus();
                 }
-                let query = self.preferences_query.to_lowercase();
+                let query = self.prefs.query.to_lowercase();
                 let shows = |texts: &[&'static str], more: &[&str]| found(&query, texts, more);
                 let levels = |l: &config::MemoryLevel| [l.name, l.hover];
                 let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
@@ -353,14 +367,14 @@ impl crate::App {
                         changed |= self.window_settings(ui, ctx);
                     }
                     // Saved once a slider is let go, not in every frame it is dragged.
-                    self.preferences_unsaved |= changed;
-                    if self.preferences_unsaved && !ctx.input(|i| i.pointer.any_down()) {
-                        self.preferences_unsaved = false;
+                    self.prefs.unsaved |= changed;
+                    if self.prefs.unsaved && !ctx.input(|i| i.pointer.any_down()) {
+                        self.prefs.unsaved = false;
                         self.config.save();
                     }
                 });
             });
-        self.preferences_open = open;
+        self.prefs.open = open;
     }
 
     /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.
@@ -885,7 +899,7 @@ impl crate::App {
     /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
     /// key press) or reset to Geeqie's.
     pub(crate) fn key_settings(&mut self, ui: &mut egui::Ui, query: &str) {
-        if let Some(action) = self.capturing {
+        if let Some(action) = self.prefs.capturing {
             let pressed = ui.input(|i| {
                 use egui::Key as K;
                 i.events.iter().find_map(|e| match e {
@@ -913,7 +927,7 @@ impl crate::App {
                 })
             });
             if let Some((key, mods)) = pressed {
-                self.capturing = None;
+                self.prefs.capturing = None;
                 if key != egui::Key::Escape {
                     let mods = egui::Modifiers {
                         mac_cmd: false,
@@ -970,7 +984,7 @@ impl crate::App {
                             .format_shortcut(&egui::KeyboardShortcut::new(s.1, s.2))
                     })
                     .collect();
-                if self.capturing == Some(action) {
+                if self.prefs.capturing == Some(action) {
                     ui.strong(tr("Press a key (Esc cancels)"));
                 } else {
                     ui.label(keys.join(", "));
@@ -978,7 +992,7 @@ impl crate::App {
                 ui.horizontal(|ui| {
                     let change = ui.small_button(tr("Change"));
                     if crate::noted(&change, &format!("Change {}", action.label())).clicked() {
-                        self.capturing = Some(action);
+                        self.prefs.capturing = Some(action);
                     }
                     let own = self.config.keys.0.iter().any(|k| k.0 == action);
                     if own && ui.small_button(tr("Reset")).clicked() {
@@ -1209,16 +1223,16 @@ mod tests {
             };
             let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
         };
-        app.preferences_open = true;
-        app.preferences_query = "zoom".into();
+        app.prefs.open = true;
+        app.prefs.query = "zoom".into();
         escape(&mut app);
-        assert!(app.preferences_open && app.preferences_query.is_empty());
+        assert!(app.prefs.open && app.prefs.query.is_empty());
         escape(&mut app);
-        assert!(!app.preferences_open);
-        app.preferences_open = true;
-        app.preferences_query = "  ".into();
+        assert!(!app.prefs.open);
+        app.prefs.open = true;
+        app.prefs.query = "  ".into();
         escape(&mut app);
-        assert!(!app.preferences_open && app.preferences_query.is_empty());
+        assert!(!app.prefs.open && app.prefs.query.is_empty());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

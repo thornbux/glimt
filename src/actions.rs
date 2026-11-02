@@ -1000,9 +1000,9 @@ impl crate::App {
             }
             Action::Preferences => {
                 // A search from last time would hide settings without saying why.
-                self.preferences_open = true;
-                self.preferences_query.clear();
-                self.focus_preferences_search = true;
+                self.prefs.open = true;
+                self.prefs.query.clear();
+                self.prefs.focus_search = true;
             }
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
@@ -1668,7 +1668,7 @@ mod tests {
             });
             crate::App::shortcut(&ctx, true, false)
         };
-        assert_eq!(pressed(false), Some(crate::Action::Copy));
-        assert_eq!(pressed(true), Some(crate::Action::CopyImage));
+        assert_eq!(pressed(false), Some(super::Action::Copy));
+        assert_eq!(pressed(true), Some(super::Action::CopyImage));
     }
 }

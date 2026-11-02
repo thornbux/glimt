@@ -11,7 +11,7 @@ use crate::info_panel::spawn_exif_reader;
 use crate::view::{LAYOUTS, frame_at};
 use crate::view::{View, spawn_decoders};
 use crate::workers::spawn_thumbnailers;
-use actions::{Action, OWN_KEYS};
+use actions::OWN_KEYS;
 use check::Check;
 use colour::{
     COLOR_MANAGEMENT, SCREEN_WAIT, SCREEN_WAIT_MS, VIEW_FILTER, read_desktop_screen, set_colour,
@@ -469,8 +469,8 @@ struct App {
     /// The desktop's screen profile file, once read from colord.
     desktop_screen: Option<String>,
     desktop_screen_rx: Receiving<Option<String>>,
-    /// The action whose key is being chosen in Preferences: the next key press goes to it.
-    capturing: Option<Action>,
+    /// The Preferences window: open or not, its search, and the action whose key is being chosen.
+    prefs: preferences::Prefs,
     config: Config,
 
     // ---- The list: the folder (or collection, or several folders) and its files ----
@@ -546,14 +546,6 @@ struct App {
     plugins: Vec<plugins::Plugin>,
     /// The plugins running, for Stop in their menu.
     plugins_running: plugins::Running,
-    /// Edit → Preferences is open.
-    preferences_open: bool,
-    /// Preferences changed while the pointer is down: saved when it is let go.
-    preferences_unsaved: bool,
-    /// The search field of Preferences: only the sections with these words show.
-    preferences_query: String,
-    /// Preferences was just opened: its search field takes the keys.
-    focus_preferences_search: bool,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
     /// Open text dialog and the text typed so far.
@@ -708,7 +700,6 @@ impl App {
             save_as_last: Default::default(),
             asked_for: (0, Vec::new()),
             compare: false,
-            capturing: None,
             dups: None,
             check: None,
             broken_files: HashSet::new(),
@@ -730,10 +721,6 @@ impl App {
             apps_rx,
             notices_rx: notices,
             notice: screen_error.or_else(|| config_notice(problems)),
-            preferences_open: false,
-            preferences_unsaved: false,
-            preferences_query: String::new(),
-            focus_preferences_search: false,
             help: None,
             confirm_delete: None,
             folder_target: None,
@@ -909,6 +896,13 @@ impl App {
                 }),
                 clipboard: None,
                 clip_rx: Receiving::none(),
+            },
+            prefs: preferences::Prefs {
+                open: false,
+                unsaved: false,
+                query: String::new(),
+                focus_search: false,
+                capturing: None,
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
