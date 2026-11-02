@@ -264,3 +264,30 @@ fn imports_name_where_defined() {
         wrong.join("\n")
     );
 }
+
+/// AGENTS.md's table under "Code layout" has a row for every source file, and no row for a
+/// file that is gone: a module added or renamed is described where a reader looks first.
+#[test]
+fn agents_md_lists_every_module() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    let rows: Vec<&str> = (agents.lines())
+        .filter_map(|l| l.strip_prefix("| `src/")?.split('`').next())
+        .collect();
+    let files: Vec<String> = (sources().into_iter())
+        .map(|(n, _)| n)
+        .filter(|n| n.ends_with(".rs"))
+        .collect();
+    let missing: Vec<&String> = files
+        .iter()
+        .filter(|f| !rows.contains(&f.as_str()))
+        .collect();
+    let gone: Vec<&&str> = rows
+        .iter()
+        .filter(|r| !files.iter().any(|f| f == *r))
+        .collect();
+    assert!(
+        missing.is_empty() && gone.is_empty(),
+        "AGENTS.md's code layout lacks {missing:?} and names {gone:?}, which are not in src/"
+    );
+}

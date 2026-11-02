@@ -83,6 +83,7 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
 | `src/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
 | `src/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`in_flatpak`, `print`, `open_with`, `inhibit_idle`) |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
 | `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders, and putting them in order (`moved`, `dropped`) |
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
