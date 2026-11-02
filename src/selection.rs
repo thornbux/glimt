@@ -70,8 +70,8 @@ impl crate::App {
         self.list.decode_errors.remove(&self.list.cur);
         // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
         if !self.config.keep_zoom {
-            self.zoom = None;
-            self.pan_offset = egui::Vec2::ZERO;
+            self.zoom.level = None;
+            self.zoom.offset = egui::Vec2::ZERO;
         }
         self.decoding.opened = Instant::now();
         self.panel.scroll_to_cur = true;

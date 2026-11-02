@@ -548,16 +548,8 @@ struct App {
     image_id: Option<egui::Id>,
     /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
     focus_by_keys: bool,
-    /// Physical screen pixels per original pixel; `None` = fit to window.
-    zoom: Option<f32>,
-    pan_offset: egui::Vec2,
-    /// How far the shown image can be panned each way (points); zero where it fits.
-    max_pan: egui::Vec2,
-    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in
-    /// the status bar.
-    last_scale: f32,
-    /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
-    wheel: f32,
+    /// The zoom, and where the zoomed image is in the view.
+    zoom: view::Zoom,
     /// What belongs to the image shown, made anew when it is left.
     viewing: Viewing,
     /// Two images side by side (E): the shown one and `compare_other`.
@@ -878,11 +870,7 @@ impl App {
             opened_type: Types::NONE,
             prompt: None,
             window_title: String::new(),
-            last_scale: 1.0,
-            wheel: 0.0,
             config,
-            zoom: None,
-            pan_offset: egui::Vec2::ZERO,
             file_dialog: None,
             file_dialog_rx: Receiving::none(),
             kiosk: start.kiosk,
@@ -924,7 +912,6 @@ impl App {
             file_jobs: Vec::new(),
             touching: Vec::new(),
             closing: 0,
-            max_pan: egui::Vec2::ZERO,
             slideshow: slideshow::Slideshow {
                 shown_at: None,
                 shuffled: false,
@@ -1011,6 +998,13 @@ impl App {
                 opened: Instant::now(),
                 started: Some(Instant::now()),
                 frame_ms: [0; 256],
+            },
+            zoom: view::Zoom {
+                level: None,
+                offset: egui::Vec2::ZERO,
+                max_pan: egui::Vec2::ZERO,
+                last_scale: 1.0,
+                wheel: 0.0,
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

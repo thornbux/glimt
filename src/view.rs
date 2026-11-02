@@ -95,6 +95,20 @@ pub(crate) struct Decoding {
     pub(crate) frame_ms: [u32; 256],
 }
 
+/// The zoom, and where the zoomed image is in the view.
+pub(crate) struct Zoom {
+    /// Physical screen pixels per original pixel; `None` = fit to window.
+    pub(crate) level: Option<f32>,
+    pub(crate) offset: egui::Vec2,
+    /// How far the shown image can be panned each way (points); zero where it fits.
+    pub(crate) max_pan: egui::Vec2,
+    /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in
+    /// the status bar.
+    pub(crate) last_scale: f32,
+    /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
+    pub(crate) wheel: f32,
+}
+
 impl crate::App {
     // ---- Decoding and painting the image ----
 
@@ -426,7 +440,8 @@ impl crate::App {
     }
 
     pub(crate) fn zoom_by(&mut self, factor: f32) {
-        self.zoom = Some((self.zoom.unwrap_or(self.last_scale) * factor).clamp(0.02, 32.0));
+        self.zoom.level =
+            Some((self.zoom.level.unwrap_or(self.zoom.last_scale) * factor).clamp(0.02, 32.0));
     }
 
     /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
@@ -455,7 +470,7 @@ impl crate::App {
         let slot = self.list.slots.get(&i)?;
         let ppp = ui.ctx().pixels_per_point();
         let look = (self.config.enlarge, self.config.fit_mode);
-        let zoom = zoom.map(|z| (z, self.pan_offset));
+        let zoom = zoom.map(|z| (z, self.zoom.offset));
         let (at, scale) = placed(rect, slot.orig, ppp, look, zoom);
         let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
         let p = ui.painter().with_clip_rect(rect);
@@ -810,8 +825,8 @@ impl crate::App {
                 if response.double_clicked() && !self.kiosk {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
                 }
-                let scale = self.zoom.unwrap_or(fit);
-                self.last_scale = scale;
+                let scale = self.zoom.level.unwrap_or(fit);
+                self.zoom.last_scale = scale;
                 // Panning only along a side where the image is larger than the view, and only up
                 // to its edge, so an image that fits stays put.
                 let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig)).or(self
@@ -822,12 +837,12 @@ impl crate::App {
                 if let Some([w, h]) = orig.map(turned) {
                     // Choosing a part to crop, a drag draws it instead.
                     if response.dragged() && self.viewing.crop.is_none() {
-                        self.pan_offset += response.drag_delta();
+                        self.zoom.offset += response.drag_delta();
                     }
                     let size = egui::vec2(w as f32, h as f32) * scale / ppp;
                     let max = ((size - area.size()) / 2.0).max(egui::Vec2::ZERO);
-                    self.pan_offset = self.pan_offset.clamp(-max, max);
-                    self.max_pan = max;
+                    self.zoom.offset = self.zoom.offset.clamp(-max, max);
+                    self.zoom.max_pan = max;
                 }
 
                 // Not zoomed: decoded again at window size when the box the view decodes into has
@@ -851,7 +866,7 @@ impl crate::App {
                 // Not zoomed: decoded again to the size shown, which the decoders' limit now
                 // holds; full resolution only where that is larger than a texture may be.
                 let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
-                let fitted = self.zoom.is_none() && fits;
+                let fitted = self.zoom.level.is_none() && fits;
                 if fitted && grown {
                     self.list.slots.remove(&self.list.cur);
                     self.request(self.list.cur, false);
@@ -864,7 +879,7 @@ impl crate::App {
                     match shown {
                         Some([w, h]) => {
                             let size = egui::vec2(w as f32, h as f32) * scale / ppp;
-                            let at = area.center() + self.pan_offset;
+                            let at = area.center() + self.zoom.offset;
                             let bounds = egui::Rect::from_center_size(at, size);
                             self.crop_input(ctx, ui, &response, bounds, [w, h]);
                         }
@@ -888,12 +903,15 @@ impl crate::App {
                     self.paint_histogram(ui, area);
                 }
                 // What each pane shows, for the status bar: the one under the pointer.
-                let mut shown = vec![(self.list.cur, Some(self.last_scale))];
+                let mut shown = vec![(self.list.cur, Some(self.zoom.last_scale))];
                 if let Some(right) = right {
-                    shown.extend(self.paint_other(ui, right, self.zoom));
+                    shown.extend(self.paint_other(ui, right, self.zoom.level));
                 }
                 for (k, (rect, i)) in panes[1..].iter().zip(self.list.panes.clone()).enumerate() {
-                    shown.push((i, self.paint_pane(ui, *rect, i, self.zoom, Some(k + 1))));
+                    shown.push((
+                        i,
+                        self.paint_pane(ui, *rect, i, self.zoom.level, Some(k + 1)),
+                    ));
                     // A click makes it the shown image, in the first pane.
                     if ui
                         .interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click())
@@ -1009,7 +1027,7 @@ impl crate::App {
         let fade = now.and_then(|id| self.fading(ctx, 0, id));
         if let Some(slot) = self.list.slots.get(&self.list.cur) {
             let size = egui::vec2(slot.orig[0] as f32, slot.orig[1] as f32) * scale / ppp;
-            let rect = egui::Rect::from_center_size(area.center() + self.pan_offset, size);
+            let rect = egui::Rect::from_center_size(area.center() + self.zoom.offset, size);
             let tex = self.texture(slot, ctx);
             // Within its pane or half, which zoom makes it overflow.
             let clip = ui.clip_rect();
@@ -1018,7 +1036,7 @@ impl crate::App {
             let shown = match &fade {
                 Some((t, old, orig)) => {
                     let look = (self.config.enlarge, mode);
-                    let zoom = self.zoom.map(|z| (z, self.pan_offset));
+                    let zoom = self.zoom.level.map(|z| (z, self.zoom.offset));
                     let at = placed(area, *orig, ppp, look, zoom).0;
                     let uv1 = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
                     ui.painter()
@@ -1034,7 +1052,7 @@ impl crate::App {
             ui.set_clip_rect(clip);
             self.decoding.last_drawn = Some((slot.tex.clone(), slot.orig));
             // For the projector: this view, and the pointer from the image's centre.
-            let centre = area.center() + self.pan_offset;
+            let centre = area.center() + self.zoom.offset;
             let pointer = (ctx.pointer_hover_pos())
                 .filter(|p| area.contains(*p))
                 .map(|p| p - centre);
@@ -1042,8 +1060,8 @@ impl crate::App {
                 area,
                 ppp,
                 scale,
-                pan: self.pan_offset,
-                zoomed: self.zoom.is_some(),
+                pan: self.zoom.offset,
+                zoomed: self.zoom.level.is_some(),
                 pointer,
             });
         } else if let Some((tex, orig, thumb)) = self.placeholder()
@@ -1134,17 +1152,17 @@ impl crate::App {
             factor *= 1.0 + scroll / 400.0;
         } else {
             // One notch is one image; touchpad deltas add up to a notch.
-            self.wheel += notches;
-            if self.wheel.abs() >= 1.0 {
-                let up = self.wheel > 0.0;
+            self.zoom.wheel += notches;
+            if self.zoom.wheel.abs() >= 1.0 {
+                let up = self.zoom.wheel > 0.0;
                 step = Some(if up { Action::Prev } else { Action::Next });
-                self.wheel = 0.0;
+                self.zoom.wheel = 0.0;
             }
         }
         if factor != 1.0 {
-            let old = self.zoom.unwrap_or(fit);
+            let old = self.zoom.level.unwrap_or(fit);
             let new = (old * factor).clamp(0.02, 32.0);
-            self.zoom = Some(new);
+            self.zoom.level = Some(new);
             // Keep the point under the pointer in place, as in other viewers.
             if let Some(p) = response.hover_pos() {
                 // From the centre of the pane under the pointer: they share the offset.
@@ -1152,7 +1170,7 @@ impl crate::App {
                     .find(|r| r.contains(p))
                     .map_or(area, |r| if *r == panes[0] { area } else { *r });
                 let from_centre = p - under.center();
-                self.pan_offset = from_centre - (from_centre - self.pan_offset) * (new / old);
+                self.zoom.offset = from_centre - (from_centre - self.zoom.offset) * (new / old);
             }
         }
         step

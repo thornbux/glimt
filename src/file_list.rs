@@ -1319,7 +1319,7 @@ impl crate::App {
                     // with several panes, of the one under the pointer.
                     let (idx, scale) = (self.status.pane_info.get(self.status.pane).copied())
                         .filter(|p| p.0 < n)
-                        .unwrap_or((self.list.cur, Some(self.last_scale)));
+                        .unwrap_or((self.list.cur, Some(self.zoom.last_scale)));
                     let path = self.path(idx);
                     if self.status.cur_size.as_ref().is_none_or(|c| c.0 != path) {
                         // shortcut: one stat in the UI thread per image change; move it to
