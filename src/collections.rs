@@ -190,7 +190,8 @@ impl crate::App {
         }
     }
 
-    /// Collection → Remove: the targets out of the collection's file at once; the files stay where they are.
+    /// Collection → Remove: the targets out of the collection's file at once; the files stay where
+    /// they are.
     pub(crate) fn remove_from_collection(&mut self, ctx: &egui::Context) {
         let targets = self.targets();
         // Out of the collection's file here, at once: the files stay where they are.

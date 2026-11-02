@@ -125,8 +125,6 @@ impl crate::App {
         };
         let mut go = false;
         let modal = egui::Modal::new(egui::Id::unique("save as")).show(ctx, |ui| {
-            let c = &mut dialog.choice;
-            let original = Format::of(&dialog.path);
             ui.strong(tr("Save As"));
             ui.label(
                 dialog
@@ -135,80 +133,9 @@ impl crate::App {
                     .unwrap_or_default()
                     .to_string_lossy(),
             );
-            let name = |f: Format| match f {
-                Format::Jpeg => "JPEG",
-                Format::Png => "PNG",
-                Format::WebP => tr("WebP, lossless"),
-                Format::WebPLossy => tr("WebP, lossy"),
-            };
-            egui::Grid::new("save as grid")
-                .num_columns(2)
-                .show(ui, |ui| {
-                    ui.label(tr("Format:"));
-                    let shown = match c.format {
-                        None => tf!("As the original ({format})", format = name(original)),
-                        Some(f) => name(f).to_owned(),
-                    };
-                    let combo = egui::ComboBox::from_id_salt("save as format")
-                        .selected_text(&shown)
-                        .show_ui(ui, |ui| {
-                            let text = tf!("As the original ({format})", format = name(original));
-                            ui.selectable_value(&mut c.format, None, text);
-                            for f in [Format::Jpeg, Format::Png, Format::WebP, Format::WebPLossy] {
-                                noted(
-                                    &ui.selectable_value(&mut c.format, Some(f), name(f)),
-                                    name(f),
-                                );
-                            }
-                        });
-                    noted(&combo.response, &shown);
-                    ui.end_row();
-                    let [w, h] = dialog.orig;
-                    ui.label(tr("Size:"));
-                    ui.vertical(|ui| {
-                        ui.radio_value(&mut c.size, 0, tf!("Original ({w} × {h})", w, h));
-                        ui.horizontal(|ui| {
-                            noted(
-                                &ui.radio_value(&mut c.size, 1, tr("Longest side")),
-                                tr("Longest side"),
-                            );
-                            let drag = egui::DragValue::new(&mut c.long).range(1..=65535);
-                            if ui.add(drag.suffix(" px")).changed() {
-                                c.size = 1;
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            noted(
-                                &ui.radio_value(&mut c.size, 2, tr("Percent")),
-                                tr("Percent"),
-                            );
-                            let drag = egui::DragValue::new(&mut c.percent).range(1..=100);
-                            if ui.add(drag.suffix(" %")).changed() {
-                                c.size = 2;
-                            }
-                        });
-                    });
-                    ui.end_row();
-                    ui.label("");
-                    let (nw, nh) = match c.long_side(w.max(h)) {
-                        Some(long) => {
-                            let s = long as f64 / w.max(h) as f64;
-                            let side = |n: usize| ((n as f64 * s).round() as usize).max(1);
-                            (side(w), side(h))
-                        }
-                        None => (w, h),
-                    };
-                    ui.weak(tf!("Saved {w} × {h}; never enlarged", w = nw, h = nh));
-                    ui.end_row();
-                    let format = c.format.unwrap_or(original);
-                    if matches!(format, Format::Jpeg | Format::WebPLossy) {
-                        ui.label(tr("Quality:"));
-                        ui.add(egui::Slider::new(&mut c.quality, 50..=100));
-                        ui.end_row();
-                    }
-                });
+            save_as_fields(ui, &mut dialog);
             ui.checkbox(
-                &mut c.strip,
+                &mut dialog.choice.strip,
                 tr("Remove EXIF and GPS (camera, date, place), XMP and the sidecar"),
             );
             ui.horizontal(|ui| {
@@ -270,5 +197,87 @@ impl crate::App {
                 Err(e) => tf!("Could not save the image: {e}", e),
             })
         });
+    }
+}
+
+/// Save As's format, size and quality, in a grid.
+fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
+    let original = Format::of(&dialog.path);
+    let [w, h] = dialog.orig;
+    let c = &mut dialog.choice;
+    egui::Grid::new("save as grid")
+        .num_columns(2)
+        .show(ui, |ui| {
+            ui.label(tr("Format:"));
+            let shown = match c.format {
+                None => tf!("As the original ({format})", format = format_name(original)),
+                Some(f) => format_name(f).to_owned(),
+            };
+            let combo = egui::ComboBox::from_id_salt("save as format")
+                .selected_text(&shown)
+                .show_ui(ui, |ui| {
+                    let text = tf!("As the original ({format})", format = format_name(original));
+                    ui.selectable_value(&mut c.format, None, text);
+                    for f in [Format::Jpeg, Format::Png, Format::WebP, Format::WebPLossy] {
+                        noted(
+                            &ui.selectable_value(&mut c.format, Some(f), format_name(f)),
+                            format_name(f),
+                        );
+                    }
+                });
+            noted(&combo.response, &shown);
+            ui.end_row();
+            ui.label(tr("Size:"));
+            ui.vertical(|ui| {
+                ui.radio_value(&mut c.size, 0, tf!("Original ({w} × {h})", w, h));
+                ui.horizontal(|ui| {
+                    noted(
+                        &ui.radio_value(&mut c.size, 1, tr("Longest side")),
+                        tr("Longest side"),
+                    );
+                    let drag = egui::DragValue::new(&mut c.long).range(1..=65535);
+                    if ui.add(drag.suffix(" px")).changed() {
+                        c.size = 1;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    noted(
+                        &ui.radio_value(&mut c.size, 2, tr("Percent")),
+                        tr("Percent"),
+                    );
+                    let drag = egui::DragValue::new(&mut c.percent).range(1..=100);
+                    if ui.add(drag.suffix(" %")).changed() {
+                        c.size = 2;
+                    }
+                });
+            });
+            ui.end_row();
+            ui.label("");
+            let (nw, nh) = match c.long_side(w.max(h)) {
+                Some(long) => {
+                    let s = long as f64 / w.max(h) as f64;
+                    let side = |n: usize| ((n as f64 * s).round() as usize).max(1);
+                    (side(w), side(h))
+                }
+                None => (w, h),
+            };
+            ui.weak(tf!("Saved {w} × {h}; never enlarged", w = nw, h = nh));
+            ui.end_row();
+            let format = c.format.unwrap_or(original);
+            if matches!(format, Format::Jpeg | Format::WebPLossy) {
+                ui.label(tr("Quality:"));
+                ui.add(egui::Slider::new(&mut c.quality, 50..=100));
+                ui.end_row();
+            }
+        });
+}
+
+/// A format's name in Save As.
+fn format_name(f: Format) -> &'static str {
+    match f {
+        Format::Jpeg => "JPEG",
+        Format::Png => "PNG",
+        Format::WebP => tr("WebP, lossless"),
+        Format::WebPLossy => tr("WebP, lossy"),
     }
 }

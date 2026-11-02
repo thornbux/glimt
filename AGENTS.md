@@ -129,6 +129,11 @@ Every `.rs` file has its items in this order, so a reader finds things where the
 `source_rules::items_are_in_order` fails on an item out of place, and on a second
 `impl crate::App` block.
 
+A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
+longer one is split into functions named for what each part does, beside it or in the module
+of that part. The exceptions are the tables of one arm per action (`Action::english`,
+`Action::icon`, `App::run`), whose arms stay a few lines: a longer arm is a method.
+
 ## How to add things
 
 - **An action:** add a variant to `Action`, its menu label in `Action::label`, a key in

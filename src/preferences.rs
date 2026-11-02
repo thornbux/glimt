@@ -207,25 +207,7 @@ impl crate::App {
                     self.prefs.focus_search = !search.has_focus();
                 }
                 let query = self.prefs.query.to_lowercase();
-                let shows = |texts: &[&'static str], more: &[&str]| found(&query, texts, more);
-                let levels = |l: &config::MemoryLevel| [l.name, l.hover];
-                let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
-                    .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
-                    .collect();
-                let names = |s: &(Action, _, _)| [s.0.english(), s.0.label()];
-                let actions: Vec<&str> = SHORTCUTS.iter().flat_map(names).collect();
-                let shown = [
-                    shows(LOOK, &[]),
-                    shows(KEYBOARD, &actions),
-                    shows(IMAGE, &[]),
-                    shows(SLIDESHOW, &[]),
-                    shows(FILE_LIST, &[]),
-                    shows(DELETING, &[]),
-                    shows(COLOUR, &[]),
-                    shows(MEMORY, &levels),
-                    cfg!(feature = "video") && shows(VIDEO, &[]),
-                    shows(START, &[]),
-                ];
+                let shown = sections_shown(&query);
                 if !shown.contains(&true) {
                     ui.weak(tr("No setting has these words"));
                 }
@@ -234,88 +216,7 @@ impl crate::App {
                     let mut changed = false;
                     // The look first, where it is found (also under View → Theme).
                     if shown[0] {
-                        section(ui, theme::icon::PALETTE, tr(LOOK[0]));
-                        ui.horizontal(|ui| {
-                            let mut chosen = false;
-                            egui::ComboBox::from_id_salt("theme")
-                                .selected_text(self.config.theme.clone())
-                                .show_ui(ui, |ui| {
-                                    for name in theme::names() {
-                                        let c = &mut self.config.theme;
-                                        chosen |=
-                                            ui.selectable_value(c, name.clone(), name).clicked();
-                                    }
-                                });
-                            ui.label(tr("Theme"));
-                            // Chosen again too, so a theme file just edited shows.
-                            if chosen {
-                                changed = true;
-                                self.apply_theme(ui.ctx());
-                            }
-                        });
-                        ui.horizontal(|ui| self.theme_buttons(ui));
-                        // Each language by its own name, so one can find the way back from a
-                        // language one does not read.
-                        ui.horizontal(|ui| {
-                            let name = |code: &str| -> String {
-                                match code {
-                                    "" => tr("Automatic (system language)").to_owned(),
-                                    "en" => "English".to_owned(),
-                                    code => (lang::LANGUAGES.iter().find(|l| l.0 == code))
-                                        .map_or(code, |l| l.1)
-                                        .to_owned(),
-                                }
-                            };
-                            let mut chosen = false;
-                            let codes = ["", "en"]
-                                .into_iter()
-                                .chain(lang::LANGUAGES.iter().map(|l| l.0));
-                            egui::ComboBox::from_id_salt("language")
-                                .selected_text(name(&self.config.language))
-                                .show_ui(ui, |ui| {
-                                    for code in codes {
-                                        let c = &mut self.config.language;
-                                        chosen |= ui
-                                            .selectable_value(c, code.to_owned(), name(code))
-                                            .clicked();
-                                    }
-                                });
-                            ui.label(tr("Language"));
-                            if chosen {
-                                changed = true;
-                                lang::set(&self.config.language);
-                            }
-                        });
-                        let follow = tr("High Contrast when the desktop asks for high contrast");
-                        if ui
-                            .checkbox(&mut self.config.follow_contrast, follow)
-                            .changed()
-                        {
-                            changed = true;
-                            self.apply_theme(ui.ctx());
-                        }
-                        ui.horizontal(|ui| {
-                            let size = egui::Slider::new(&mut self.config.ui_scale, 50..=300)
-                                .suffix(" %")
-                                .text(tr("size of the menus, lists and text"));
-                            // Applied when let go: a size changing under the pointer would move it.
-                            let size = ui.add(size);
-                            changed |= size.changed();
-                            if size.drag_stopped() || (size.changed() && !size.dragged()) {
-                                self.apply_theme(ui.ctx());
-                            }
-                        });
-                        let follow =
-                            tr("Larger still when the desktop's text is (GNOME's Large Text)");
-                        if ui
-                            .checkbox(&mut self.config.follow_text_scale, follow)
-                            .changed()
-                        {
-                            changed = true;
-                            self.apply_theme(ui.ctx());
-                        }
-                        changed |= self.background_setting(ui);
-                        changed |= self.bar_settings(ui, ctx);
+                        changed |= self.look_settings(ui, ctx);
                     }
                     if shown[1] {
                         section(ui, theme::icon::KEYBOARD, tr(KEYBOARD[0]));
@@ -376,6 +277,93 @@ impl crate::App {
                 });
             });
         self.prefs.open = open;
+    }
+
+    /// Preferences: the look, first where it is found (also under View → Theme): the theme,
+    /// the language, contrast, the size of the interface, the background and the bars.
+    fn look_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        section(ui, theme::icon::PALETTE, tr(LOOK[0]));
+        ui.horizontal(|ui| {
+            let mut chosen = false;
+            egui::ComboBox::from_id_salt("theme")
+                .selected_text(self.config.theme.clone())
+                .show_ui(ui, |ui| {
+                    for name in theme::names() {
+                        let c = &mut self.config.theme;
+                        chosen |= ui.selectable_value(c, name.clone(), name).clicked();
+                    }
+                });
+            ui.label(tr("Theme"));
+            // Chosen again too, so a theme file just edited shows.
+            if chosen {
+                changed = true;
+                self.apply_theme(ui.ctx());
+            }
+        });
+        ui.horizontal(|ui| self.theme_buttons(ui));
+        // Each language by its own name, so one can find the way back from a
+        // language one does not read.
+        ui.horizontal(|ui| {
+            let name = |code: &str| -> String {
+                match code {
+                    "" => tr("Automatic (system language)").to_owned(),
+                    "en" => "English".to_owned(),
+                    code => (lang::LANGUAGES.iter().find(|l| l.0 == code))
+                        .map_or(code, |l| l.1)
+                        .to_owned(),
+                }
+            };
+            let mut chosen = false;
+            let codes = ["", "en"]
+                .into_iter()
+                .chain(lang::LANGUAGES.iter().map(|l| l.0));
+            egui::ComboBox::from_id_salt("language")
+                .selected_text(name(&self.config.language))
+                .show_ui(ui, |ui| {
+                    for code in codes {
+                        let c = &mut self.config.language;
+                        chosen |= ui
+                            .selectable_value(c, code.to_owned(), name(code))
+                            .clicked();
+                    }
+                });
+            ui.label(tr("Language"));
+            if chosen {
+                changed = true;
+                lang::set(&self.config.language);
+            }
+        });
+        let follow = tr("High Contrast when the desktop asks for high contrast");
+        if ui
+            .checkbox(&mut self.config.follow_contrast, follow)
+            .changed()
+        {
+            changed = true;
+            self.apply_theme(ui.ctx());
+        }
+        ui.horizontal(|ui| {
+            let size = egui::Slider::new(&mut self.config.ui_scale, 50..=300)
+                .suffix(" %")
+                .text(tr("size of the menus, lists and text"));
+            // Applied when let go: a size changing under the pointer would move it.
+            let size = ui.add(size);
+            changed |= size.changed();
+            if size.drag_stopped() || (size.changed() && !size.dragged()) {
+                self.apply_theme(ui.ctx());
+            }
+        });
+        let follow = tr("Larger still when the desktop's text is (GNOME's Large Text)");
+        if ui
+            .checkbox(&mut self.config.follow_text_scale, follow)
+            .changed()
+        {
+            changed = true;
+            self.apply_theme(ui.ctx());
+        }
+        changed |= self.background_setting(ui);
+        changed |= self.bar_settings(ui, ctx);
+        changed
     }
 
     /// Preferences: the slideshow's delay, order, subfolders, repeat and fade.
@@ -1088,6 +1076,31 @@ fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
     query.split_whitespace().all(|w| all.contains(w))
 }
 
+/// Which sections of Preferences have a text the search `query` (lower case) finds, in the
+/// order they show: the look, keys, image, slideshow, file list, deleting, colour, memory,
+/// video and start.
+fn sections_shown(query: &str) -> [bool; 10] {
+    let shows = |texts: &[&'static str], more: &[&str]| found(query, texts, more);
+    let levels = |l: &config::MemoryLevel| [l.name, l.hover];
+    let levels: Vec<&str> = (MEMORY_LEVELS.iter().flat_map(levels))
+        .chain(CPU_LEVELS.iter().flat_map(|l| [l.0, l.1]))
+        .collect();
+    let names = |s: &(Action, _, _)| [s.0.english(), s.0.label()];
+    let actions: Vec<&str> = SHORTCUTS.iter().flat_map(names).collect();
+    [
+        shows(LOOK, &[]),
+        shows(KEYBOARD, &actions),
+        shows(IMAGE, &[]),
+        shows(SLIDESHOW, &[]),
+        shows(FILE_LIST, &[]),
+        shows(DELETING, &[]),
+        shows(COLOUR, &[]),
+        shows(MEMORY, &levels),
+        cfg!(feature = "video") && shows(VIDEO, &[]),
+        shows(START, &[]),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tests::app_on;
@@ -1166,8 +1179,13 @@ mod tests {
     #[test]
     fn the_search_knows_every_text() {
         let src = include_str!("preferences.rs");
-        let start = src.find("fn preferences_window(").unwrap();
-        let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
+        let function = |name: &str| {
+            let start = src.find(&format!("fn {name}(")).unwrap();
+            &src[start..start + src[start..].find("\n    }\n").unwrap()]
+        };
+        // The look's section is a function of its own, called where it shows.
+        let body = (function("preferences_window"))
+            .replace("self.look_settings(ui, ctx)", function("look_settings"));
         let sections = [
             LOOK, KEYBOARD, IMAGE, SLIDESHOW, FILE_LIST, DELETING, COLOUR, MEMORY, VIDEO, START,
         ];

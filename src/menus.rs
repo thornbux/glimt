@@ -199,216 +199,237 @@ impl crate::App {
     pub(crate) fn menu_bar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         let bar = egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                scroll_menu(ui, tr("File"), |ui| {
-                    menu_item(ui, act, Action::OpenFile);
-                    menu_item(ui, act, Action::OpenFolder);
-                    menu_item(ui, act, Action::OpenRecursive);
-                    menu_item(ui, act, Action::OpenFolders);
-                    self.recent_menu(ui);
-                    menu_item(ui, act, Action::NewFolder);
-                    menu_item(ui, act, Action::Copy);
-                    menu_item(ui, act, Action::Move);
-                    menu_item(ui, act, Action::Rename);
-                    menu_item(ui, act, Action::OpenWith);
-                    self.open_with_menu(ui);
-                    menu_item(ui, act, Action::SetWallpaper);
-                    #[cfg(feature = "video")]
-                    menu_item(ui, act, Action::Play);
-                    menu_item(ui, act, Action::SaveAs);
-                    menu_item(ui, act, Action::Print);
-                    // Only for a file of several frames or pages: the menu stays as it was
-                    // for every other one.
-                    if self.frame_count() > 1 {
-                        menu_item(ui, act, Action::SaveFrame);
-                        menu_item(ui, act, Action::ExportFrames);
-                    }
-                    ui.separator();
-                    menu_item(ui, act, Action::Delete);
-                    menu_item(ui, act, Action::DeletePermanently);
-                    ui.separator();
-                    self.collections_menu(ui, act);
-                    menu_item(ui, act, Action::FindDuplicates);
-                    menu_item(ui, act, Action::CheckImages);
-                    menu_item(ui, act, Action::BackUp);
-                    ui.separator();
-                    menu_item(ui, act, Action::CloseWindow);
-                    menu_item(ui, act, Action::Quit);
-                });
-                scroll_menu(ui, tr("Go"), |ui| {
-                    menu_item(ui, act, Action::First);
-                    menu_item(ui, act, Action::Prev);
-                    menu_item(ui, act, Action::Next);
-                    menu_item(ui, act, Action::Last);
-                    ui.separator();
-                    menu_item(ui, act, Action::Back);
-                    menu_item(ui, act, Action::Forward);
-                    menu_item(ui, act, Action::Home);
-                    menu_item(ui, act, Action::Up);
-                    ui.separator();
-                    menu_item(ui, act, Action::FocusSearch);
-                });
-                scroll_menu(ui, tr("Select"), |ui| {
-                    menu_item(ui, act, Action::SelectAll);
-                    menu_item(ui, act, Action::SelectNone);
-                    menu_item(ui, act, Action::InvertSelection);
-                    ui.separator();
-                    menu_item(ui, act, Action::CopyPath);
-                    menu_item(ui, act, Action::CopyPathUnquoted);
-                    menu_item(ui, act, Action::CopyImage);
-                    menu_item(ui, act, Action::CopyFiles);
-                });
-                scroll_menu(ui, tr("Edit"), |ui| {
-                    menu_item(ui, act, Action::Undo);
-                    ui.separator();
-                    #[cfg(feature = "marks")]
-                    scroll_menu(
-                        ui,
-                        iconed(ui, theme::icon::STAR, tr("Marks and Stars")),
-                        |ui| {
-                            for action in [
-                                Action::Mark1,
-                                Action::Mark2,
-                                Action::Mark3,
-                                Action::Mark4,
-                                Action::Mark5,
-                                Action::Mark6,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                            ui.separator();
-                            for action in [
-                                Action::SelectMark1,
-                                Action::SelectMark2,
-                                Action::SelectMark3,
-                                Action::SelectMark4,
-                                Action::SelectMark5,
-                                Action::SelectMark6,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                            ui.separator();
-                            for action in [
-                                Action::Rate0,
-                                Action::Rate1,
-                                Action::Rate2,
-                                Action::Rate3,
-                                Action::Rate4,
-                                Action::Rate5,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                        },
-                    );
-                    scroll_menu(
-                        ui,
-                        iconed(ui, theme::icon::ORIENTATION, tr("Orientation")),
-                        |ui| {
-                            for action in [
-                                Action::RotateCw,
-                                Action::RotateCcw,
-                                Action::Rotate180,
-                                Action::Mirror,
-                                Action::Flip,
-                            ] {
-                                menu_item(ui, act, action);
-                            }
-                            ui.separator();
-                            menu_item(ui, act, Action::SaveOrientation);
-                        },
-                    );
-                    menu_item(ui, act, Action::Crop);
-                    menu_item(ui, act, Action::Keywords);
-                    ui.separator();
-                    self.plugins_menu(ui);
-                    ui.separator();
-                    menu_item(ui, act, Action::Preferences);
-                });
-                scroll_menu(ui, tr("View"), |ui| {
-                    self.layout_menu(ui, act);
-                    scroll_menu(ui, iconed(ui, theme::icon::PALETTE, tr("Theme")), |ui| {
-                        self.theme_menu(ui)
-                    });
-                    scroll_menu(
-                        ui,
-                        iconed(ui, theme::icon::COLOUR, tr("Colour Management")),
-                        |ui| self.colour_settings(ui),
-                    );
-                    scroll_menu(ui, iconed(ui, theme::icon::FILTER, tr("Filter")), |ui| {
-                        use theme::icon::{CIRCLE, HALF, HALF_TILT, SUN_DIM};
-                        let icons = [CIRCLE, HALF, HALF_TILT, SUN_DIM];
-                        for (f, label) in FILTERS.iter().enumerate() {
-                            let text = iconed(ui, icons[f.min(3)], tr(label));
-                            let radio = ui.radio(self.config.view_filter == f, text);
-                            if noted(&radio, tr(label)).clicked() {
-                                self.set_view_filter(f);
-                            }
-                        }
-                        ui.separator();
-                        menu_item(ui, act, Action::ViewFilter);
-                    });
-                    scroll_menu(ui, iconed(ui, theme::icon::ZOOM, tr("Zoom")), |ui| {
-                        menu_item(ui, act, Action::ZoomIn);
-                        menu_item(ui, act, Action::ZoomOut);
-                        menu_item(ui, act, Action::Zoom1To1);
-                        let mode = self.config.fit_mode;
-                        menu_toggle(ui, act, mode == 0, Action::ZoomFit);
-                        menu_toggle(ui, act, mode == 1, Action::FitWidth);
-                        menu_toggle(ui, act, mode == 2, Action::FitHeight);
-                        menu_toggle(ui, act, mode == 3, Action::FitFill);
-                    });
-                    menu_item(ui, act, Action::FullScreen);
-                    menu_item(ui, act, Action::HideTools);
-                    let c = &self.config;
-                    menu_toggle(ui, act, c.toolbar, Action::Toolbar);
-                    menu_toggle(ui, act, c.path_bar, Action::PathBar);
-                    menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
-                    menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
-                    menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
-                    menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
-                    menu_toggle(ui, act, c.icons, Action::Icons);
-                    menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
-                    menu_toggle(ui, act, c.sort_manager, Action::SortManager);
-                    menu_toggle(ui, act, self.info.exif_window, Action::ExifWindow);
-                    menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
-                    menu_toggle(ui, act, c.osd, Action::Overlay);
-                    menu_item(ui, act, Action::Histogram);
-                    menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
-                    menu_item(ui, act, Action::Refresh);
-                    ui.separator();
-                    let (icon, label) = if self.slideshow.shown_at.is_some() {
-                        (theme::icon::STOP, tr("Stop Slideshow"))
-                    } else {
-                        (theme::icon::PLAY, tr("Start Slideshow"))
-                    };
-                    let text = iconed(ui, icon, label);
-                    menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
-                    menu_toggle(ui, act, self.slideshow.paused, Action::Pause);
-                    menu_item(ui, act, Action::Faster);
-                    menu_item(ui, act, Action::Slower);
-                    menu_toggle(ui, act, self.config.random, Action::RandomOrder);
-                });
-                scroll_menu(ui, tr("Window"), |ui| {
-                    menu_item(ui, act, Action::NewWindow);
-                    menu_item(ui, act, Action::CloseWindow);
-                    menu_item(ui, act, Action::WindowTitle);
-                    ui.separator();
-                    menu_toggle(ui, act, self.window.projector, Action::Projector);
-                    let pointer = self.config.projector_pointer;
-                    menu_toggle(ui, act, pointer, Action::ProjectorPointer);
-                });
-                scroll_menu(ui, tr("Help"), |ui| {
-                    menu_item(ui, act, Action::Help);
-                    menu_item(ui, act, Action::Shortcuts);
-                    menu_item(ui, act, Action::KeyboardMap);
-                    ui.separator();
-                    menu_item(ui, act, Action::About);
-                });
+                scroll_menu(ui, tr("File"), |ui| self.menu_file(ui, act));
+                scroll_menu(ui, tr("Go"), |ui| self.menu_go(ui, act));
+                scroll_menu(ui, tr("Select"), |ui| self.menu_select(ui, act));
+                scroll_menu(ui, tr("Edit"), |ui| self.menu_edit(ui, act));
+                scroll_menu(ui, tr("View"), |ui| self.menu_view(ui, act));
+                scroll_menu(ui, tr("Window"), |ui| self.menu_window(ui, act));
+                scroll_menu(ui, tr("Help"), |ui| self.menu_help(ui, act));
             });
         });
         close_menus(ui.ctx(), bar.response.rect, &mut self.window.menu_away);
         if self.config.toolbar {
             self.toolbar(ui, act);
         }
+    }
+
+    /// The File menu.
+    fn menu_file(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::OpenFile);
+        menu_item(ui, act, Action::OpenFolder);
+        menu_item(ui, act, Action::OpenRecursive);
+        menu_item(ui, act, Action::OpenFolders);
+        self.recent_menu(ui);
+        menu_item(ui, act, Action::NewFolder);
+        menu_item(ui, act, Action::Copy);
+        menu_item(ui, act, Action::Move);
+        menu_item(ui, act, Action::Rename);
+        menu_item(ui, act, Action::OpenWith);
+        self.open_with_menu(ui);
+        menu_item(ui, act, Action::SetWallpaper);
+        #[cfg(feature = "video")]
+        menu_item(ui, act, Action::Play);
+        menu_item(ui, act, Action::SaveAs);
+        menu_item(ui, act, Action::Print);
+        // Only for a file of several frames or pages: the menu stays as it was
+        // for every other one.
+        if self.frame_count() > 1 {
+            menu_item(ui, act, Action::SaveFrame);
+            menu_item(ui, act, Action::ExportFrames);
+        }
+        ui.separator();
+        menu_item(ui, act, Action::Delete);
+        menu_item(ui, act, Action::DeletePermanently);
+        ui.separator();
+        self.collections_menu(ui, act);
+        menu_item(ui, act, Action::FindDuplicates);
+        menu_item(ui, act, Action::CheckImages);
+        menu_item(ui, act, Action::BackUp);
+        ui.separator();
+        menu_item(ui, act, Action::CloseWindow);
+        menu_item(ui, act, Action::Quit);
+    }
+
+    /// The Go menu.
+    fn menu_go(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::First);
+        menu_item(ui, act, Action::Prev);
+        menu_item(ui, act, Action::Next);
+        menu_item(ui, act, Action::Last);
+        ui.separator();
+        menu_item(ui, act, Action::Back);
+        menu_item(ui, act, Action::Forward);
+        menu_item(ui, act, Action::Home);
+        menu_item(ui, act, Action::Up);
+        ui.separator();
+        menu_item(ui, act, Action::FocusSearch);
+    }
+
+    /// The Select menu.
+    fn menu_select(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::SelectAll);
+        menu_item(ui, act, Action::SelectNone);
+        menu_item(ui, act, Action::InvertSelection);
+        ui.separator();
+        menu_item(ui, act, Action::CopyPath);
+        menu_item(ui, act, Action::CopyPathUnquoted);
+        menu_item(ui, act, Action::CopyImage);
+        menu_item(ui, act, Action::CopyFiles);
+    }
+
+    /// The Edit menu.
+    fn menu_edit(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::Undo);
+        ui.separator();
+        #[cfg(feature = "marks")]
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::STAR, tr("Marks and Stars")),
+            |ui| {
+                for action in [
+                    Action::Mark1,
+                    Action::Mark2,
+                    Action::Mark3,
+                    Action::Mark4,
+                    Action::Mark5,
+                    Action::Mark6,
+                ] {
+                    menu_item(ui, act, action);
+                }
+                ui.separator();
+                for action in [
+                    Action::SelectMark1,
+                    Action::SelectMark2,
+                    Action::SelectMark3,
+                    Action::SelectMark4,
+                    Action::SelectMark5,
+                    Action::SelectMark6,
+                ] {
+                    menu_item(ui, act, action);
+                }
+                ui.separator();
+                for action in [
+                    Action::Rate0,
+                    Action::Rate1,
+                    Action::Rate2,
+                    Action::Rate3,
+                    Action::Rate4,
+                    Action::Rate5,
+                ] {
+                    menu_item(ui, act, action);
+                }
+            },
+        );
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::ORIENTATION, tr("Orientation")),
+            |ui| {
+                for action in [
+                    Action::RotateCw,
+                    Action::RotateCcw,
+                    Action::Rotate180,
+                    Action::Mirror,
+                    Action::Flip,
+                ] {
+                    menu_item(ui, act, action);
+                }
+                ui.separator();
+                menu_item(ui, act, Action::SaveOrientation);
+            },
+        );
+        menu_item(ui, act, Action::Crop);
+        menu_item(ui, act, Action::Keywords);
+        ui.separator();
+        self.plugins_menu(ui);
+        ui.separator();
+        menu_item(ui, act, Action::Preferences);
+    }
+
+    /// The View menu: layout, theme, colour, filter and zoom, the panels, and the slideshow.
+    fn menu_view(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        self.layout_menu(ui, act);
+        scroll_menu(ui, iconed(ui, theme::icon::PALETTE, tr("Theme")), |ui| {
+            self.theme_menu(ui)
+        });
+        scroll_menu(
+            ui,
+            iconed(ui, theme::icon::COLOUR, tr("Colour Management")),
+            |ui| self.colour_settings(ui),
+        );
+        scroll_menu(ui, iconed(ui, theme::icon::FILTER, tr("Filter")), |ui| {
+            use theme::icon::{CIRCLE, HALF, HALF_TILT, SUN_DIM};
+            let icons = [CIRCLE, HALF, HALF_TILT, SUN_DIM];
+            for (f, label) in FILTERS.iter().enumerate() {
+                let text = iconed(ui, icons[f.min(3)], tr(label));
+                let radio = ui.radio(self.config.view_filter == f, text);
+                if noted(&radio, tr(label)).clicked() {
+                    self.set_view_filter(f);
+                }
+            }
+            ui.separator();
+            menu_item(ui, act, Action::ViewFilter);
+        });
+        scroll_menu(ui, iconed(ui, theme::icon::ZOOM, tr("Zoom")), |ui| {
+            menu_item(ui, act, Action::ZoomIn);
+            menu_item(ui, act, Action::ZoomOut);
+            menu_item(ui, act, Action::Zoom1To1);
+            let mode = self.config.fit_mode;
+            menu_toggle(ui, act, mode == 0, Action::ZoomFit);
+            menu_toggle(ui, act, mode == 1, Action::FitWidth);
+            menu_toggle(ui, act, mode == 2, Action::FitHeight);
+            menu_toggle(ui, act, mode == 3, Action::FitFill);
+        });
+        menu_item(ui, act, Action::FullScreen);
+        menu_item(ui, act, Action::HideTools);
+        let c = &self.config;
+        menu_toggle(ui, act, c.toolbar, Action::Toolbar);
+        menu_toggle(ui, act, c.path_bar, Action::PathBar);
+        menu_toggle(ui, act, c.folder_tree, Action::FolderTree);
+        menu_toggle(ui, act, c.show_subfolders, Action::Subfolders);
+        menu_toggle(ui, act, c.show_hidden, Action::HiddenFiles);
+        menu_toggle(ui, act, c.thumbnails, Action::Thumbnails);
+        menu_toggle(ui, act, c.icons, Action::Icons);
+        menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
+        menu_toggle(ui, act, c.sort_manager, Action::SortManager);
+        menu_toggle(ui, act, self.info.exif_window, Action::ExifWindow);
+        menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
+        menu_toggle(ui, act, c.osd, Action::Overlay);
+        menu_item(ui, act, Action::Histogram);
+        menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
+        menu_item(ui, act, Action::Refresh);
+        ui.separator();
+        let (icon, label) = if self.slideshow.shown_at.is_some() {
+            (theme::icon::STOP, tr("Stop Slideshow"))
+        } else {
+            (theme::icon::PLAY, tr("Start Slideshow"))
+        };
+        let text = iconed(ui, icon, label);
+        menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
+        menu_toggle(ui, act, self.slideshow.paused, Action::Pause);
+        menu_item(ui, act, Action::Faster);
+        menu_item(ui, act, Action::Slower);
+        menu_toggle(ui, act, self.config.random, Action::RandomOrder);
+    }
+
+    /// The Window menu.
+    fn menu_window(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::NewWindow);
+        menu_item(ui, act, Action::CloseWindow);
+        menu_item(ui, act, Action::WindowTitle);
+        ui.separator();
+        menu_toggle(ui, act, self.window.projector, Action::Projector);
+        let pointer = self.config.projector_pointer;
+        menu_toggle(ui, act, pointer, Action::ProjectorPointer);
+    }
+
+    /// The Help menu.
+    fn menu_help(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
+        menu_item(ui, act, Action::Help);
+        menu_item(ui, act, Action::Shortcuts);
+        menu_item(ui, act, Action::KeyboardMap);
+        ui.separator();
+        menu_item(ui, act, Action::About);
     }
 
     /// A file's right-click menu; it acts on the selection.

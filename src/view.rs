@@ -817,31 +817,8 @@ impl crate::App {
                 egui::Color32::from_rgb(r, g, b)
             }))
             .show(ui, |ui| {
-                // A layout: the shown image in the first pane, the following ones in the rest.
                 let [cols, rows] = layout_grid(&self.config.layout);
-                let cell = ui.max_rect().size() / egui::vec2(cols as f32, rows as f32);
-                let panes: Vec<egui::Rect> = (0..rows * cols)
-                    .map(|k| {
-                        let at = egui::vec2((k % cols) as f32, (k / cols) as f32) * cell;
-                        let rect = egui::Rect::from_min_size(ui.max_rect().min + at, cell);
-                        if cols * rows > 1 {
-                            rect.shrink(1.0)
-                        } else {
-                            rect
-                        }
-                    })
-                    .collect();
-                // Comparing: the shown image on the left, the other on the right.
-                let full = panes[0];
-                let (area, right) = if self.compare && panes.len() == 1 {
-                    let (l, r) = full.split_left_right_at_fraction(0.5);
-                    (
-                        l.shrink2(egui::vec2(1.0, 0.0)),
-                        Some(r.shrink2(egui::vec2(1.0, 0.0))),
-                    )
-                } else {
-                    (full, None)
-                };
+                let (panes, area, right) = pane_rects(ui.max_rect(), [cols, rows], self.compare);
                 // The wheel and dragging work over every pane, and the compared half.
                 let several = panes.len() > 1 || right.is_some();
                 let input = if several { ui.max_rect() } else { area };
@@ -853,12 +830,9 @@ impl crate::App {
                 } else {
                     1.0
                 };
-                // Size on screen after a quarter turn.
-                let quarter = self.viewing.orient.0 % 2 == 1;
-                let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
                 let mode = self.config.fit_mode;
                 let fit = self.list.slots.get(&self.list.cur).map_or(1.0, |s| {
-                    let [w, h] = turned(s.orig);
+                    let [w, h] = self.turned(s.orig);
                     fit_scale(area.size() * ppp, [w as f32, h as f32], mode).min(max_fit)
                 });
                 let long = self.decode_size(area, ppp, max_fit);
@@ -873,64 +847,11 @@ impl crate::App {
                 }
                 let scale = self.zoom.level.unwrap_or(fit);
                 self.zoom.last_scale = scale;
-                // Panning only along a side where the image is larger than the view, and only up
-                // to its edge, so an image that fits stays put.
-                let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig)).or(self
-                    .decoding
-                    .last_drawn
-                    .as_ref()
-                    .map(|d| d.1));
-                if let Some([w, h]) = orig.map(turned) {
-                    // Choosing a part to crop, a drag draws it instead.
-                    if response.dragged() && self.viewing.crop.is_none() {
-                        self.zoom.offset += response.drag_delta();
-                    }
-                    let size = egui::vec2(w as f32, h as f32) * scale / ppp;
-                    let max = ((size - area.size()) / 2.0).max(egui::Vec2::ZERO);
-                    self.zoom.offset = self.zoom.offset.clamp(-max, max);
-                    self.zoom.max_pan = max;
-                }
-
-                // Not zoomed: decoded again at window size when the box the view decodes into has
-                // grown past the one the texture was made for (the previous texture is shown
-                // meanwhile). By the box, not the texture's size: the decoders round, and the
-                // same box gives the same texture, so never again and again. Zoomed: full
-                // resolution, also where the size shown is larger than a texture may be.
-                let slot = self.list.slots.get(&self.list.cur);
-                let decode_box = self.decode_box(self.list.cur);
-                let grown = slot.is_some_and(|s| {
-                    !s.full && grown(decode_box, s.decoded_for, s.tex.size(), s.orig)
-                });
-                let view = area.size() * ppp;
-                let view = if quarter {
-                    [view.y, view.x]
-                } else {
-                    [view.x, view.y]
-                };
-                let too_small =
-                    slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale, view));
-                // Not zoomed: decoded again to the size shown, which the decoders' limit now
-                // holds; full resolution only where that is larger than a texture may be.
-                let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
-                let fitted = self.zoom.level.is_none() && fits;
-                if fitted && grown {
-                    self.list.slots.remove(&self.list.cur);
-                    self.request(self.list.cur, false);
-                } else if !fitted && too_small {
-                    self.request(self.list.cur, true);
-                }
+                self.pan_within(&response, area, scale, ppp);
+                self.decode_again_if_needed(area, ppp, scale, long);
                 self.paint_shown(ctx, ui, area, scale, max_fit);
                 if self.viewing.crop.is_some() {
-                    let shown = self.list.slots.get(&self.list.cur).map(|s| turned(s.orig));
-                    match shown {
-                        Some([w, h]) => {
-                            let size = egui::vec2(w as f32, h as f32) * scale / ppp;
-                            let at = area.center() + self.zoom.offset;
-                            let bounds = egui::Rect::from_center_size(at, size);
-                            self.crop_input(ctx, ui, &response, bounds, [w, h]);
-                        }
-                        None => self.viewing.crop = None,
-                    }
+                    self.crop_over(ctx, ui, &response, area, scale, ppp);
                 }
                 // A video: a play button over the preview frame (click or Enter), readable on
                 // any frame, also in the slideshow and full screen.
@@ -948,52 +869,7 @@ impl crate::App {
                 if self.config.histogram > 0 {
                     self.paint_histogram(ui, area);
                 }
-                // What each pane shows, for the status bar: the one under the pointer.
-                let mut shown = vec![(self.list.cur, Some(self.zoom.last_scale))];
-                if let Some(right) = right {
-                    shown.extend(self.paint_other(ui, right, self.zoom.level));
-                }
-                for (k, (rect, i)) in panes[1..].iter().zip(self.list.panes.clone()).enumerate() {
-                    shown.push((
-                        i,
-                        self.paint_pane(ui, *rect, i, self.zoom.level, Some(k + 1)),
-                    ));
-                    // A click makes it the shown image, in the first pane.
-                    if ui
-                        .interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click())
-                        .clicked()
-                    {
-                        clicked_pane = Some(i);
-                    }
-                }
-                let rects: Vec<egui::Rect> = match right {
-                    Some(r) => vec![area, r],
-                    None => panes.clone(),
-                };
-                let pointer = ui.ctx().pointer_hover_pos();
-                let hovered = pointer.and_then(|p| rects.iter().position(|r| r.contains(p)));
-                // The pane the status bar tells about gets a thin outline.
-                if let Some(k) = hovered.filter(|_| rects.len() > 1 && !bare)
-                    && k < shown.len()
-                {
-                    let stroke = egui::Stroke::new(1.5, ui.visuals().selection.bg_fill);
-                    ui.painter()
-                        .rect_stroke(rects[k], 0.0, stroke, egui::StrokeKind::Inside);
-                }
-                self.status.pane = hovered.filter(|&k| k < shown.len()).unwrap_or(0);
-                self.status.grid = if right.is_some() {
-                    [2, 1]
-                } else {
-                    [cols, rows]
-                };
-                self.status.pane_info = shown;
-                if panes.len() > 1 && self.config.layout_names && !self.list.files.is_empty() {
-                    let shown =
-                        std::iter::once(self.list.cur).chain(self.list.panes.iter().copied());
-                    for (rect, i) in panes.iter().zip(shown) {
-                        self.paint_name(ui, *rect, i);
-                    }
-                }
+                clicked_pane = self.paint_panes(ui, &panes, area, right, [cols, rows], bare);
                 // Full screen: a film strip of the images around this one, while the pointer
                 // is near the bottom.
                 if fullscreen && !self.window.kiosk && !self.list.files.is_empty() {
@@ -1007,6 +883,152 @@ impl crate::App {
         if let Some(i) = clicked_pane {
             self.go(ctx, i);
         }
+    }
+
+    /// A size `[w, h]` of the shown image as it is on screen, after its quarter turns.
+    fn turned(&self, [w, h]: [usize; 2]) -> [usize; 2] {
+        if self.viewing.orient.0 % 2 == 1 {
+            [h, w]
+        } else {
+            [w, h]
+        }
+    }
+
+    /// A drag pans the image at `scale`, only along a side where it is larger than `area` and
+    /// only up to its edge, so an image that fits stays put.
+    fn pan_within(&mut self, response: &egui::Response, area: egui::Rect, scale: f32, ppp: f32) {
+        let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig)).or(self
+            .decoding
+            .last_drawn
+            .as_ref()
+            .map(|d| d.1));
+        if let Some([w, h]) = orig.map(|o| self.turned(o)) {
+            // Choosing a part to crop, a drag draws it instead.
+            if response.dragged() && self.viewing.crop.is_none() {
+                self.zoom.offset += response.drag_delta();
+            }
+            let size = egui::vec2(w as f32, h as f32) * scale / ppp;
+            let max = ((size - area.size()) / 2.0).max(egui::Vec2::ZERO);
+            self.zoom.offset = self.zoom.offset.clamp(-max, max);
+            self.zoom.max_pan = max;
+        }
+    }
+
+    /// Not zoomed: decoded again at window size when the box the view decodes into has grown
+    /// past the one the texture was made for (the previous texture is shown meanwhile). By the
+    /// box, not the texture's size: the decoders round, and the same box gives the same
+    /// texture, so never again and again. Zoomed: full resolution, also where the size shown is
+    /// larger than a texture may be (`long`).
+    fn decode_again_if_needed(&mut self, area: egui::Rect, ppp: f32, scale: f32, long: u32) {
+        let slot = self.list.slots.get(&self.list.cur);
+        let decode_box = self.decode_box(self.list.cur);
+        let grown =
+            slot.is_some_and(|s| !s.full && grown(decode_box, s.decoded_for, s.tex.size(), s.orig));
+        let view = area.size() * ppp;
+        let view = if self.viewing.orient.0 % 2 == 1 {
+            [view.y, view.x]
+        } else {
+            [view.x, view.y]
+        };
+        let too_small =
+            slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale, view));
+        // Not zoomed: decoded again to the size shown, which the decoders' limit now
+        // holds; full resolution only where that is larger than a texture may be.
+        let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
+        let fitted = self.zoom.level.is_none() && fits;
+        if fitted && grown {
+            self.list.slots.remove(&self.list.cur);
+            self.request(self.list.cur, false);
+        } else if !fitted && too_small {
+            self.request(self.list.cur, true);
+        }
+    }
+
+    /// Edit → Crop over the shown image in `area` at `scale`: the part chosen by a drag.
+    fn crop_over(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        area: egui::Rect,
+        scale: f32,
+        ppp: f32,
+    ) {
+        let shown = self
+            .list
+            .slots
+            .get(&self.list.cur)
+            .map(|s| self.turned(s.orig));
+        match shown {
+            Some([w, h]) => {
+                let size = egui::vec2(w as f32, h as f32) * scale / ppp;
+                let at = area.center() + self.zoom.offset;
+                let bounds = egui::Rect::from_center_size(at, size);
+                self.crop_input(ctx, ui, response, bounds, [w, h]);
+            }
+            None => self.viewing.crop = None,
+        }
+    }
+
+    /// The other panes, and the compared half `right`, painted; what each pane shows, for the
+    /// status bar (the one under the pointer, outlined), and the names in each pane. Returns the
+    /// pane clicked, whose image becomes the shown one.
+    fn paint_panes(
+        &mut self,
+        ui: &mut egui::Ui,
+        panes: &[egui::Rect],
+        area: egui::Rect,
+        right: Option<egui::Rect>,
+        [cols, rows]: [usize; 2],
+        bare: bool,
+    ) -> Option<usize> {
+        let mut clicked_pane = None;
+        // What each pane shows, for the status bar: the one under the pointer.
+        let mut shown = vec![(self.list.cur, Some(self.zoom.last_scale))];
+        if let Some(right) = right {
+            shown.extend(self.paint_other(ui, right, self.zoom.level));
+        }
+        for (k, (rect, i)) in panes[1..].iter().zip(self.list.panes.clone()).enumerate() {
+            shown.push((
+                i,
+                self.paint_pane(ui, *rect, i, self.zoom.level, Some(k + 1)),
+            ));
+            // A click makes it the shown image, in the first pane.
+            if ui
+                .interact(*rect, ui.scope_id().with(("pane", k)), egui::Sense::click())
+                .clicked()
+            {
+                clicked_pane = Some(i);
+            }
+        }
+        let rects: Vec<egui::Rect> = match right {
+            Some(r) => vec![area, r],
+            None => panes.to_vec(),
+        };
+        let pointer = ui.ctx().pointer_hover_pos();
+        let hovered = pointer.and_then(|p| rects.iter().position(|r| r.contains(p)));
+        // The pane the status bar tells about gets a thin outline.
+        if let Some(k) = hovered.filter(|_| rects.len() > 1 && !bare)
+            && k < shown.len()
+        {
+            let stroke = egui::Stroke::new(1.5, ui.visuals().selection.bg_fill);
+            ui.painter()
+                .rect_stroke(rects[k], 0.0, stroke, egui::StrokeKind::Inside);
+        }
+        self.status.pane = hovered.filter(|&k| k < shown.len()).unwrap_or(0);
+        self.status.grid = if right.is_some() {
+            [2, 1]
+        } else {
+            [cols, rows]
+        };
+        self.status.pane_info = shown;
+        if panes.len() > 1 && self.config.layout_names && !self.list.files.is_empty() {
+            let shown = std::iter::once(self.list.cur).chain(self.list.panes.iter().copied());
+            for (rect, i) in panes.iter().zip(shown) {
+                self.paint_name(ui, *rect, i);
+            }
+        }
+        clicked_pane
     }
 
     /// The view's box the shown image is decoded into (`view_box`), from the fit mode and, in
@@ -1639,6 +1661,38 @@ pub(crate) fn frame_at(frame_ms: &[u32], share: f64) -> usize {
         total > 0 && seen as f64 >= share * total as f64
     }))
     .unwrap_or(0)
+}
+
+/// The panes of a layout `[cols, rows]` in `max`, and the area of the shown image in the first;
+/// comparing, the shown image on the left half and the other on the right.
+fn pane_rects(
+    max: egui::Rect,
+    [cols, rows]: [usize; 2],
+    compare: bool,
+) -> (Vec<egui::Rect>, egui::Rect, Option<egui::Rect>) {
+    let cell = max.size() / egui::vec2(cols as f32, rows as f32);
+    let panes: Vec<egui::Rect> = (0..rows * cols)
+        .map(|k| {
+            let at = egui::vec2((k % cols) as f32, (k / cols) as f32) * cell;
+            let rect = egui::Rect::from_min_size(max.min + at, cell);
+            if cols * rows > 1 {
+                rect.shrink(1.0)
+            } else {
+                rect
+            }
+        })
+        .collect();
+    let full = panes[0];
+    let (area, right) = if compare && panes.len() == 1 {
+        let (l, r) = full.split_left_right_at_fraction(0.5);
+        (
+            l.shrink2(egui::vec2(1.0, 0.0)),
+            Some(r.shrink2(egui::vec2(1.0, 0.0))),
+        )
+    } else {
+        (full, None)
+    };
+    (panes, area, right)
 }
 
 #[cfg(test)]

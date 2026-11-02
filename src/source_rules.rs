@@ -146,3 +146,60 @@ fn app_stays_small() {
          slideshow::Slideshow is, rather than in App"
     );
 }
+
+/// A function a reader takes in whole: at most 120 lines outside the tests. The exceptions are
+/// tables of one arm per action, whose arms stay a few lines each: a longer arm is a method
+/// of its own, in the module of what it does.
+#[test]
+fn functions_stay_short() {
+    const MOST: usize = 120;
+    const TABLES: &[&str] = &["english", "icon", "run"];
+    const ARM: usize = 6;
+    let mut wrong = Vec::new();
+    for (file, text) in sources().into_iter().filter(|(n, _)| n.ends_with(".rs")) {
+        let lines: Vec<&str> = text.lines().collect();
+        let end = (lines.iter())
+            .position(|l| l.starts_with("mod tests"))
+            .unwrap_or(lines.len());
+        for i in 0..end {
+            let line = lines[i];
+            let Some(at) = line.find("fn ") else {
+                continue;
+            };
+            let head = &line[..at];
+            let words = ["", "pub(crate) ", "pub ", "const ", "unsafe "];
+            let indent = head.len() - head.trim_start().len();
+            if !words.iter().any(|w| head.trim_start() == *w) || line.trim_end().ends_with(';') {
+                continue;
+            }
+            let name = line[at + 3..].split(['(', '<']).next().unwrap_or("");
+            let close = format!("{}}}", " ".repeat(indent));
+            let Some(last) = (i..end).find(|&j| lines[j] == close) else {
+                continue;
+            };
+            if TABLES.contains(&name) {
+                for k in i..last {
+                    if !lines[k].trim_end().ends_with("=> {") {
+                        continue;
+                    }
+                    let pad = lines[k].len() - lines[k].trim_start().len();
+                    let shut = (k..last).find(|&j| {
+                        lines[j].len() - lines[j].trim_start().len() == pad
+                            && lines[j].trim_start().starts_with('}')
+                    });
+                    if shut.is_some_and(|j| j - k > ARM) {
+                        wrong.push(format!("{file}:{}: an arm of {name} is long", k + 1));
+                    }
+                }
+            } else if last - i + 1 > MOST {
+                let n = last - i + 1;
+                wrong.push(format!("{file}:{}: {name} has {n} lines", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "split these into functions of what each part does:\n{}",
+        wrong.join("\n")
+    );
+}

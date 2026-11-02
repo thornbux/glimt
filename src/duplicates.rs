@@ -72,6 +72,85 @@ pub(crate) struct Dups {
 }
 
 impl Dups {
+    /// The groups found: their count, buttons to check and uncheck, and the list, where a
+    /// click on a name sets `show`. Whether Move to Trash was clicked.
+    fn results(&mut self, ui: &mut egui::Ui, show: &mut Option<PathBuf>) -> bool {
+        let files: usize = self.groups.iter().map(Vec::len).sum();
+        ui.label(tf!(
+            "{groups}, {files}, among {images}",
+            groups = count(self.groups.len(), "group"),
+            files = count(files, "file"),
+            images = count(self.searched, "image")
+        ));
+        let mut trash = false;
+        ui.horizontal(|ui| {
+            if ui
+                .button(tr("Check all but the first of each group"))
+                .clicked()
+            {
+                self.checked = self
+                    .groups
+                    .iter()
+                    .flat_map(|g| g[1..].iter().cloned())
+                    .collect();
+            }
+            if ui.button(tr("Uncheck all")).clicked() {
+                self.checked.clear();
+            }
+            let n = self.checked.len();
+            trash = ui
+                .add_enabled(
+                    n > 0,
+                    egui::Button::new(tf!("Move {n} checked to trash…", n)),
+                )
+                .clicked();
+        });
+        ui.separator();
+        let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+            ui,
+            row_h,
+            self.rows.len(),
+            |ui, range| {
+                for &(g, f) in &self.rows[range] {
+                    let group = &self.groups[g];
+                    if f == usize::MAX {
+                        ui.strong(tf!(
+                            "Group {n} ({files})",
+                            n = g + 1,
+                            files = count(group.len(), "file")
+                        ));
+                        continue;
+                    }
+                    let path = &group[f];
+                    ui.horizontal(|ui| {
+                        let mut on = self.checked.contains(path);
+                        if ui.checkbox(&mut on, "").changed() {
+                            match on {
+                                true => self.checked.insert(path.clone()),
+                                false => self.checked.remove(path),
+                            };
+                        }
+                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        if ui.link(name).clicked() {
+                            *show = Some(path.clone());
+                        }
+                        let size = *(self.sizes.entry(path.clone()))
+                            .or_insert_with(|| path.metadata().map_or(0, |m| m.len()));
+                        ui.weak(format!(
+                            "{}  {}",
+                            human_size(size),
+                            path.parent().unwrap_or(path).display()
+                        ));
+                    });
+                }
+            },
+        );
+        trash
+    }
+}
+
+impl Dups {
     pub(crate) fn new() -> Self {
         Dups {
             by: duplicates::By::Checksum,
@@ -173,90 +252,10 @@ impl crate::App {
                     }
                     return;
                 }
-                let files: usize = dups.groups.iter().map(Vec::len).sum();
-                ui.label(tf!(
-                    "{groups}, {files}, among {images}",
-                    groups = count(dups.groups.len(), "group"),
-                    files = count(files, "file"),
-                    images = count(dups.searched, "image")
-                ));
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(tr("Check all but the first of each group"))
-                        .clicked()
-                    {
-                        dups.checked = dups
-                            .groups
-                            .iter()
-                            .flat_map(|g| g[1..].iter().cloned())
-                            .collect();
-                    }
-                    if ui.button(tr("Uncheck all")).clicked() {
-                        dups.checked.clear();
-                    }
-                    let n = dups.checked.len();
-                    trash = ui
-                        .add_enabled(
-                            n > 0,
-                            egui::Button::new(tf!("Move {n} checked to trash…", n)),
-                        )
-                        .clicked();
-                });
-                ui.separator();
-                let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
-                egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                    ui,
-                    row_h,
-                    dups.rows.len(),
-                    |ui, range| {
-                        for &(g, f) in &dups.rows[range] {
-                            let group = &dups.groups[g];
-                            if f == usize::MAX {
-                                ui.strong(tf!(
-                                    "Group {n} ({files})",
-                                    n = g + 1,
-                                    files = count(group.len(), "file")
-                                ));
-                                continue;
-                            }
-                            let path = &group[f];
-                            ui.horizontal(|ui| {
-                                let mut on = dups.checked.contains(path);
-                                if ui.checkbox(&mut on, "").changed() {
-                                    match on {
-                                        true => dups.checked.insert(path.clone()),
-                                        false => dups.checked.remove(path),
-                                    };
-                                }
-                                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                                if ui.link(name).clicked() {
-                                    show = Some(path.clone());
-                                }
-                                let size = *(dups.sizes.entry(path.clone()))
-                                    .or_insert_with(|| path.metadata().map_or(0, |m| m.len()));
-                                ui.weak(format!(
-                                    "{}  {}",
-                                    human_size(size),
-                                    path.parent().unwrap_or(path).display()
-                                ));
-                            });
-                        }
-                    },
-                );
+                trash = dups.results(ui, &mut show);
             });
         if start {
-            let paths: Vec<PathBuf> = (0..self.list.files.len()).map(|i| self.path(i)).collect();
-            let (tx, ctx) = (mpsc::channel(), ctx.clone());
-            let (by, progress) = (dups.by, Arc::new(Progress::default()));
-            let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
-            dups.searched = paths.len();
-            dups.progress = progress.clone();
-            dups.groups_rx = Receiving::of(tx.1);
-            let sender = tx.0;
-            std::thread::spawn(move || {
-                let _ = sender.send(find(paths, by, rotate, save, &progress));
-                ctx.request_repaint();
-            });
+            self.start_find(ctx, &mut dups);
         }
         if let Some(path) = show {
             match (0..self.list.files.len()).find(|&i| self.is_file(i, &path)) {
@@ -265,23 +264,44 @@ impl crate::App {
             }
         }
         if trash {
-            // The checked files of the list, through the usual delete with its confirmation.
-            self.list.selected = (0..self.list.files.len())
-                .filter(|&i| dups.checked.contains(&self.path(i)))
-                .collect();
-            self.selection_changed(ctx);
-            // With none selected the delete takes the shown image: only when the list still has
-            // every checked file, else it would be another one, or too few.
-            if self.list.selected.len() == dups.checked.len() {
-                self.request_delete(ctx, true);
-            } else {
-                self.notice = Some(tr("The checked files are no longer all in the list").into());
-            }
+            self.trash_checked(ctx, &dups);
         }
         if open {
             self.dups = Some(dups);
         } else {
             dups.progress.cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Find: the images of the list compared by `dups.by` in the background.
+    fn start_find(&mut self, ctx: &egui::Context, dups: &mut Dups) {
+        let paths: Vec<PathBuf> = (0..self.list.files.len()).map(|i| self.path(i)).collect();
+        let (tx, ctx) = (mpsc::channel(), ctx.clone());
+        let (by, progress) = (dups.by, Arc::new(Progress::default()));
+        let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
+        dups.searched = paths.len();
+        dups.progress = progress.clone();
+        dups.groups_rx = Receiving::of(tx.1);
+        let sender = tx.0;
+        std::thread::spawn(move || {
+            let _ = sender.send(find(paths, by, rotate, save, &progress));
+            ctx.request_repaint();
+        });
+    }
+
+    /// Move to Trash: the checked files of the list, through the usual delete with its
+    /// confirmation.
+    fn trash_checked(&mut self, ctx: &egui::Context, dups: &Dups) {
+        self.list.selected = (0..self.list.files.len())
+            .filter(|&i| dups.checked.contains(&self.path(i)))
+            .collect();
+        self.selection_changed(ctx);
+        // With none selected the delete takes the shown image: only when the list still has
+        // every checked file, else it would be another one, or too few.
+        if self.list.selected.len() == dups.checked.len() {
+            self.request_delete(ctx, true);
+        } else {
+            self.notice = Some(tr("The checked files are no longer all in the list").into());
         }
     }
 }

@@ -1042,36 +1042,11 @@ impl crate::App {
             };
 
             if thumbs && !shown.is_empty() {
-                // The rows shown and some around them, as files: kept being made while near.
-                let near =
-                    rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
-                let mut view: Vec<usize> = match &self.list.matches {
-                    Some(m) => m[near].to_vec(),
-                    None => near.collect(),
-                };
-                view.sort_unstable();
-                self.thumbs.view.lock().unwrap()[0] = view;
-                self.thumbs.list_rows = rows.clone();
-                self.trim_thumbs(rows);
+                self.keep_thumbs_near(rows.clone(), count);
             }
             let mut line = egui::Rect::NOTHING;
             let pointer = ctx.input(|i| i.pointer.interact_pos());
-            if let Some((_, to)) = &mut self.list.dragging {
-                *to = None;
-                // Near the top or bottom edge, the list scrolls on.
-                let clip = ui.clip_rect();
-                match pointer {
-                    Some(p) if p.y < clip.top() + row_h / 2.0 => {
-                        ui.scroll_with_delta(egui::vec2(0.0, 10.0))
-                    }
-                    Some(p) if p.y > clip.bottom() - row_h / 2.0 => {
-                        ui.scroll_with_delta(egui::vec2(0.0, -10.0))
-                    }
-                    _ => {}
-                }
-                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
-                ctx.request_repaint();
-            }
+            self.drag_scroll(ctx, ui, row_h, pointer);
             let mut cells = Vec::new();
             for (k, i) in shown.into_iter().enumerate() {
                 let marked = i == self.list.cur || self.list.selected.contains(&i);
@@ -1107,16 +1082,60 @@ impl crate::App {
             if icons {
                 self.drag_rubber_band(ui, &cells, row_h, first_row);
             }
-            // Dropped: the dragged images before the row the line was at.
-            if ctx.input(|i| i.pointer.any_released())
-                && let Some((picked, Some(to))) = self.list.dragging.take()
-            {
-                let order = collections::dropped(self.list.files.len(), &picked, to);
-                self.move_in_collection(ctx, picked, order);
-            } else if !ctx.input(|i| i.pointer.any_down()) {
-                self.list.dragging = None;
-            }
+            self.drop_dragged(ctx);
         });
+    }
+
+    /// The thumbnails of the list's `rows` shown and some around them, as files, kept being
+    /// made while near; the others let go.
+    fn keep_thumbs_near(&mut self, rows: std::ops::Range<usize>, count: usize) {
+        // The rows shown and some around them, as files: kept being made while near.
+        let near = rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
+        let mut view: Vec<usize> = match &self.list.matches {
+            Some(m) => m[near].to_vec(),
+            None => near.collect(),
+        };
+        view.sort_unstable();
+        self.thumbs.view.lock().unwrap()[0] = view;
+        self.thumbs.list_rows = rows.clone();
+        self.trim_thumbs(rows);
+    }
+
+    /// While rows are dragged in a collection: near the top or bottom edge, the list scrolls on.
+    fn drag_scroll(
+        &mut self,
+        ctx: &egui::Context,
+        ui: &mut egui::Ui,
+        row_h: f32,
+        pointer: Option<egui::Pos2>,
+    ) {
+        if let Some((_, to)) = &mut self.list.dragging {
+            *to = None;
+            let clip = ui.clip_rect();
+            match pointer {
+                Some(p) if p.y < clip.top() + row_h / 2.0 => {
+                    ui.scroll_with_delta(egui::vec2(0.0, 10.0))
+                }
+                Some(p) if p.y > clip.bottom() - row_h / 2.0 => {
+                    ui.scroll_with_delta(egui::vec2(0.0, -10.0))
+                }
+                _ => {}
+            }
+            ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+            ctx.request_repaint();
+        }
+    }
+
+    /// Dropped: the dragged images before the row the line was at; a drag let go elsewhere ends.
+    fn drop_dragged(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.pointer.any_released())
+            && let Some((picked, Some(to))) = self.list.dragging.take()
+        {
+            let order = collections::dropped(self.list.files.len(), &picked, to);
+            self.move_in_collection(ctx, picked, order);
+        } else if !ctx.input(|i| i.pointer.any_down()) {
+            self.list.dragging = None;
+        }
     }
 
     /// Selecting in the icon grid by dragging a rectangle, as in a file manager: every image

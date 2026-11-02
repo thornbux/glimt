@@ -5,6 +5,116 @@ use crate::actions::shortcuts as all_shortcuts;
 use eframe::egui;
 use egui::Key;
 
+/// The keyboard map's main rows.
+const ROWS: [Row; 6] = [
+    &[
+        ("Esc", Some(Key::Escape), 1.0),
+        ("", None, 0.5),
+        ("F1", Some(Key::F1), 1.0),
+        ("F2", Some(Key::F2), 1.0),
+        ("F3", Some(Key::F3), 1.0),
+        ("F4", Some(Key::F4), 1.0),
+        ("", None, 0.5),
+        ("F5", Some(Key::F5), 1.0),
+        ("F6", Some(Key::F6), 1.0),
+        ("F7", Some(Key::F7), 1.0),
+        ("F8", Some(Key::F8), 1.0),
+        ("", None, 0.5),
+        ("F9", Some(Key::F9), 1.0),
+        ("F10", Some(Key::F10), 1.0),
+        ("F11", Some(Key::F11), 1.0),
+        ("F12", Some(Key::F12), 1.0),
+    ],
+    &[
+        ("`", Some(Key::Backtick), 1.0),
+        ("1", Some(Key::Num1), 1.0),
+        ("2", Some(Key::Num2), 1.0),
+        ("3", Some(Key::Num3), 1.0),
+        ("4", Some(Key::Num4), 1.0),
+        ("5", Some(Key::Num5), 1.0),
+        ("6", Some(Key::Num6), 1.0),
+        ("7", Some(Key::Num7), 1.0),
+        ("8", Some(Key::Num8), 1.0),
+        ("9", Some(Key::Num9), 1.0),
+        ("0", Some(Key::Num0), 1.0),
+        ("-", Some(Key::Minus), 1.0),
+        ("=", Some(Key::Equals), 1.0),
+        ("Bksp", Some(Key::Backspace), 2.0),
+    ],
+    &[
+        ("Tab", Some(Key::Tab), 1.5),
+        ("Q", Some(Key::Q), 1.0),
+        ("W", Some(Key::W), 1.0),
+        ("E", Some(Key::E), 1.0),
+        ("R", Some(Key::R), 1.0),
+        ("T", Some(Key::T), 1.0),
+        ("Y", Some(Key::Y), 1.0),
+        ("U", Some(Key::U), 1.0),
+        ("I", Some(Key::I), 1.0),
+        ("O", Some(Key::O), 1.0),
+        ("P", Some(Key::P), 1.0),
+        ("[", Some(Key::OpenBracket), 1.0),
+        ("]", Some(Key::CloseBracket), 1.0),
+        ("\\", Some(Key::Backslash), 1.5),
+    ],
+    &[
+        ("Caps", None, 1.75),
+        ("A", Some(Key::A), 1.0),
+        ("S", Some(Key::S), 1.0),
+        ("D", Some(Key::D), 1.0),
+        ("F", Some(Key::F), 1.0),
+        ("G", Some(Key::G), 1.0),
+        ("H", Some(Key::H), 1.0),
+        ("J", Some(Key::J), 1.0),
+        ("K", Some(Key::K), 1.0),
+        ("L", Some(Key::L), 1.0),
+        (";", Some(Key::Semicolon), 1.0),
+        ("'", Some(Key::Quote), 1.0),
+        ("Enter", Some(Key::Enter), 2.25),
+    ],
+    &[
+        ("Shift", None, 2.25),
+        ("Z", Some(Key::Z), 1.0),
+        ("X", Some(Key::X), 1.0),
+        ("C", Some(Key::C), 1.0),
+        ("V", Some(Key::V), 1.0),
+        ("B", Some(Key::B), 1.0),
+        ("N", Some(Key::N), 1.0),
+        ("M", Some(Key::M), 1.0),
+        (",", Some(Key::Comma), 1.0),
+        (".", Some(Key::Period), 1.0),
+        ("/", Some(Key::Slash), 1.0),
+        ("Shift", None, 2.75),
+    ],
+    &[
+        ("Ctrl", None, 1.5),
+        ("Alt", None, 1.5),
+        ("Space", Some(Key::Space), 7.0),
+        ("Alt", None, 1.5),
+        ("Ctrl", None, 1.5),
+    ],
+];
+/// The keys above the arrows.
+const NAV: [[(&str, Key); 3]; 2] = [
+    [
+        ("Ins", Key::Insert),
+        ("Home", Key::Home),
+        ("PgUp", Key::PageUp),
+    ],
+    [
+        ("Del", Key::Delete),
+        ("End", Key::End),
+        ("PgDn", Key::PageDown),
+    ],
+];
+/// The arrow keys: (label, key, column, row).
+const ARROWS: [(&str, Key, f32, f32); 4] = [
+    ("↑", Key::ArrowUp, 1.0, 0.0),
+    ("←", Key::ArrowLeft, 0.0, 1.0),
+    ("↓", Key::ArrowDown, 1.0, 1.0),
+    ("→", Key::ArrowRight, 2.0, 1.0),
+];
+
 const MANUAL: &[(&str, &str)] = &[
     (
         "Opening images",
@@ -830,6 +940,10 @@ const CREDITS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// A row of the keyboard map: (label, key, width in key units); `None` keys are drawn but
+/// never used.
+type Row = &'static [(&'static str, Option<Key>, f32)];
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Page {
     Manual,
@@ -953,108 +1067,6 @@ fn shortcuts(ui: &mut egui::Ui) {
 
 /// A keyboard with the keys Glimt uses highlighted; hover a key to see what it does.
 fn keymap(ui: &mut egui::Ui) {
-    use Key::*;
-    // (label, key, width in key units); `None` keys are drawn but never used.
-    type Row = &'static [(&'static str, Option<Key>, f32)];
-    const ROWS: [Row; 6] = [
-        &[
-            ("Esc", Some(Escape), 1.0),
-            ("", None, 0.5),
-            ("F1", Some(F1), 1.0),
-            ("F2", Some(F2), 1.0),
-            ("F3", Some(F3), 1.0),
-            ("F4", Some(F4), 1.0),
-            ("", None, 0.5),
-            ("F5", Some(F5), 1.0),
-            ("F6", Some(F6), 1.0),
-            ("F7", Some(F7), 1.0),
-            ("F8", Some(F8), 1.0),
-            ("", None, 0.5),
-            ("F9", Some(F9), 1.0),
-            ("F10", Some(F10), 1.0),
-            ("F11", Some(F11), 1.0),
-            ("F12", Some(F12), 1.0),
-        ],
-        &[
-            ("`", Some(Backtick), 1.0),
-            ("1", Some(Num1), 1.0),
-            ("2", Some(Num2), 1.0),
-            ("3", Some(Num3), 1.0),
-            ("4", Some(Num4), 1.0),
-            ("5", Some(Num5), 1.0),
-            ("6", Some(Num6), 1.0),
-            ("7", Some(Num7), 1.0),
-            ("8", Some(Num8), 1.0),
-            ("9", Some(Num9), 1.0),
-            ("0", Some(Num0), 1.0),
-            ("-", Some(Minus), 1.0),
-            ("=", Some(Equals), 1.0),
-            ("Bksp", Some(Backspace), 2.0),
-        ],
-        &[
-            ("Tab", Some(Tab), 1.5),
-            ("Q", Some(Q), 1.0),
-            ("W", Some(W), 1.0),
-            ("E", Some(E), 1.0),
-            ("R", Some(R), 1.0),
-            ("T", Some(T), 1.0),
-            ("Y", Some(Y), 1.0),
-            ("U", Some(U), 1.0),
-            ("I", Some(I), 1.0),
-            ("O", Some(O), 1.0),
-            ("P", Some(P), 1.0),
-            ("[", Some(OpenBracket), 1.0),
-            ("]", Some(CloseBracket), 1.0),
-            ("\\", Some(Backslash), 1.5),
-        ],
-        &[
-            ("Caps", None, 1.75),
-            ("A", Some(A), 1.0),
-            ("S", Some(S), 1.0),
-            ("D", Some(D), 1.0),
-            ("F", Some(F), 1.0),
-            ("G", Some(G), 1.0),
-            ("H", Some(H), 1.0),
-            ("J", Some(J), 1.0),
-            ("K", Some(K), 1.0),
-            ("L", Some(L), 1.0),
-            (";", Some(Semicolon), 1.0),
-            ("'", Some(Quote), 1.0),
-            ("Enter", Some(Enter), 2.25),
-        ],
-        &[
-            ("Shift", None, 2.25),
-            ("Z", Some(Z), 1.0),
-            ("X", Some(X), 1.0),
-            ("C", Some(C), 1.0),
-            ("V", Some(V), 1.0),
-            ("B", Some(B), 1.0),
-            ("N", Some(N), 1.0),
-            ("M", Some(M), 1.0),
-            (",", Some(Comma), 1.0),
-            (".", Some(Period), 1.0),
-            ("/", Some(Slash), 1.0),
-            ("Shift", None, 2.75),
-        ],
-        &[
-            ("Ctrl", None, 1.5),
-            ("Alt", None, 1.5),
-            ("Space", Some(Space), 7.0),
-            ("Alt", None, 1.5),
-            ("Ctrl", None, 1.5),
-        ],
-    ];
-    const NAV: [[(&str, Key); 3]; 2] = [
-        [("Ins", Insert), ("Home", Home), ("PgUp", PageUp)],
-        [("Del", Delete), ("End", End), ("PgDn", PageDown)],
-    ];
-    const ARROWS: [(&str, Key, f32, f32); 4] = [
-        ("↑", ArrowUp, 1.0, 0.0),
-        ("←", ArrowLeft, 0.0, 1.0),
-        ("↓", ArrowDown, 1.0, 1.0),
-        ("→", ArrowRight, 2.0, 1.0),
-    ];
-
     ui.label("Highlighted keys do something; bright ones also without Ctrl, Shift or Alt.");
     ui.label("Hover a key to see its actions.");
     ui.add_space(8.0);

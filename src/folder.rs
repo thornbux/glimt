@@ -125,6 +125,170 @@ impl Folder {
     }
 }
 
+/// What a listing thread reads with, and where it sends the list and then the sizes.
+struct Listing {
+    /// The folder listed, or the one the paths of a collection or of several folders are
+    /// relative to.
+    dir: PathBuf,
+    types: Types,
+    by: files::Sort,
+    ascending: bool,
+    case: bool,
+    recursive: bool,
+    shuffled: bool,
+    /// Set when another listing starts: this one stops reading a tree.
+    stop: Arc<AtomicBool>,
+    tx: mpsc::Sender<(Vec<PathBuf>, Vec<OsString>)>,
+    size_tx: mpsc::Sender<u64>,
+    ctx: egui::Context,
+}
+
+impl Listing {
+    /// Several folders: their images, each folder (with its subfolders) after the other.
+    fn folders(self, folders: &[PathBuf]) {
+        let rel = |dir: &Path, names: Vec<OsString>| -> Vec<OsString> {
+            let at = dir.strip_prefix("/").unwrap_or(dir).to_path_buf();
+            (names.into_iter())
+                .map(|n| at.join(n).into_os_string())
+                .collect()
+        };
+        let mut files: Vec<OsString> = (folders.iter())
+            .flat_map(|d| match self.recursive {
+                true => rel(d, list_tree(d, self.types, &self.stop, |_| {}, |_| {}).1),
+                false => rel(d, list_folder(d, self.types).1),
+            })
+            .collect();
+        // A folder inside another one given has its images listed once.
+        let mut seen = HashSet::new();
+        files.retain(|f| seen.insert(f.clone()));
+        sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
+        if self.shuffled {
+            shuffle(&mut files);
+        }
+        // Sizes after, as for a folder: the list shows first.
+        let paths: Vec<PathBuf> = files.iter().map(|f| self.dir.join(f)).collect();
+        if self.tx.send((Vec::new(), files)).is_ok() {
+            self.ctx.request_repaint();
+            let sizes = paths
+                .into_iter()
+                .filter_map(|p| Some(p.metadata().ok()?.len()));
+            send_sizes(sizes, self.size_tx, &self.ctx);
+        }
+    }
+
+    /// A collection's files that still exist, from its file when it has one (`saved`), in
+    /// its own order unless `sort`.
+    fn collection(self, files: Vec<OsString>, saved: Option<PathBuf>, sort: bool) {
+        let mut files = files;
+        if let Some(Ok(paths)) = saved.map(|f| collections::load(&f)) {
+            files = (paths.iter())
+                .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
+                .collect();
+        }
+        files.retain(|f| self.dir.join(f).exists());
+        if sort {
+            // By name with Case on, sort_files keeps the order as listed, a folder's;
+            // a collection's is its own, so it is put in name order here.
+            if self.by == files::Sort::Name && self.case {
+                files.sort_unstable();
+            }
+            sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
+        }
+        // A random slideshow with its subfolders: read from the file, in its order.
+        if self.shuffled {
+            shuffle(&mut files);
+        }
+        let sizes: Vec<u64> = (files.iter())
+            .filter_map(|f| Some(self.dir.join(f).metadata().ok()?.len()))
+            .collect();
+        if self.tx.send((Vec::new(), files)).is_ok() {
+            self.ctx.request_repaint();
+            send_sizes(sizes.into_iter(), self.size_tx, &self.ctx);
+        }
+    }
+
+    /// A folder, or its tree; `before`, the list in EXIF date order kept if no name is new,
+    /// and `parts` sends a tree's images as they are read.
+    fn folder(
+        self,
+        before: Option<Vec<OsString>>,
+        parts: bool,
+        part_tx: mpsc::SyncSender<Vec<OsString>>,
+        subdirs_tx: mpsc::Sender<Vec<PathBuf>>,
+    ) {
+        // The folder read once, also with the folders below it. Its own subfolders show at
+        // once: a large tree takes long to read whole.
+        // Its images too, a folder of it at a time, in name order (the sort asked for comes
+        // with the whole tree): at most four times a second, as each is a copy of the list.
+        // The first images at once; after them, at most four times a second.
+        let mut sent: Option<(Instant, std::time::Duration)> = None;
+        let (dirs, mut files) = match self.recursive {
+            true => list_tree(
+                &self.dir,
+                self.types,
+                &self.stop,
+                |dirs| {
+                    if subdirs_tx.send(dirs.to_vec()).is_ok() {
+                        self.ctx.request_repaint();
+                    }
+                },
+                |so_far| {
+                    // The next one after four times as long as this one took, a quarter second
+                    // at least: copying a long list must not slow the reading down.
+                    let soon = sent.is_some_and(|(t, wait)| t.elapsed() < wait);
+                    if !parts || self.shuffled || soon {
+                        return;
+                    }
+                    let began = Instant::now();
+                    let mut part = so_far.to_vec();
+                    part.sort_unstable();
+                    // Full: the one before is not taken yet; this one is left out.
+                    if part_tx.try_send(part).is_ok() {
+                        self.ctx.request_repaint();
+                    }
+                    let wait = (began.elapsed() * 4).max(std::time::Duration::from_millis(250));
+                    sent = Some((Instant::now(), wait));
+                },
+            ),
+            false => list_folder(&self.dir, self.types),
+        };
+        // Stopped: another folder is listed now.
+        if self.stop.load(Ordering::Relaxed) {
+            return;
+        }
+        match before.and_then(|before| files::kept_order(before, &files)) {
+            Some(kept) => files = kept,
+            None => sort_files(&self.dir, &mut files, self.by, self.ascending, self.case),
+        }
+        if self.shuffled {
+            shuffle(&mut files);
+        }
+        // The receiver is gone if another folder was opened meanwhile; then we stop.
+        if self.tx.send((dirs, files)).is_err() {
+            return;
+        }
+        self.ctx.request_repaint();
+        // Sizes afterwards: read the folder once more and sum from the directory entries in
+        // chunks, so the status bar fills in gradually without a copy of the whole list in
+        // memory. A tree a folder at a time, unsorted.
+        if self.recursive {
+            let sizes = walk(&self.dir, self.types).flat_map(|(rel, _, files)| {
+                let folder = self.dir.join(rel);
+                (files.into_iter()).filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
+            });
+            return send_sizes(sizes, self.size_tx, &self.ctx);
+        }
+        let images = std::fs::read_dir(&self.dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| files::kind(e).0 && is_listed(&e.path(), self.types));
+        // Through a link, the size of the file it points to, as the list shows that.
+        let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
+        send_sizes(sizes, self.size_tx, &self.ctx);
+    }
+}
+
 impl crate::App {
     // ---- Opening a folder, a collection or several folders, and listing it ----
 
@@ -446,138 +610,27 @@ impl crate::App {
         // Nor in random order: a list in name order would take the shuffled one's place.
         let parts = std::mem::take(&mut self.folder.list_parts) && !self.slideshow.shuffled;
         self.folder.went_to = None;
+        let listing = Listing {
+            dir: list_dir,
+            types,
+            by,
+            ascending,
+            case,
+            recursive,
+            shuffled,
+            stop,
+            tx,
+            size_tx,
+            ctx: ctx2,
+        };
         std::thread::spawn(move || {
-            // Several folders: their images, each folder (with its subfolders) after the other.
             if !folders.is_empty() {
-                let rel = |dir: &Path, names: Vec<OsString>| -> Vec<OsString> {
-                    let at = dir.strip_prefix("/").unwrap_or(dir).to_path_buf();
-                    (names.into_iter())
-                        .map(|n| at.join(n).into_os_string())
-                        .collect()
-                };
-                let mut files: Vec<OsString> = (folders.iter())
-                    .flat_map(|d| match recursive {
-                        true => rel(d, list_tree(d, types, &stop, |_| {}, |_| {}).1),
-                        false => rel(d, list_folder(d, types).1),
-                    })
-                    .collect();
-                // A folder inside another one given has its images listed once.
-                let mut seen = HashSet::new();
-                files.retain(|f| seen.insert(f.clone()));
-                sort_files(&list_dir, &mut files, by, ascending, case);
-                if shuffled {
-                    shuffle(&mut files);
-                }
-                // Sizes after, as for a folder: the list shows first.
-                let paths: Vec<PathBuf> = files.iter().map(|f| list_dir.join(f)).collect();
-                if tx.send((Vec::new(), files)).is_ok() {
-                    ctx2.request_repaint();
-                    let sizes = paths
-                        .into_iter()
-                        .filter_map(|p| Some(p.metadata().ok()?.len()));
-                    send_sizes(sizes, size_tx, &ctx2);
-                }
-                return;
+                listing.folders(&folders);
+            } else if let Some(files) = collection {
+                listing.collection(files, saved, sort);
+            } else {
+                listing.folder(before, parts, part_tx, subdirs_tx);
             }
-            if let Some(mut files) = collection {
-                if let Some(Ok(paths)) = saved.map(|f| collections::load(&f)) {
-                    files = (paths.iter())
-                        .filter_map(|p| Some(p.strip_prefix("/").ok()?.as_os_str().to_owned()))
-                        .collect();
-                }
-                files.retain(|f| list_dir.join(f).exists());
-                if sort {
-                    // By name with Case on, sort_files keeps the order as listed, a folder's;
-                    // a collection's is its own, so it is put in name order here.
-                    if by == files::Sort::Name && case {
-                        files.sort_unstable();
-                    }
-                    sort_files(&list_dir, &mut files, by, ascending, case);
-                }
-                // A random slideshow with its subfolders: read from the file, in its order.
-                if shuffled {
-                    shuffle(&mut files);
-                }
-                let sizes: Vec<u64> = (files.iter())
-                    .filter_map(|f| Some(list_dir.join(f).metadata().ok()?.len()))
-                    .collect();
-                if tx.send((Vec::new(), files)).is_ok() {
-                    ctx2.request_repaint();
-                    send_sizes(sizes.into_iter(), size_tx, &ctx2);
-                }
-                return;
-            }
-            // The folder read once, also with the folders below it. Its own subfolders show at
-            // once: a large tree takes long to read whole.
-            // Its images too, a folder of it at a time, in name order (the sort asked for comes
-            // with the whole tree): at most four times a second, as each is a copy of the list.
-            // The first images at once; after them, at most four times a second.
-            let mut sent: Option<(Instant, std::time::Duration)> = None;
-            let (dirs, mut files) = match recursive {
-                true => list_tree(
-                    &list_dir,
-                    types,
-                    &stop,
-                    |dirs| {
-                        if subdirs_tx.send(dirs.to_vec()).is_ok() {
-                            ctx2.request_repaint();
-                        }
-                    },
-                    |so_far| {
-                        // The next one after four times as long as this one took, a quarter second
-                        // at least: copying a long list must not slow the reading down.
-                        let soon = sent.is_some_and(|(t, wait)| t.elapsed() < wait);
-                        if !parts || shuffled || soon {
-                            return;
-                        }
-                        let began = Instant::now();
-                        let mut part = so_far.to_vec();
-                        part.sort_unstable();
-                        // Full: the one before is not taken yet; this one is left out.
-                        if part_tx.try_send(part).is_ok() {
-                            ctx2.request_repaint();
-                        }
-                        let wait = (began.elapsed() * 4).max(std::time::Duration::from_millis(250));
-                        sent = Some((Instant::now(), wait));
-                    },
-                ),
-                false => list_folder(&list_dir, types),
-            };
-            // Stopped: another folder is listed now.
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-            match before.and_then(|before| files::kept_order(before, &files)) {
-                Some(kept) => files = kept,
-                None => sort_files(&list_dir, &mut files, by, ascending, case),
-            }
-            if shuffled {
-                shuffle(&mut files);
-            }
-            // The receiver is gone if another folder was opened meanwhile; then we stop.
-            if tx.send((dirs, files)).is_err() {
-                return;
-            }
-            ctx2.request_repaint();
-            // Sizes afterwards: read the folder once more and sum from the directory entries in
-            // chunks, so the status bar fills in gradually without a copy of the whole list in
-            // memory. A tree a folder at a time, unsorted.
-            if recursive {
-                let sizes = walk(&list_dir, types).flat_map(|(rel, _, files)| {
-                    let folder = list_dir.join(rel);
-                    (files.into_iter())
-                        .filter_map(move |f| Some(folder.join(f).metadata().ok()?.len()))
-                });
-                return send_sizes(sizes, size_tx, &ctx2);
-            }
-            let images = std::fs::read_dir(&list_dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter(|e| files::kind(e).0 && is_listed(&e.path(), types));
-            // Through a link, the size of the file it points to, as the list shows that.
-            let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
-            send_sizes(sizes, size_tx, &ctx2);
         });
         self.folder.listing_rx = Receiving::of(rx);
         self.status.size_rx = Receiving::of(size_rx);

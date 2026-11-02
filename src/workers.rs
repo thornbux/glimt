@@ -21,6 +21,53 @@ impl crate::App {
         if let Some(error) = config::take_save_error() {
             self.notice = Some(error);
         }
+        self.receive_desktop(ctx);
+        self.decoding.max_side = ctx.input(|i| i.max_texture_side) as u32;
+        self.receive_decoded(ctx);
+        self.receive_thumbs(ctx);
+        self.receive_listing(ctx, std::time::Duration::ZERO);
+        self.receive_sizes();
+        self.receive_exif_index(ctx);
+        self.receive_deleted(ctx);
+        self.selection_size(ctx);
+        self.match_size(ctx);
+        self.receive_file_work(ctx);
+        // --slideshow: once the folder is read, so random order shuffles all of it.
+        if self.slideshow.at_start && self.folder.listing_rx.is_none() {
+            self.slideshow.at_start = false;
+            self.start_slideshow(ctx);
+        }
+        self.receive_focus(ctx);
+        self.receive_remote(ctx);
+        if let Took::Answer(img) = self.work.clip_rx.take() {
+            ctx.copy_image(img);
+        }
+        self.receive_dropped(ctx);
+        self.receive_mount(ctx);
+        if self.working() {
+            ctx.set_cursor_icon(egui::CursorIcon::Progress);
+        }
+        if self.folder.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
+            self.folder.relist = true;
+        }
+        if self.folder.relist && self.folder.listing_rx.is_none() {
+            self.list(ctx);
+        }
+        self.receive_lightroom();
+        self.receive_renames(ctx);
+        while let Ok(msg) = self.notices_rx.try_recv() {
+            self.notice = Some(msg);
+            ctx.request_repaint();
+        }
+        self.slideshow_tick(ctx);
+        if let Some(all) = self.folder.together.take() {
+            self.open_folders(ctx, all);
+        }
+        self.receive_picked(ctx);
+    }
+
+    /// The desktop's look and screen profile, once read.
+    fn receive_desktop(&mut self, ctx: &egui::Context) {
         if let Took::Answer(look) = self.desktop.look_rx.take() {
             self.desktop.look = look;
             self.apply_theme(ctx);
@@ -31,15 +78,11 @@ impl crate::App {
                 self.use_screen();
             }
         }
-        self.decoding.max_side = ctx.input(|i| i.max_texture_side) as u32;
-        self.receive_decoded(ctx);
-        self.receive_thumbs(ctx);
-        self.receive_listing(ctx, std::time::Duration::ZERO);
-        self.receive_sizes();
-        self.receive_exif_index(ctx);
-        self.receive_deleted(ctx);
-        self.selection_size(ctx);
-        self.match_size(ctx);
+    }
+
+    /// File operations: the jobs and the files they touch let go when done (an `exif:` search
+    /// reads what it held back for keywords written), closing once they are, and saved turns.
+    fn receive_file_work(&mut self, ctx: &egui::Context) {
         let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
         let were_writing = sidecars(&self.work.jobs);
         self.work.jobs.retain(|job| Arc::strong_count(job) > 1);
@@ -61,11 +104,11 @@ impl crate::App {
                 Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
             }
         }
-        // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.slideshow.at_start && self.folder.listing_rx.is_none() {
-            self.slideshow.at_start = false;
-            self.start_slideshow(ctx);
-        }
+    }
+
+    /// The window's focus: this Glimt becomes the one `--remote` talks to, and marks another
+    /// window made meanwhile are read.
+    fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
         if focus && !self.window.has_focus && self.config.remote_control {
             remote::mark_focused();
@@ -76,11 +119,10 @@ impl crate::App {
             self.marks.refresh();
         }
         self.window.has_focus = focus;
-        self.receive_remote(ctx);
-        if let Took::Answer(img) = self.work.clip_rx.take() {
-            ctx.copy_image(img);
-        }
-        // A file or folder dropped on the window opens there, as File → Open would.
+    }
+
+    /// A file or folder dropped on the window opens there, as File → Open would.
+    fn receive_dropped(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| {
             let mut paths = i.raw.dropped_files.iter().map(|f| f.path().to_path_buf());
             paths.find(|p| !p.as_os_str().is_empty())
@@ -88,16 +130,10 @@ impl crate::App {
         if let Some(path) = dropped.filter(|_| !self.window.kiosk) {
             self.visit(ctx, path);
         }
-        self.receive_mount(ctx);
-        if self.working() {
-            ctx.set_cursor_icon(egui::CursorIcon::Progress);
-        }
-        if self.folder.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
-            self.folder.relist = true;
-        }
-        if self.folder.relist && self.folder.listing_rx.is_none() {
-            self.list(ctx);
-        }
+    }
+
+    /// A Lightroom catalog read: the import dialog opens.
+    fn receive_lightroom(&mut self) {
         match self.lightroom_rx.take() {
             Took::Nothing => {}
             Took::Gone => self.stopped(tr("Reading the Lightroom catalog")),
@@ -111,6 +147,10 @@ impl crate::App {
             }
             Took::Answer(Err(e)) => self.notice = Some(e),
         }
+    }
+
+    /// Rename Many done, and the renames a crash cut short, found at start.
+    fn receive_renames(&mut self, ctx: &egui::Context) {
         match self.work.renaming_rx.take() {
             Took::Answer(result) => {
                 if let Some(job) = self.work.renaming.take() {
@@ -129,15 +169,6 @@ impl crate::App {
             Took::Gone => self.stopped(tr("Looking for renames cut short")),
             Took::Nothing => {}
         }
-        while let Ok(msg) = self.notices_rx.try_recv() {
-            self.notice = Some(msg);
-            ctx.request_repaint();
-        }
-        self.slideshow_tick(ctx);
-        if let Some(all) = self.folder.together.take() {
-            self.open_folders(ctx, all);
-        }
-        self.receive_picked(ctx);
     }
 
     /// A background thread ended without its answer (it panicked on something): told, so the

@@ -3,6 +3,7 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
+use crate::config::Config;
 use crate::decode::survive;
 use crate::dialogs::Pick;
 use crate::format::count;
@@ -225,31 +226,7 @@ impl crate::App {
     /// File → Print: the printer or a PDF, the paper, and images or contact sheets.
     pub(crate) fn print_dialog(&mut self, ctx: &egui::Context) {
         if let Some(mut dialog) = self.print_window.take() {
-            if let Ok((names, default)) = dialog.printers_rx.try_recv() {
-                // The printer used last, else CUPS's default; a PDF file if neither is there.
-                let c = &mut self.config;
-                if !names.contains(&c.print_printer) {
-                    c.print_printer = default.filter(|d| names.contains(d)).unwrap_or_default();
-                }
-                dialog.printers = Some(names);
-            }
-            loop {
-                match dialog.preview_rx.try_recv() {
-                    Ok((k, size, pixels)) => {
-                        let texture = ctx.load_texture(
-                            format!("print preview {k}"),
-                            pixels,
-                            Default::default(),
-                        );
-                        (dialog.previews[k], dialog.sizes[k]) = (Some(texture), Some(size));
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => break dialog.decoded = true,
-                    Err(mpsc::TryRecvError::Empty) => break,
-                }
-            }
-            if let Took::Answer(made) = dialog.captions_rx.take() {
-                dialog.captions = Some(made);
-            }
+            self.receive_print_answers(ctx, &mut dialog);
             self.ask_captions(ctx, &mut dialog);
             let mut go = false;
             // Enter in a text field (the page text, the template) ends the typing, not the dialog:
@@ -265,122 +242,9 @@ impl crate::App {
                 // The first page beside the settings that shape it.
                 ui.horizontal_top(|ui| {
                     preview(ui, &dialog, c);
-                    egui::Grid::new("print fields").show(ui, |ui| {
-                            ui.label(tr("Printer:"));
-                            let shown = |p: &str| match p {
-                                "" => tr("PDF file"),
-                                SYSTEM_DIALOG => tr(SYSTEM_DIALOG),
-                                p => p,
-                            }
-                            .to_owned();
-                            egui::ComboBox::from_id_salt("printer")
-                                .selected_text(shown(&c.print_printer))
-                                .show_ui(ui, |ui| {
-                                    for p in dialog.printers.iter().flatten() {
-                                        ui.selectable_value(&mut c.print_printer, p.clone(), shown(p));
-                                    }
-                                    ui.selectable_value(
-                                        &mut c.print_printer,
-                                        String::new(),
-                                        tr("PDF file"),
-                                    );
-                                });
-                            match &dialog.printers {
-                                None => drop(ui.spinner()),
-                                Some(p) if p.is_empty() => drop(ui.weak(tr("No printers found"))),
-                                Some(_) => {}
-                            }
-                            ui.end_row();
-                            ui.label(tr("Paper:"));
-                            egui::ComboBox::from_id_salt("paper")
-                                .selected_text(c.print_paper.clone())
-                                .show_ui(ui, |ui| {
-                                    for (name, _) in print::PAPERS {
-                                        ui.selectable_value(&mut c.print_paper, name.to_owned(), name);
-                                    }
-                                });
-                            ui.end_row();
-                            ui.label(tr("Orientation:"));
-                            let turns = [
-                                ("auto", tr("Automatic")),
-                                ("portrait", tr("Portrait")),
-                                ("landscape", tr("Landscape")),
-                            ];
-                            let shown = (turns.iter())
-                                .find(|t| t.0 == c.print_orientation)
-                                .map_or(turns[0].1, |t| t.1);
-                            egui::ComboBox::from_id_salt("orientation")
-                                .selected_text(shown)
-                                .show_ui(ui, |ui| {
-                                    for (key, label) in turns {
-                                        ui.selectable_value(
-                                            &mut c.print_orientation,
-                                            key.to_owned(),
-                                            label,
-                                        );
-                                    }
-                                });
-                            ui.end_row();
-                            ui.label(tr("Images per page:"));
-                            egui::ComboBox::from_id_salt("per page")
-                                .selected_text(c.print_per_page.to_string())
-                                .show_ui(ui, |ui| {
-                                    for (n, [cols, rows]) in print::PER_PAGE {
-                                        let label = match n {
-                                            1 => "1".to_owned(),
-                                            n => format!("{n} ({cols} × {rows})"),
-                                        };
-                                        ui.selectable_value(&mut c.print_per_page, n, label);
-                                    }
-                                });
-                            ui.end_row();
-                            if c.print_per_page == 1 {
-                                ui.label(tr("Image size (%):"));
-                                ui.add(egui::DragValue::new(&mut c.print_scale).range(10..=100));
-                                ui.end_row();
-                            }
-                            ui.label(tr("Margin (mm):"));
-                            ui.add(egui::DragValue::new(&mut c.print_margin).range(0..=50));
-                            ui.end_row();
-                            if !c.print_printer.is_empty() {
-                                ui.label(tr("Copies:"));
-                                ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
-                                ui.end_row();
-                                ui.label("");
-                                ui.checkbox(&mut c.print_two_sided, tr("Both sides of the paper"));
-                                ui.end_row();
-                            }
-                    });
+                    print_fields(ui, &mut dialog, c);
                 });
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut c.print_caption, tr("Text under each image:"));
-                    ui.add_enabled(
-                        c.print_caption,
-                        egui::TextEdit::singleline(&mut c.print_template)
-                            .hint_text("%name%")
-                            .desired_width(220.0),
-                    )
-                    .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"));
-                });
-                ui.checkbox(
-                    &mut c.print_fill,
-                    tr("Fill each box, cutting the image to it"),
-                );
-                let numbers = tr("%page% is the page's number, %pages% how many there are");
-                ui.horizontal(|ui| {
-                    ui.label(tr("Top of each page:"));
-                    ui.add(egui::TextEdit::singleline(&mut c.print_header).desired_width(260.0))
-                        .on_hover_text(numbers);
-                });
-                ui.horizontal(|ui| {
-                    ui.label(tr("Bottom of each page:"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut c.print_footer)
-                            .hint_text("%page% / %pages%")
-                            .desired_width(260.0),
-                    )
-                    .on_hover_text(numbers);
-                });
+                print_texts(ui, c);
                 ui.horizontal(|ui| {
                     let label = if c.print_printer.is_empty() {
                         tr("Save PDF… (Enter)")
@@ -395,23 +259,55 @@ impl crate::App {
                 });
             });
             if go {
-                self.config.save();
-                let c = &self.config;
-                let job = PrintJob {
-                    paths: dialog.paths,
-                    layout: layout_of(c),
-                    caption: c.print_caption.then(|| c.print_template.clone()),
-                    two_sided: c.print_two_sided,
-                    rotate: c.exif_rotate,
-                    copies: dialog.copies,
-                };
-                match c.print_printer.clone() {
-                    p if p.is_empty() => self.pick(ctx, false, Pick::SavePdf(job)),
-                    p => self.print(ctx, job, PrintTo::Printer(p)),
-                }
+                self.start_print_job(ctx, dialog);
             } else if !modal.should_close() {
                 self.print_window = Some(dialog);
             }
+        }
+    }
+
+    /// What the print dialog's threads sent: the printers (the one used last chosen, else
+    /// CUPS's default; a PDF file if neither is there), previews, and the captions.
+    fn receive_print_answers(&mut self, ctx: &egui::Context, dialog: &mut PrintDialog) {
+        if let Ok((names, default)) = dialog.printers_rx.try_recv() {
+            // The printer used last, else CUPS's default; a PDF file if neither is there.
+            let c = &mut self.config;
+            if !names.contains(&c.print_printer) {
+                c.print_printer = default.filter(|d| names.contains(d)).unwrap_or_default();
+            }
+            dialog.printers = Some(names);
+        }
+        loop {
+            match dialog.preview_rx.try_recv() {
+                Ok((k, size, pixels)) => {
+                    let texture =
+                        ctx.load_texture(format!("print preview {k}"), pixels, Default::default());
+                    (dialog.previews[k], dialog.sizes[k]) = (Some(texture), Some(size));
+                }
+                Err(mpsc::TryRecvError::Disconnected) => break dialog.decoded = true,
+                Err(mpsc::TryRecvError::Empty) => break,
+            }
+        }
+        if let Took::Answer(made) = dialog.captions_rx.take() {
+            dialog.captions = Some(made);
+        }
+    }
+
+    /// Print or Save PDF: the job from the dialog's settings, to the printer or a PDF file.
+    fn start_print_job(&mut self, ctx: &egui::Context, dialog: PrintDialog) {
+        self.config.save();
+        let c = &self.config;
+        let job = PrintJob {
+            paths: dialog.paths,
+            layout: layout_of(c),
+            caption: c.print_caption.then(|| c.print_template.clone()),
+            two_sided: c.print_two_sided,
+            rotate: c.exif_rotate,
+            copies: dialog.copies,
+        };
+        match c.print_printer.clone() {
+            p if p.is_empty() => self.pick(ctx, false, Pick::SavePdf(job)),
+            p => self.print(ctx, job, PrintTo::Printer(p)),
         }
     }
 
@@ -1047,6 +943,124 @@ fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
             text(&page_text(line, 1, pages), 9.0, at);
         }
     }
+}
+
+/// The print dialog's settings beside the preview: printer, paper, orientation, images per
+/// page, size, margin, copies and both sides.
+fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
+    egui::Grid::new("print fields").show(ui, |ui| {
+        ui.label(tr("Printer:"));
+        let shown = |p: &str| {
+            match p {
+                "" => tr("PDF file"),
+                SYSTEM_DIALOG => tr(SYSTEM_DIALOG),
+                p => p,
+            }
+            .to_owned()
+        };
+        egui::ComboBox::from_id_salt("printer")
+            .selected_text(shown(&c.print_printer))
+            .show_ui(ui, |ui| {
+                for p in dialog.printers.iter().flatten() {
+                    ui.selectable_value(&mut c.print_printer, p.clone(), shown(p));
+                }
+                ui.selectable_value(&mut c.print_printer, String::new(), tr("PDF file"));
+            });
+        match &dialog.printers {
+            None => drop(ui.spinner()),
+            Some(p) if p.is_empty() => drop(ui.weak(tr("No printers found"))),
+            Some(_) => {}
+        }
+        ui.end_row();
+        ui.label(tr("Paper:"));
+        egui::ComboBox::from_id_salt("paper")
+            .selected_text(c.print_paper.clone())
+            .show_ui(ui, |ui| {
+                for (name, _) in print::PAPERS {
+                    ui.selectable_value(&mut c.print_paper, name.to_owned(), name);
+                }
+            });
+        ui.end_row();
+        ui.label(tr("Orientation:"));
+        let turns = [
+            ("auto", tr("Automatic")),
+            ("portrait", tr("Portrait")),
+            ("landscape", tr("Landscape")),
+        ];
+        let shown = (turns.iter())
+            .find(|t| t.0 == c.print_orientation)
+            .map_or(turns[0].1, |t| t.1);
+        egui::ComboBox::from_id_salt("orientation")
+            .selected_text(shown)
+            .show_ui(ui, |ui| {
+                for (key, label) in turns {
+                    ui.selectable_value(&mut c.print_orientation, key.to_owned(), label);
+                }
+            });
+        ui.end_row();
+        ui.label(tr("Images per page:"));
+        egui::ComboBox::from_id_salt("per page")
+            .selected_text(c.print_per_page.to_string())
+            .show_ui(ui, |ui| {
+                for (n, [cols, rows]) in print::PER_PAGE {
+                    let label = match n {
+                        1 => "1".to_owned(),
+                        n => format!("{n} ({cols} × {rows})"),
+                    };
+                    ui.selectable_value(&mut c.print_per_page, n, label);
+                }
+            });
+        ui.end_row();
+        if c.print_per_page == 1 {
+            ui.label(tr("Image size (%):"));
+            ui.add(egui::DragValue::new(&mut c.print_scale).range(10..=100));
+            ui.end_row();
+        }
+        ui.label(tr("Margin (mm):"));
+        ui.add(egui::DragValue::new(&mut c.print_margin).range(0..=50));
+        ui.end_row();
+        if !c.print_printer.is_empty() {
+            ui.label(tr("Copies:"));
+            ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
+            ui.end_row();
+            ui.label("");
+            ui.checkbox(&mut c.print_two_sided, tr("Both sides of the paper"));
+            ui.end_row();
+        }
+    });
+}
+
+/// The print dialog's texts: under each image, the fill, and the top and bottom of each page.
+fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut c.print_caption, tr("Text under each image:"));
+        ui.add_enabled(
+            c.print_caption,
+            egui::TextEdit::singleline(&mut c.print_template)
+                .hint_text("%name%")
+                .desired_width(220.0),
+        )
+        .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"));
+    });
+    ui.checkbox(
+        &mut c.print_fill,
+        tr("Fill each box, cutting the image to it"),
+    );
+    let numbers = tr("%page% is the page's number, %pages% how many there are");
+    ui.horizontal(|ui| {
+        ui.label(tr("Top of each page:"));
+        ui.add(egui::TextEdit::singleline(&mut c.print_header).desired_width(260.0))
+            .on_hover_text(numbers);
+    });
+    ui.horizontal(|ui| {
+        ui.label(tr("Bottom of each page:"));
+        ui.add(
+            egui::TextEdit::singleline(&mut c.print_footer)
+                .hint_text("%page% / %pages%")
+                .desired_width(260.0),
+        )
+        .on_hover_text(numbers);
+    });
 }
 
 #[cfg(test)]
