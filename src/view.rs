@@ -615,8 +615,12 @@ impl crate::App {
                 let f = i.key_pressed(egui::Key::F) || i.key_pressed(egui::Key::F11);
                 (f && i.modifiers.is_none(), i.key_pressed(egui::Key::Escape))
             });
-            let key = Self::shortcut(&pctx, self.config.delete_key, self.collection.is_some())
-                .filter(|a| KIOSK_ACTIONS.contains(a));
+            let key = Self::shortcut(
+                &pctx,
+                self.config.delete_key,
+                self.folder.collection.is_some(),
+            )
+            .filter(|a| KIOSK_ACTIONS.contains(a));
             act = key;
             let [r, g, b] = self.config.background.0;
             let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
@@ -1076,7 +1080,7 @@ impl crate::App {
             egui::Image::new(&tex).paint_at(ui, rect);
         } else {
             let text = if self.list.files.is_empty() {
-                if self.listing_rx.is_some() {
+                if self.folder.listing_rx.is_some() {
                     tr("Reading folder…")
                 } else {
                     tr("No images in folder")

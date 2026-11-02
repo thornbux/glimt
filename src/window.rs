@@ -209,28 +209,29 @@ impl crate::App {
     /// images. Or this window's own template, else the one in Preferences, unless its fields
     /// are all empty.
     pub(crate) fn title_text(&self) -> String {
-        let (name, path) = match (self.list.files.get(self.list.cur), &self.collection) {
+        let (name, path) = match (self.list.files.get(self.list.cur), &self.folder.collection) {
             (Some(_), _) => (
                 self.name(self.list.cur).into_owned(),
                 self.path(self.list.cur).display().to_string(),
             ),
             (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
             (None, None) => (
-                self.dir.display().to_string(),
-                self.dir.display().to_string(),
+                self.folder.dir.display().to_string(),
+                self.folder.dir.display().to_string(),
             ),
         };
         // The shown image's own folder: a collection and several folders are listed as "/".
         let folder = match self.list.files.get(self.list.cur) {
             Some(_) => self.path(self.list.cur).parent().map(Path::to_path_buf),
             None => self
+                .folder
                 .collection
                 .as_ref()
                 .and_then(|f| f.parent())
                 .map(Path::to_path_buf),
         };
         let folder = folder
-            .unwrap_or_else(|| self.dir.clone())
+            .unwrap_or_else(|| self.folder.dir.clone())
             .display()
             .to_string();
         // A named Glimt says which it is.
@@ -358,7 +359,7 @@ mod tests {
         assert!(!app.pointer_hides(true));
         drop(job);
         app.list(&ctx);
-        assert!(app.listing_rx.is_some() && !app.pointer_hides(true));
+        assert!(app.folder.listing_rx.is_some() && !app.pointer_hides(true));
         assert!(settle(&mut app, &ctx, |a| a.pointer_hides(true)));
         app.preferences_open = true;
         assert!(!app.pointer_hides(true));

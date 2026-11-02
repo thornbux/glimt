@@ -17,7 +17,7 @@ impl crate::App {
     pub(crate) fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
         let name = self.list.files[i].as_os_str();
         // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
-        if !self.folders.is_empty() {
+        if !self.folder.folders.is_empty() {
             let path = Path::new(name);
             let last = |p: &Path| {
                 p.file_name()
@@ -28,7 +28,7 @@ impl crate::App {
             let folder = path.parent().map(last).unwrap_or_default();
             return format!("{folder}/{last}", last = last(path)).into();
         }
-        match self.collection {
+        match self.folder.collection {
             Some(_) => Path::new(name)
                 .file_name()
                 .unwrap_or(name)
@@ -39,14 +39,14 @@ impl crate::App {
 
     /// Full path of image `i`.
     pub(crate) fn path(&self, i: usize) -> PathBuf {
-        self.dir.join(&self.list.files[i])
+        self.folder.dir.join(&self.list.files[i])
     }
 
     /// Is `path` image number `i` in the list? (Without building the path.)
     pub(crate) fn is_file(&self, i: usize, path: &Path) -> bool {
         // Names are relative to the folder; in a slideshow with subfolders they have folders too.
         self.list.files.get(i).is_some_and(|name| {
-            path.strip_prefix(&self.dir)
+            path.strip_prefix(&self.folder.dir)
                 .is_ok_and(|rest| rest.as_os_str() == name)
         })
     }
@@ -260,7 +260,7 @@ impl crate::App {
             .iter()
             .map(|&i| self.list.files[i].clone())
             .collect();
-        let (dir, (tx, rx), ctx) = (self.dir.clone(), mpsc::channel(), ctx.clone());
+        let (dir, (tx, rx), ctx) = (self.folder.dir.clone(), mpsc::channel(), ctx.clone());
         std::thread::spawn(move || {
             let paths: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
             // The receiver is gone if the selection changed again; then the answer is dropped.

@@ -24,7 +24,7 @@ use config::{
 use decode::{Hist, MAX_ANIMATION, decode};
 use duplicates::Dups;
 use eframe::egui;
-use external::{Login, Mounted};
+use external::Mounted;
 use file_ops::RenameJob;
 use files::{Types, has_ext};
 use format::{count, human_size, local_time, thousands};
@@ -475,59 +475,12 @@ struct App {
     config: Config,
 
     // ---- The list: the folder (or collection, or several folders) and its files ----
-    /// A network location (smb:// …) being mounted: its local path, or why it failed.
-    mounting_rx: Receiving<(Mounted, Login)>,
-    /// The login dialog for a network share that needs one.
-    login: Option<Login>,
-    /// The folder path in the toolbar, as typed.
-    path_text: String,
-    dir: PathBuf,
-    subdirs: Vec<PathBuf>,
-    /// The type of the file opened directly (not the folder), listed even when the Types menu
-    /// leaves it out.
-    opened_type: Types,
-    /// The list holds the images of the subfolders too (slideshow with subfolders).
-    recursive: bool,
-    /// The open collection's file. The list is then its images, with `dir` "/" and the paths
-    /// without their leading "/" as names, so `path()` works unchanged.
-    collection: Option<PathBuf>,
-    /// The collection's next listing is sorted (Sort menu), and saved in that order.
-    sort_collection: bool,
-    /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
-    /// are relative to /, as in a collection, and the folders are read again on refresh.
-    folders: Vec<PathBuf>,
-    /// Folders to show together, chosen in a folder's menu; opened after the frame.
-    together: Option<Vec<PathBuf>>,
-    /// Folder listing in the background: (subfolders, images).
-    listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
-    /// The subfolders of a folder listed with its tree, sent at once: the tree may take long.
-    subdirs_rx: Receiving<Vec<PathBuf>>,
-    /// The images of the tree found so far, as it is read, a folder of it at a time.
-    part_rx: Receiving<Vec<OsString>>,
-    /// The next listing shows a tree's images as they are found (a folder opened).
-    list_parts: bool,
-    /// What the list shown was read and sorted as: folder, order, ascending, case, subfolders.
-    listed_as: Option<(PathBuf, files::Sort, bool, bool, bool)>,
-    /// The image the first part of a tree went to by itself: the whole list goes to its first.
-    went_to: Option<OsString>,
-    /// Set to stop the listing of the tree before, when another one starts.
-    listing_stop: Arc<AtomicBool>,
-    /// The folder changed while a listing was running; list again when it is done.
-    relist: bool,
-    /// Generation of the folder watcher; opening another folder ends the old thread.
-    watching: Arc<AtomicUsize>,
-    /// The watcher saw the folder change.
-    changed_tx: mpsc::Sender<()>,
-    changed_rx: mpsc::Receiver<()>,
+    /// What is open (a folder, a collection or several folders), its listing in the background, the way back and forward, and the folders sorted into.
+    folder: folder::Folder,
     /// Names being deleted in the background; kept out of refreshed listings until done.
     deleting: HashSet<OsString>,
     /// What Edit → Undo puts back: the last move to the trash, move or rename.
     undo: Option<Undo>,
-    /// File → Open Recent: the folders and collections opened last, newest first.
-    recent: Vec<PathBuf>,
-    /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
-    back: Vec<PathBuf>,
-    forward: Vec<PathBuf>,
     /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
     panel: file_list::Panel,
     /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
@@ -606,8 +559,6 @@ struct App {
     /// The files Rename or a delete asked about, by their names in the list, and where the list
     /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
     asked_for: (u64, Vec<OsString>),
-    /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
-    sort_folders: Vec<PathBuf>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
     clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
@@ -776,8 +727,6 @@ impl App {
         let (changed_tx, changed_rx) = mpsc::channel();
         let mut app = App {
             notices_tx,
-            mounting_rx: Receiving::none(),
-            login: None,
             print_window: None,
             lightroom_rx: Receiving::none(),
             lightroom: None,
@@ -792,8 +741,6 @@ impl App {
             cut_short: Vec::new(),
             renaming: None,
             renaming_rx: Receiving::none(),
-            sort_folders: (sort_folders_path().and_then(|p| crate::decode::read_limited(p).ok()))
-                .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
             viewing: Viewing::default(),
             save_as: None,
@@ -801,11 +748,6 @@ impl App {
             asked_for: (0, Vec::new()),
             compare: false,
             capturing: None,
-            recursive: false,
-            collection: None,
-            folders: Vec::new(),
-            together: None,
-            sort_collection: false,
             dups: None,
             check: None,
             broken_files: HashSet::new(),
@@ -829,8 +771,6 @@ impl App {
             apps_rx,
             notices_rx: notices,
             notice: screen_error.or_else(|| config_notice(problems)),
-            dir: PathBuf::new(),
-            subdirs: Vec::new(),
             preferences_open: false,
             preferences_unsaved: false,
             preferences_query: String::new(),
@@ -839,32 +779,16 @@ impl App {
             confirm_delete: None,
             folder_target: None,
             confirm_folder: false,
-            opened_type: Types::NONE,
             prompt: None,
             config,
             file_dialog: None,
             file_dialog_rx: Receiving::none(),
             last_view: None,
-            watching: Arc::new(AtomicUsize::new(0)),
-            changed_tx,
-            changed_rx,
-            relist: false,
-            back: Vec::new(),
-            forward: Vec::new(),
-            subdirs_rx: Receiving::none(),
-            part_rx: Receiving::none(),
-            list_parts: false,
-            listed_as: None,
-            went_to: None,
-            listing_stop: Arc::default(),
-            listing_rx: Receiving::none(),
             image_id: None,
             focus_by_keys: false,
             waiting_select: Vec::new(),
-            path_text: String::new(),
             deleting: HashSet::new(),
             undo: None,
-            recent,
             deleted_tx,
             deleted_rx,
             saved_tx,
@@ -981,6 +905,36 @@ impl App {
                 title: String::new(),
                 closing: 0,
             },
+            folder: folder::Folder {
+                dir: PathBuf::new(),
+                subdirs: Vec::new(),
+                path_text: String::new(),
+                opened_type: Types::NONE,
+                recursive: false,
+                collection: None,
+                sort_collection: false,
+                folders: Vec::new(),
+                together: None,
+                listing_rx: Receiving::none(),
+                subdirs_rx: Receiving::none(),
+                part_rx: Receiving::none(),
+                list_parts: false,
+                listed_as: None,
+                went_to: None,
+                listing_stop: Arc::default(),
+                relist: false,
+                watching: Arc::new(AtomicUsize::new(0)),
+                changed_tx,
+                changed_rx,
+                recent,
+                back: Vec::new(),
+                forward: Vec::new(),
+                mounting_rx: Receiving::none(),
+                login: None,
+                sort_folders: (sort_folders_path()
+                    .and_then(|p| crate::decode::read_limited(p).ok()))
+                .map_or_else(Vec::new, |t| sort_folders_from(&t)),
+            },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {
@@ -1075,7 +1029,7 @@ impl eframe::App for App {
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
         if self.config.remember_dir {
-            let last = self.collection.as_ref().unwrap_or(&self.dir);
+            let last = self.folder.collection.as_ref().unwrap_or(&self.folder.dir);
             state += &format!("last_dir={}\n", last.display());
         }
         if self.config.remember_window {

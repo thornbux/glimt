@@ -1,5 +1,6 @@
 //! Opening a folder, a collection or several folders, listing them, and following changes.
 
+use crate::Mounted;
 use crate::external::{Login, gio_mount};
 use crate::files::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
@@ -12,9 +13,66 @@ use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
+
+/// What is open (a folder, a collection or several folders), its listing in the background, the way back and forward, and the folders sorted into.
+pub(crate) struct Folder {
+    pub(crate) dir: PathBuf,
+    pub(crate) subdirs: Vec<PathBuf>,
+    /// The folder path in the toolbar, as typed.
+    pub(crate) path_text: String,
+    /// The type of the file opened directly (not the folder), listed even when the Types menu
+    /// leaves it out.
+    pub(crate) opened_type: Types,
+    /// The list holds the images of the subfolders too (slideshow with subfolders).
+    pub(crate) recursive: bool,
+    /// The open collection's file. The list is then its images, with `dir` "/" and the paths
+    /// without their leading "/" as names, so `path()` works unchanged.
+    pub(crate) collection: Option<PathBuf>,
+    /// The collection's next listing is sorted (Sort menu), and saved in that order.
+    pub(crate) sort_collection: bool,
+    /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…): the names
+    /// are relative to /, as in a collection, and the folders are read again on refresh.
+    pub(crate) folders: Vec<PathBuf>,
+    /// Folders to show together, chosen in a folder's menu; opened after the frame.
+    pub(crate) together: Option<Vec<PathBuf>>,
+    /// Folder listing in the background: (subfolders, images).
+    pub(crate) listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
+    /// The subfolders of a folder listed with its tree, sent at once: the tree may take long.
+    pub(crate) subdirs_rx: Receiving<Vec<PathBuf>>,
+    /// The images of the tree found so far, as it is read, a folder of it at a time.
+    pub(crate) part_rx: Receiving<Vec<OsString>>,
+    /// The next listing shows a tree's images as they are found (a folder opened).
+    pub(crate) list_parts: bool,
+    /// What the list shown was read and sorted as: folder, order, ascending, case, subfolders.
+    pub(crate) listed_as: Option<(PathBuf, files::Sort, bool, bool, bool)>,
+    /// The image the first part of a tree went to by itself: the whole list goes to its first.
+    pub(crate) went_to: Option<OsString>,
+    /// Set to stop the listing of the tree before, when another one starts.
+    pub(crate) listing_stop: Arc<AtomicBool>,
+    /// The folder changed while a listing was running; list again when it is done.
+    pub(crate) relist: bool,
+    /// Generation of the folder watcher; opening another folder ends the old thread.
+    pub(crate) watching: Arc<AtomicUsize>,
+    /// The watcher saw the folder change.
+    pub(crate) changed_tx: mpsc::Sender<()>,
+    pub(crate) changed_rx: mpsc::Receiver<()>,
+    /// File → Open Recent: the folders and collections opened last, newest first.
+    pub(crate) recent: Vec<PathBuf>,
+    /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
+    pub(crate) back: Vec<PathBuf>,
+    pub(crate) forward: Vec<PathBuf>,
+    /// A network location (smb:// …) being mounted: its local path, or why it failed.
+    pub(crate) mounting_rx: Receiving<(Mounted, Login)>,
+    /// The login dialog for a network share that needs one.
+    pub(crate) login: Option<Login>,
+    /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
+    pub(crate) sort_folders: Vec<PathBuf>,
+}
 
 impl crate::App {
     // ---- Opening a folder, a collection or several folders, and listing it ----
@@ -28,8 +86,8 @@ impl crate::App {
             return self.open_collection(ctx, path);
         }
         self.leave_image(ctx);
-        self.collection = None;
-        self.folders.clear();
+        self.folder.collection = None;
+        self.folder.folders.clear();
         let (dir, file) = if path.is_dir() {
             (path, None)
         } else {
@@ -52,17 +110,17 @@ impl crate::App {
         self.forget_old_list();
         // A file of a type the menu does not list (a RAW with RAW off) is listed with the
         // folder it opens; a folder or several opened later go by the menu again.
-        self.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
+        self.folder.opened_type = file.as_deref().map_or(Types::NONE, Types::of);
         // Another folder: its file of the same name is another image, which opens as one, not
         // at the zoom and place of the image before.
-        if dir != self.dir {
+        if dir != self.folder.dir {
             self.list.files.clear();
         }
-        self.recursive = self.config.show_subfolders;
-        self.dir = dir.clone();
+        self.folder.recursive = self.config.show_subfolders;
+        self.folder.dir = dir.clone();
         self.remember_recent(&dir);
         self.replace_files(ctx, shown.iter().cloned().collect(), shown);
-        self.list_parts = true;
+        self.folder.list_parts = true;
         self.list(ctx);
         self.watch(ctx);
         self.title(ctx);
@@ -71,10 +129,10 @@ impl crate::App {
     /// `path` first in File → Open Recent, also in the file the other windows read when they
     /// start; merged with what they wrote meanwhile.
     pub(crate) fn remember_recent(&mut self, path: &Path) {
-        if !self.config.keep_recent || self.recent.first().is_some_and(|p| p == path) {
+        if !self.config.keep_recent || self.folder.recent.first().is_some_and(|p| p == path) {
             return;
         }
-        self.recent = config::add_recent(&self.recent, path);
+        self.folder.recent = config::add_recent(&self.folder.recent, path);
         let path = path.to_path_buf();
         config::write_later(move || {
             let Some(file) = config::recent_path() else {
@@ -94,7 +152,7 @@ impl crate::App {
 
     /// Open Recent emptied, in its file too.
     pub(crate) fn clear_recent(&mut self) {
-        self.recent.clear();
+        self.folder.recent.clear();
         if let Some(file) = config::recent_path() {
             config::write_later(move || config::remove_shared(&file));
         }
@@ -108,12 +166,12 @@ impl crate::App {
             iconed(ui, theme::icon::RECENT, tr("Open Recent")),
             |ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                if self.recent.is_empty() {
+                if self.folder.recent.is_empty() {
                     ui.weak(tr("Nothing opened yet"));
                     return;
                 }
                 let mut chosen = None;
-                for path in &self.recent {
+                for path in &self.folder.recent {
                     let text = path.display().to_string();
                     if noted(&ui.button(&text), &text).clicked() {
                         chosen = Some(path.clone());
@@ -129,7 +187,7 @@ impl crate::App {
                         true => self.visit(&ctx, path),
                         false => {
                             self.notice = Some(tf!("{name} is gone", name = path.display()));
-                            self.recent.retain(|p| *p != path);
+                            self.folder.recent.retain(|p| *p != path);
                         }
                     }
                 }
@@ -144,11 +202,11 @@ impl crate::App {
         if let Some(Some(check)) = self.check.take() {
             check.stop.store(true, Ordering::Relaxed);
         }
-        self.opened_type = Types::NONE;
+        self.folder.opened_type = Types::NONE;
         // The old folder's watcher ends; a folder opened next starts its own (watch()).
-        self.watching.fetch_add(1, Ordering::Relaxed);
+        self.folder.watching.fetch_add(1, Ordering::Relaxed);
         self.broken_files.clear();
-        self.subdirs.clear();
+        self.folder.subdirs.clear();
         self.deleting.clear();
         self.slideshow.shuffled = false;
         self.thumbs.textures.clear();
@@ -178,18 +236,18 @@ impl crate::App {
             .collect();
         // The same collection read again (F5): a delete still running keeps its names, so a
         // failed one brings its images back.
-        let deleting = if self.collection.as_ref() == Some(&file) {
+        let deleting = if self.folder.collection.as_ref() == Some(&file) {
             std::mem::take(&mut self.deleting)
         } else {
             HashSet::new()
         };
         self.forget_old_list();
         self.deleting = deleting;
-        self.recursive = false;
-        self.dir = root.to_path_buf();
+        self.folder.recursive = false;
+        self.folder.dir = root.to_path_buf();
         self.remember_recent(&file);
-        self.collection = Some(file);
-        self.folders.clear();
+        self.folder.collection = Some(file);
+        self.folder.folders.clear();
         let first = files.first().cloned();
         self.replace_files(ctx, files, first);
         self.list(ctx);
@@ -220,12 +278,12 @@ impl crate::App {
             return;
         }
         self.leave_image(ctx);
-        self.collection = None;
+        self.folder.collection = None;
         // As a folder opened: with the subfolders when the menu says so, whatever was shown.
-        self.recursive = self.config.show_subfolders;
+        self.folder.recursive = self.config.show_subfolders;
         self.forget_old_list();
-        self.dir = PathBuf::from("/");
-        self.folders = folders;
+        self.folder.dir = PathBuf::from("/");
+        self.folder.folders = folders;
         self.replace_files(ctx, Vec::new(), None);
         self.list(ctx);
         self.title(ctx);
@@ -233,27 +291,30 @@ impl crate::App {
 
     /// Where Back comes back to: the collection shown, else the file shown or the folder.
     pub(crate) fn back_step(&self) -> PathBuf {
-        self.collection.clone().unwrap_or_else(|| self.location())
+        self.folder
+            .collection
+            .clone()
+            .unwrap_or_else(|| self.location())
     }
 
     /// Open `path` as a new step in the Back/Forward history.
     pub(crate) fn visit(&mut self, ctx: &egui::Context, path: PathBuf) {
         // A message about the folder before (a share that could not be mounted) goes with it.
         self.notice = None;
-        self.back.push(self.back_step());
+        self.folder.back.push(self.back_step());
         // Not without end: a slideshow of folders, or a script's --remote open, visits many.
-        if self.back.len() > 200 {
-            self.back.remove(0);
+        if self.folder.back.len() > 200 {
+            self.folder.back.remove(0);
         }
-        self.forward.clear();
+        self.folder.forward.clear();
         self.open(ctx, path);
     }
 
     /// The file shown, or the folder when it has no images.
     pub(crate) fn location(&self) -> PathBuf {
         match self.list.files.get(self.list.cur) {
-            Some(name) => self.dir.join(name),
-            None => self.dir.clone(),
+            Some(name) => self.folder.dir.join(name),
+            None => self.folder.dir.clone(),
         }
     }
 
@@ -282,7 +343,7 @@ impl crate::App {
             let _ = tx.send((result, login));
             ctx.request_repaint();
         });
-        self.mounting_rx = Receiving::of(rx);
+        self.folder.mounting_rx = Receiving::of(rx);
     }
 
     /// Read the folder (and then the sizes) in the background; `receive_listing` merges it in.
@@ -290,45 +351,50 @@ impl crate::App {
     pub(crate) fn list(&mut self, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let (size_tx, size_rx) = mpsc::channel();
-        let (list_dir, ctx2, types) = (self.dir.clone(), ctx.clone(), self.types());
+        let (list_dir, ctx2, types) = (self.folder.dir.clone(), ctx.clone(), self.types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
         let (recursive, shuffled) = (
-            self.recursive,
+            self.folder.recursive,
             self.slideshow.shuffled && self.slideshow.whole_shuffle,
         );
-        let collection = self.collection.is_some().then(|| self.list.files.clone());
+        let collection = self
+            .folder
+            .collection
+            .is_some()
+            .then(|| self.list.files.clone());
         // A collection's file, which every move writes at once: read again, it has what moved
         // after the list was copied. A plain list is never written: the list as shown.
-        let saved = (self.collection.clone()).filter(|f| !collections::is_list(f));
+        let saved = (self.folder.collection.clone()).filter(|f| !collections::is_list(f));
         // A collection keeps its own order unless the Sort menu was used.
-        let sort = collection.is_none() || self.sort_collection;
-        let folders = self.folders.clone();
+        let sort = collection.is_none() || self.folder.sort_collection;
+        let folders = self.folder.folders.clone();
         // A folder read again in EXIF date order (mostly after Glimt's own sidecar writes) keeps
         // the order shown when no name is new, instead of reading every file's EXIF again.
         // shortcut: the list copied in the UI thread, 7-9 ms for 500,000 names, once per
         // refresh; share it with the thread (an Arc in List) if folders grow far past that.
         let exif = matches!(by, files::Sort::ExifOriginal | files::Sort::ExifDigitized);
-        let same = Some((self.dir.clone(), by, ascending, case, recursive));
-        let before = (exif && !self.list_parts && !self.slideshow.shuffled && collection.is_none())
-            .then_some(())
-            .filter(|_| folders.is_empty() && self.listed_as == same)
-            .map(|_| self.list.files.clone());
+        let same = Some((self.folder.dir.clone(), by, ascending, case, recursive));
+        let before =
+            (exif && !self.folder.list_parts && !self.slideshow.shuffled && collection.is_none())
+                .then_some(())
+                .filter(|_| folders.is_empty() && self.folder.listed_as == same)
+                .map(|_| self.list.files.clone());
         // The listing before stops, if it is still reading a tree.
-        self.listing_stop.store(true, Ordering::Relaxed);
-        self.listing_stop = Arc::default();
-        let stop = self.listing_stop.clone();
+        self.folder.listing_stop.store(true, Ordering::Relaxed);
+        self.folder.listing_stop = Arc::default();
+        let stop = self.folder.listing_stop.clone();
         let (subdirs_tx, subdirs_rx) = mpsc::channel();
-        self.subdirs_rx = Receiving::of(subdirs_rx);
+        self.folder.subdirs_rx = Receiving::of(subdirs_rx);
         // Room for one: a window not drawn (minimized, on another workspace) takes none, and a
         // copy of the whole list so far each time would pile up.
         let (part_tx, part_rx) = mpsc::sync_channel(1);
-        self.part_rx = Receiving::of(part_rx);
+        self.folder.part_rx = Receiving::of(part_rx);
         // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
         // its whole list on screen until the new one is read, instead of shrinking and growing.
         // Nor in random order: a list in name order would take the shuffled one's place.
-        let parts = std::mem::take(&mut self.list_parts) && !self.slideshow.shuffled;
-        self.went_to = None;
+        let parts = std::mem::take(&mut self.folder.list_parts) && !self.slideshow.shuffled;
+        self.folder.went_to = None;
         std::thread::spawn(move || {
             // Several folders: their images, each folder (with its subfolders) after the other.
             if !folders.is_empty() {
@@ -462,22 +528,22 @@ impl crate::App {
             let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
             send_sizes(sizes, size_tx, &ctx2);
         });
-        self.listing_rx = Receiving::of(rx);
+        self.folder.listing_rx = Receiving::of(rx);
         self.status.size_rx = Receiving::of(size_rx);
         self.status.total_size = 0;
-        self.relist = false;
+        self.folder.relist = false;
     }
 
     /// Poll the folder's modification time once a second in the background (one `stat`, no
     /// repaint unless it changed). Adding, removing or renaming a file changes it.
     /// The thread ends when another folder is opened.
     pub(crate) fn watch(&mut self, ctx: &egui::Context) {
-        let generation = self.watching.fetch_add(1, Ordering::Relaxed) + 1;
+        let generation = self.folder.watching.fetch_add(1, Ordering::Relaxed) + 1;
         let (watching, tx, ctx, dir) = (
-            self.watching.clone(),
-            self.changed_tx.clone(),
+            self.folder.watching.clone(),
+            self.folder.changed_tx.clone(),
             ctx.clone(),
-            self.dir.clone(),
+            self.folder.dir.clone(),
         );
         std::thread::spawn(move || {
             let mtime = || std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
@@ -497,46 +563,47 @@ impl crate::App {
     /// Take the folder listing if it is ready, waiting up to `wait`.
     pub(crate) fn receive_listing(&mut self, ctx: &egui::Context, wait: std::time::Duration) {
         // A thread that broke leaves no folders, and nothing waiting for it.
-        if let Took::Answer(dirs) = self.subdirs_rx.take() {
-            self.subdirs = dirs;
+        if let Took::Answer(dirs) = self.folder.subdirs_rx.take() {
+            self.folder.subdirs = dirs;
         }
         // The tree's images so far: only the last that came, one list a frame at most.
-        if let Took::Answer(part) = self.part_rx.latest() {
+        if let Took::Answer(part) = self.folder.part_rx.latest() {
             self.take_files(ctx, part, false);
         }
-        let (dirs, files) = match self.listing_rx.wait(wait) {
+        let (dirs, files) = match self.folder.listing_rx.wait(wait) {
             Took::Answer(listed) => listed,
             // The listing thread broke: told once, and nothing (the busy pointer, a parked
             // --remote select, auto refresh) waits for it any more.
             Took::Gone => {
-                self.subdirs_rx.clear();
-                self.part_rx.clear();
+                self.folder.subdirs_rx.clear();
+                self.folder.part_rx.clear();
                 return self.stopped(tr("Reading the folder"));
             }
             Took::Nothing => return,
         };
-        self.subdirs_rx.clear();
-        self.part_rx.clear();
+        self.folder.subdirs_rx.clear();
+        self.folder.part_rx.clear();
         // Several folders shown together are listed as "/" with no subfolders: not the tree's.
-        if self.collection.is_none() && self.folders.is_empty() {
+        if self.folder.collection.is_none() && self.folder.folders.is_empty() {
             self.tree
                 .children
-                .insert(self.dir.clone(), Some(dirs.clone()));
+                .insert(self.folder.dir.clone(), Some(dirs.clone()));
         }
-        self.subdirs = dirs;
+        self.folder.subdirs = dirs;
         self.take_files(ctx, files, true);
         let c = &self.config;
-        self.listed_as =
-            (self.collection.is_none() && self.folders.is_empty() && !self.slideshow.shuffled)
-                .then(|| {
-                    (
-                        self.dir.clone(),
-                        c.sort,
-                        c.sort_ascending,
-                        c.sort_case,
-                        self.recursive,
-                    )
-                });
+        self.folder.listed_as = (self.folder.collection.is_none()
+            && self.folder.folders.is_empty()
+            && !self.slideshow.shuffled)
+            .then(|| {
+                (
+                    self.folder.dir.clone(),
+                    c.sort,
+                    c.sort_ascending,
+                    c.sort_case,
+                    self.folder.recursive,
+                )
+            });
     }
 
     /// The images of the folder read in the background as the list: all of them when `whole`,
@@ -568,7 +635,7 @@ impl crate::App {
         }
         // Nothing changed (most refreshes, after Glimt's own writes beside the files): the list,
         // the selection and the search stay as they are.
-        if files == self.list.files && !self.sort_collection {
+        if files == self.list.files && !self.folder.sort_collection {
             // A file saved over under its own name (an editor writes and renames): its size
             // and date read again, for the rows on screen only.
             self.list.details.clear();
@@ -578,7 +645,7 @@ impl crate::App {
         // list, in the order asked for, starts at its first image instead, unless another one
         // was chosen meanwhile.
         let mut shown = self.list.files.get(self.list.cur).cloned();
-        if whole && shown.is_some() && std::mem::take(&mut self.went_to) == shown {
+        if whole && shown.is_some() && std::mem::take(&mut self.folder.went_to) == shown {
             shown = None;
         }
         let first = self.list.files.is_empty() && !whole;
@@ -588,10 +655,10 @@ impl crate::App {
             .collect();
         self.replace_files(ctx, files, shown);
         if first {
-            self.went_to = self.list.files.get(self.list.cur).cloned();
+            self.folder.went_to = self.list.files.get(self.list.cur).cloned();
         }
         self.reselect(ctx, &picked);
-        if whole && std::mem::take(&mut self.sort_collection) {
+        if whole && std::mem::take(&mut self.folder.sort_collection) {
             self.save_collection_order();
         }
     }
@@ -635,7 +702,7 @@ impl crate::App {
         shown: Option<OsString>,
     ) {
         // A new order (shuffled, a collection's): set again only by a listing in sort order.
-        self.listed_as = None;
+        self.folder.listed_as = None;
         // Shown now and in the new list too: not when another program removed or renamed it,
         // whose turn not saved would else go to the image shown in its place.
         let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f == p));
@@ -814,12 +881,19 @@ mod tests {
         // Renamed on disk, the refresh reads, and only then the rename is reported.
         std::fs::rename(&a, &c).unwrap();
         app.list(&ctx);
-        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
+        assert!(settle(&mut app, &ctx, |app| app
+            .folder
+            .listing_rx
+            .is_none()));
         app.paths_moved(vec![(a, c)], false);
         let has_c = |app: &crate::App| {
             (app.list.files.iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };
-        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none() && has_c(app)));
+        assert!(settle(&mut app, &ctx, |app| app
+            .folder
+            .listing_rx
+            .is_none()
+            && has_c(app)));
         assert!(std::fs::read_to_string(&gqv).unwrap().contains("c.png"));
         std::fs::remove_dir_all(d).unwrap();
     }
@@ -837,10 +911,13 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         app.config.sort = crate::files::Sort::ExifOriginal;
         app.list(&ctx);
-        assert!(settle(&mut app, &ctx, |app| app.listing_rx.is_none()));
-        assert!(app.listed_as.is_some());
+        assert!(settle(&mut app, &ctx, |app| app
+            .folder
+            .listing_rx
+            .is_none()));
+        assert!(app.folder.listed_as.is_some());
         app.run(&ctx, crate::actions::Action::Refresh);
-        assert!(app.listed_as.is_none());
+        assert!(app.folder.listed_as.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -855,7 +932,7 @@ mod tests {
         let cur = app.list.cur;
         assert!(settle(&mut app, &ctx, |a| a.list.slots.contains_key(&cur)));
         app.run(&ctx, crate::actions::Action::Refresh);
-        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
         let asked = |a: &crate::App| {
             a.list.slots.contains_key(&cur) || a.list.decodes_pending.keys().any(|k| k.0 == cur)
         };
@@ -879,9 +956,9 @@ mod tests {
         let (mut app, ctx) = app_on(&file);
         app.config.sort = crate::files::Sort::Name;
         app.config.sort_case = true;
-        app.sort_collection = true;
+        app.folder.sort_collection = true;
         app.list(&ctx);
-        assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
+        assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
         let names: Vec<String> = (app.list.files.iter())
             .map(|f| {
                 std::path::Path::new(f)
@@ -905,7 +982,7 @@ mod tests {
         std::fs::write(dir.join("show.m3u"), "a.png\n").unwrap();
         let (app, _ctx) = app_on(&dir.join("show.m3u"));
         let here = std::env::current_dir().unwrap().join(&dir);
-        assert_eq!(app.collection, Some(here.join("show.m3u")));
+        assert_eq!(app.folder.collection, Some(here.join("show.m3u")));
         assert_eq!(app.list.files.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }

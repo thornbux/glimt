@@ -21,7 +21,9 @@ impl crate::App {
 
     /// Make `change` to the open collection's file as it is now, with what other windows changed.
     pub(crate) fn edit_collection(&mut self, change: impl FnOnce(&mut Vec<PathBuf>)) {
-        let Some(file) = &self.collection else { return };
+        let Some(file) = &self.folder.collection else {
+            return;
+        };
         // A plain list is the user's own: shown, never written.
         if is_list(file) {
             return;
@@ -62,7 +64,7 @@ impl crate::App {
         picked: HashSet<usize>,
         order: Vec<usize>,
     ) {
-        if self.collection.is_none() {
+        if self.folder.collection.is_none() {
             self.notice = Some(tr("Only the images of a collection can be moved").into());
             return;
         }
@@ -88,7 +90,7 @@ impl crate::App {
     /// The open collection's file to the trash, through gio in the background; the images stay,
     /// and the window shows the shown image's folder.
     pub(crate) fn trash_collection(&mut self, ctx: &egui::Context) {
-        let Some(file) = self.collection.clone() else {
+        let Some(file) = self.folder.collection.clone() else {
             return;
         };
         if !self.background(ctx, vec![file.clone()], move || {
@@ -162,7 +164,7 @@ impl crate::App {
                 },
             );
         }
-        if let Some(file) = &self.collection {
+        if let Some(file) = &self.folder.collection {
             menu_item(ui, act, Action::RemoveFromCollection);
             // A plain list is the user's own file: Glimt never writes it.
             if !is_list(file) {

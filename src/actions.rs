@@ -819,7 +819,7 @@ impl crate::App {
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
             Action::RemoveFromCollection
-                if self.collection.is_some() && !self.list.files.is_empty() =>
+                if self.folder.collection.is_some() && !self.list.files.is_empty() =>
             {
                 let targets = self.targets();
                 // Out of the collection's file here, at once: the files stay where they are.
@@ -829,12 +829,16 @@ impl crate::App {
             }
             Action::RemoveFromCollection => {}
             Action::RenameCollection | Action::TrashCollection
-                if self.collection.as_deref().is_some_and(collections::is_list) =>
+                if self
+                    .folder
+                    .collection
+                    .as_deref()
+                    .is_some_and(collections::is_list) =>
             {
                 self.notice = Some(tr("A plain list is not renamed or trashed by Glimt").into());
             }
             Action::RenameCollection => {
-                if let Some(name) = self.collection.as_ref().and_then(|f| f.file_stem()) {
+                if let Some(name) = self.folder.collection.as_ref().and_then(|f| f.file_stem()) {
                     let name = name.to_string_lossy().into_owned();
                     self.prompt = Some((Prompt::RenameCollection, name));
                 }
@@ -940,9 +944,9 @@ impl crate::App {
             Action::Back | Action::Forward => {
                 let here = self.back_step();
                 let (from, to) = if action == Action::Back {
-                    (&mut self.back, &mut self.forward)
+                    (&mut self.folder.back, &mut self.folder.forward)
                 } else {
-                    (&mut self.forward, &mut self.back)
+                    (&mut self.folder.forward, &mut self.folder.back)
                 };
                 if let Some(path) = from.pop() {
                     to.push(here);
@@ -956,7 +960,7 @@ impl crate::App {
                 }
             }
             Action::Up => {
-                if let Some(parent) = self.dir.parent() {
+                if let Some(parent) = self.folder.dir.parent() {
                     self.visit(ctx, parent.to_path_buf());
                 }
             }
@@ -1152,7 +1156,9 @@ impl crate::App {
             }
             // A collection, or several folders shown together, is no folder to make one in: it
             // would be made in /.
-            Action::NewFolder if self.collection.is_some() || !self.folders.is_empty() => {
+            Action::NewFolder
+                if self.folder.collection.is_some() || !self.folder.folders.is_empty() =>
+            {
                 self.notice =
                     Some(tr("New Folder makes a folder in the folder shown: open one").into());
             }
@@ -1253,7 +1259,7 @@ impl crate::App {
             Action::HideTools => self.panel.hidden = !self.panel.hidden,
             Action::Refresh => {
                 // Asked for: sorted anew, also in an EXIF date order whose names stayed.
-                self.listed_as = None;
+                self.folder.listed_as = None;
                 self.tree.children.clear();
                 self.list.slots.clear();
                 self.list.decodes_pending.clear();
@@ -1473,7 +1479,13 @@ impl crate::App {
             1
         };
         (!self.dialog_open() && !typing)
-            .then(|| Self::shortcut(ctx, self.config.delete_key, self.collection.is_some()))
+            .then(|| {
+                Self::shortcut(
+                    ctx,
+                    self.config.delete_key,
+                    self.folder.collection.is_some(),
+                )
+            })
             .flatten()
     }
 

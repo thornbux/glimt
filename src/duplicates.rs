@@ -166,7 +166,7 @@ impl crate::App {
                     return;
                 }
                 if dups.searched == 0 {
-                    if !self.recursive {
+                    if !self.folder.recursive {
                         ui.weak(tr(
                             "Include Subfolders in the View menu searches the folders below too.",
                         ));

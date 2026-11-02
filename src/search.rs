@@ -149,7 +149,7 @@ impl crate::App {
         let Some(m) = &self.list.matches else { return };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
-        let (dir, ctx) = (self.dir.clone(), ctx.clone());
+        let (dir, ctx) = (self.folder.dir.clone(), ctx.clone());
         std::thread::spawn(move || {
             let sizes = names
                 .iter()
@@ -315,7 +315,7 @@ impl crate::App {
         {
             let (tx, rx) = mpsc::channel();
             let names: Vec<OsString> = self.search.exif_stale.drain().collect();
-            let (dir, ctx) = (self.dir.clone(), ctx.clone());
+            let (dir, ctx) = (self.folder.dir.clone(), ctx.clone());
             let pointer = Working::new(&self.busy);
             self.search.exif_index_stop = Arc::default();
             let stop = self.search.exif_index_stop.clone();
@@ -333,7 +333,11 @@ impl crate::App {
                     self.search.exif_stale.clear();
                 }
                 let (tx, rx) = mpsc::channel();
-                let (dir, files, ctx) = (self.dir.clone(), self.list.files.clone(), ctx.clone());
+                let (dir, files, ctx) = (
+                    self.folder.dir.clone(),
+                    self.list.files.clone(),
+                    ctx.clone(),
+                );
                 let pointer = Working::new(&self.busy);
                 self.search.exif_index_stop = Arc::default();
                 let stop = self.search.exif_index_stop.clone();
@@ -397,7 +401,7 @@ impl crate::App {
     pub(crate) fn marked_names(&self, hit: impl Fn((u8, u8)) -> bool) -> HashSet<&std::ffi::OsStr> {
         (self.marks.marked())
             .filter(|&(_, v)| hit(v))
-            .filter_map(|(p, _)| Some(p.strip_prefix(&self.dir).ok()?.as_os_str()))
+            .filter_map(|(p, _)| Some(p.strip_prefix(&self.folder.dir).ok()?.as_os_str()))
             .collect()
     }
 

@@ -413,7 +413,7 @@ impl crate::App {
                 menu_item(ui, list_act, Action::NewCollection);
             },
         );
-        if self.collection.is_some() {
+        if self.folder.collection.is_some() {
             menu_item(ui, list_act, Action::RemoveFromCollection);
         }
         ui.separator();
@@ -476,7 +476,7 @@ impl crate::App {
                 return;
             }
             let plugin = self.plugins[k].clone();
-            let (dir, running) = (self.dir.clone(), self.plugins_running.clone());
+            let (dir, running) = (self.folder.dir.clone(), self.plugins_running.clone());
             let deleted = self.deleted_tx.clone();
             let (tx, ctx) = (self.notices_tx.clone(), ui.ctx().clone());
             // A plugin may be an editor that stays open for hours: not waited for at closing,
