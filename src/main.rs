@@ -209,9 +209,6 @@ const START_OPTIONS: &[(&str, &str)] = &[
     ("-h, --help", "Print this help"),
 ];
 
-/// How long the mouse is still in full screen before the pointer hides.
-const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
 
@@ -1261,15 +1258,6 @@ impl eframe::App for App {
             self.frame_ms[(ms as usize).min(255)] += 1;
         }
     }
-}
-
-/// Whether a window, menu or popup was on the screen in this frame or the last; the panels
-/// of the main window do not count.
-fn window_shown(ctx: &egui::Context) -> bool {
-    use egui::Order::{Foreground, Middle};
-    ctx.memory(|m| {
-        (m.areas().visible_layer_ids().iter()).any(|l| matches!(l.order, Middle | Foreground))
-    })
 }
 
 /// The text of a widget as the release tests name it: the label without the icon before it.

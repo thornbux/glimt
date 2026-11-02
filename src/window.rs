@@ -1,11 +1,13 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
 use crate::format::fill_template;
-use crate::{POINTER_STILL, window_shown};
 use crate::{external, remote, tf};
 use eframe::egui;
 use std::path::Path;
 use std::sync::atomic::Ordering;
+
+/// How long the mouse is still in full screen before the pointer hides.
+const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// What ends a screen saver inhibitor: its process killed, or the portal's request closed.
 pub(crate) type Ender = Box<dyn FnOnce() + Send>;
@@ -250,6 +252,15 @@ impl crate::App {
     }
 }
 
+/// Whether a window, menu or popup was on the screen in this frame or the last; the panels
+/// of the main window do not count.
+fn window_shown(ctx: &egui::Context) -> bool {
+    use egui::Order::{Foreground, Middle};
+    ctx.memory(|m| {
+        (m.areas().visible_layer_ids().iter()).any(|l| matches!(l.order, Middle | Foreground))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tests::{app_on, contract_folder, settle};
@@ -325,7 +336,7 @@ mod tests {
                     eframe::egui::Window::new("Help").show(ui.ctx(), |ui| ui.label("text"));
                 }
             });
-            crate::window_shown(&ctx)
+            super::window_shown(&ctx)
         };
         assert!(!pass(false) && !pass(false));
         assert!(pass(true));
@@ -351,7 +362,7 @@ mod tests {
             let out = ctx.run_ui(input, |ui| app.hide_still_pointer(ui.ctx(), fullscreen));
             out.platform_output.cursor_icon == CursorIcon::None
         };
-        let long_ago = || std::time::Instant::now() - crate::POINTER_STILL * 2;
+        let long_ago = || std::time::Instant::now() - super::POINTER_STILL * 2;
         // Just moved: shown, until the timer has run.
         app.pointer_moved = std::time::Instant::now();
         assert!(!pass(&mut app, vec![], true));
@@ -361,7 +372,7 @@ mod tests {
         let moved = |x| vec![Event::PointerMoved(pos2(x, 10.0))];
         let _ = pass(&mut app, moved(10.0), true);
         assert!(!pass(&mut app, moved(20.0), true));
-        assert!(app.pointer_moved.elapsed() < crate::POINTER_STILL);
+        assert!(app.pointer_moved.elapsed() < super::POINTER_STILL);
         // Outside full screen it never hides, and the timer starts when full screen begins.
         app.pointer_moved = long_ago();
         assert!(!pass(&mut app, vec![], false));
@@ -398,7 +409,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
         app.config.hide_pointer = true;
-        app.pointer_moved = std::time::Instant::now() - crate::POINTER_STILL * 2;
+        app.pointer_moved = std::time::Instant::now() - super::POINTER_STILL * 2;
         let pass = |app: &mut crate::App| {
             let out = ctx.run_ui(Default::default(), |ui| {
                 app.hide_still_pointer(ui.ctx(), true)
