@@ -8,6 +8,8 @@ use crate::dialogs::{Pick, Prompt};
 use crate::file_list::{RubberBand, ThumbView};
 use crate::file_ops::{Deleted, Undo};
 use crate::info_panel::{ExifRead, MetaEdit, spawn_exif_reader};
+use crate::view::LAYOUTS;
+use crate::view::frame_at;
 use crate::view::{DecodeJob, Shown, View, spawn_decoders};
 use crate::window::Ender;
 use crate::workers::spawn_thumbnailers;
@@ -228,14 +230,6 @@ impl Job {
         }
     }
 }
-
-/// View → Layout: the config value, the menu label and the panes as [columns, rows].
-const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
-    ("1", "One Image", [1, 1]),
-    ("2x1", "Two Side by Side", [2, 1]),
-    ("1x2", "Two Above Each Other", [1, 2]),
-    ("2x2", "Four (2 × 2)", [2, 2]),
-];
 
 /// Options on the command line before the file or folder, for --help.
 const START_OPTIONS: &[(&str, &str)] = &[
@@ -1458,17 +1452,6 @@ fn main() -> eframe::Result {
     )
 }
 
-/// The milliseconds that `share` of the frames counted by milliseconds took at most; 0 for none.
-fn frame_at(frame_ms: &[u32], share: f64) -> usize {
-    let total: u32 = frame_ms.iter().sum();
-    let mut seen = 0;
-    (frame_ms.iter().position(|&n| {
-        seen += n;
-        total > 0 && seen as f64 >= share * total as f64
-    }))
-    .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     /// An `App` for a test, on folder `dir`, listed: its own settings, no remote control,
@@ -2561,11 +2544,11 @@ mod tests {
     #[test]
     fn frame_shares() {
         let mut ms = [0; 256];
-        assert_eq!(super::frame_at(&ms, 0.5), 0);
+        assert_eq!(crate::view::frame_at(&ms, 0.5), 0);
         ms[2] = 5;
         ms[3] = 4;
         ms[90] = 1;
-        let at = |share| super::frame_at(&ms, share);
+        let at = |share| crate::view::frame_at(&ms, share);
         assert_eq!((at(0.5), at(0.9), at(1.0)), (2, 3, 90));
     }
 

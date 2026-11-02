@@ -15,10 +15,10 @@ use crate::lang::tr;
 use crate::marks;
 use crate::pan::Pan;
 use crate::threads::{Receiving, Working};
+use crate::view::LAYOUTS;
 use crate::view::layout_grid;
 use crate::{
-    LAYOUTS, POINTER_STILL, collections, config, external, help, own_program, remote, save, tf,
-    window_shown,
+    POINTER_STILL, collections, config, external, help, own_program, remote, save, tf, window_shown,
 };
 use eframe::egui;
 use std::collections::HashSet;

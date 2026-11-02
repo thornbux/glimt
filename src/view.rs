@@ -7,7 +7,7 @@ use crate::external::is_video;
 use crate::format::fill_template;
 use crate::lang::tr;
 use crate::menus::{iconed, menu_item, scroll_menu};
-use crate::{LAYOUTS, Slot, app_id, malloc_trim, noted, theme};
+use crate::{Slot, app_id, malloc_trim, noted, theme};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1382,4 +1382,23 @@ impl crate::App {
         }
         step
     }
+}
+
+/// View → Layout: the config value, the menu label and the panes as [columns, rows].
+pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
+    ("1", "One Image", [1, 1]),
+    ("2x1", "Two Side by Side", [2, 1]),
+    ("1x2", "Two Above Each Other", [1, 2]),
+    ("2x2", "Four (2 × 2)", [2, 2]),
+];
+
+/// The milliseconds that `share` of the frames counted by milliseconds took at most; 0 for none.
+pub(crate) fn frame_at(frame_ms: &[u32], share: f64) -> usize {
+    let total: u32 = frame_ms.iter().sum();
+    let mut seen = 0;
+    (frame_ms.iter().position(|&n| {
+        seen += n;
+        total > 0 && seen as f64 >= share * total as f64
+    }))
+    .unwrap_or(0)
 }
