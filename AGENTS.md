@@ -134,6 +134,11 @@ A name is imported from the module that defines it (`use crate::config::Config`)
 main.rs's own imports (`crate::Config`); main.rs names its modules as `crate::actions::…` too
 (`source_rules::imports_name_where_defined`).
 
+Comments are English sentences that say why, or what a reader cannot see from the code; the
+doc comment of a function opens with what it does, and says what it gives back with
+"Returns …" when that is not plain from its name. Comments fit 100 columns
+(`source_rules::comments_fit_the_width`).
+
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module
 of that part. The exceptions are the tables of one arm per action (`Action::english`,

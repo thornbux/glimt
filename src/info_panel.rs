@@ -497,7 +497,8 @@ impl crate::App {
         );
     }
 
-    /// Stars and marks of file `i` as text ("★★★  1 4"); empty without the marks feature.
+    /// Stars and marks of file `i` as text ("★★★  1 4"). Returns an empty text without the marks
+    /// feature.
     #[cfg(feature = "marks")]
     pub(crate) fn mark_text(&self, i: usize) -> String {
         if !self.config.show_marks {

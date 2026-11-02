@@ -297,8 +297,8 @@ pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     Ok(to_srgb(img, icc.as_deref()))
 }
 
-/// The frames of a GIF, an animated WebP or an animated PNG (APNG), decoded as they are taken,
-/// and its size; `None` for any other file, a still WebP or PNG among them.
+/// The frames of a GIF, an animated WebP or an animated PNG (APNG), decoded as they are taken, and
+/// its size. Returns `None` for any other file, a still WebP or PNG among them.
 fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> {
     use image::{AnimationDecoder, ImageDecoder};
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
@@ -337,7 +337,7 @@ fn too_large_animation((w, h): (u32, u32)) -> bool {
     u64::from(w) * u64::from(h) * 8 > MAX_DECODE
 }
 
-/// The frames of an animated GIF, WebP or PNG (APNG); `None` for other files, which `load`
+/// The frames of an animated GIF, WebP or PNG (APNG). Returns `None` for other files, which `load`
 /// decodes.
 pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     let (frames, size) = animated_frames(path)?;

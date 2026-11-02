@@ -119,7 +119,8 @@ impl crate::App {
         Some(m.map_or(r, |m| m[r]))
     }
 
-    /// The row of the shown file among the search matches `m`; `None` if the search hides it.
+    /// The row of the shown file among the search matches `m`. Returns `None` if the search hides
+    /// it.
     pub(crate) fn cur_row(&self, m: &[usize]) -> Option<usize> {
         self.row_of(m, self.list.cur)
     }

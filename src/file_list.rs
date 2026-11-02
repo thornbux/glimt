@@ -311,7 +311,7 @@ impl crate::App {
         self.thumbs.textures.retain(|name, _| keep.contains(name));
     }
 
-    /// A file list row with a thumbnail; true when clicked.
+    /// A file list row with a thumbnail. Returns true when clicked.
     pub(crate) fn file_row(
         &mut self,
         ui: &mut egui::Ui,

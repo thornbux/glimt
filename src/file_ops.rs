@@ -278,8 +278,8 @@ impl crate::App {
         config::WRITING.load(Ordering::Relaxed) > 0
     }
 
-    /// A file operation on `total` files that changes `touches`, shown in the status bar until
-    /// its thread drops it; `None`, with a notice, while something else works on them.
+    /// A file operation on `total` files that changes `touches`, shown in the status bar until its
+    /// thread drops it. Returns `None`, with a notice, while something else works on them.
     pub(crate) fn start_job(
         &mut self,
         doing: &'static str,

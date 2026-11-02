@@ -291,3 +291,22 @@ fn agents_md_lists_every_module() {
         "AGENTS.md's code layout lacks {missing:?} and names {gone:?}, which are not in src/"
     );
 }
+
+/// A comment fits the 100 columns rustfmt keeps code to, which rustfmt does not wrap: a longer
+/// one is read sideways, or wrapped by an editor in the middle of a word.
+#[test]
+fn comments_fit_the_width() {
+    let mut wrong = Vec::new();
+    for (file, text) in sources().into_iter().filter(|(n, _)| n.ends_with(".rs")) {
+        for (i, line) in text.lines().enumerate() {
+            if line.trim_start().starts_with("//") && line.chars().count() > 100 {
+                wrong.push(format!("{file}:{}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "comments over 100 columns:\n{}",
+        wrong.join("\n")
+    );
+}

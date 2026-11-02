@@ -88,8 +88,8 @@ pub fn all() -> &'static [Decoder] {
     })
 }
 
-/// The decoder of a desktop file; `None` without a name, extensions, or %f in its command (also
-/// inside a word, as ImageMagick's %f[0] for a file's first frame).
+/// The decoder of a desktop file. Returns `None` without a name, extensions, or %f in its command
+/// (also inside a word, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<Decoder> {
     let value = crate::plugins::values(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))

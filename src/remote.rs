@@ -469,7 +469,7 @@ pub fn send_to(name: &str, command: &str) -> bool {
     socket(name).is_some_and(|p| deliver(&p, command))
 }
 
-/// Send `command` to every running Glimt; how many got it.
+/// Send `command` to every running Glimt. Returns how many got it.
 pub fn send_all(command: &str) -> usize {
     live().iter().filter(|p| deliver(p, command)).count()
 }

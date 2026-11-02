@@ -595,8 +595,9 @@ fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
     Some((segments, false))
 }
 
-/// Where a JPEG's image data begins (its first SOS marker), past the segments before it and
-/// what they hold, such as the EXIF thumbnail, which is a JPEG of its own; `None` if not reached.
+/// Where a JPEG's image data begins (its first SOS marker), past the segments before it and what
+/// they hold, such as the EXIF thumbnail, which is a JPEG of its own. Returns `None` if not
+/// reached.
 pub fn jpeg_scan_start(data: &[u8]) -> Option<usize> {
     let (segments, reached) = jpeg_segments(data)?;
     reached.then(|| segments.last().map_or(2, |&(_, start, len)| start + len))

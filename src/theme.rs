@@ -390,7 +390,7 @@ pub fn desktop() -> Desktop {
     }
 }
 
-/// "(<1.25>,)": GNOME's text scaling factor (1.25 for Large Text); `None` elsewhere, or
+/// "(<1.25>,)": GNOME's text scaling factor (1.25 for Large Text). Returns `None` elsewhere, or
 /// outside 0.5–3.
 fn parse_scale(text: &str) -> Option<f32> {
     let n = text.trim().trim_start_matches("(<").split('>').next()?;

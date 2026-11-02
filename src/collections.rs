@@ -252,7 +252,7 @@ pub fn new_file(name: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Give the collection in `file` the name `name`, in the same folder; the new file.
+/// Give the collection in `file` the name `name`, in the same folder. Returns the new file.
 pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     let name = valid(name)?;
     // Under the collection's lock, as every edit of it: another window's edit lands before or

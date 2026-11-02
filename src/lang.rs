@@ -100,8 +100,8 @@ fn table(k: usize) -> &'static Table {
     })
 }
 
-/// The translation's code for the first language the environment asks for, as gettext reads
-/// it; `None` for English, C or one not built in.
+/// The translation's code for the first language the environment asks for, as gettext reads it.
+/// Returns `None` for English, C or one not built in.
 fn from_env() -> Option<String> {
     let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
     // LANGUAGE is a list by preference, and counts only with a locale other than C.

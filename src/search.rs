@@ -194,8 +194,8 @@ impl crate::App {
     }
 
     /// The files a search finds: one term as it always was (fuzzy names best first), or terms
-    /// combined (`sunset ( exif:canon | exif:nikon ) -re:png$`, see `parse`) in list
-    /// order; `None` for no search.
+    /// combined (`sunset ( exif:canon | exif:nikon ) -re:png$`, see `parse`) in list order. Returns
+    /// `None` for no search.
     pub(crate) fn search_matches(
         &mut self,
         ctx: &egui::Context,

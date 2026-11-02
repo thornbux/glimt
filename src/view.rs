@@ -340,7 +340,7 @@ impl crate::App {
         self.refill();
     }
 
-    /// The textures each pane shows now, for a fade to start from; `None` with fading off.
+    /// The textures each pane shows now, for a fade to start from. Returns `None` with fading off.
     pub(crate) fn shown_textures(&self) -> Option<Vec<Option<Shown>>> {
         (self.fade_ms() > 0).then(|| {
             (std::iter::once(self.list.cur).chain(self.list.panes.iter().copied()))
@@ -486,10 +486,10 @@ impl crate::App {
             Some((self.zoom.level.unwrap_or(self.zoom.last_scale) * factor).clamp(0.02, 32.0));
     }
 
-    /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at
-    /// the same zoom and offset as the shown one when zoomed, else fitted.
-    /// Returns the scale it is drawn at, for the status bar; `None` while it is decoded.
-    /// `k` is the pane's number, for a slideshow fading it; `None` for the compared image.
+    /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at the
+    /// same zoom and offset as the shown one when zoomed, else fitted. Returns the scale it is
+    /// drawn at, for the status bar; `None` while it is decoded. `k` is the pane's number, for a
+    /// slideshow fading it. Returns `None` for the compared image.
     pub(crate) fn paint_pane(
         &mut self,
         ui: &egui::Ui,

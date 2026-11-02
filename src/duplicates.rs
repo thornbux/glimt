@@ -409,7 +409,7 @@ fn groups<K: std::hash::Hash + Eq>(paths: Vec<PathBuf>, keys: Vec<Option<K>>) ->
     by_key.into_values().filter(|g| g.len() > 1).collect()
 }
 
-/// `f` of every path, on all cores, counting in `p`; `None` for all once cancelled.
+/// `f` of every path, on all cores, counting in `p`. Returns `None` for all once cancelled.
 fn parallel<T: Send>(
     paths: &[PathBuf],
     p: &Progress,

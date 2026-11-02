@@ -412,8 +412,8 @@ pub fn desktop_screen_profile() -> Option<String> {
     )
 }
 
-/// The first text in single quotes of what gdbus prints: "([objectpath '/a', '/b'],)" is "/a";
-/// `None` for an empty list, "(@ao [],)".
+/// The first text in single quotes of what gdbus prints: "([objectpath '/a', '/b'],)" is "/a".
+/// Returns `None` for an empty list, "(@ao [],)".
 pub fn first_quoted(text: &str) -> Option<&str> {
     text.split('\'').nth(1).filter(|s| !s.is_empty())
 }
@@ -436,8 +436,8 @@ pub fn transformed(
     rgba.into()
 }
 
-/// The colour settings in effect at start; the screen profile's or input profile's error, if
-/// either could not be read. With the desktop's profile asked for, images wait a moment for it.
+/// The colour settings in effect at start. Returns the screen profile's or input profile's error,
+/// if either could not be read. With the desktop's profile asked for, images wait a moment for it.
 pub(crate) fn set_up(config: &Config) -> Option<String> {
     COLOR_MANAGEMENT.store(config.color_management, Ordering::Relaxed);
     VIEW_FILTER.store(config.view_filter, Ordering::Relaxed);

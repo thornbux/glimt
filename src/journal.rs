@@ -126,7 +126,7 @@ pub fn interrupted(dir: &Path) -> Vec<CutShort> {
         .collect()
 }
 
-/// A plan's renames and how many were done; `None` for one with no paths.
+/// A plan's renames and how many were done. Returns `None` for one with no paths.
 fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
     let mut parts: Vec<&[u8]> = bytes.split(|&b| b == 0).collect();
     let counted = parts.first() == Some(&COUNTED);
