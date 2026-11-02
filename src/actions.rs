@@ -857,7 +857,7 @@ impl crate::App {
                     self.config.search_bar = true;
                     self.config.save();
                 }
-                self.hide_file_list = false;
+                self.panel.hidden = false;
                 if fullscreen {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
                 }
@@ -905,7 +905,7 @@ impl crate::App {
             }
             Action::First | Action::Prev | Action::Next | Action::Last => {
                 // Along the list as shown: the search matches while searching.
-                let row = self.row_step;
+                let row = self.panel.row_step;
                 let delta = match action {
                     Action::First => -isize::MAX / 2,
                     Action::Prev => -row,
@@ -1128,7 +1128,7 @@ impl crate::App {
             | Action::FolderTree
             | Action::HistogramLog
             | Action::Animate => {
-                self.scroll_to_cur = true;
+                self.panel.scroll_to_cur = true;
                 let c = &mut self.config;
                 let flag = match action {
                     Action::PathBar => &mut c.path_bar,
@@ -1250,7 +1250,7 @@ impl crate::App {
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
-            Action::HideTools => self.hide_file_list = !self.hide_file_list,
+            Action::HideTools => self.panel.hidden = !self.panel.hidden,
             Action::Refresh => {
                 // Asked for: sorted anew, also in an EXIF date order whose names stayed.
                 self.listed_as = None;
@@ -1467,7 +1467,11 @@ impl crate::App {
         // In the icon grid ↑ and ↓ move a row; read before the shortcut takes the key.
         let vertical =
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
-        self.row_step = if vertical { self.grid_cols as isize } else { 1 };
+        self.panel.row_step = if vertical {
+            self.panel.grid_cols as isize
+        } else {
+            1
+        };
         (!self.dialog_open() && !typing)
             .then(|| Self::shortcut(ctx, self.config.delete_key, self.collection.is_some()))
             .flatten()

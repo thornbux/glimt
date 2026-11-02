@@ -84,6 +84,18 @@ pub(crate) struct Thumbs {
     pub(crate) save: Arc<AtomicBool>,
 }
 
+/// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
+pub(crate) struct Panel {
+    /// View → Hide File List: only the image, as in full screen but in a window.
+    pub(crate) hidden: bool,
+    /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
+    pub(crate) grid_cols: usize,
+    /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
+    pub(crate) row_step: isize,
+    /// Scroll the file list to the current image on the next frame.
+    pub(crate) scroll_to_cur: bool,
+}
+
 impl crate::App {
     // ---- The file list, folders and thumbnails ----
 
@@ -118,7 +130,7 @@ impl crate::App {
         self.config.thumb_size = size;
         self.config.save();
         self.thumbs_changed();
-        self.scroll_to_cur = true;
+        self.panel.scroll_to_cur = true;
     }
 
     /// Thumbnails in the file list, or none.
@@ -129,7 +141,7 @@ impl crate::App {
             self.thumbs.textures.clear();
             self.thumbs.pending.clear();
         }
-        self.scroll_to_cur = true;
+        self.panel.scroll_to_cur = true;
     }
 
     /// List the images of all subfolders too, or only the folder's own.
@@ -811,7 +823,7 @@ impl crate::App {
                 }
                 self.file_list(ctx, ui, &mut go_to, &mut list_act);
             });
-        self.scroll_to_cur = false;
+        self.panel.scroll_to_cur = false;
         if let Some(d) = open_dir {
             self.visit(ctx, d);
         } else if let Some(i) = go_to {
@@ -893,11 +905,11 @@ impl crate::App {
         } else {
             1
         };
-        self.grid_cols = cols;
+        self.panel.grid_cols = cols;
         let mut area = egui::ScrollArea::vertical()
             .id_salt("files")
             .auto_shrink(false);
-        if self.scroll_to_cur
+        if self.panel.scroll_to_cur
             && let Some(row) = row_of(self.list.cur, &self.list.matches).map(|r| r / cols)
         {
             // Scroll only when the current image is out of view, and centre it.
@@ -1011,7 +1023,7 @@ impl crate::App {
         let pitch = row_h + ui.spacing().item_spacing.y;
         let origin = ui.max_rect().min - egui::vec2(0.0, first_row as f32 * pitch);
         let (cell, gap) = (self.cell(), ui.spacing().item_spacing.x);
-        let cols = self.grid_cols.max(1);
+        let cols = self.panel.grid_cols.max(1);
         let count = self
             .list
             .matches

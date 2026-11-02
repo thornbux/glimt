@@ -529,8 +529,8 @@ struct App {
     /// Go → Back / Forward: earlier locations (file shown, or folder if it had no images).
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
-    /// Scroll the file list to the current image on the next frame.
-    scroll_to_cur: bool,
+    /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
+    panel: file_list::Panel,
     /// Subfolders by folder for the folder tree; `None` while being read.
     tree: HashMap<PathBuf, Option<Vec<PathBuf>>>,
     tree_tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
@@ -607,12 +607,6 @@ struct App {
     viewing: Viewing,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
-    /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
-    grid_cols: usize,
-    /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
-    row_step: isize,
-    /// View → Hide File List: only the image, as in full screen but in a window.
-    hide_file_list: bool,
     /// Window geometry seen in the last frame, saved at exit.
     window_state: WindowState,
     /// The screen saver inhibitor running while in full screen, and how many times full screen
@@ -943,7 +937,6 @@ impl App {
             save_as: None,
             save_as_last: Default::default(),
             asked_for: (0, Vec::new()),
-            grid_cols: 1,
             compare: false,
             capturing: None,
             recursive: false,
@@ -978,7 +971,6 @@ impl App {
             plugins: plugins::find(),
             plugins_running: plugins::Running::default(),
             apps_rx,
-            row_step: 1,
             notices_rx: notices,
             notice: screen_error.or_else(|| config_notice(problems)),
             dir: PathBuf::new(),
@@ -1015,7 +1007,6 @@ impl App {
             frame_ms: [0; 256],
             file_dialog: None,
             file_dialog_rx: Receiving::none(),
-            hide_file_list: false,
             focus_search: false,
             kiosk: start.kiosk,
             menu_away: None,
@@ -1046,7 +1037,6 @@ impl App {
             selected_size: None,
             selected_rx: Receiving::none(),
             selected_size_due: None,
-            scroll_to_cur: true,
             exif_jobs,
             exif_rx,
             exif_all: Vec::new(),
@@ -1106,6 +1096,12 @@ impl App {
                 list_rows: 0..0,
                 save: save_thumbs,
             },
+            panel: file_list::Panel {
+                hidden: false,
+                grid_cols: 1,
+                row_step: 1,
+                scroll_to_cur: true,
+            },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {
@@ -1135,7 +1131,7 @@ impl App {
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
-        let bare = fullscreen || self.hide_file_list || self.kiosk;
+        let bare = fullscreen || self.panel.hidden || self.kiosk;
         if !bare {
             self.menu_bar(ui, &mut act);
         }
@@ -1143,7 +1139,7 @@ impl App {
             self.run(ctx, action);
         }
         // The icon grid sets it again in the file list; the next frame's ↑ and ↓ read it.
-        self.grid_cols = 1;
+        self.panel.grid_cols = 1;
         self.preferences_window(ctx);
         self.prompt_dialog(ctx);
         self.print_dialog(ctx);
@@ -1164,7 +1160,7 @@ impl App {
         }
         if bare {
             // A scroll to the shown image asked for while the list is hidden is dropped.
-            self.scroll_to_cur = false;
+            self.panel.scroll_to_cur = false;
         } else {
             self.side_panel(ctx, ui);
         }

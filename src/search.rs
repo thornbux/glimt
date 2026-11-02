@@ -39,7 +39,7 @@ impl crate::App {
             if !self.search.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
                 self.search.clear();
                 self.update_search(ui.ctx());
-                self.scroll_to_cur = true;
+                self.panel.scroll_to_cur = true;
             }
             // A fixed ID: the X button appearing in front of it must not make it a new
             // widget, which would lose the focus after the first letter.

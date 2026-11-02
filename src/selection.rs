@@ -74,7 +74,7 @@ impl crate::App {
             self.pan_offset = egui::Vec2::ZERO;
         }
         self.opened = Instant::now();
-        self.scroll_to_cur = true;
+        self.panel.scroll_to_cur = true;
         // Every image gets the full delay, also when the user moves back or forward by hand.
         if self.slideshow.shown_at.is_some() {
             self.slideshow.shown_at = Some(Instant::now());
