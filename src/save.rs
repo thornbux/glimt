@@ -7,40 +7,6 @@ use crate::{exif, has_ext};
 use image::ImageDecoder;
 use std::path::Path;
 
-/// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
-/// pixels are turned and the file written again with its ICC profile, EXIF block and XMP
-/// (keywords, comment, alt text other programs wrote into it). PNG and
-/// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
-/// sRGB as ffmpeg drops the profile, and gets its EXIF block back afterwards. The new file
-/// replaces the old in one rename.
-pub fn save_rotated(
-    path: &Path,
-    rotate: bool,
-    turns: u8,
-    mirrored: bool,
-    webp_quality: u8,
-) -> Result<(), String> {
-    // Through a symlink, the file it points to: the new file is renamed over that, not the link.
-    let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let png = has_ext(path, &["png"]);
-    if !png && !has_ext(path, &["webp"]) {
-        return Err("only JPEG, PNG and WebP can store the rotation".into());
-    }
-    if animated(path)? {
-        return Err("animated images are not turned".into());
-    }
-    let kind = match png {
-        true => Kind::Png,
-        false => Kind::WebP(webp_lossless(path) == Some(false)),
-    };
-    let (exif, xmp, stored_quarter) = upright_metadata(path, rotate)?;
-    let (img, icc) = load_icc(path, rotate)?;
-    let img = turned(img, turns, mirrored);
-    let quarter = (turns % 2 == 1) != stored_quarter;
-    let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
-    crate::config::replace_existing(path, out).map_err(|e| e.to_string())
-}
-
 /// How a copy of an image is made (Edit → Crop, File → Save As): as the view shows it (turned
 /// by `turns` and `mirrored`, and by EXIF with `rotate`; the page `page` of a TIFF), a part of
 /// it, smaller, in a format. `App::shown_copy` makes it from the view, for both.
@@ -94,6 +60,54 @@ impl Format {
             Format::Png
         }
     }
+}
+
+/// How an image is written: as a PNG, a WebP (lossy or not) or a JPEG of a quality.
+#[derive(Clone, Copy)]
+enum Kind {
+    Png,
+    WebP(bool),
+    Jpeg(u8),
+}
+
+/// The EXIF block (camera, date, place) and XMP of `path`, for pixels written as the view
+/// showed them: their orientation set upright, also with Auto Rotate off, where the view did
+/// not turn them by it, else other programs would turn them again. And whether the stored
+/// orientation turned the image a quarter, with Auto Rotate.
+type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
+
+/// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
+/// pixels are turned and the file written again with its ICC profile, EXIF block and XMP
+/// (keywords, comment, alt text other programs wrote into it). PNG and
+/// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
+/// sRGB as ffmpeg drops the profile, and gets its EXIF block back afterwards. The new file
+/// replaces the old in one rename.
+pub fn save_rotated(
+    path: &Path,
+    rotate: bool,
+    turns: u8,
+    mirrored: bool,
+    webp_quality: u8,
+) -> Result<(), String> {
+    // Through a symlink, the file it points to: the new file is renamed over that, not the link.
+    let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let png = has_ext(path, &["png"]);
+    if !png && !has_ext(path, &["webp"]) {
+        return Err("only JPEG, PNG and WebP can store the rotation".into());
+    }
+    if animated(path)? {
+        return Err("animated images are not turned".into());
+    }
+    let kind = match png {
+        true => Kind::Png,
+        false => Kind::WebP(webp_lossless(path) == Some(false)),
+    };
+    let (exif, xmp, stored_quarter) = upright_metadata(path, rotate)?;
+    let (img, icc) = load_icc(path, rotate)?;
+    let img = turned(img, turns, mirrored);
+    let quarter = (turns % 2 == 1) != stored_quarter;
+    let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
+    crate::config::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. With its profile, and
@@ -277,14 +291,6 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
     Ok(to)
 }
 
-/// How an image is written: as a PNG, a WebP (lossy or not) or a JPEG of a quality.
-#[derive(Clone, Copy)]
-enum Kind {
-    Png,
-    WebP(bool),
-    Jpeg(u8),
-}
-
 /// Whether `path` is animated: only the first frame would be written back. Asked by what the
 /// file is, as it is read by its content: an animated GIF named a.png is still animated, a
 /// JPEG named so is not.
@@ -306,11 +312,6 @@ fn animated(path: &Path) -> Result<bool, String> {
     })
 }
 
-/// The EXIF block (camera, date, place) and XMP of `path`, for pixels written as the view
-/// showed them: their orientation set upright, also with Auto Rotate off, where the view did
-/// not turn them by it, else other programs would turn them again. And whether the stored
-/// orientation turned the image a quarter, with Auto Rotate.
-type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
     let (mut exif, mut xmp, stored) = crate::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())

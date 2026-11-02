@@ -101,6 +101,7 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
+| `src/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
@@ -112,6 +113,21 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `tools/flathub-manifest.py` | Writes the Flathub repository's manifest and `cargo-sources.json` for a release tag |
 | `tools/release-tests/` | `run.sh` builds this and the last release in Docker; `tests.sh` checks them under Xvfb; `samples.txt` lists real files of each format, downloaded once |
 | `tools/screenshots/` | `run.sh` makes `docs/screenshots/` of generated pictures with `shots.sh`, using `tests.sh`'s setup (`SHOTS=1`) |
+
+### Within a file
+
+Every `.rs` file has its items in this order, so a reader finds things where they expect them:
+
+1. the `//!` doc, then `use`, `mod` and `macro_rules!`;
+2. `const` and `static`;
+3. types (`struct`, `enum`, `type`, `trait`), each followed by its own `impl`s;
+4. one `impl crate::App` block (with `// ---- Part ----` headings inside when it is long), and
+   trait impls for `App`;
+5. free functions;
+6. `#[cfg(test)] mod tests`, last.
+
+`source_rules::items_are_in_order` fails on an item out of place, and on a second
+`impl crate::App` block.
 
 ## How to add things
 
@@ -216,6 +232,9 @@ python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak'
 - **A branch per feature or fix**, named after it (`flatpak`, `slideshow-transitions`), merged
   into `main` when a release is made, so that a release gathers several changes.
 - **One feature or fix per commit.** Formatting-only changes in a commit of their own.
+- **Every commit passes every check above on its own**, both builds. A commit that breaks the
+  build or a test, fixed by the next one, cannot be bisected or reverted on its own; amend it
+  before it is pushed instead.
 - **A fix lands with its check in the same commit:** a unit test, or for the window code a
   section in `tools/release-tests/tests.sh` that fails on the release before it. A fix without
   one is not finished; 0.37–0.38 showed that a fix nobody checked is the next release's

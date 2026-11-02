@@ -13,6 +13,19 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 
+pub const ALL: [(By, &str); 7] = [
+    (By::Checksum, "Checksum (identical files)"),
+    (By::Name, "Name"),
+    (By::Size, "Size"),
+    (By::Dimensions, "Dimensions"),
+    (By::Similar(95), "Similarity (high, 95%)"),
+    (By::Similar(90), "Similarity (90%)"),
+    (By::Similar(85), "Similarity (low, 85%)"),
+];
+
+/// Side of the small picture two pictures are compared by.
+const SIDE: u32 = 16;
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum By {
     /// The same content, by checksum (only files of the same size are read).
@@ -24,270 +37,12 @@ pub enum By {
     Similar(u8),
 }
 
-pub const ALL: [(By, &str); 7] = [
-    (By::Checksum, "Checksum (identical files)"),
-    (By::Name, "Name"),
-    (By::Size, "Size"),
-    (By::Dimensions, "Dimensions"),
-    (By::Similar(95), "Similarity (high, 95%)"),
-    (By::Similar(90), "Similarity (90%)"),
-    (By::Similar(85), "Similarity (low, 85%)"),
-];
-
 /// How far a search is, and a way to stop it.
 #[derive(Default)]
 pub struct Progress {
     pub done: AtomicUsize,
     pub total: AtomicUsize,
     pub cancel: AtomicBool,
-}
-
-/// Groups of two or more of `paths` that match `by`, largest groups first. `rotate` and `save`
-/// are passed on to the thumbnails used for similarity.
-pub fn find(
-    paths: Vec<PathBuf>,
-    by: By,
-    rotate: bool,
-    save: bool,
-    p: &Progress,
-) -> Vec<Vec<PathBuf>> {
-    // The same file reached twice, by a link to it or through a linked folder, would be its own
-    // "duplicate", and checked and trashed the only copy would go: each file once.
-    let real = parallel(&paths, p, |path| path.canonicalize().ok());
-    let mut seen = std::collections::HashSet::new();
-    let paths: Vec<PathBuf> = (paths.into_iter().zip(real))
-        .filter(|(path, real)| seen.insert(real.clone().unwrap_or_else(|| path.clone())))
-        .map(|(path, _)| path)
-        .collect();
-    let mut groups = match by {
-        By::Name => {
-            let names = paths
-                .iter()
-                .map(|p| p.file_name().map(|n| n.to_owned()))
-                .collect();
-            groups(paths, names)
-        }
-        By::Size => {
-            let sizes = parallel(&paths, p, size);
-            groups(paths, sizes)
-        }
-        By::Checksum => {
-            // Only files of the same size can be the same; most are never read.
-            let sizes = parallel(&paths, p, size);
-            let candidates: Vec<PathBuf> = groups(paths, sizes).into_iter().flatten().collect();
-            let sums = parallel(&candidates, p, checksum);
-            // The hash only finds them: the files of a group are compared byte by byte, as two
-            // that differ could share a 64-bit hash, and these are offered for the trash.
-            // A second reading of each file: counted in the progress, and stopped by Cancel.
-            let found = groups(candidates, sums);
-            p.total
-                .store(found.iter().map(Vec::len).sum(), Ordering::Relaxed);
-            p.done.store(0, Ordering::Relaxed);
-            (found.into_iter())
-                .take_while(|_| !p.cancel.load(Ordering::Relaxed))
-                .flat_map(|group| same_contents(group, p))
-                .collect()
-        }
-        By::Dimensions => {
-            let dims = parallel(&paths, p, |path| {
-                if crate::files::is_jpeg(path)
-                    && let Some(size) = jpeg_size(path)
-                {
-                    return Some(size);
-                }
-                crate::decode::image_reader(path)
-                    .ok()?
-                    .with_guessed_format()
-                    .ok()?
-                    .into_dimensions()
-                    .ok()
-            });
-            groups(paths, dims)
-        }
-        By::Similar(percent) => {
-            let signatures = parallel(&paths, p, |path| {
-                let thumb = crate::thumbs::thumbnail(path, rotate, save, false).ok()?;
-                Some(signature(&thumb))
-            });
-            similar(paths, signatures, percent, p)
-        }
-    };
-    if p.cancel.load(Ordering::Relaxed) {
-        return Vec::new();
-    }
-    for g in &mut groups {
-        g.sort();
-    }
-    groups.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
-    groups
-}
-
-/// A JPEG's width and height from its first 256 KB, where its frame header is: the decoder
-/// would read the whole file. `None` if it is not there, so the decoder is asked after all.
-fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
-    let head = crate::decode::read_head(path, 1 << 18).ok()?;
-    head.starts_with(&[0xff, 0xd8])
-        .then(|| crate::raw::jpeg_size(&head))?
-}
-
-fn size(path: &Path) -> Option<u64> {
-    path.metadata().ok().map(|m| m.len())
-}
-
-/// The paths with the same key, in groups of two or more (`None`: left out).
-fn groups<K: std::hash::Hash + Eq>(paths: Vec<PathBuf>, keys: Vec<Option<K>>) -> Vec<Vec<PathBuf>> {
-    let mut by_key: HashMap<K, Vec<PathBuf>> = HashMap::new();
-    for (path, key) in paths.into_iter().zip(keys) {
-        if let Some(k) = key {
-            by_key.entry(k).or_default().push(path);
-        }
-    }
-    by_key.into_values().filter(|g| g.len() > 1).collect()
-}
-
-/// `f` of every path, on all cores, counting in `p`; `None` for all once cancelled.
-fn parallel<T: Send>(
-    paths: &[PathBuf],
-    p: &Progress,
-    f: impl Fn(&Path) -> Option<T> + Sync,
-) -> Vec<Option<T>> {
-    p.total.store(paths.len(), Ordering::Relaxed);
-    p.done.store(0, Ordering::Relaxed);
-    let next = AtomicUsize::new(0);
-    let threads = crate::threads::background_threads();
-    let mut results: Vec<(usize, Option<T>)> = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                s.spawn(|| {
-                    let mut out = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= paths.len() || p.cancel.load(Ordering::Relaxed) {
-                            return out;
-                        }
-                        // A file that breaks its reader is left out alone, not the worker's
-                        // whole share of the list with it.
-                        let found =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&paths[i])));
-                        out.push((i, found.ok().flatten()));
-                        p.done.fetch_add(1, Ordering::Relaxed);
-                    }
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|w| w.join().unwrap_or_default())
-            .collect()
-    });
-    results.sort_unstable_by_key(|r| r.0);
-    let mut all: Vec<Option<T>> = (0..paths.len()).map(|_| None).collect();
-    for (i, v) in results {
-        all[i] = v;
-    }
-    all
-}
-
-/// `group` split into the files whose bytes are the same, groups of one left out.
-/// Counted in `p` file by file, and stopped by its Cancel: one group may hold thousands.
-fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
-    let mut alike: Vec<Vec<PathBuf>> = Vec::new();
-    for path in group {
-        if p.cancel.load(Ordering::Relaxed) {
-            break;
-        }
-        p.done.fetch_add(1, Ordering::Relaxed);
-        match alike.iter_mut().find(|a| same_bytes(&a[0], &path)) {
-            Some(a) => a.push(path),
-            None => alike.push(vec![path]),
-        }
-    }
-    alike.retain(|a| a.len() > 1);
-    alike
-}
-
-/// Whether files `a` and `b` hold the same bytes; not when one cannot be read.
-fn same_bytes(a: &Path, b: &Path) -> bool {
-    let (Ok(mut a), Ok(mut b)) = (crate::decode::open(a), crate::decode::open(b)) else {
-        return false;
-    };
-    let (mut x, mut y) = (vec![0; 1 << 16], vec![0; 1 << 16]);
-    loop {
-        let Ok(n) = a.read(&mut x) else { return false };
-        // A read may return less than asked: as much of `b` as `a` gave.
-        if b.read_exact(&mut y[..n]).is_err() || x[..n] != y[..n] {
-            return false;
-        }
-        if n == 0 {
-            // At the end of both: `b` has no byte more.
-            return b.read(&mut y[..1]).is_ok_and(|m| m == 0);
-        }
-    }
-}
-
-/// A 64-bit hash of the whole file.
-fn checksum(path: &Path) -> Option<u64> {
-    let mut file = crate::decode::open(path).ok()?;
-    let mut hasher = std::hash::DefaultHasher::new();
-    let mut buf = vec![0; 1 << 16];
-    loop {
-        match file.read(&mut buf).ok()? {
-            0 => return Some(hasher.finish()),
-            n => hasher.write(&buf[..n]),
-        }
-    }
-}
-
-/// Side of the small picture two pictures are compared by.
-const SIDE: u32 = 16;
-
-/// The picture shrunk to 16×16, its red, green and blue values in a row.
-fn signature(img: &image::RgbaImage) -> Vec<u8> {
-    let small = image::imageops::resize(img, SIDE, SIDE, image::imageops::FilterType::Triangle);
-    small.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect()
-}
-
-fn mean(s: &[u8]) -> f32 {
-    s.iter().map(|&v| v as f32).sum::<f32>() / s.len() as f32
-}
-
-/// The means of `N` equal parts of a signature, top to bottom: four bands, or its 16 rows.
-fn parts<const N: usize>(s: &[u8]) -> [f32; N] {
-    let mut each = s.chunks(s.len().div_ceil(N)).map(mean);
-    [(); N].map(|_| each.next().unwrap_or(0.0))
-}
-
-fn bands(s: &[u8]) -> [f32; 4] {
-    parts(s)
-}
-
-/// The sum of the differences of two lists of part means.
-fn apart(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y).abs()).sum()
-}
-
-/// How alike two signatures are, 0–100: 100 less the mean difference of their values.
-fn likeness(a: &[u8], b: &[u8]) -> f32 {
-    let diff: u32 = a.iter().zip(b).map(|(&x, &y)| x.abs_diff(y) as u32).sum();
-    100.0 - diff as f32 * 100.0 / (255.0 * a.len() as f32)
-}
-
-/// Whether two signatures are at least `percent` alike, as `likeness` says; given up on, a row
-/// at a time, once they differ too much.
-fn alike(a: &[u8], b: &[u8], percent: u8) -> bool {
-    let most = ((100 - percent) as u32 * 255 * a.len() as u32) / 100;
-    let mut diff = 0;
-    for (x, y) in a.chunks(48).zip(b.chunks(48)) {
-        diff += x
-            .iter()
-            .zip(y)
-            .map(|(&p, &q)| p.abs_diff(q) as u32)
-            .sum::<u32>();
-        if diff > most {
-            return false;
-        }
-    }
-    likeness(a, b) >= percent as f32
 }
 
 /// A picture to compare.
@@ -300,126 +55,6 @@ struct Item {
     rows: [f32; 16],
     signature: Vec<u8>,
 }
-
-/// Groups of pictures at least `percent` alike, each around its first picture as in Geeqie,
-/// so a chain of small changes does not make one long group. Pictures are taken in order of
-/// mean value, and each is compared only with those whose mean is close enough to match at
-/// all: pictures `percent` alike differ by at most that much in mean too, so none are missed.
-/// Within that, the means of the four bands and then of the 16 rows rule out most pairs before
-/// all 768 values are compared: their differences add up to at most 4 and 16 times as much.
-/// The pairs left are still about n × n / 50 (100,000 photos: 86 s on one thread), so a block of
-/// pictures finds its matches on all cores, and the groups are then made in order from them,
-/// as one thread would make them.
-fn similar(
-    paths: Vec<PathBuf>,
-    signatures: Vec<Option<Vec<u8>>>,
-    percent: u8,
-    p: &Progress,
-) -> Vec<Vec<PathBuf>> {
-    let mut items: Vec<Item> = (signatures.into_iter().enumerate())
-        .filter_map(|(i, s)| {
-            let s = s?;
-            Some(Item {
-                mean: mean(&s),
-                at: i,
-                bands: bands(&s),
-                rows: parts(&s),
-                signature: s,
-            })
-        })
-        .collect();
-    items.sort_by(|a, b| a.mean.total_cmp(&b.mean));
-    let reach = (100.0 - percent as f32) * 255.0 / 100.0;
-    // Those alike enough with `k` after it, of those not in a group when its block began.
-    let matches = |k: usize, grouped: &[bool]| -> Vec<usize> {
-        let this = &items[k];
-        let mut out = Vec::new();
-        for (n, other) in items.iter().enumerate().skip(k + 1) {
-            if other.mean - this.mean > reach {
-                break;
-            }
-            // A little room for rounding: these only rule out pairs that cannot match.
-            if !grouped[n]
-                && apart(&this.bands, &other.bands) <= 4.0 * reach + 0.01
-                && apart(&this.rows, &other.rows) <= 16.0 * reach + 0.01
-                && alike(&this.signature, &other.signature, percent)
-            {
-                out.push(n);
-            }
-        }
-        out
-    };
-    p.total.store(items.len(), Ordering::Relaxed);
-    p.done.store(0, Ordering::Relaxed);
-    let mut grouped = vec![false; items.len()];
-    let mut found = Vec::new();
-    // Small while many match (thousands of copies of one picture), so the matches kept for a
-    // block stay few; up to 512 pictures once they match few.
-    let (mut k, mut block) = (0, 1);
-    while k < items.len() {
-        if p.cancel.load(Ordering::Relaxed) {
-            return Vec::new();
-        }
-        let ks: Vec<usize> = (k..(k + block).min(items.len()))
-            .filter(|&k| !grouped[k])
-            .collect();
-        let each = in_block(&ks, crate::threads::background_threads(), |k| {
-            matches(k, &grouped)
-        });
-        let mut kept = 0;
-        for (&k, alike) in ks.iter().zip(each) {
-            // Taken by a picture before it in the block: not a group of its own.
-            if grouped[k] {
-                continue;
-            }
-            // Left out as found by a picture before it, which another group took after all.
-            let alike = alike.unwrap_or_else(|| matches(k, &grouped));
-            kept += alike.len();
-            let mut group = vec![paths[items[k].at].clone()];
-            for n in alike {
-                if !grouped[n] {
-                    grouped[n] = true;
-                    group.push(paths[items[n].at].clone());
-                }
-            }
-            if group.len() > 1 {
-                found.push(group);
-            }
-        }
-        k += block;
-        p.done.store(k.min(items.len()), Ordering::Relaxed);
-        block = match kept > 1_000_000 {
-            true => (block / 2).max(1),
-            false => (block * 2).min(512),
-        };
-    }
-    found
-}
-
-/// `matches` of each of `ks` (in order, from low to high), on `threads` at once; `None` for one
-/// that a picture before it in the same part found, which then takes it. Without that, a block
-/// of 512 that met 50,000 copies of one picture kept every copy 512 times over.
-fn in_block(
-    ks: &[usize],
-    threads: usize,
-    matches: impl Fn(usize) -> Vec<usize> + Sync,
-) -> Vec<Option<Vec<usize>>> {
-    in_parts(ks, threads, |part, _| {
-        let mut found = std::collections::HashSet::new();
-        (part.iter())
-            .map(|&k| {
-                if found.contains(&k) {
-                    return None;
-                }
-                let alike = matches(k);
-                found.extend(alike.iter().copied());
-                Some(alike)
-            })
-            .collect()
-    })
-}
-
-// ---- The Find Duplicates window ----
 
 /// The Find Duplicates window: what to compare by, the search running and its results.
 pub(crate) struct Dups {
@@ -649,6 +284,369 @@ impl crate::App {
             dups.progress.cancel.store(true, Ordering::Relaxed);
         }
     }
+}
+
+/// Groups of two or more of `paths` that match `by`, largest groups first. `rotate` and `save`
+/// are passed on to the thumbnails used for similarity.
+pub fn find(
+    paths: Vec<PathBuf>,
+    by: By,
+    rotate: bool,
+    save: bool,
+    p: &Progress,
+) -> Vec<Vec<PathBuf>> {
+    // The same file reached twice, by a link to it or through a linked folder, would be its own
+    // "duplicate", and checked and trashed the only copy would go: each file once.
+    let real = parallel(&paths, p, |path| path.canonicalize().ok());
+    let mut seen = std::collections::HashSet::new();
+    let paths: Vec<PathBuf> = (paths.into_iter().zip(real))
+        .filter(|(path, real)| seen.insert(real.clone().unwrap_or_else(|| path.clone())))
+        .map(|(path, _)| path)
+        .collect();
+    let mut groups = match by {
+        By::Name => {
+            let names = paths
+                .iter()
+                .map(|p| p.file_name().map(|n| n.to_owned()))
+                .collect();
+            groups(paths, names)
+        }
+        By::Size => {
+            let sizes = parallel(&paths, p, size);
+            groups(paths, sizes)
+        }
+        By::Checksum => {
+            // Only files of the same size can be the same; most are never read.
+            let sizes = parallel(&paths, p, size);
+            let candidates: Vec<PathBuf> = groups(paths, sizes).into_iter().flatten().collect();
+            let sums = parallel(&candidates, p, checksum);
+            // The hash only finds them: the files of a group are compared byte by byte, as two
+            // that differ could share a 64-bit hash, and these are offered for the trash.
+            // A second reading of each file: counted in the progress, and stopped by Cancel.
+            let found = groups(candidates, sums);
+            p.total
+                .store(found.iter().map(Vec::len).sum(), Ordering::Relaxed);
+            p.done.store(0, Ordering::Relaxed);
+            (found.into_iter())
+                .take_while(|_| !p.cancel.load(Ordering::Relaxed))
+                .flat_map(|group| same_contents(group, p))
+                .collect()
+        }
+        By::Dimensions => {
+            let dims = parallel(&paths, p, |path| {
+                if crate::files::is_jpeg(path)
+                    && let Some(size) = jpeg_size(path)
+                {
+                    return Some(size);
+                }
+                crate::decode::image_reader(path)
+                    .ok()?
+                    .with_guessed_format()
+                    .ok()?
+                    .into_dimensions()
+                    .ok()
+            });
+            groups(paths, dims)
+        }
+        By::Similar(percent) => {
+            let signatures = parallel(&paths, p, |path| {
+                let thumb = crate::thumbs::thumbnail(path, rotate, save, false).ok()?;
+                Some(signature(&thumb))
+            });
+            similar(paths, signatures, percent, p)
+        }
+    };
+    if p.cancel.load(Ordering::Relaxed) {
+        return Vec::new();
+    }
+    for g in &mut groups {
+        g.sort();
+    }
+    groups.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    groups
+}
+
+/// A JPEG's width and height from its first 256 KB, where its frame header is: the decoder
+/// would read the whole file. `None` if it is not there, so the decoder is asked after all.
+fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
+    let head = crate::decode::read_head(path, 1 << 18).ok()?;
+    head.starts_with(&[0xff, 0xd8])
+        .then(|| crate::raw::jpeg_size(&head))?
+}
+
+fn size(path: &Path) -> Option<u64> {
+    path.metadata().ok().map(|m| m.len())
+}
+
+/// The paths with the same key, in groups of two or more (`None`: left out).
+fn groups<K: std::hash::Hash + Eq>(paths: Vec<PathBuf>, keys: Vec<Option<K>>) -> Vec<Vec<PathBuf>> {
+    let mut by_key: HashMap<K, Vec<PathBuf>> = HashMap::new();
+    for (path, key) in paths.into_iter().zip(keys) {
+        if let Some(k) = key {
+            by_key.entry(k).or_default().push(path);
+        }
+    }
+    by_key.into_values().filter(|g| g.len() > 1).collect()
+}
+
+/// `f` of every path, on all cores, counting in `p`; `None` for all once cancelled.
+fn parallel<T: Send>(
+    paths: &[PathBuf],
+    p: &Progress,
+    f: impl Fn(&Path) -> Option<T> + Sync,
+) -> Vec<Option<T>> {
+    p.total.store(paths.len(), Ordering::Relaxed);
+    p.done.store(0, Ordering::Relaxed);
+    let next = AtomicUsize::new(0);
+    let threads = crate::threads::background_threads();
+    let mut results: Vec<(usize, Option<T>)> = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        if i >= paths.len() || p.cancel.load(Ordering::Relaxed) {
+                            return out;
+                        }
+                        // A file that breaks its reader is left out alone, not the worker's
+                        // whole share of the list with it.
+                        let found =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&paths[i])));
+                        out.push((i, found.ok().flatten()));
+                        p.done.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap_or_default())
+            .collect()
+    });
+    results.sort_unstable_by_key(|r| r.0);
+    let mut all: Vec<Option<T>> = (0..paths.len()).map(|_| None).collect();
+    for (i, v) in results {
+        all[i] = v;
+    }
+    all
+}
+
+/// `group` split into the files whose bytes are the same, groups of one left out.
+/// Counted in `p` file by file, and stopped by its Cancel: one group may hold thousands.
+fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
+    let mut alike: Vec<Vec<PathBuf>> = Vec::new();
+    for path in group {
+        if p.cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        p.done.fetch_add(1, Ordering::Relaxed);
+        match alike.iter_mut().find(|a| same_bytes(&a[0], &path)) {
+            Some(a) => a.push(path),
+            None => alike.push(vec![path]),
+        }
+    }
+    alike.retain(|a| a.len() > 1);
+    alike
+}
+
+/// Whether files `a` and `b` hold the same bytes; not when one cannot be read.
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    let (Ok(mut a), Ok(mut b)) = (crate::decode::open(a), crate::decode::open(b)) else {
+        return false;
+    };
+    let (mut x, mut y) = (vec![0; 1 << 16], vec![0; 1 << 16]);
+    loop {
+        let Ok(n) = a.read(&mut x) else { return false };
+        // A read may return less than asked: as much of `b` as `a` gave.
+        if b.read_exact(&mut y[..n]).is_err() || x[..n] != y[..n] {
+            return false;
+        }
+        if n == 0 {
+            // At the end of both: `b` has no byte more.
+            return b.read(&mut y[..1]).is_ok_and(|m| m == 0);
+        }
+    }
+}
+
+/// A 64-bit hash of the whole file.
+fn checksum(path: &Path) -> Option<u64> {
+    let mut file = crate::decode::open(path).ok()?;
+    let mut hasher = std::hash::DefaultHasher::new();
+    let mut buf = vec![0; 1 << 16];
+    loop {
+        match file.read(&mut buf).ok()? {
+            0 => return Some(hasher.finish()),
+            n => hasher.write(&buf[..n]),
+        }
+    }
+}
+
+/// The picture shrunk to 16×16, its red, green and blue values in a row.
+fn signature(img: &image::RgbaImage) -> Vec<u8> {
+    let small = image::imageops::resize(img, SIDE, SIDE, image::imageops::FilterType::Triangle);
+    small.pixels().flat_map(|p| [p[0], p[1], p[2]]).collect()
+}
+
+fn mean(s: &[u8]) -> f32 {
+    s.iter().map(|&v| v as f32).sum::<f32>() / s.len() as f32
+}
+
+/// The means of `N` equal parts of a signature, top to bottom: four bands, or its 16 rows.
+fn parts<const N: usize>(s: &[u8]) -> [f32; N] {
+    let mut each = s.chunks(s.len().div_ceil(N)).map(mean);
+    [(); N].map(|_| each.next().unwrap_or(0.0))
+}
+
+fn bands(s: &[u8]) -> [f32; 4] {
+    parts(s)
+}
+
+/// The sum of the differences of two lists of part means.
+fn apart(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).map(|(x, y)| (x - y).abs()).sum()
+}
+
+/// How alike two signatures are, 0–100: 100 less the mean difference of their values.
+fn likeness(a: &[u8], b: &[u8]) -> f32 {
+    let diff: u32 = a.iter().zip(b).map(|(&x, &y)| x.abs_diff(y) as u32).sum();
+    100.0 - diff as f32 * 100.0 / (255.0 * a.len() as f32)
+}
+
+/// Whether two signatures are at least `percent` alike, as `likeness` says; given up on, a row
+/// at a time, once they differ too much.
+fn alike(a: &[u8], b: &[u8], percent: u8) -> bool {
+    let most = ((100 - percent) as u32 * 255 * a.len() as u32) / 100;
+    let mut diff = 0;
+    for (x, y) in a.chunks(48).zip(b.chunks(48)) {
+        diff += x
+            .iter()
+            .zip(y)
+            .map(|(&p, &q)| p.abs_diff(q) as u32)
+            .sum::<u32>();
+        if diff > most {
+            return false;
+        }
+    }
+    likeness(a, b) >= percent as f32
+}
+
+/// Groups of pictures at least `percent` alike, each around its first picture as in Geeqie,
+/// so a chain of small changes does not make one long group. Pictures are taken in order of
+/// mean value, and each is compared only with those whose mean is close enough to match at
+/// all: pictures `percent` alike differ by at most that much in mean too, so none are missed.
+/// Within that, the means of the four bands and then of the 16 rows rule out most pairs before
+/// all 768 values are compared: their differences add up to at most 4 and 16 times as much.
+/// The pairs left are still about n × n / 50 (100,000 photos: 86 s on one thread), so a block of
+/// pictures finds its matches on all cores, and the groups are then made in order from them,
+/// as one thread would make them.
+fn similar(
+    paths: Vec<PathBuf>,
+    signatures: Vec<Option<Vec<u8>>>,
+    percent: u8,
+    p: &Progress,
+) -> Vec<Vec<PathBuf>> {
+    let mut items: Vec<Item> = (signatures.into_iter().enumerate())
+        .filter_map(|(i, s)| {
+            let s = s?;
+            Some(Item {
+                mean: mean(&s),
+                at: i,
+                bands: bands(&s),
+                rows: parts(&s),
+                signature: s,
+            })
+        })
+        .collect();
+    items.sort_by(|a, b| a.mean.total_cmp(&b.mean));
+    let reach = (100.0 - percent as f32) * 255.0 / 100.0;
+    // Those alike enough with `k` after it, of those not in a group when its block began.
+    let matches = |k: usize, grouped: &[bool]| -> Vec<usize> {
+        let this = &items[k];
+        let mut out = Vec::new();
+        for (n, other) in items.iter().enumerate().skip(k + 1) {
+            if other.mean - this.mean > reach {
+                break;
+            }
+            // A little room for rounding: these only rule out pairs that cannot match.
+            if !grouped[n]
+                && apart(&this.bands, &other.bands) <= 4.0 * reach + 0.01
+                && apart(&this.rows, &other.rows) <= 16.0 * reach + 0.01
+                && alike(&this.signature, &other.signature, percent)
+            {
+                out.push(n);
+            }
+        }
+        out
+    };
+    p.total.store(items.len(), Ordering::Relaxed);
+    p.done.store(0, Ordering::Relaxed);
+    let mut grouped = vec![false; items.len()];
+    let mut found = Vec::new();
+    // Small while many match (thousands of copies of one picture), so the matches kept for a
+    // block stay few; up to 512 pictures once they match few.
+    let (mut k, mut block) = (0, 1);
+    while k < items.len() {
+        if p.cancel.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        let ks: Vec<usize> = (k..(k + block).min(items.len()))
+            .filter(|&k| !grouped[k])
+            .collect();
+        let each = in_block(&ks, crate::threads::background_threads(), |k| {
+            matches(k, &grouped)
+        });
+        let mut kept = 0;
+        for (&k, alike) in ks.iter().zip(each) {
+            // Taken by a picture before it in the block: not a group of its own.
+            if grouped[k] {
+                continue;
+            }
+            // Left out as found by a picture before it, which another group took after all.
+            let alike = alike.unwrap_or_else(|| matches(k, &grouped));
+            kept += alike.len();
+            let mut group = vec![paths[items[k].at].clone()];
+            for n in alike {
+                if !grouped[n] {
+                    grouped[n] = true;
+                    group.push(paths[items[n].at].clone());
+                }
+            }
+            if group.len() > 1 {
+                found.push(group);
+            }
+        }
+        k += block;
+        p.done.store(k.min(items.len()), Ordering::Relaxed);
+        block = match kept > 1_000_000 {
+            true => (block / 2).max(1),
+            false => (block * 2).min(512),
+        };
+    }
+    found
+}
+
+/// `matches` of each of `ks` (in order, from low to high), on `threads` at once; `None` for one
+/// that a picture before it in the same part found, which then takes it. Without that, a block
+/// of 512 that met 50,000 copies of one picture kept every copy 512 times over.
+fn in_block(
+    ks: &[usize],
+    threads: usize,
+    matches: impl Fn(usize) -> Vec<usize> + Sync,
+) -> Vec<Option<Vec<usize>>> {
+    in_parts(ks, threads, |part, _| {
+        let mut found = std::collections::HashSet::new();
+        (part.iter())
+            .map(|&k| {
+                if found.contains(&k) {
+                    return None;
+                }
+                let alike = matches(k);
+                found.extend(alike.iter().copied());
+                Some(alike)
+            })
+            .collect()
+    })
 }
 
 #[cfg(test)]

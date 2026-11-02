@@ -7,6 +7,7 @@ use std::time::UNIX_EPOCH;
 
 /// The freedesktop sizes: "normal" at most 128×128 pixels, "large" 256×256.
 const SIZES: [(u32, &str); 2] = [(128, "normal"), (256, "large")];
+
 /// Markers of files no thumbnail could be made of, as the spec says: tried again by a new
 /// version, or when the file changes.
 const FAILED: &str = concat!("fail/glimt-", env!("CARGO_PKG_VERSION"));

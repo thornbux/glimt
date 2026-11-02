@@ -6,6 +6,94 @@
 use crate::files::{AVIF_EXTS, HEIC_EXTS, has_ext};
 use std::path::{Path, PathBuf};
 
+/// ffmpeg's input options for files that come from anywhere: only local files (no network),
+/// and only the formats of photos and videos Glimt lists. ffmpeg tells the format by the
+/// content, so a "video.mp4" that is a playlist (HLS, concat) would else open the files or URLs
+/// it names, for a preview made without the file even being opened.
+#[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
+const FILES_ONLY: [&str; 4] = [
+    "-protocol_whitelist",
+    "file",
+    "-format_whitelist",
+    // HEIC, AVIF, MP4, MOV, 3GP; MKV, WebM; AVI; MPEG; TS, MTS, M2TS; WMV; FLV.
+    "mov,matroska,avi,mpeg,mpegts,asf,flv",
+];
+
+/// How long a program may take over one file: a crafted file, or a share that stops answering,
+/// can keep it busy for good, and the decoder thread with it.
+pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Ends the process group of `pid` once it has gone `limit` without progress, unless dropped
+/// first (the program ended): for a program fed on its input or read line by line (gio mount,
+/// lp), which `output_of` cannot run. `feed` tells it of progress (a page taken), so a long
+/// print is not ended while the printer takes it. `gave_up` tells, after the wait, whether it
+/// was the dog that ended it.
+pub struct Watchdog {
+    state: std::sync::Arc<Dog>,
+}
+
+impl Watchdog {
+    pub fn new(pid: u32, limit: std::time::Duration) -> Watchdog {
+        use std::sync::atomic::Ordering::Relaxed;
+        let state = std::sync::Arc::new(Dog {
+            ended: false.into(),
+            gave_up: false.into(),
+            fed: std::time::Instant::now().into(),
+        });
+        let dog = state.clone();
+        std::thread::spawn(move || {
+            let step = limit.min(std::time::Duration::from_millis(100));
+            loop {
+                std::thread::sleep(step);
+                if dog.ended.load(Relaxed) {
+                    return;
+                }
+                if dog.fed.lock().unwrap().elapsed() >= limit {
+                    dog.gave_up.store(true, Relaxed);
+                    stop_group(-(pid as i32), || dog.ended.load(Relaxed));
+                    return;
+                }
+            }
+        });
+        Watchdog { state }
+    }
+
+    /// The program made progress: its `limit` starts again.
+    pub fn feed(&self) {
+        *self.state.fed.lock().unwrap() = std::time::Instant::now();
+    }
+
+    pub fn gave_up(&self) -> bool {
+        self.state
+            .gave_up
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl Drop for Watchdog {
+    fn drop(&mut self) {
+        (self.state.ended).store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+struct Dog {
+    ended: std::sync::atomic::AtomicBool,
+    gave_up: std::sync::atomic::AtomicBool,
+    fed: std::sync::Mutex<std::time::Instant>,
+}
+
+/// A mounted share's local path; `Err(None)` = a login is needed, `Err(Some)` = why it failed.
+pub type Mounted = Result<PathBuf, Option<String>>;
+
+/// User name, domain and password for a network share.
+#[derive(Clone, Default)]
+pub struct Login {
+    pub uri: String,
+    pub user: String,
+    pub domain: String,
+    pub password: String,
+}
+
 /// HEIC and AVIF: both HEIF files, decoded the same way.
 pub fn is_heif(path: &Path) -> bool {
     has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
@@ -178,23 +266,6 @@ pub fn heif_filter(probe: &str) -> Option<String> {
     ))
 }
 
-/// ffmpeg's input options for files that come from anywhere: only local files (no network),
-/// and only the formats of photos and videos Glimt lists. ffmpeg tells the format by the
-/// content, so a "video.mp4" that is a playlist (HLS, concat) would else open the files or URLs
-/// it names, for a preview made without the file even being opened.
-#[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
-const FILES_ONLY: [&str; 4] = [
-    "-protocol_whitelist",
-    "file",
-    "-format_whitelist",
-    // HEIC, AVIF, MP4, MOV, 3GP; MKV, WebM; AVI; MPEG; TS, MTS, M2TS; WMV; FLV.
-    "mov,matroska,avi,mpeg,mpegts,asf,flv",
-];
-
-/// How long a program may take over one file: a crafted file, or a share that stops answering,
-/// can keep it busy for good, and the decoder thread with it.
-pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
-
 /// `program`'s output on `args`, at most `max` bytes, within `LIMIT`: `None` when it could not
 /// run, failed, gave too much or did not end in time. For a question whose answer is all there
 /// is (gio info, lpstat, gdbus).
@@ -234,65 +305,6 @@ pub fn trash<S: AsRef<std::ffi::OsStr>>(paths: &[S]) -> Result<(), String> {
     let mut gio = stoppable_command("gio");
     gio.args(["trash", "--"]).args(paths);
     run_limited(gio, 64 << 10, LIMIT * 4).map(drop)
-}
-
-/// Ends the process group of `pid` once it has gone `limit` without progress, unless dropped
-/// first (the program ended): for a program fed on its input or read line by line (gio mount,
-/// lp), which `output_of` cannot run. `feed` tells it of progress (a page taken), so a long
-/// print is not ended while the printer takes it. `gave_up` tells, after the wait, whether it
-/// was the dog that ended it.
-pub struct Watchdog {
-    state: std::sync::Arc<Dog>,
-}
-
-struct Dog {
-    ended: std::sync::atomic::AtomicBool,
-    gave_up: std::sync::atomic::AtomicBool,
-    fed: std::sync::Mutex<std::time::Instant>,
-}
-
-impl Watchdog {
-    pub fn new(pid: u32, limit: std::time::Duration) -> Watchdog {
-        use std::sync::atomic::Ordering::Relaxed;
-        let state = std::sync::Arc::new(Dog {
-            ended: false.into(),
-            gave_up: false.into(),
-            fed: std::time::Instant::now().into(),
-        });
-        let dog = state.clone();
-        std::thread::spawn(move || {
-            let step = limit.min(std::time::Duration::from_millis(100));
-            loop {
-                std::thread::sleep(step);
-                if dog.ended.load(Relaxed) {
-                    return;
-                }
-                if dog.fed.lock().unwrap().elapsed() >= limit {
-                    dog.gave_up.store(true, Relaxed);
-                    stop_group(-(pid as i32), || dog.ended.load(Relaxed));
-                    return;
-                }
-            }
-        });
-        Watchdog { state }
-    }
-
-    /// The program made progress: its `limit` starts again.
-    pub fn feed(&self) {
-        *self.state.fed.lock().unwrap() = std::time::Instant::now();
-    }
-
-    pub fn gave_up(&self) -> bool {
-        self.state
-            .gave_up
-            .load(std::sync::atomic::Ordering::Relaxed)
-    }
-}
-
-impl Drop for Watchdog {
-    fn drop(&mut self) {
-        (self.state.ended).store(true, std::sync::atomic::Ordering::Relaxed);
-    }
 }
 
 /// End the process group `group` (a negative process ID): TERM first, as in a Flatpak
@@ -424,18 +436,6 @@ pub fn is_video(path: &Path) -> bool {
 #[cfg(not(feature = "video"))]
 pub fn is_video(_: &Path) -> bool {
     false
-}
-
-/// A mounted share's local path; `Err(None)` = a login is needed, `Err(Some)` = why it failed.
-pub type Mounted = Result<PathBuf, Option<String>>;
-
-/// User name, domain and password for a network share.
-#[derive(Clone, Default)]
-pub struct Login {
-    pub uri: String,
-    pub user: String,
-    pub domain: String,
-    pub password: String,
 }
 
 /// The local path of a URI (smb://, sftp:// …), mounting it with gio first if needed: GVfs

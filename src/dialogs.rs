@@ -630,9 +630,7 @@ impl crate::App {
             }
         }
     }
-}
 
-impl crate::App {
     pub(crate) fn dialog_open(&self) -> bool {
         self.preferences_open
             || self.confirm_delete.is_some()

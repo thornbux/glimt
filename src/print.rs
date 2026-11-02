@@ -27,10 +27,13 @@ pub const PAPERS: [(&str, [f32; 2]); 7] = [
 
 /// Room for the caption below the image, at 9 points.
 const CAPTION: f32 = 18.0;
+
 /// Room for a line of page text at the top or bottom.
 const PAGE_TEXT: f32 = 16.0;
+
 /// Pixels per inch printed; more only makes the PDF larger.
 const PPI: f32 = 300.0;
+
 /// Points in a millimetre.
 pub const MM: f32 = 72.0 / 25.4;
 
@@ -45,12 +48,15 @@ pub const PER_PAGE: [(usize, [usize; 2]); 7] = [
     (20, [4, 5]),
 ];
 
-fn grid(per_page: usize) -> [usize; 2] {
-    PER_PAGE
-        .iter()
-        .find(|p| p.0 == per_page)
-        .map_or([1, 1], |p| p.1)
-}
+/// The printer choice that hands the PDF to the desktop's print dialog (the print portal): the
+/// one in the Flatpak, which has no lpstat or lp.
+pub const SYSTEM_DIALOG: &str = "System print dialog";
+
+/// Images the preview shows at most: the most on one page.
+const PREVIEWED: usize = 20;
+
+/// The long side of an image in the preview, in pixels.
+const PREVIEW_PX: u32 = 256;
 
 /// Which way the paper is turned: by the image (one wide image a page goes landscape, a sheet
 /// stays portrait), or always one way.
@@ -136,276 +142,6 @@ pub struct Cell {
     pub caption: [f32; 3],
 }
 
-/// The page for images of `sizes` (pixels), with room for captions if `captions`.
-pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
-    let one = layout.per_page == 1;
-    let wide = sizes.first().is_some_and(|s| s[0] > s[1]);
-    let landscape = match layout.orientation {
-        Orientation::Portrait => false,
-        Orientation::Landscape => true,
-        Orientation::Auto => one && wide,
-    };
-    let [pw, ph] = match landscape {
-        true => [layout.paper[1], layout.paper[0]],
-        false => layout.paper,
-    };
-    let [cols, rows] = match (landscape, grid(layout.per_page)) {
-        (true, [c, r]) => [r, c],
-        (false, g) => g,
-    };
-    // Smaller type, and a gap between the images, on a sheet of several.
-    let (size, gap) = if one { (9.0, 0.0) } else { (7.0, 8.0) };
-    let m = layout.margin_on([pw, ph]);
-    let room = |text: &str| if text.is_empty() { 0.0 } else { PAGE_TEXT };
-    let (top, bottom) = (ph - m - room(&layout.header), m + room(&layout.footer));
-    let (cw, ch) = ((pw - 2.0 * m) / cols as f32, (top - bottom) / rows as f32);
-    let below = if captions { CAPTION * size / 9.0 } else { 0.0 };
-    let scale = if one {
-        layout.scale.clamp(0.1, 1.0)
-    } else {
-        1.0
-    };
-    let cells = (sizes.iter().enumerate())
-        .map(|(k, &[w, h])| {
-            let (cx, cy) = (m + (k % cols) as f32 * cw, top - (k / cols + 1) as f32 * ch);
-            let (bw, bh) = ((cw - gap) * scale, ((ch - gap - below) * scale).max(1.0));
-            let (bx, by) = (
-                cx + (cw - bw) / 2.0,
-                cy + gap / 2.0 + below + (ch - gap - below - bh) / 2.0,
-            );
-            let (w, h) = (w.max(1) as f32, h.max(1) as f32);
-            let s = match layout.fill {
-                true => (bw / w).max(bh / h),
-                false => (bw / w).min(bh / h),
-            };
-            let (dw, dh) = (w * s, h * s);
-            let (x, y) = (bx + (bw - dw) / 2.0, by + (bh - dh) / 2.0);
-            Cell {
-                image: [x, y, dw, dh],
-                clip: [bx, by, bw, bh],
-                caption: [cx, y.max(by) - size - 4.0, cw - gap],
-            }
-        })
-        .collect();
-    Page {
-        size: [pw, ph],
-        type_size: size,
-        cells,
-        header: [m, ph - m - 11.0, pw - 2.0 * m],
-        footer: [m, m + 3.0, pw - 2.0 * m],
-    }
-}
-
-/// The longest side in pixels an image needs on a page of `layout`.
-pub fn max_pixels(layout: &Layout) -> u32 {
-    let [pw, ph] = layout.paper;
-    let [cols, rows] = grid(layout.per_page);
-    // As `place` has it: on small photo paper a wide margin is less than asked.
-    let m = layout.margin_on([pw, ph]);
-    let long = match layout.per_page {
-        // Turned to landscape, or cut to fill: its long side may span the paper's.
-        1 => pw.max(ph) - 2.0 * m,
-        _ => ((pw - 2.0 * m) / cols as f32).max((ph - 2.0 * m) / rows as f32),
-    };
-    // An image cut to fill its box is drawn larger than the box.
-    let fill = if layout.fill { 2.0 } else { 1.0 };
-    (long / 72.0 * PPI * fill) as u32
-}
-
-/// The text under the image at `path`, `k`th of `n`, from `template`: the full screen info's
-/// fields, read from the file here as the print job runs, in one line. `size`, the decoded one
-/// upright, where known: the file's header says how it is stored (and of a RAW, its thumbnail).
-pub fn caption(
-    template: &str,
-    path: &Path,
-    k: usize,
-    n: usize,
-    size: Option<[usize; 2]>,
-) -> String {
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
-    let text = crate::format::fill_template(template, |field| match field {
-        "name" => name.to_string(),
-        "path" => path.display().to_string(),
-        "position" => format!("{}/{n}", k + 1),
-        "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
-            .or_else(|| {
-                crate::decode::image_reader(path)
-                    .ok()?
-                    .into_dimensions()
-                    .ok()
-            })
-            .map(|(w, h)| format!("{w} × {h}"))
-            .unwrap_or_default(),
-        "File size" => std::fs::metadata(path)
-            .map(|m| crate::format::human_size(m.len()))
-            .unwrap_or_default(),
-        "keywords" => meta
-            .get_or_init(|| crate::meta::read(path))
-            .keywords
-            .join(", "),
-        "comment" => meta.get_or_init(|| crate::meta::read(path)).comment.clone(),
-        label => (exif
-            .get_or_init(|| crate::exif::read_and_all(path).0)
-            .iter())
-        .find(|r| r.0 == label)
-        .map(|r| r.1.clone())
-        .unwrap_or_default(),
-    });
-    text.replace('\n', " · ")
-}
-
-/// A caption cut to `width` points of `size` type, with ... at the end: Helvetica is about
-/// half as wide as high.
-fn fitted(text: &str, width: f32, size: f32) -> String {
-    let fits = (width / (size * 0.5)) as usize;
-    match text.chars().count() > fits {
-        true => {
-            text.chars()
-                .take(fits.saturating_sub(3))
-                .collect::<String>()
-                + "..."
-        }
-        false => text.to_owned(),
-    }
-}
-
-/// `text` centred on the line at `x`, `y` and `width`, as PDF text drawing.
-fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
-    let text = fitted(text, width, size);
-    let tw = text.chars().count() as f32 * size * 0.5;
-    let tx = (x + (width - tw) / 2.0).max(x);
-    format!(
-        "BT /F {size} Tf {tx:.2} {y:.2} Td ({}) Tj ET",
-        pdf_text(&text)
-    )
-}
-
-/// A page text with its numbers filled in.
-fn page_text(text: &str, page: usize, pages: usize) -> String {
-    text.replace("%page%", &page.to_string())
-        .replace("%pages%", &pages.to_string())
-}
-
-/// A PDF of `pages` pages with the images laid out by `layout`, each with its caption below
-/// it if there is one, written to `out` as it is made: only one page of images is ever in
-/// memory.
-pub fn pdf(
-    images: impl Iterator<Item = (image::DynamicImage, Option<String>)>,
-    layout: &Layout,
-    pages: usize,
-    out: impl Write,
-) -> std::io::Result<()> {
-    let mut pdf = Pdf {
-        out,
-        at: 0,
-        offsets: Vec::new(),
-    };
-    pdf.put(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")?;
-    // Objects by number: 1 catalog, 2 page tree (written last, when the pages are counted),
-    // 3 font, then for each page the page, its contents and its images.
-    pdf.object(1, b"<< /Type /Catalog /Pages 2 0 R >>")?;
-    pdf.object(
-        3,
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-    )?;
-    let ([cols, rows], mut images) = (grid(layout.per_page), images.into_iter());
-    let (mut kids, mut next) = (Vec::new(), 4);
-    loop {
-        let on_page: Vec<_> = images.by_ref().take(cols * rows).collect();
-        if on_page.is_empty() {
-            break;
-        }
-        let sizes: Vec<[u32; 2]> = on_page
-            .iter()
-            .map(|i| [i.0.width(), i.0.height()])
-            .collect();
-        let captions = on_page.iter().any(|i| i.1.is_some());
-        let placed = place(layout, &sizes, captions);
-        let [pw, ph] = placed.size;
-        let (page, contents) = (next, next + 1);
-        next += 2;
-        let (mut draw, mut names) = (Vec::new(), Vec::new());
-        for (k, (cell, (_, caption))) in placed.cells.iter().zip(&on_page).enumerate() {
-            let [x, y, dw, dh] = cell.image;
-            let [cx, cy, cw, ch] = cell.clip;
-            // Cut to its box when it fills it; a box is as large as the image else.
-            draw.push(format!(
-                "q {cx:.2} {cy:.2} {cw:.2} {ch:.2} re W n {dw:.2} 0 0 {dh:.2} {x:.2} {y:.2} cm /Im{k} Do Q"
-            ));
-            if let Some(text) = caption {
-                draw.push(centred(text, placed.type_size, cell.caption));
-            }
-            names.push(format!("/Im{k} {} 0 R", next + k));
-        }
-        let number = kids.len() + 1;
-        for (text, line) in [
-            (&layout.header, placed.header),
-            (&layout.footer, placed.footer),
-        ] {
-            if !text.is_empty() {
-                draw.push(centred(&page_text(text, number, pages), 9.0, line));
-            }
-        }
-        kids.push(format!("{page} 0 R"));
-        pdf.object(
-            page,
-            format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pw:.2} {ph:.2}] /Contents \
-                 {contents} 0 R /Resources << /XObject << {} >> /Font << /F 3 0 R >> >> >>",
-                names.join(" ")
-            )
-            .as_bytes(),
-        )?;
-        let draw = draw.join(" ");
-        let mut stream = format!("<< /Length {} >>\nstream\n", draw.len()).into_bytes();
-        stream.extend(draw.as_bytes());
-        stream.extend(b"\nendstream");
-        pdf.object(contents, &stream)?;
-        for (img, _) in on_page {
-            pdf.object(next, &image_object(img))?;
-            next += 1;
-        }
-    }
-    let tree = format!(
-        "<< /Type /Pages /Kids [{}] /Count {} >>",
-        kids.join(" "),
-        kids.len()
-    );
-    pdf.object(2, tree.as_bytes())?;
-    let (xref, count) = (pdf.at, pdf.offsets.len() + 1);
-    let mut table = format!("xref\n0 {count}\n0000000000 65535 f \n");
-    for o in &pdf.offsets {
-        table += &format!("{o:010} 00000 n \n");
-    }
-    table += &format!("trailer\n<< /Size {count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
-    pdf.put(table.as_bytes())?;
-    pdf.out.flush()
-}
-
-/// An image as a PDF XObject: JPEG, with transparent parts on white, as they show on paper.
-fn image_object(img: image::DynamicImage) -> Vec<u8> {
-    let rgba = img.into_rgba8();
-    let flat = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
-        let q = rgba.get_pixel(x, y);
-        let a = q[3] as u32;
-        image::Rgb([0, 1, 2].map(|c| ((q[c] as u32 * a + 255 * (255 - a)) / 255) as u8))
-    });
-    let mut jpeg = Vec::new();
-    let _ = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&flat);
-    let mut stream = format!(
-        "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB \
-         /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
-        flat.width(),
-        flat.height(),
-        jpeg.len()
-    )
-    .into_bytes();
-    stream.extend(jpeg);
-    stream.extend(b"\nendstream");
-    stream
-}
-
 /// A PDF being written: where it is, and where each object starts, for the table at the end.
 struct Pdf<W> {
     out: W,
@@ -429,96 +165,6 @@ impl<W: Write> Pdf<W> {
     }
 }
 
-/// `text` as a PDF string in WinAnsi (Latin-1 for the letters most names have); others become ?.
-fn pdf_text(text: &str) -> String {
-    text.chars()
-        .map(|c| match c {
-            '(' | ')' | '\\' => format!("\\{c}"),
-            ' '..='~' => c.to_string(),
-            '\u{a0}'..='\u{ff}' => format!("\\{:03o}", c as u32),
-            _ => "?".into(),
-        })
-        .collect()
-}
-
-/// The printer choice that hands the PDF to the desktop's print dialog (the print portal): the
-/// one in the Flatpak, which has no lpstat or lp.
-pub const SYSTEM_DIALOG: &str = "System print dialog";
-
-/// The printers CUPS knows, and its default, from `lpstat`; in the Flatpak the desktop's print
-/// dialog.
-pub fn printers() -> (Vec<String>, Option<String>) {
-    #[cfg(feature = "portals")]
-    if crate::portal::in_flatpak() {
-        return (vec![SYSTEM_DIALOG.into()], Some(SYSTEM_DIALOG.into()));
-    }
-    // With the usual limit: a CUPS server that does not answer would else hold the dialog.
-    let run = |arg: &str| crate::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
-    let names = run("-e").lines().map(str::to_owned).collect();
-    // "system default destination: name"
-    let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
-    (names, default)
-}
-
-/// `lp`'s options: the printer, copies, title, and both sides of the paper if asked; CUPS
-/// prints one side on a printer that cannot do both.
-fn lp_args(printer: &str, copies: u32, sides: Option<&str>, title: &str) -> Vec<String> {
-    let mut args: Vec<String> = ["-d", printer, "-n", &copies.to_string(), "-t", title]
-        .map(str::to_owned)
-        .into();
-    if let Some(sides) = sides {
-        args.extend(["-o".to_owned(), format!("sides={sides}")]);
-    }
-    args
-}
-
-/// CUPS's way of printing on both sides for `layout`: turned on the long edge for portrait
-/// pages, on the short edge for landscape ones, so the back is the right way up.
-pub fn sides(layout: &Layout) -> &'static str {
-    match layout.orientation {
-        Orientation::Landscape => "two-sided-short-edge",
-        _ => "two-sided-long-edge",
-    }
-}
-
-/// Send the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
-/// left behind (and the Flatpak's private /tmp does not matter). Each page lp takes is
-/// progress: only two minutes without any end it.
-pub fn send(
-    printer: &str,
-    copies: u32,
-    sides: Option<&str>,
-    title: &str,
-    write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
-) -> Result<(), String> {
-    let mut child = crate::external::stoppable_command("lp")
-        .args(lp_args(printer, copies, sides, title))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("lp (from CUPS): {e}"))?;
-    // A CUPS server that does not answer: lp is ended after two minutes without progress and
-    // the print told as failed, instead of the busy pointer for ever. A long print is not: the
-    // PDF is made while lp reads it, and each write lp takes feeds the dog.
-    let dog = crate::external::Watchdog::new(child.id(), crate::external::LIMIT * 4);
-    let written = match child.stdin.take() {
-        Some(input) => write(&mut Fed {
-            out: std::io::BufWriter::new(input),
-            dog: &dog,
-        }),
-        None => Err(std::io::Error::other("no input")),
-    };
-    #[allow(clippy::disallowed_methods)] // under the Watchdog above
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if dog.gave_up() {
-        return Err(crate::lang::tr("No answer from the print server in two minutes").into());
-    }
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
-    }
-    written.map_err(|e| e.to_string())
-}
-
 /// A writer that tells `dog` of each write taken: a full pipe holds the write until lp reads.
 struct Fed<'a, W: Write> {
     out: W,
@@ -538,105 +184,6 @@ impl<W: Write> Write for Fed<'_, W> {
         Ok(())
     }
 }
-
-/// Images the preview shows at most: the most on one page.
-const PREVIEWED: usize = 20;
-/// The long side of an image in the preview, in pixels.
-const PREVIEW_PX: u32 = 256;
-
-/// The layout the print settings ask for.
-pub fn layout_of(c: &crate::config::Config) -> Layout {
-    let paper = (PAPERS.iter())
-        .find(|p| p.0 == c.print_paper)
-        .unwrap_or(&PAPERS[0])
-        .1;
-    Layout {
-        orientation: Orientation::from(&c.print_orientation),
-        margin: c.print_margin as f32 * MM,
-        scale: c.print_scale as f32 / 100.0,
-        fill: c.print_fill,
-        header: c.print_header.clone(),
-        footer: c.print_footer.clone(),
-        ..Layout::new(paper, c.print_per_page)
-    }
-}
-
-/// The first page as it will print, laid out by `place` as the PDF is: white paper, the images
-/// (grey until decoded), their text and the page text.
-fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
-    let layout = layout_of(c);
-    let n = layout.per_page.min(dialog.paths.len());
-    let size = |k: usize| {
-        (dialog.previews.get(k).and_then(Option::as_ref))
-            .map_or([4, 3], |t| [t.size()[0] as u32, t.size()[1] as u32])
-    };
-    let sizes: Vec<[u32; 2]> = (0..n).map(size).collect();
-    let page = place(&layout, &sizes, c.print_caption);
-    let [pw, ph] = page.size;
-    let f = 240.0 / pw.max(ph);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(pw * f, ph * f), egui::Sense::hover());
-    let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, egui::Color32::WHITE);
-    let at = |x: f32, y: f32| egui::pos2(rect.left() + x * f, rect.bottom() - y * f);
-    let grey = egui::Color32::from_gray(90);
-    let text = |s: &str, size: f32, [x, y, w]: [f32; 3]| {
-        let font = egui::FontId::proportional((size * f).max(5.0));
-        p.text(
-            at(x + w / 2.0, y),
-            egui::Align2::CENTER_BOTTOM,
-            fitted(s, w, size),
-            font,
-            grey,
-        );
-    };
-    let captions = dialog
-        .captions
-        .as_ref()
-        .filter(|c2| c2.0 == c.print_template);
-    for (k, cell) in page.cells.iter().enumerate() {
-        let [cx, cy, cw, ch] = cell.clip;
-        let clip = egui::Rect::from_two_pos(at(cx, cy), at(cx + cw, cy + ch));
-        let [x, y, w, h] = cell.image;
-        let shown = egui::Rect::from_two_pos(at(x, y), at(x + w, y + h));
-        match dialog.previews.get(k).and_then(Option::as_ref) {
-            Some(t) => {
-                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                p.with_clip_rect(clip.intersect(rect)).image(
-                    t.id(),
-                    shown,
-                    uv,
-                    egui::Color32::WHITE,
-                );
-            }
-            None => drop(p.with_clip_rect(clip).rect_filled(
-                shown,
-                0.0,
-                egui::Color32::from_gray(200),
-            )),
-        }
-        if c.print_caption {
-            let name = || {
-                dialog.paths[k]
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            let line = captions
-                .and_then(|c2| c2.1.get(k).cloned())
-                .unwrap_or_else(name);
-            text(&line, page.type_size, cell.caption);
-        }
-    }
-    let pages = dialog.paths.len().div_ceil(layout.per_page.max(1));
-    for (line, at) in [(&layout.header, page.header), (&layout.footer, page.footer)] {
-        if !line.is_empty() {
-            text(&page_text(line, 1, pages), 9.0, at);
-        }
-    }
-}
-
-// ---- Print: the dialog and the job in the background ----
 
 /// Images to print, and how.
 pub(crate) struct PrintJob {
@@ -1044,6 +591,461 @@ impl crate::App {
             drop(pointer);
             ctx.request_repaint();
         });
+    }
+}
+
+fn grid(per_page: usize) -> [usize; 2] {
+    PER_PAGE
+        .iter()
+        .find(|p| p.0 == per_page)
+        .map_or([1, 1], |p| p.1)
+}
+
+/// The page for images of `sizes` (pixels), with room for captions if `captions`.
+pub fn place(layout: &Layout, sizes: &[[u32; 2]], captions: bool) -> Page {
+    let one = layout.per_page == 1;
+    let wide = sizes.first().is_some_and(|s| s[0] > s[1]);
+    let landscape = match layout.orientation {
+        Orientation::Portrait => false,
+        Orientation::Landscape => true,
+        Orientation::Auto => one && wide,
+    };
+    let [pw, ph] = match landscape {
+        true => [layout.paper[1], layout.paper[0]],
+        false => layout.paper,
+    };
+    let [cols, rows] = match (landscape, grid(layout.per_page)) {
+        (true, [c, r]) => [r, c],
+        (false, g) => g,
+    };
+    // Smaller type, and a gap between the images, on a sheet of several.
+    let (size, gap) = if one { (9.0, 0.0) } else { (7.0, 8.0) };
+    let m = layout.margin_on([pw, ph]);
+    let room = |text: &str| if text.is_empty() { 0.0 } else { PAGE_TEXT };
+    let (top, bottom) = (ph - m - room(&layout.header), m + room(&layout.footer));
+    let (cw, ch) = ((pw - 2.0 * m) / cols as f32, (top - bottom) / rows as f32);
+    let below = if captions { CAPTION * size / 9.0 } else { 0.0 };
+    let scale = if one {
+        layout.scale.clamp(0.1, 1.0)
+    } else {
+        1.0
+    };
+    let cells = (sizes.iter().enumerate())
+        .map(|(k, &[w, h])| {
+            let (cx, cy) = (m + (k % cols) as f32 * cw, top - (k / cols + 1) as f32 * ch);
+            let (bw, bh) = ((cw - gap) * scale, ((ch - gap - below) * scale).max(1.0));
+            let (bx, by) = (
+                cx + (cw - bw) / 2.0,
+                cy + gap / 2.0 + below + (ch - gap - below - bh) / 2.0,
+            );
+            let (w, h) = (w.max(1) as f32, h.max(1) as f32);
+            let s = match layout.fill {
+                true => (bw / w).max(bh / h),
+                false => (bw / w).min(bh / h),
+            };
+            let (dw, dh) = (w * s, h * s);
+            let (x, y) = (bx + (bw - dw) / 2.0, by + (bh - dh) / 2.0);
+            Cell {
+                image: [x, y, dw, dh],
+                clip: [bx, by, bw, bh],
+                caption: [cx, y.max(by) - size - 4.0, cw - gap],
+            }
+        })
+        .collect();
+    Page {
+        size: [pw, ph],
+        type_size: size,
+        cells,
+        header: [m, ph - m - 11.0, pw - 2.0 * m],
+        footer: [m, m + 3.0, pw - 2.0 * m],
+    }
+}
+
+/// The longest side in pixels an image needs on a page of `layout`.
+pub fn max_pixels(layout: &Layout) -> u32 {
+    let [pw, ph] = layout.paper;
+    let [cols, rows] = grid(layout.per_page);
+    // As `place` has it: on small photo paper a wide margin is less than asked.
+    let m = layout.margin_on([pw, ph]);
+    let long = match layout.per_page {
+        // Turned to landscape, or cut to fill: its long side may span the paper's.
+        1 => pw.max(ph) - 2.0 * m,
+        _ => ((pw - 2.0 * m) / cols as f32).max((ph - 2.0 * m) / rows as f32),
+    };
+    // An image cut to fill its box is drawn larger than the box.
+    let fill = if layout.fill { 2.0 } else { 1.0 };
+    (long / 72.0 * PPI * fill) as u32
+}
+
+/// The text under the image at `path`, `k`th of `n`, from `template`: the full screen info's
+/// fields, read from the file here as the print job runs, in one line. `size`, the decoded one
+/// upright, where known: the file's header says how it is stored (and of a RAW, its thumbnail).
+pub fn caption(
+    template: &str,
+    path: &Path,
+    k: usize,
+    n: usize,
+    size: Option<[usize; 2]>,
+) -> String {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
+    let text = crate::format::fill_template(template, |field| match field {
+        "name" => name.to_string(),
+        "path" => path.display().to_string(),
+        "position" => format!("{}/{n}", k + 1),
+        "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
+            .or_else(|| {
+                crate::decode::image_reader(path)
+                    .ok()?
+                    .into_dimensions()
+                    .ok()
+            })
+            .map(|(w, h)| format!("{w} × {h}"))
+            .unwrap_or_default(),
+        "File size" => std::fs::metadata(path)
+            .map(|m| crate::format::human_size(m.len()))
+            .unwrap_or_default(),
+        "keywords" => meta
+            .get_or_init(|| crate::meta::read(path))
+            .keywords
+            .join(", "),
+        "comment" => meta.get_or_init(|| crate::meta::read(path)).comment.clone(),
+        label => (exif
+            .get_or_init(|| crate::exif::read_and_all(path).0)
+            .iter())
+        .find(|r| r.0 == label)
+        .map(|r| r.1.clone())
+        .unwrap_or_default(),
+    });
+    text.replace('\n', " · ")
+}
+
+/// A caption cut to `width` points of `size` type, with ... at the end: Helvetica is about
+/// half as wide as high.
+fn fitted(text: &str, width: f32, size: f32) -> String {
+    let fits = (width / (size * 0.5)) as usize;
+    match text.chars().count() > fits {
+        true => {
+            text.chars()
+                .take(fits.saturating_sub(3))
+                .collect::<String>()
+                + "..."
+        }
+        false => text.to_owned(),
+    }
+}
+
+/// `text` centred on the line at `x`, `y` and `width`, as PDF text drawing.
+fn centred(text: &str, size: f32, [x, y, width]: [f32; 3]) -> String {
+    let text = fitted(text, width, size);
+    let tw = text.chars().count() as f32 * size * 0.5;
+    let tx = (x + (width - tw) / 2.0).max(x);
+    format!(
+        "BT /F {size} Tf {tx:.2} {y:.2} Td ({}) Tj ET",
+        pdf_text(&text)
+    )
+}
+
+/// A page text with its numbers filled in.
+fn page_text(text: &str, page: usize, pages: usize) -> String {
+    text.replace("%page%", &page.to_string())
+        .replace("%pages%", &pages.to_string())
+}
+
+/// A PDF of `pages` pages with the images laid out by `layout`, each with its caption below
+/// it if there is one, written to `out` as it is made: only one page of images is ever in
+/// memory.
+pub fn pdf(
+    images: impl Iterator<Item = (image::DynamicImage, Option<String>)>,
+    layout: &Layout,
+    pages: usize,
+    out: impl Write,
+) -> std::io::Result<()> {
+    let mut pdf = Pdf {
+        out,
+        at: 0,
+        offsets: Vec::new(),
+    };
+    pdf.put(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")?;
+    // Objects by number: 1 catalog, 2 page tree (written last, when the pages are counted),
+    // 3 font, then for each page the page, its contents and its images.
+    pdf.object(1, b"<< /Type /Catalog /Pages 2 0 R >>")?;
+    pdf.object(
+        3,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    )?;
+    let ([cols, rows], mut images) = (grid(layout.per_page), images.into_iter());
+    let (mut kids, mut next) = (Vec::new(), 4);
+    loop {
+        let on_page: Vec<_> = images.by_ref().take(cols * rows).collect();
+        if on_page.is_empty() {
+            break;
+        }
+        let sizes: Vec<[u32; 2]> = on_page
+            .iter()
+            .map(|i| [i.0.width(), i.0.height()])
+            .collect();
+        let captions = on_page.iter().any(|i| i.1.is_some());
+        let placed = place(layout, &sizes, captions);
+        let [pw, ph] = placed.size;
+        let (page, contents) = (next, next + 1);
+        next += 2;
+        let (mut draw, mut names) = (Vec::new(), Vec::new());
+        for (k, (cell, (_, caption))) in placed.cells.iter().zip(&on_page).enumerate() {
+            let [x, y, dw, dh] = cell.image;
+            let [cx, cy, cw, ch] = cell.clip;
+            // Cut to its box when it fills it; a box is as large as the image else.
+            draw.push(format!(
+                "q {cx:.2} {cy:.2} {cw:.2} {ch:.2} re W n {dw:.2} 0 0 {dh:.2} {x:.2} {y:.2} cm /Im{k} Do Q"
+            ));
+            if let Some(text) = caption {
+                draw.push(centred(text, placed.type_size, cell.caption));
+            }
+            names.push(format!("/Im{k} {} 0 R", next + k));
+        }
+        let number = kids.len() + 1;
+        for (text, line) in [
+            (&layout.header, placed.header),
+            (&layout.footer, placed.footer),
+        ] {
+            if !text.is_empty() {
+                draw.push(centred(&page_text(text, number, pages), 9.0, line));
+            }
+        }
+        kids.push(format!("{page} 0 R"));
+        pdf.object(
+            page,
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pw:.2} {ph:.2}] /Contents \
+                 {contents} 0 R /Resources << /XObject << {} >> /Font << /F 3 0 R >> >> >>",
+                names.join(" ")
+            )
+            .as_bytes(),
+        )?;
+        let draw = draw.join(" ");
+        let mut stream = format!("<< /Length {} >>\nstream\n", draw.len()).into_bytes();
+        stream.extend(draw.as_bytes());
+        stream.extend(b"\nendstream");
+        pdf.object(contents, &stream)?;
+        for (img, _) in on_page {
+            pdf.object(next, &image_object(img))?;
+            next += 1;
+        }
+    }
+    let tree = format!(
+        "<< /Type /Pages /Kids [{}] /Count {} >>",
+        kids.join(" "),
+        kids.len()
+    );
+    pdf.object(2, tree.as_bytes())?;
+    let (xref, count) = (pdf.at, pdf.offsets.len() + 1);
+    let mut table = format!("xref\n0 {count}\n0000000000 65535 f \n");
+    for o in &pdf.offsets {
+        table += &format!("{o:010} 00000 n \n");
+    }
+    table += &format!("trailer\n<< /Size {count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+    pdf.put(table.as_bytes())?;
+    pdf.out.flush()
+}
+
+/// An image as a PDF XObject: JPEG, with transparent parts on white, as they show on paper.
+fn image_object(img: image::DynamicImage) -> Vec<u8> {
+    let rgba = img.into_rgba8();
+    let flat = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let q = rgba.get_pixel(x, y);
+        let a = q[3] as u32;
+        image::Rgb([0, 1, 2].map(|c| ((q[c] as u32 * a + 255 * (255 - a)) / 255) as u8))
+    });
+    let mut jpeg = Vec::new();
+    let _ = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 90).encode_image(&flat);
+    let mut stream = format!(
+        "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB \
+         /BitsPerComponent 8 /Filter /DCTDecode /Length {} >>\nstream\n",
+        flat.width(),
+        flat.height(),
+        jpeg.len()
+    )
+    .into_bytes();
+    stream.extend(jpeg);
+    stream.extend(b"\nendstream");
+    stream
+}
+
+/// `text` as a PDF string in WinAnsi (Latin-1 for the letters most names have); others become ?.
+fn pdf_text(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '(' | ')' | '\\' => format!("\\{c}"),
+            ' '..='~' => c.to_string(),
+            '\u{a0}'..='\u{ff}' => format!("\\{:03o}", c as u32),
+            _ => "?".into(),
+        })
+        .collect()
+}
+
+/// The printers CUPS knows, and its default, from `lpstat`; in the Flatpak the desktop's print
+/// dialog.
+pub fn printers() -> (Vec<String>, Option<String>) {
+    #[cfg(feature = "portals")]
+    if crate::portal::in_flatpak() {
+        return (vec![SYSTEM_DIALOG.into()], Some(SYSTEM_DIALOG.into()));
+    }
+    // With the usual limit: a CUPS server that does not answer would else hold the dialog.
+    let run = |arg: &str| crate::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
+    let names = run("-e").lines().map(str::to_owned).collect();
+    // "system default destination: name"
+    let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
+    (names, default)
+}
+
+/// `lp`'s options: the printer, copies, title, and both sides of the paper if asked; CUPS
+/// prints one side on a printer that cannot do both.
+fn lp_args(printer: &str, copies: u32, sides: Option<&str>, title: &str) -> Vec<String> {
+    let mut args: Vec<String> = ["-d", printer, "-n", &copies.to_string(), "-t", title]
+        .map(str::to_owned)
+        .into();
+    if let Some(sides) = sides {
+        args.extend(["-o".to_owned(), format!("sides={sides}")]);
+    }
+    args
+}
+
+/// CUPS's way of printing on both sides for `layout`: turned on the long edge for portrait
+/// pages, on the short edge for landscape ones, so the back is the right way up.
+pub fn sides(layout: &Layout) -> &'static str {
+    match layout.orientation {
+        Orientation::Landscape => "two-sided-short-edge",
+        _ => "two-sided-long-edge",
+    }
+}
+
+/// Send the PDF that `write` makes to `printer` with `lp`, through its input, so no file is
+/// left behind (and the Flatpak's private /tmp does not matter). Each page lp takes is
+/// progress: only two minutes without any end it.
+pub fn send(
+    printer: &str,
+    copies: u32,
+    sides: Option<&str>,
+    title: &str,
+    write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+) -> Result<(), String> {
+    let mut child = crate::external::stoppable_command("lp")
+        .args(lp_args(printer, copies, sides, title))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("lp (from CUPS): {e}"))?;
+    // A CUPS server that does not answer: lp is ended after two minutes without progress and
+    // the print told as failed, instead of the busy pointer for ever. A long print is not: the
+    // PDF is made while lp reads it, and each write lp takes feeds the dog.
+    let dog = crate::external::Watchdog::new(child.id(), crate::external::LIMIT * 4);
+    let written = match child.stdin.take() {
+        Some(input) => write(&mut Fed {
+            out: std::io::BufWriter::new(input),
+            dog: &dog,
+        }),
+        None => Err(std::io::Error::other("no input")),
+    };
+    #[allow(clippy::disallowed_methods)] // under the Watchdog above
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if dog.gave_up() {
+        return Err(crate::lang::tr("No answer from the print server in two minutes").into());
+    }
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
+    }
+    written.map_err(|e| e.to_string())
+}
+
+/// The layout the print settings ask for.
+pub fn layout_of(c: &crate::config::Config) -> Layout {
+    let paper = (PAPERS.iter())
+        .find(|p| p.0 == c.print_paper)
+        .unwrap_or(&PAPERS[0])
+        .1;
+    Layout {
+        orientation: Orientation::from(&c.print_orientation),
+        margin: c.print_margin as f32 * MM,
+        scale: c.print_scale as f32 / 100.0,
+        fill: c.print_fill,
+        header: c.print_header.clone(),
+        footer: c.print_footer.clone(),
+        ..Layout::new(paper, c.print_per_page)
+    }
+}
+
+/// The first page as it will print, laid out by `place` as the PDF is: white paper, the images
+/// (grey until decoded), their text and the page text.
+fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
+    let layout = layout_of(c);
+    let n = layout.per_page.min(dialog.paths.len());
+    let size = |k: usize| {
+        (dialog.previews.get(k).and_then(Option::as_ref))
+            .map_or([4, 3], |t| [t.size()[0] as u32, t.size()[1] as u32])
+    };
+    let sizes: Vec<[u32; 2]> = (0..n).map(size).collect();
+    let page = place(&layout, &sizes, c.print_caption);
+    let [pw, ph] = page.size;
+    let f = 240.0 / pw.max(ph);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(pw * f, ph * f), egui::Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 0.0, egui::Color32::WHITE);
+    let at = |x: f32, y: f32| egui::pos2(rect.left() + x * f, rect.bottom() - y * f);
+    let grey = egui::Color32::from_gray(90);
+    let text = |s: &str, size: f32, [x, y, w]: [f32; 3]| {
+        let font = egui::FontId::proportional((size * f).max(5.0));
+        p.text(
+            at(x + w / 2.0, y),
+            egui::Align2::CENTER_BOTTOM,
+            fitted(s, w, size),
+            font,
+            grey,
+        );
+    };
+    let captions = dialog
+        .captions
+        .as_ref()
+        .filter(|c2| c2.0 == c.print_template);
+    for (k, cell) in page.cells.iter().enumerate() {
+        let [cx, cy, cw, ch] = cell.clip;
+        let clip = egui::Rect::from_two_pos(at(cx, cy), at(cx + cw, cy + ch));
+        let [x, y, w, h] = cell.image;
+        let shown = egui::Rect::from_two_pos(at(x, y), at(x + w, y + h));
+        match dialog.previews.get(k).and_then(Option::as_ref) {
+            Some(t) => {
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                p.with_clip_rect(clip.intersect(rect)).image(
+                    t.id(),
+                    shown,
+                    uv,
+                    egui::Color32::WHITE,
+                );
+            }
+            None => drop(p.with_clip_rect(clip).rect_filled(
+                shown,
+                0.0,
+                egui::Color32::from_gray(200),
+            )),
+        }
+        if c.print_caption {
+            let name = || {
+                dialog.paths[k]
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let line = captions
+                .and_then(|c2| c2.1.get(k).cloned())
+                .unwrap_or_else(name);
+            text(&line, page.type_size, cell.caption);
+        }
+    }
+    let pages = dialog.paths.len().div_ceil(layout.per_page.max(1));
+    for (line, at) in [(&layout.header, page.header), (&layout.footer, page.footer)] {
+        if !line.is_empty() {
+            text(&page_text(line, 1, pages), 9.0, at);
+        }
     }
 }
 

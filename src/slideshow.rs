@@ -9,6 +9,29 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Instant;
 
+/// What a slideshow does once its delay is up.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Slide {
+    /// The round is over and it does not repeat.
+    Stop,
+    /// A new round of a random order: the list shuffled again.
+    Shuffle,
+    /// The next image, or the next set.
+    Step(usize),
+    /// The next image is still being decoded: looked at again soon.
+    Hold,
+}
+
+/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
+/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
+#[derive(Clone, Copy)]
+pub(crate) struct Place {
+    pub(crate) row: Option<usize>,
+    pub(crate) delta: usize,
+    pub(crate) shown: usize,
+    pub(crate) len: usize,
+}
+
 impl crate::App {
     // ---- The slideshow ----
 
@@ -188,29 +211,6 @@ impl crate::App {
             self.title(ctx);
         }
     }
-}
-
-/// What a slideshow does once its delay is up.
-#[derive(Debug, PartialEq)]
-pub(crate) enum Slide {
-    /// The round is over and it does not repeat.
-    Stop,
-    /// A new round of a random order: the list shuffled again.
-    Shuffle,
-    /// The next image, or the next set.
-    Step(usize),
-    /// The next image is still being decoded: looked at again soon.
-    Hold,
-}
-
-/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
-/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
-#[derive(Clone, Copy)]
-pub(crate) struct Place {
-    pub(crate) row: Option<usize>,
-    pub(crate) delta: usize,
-    pub(crate) shown: usize,
-    pub(crate) len: usize,
 }
 
 /// The slideshow's move from `at`, to `next` if there is one; repeating or not, in a `shuffled`

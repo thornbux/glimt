@@ -5,50 +5,6 @@ use crate::actions::shortcuts as all_shortcuts;
 use eframe::egui;
 use egui::Key;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Page {
-    Manual,
-    Shortcuts,
-    Keymap,
-    About,
-}
-
-impl Page {
-    fn title(self) -> &'static str {
-        // The window's title in the interface's language; the pages themselves stay English.
-        crate::lang::tr(match self {
-            Page::Manual => "Help Manual",
-            Page::Shortcuts => "Keyboard Shortcuts",
-            Page::Keymap => "Keyboard Map",
-            Page::About => "About Glimt",
-        })
-    }
-}
-
-/// The open help page in a window; closing the window sets `page` to `None`.
-pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
-    let Some(shown) = *page else { return };
-    let mut open = true;
-    egui::Window::new(shown.title())
-        .id(egui::Id::unique("help"))
-        .open(&mut open)
-        .collapsible(false)
-        .default_width(560.0)
-        .default_height(520.0)
-        .show(ctx, |ui| {
-            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
-            egui::ScrollArea::vertical().show(ui, |ui| match shown {
-                Page::Manual => manual(ui),
-                Page::Shortcuts => shortcuts(ui),
-                Page::Keymap => keymap(ui),
-                Page::About => about(ui),
-            });
-        });
-    if !open {
-        *page = None;
-    }
-}
-
 const MANUAL: &[(&str, &str)] = &[
     (
         "Opening images",
@@ -795,6 +751,129 @@ const DIFFERENCES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Mouse use, for the help window.
+const MOUSE: &[(&str, &str)] = &[
+    ("Mouse wheel", "Zoom, or next/previous image (Preferences)"),
+    ("Ctrl+mouse wheel", "Zoom"),
+    ("Drag", "Move a zoomed image"),
+    ("Double-click", "Full Screen"),
+    ("Ctrl+click in the list", "Select or unselect a file"),
+    (
+        "Shift+click in the list",
+        "Select the files from the last one clicked",
+    ),
+    (
+        "Drag in the grid of icons",
+        "Select with a rectangle (Ctrl or Shift: add to the selection)",
+    ),
+    (
+        "Drag in a collection's list",
+        "Move the images to another place",
+    ),
+];
+
+/// Libraries and assets Glimt is built with, and their licenses.
+const CREDITS: &[(&str, &str, &str)] = &[
+    (
+        "egui / eframe",
+        "Emil Ernerfeldt and contributors",
+        "MIT or Apache-2.0",
+    ),
+    (
+        "winit, glutin",
+        "The winit and glutin contributors",
+        "Apache-2.0",
+    ),
+    ("sctk-adwaita", "Window frame on Wayland", "MIT"),
+    (
+        "AccessKit (accessibility builds)",
+        "The AccessKit contributors: screen readers",
+        "MIT or Apache-2.0",
+    ),
+    (
+        "image, png, zune-jpeg",
+        "The image-rs and zune contributors",
+        "MIT or Apache-2.0",
+    ),
+    ("fast_image_resize", "Kirill Kuzminykh", "MIT or Apache-2.0"),
+    (
+        "jpeg-decoder, tiff",
+        "The image-rs contributors",
+        "MIT or Apache-2.0; MIT",
+    ),
+    ("moxcms", "Radzivon Bartoshyk", "BSD-3-Clause or Apache-2.0"),
+    ("regex", "The Rust Project Developers", "MIT or Apache-2.0"),
+    ("arboard", "The arboard contributors", "MIT or Apache-2.0"),
+    (
+        "resvg, usvg (SVG builds)",
+        "The resvg authors",
+        "Apache-2.0 or MIT",
+    ),
+    (
+        "jxl-oxide (JPEG XL builds)",
+        "Wonwoo Choi",
+        "MIT or Apache-2.0",
+    ),
+    (
+        "Inter",
+        "The Inter Project Authors",
+        "SIL Open Font License 1.1",
+    ),
+    ("Phosphor Icons", "Phosphor Icons", "MIT"),
+    ("Ubuntu font", "Dalton Maag", "Ubuntu Font Licence 1.0"),
+    ("Noto Emoji", "Google", "SIL Open Font License 1.1"),
+    ("emoji-icon-font, Hack", "Font authors", "MIT"),
+    (
+        "ffmpeg (optional, run as a program)",
+        "The FFmpeg developers",
+        "LGPL-2.1 or GPL",
+    ),
+];
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Page {
+    Manual,
+    Shortcuts,
+    Keymap,
+    About,
+}
+
+impl Page {
+    fn title(self) -> &'static str {
+        // The window's title in the interface's language; the pages themselves stay English.
+        crate::lang::tr(match self {
+            Page::Manual => "Help Manual",
+            Page::Shortcuts => "Keyboard Shortcuts",
+            Page::Keymap => "Keyboard Map",
+            Page::About => "About Glimt",
+        })
+    }
+}
+
+/// The open help page in a window; closing the window sets `page` to `None`.
+pub fn window(ctx: &egui::Context, page: &mut Option<Page>) {
+    let Some(shown) = *page else { return };
+    let mut open = true;
+    egui::Window::new(shown.title())
+        .id(egui::Id::unique("help"))
+        .open(&mut open)
+        .collapsible(false)
+        .default_width(560.0)
+        .default_height(520.0)
+        .show(ctx, |ui| {
+            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+            egui::ScrollArea::vertical().show(ui, |ui| match shown {
+                Page::Manual => manual(ui),
+                Page::Shortcuts => shortcuts(ui),
+                Page::Keymap => keymap(ui),
+                Page::About => about(ui),
+            });
+        });
+    if !open {
+        *page = None;
+    }
+}
+
 fn manual(ui: &mut egui::Ui) {
     for (heading, text) in MANUAL {
         ui.strong(*heading);
@@ -842,27 +921,6 @@ fn table(ui: &mut egui::Ui, id: &str, rows: &[(&str, &str)]) {
         }
     });
 }
-
-/// Mouse use, for the help window.
-const MOUSE: &[(&str, &str)] = &[
-    ("Mouse wheel", "Zoom, or next/previous image (Preferences)"),
-    ("Ctrl+mouse wheel", "Zoom"),
-    ("Drag", "Move a zoomed image"),
-    ("Double-click", "Full Screen"),
-    ("Ctrl+click in the list", "Select or unselect a file"),
-    (
-        "Shift+click in the list",
-        "Select the files from the last one clicked",
-    ),
-    (
-        "Drag in the grid of icons",
-        "Select with a rectangle (Ctrl or Shift: add to the selection)",
-    ),
-    (
-        "Drag in a collection's list",
-        "Move the images to another place",
-    ),
-];
 
 /// Every shortcut of an action on one row, in menu order, then the mouse.
 fn shortcuts(ui: &mut egui::Ui) {
@@ -1087,64 +1145,6 @@ fn keymap(ui: &mut egui::Ui) {
         );
     }
 }
-
-/// Libraries and assets Glimt is built with, and their licenses.
-const CREDITS: &[(&str, &str, &str)] = &[
-    (
-        "egui / eframe",
-        "Emil Ernerfeldt and contributors",
-        "MIT or Apache-2.0",
-    ),
-    (
-        "winit, glutin",
-        "The winit and glutin contributors",
-        "Apache-2.0",
-    ),
-    ("sctk-adwaita", "Window frame on Wayland", "MIT"),
-    (
-        "AccessKit (accessibility builds)",
-        "The AccessKit contributors: screen readers",
-        "MIT or Apache-2.0",
-    ),
-    (
-        "image, png, zune-jpeg",
-        "The image-rs and zune contributors",
-        "MIT or Apache-2.0",
-    ),
-    ("fast_image_resize", "Kirill Kuzminykh", "MIT or Apache-2.0"),
-    (
-        "jpeg-decoder, tiff",
-        "The image-rs contributors",
-        "MIT or Apache-2.0; MIT",
-    ),
-    ("moxcms", "Radzivon Bartoshyk", "BSD-3-Clause or Apache-2.0"),
-    ("regex", "The Rust Project Developers", "MIT or Apache-2.0"),
-    ("arboard", "The arboard contributors", "MIT or Apache-2.0"),
-    (
-        "resvg, usvg (SVG builds)",
-        "The resvg authors",
-        "Apache-2.0 or MIT",
-    ),
-    (
-        "jxl-oxide (JPEG XL builds)",
-        "Wonwoo Choi",
-        "MIT or Apache-2.0",
-    ),
-    (
-        "Inter",
-        "The Inter Project Authors",
-        "SIL Open Font License 1.1",
-    ),
-    ("Phosphor Icons", "Phosphor Icons", "MIT"),
-    ("Ubuntu font", "Dalton Maag", "Ubuntu Font Licence 1.0"),
-    ("Noto Emoji", "Google", "SIL Open Font License 1.1"),
-    ("emoji-icon-font, Hack", "Font authors", "MIT"),
-    (
-        "ffmpeg (optional, run as a program)",
-        "The FFmpeg developers",
-        "LGPL-2.1 or GPL",
-    ),
-];
 
 fn about(ui: &mut egui::Ui) {
     // The logo as tall as the five lines beside it, so the two line up.

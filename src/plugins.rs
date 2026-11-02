@@ -19,6 +19,65 @@ pub struct Plugin {
     dir: PathBuf,
 }
 
+impl Plugin {
+    /// Run the plugin on `files` and wait for it: once for each file with %f or %u, once for all
+    /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
+    /// one taken out of it there was stopped, and the runs after it are not made. The error
+    /// output if it failed.
+    pub fn run(&self, files: &[PathBuf], folder: &Path, running: &Running) -> Result<(), String> {
+        let words = words(&self.exec);
+        let each = words.iter().any(|w| w == "%f" || w == "%u");
+        let runs: Vec<&[PathBuf]> = if each {
+            files.chunks(1).collect()
+        } else {
+            vec![files]
+        };
+        for run in runs {
+            let args = arguments(&words, run);
+            let Some(program) = args.first().cloned() else {
+                return Err("no command".into());
+            };
+            let local = self.dir.join(&program);
+            let program = if local.is_file() {
+                local.into()
+            } else {
+                program
+            };
+            // Its output is not read: a converter writing the image to stdout would else be
+            // kept whole in memory; its errors are. In a process group of its own, so Stop ends
+            // what it started too (in a Flatpak through INT, see `external::stop`). Not
+            // `stoppable_command`: its --watch-bus would end an editor
+            // on the host when the Flatpak's Glimt closes, with its unsaved work.
+            use std::os::unix::process::CommandExt;
+            let child = crate::external::host_command(program.to_string_lossy().as_ref())
+                .process_group(0)
+                .args(&args[1..])
+                .current_dir(folder)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            let pid = child.id();
+            running.lock().unwrap().push((self.name.clone(), pid));
+            #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
+            let out = child.wait_with_output();
+            let mut now = running.lock().unwrap();
+            match now.iter().position(|r| r.1 == pid) {
+                Some(at) => drop(now.remove(at)),
+                None => return Err(crate::lang::tr("stopped").into()),
+            }
+            drop(now);
+            let out = out.map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                return Err(err.lines().last().unwrap_or("failed").to_owned());
+            }
+        }
+        Ok(())
+    }
+}
+
 /// The plugins, sorted by name; a desktop file in the user's folder hides one of the same name
 /// in the system's.
 pub fn find() -> Vec<Plugin> {
@@ -112,65 +171,6 @@ fn arguments(words: &[String], files: &[PathBuf]) -> Vec<std::ffi::OsString> {
         }
     }
     args
-}
-
-impl Plugin {
-    /// Run the plugin on `files` and wait for it: once for each file with %f or %u, once for all
-    /// with %F or %U, and once in `folder` without any. Each run is in `running` while it runs;
-    /// one taken out of it there was stopped, and the runs after it are not made. The error
-    /// output if it failed.
-    pub fn run(&self, files: &[PathBuf], folder: &Path, running: &Running) -> Result<(), String> {
-        let words = words(&self.exec);
-        let each = words.iter().any(|w| w == "%f" || w == "%u");
-        let runs: Vec<&[PathBuf]> = if each {
-            files.chunks(1).collect()
-        } else {
-            vec![files]
-        };
-        for run in runs {
-            let args = arguments(&words, run);
-            let Some(program) = args.first().cloned() else {
-                return Err("no command".into());
-            };
-            let local = self.dir.join(&program);
-            let program = if local.is_file() {
-                local.into()
-            } else {
-                program
-            };
-            // Its output is not read: a converter writing the image to stdout would else be
-            // kept whole in memory; its errors are. In a process group of its own, so Stop ends
-            // what it started too (in a Flatpak through INT, see `external::stop`). Not
-            // `stoppable_command`: its --watch-bus would end an editor
-            // on the host when the Flatpak's Glimt closes, with its unsaved work.
-            use std::os::unix::process::CommandExt;
-            let child = crate::external::host_command(program.to_string_lossy().as_ref())
-                .process_group(0)
-                .args(&args[1..])
-                .current_dir(folder)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
-            let pid = child.id();
-            running.lock().unwrap().push((self.name.clone(), pid));
-            #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
-            let out = child.wait_with_output();
-            let mut now = running.lock().unwrap();
-            match now.iter().position(|r| r.1 == pid) {
-                Some(at) => drop(now.remove(at)),
-                None => return Err(crate::lang::tr("stopped").into()),
-            }
-            drop(now);
-            let out = out.map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
-            if !out.status.success() {
-                let err = String::from_utf8_lossy(&out.stderr);
-                return Err(err.lines().last().unwrap_or("failed").to_owned());
-            }
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

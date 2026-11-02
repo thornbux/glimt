@@ -6,46 +6,20 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Default)]
-pub struct Marks {
-    /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
-    map: HashMap<PathBuf, (u8, u8)>,
-}
-
-/// A marks file told apart from another: every write makes a new file (a new inode), and two
-/// writes in the same tick of the clock have the same time.
-type Seen = (u64, std::time::SystemTime);
-
-fn seen(file: &Path) -> Option<Seen> {
-    use std::os::unix::fs::MetadataExt;
-    let m = std::fs::metadata(file).ok()?;
-    Some((m.ino(), m.modified().ok()?))
-}
-
 /// Each marks file as this window's marks hold it: as read, or as its own write left it when
 /// no other window had written since. A refresh that finds it so reads nothing.
 static KNOWN: std::sync::Mutex<std::collections::BTreeMap<PathBuf, Option<Seen>>> =
     std::sync::Mutex::new(std::collections::BTreeMap::new());
 
-fn known() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<PathBuf, Option<Seen>>> {
-    KNOWN
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
+/// Changes sent to the writer and not yet in the file, each counted by a `Working` held until
+/// it is written, also when the write panics.
+static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
+    std::sync::LazyLock::new(Default::default);
 
-fn file() -> Option<PathBuf> {
-    #[cfg(test)]
-    if let Some(file) = TEST_FILE.with(|f| f.borrow().clone()) {
-        return Some(file);
-    }
-    crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("marks"))
-}
-
-// The marks file of one test, on its thread: the tests run side by side, and one that writes
-// the shared file would change what the others read back.
-#[cfg(test)]
-thread_local! {
-    static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+#[derive(Default)]
+pub struct Marks {
+    /// Mark bits (bit 0 = mark 1) and stars, by path; files with neither are left out.
+    map: HashMap<PathBuf, (u8, u8)>,
 }
 
 impl Marks {
@@ -172,10 +146,16 @@ impl Marks {
     }
 }
 
-/// Changes sent to the writer and not yet in the file, each counted by a `Working` held until
-/// it is written, also when the write panics.
-static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
-    std::sync::LazyLock::new(Default::default);
+/// A marks file told apart from another: every write makes a new file (a new inode), and two
+/// writes in the same tick of the clock have the same time.
+type Seen = (u64, std::time::SystemTime);
+
+// The marks file of one test, on its thread: the tests run side by side, and one that writes
+// the shared file would change what the others read back.
+#[cfg(test)]
+thread_local! {
+    static TEST_FILE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
 
 /// What a window did, applied to the file as it is then.
 enum Edit {
@@ -194,6 +174,26 @@ enum Change {
     Clear,
     /// These marks and stars, as they were.
     Set(u8, u8),
+}
+
+fn seen(file: &Path) -> Option<Seen> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::metadata(file).ok()?;
+    Some((m.ino(), m.modified().ok()?))
+}
+
+fn known() -> std::sync::MutexGuard<'static, std::collections::BTreeMap<PathBuf, Option<Seen>>> {
+    KNOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn file() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(file) = TEST_FILE.with(|f| f.borrow().clone()) {
+        return Some(file);
+    }
+    crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("marks"))
 }
 
 /// Apply `change` to each path's marks and stars; a path with neither is removed.

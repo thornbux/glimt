@@ -40,55 +40,100 @@ use std::time::Instant;
 use threads::{
     ONE_ARENA, Receiving, Working, cores, set_cpu_use, small_alloc_threads, thread_cpu_us,
 };
-
 #[cfg(feature = "accessibility")]
 mod accessibility;
+
 mod actions;
+
 mod check;
+
 mod collections;
+
 mod colour;
+
 mod config;
+
 mod crop;
+
 mod decode;
+
 mod decoders;
+
 mod dialogs;
+
 mod duplicates;
+
 mod exif;
+
 mod external;
+
 mod file_list;
+
 mod file_ops;
+
 mod files;
+
 mod folder;
+
 mod format;
+
 mod help;
+
 mod info_panel;
+
 mod journal;
+
 mod lang;
+
 mod lightroom;
+
 #[cfg(feature = "marks")]
 mod marks;
+
 mod menus;
+
 mod meta;
+
 mod pan;
+
 mod plugins;
+
 #[cfg(feature = "portals")]
 mod portal;
+
 mod preferences;
+
 mod print;
+
 mod raw;
+
 mod remote;
+
 mod save;
+
 mod save_as;
+
 mod search;
+
 mod selection;
+
 mod slideshow;
+#[cfg(test)]
+mod source_rules;
+
 mod theme;
+
 mod threads;
+
 mod thumbs;
+
 #[cfg(feature = "video")]
 mod video;
+
 mod view;
+
 mod window;
+
 mod workers;
 
 /// The release tests' hook (`test-hooks`): `glimt --remote where LABEL` tells where the menu
@@ -124,26 +169,54 @@ mod hooks {
     }
 }
 
-/// Whether a window, menu or popup was on the screen in this frame or the last; the panels
-/// of the main window do not count.
-fn window_shown(ctx: &egui::Context) -> bool {
-    use egui::Order::{Foreground, Middle};
-    ctx.memory(|m| {
-        (m.areas().visible_layer_ids().iter()).any(|l| matches!(l.order, Middle | Foreground))
-    })
-}
+/// Options on the command line before the file or folder, for --help.
+const START_OPTIONS: &[(&str, &str)] = &[
+    (
+        "--slideshow",
+        "Start the slideshow; of a list (.gqv, .txt, .m3u), in its order",
+    ),
+    (
+        "--random",
+        "Random order in the slideshow (kept, as in the View menu)",
+    ),
+    ("--fullscreen", "Start in full screen"),
+    (
+        "--kiosk",
+        "Full screen, only the image, nothing changes files; ends by --remote quit",
+    ),
+    (
+        "--lock-settings",
+        "No Preferences, and changes to settings last only until Glimt closes",
+    ),
+    ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
+    (
+        "--fade off|short|long",
+        "Fade between slideshow images (kept)",
+    ),
+    (
+        "--name NAME",
+        "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it",
+    ),
+    (
+        "--check-config [FILE]",
+        "Tell what is wrong in the settings file (or FILE), line by line",
+    ),
+    (
+        "--back-up FOLDER",
+        "Copy Glimt's data to a new folder glimt-backup-DATE in FOLDER",
+    ),
+    ("-V, --version", "Print the version"),
+    ("-h, --help", "Print this help"),
+];
 
-/// The text of a widget as the release tests name it: the label without the icon before it.
-fn noted(response: &egui::Response, text: &str) -> egui::Response {
-    #[cfg(feature = "test-hooks")]
-    hooks::note(
-        text.trim_start_matches(|c: char| ('\u{e000}'..='\u{f8ff}').contains(&c) || c == ' '),
-        response.rect,
-    );
-    #[cfg(not(feature = "test-hooks"))]
-    let _ = text;
-    response.clone()
-}
+/// How long the mouse is still in full screen before the pointer hides.
+const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// glibc's M_ARENA_MAX.
+const M_ARENA_MAX: i32 = -8;
+
+/// Glimt's logo, 256 pixels square: the window's icon, and on the About page.
+const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
 
 /// What belongs to the image shown, beside its place in the list (`List.cur`): the page of a
 /// TIFF, the frame of an animation stepped to, the turn not saved yet and the file it belongs
@@ -230,49 +303,6 @@ impl Job {
     }
 }
 
-/// Options on the command line before the file or folder, for --help.
-const START_OPTIONS: &[(&str, &str)] = &[
-    (
-        "--slideshow",
-        "Start the slideshow; of a list (.gqv, .txt, .m3u), in its order",
-    ),
-    (
-        "--random",
-        "Random order in the slideshow (kept, as in the View menu)",
-    ),
-    ("--fullscreen", "Start in full screen"),
-    (
-        "--kiosk",
-        "Full screen, only the image, nothing changes files; ends by --remote quit",
-    ),
-    (
-        "--lock-settings",
-        "No Preferences, and changes to settings last only until Glimt closes",
-    ),
-    ("--layout 1|2x1|1x2|2x2", "Panes as in View → Layout (kept)"),
-    (
-        "--fade off|short|long",
-        "Fade between slideshow images (kept)",
-    ),
-    (
-        "--name NAME",
-        "Name this Glimt; glimt --name NAME --remote COMMAND reaches only it",
-    ),
-    (
-        "--check-config [FILE]",
-        "Tell what is wrong in the settings file (or FILE), line by line",
-    ),
-    (
-        "--back-up FOLDER",
-        "Copy Glimt's data to a new folder glimt-backup-DATE in FOLDER",
-    ),
-    ("-V, --version", "Print the version"),
-    ("-h, --help", "Print this help"),
-];
-
-/// How long the mouse is still in full screen before the pointer hides.
-const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// What the start options ask for.
 #[derive(Clone, Default)]
 struct Start {
@@ -340,22 +370,6 @@ impl Start {
     }
 }
 
-/// The windows' app ID, the desktop file's name, so the desktop shows its icon for them:
-/// glimt.desktop, or in a Flatpak io.github.thornbux.Glimt.desktop (FLATPAK_ID).
-fn app_id() -> String {
-    std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
-}
-
-unsafe extern "C" {
-    /// glibc: return freed heap memory to the operating system.
-    fn malloc_trim(pad: usize) -> i32;
-    /// glibc: set a malloc parameter.
-    fn mallopt(param: i32, value: i32) -> i32;
-}
-
-/// glibc's M_ARENA_MAX.
-const M_ARENA_MAX: i32 = -8;
-
 /// An image decoded for the view: the shown one or a neighbour read ahead, at the size shown or
 /// (`full`) at full resolution.
 struct Slot {
@@ -404,9 +418,6 @@ impl Slot {
         (0, None)
     }
 }
-
-/// Glimt's logo, 256 pixels square: the window's icon, and on the About page.
-const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
 
 /// The file list and everything that holds a place in it: made anew when the list is another
 /// (`replace_files`), so nothing indexed into one list can outlive it, whatever field comes
@@ -1139,62 +1150,7 @@ impl App {
         app.receive_listing(ctx, std::time::Duration::from_millis(50));
         app
     }
-}
 
-// The parts of a frame, in the order `ui` draws them, and what reaches it from the threads in the
-// background. The windows of one feature (pan view, Find Duplicates, Check Images, Preferences,
-// the projector) are with that feature: above, or in its own module.
-impl eframe::App for App {
-    /// The last folder is written once on exit, not on every folder change.
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // No new client first: one coming after the answers would have none.
-        remote::close();
-        self.answer_held_selects();
-        remote::stop(|| self.answer_held_selects());
-        let ctx = self.ctx.clone();
-        self.save_meta(&ctx);
-        // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
-        // if a folder name that is not UTF-8 must be remembered.
-        let mut state = String::new();
-        if self.config.remember_dir {
-            let last = self.collection.as_ref().unwrap_or(&self.dir);
-            state += &format!("last_dir={}\n", last.display());
-        }
-        if self.config.remember_window {
-            state += &self.window_state.to_text();
-        }
-        // Nothing to keep: the folder and window of before go too, not left for a later start.
-        match state_path() {
-            Some(p) if state.is_empty() => drop(std::fs::remove_file(p)),
-            Some(p) => write_atomic(&p, &state),
-            None => {}
-        }
-        self.inhibit(false);
-        // The state above, the settings, and the keywords queued at the first close: waited for,
-        // a few seconds at most. Not after a third close, which ends at once whatever runs.
-        if self.closing < 2 {
-            config::flush();
-        }
-        let at = |share| frame_at(&self.frame_ms, share);
-        eprintln!(
-            "frames: median {} ms, 90% within {} ms, slowest {} ms",
-            at(0.5),
-            at(0.9),
-            at(1.0)
-        );
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let start = thread_cpu_us();
-        self.frame_ui(ui);
-        if self.started.is_none() {
-            let ms = thread_cpu_us().saturating_sub(start) / 1000;
-            self.frame_ms[(ms as usize).min(255)] += 1;
-        }
-    }
-}
-
-impl App {
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
         #[cfg(feature = "test-hooks")]
@@ -1252,6 +1208,93 @@ impl App {
             self.projector_window(ctx);
         }
     }
+}
+
+// The parts of a frame, in the order `ui` draws them, and what reaches it from the threads in the
+// background. The windows of one feature (pan view, Find Duplicates, Check Images, Preferences,
+// the projector) are with that feature: above, or in its own module.
+impl eframe::App for App {
+    /// The last folder is written once on exit, not on every folder change.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // No new client first: one coming after the answers would have none.
+        remote::close();
+        self.answer_held_selects();
+        remote::stop(|| self.answer_held_selects());
+        let ctx = self.ctx.clone();
+        self.save_meta(&ctx);
+        // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
+        // if a folder name that is not UTF-8 must be remembered.
+        let mut state = String::new();
+        if self.config.remember_dir {
+            let last = self.collection.as_ref().unwrap_or(&self.dir);
+            state += &format!("last_dir={}\n", last.display());
+        }
+        if self.config.remember_window {
+            state += &self.window_state.to_text();
+        }
+        // Nothing to keep: the folder and window of before go too, not left for a later start.
+        match state_path() {
+            Some(p) if state.is_empty() => drop(std::fs::remove_file(p)),
+            Some(p) => write_atomic(&p, &state),
+            None => {}
+        }
+        self.inhibit(false);
+        // The state above, the settings, and the keywords queued at the first close: waited for,
+        // a few seconds at most. Not after a third close, which ends at once whatever runs.
+        if self.closing < 2 {
+            config::flush();
+        }
+        let at = |share| frame_at(&self.frame_ms, share);
+        eprintln!(
+            "frames: median {} ms, 90% within {} ms, slowest {} ms",
+            at(0.5),
+            at(0.9),
+            at(1.0)
+        );
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let start = thread_cpu_us();
+        self.frame_ui(ui);
+        if self.started.is_none() {
+            let ms = thread_cpu_us().saturating_sub(start) / 1000;
+            self.frame_ms[(ms as usize).min(255)] += 1;
+        }
+    }
+}
+
+/// Whether a window, menu or popup was on the screen in this frame or the last; the panels
+/// of the main window do not count.
+fn window_shown(ctx: &egui::Context) -> bool {
+    use egui::Order::{Foreground, Middle};
+    ctx.memory(|m| {
+        (m.areas().visible_layer_ids().iter()).any(|l| matches!(l.order, Middle | Foreground))
+    })
+}
+
+/// The text of a widget as the release tests name it: the label without the icon before it.
+fn noted(response: &egui::Response, text: &str) -> egui::Response {
+    #[cfg(feature = "test-hooks")]
+    hooks::note(
+        text.trim_start_matches(|c: char| ('\u{e000}'..='\u{f8ff}').contains(&c) || c == ' '),
+        response.rect,
+    );
+    #[cfg(not(feature = "test-hooks"))]
+    let _ = text;
+    response.clone()
+}
+
+/// The windows' app ID, the desktop file's name, so the desktop shows its icon for them:
+/// glimt.desktop, or in a Flatpak io.github.thornbux.Glimt.desktop (FLATPAK_ID).
+fn app_id() -> String {
+    std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
+}
+
+unsafe extern "C" {
+    /// glibc: return freed heap memory to the operating system.
+    fn malloc_trim(pad: usize) -> i32;
+    /// glibc: set a malloc parameter.
+    fn mallopt(param: i32, value: i32) -> i32;
 }
 
 /// Broken forms of `seed`, as a damaged or crafted file has them, for the parsers' tests: bits

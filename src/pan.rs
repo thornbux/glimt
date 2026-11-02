@@ -16,134 +16,11 @@ use std::time::Instant;
 /// A day ("2024-05-06", or "No date") and the list indices of its images, in time order.
 pub type Day = (String, Vec<usize>);
 
-/// The images of `files` in `dir` by day, read on all cores. `found` gets the days so far every
-/// half second and all of them at the end (`true`), so a large folder shows what is read while
-/// the rest is.
-pub fn timeline(
-    dir: &Path,
-    files: &[OsString],
-    exif: bool,
-    stop: &AtomicBool,
-    found: impl FnMut(Vec<Day>, bool),
-) {
-    if exif {
-        // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
-        // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
-        let date = |p: &Path| crate::exif::date(p, false).filter(|d| ymd(d).is_some());
-        let day = |d: &String| d.get(..10).unwrap_or(d).replace(':', "-");
-        return as_read(dir, files, stop, found, date, day);
-    }
-    let time = |p: &Path| {
-        use std::os::unix::fs::MetadataExt;
-        p.metadata().ok().map(|m| m.mtime())
-    };
-    // The local date once for each quarter of an hour, where every time zone changes.
-    let mut last = (i64::MIN, String::new());
-    let day = move |&t: &i64| {
-        if t.div_euclid(900) != last.0 {
-            let local = crate::format::local_time(t);
-            last = (
-                t.div_euclid(900),
-                local.get(..10).unwrap_or(&local).to_owned(),
-            );
-        }
-        last.1.clone()
-    };
-    as_read(dir, files, stop, found, time, day);
-}
-
-/// `key` of every file, a few thousand at a time on all cores, and the days of those read so
-/// far to `found` every half second; the last call has them all.
-fn as_read<K: Ord + Clone + Send>(
-    dir: &Path,
-    files: &[OsString],
-    stop: &AtomicBool,
-    mut found: impl FnMut(Vec<Day>, bool),
-    key: impl Fn(&Path) -> Option<K> + Sync,
-    mut day: impl FnMut(&K) -> String,
-) {
-    let mut keys = Vec::with_capacity(files.len());
-    let mut sent = Instant::now();
-    let mut chunks = files.chunks(4096);
-    loop {
-        keys.extend(each(dir, chunks.next().unwrap_or(&[]), stop, &key));
-        let done = keys.len() == files.len();
-        if done || sent.elapsed() >= std::time::Duration::from_millis(500) {
-            found(by_day(keys.clone(), &mut day), done);
-            sent = Instant::now();
-        }
-        if done {
-            return;
-        }
-    }
-}
-
-/// `f` of the path of every file, in parallel. Each thread reuses one path: Glimt's allocator
-/// has a single arena, so allocating in every thread would make them wait for each other; for
-/// the same reason they are two at most then (small_alloc_threads).
-fn each<T: Send>(
-    dir: &Path,
-    files: &[OsString],
-    stop: &AtomicBool,
-    f: impl Fn(&Path) -> Option<T> + Sync,
-) -> Vec<Option<T>> {
-    crate::threads::in_parts(files, crate::threads::small_alloc_threads(), |part, _| {
-        let mut path = dir.to_path_buf();
-        let mut out = Vec::with_capacity(part.len());
-        for name in part {
-            // Left (the window closed, another folder): nothing more is read for no one.
-            if stop.load(Ordering::Relaxed) {
-                out.push(None);
-                continue;
-            }
-            path.push(name);
-            // A file that breaks its reader has no date: a whole part lost would give the
-            // files after it the dates of others.
-            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&path)));
-            out.push(found.ok().flatten());
-            path.pop();
-        }
-        out
-    })
-}
-
-/// The files in order of `keys`, those without one last, cut into days by `day`.
-fn by_day<K: Ord>(keys: Vec<Option<K>>, mut day: impl FnMut(&K) -> String) -> Vec<Day> {
-    let mut order: Vec<usize> = (0..keys.len()).collect();
-    order.sort_by(|&a, &b| (keys[a].is_none(), &keys[a]).cmp(&(keys[b].is_none(), &keys[b])));
-    let mut days: Vec<Day> = Vec::new();
-    for i in order {
-        let d = keys[i]
-            .as_ref()
-            .map_or_else(|| "No date".to_owned(), &mut day);
-        match days.last_mut() {
-            Some((last, list)) if *last == d => list.push(i),
-            _ => days.push((d, vec![i])),
-        }
-    }
-    days
-}
-
 /// A row of the view: a day's heading, or a row of its thumbnails from this one on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Row {
     Heading(usize),
     Cells(usize, usize),
-}
-
-/// The rows of `days` with `columns` thumbnails to a row, each with its top; and the height of
-/// them all. Made again only when the number of columns changes.
-pub fn layout(days: &[Day], columns: usize, heading: f32, cell: f32) -> (Vec<(f32, Row)>, f32) {
-    let (mut rows, mut y) = (Vec::new(), 0.0);
-    for (d, (_, list)) in days.iter().enumerate() {
-        rows.push((y, Row::Heading(d)));
-        y += heading;
-        for start in (0..list.len()).step_by(columns.max(1)) {
-            rows.push((y, Row::Cells(d, start)));
-            y += cell;
-        }
-    }
-    (rows, y)
 }
 
 /// A month of the calendar: the weekday of its first day (Monday 0), its number of days, and for
@@ -163,58 +40,6 @@ impl Month {
         (self.first + self.days).div_ceil(7)
     }
 }
-
-/// The year, month and day of a date "2024-05-06" or EXIF's "2024:05:06 07:08:09"; `None` for
-/// one that is no day, such as the 0000:00:00 of a camera with its clock never set.
-fn ymd(date: &str) -> Option<(i32, u32, u32)> {
-    let mut parts = date.get(..10)?.split(['-', ':']).map(str::parse::<u32>);
-    let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (parts.next(), parts.next(), parts.next())
-    else {
-        return None;
-    };
-    let ok = (1..=12).contains(&m) && y < 10_000 && (1..=days_in_month(y as i32, m)).contains(&day);
-    ok.then_some((y as i32, m, day))
-}
-
-/// The months of `days` that have images, oldest first; "No date" has none.
-pub fn months(days: &[Day]) -> Vec<Month> {
-    let mut out: Vec<Month> = Vec::new();
-    for (d, (date, _)) in days.iter().enumerate() {
-        let Some((y, m, day)) = ymd(date) else {
-            continue;
-        };
-        match out.last_mut() {
-            Some(last) if (last.year, last.month) == (y, m) => last.images.push((day, d)),
-            _ => out.push(Month {
-                year: y,
-                month: m,
-                first: weekday(y, m, 1),
-                days: days_in_month(y, m),
-                images: vec![(day, d)],
-            }),
-        }
-    }
-    out
-}
-
-/// The weekday of a date, Monday 0 to Sunday 6 (Sakamoto's method).
-fn weekday(y: i32, m: u32, d: u32) -> u32 {
-    const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    let y = if m < 3 { y - 1 } else { y };
-    let sunday0 = (y + y / 4 - y / 100 + y / 400 + T[m as usize - 1] + d as i32).rem_euclid(7);
-    ((sunday0 + 6) % 7) as u32
-}
-
-fn days_in_month(y: i32, m: u32) -> u32 {
-    match m {
-        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    }
-}
-
-// ---- The pan view's window: the timeline and the calendar ----
 
 /// The pan view's window (Ctrl+J). Closed, the days being made for it are not read on.
 #[derive(Default)]
@@ -560,6 +385,179 @@ impl crate::App {
                 }
             });
         picked
+    }
+}
+
+/// The images of `files` in `dir` by day, read on all cores. `found` gets the days so far every
+/// half second and all of them at the end (`true`), so a large folder shows what is read while
+/// the rest is.
+pub fn timeline(
+    dir: &Path,
+    files: &[OsString],
+    exif: bool,
+    stop: &AtomicBool,
+    found: impl FnMut(Vec<Day>, bool),
+) {
+    if exif {
+        // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
+        // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
+        let date = |p: &Path| crate::exif::date(p, false).filter(|d| ymd(d).is_some());
+        let day = |d: &String| d.get(..10).unwrap_or(d).replace(':', "-");
+        return as_read(dir, files, stop, found, date, day);
+    }
+    let time = |p: &Path| {
+        use std::os::unix::fs::MetadataExt;
+        p.metadata().ok().map(|m| m.mtime())
+    };
+    // The local date once for each quarter of an hour, where every time zone changes.
+    let mut last = (i64::MIN, String::new());
+    let day = move |&t: &i64| {
+        if t.div_euclid(900) != last.0 {
+            let local = crate::format::local_time(t);
+            last = (
+                t.div_euclid(900),
+                local.get(..10).unwrap_or(&local).to_owned(),
+            );
+        }
+        last.1.clone()
+    };
+    as_read(dir, files, stop, found, time, day);
+}
+
+/// `key` of every file, a few thousand at a time on all cores, and the days of those read so
+/// far to `found` every half second; the last call has them all.
+fn as_read<K: Ord + Clone + Send>(
+    dir: &Path,
+    files: &[OsString],
+    stop: &AtomicBool,
+    mut found: impl FnMut(Vec<Day>, bool),
+    key: impl Fn(&Path) -> Option<K> + Sync,
+    mut day: impl FnMut(&K) -> String,
+) {
+    let mut keys = Vec::with_capacity(files.len());
+    let mut sent = Instant::now();
+    let mut chunks = files.chunks(4096);
+    loop {
+        keys.extend(each(dir, chunks.next().unwrap_or(&[]), stop, &key));
+        let done = keys.len() == files.len();
+        if done || sent.elapsed() >= std::time::Duration::from_millis(500) {
+            found(by_day(keys.clone(), &mut day), done);
+            sent = Instant::now();
+        }
+        if done {
+            return;
+        }
+    }
+}
+
+/// `f` of the path of every file, in parallel. Each thread reuses one path: Glimt's allocator
+/// has a single arena, so allocating in every thread would make them wait for each other; for
+/// the same reason they are two at most then (small_alloc_threads).
+fn each<T: Send>(
+    dir: &Path,
+    files: &[OsString],
+    stop: &AtomicBool,
+    f: impl Fn(&Path) -> Option<T> + Sync,
+) -> Vec<Option<T>> {
+    crate::threads::in_parts(files, crate::threads::small_alloc_threads(), |part, _| {
+        let mut path = dir.to_path_buf();
+        let mut out = Vec::with_capacity(part.len());
+        for name in part {
+            // Left (the window closed, another folder): nothing more is read for no one.
+            if stop.load(Ordering::Relaxed) {
+                out.push(None);
+                continue;
+            }
+            path.push(name);
+            // A file that breaks its reader has no date: a whole part lost would give the
+            // files after it the dates of others.
+            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&path)));
+            out.push(found.ok().flatten());
+            path.pop();
+        }
+        out
+    })
+}
+
+/// The files in order of `keys`, those without one last, cut into days by `day`.
+fn by_day<K: Ord>(keys: Vec<Option<K>>, mut day: impl FnMut(&K) -> String) -> Vec<Day> {
+    let mut order: Vec<usize> = (0..keys.len()).collect();
+    order.sort_by(|&a, &b| (keys[a].is_none(), &keys[a]).cmp(&(keys[b].is_none(), &keys[b])));
+    let mut days: Vec<Day> = Vec::new();
+    for i in order {
+        let d = keys[i]
+            .as_ref()
+            .map_or_else(|| "No date".to_owned(), &mut day);
+        match days.last_mut() {
+            Some((last, list)) if *last == d => list.push(i),
+            _ => days.push((d, vec![i])),
+        }
+    }
+    days
+}
+
+/// The rows of `days` with `columns` thumbnails to a row, each with its top; and the height of
+/// them all. Made again only when the number of columns changes.
+pub fn layout(days: &[Day], columns: usize, heading: f32, cell: f32) -> (Vec<(f32, Row)>, f32) {
+    let (mut rows, mut y) = (Vec::new(), 0.0);
+    for (d, (_, list)) in days.iter().enumerate() {
+        rows.push((y, Row::Heading(d)));
+        y += heading;
+        for start in (0..list.len()).step_by(columns.max(1)) {
+            rows.push((y, Row::Cells(d, start)));
+            y += cell;
+        }
+    }
+    (rows, y)
+}
+
+/// The year, month and day of a date "2024-05-06" or EXIF's "2024:05:06 07:08:09"; `None` for
+/// one that is no day, such as the 0000:00:00 of a camera with its clock never set.
+fn ymd(date: &str) -> Option<(i32, u32, u32)> {
+    let mut parts = date.get(..10)?.split(['-', ':']).map(str::parse::<u32>);
+    let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    let ok = (1..=12).contains(&m) && y < 10_000 && (1..=days_in_month(y as i32, m)).contains(&day);
+    ok.then_some((y as i32, m, day))
+}
+
+/// The months of `days` that have images, oldest first; "No date" has none.
+pub fn months(days: &[Day]) -> Vec<Month> {
+    let mut out: Vec<Month> = Vec::new();
+    for (d, (date, _)) in days.iter().enumerate() {
+        let Some((y, m, day)) = ymd(date) else {
+            continue;
+        };
+        match out.last_mut() {
+            Some(last) if (last.year, last.month) == (y, m) => last.images.push((day, d)),
+            _ => out.push(Month {
+                year: y,
+                month: m,
+                first: weekday(y, m, 1),
+                days: days_in_month(y, m),
+                images: vec![(day, d)],
+            }),
+        }
+    }
+    out
+}
+
+/// The weekday of a date, Monday 0 to Sunday 6 (Sakamoto's method).
+fn weekday(y: i32, m: u32, d: u32) -> u32 {
+    const T: [i32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let y = if m < 3 { y - 1 } else { y };
+    let sunday0 = (y + y / 4 - y / 100 + y / 400 + T[m as usize - 1] + d as i32).rem_euclid(7);
+    ((sunday0 + 6) % 7) as u32
+}
+
+fn days_in_month(y: i32, m: u32) -> u32 {
+    match m {
+        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
     }
 }
 

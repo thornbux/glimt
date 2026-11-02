@@ -6,6 +6,7 @@ use zbus::blocking::{Connection, MessageIterator};
 use zbus::zvariant::{OwnedValue, Value};
 
 const DEST: &str = "org.freedesktop.portal.Desktop";
+
 const PATH: &str = "/org/freedesktop/portal/desktop";
 
 type Results = HashMap<String, OwnedValue>;

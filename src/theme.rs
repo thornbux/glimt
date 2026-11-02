@@ -64,26 +64,22 @@ pub mod icon {
     pub const CARET_RIGHT: &str = "\u{e13a}"; // caret-right
 }
 
-/// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then
-/// Inter, and egui's own fonts after them for the scripts and emoji Inter lacks. The Phosphor
-/// file is cut to its icons, as the full one also has letters:
-/// `pyftsubset Phosphor.ttf --unicodes=U+E000-F8FF --layout-features='' --output-file=...`
-pub fn fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    let mut add = |name: &str, bytes: &'static [u8]| {
-        let data = egui::FontData::from_static(bytes);
-        fonts.font_data.insert(name.to_owned(), Arc::new(data));
-    };
-    add("Inter", include_bytes!("../assets/fonts/Inter-Regular.ttf"));
-    add("Phosphor", include_bytes!("../assets/fonts/Phosphor.ttf"));
-    let families = &mut fonts.families;
-    let proportional = families.entry(egui::FontFamily::Proportional).or_default();
-    proportional.insert(0, "Phosphor".to_owned());
-    proportional.insert(1, "Inter".to_owned());
-    let monospace = families.entry(egui::FontFamily::Monospace).or_default();
-    monospace.push("Phosphor".to_owned());
-    ctx.set_fonts(fonts);
-}
+/// The themes that come with Glimt; "Desktop" sets nothing.
+const BUILT_IN: [(&str, &str); 6] = [
+    ("Desktop", ""),
+    ("Light", include_str!("../themes/Light.theme")),
+    ("Dark", include_str!("../themes/Dark.theme")),
+    ("Nord", include_str!("../themes/Nord.theme")),
+    // For low vision: white on black, and black on white.
+    (
+        "High Contrast",
+        include_str!("../themes/High Contrast.theme"),
+    ),
+    ("Contrast", include_str!("../themes/Contrast.theme")),
+];
+
+/// The theme for those who ask the desktop for high contrast.
+pub const HIGH_CONTRAST: &str = "High Contrast";
 
 /// A theme: what a `.theme` file sets, as `key=value` lines; what it leaves out follows the
 /// desktop (light or dark, accent) or Glimt's defaults.
@@ -101,58 +97,6 @@ pub struct Theme {
     pub text: Option<egui::Color32>,
     pub radius: Option<u8>,
     pub text_size: Option<f32>,
-}
-
-/// The themes that come with Glimt; "Desktop" sets nothing.
-const BUILT_IN: [(&str, &str); 6] = [
-    ("Desktop", ""),
-    ("Light", include_str!("../themes/Light.theme")),
-    ("Dark", include_str!("../themes/Dark.theme")),
-    ("Nord", include_str!("../themes/Nord.theme")),
-    // For low vision: white on black, and black on white.
-    (
-        "High Contrast",
-        include_str!("../themes/High Contrast.theme"),
-    ),
-    ("Contrast", include_str!("../themes/Contrast.theme")),
-];
-
-/// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.
-pub fn dir() -> Option<std::path::PathBuf> {
-    crate::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
-}
-
-/// The built-in themes, then the user's, by name.
-/// Whether `name` is one of the themes built in.
-pub fn built_in(name: &str) -> bool {
-    BUILT_IN.iter().any(|b| b.0 == name)
-}
-
-pub fn names() -> Vec<String> {
-    let mut own: Vec<String> = (dir().and_then(|d| std::fs::read_dir(d).ok()))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "theme"))
-        .filter_map(|p| Some(p.file_stem()?.to_string_lossy().into_owned()))
-        .filter(|n| !BUILT_IN.iter().any(|b| b.0 == n))
-        .collect();
-    own.sort_by_key(|n| n.to_lowercase());
-    BUILT_IN.iter().map(|b| b.0.to_owned()).chain(own).collect()
-}
-
-/// The theme of that name: the user's file if there is one, else the built-in one, else
-/// "Desktop". Read each time, so a changed file shows when it is chosen again.
-pub fn load(name: &str) -> Theme {
-    let file = dir().map(|d| d.join(format!("{name}.theme")));
-    match file.and_then(|f| crate::decode::read_text(f).ok()) {
-        Some(text) => Theme::parse(&text),
-        None => BUILT_IN
-            .iter()
-            .find(|b| b.0 == name)
-            .map_or_else(Theme::default, |b| Theme::parse(b.1)),
-    }
 }
 
 impl Theme {
@@ -218,6 +162,77 @@ impl Theme {
             hex(v.text_color()),
             v.widgets.inactive.corner_radius.nw,
         )
+    }
+}
+
+/// What the desktop asks of the look, from the XDG desktop portal.
+#[derive(Clone, Copy, Default)]
+pub struct Desktop {
+    /// Dark or light; `None` for no preference.
+    pub dark: Option<bool>,
+    pub accent: Option<egui::Color32>,
+    /// High contrast, as GNOME's and KDE's accessibility settings set it.
+    pub high_contrast: bool,
+    /// The size of text, as GNOME's Large Text and text scaling set it.
+    pub text_scale: Option<f32>,
+}
+
+/// The Phosphor icons first (Inter has glyphs of its own at some of their code points), then
+/// Inter, and egui's own fonts after them for the scripts and emoji Inter lacks. The Phosphor
+/// file is cut to its icons, as the full one also has letters:
+/// `pyftsubset Phosphor.ttf --unicodes=U+E000-F8FF --layout-features='' --output-file=...`
+pub fn fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let mut add = |name: &str, bytes: &'static [u8]| {
+        let data = egui::FontData::from_static(bytes);
+        fonts.font_data.insert(name.to_owned(), Arc::new(data));
+    };
+    add("Inter", include_bytes!("../assets/fonts/Inter-Regular.ttf"));
+    add("Phosphor", include_bytes!("../assets/fonts/Phosphor.ttf"));
+    let families = &mut fonts.families;
+    let proportional = families.entry(egui::FontFamily::Proportional).or_default();
+    proportional.insert(0, "Phosphor".to_owned());
+    proportional.insert(1, "Inter".to_owned());
+    let monospace = families.entry(egui::FontFamily::Monospace).or_default();
+    monospace.push("Phosphor".to_owned());
+    ctx.set_fonts(fonts);
+}
+
+/// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.
+pub fn dir() -> Option<std::path::PathBuf> {
+    crate::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
+}
+
+/// The built-in themes, then the user's, by name.
+/// Whether `name` is one of the themes built in.
+pub fn built_in(name: &str) -> bool {
+    BUILT_IN.iter().any(|b| b.0 == name)
+}
+
+pub fn names() -> Vec<String> {
+    let mut own: Vec<String> = (dir().and_then(|d| std::fs::read_dir(d).ok()))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "theme"))
+        .filter_map(|p| Some(p.file_stem()?.to_string_lossy().into_owned()))
+        .filter(|n| !BUILT_IN.iter().any(|b| b.0 == n))
+        .collect();
+    own.sort_by_key(|n| n.to_lowercase());
+    BUILT_IN.iter().map(|b| b.0.to_owned()).chain(own).collect()
+}
+
+/// The theme of that name: the user's file if there is one, else the built-in one, else
+/// "Desktop". Read each time, so a changed file shows when it is chosen again.
+pub fn load(name: &str) -> Theme {
+    let file = dir().map(|d| d.join(format!("{name}.theme")));
+    match file.and_then(|f| crate::decode::read_text(f).ok()) {
+        Some(text) => Theme::parse(&text),
+        None => BUILT_IN
+            .iter()
+            .find(|b| b.0 == name)
+            .map_or_else(Theme::default, |b| Theme::parse(b.1)),
     }
 }
 
@@ -313,21 +328,6 @@ fn style(style: &mut egui::Style, dark: bool, accent: egui::Color32, theme: &The
     widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, border);
 }
 
-/// What the desktop asks of the look, from the XDG desktop portal.
-#[derive(Clone, Copy, Default)]
-pub struct Desktop {
-    /// Dark or light; `None` for no preference.
-    pub dark: Option<bool>,
-    pub accent: Option<egui::Color32>,
-    /// High contrast, as GNOME's and KDE's accessibility settings set it.
-    pub high_contrast: bool,
-    /// The size of text, as GNOME's Large Text and text scaling set it.
-    pub text_scale: Option<f32>,
-}
-
-/// The theme for those who ask the desktop for high contrast.
-pub const HIGH_CONTRAST: &str = "High Contrast";
-
 /// The desktop's dark style, accent colour and contrast, from the XDG desktop portal; `None`
 /// and false where it says nothing. Runs `gdbus`, so it belongs in a background thread.
 pub fn desktop() -> Desktop {
@@ -400,78 +400,10 @@ mod tests {
     /// font has is drawn as nothing, as the U+23F7 triangle after "Sort by name" was.
     #[test]
     fn every_glyph_of_the_ui_text_is_in_a_font_glimt_ships() {
-        const SOURCES: &[(&str, &str)] = &[
-            ("accessibility.rs", include_str!("accessibility.rs")),
-            ("actions.rs", include_str!("actions.rs")),
-            ("collections.rs", include_str!("collections.rs")),
-            ("colour.rs", include_str!("colour.rs")),
-            ("config.rs", include_str!("config.rs")),
-            ("decode.rs", include_str!("decode.rs")),
-            ("decoders.rs", include_str!("decoders.rs")),
-            ("duplicates.rs", include_str!("duplicates.rs")),
-            ("exif.rs", include_str!("exif.rs")),
-            ("external.rs", include_str!("external.rs")),
-            ("file_ops.rs", include_str!("file_ops.rs")),
-            ("files.rs", include_str!("files.rs")),
-            ("help.rs", include_str!("help.rs")),
-            ("journal.rs", include_str!("journal.rs")),
-            ("lang.rs", include_str!("lang.rs")),
-            ("lightroom.rs", include_str!("lightroom.rs")),
-            ("main.rs", include_str!("main.rs")),
-            ("marks.rs", include_str!("marks.rs")),
-            ("meta.rs", include_str!("meta.rs")),
-            ("da.po", include_str!("da.po")),
-            ("de.po", include_str!("de.po")),
-            ("es.po", include_str!("es.po")),
-            ("fi.po", include_str!("fi.po")),
-            ("fr.po", include_str!("fr.po")),
-            ("is.po", include_str!("is.po")),
-            ("it.po", include_str!("it.po")),
-            ("nl.po", include_str!("nl.po")),
-            ("no_nb.po", include_str!("no_nb.po")),
-            ("pl.po", include_str!("pl.po")),
-            ("sv.po", include_str!("sv.po")),
-            ("pan.rs", include_str!("pan.rs")),
-            ("plugins.rs", include_str!("plugins.rs")),
-            ("preferences.rs", include_str!("preferences.rs")),
-            ("print.rs", include_str!("print.rs")),
-            ("raw.rs", include_str!("raw.rs")),
-            ("remote.rs", include_str!("remote.rs")),
-            ("save.rs", include_str!("save.rs")),
-            ("search.rs", include_str!("search.rs")),
-            ("theme.rs", include_str!("theme.rs")),
-            ("thumbs.rs", include_str!("thumbs.rs")),
-            ("video.rs", include_str!("video.rs")),
-            ("check.rs", include_str!("check.rs")),
-            ("crop.rs", include_str!("crop.rs")),
-            ("dialogs.rs", include_str!("dialogs.rs")),
-            ("file_list.rs", include_str!("file_list.rs")),
-            ("folder.rs", include_str!("folder.rs")),
-            ("format.rs", include_str!("format.rs")),
-            ("info_panel.rs", include_str!("info_panel.rs")),
-            ("menus.rs", include_str!("menus.rs")),
-            ("portal.rs", include_str!("portal.rs")),
-            ("save_as.rs", include_str!("save_as.rs")),
-            ("selection.rs", include_str!("selection.rs")),
-            ("slideshow.rs", include_str!("slideshow.rs")),
-            ("threads.rs", include_str!("threads.rs")),
-            ("view.rs", include_str!("view.rs")),
-            ("workers.rs", include_str!("workers.rs")),
-            ("window.rs", include_str!("window.rs")),
-        ];
-        // Every source file is among them: one left out would go unchecked.
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        for entry in std::fs::read_dir(src).unwrap() {
-            let name = entry.unwrap().file_name().into_string().unwrap();
-            let checked = SOURCES.iter().any(|(n, _)| *n == name);
-            assert!(
-                checked || !name.ends_with(".rs"),
-                "{name} is not in SOURCES"
-            );
-        }
         // What Inter has, of the signs the texts use; the Phosphor icons are U+E000–F8FF.
         const IN_INTER: &str = "©«°±·»¿×–“”„…⁴←↑→↓≈★✓⬆";
-        for (name, text) in SOURCES {
+        // Every source file and translation, read from src/: one added is checked unlisted.
+        for (name, text) in crate::source_rules::sources() {
             for c in text.chars() {
                 let fine = c.is_ascii()
                     || c.is_alphabetic()

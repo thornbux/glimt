@@ -17,159 +17,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-/// A menu that scrolls when it is taller than the window, instead of running off it.
-pub(crate) fn scroll_menu<R>(
-    ui: &mut egui::Ui,
-    title: impl Into<egui::WidgetText>,
-    add: impl FnOnce(&mut egui::Ui) -> R,
-) {
-    let title: egui::WidgetText = title.into();
-    let name = title.text().to_owned();
-    let content = |ui: &mut egui::Ui| {
-        // From where it opens to the bottom of the window; submenus open further down. egui
-        // limits a menu to its size the frame before, which a scroll area could only keep or
-        // shrink: the limit is set here instead.
-        let margin = ui.spacing().menu_margin.bottom as f32 + ui.spacing().item_spacing.y;
-        let max = ui.ctx().content_rect().bottom() - ui.next_widget_position().y - margin;
-        ui.set_max_height(max);
-        egui::ScrollArea::vertical().max_height(max).show(ui, add);
-    };
-    if egui::containers::menu::is_in_menu(ui) {
-        noted(&ui.menu_button(title, content).response, &name);
-        return;
-    }
-    // A menu of the menu bar. While one of them is open, pointing at another opens that one,
-    // as in GNOME and KDE.
-    let response = egui::containers::menu::MenuButton::new(title)
-        .ui(ui, content)
-        .0;
-    noted(&response, &name);
-    let ctx = ui.ctx().clone();
-    let id = egui::Popup::default_response_id(&response);
-    let others = ctx.data_mut(|d| {
-        let ids = d.get_temp_mut_or_default::<Vec<egui::Id>>(egui::Id::unique(BAR_MENUS));
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
-        ids.clone()
-    });
-    let other_open = others
-        .iter()
-        .any(|&o| o != id && egui::Popup::is_id_open(&ctx, o));
-    if response.hovered() && other_open {
-        egui::Popup::open_id(&ctx, id);
-        ctx.request_repaint();
-    }
-}
-
 /// Where the popup IDs of the menu bar's menus are kept, for `scroll_menu` and `close_menus`.
 pub(crate) const BAR_MENUS: &str = "menu bar menus";
-
-/// Close an open menu of the menu bar once the pointer has moved away from the bar and every
-/// open menu for a moment (`away` holds since when). A menu opened from the keyboard stays
-/// while the mouse is still.
-pub(crate) fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Option<Instant>) {
-    let ids: Vec<egui::Id> =
-        ctx.data(|d| d.get_temp(egui::Id::unique(BAR_MENUS)).unwrap_or_default());
-    if !ids.iter().any(|&id| egui::Popup::is_id_open(ctx, id)) {
-        *away = None;
-        return;
-    }
-    let pointer = ctx.pointer_hover_pos();
-    // Over the bar, or over a menu: a layer of its own above the panels.
-    let over = pointer.is_some_and(|p| {
-        bar.contains(p)
-            || ctx
-                .layer_id_at(p)
-                .is_some_and(|l| l.order != egui::Order::Background)
-    });
-    if over {
-        *away = None;
-    } else if away.is_none()
-        && ctx.input(|i| i.pointer.delta() != egui::Vec2::ZERO || pointer.is_none())
-    {
-        *away = Some(Instant::now());
-    }
-    if let Some(since) = *away {
-        let wait = std::time::Duration::from_millis(400);
-        match wait.checked_sub(since.elapsed()) {
-            Some(left) => ctx.request_repaint_after(left),
-            None => {
-                for &id in &ids {
-                    egui::Popup::close_id(ctx, id);
-                }
-                *away = None;
-                ctx.request_repaint();
-            }
-        }
-    }
-}
-
-/// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
-/// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
-/// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
-pub(crate) fn iconed(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::LayoutJob {
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let mut job = egui::text::LayoutJob::default();
-    let format = |color| egui::TextFormat {
-        font_id: font.clone(),
-        color,
-        ..Default::default()
-    };
-    job.append(icon, 0.0, format(ui.visuals().weak_text_color()));
-    job.append(text, 8.0, format(egui::Color32::PLACEHOLDER));
-    job
-}
-
-/// A menu entry showing the action's shortcut; sets `act` when clicked.
-pub(crate) fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
-    let text = iconed(ui, action.icon(), action.label());
-    menu_button(ui, act, egui::Button::new(text), action);
-}
-
-/// A menu entry with a check mark when `on`.
-pub(crate) fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool, action: Action) {
-    let mut text = iconed(ui, action.icon(), action.label());
-    // On the accent colour of a row that is on, the weak grey would hardly show.
-    if on {
-        text.sections[0].format.color = egui::Color32::PLACEHOLDER;
-    }
-    menu_button(ui, act, egui::Button::selectable(on, text), action);
-}
-
-pub(crate) fn menu_button(
-    ui: &mut egui::Ui,
-    act: &mut Option<Action>,
-    mut button: egui::Button,
-    action: Action,
-) {
-    if let Some(text) = shortcut_text(ui.ctx(), action) {
-        button = button.shortcut_text(text);
-    }
-    if noted(&ui.add(button), action.label()).clicked() {
-        *act = Some(action);
-    }
-}
-
-/// A toolbar button with the action's name and shortcut as tooltip.
-pub(crate) fn tool_button(
-    ui: &mut egui::Ui,
-    act: &mut Option<Action>,
-    icon: &str,
-    action: Action,
-    on: bool,
-) {
-    let tip = match shortcut_text(ui.ctx(), action) {
-        Some(keys) => format!("{label} ({keys})", label = action.label()),
-        None => action.label().to_owned(),
-    };
-    let response = ui
-        .add(egui::Button::selectable(on, icon))
-        .on_hover_text(tip);
-    if noted(&response, action.label()).clicked() {
-        *act = Some(action);
-    }
-}
 
 impl crate::App {
     // ---- Settings and the menus that change them ----
@@ -772,9 +621,7 @@ impl crate::App {
             }
         });
     }
-}
 
-impl crate::App {
     /// Geeqie's toolbar: navigation, zoom, thumbnails, slideshow and preferences.
     pub(crate) fn toolbar(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         let size = [14.0, 20.0, 28.0][self.config.toolbar_icons.min(2)];
@@ -814,5 +661,156 @@ impl crate::App {
                 tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
             });
         });
+    }
+}
+
+/// A menu that scrolls when it is taller than the window, instead of running off it.
+pub(crate) fn scroll_menu<R>(
+    ui: &mut egui::Ui,
+    title: impl Into<egui::WidgetText>,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) {
+    let title: egui::WidgetText = title.into();
+    let name = title.text().to_owned();
+    let content = |ui: &mut egui::Ui| {
+        // From where it opens to the bottom of the window; submenus open further down. egui
+        // limits a menu to its size the frame before, which a scroll area could only keep or
+        // shrink: the limit is set here instead.
+        let margin = ui.spacing().menu_margin.bottom as f32 + ui.spacing().item_spacing.y;
+        let max = ui.ctx().content_rect().bottom() - ui.next_widget_position().y - margin;
+        ui.set_max_height(max);
+        egui::ScrollArea::vertical().max_height(max).show(ui, add);
+    };
+    if egui::containers::menu::is_in_menu(ui) {
+        noted(&ui.menu_button(title, content).response, &name);
+        return;
+    }
+    // A menu of the menu bar. While one of them is open, pointing at another opens that one,
+    // as in GNOME and KDE.
+    let response = egui::containers::menu::MenuButton::new(title)
+        .ui(ui, content)
+        .0;
+    noted(&response, &name);
+    let ctx = ui.ctx().clone();
+    let id = egui::Popup::default_response_id(&response);
+    let others = ctx.data_mut(|d| {
+        let ids = d.get_temp_mut_or_default::<Vec<egui::Id>>(egui::Id::unique(BAR_MENUS));
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+        ids.clone()
+    });
+    let other_open = others
+        .iter()
+        .any(|&o| o != id && egui::Popup::is_id_open(&ctx, o));
+    if response.hovered() && other_open {
+        egui::Popup::open_id(&ctx, id);
+        ctx.request_repaint();
+    }
+}
+
+/// Close an open menu of the menu bar once the pointer has moved away from the bar and every
+/// open menu for a moment (`away` holds since when). A menu opened from the keyboard stays
+/// while the mouse is still.
+pub(crate) fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Option<Instant>) {
+    let ids: Vec<egui::Id> =
+        ctx.data(|d| d.get_temp(egui::Id::unique(BAR_MENUS)).unwrap_or_default());
+    if !ids.iter().any(|&id| egui::Popup::is_id_open(ctx, id)) {
+        *away = None;
+        return;
+    }
+    let pointer = ctx.pointer_hover_pos();
+    // Over the bar, or over a menu: a layer of its own above the panels.
+    let over = pointer.is_some_and(|p| {
+        bar.contains(p)
+            || ctx
+                .layer_id_at(p)
+                .is_some_and(|l| l.order != egui::Order::Background)
+    });
+    if over {
+        *away = None;
+    } else if away.is_none()
+        && ctx.input(|i| i.pointer.delta() != egui::Vec2::ZERO || pointer.is_none())
+    {
+        *away = Some(Instant::now());
+    }
+    if let Some(since) = *away {
+        let wait = std::time::Duration::from_millis(400);
+        match wait.checked_sub(since.elapsed()) {
+            Some(left) => ctx.request_repaint_after(left),
+            None => {
+                for &id in &ids {
+                    egui::Popup::close_id(ctx, id);
+                }
+                *away = None;
+                ctx.request_repaint();
+            }
+        }
+    }
+}
+
+/// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
+/// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
+/// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
+pub(crate) fn iconed(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::LayoutJob {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let mut job = egui::text::LayoutJob::default();
+    let format = |color| egui::TextFormat {
+        font_id: font.clone(),
+        color,
+        ..Default::default()
+    };
+    job.append(icon, 0.0, format(ui.visuals().weak_text_color()));
+    job.append(text, 8.0, format(egui::Color32::PLACEHOLDER));
+    job
+}
+
+/// A menu entry showing the action's shortcut; sets `act` when clicked.
+pub(crate) fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
+    let text = iconed(ui, action.icon(), action.label());
+    menu_button(ui, act, egui::Button::new(text), action);
+}
+
+/// A menu entry with a check mark when `on`.
+pub(crate) fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool, action: Action) {
+    let mut text = iconed(ui, action.icon(), action.label());
+    // On the accent colour of a row that is on, the weak grey would hardly show.
+    if on {
+        text.sections[0].format.color = egui::Color32::PLACEHOLDER;
+    }
+    menu_button(ui, act, egui::Button::selectable(on, text), action);
+}
+
+pub(crate) fn menu_button(
+    ui: &mut egui::Ui,
+    act: &mut Option<Action>,
+    mut button: egui::Button,
+    action: Action,
+) {
+    if let Some(text) = shortcut_text(ui.ctx(), action) {
+        button = button.shortcut_text(text);
+    }
+    if noted(&ui.add(button), action.label()).clicked() {
+        *act = Some(action);
+    }
+}
+
+/// A toolbar button with the action's name and shortcut as tooltip.
+pub(crate) fn tool_button(
+    ui: &mut egui::Ui,
+    act: &mut Option<Action>,
+    icon: &str,
+    action: Action,
+    on: bool,
+) {
+    let tip = match shortcut_text(ui.ctx(), action) {
+        Some(keys) => format!("{label} ({keys})", label = action.label()),
+        None => action.label().to_owned(),
+    };
+    let response = ui
+        .add(egui::Button::selectable(on, icon))
+        .on_hover_text(tip);
+    if noted(&response, action.label()).clicked() {
+        *act = Some(action);
     }
 }

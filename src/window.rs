@@ -148,9 +148,7 @@ impl crate::App {
             }
         });
     }
-}
 
-impl crate::App {
     pub(crate) fn title(&self, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.title_text()));
     }
@@ -214,9 +212,7 @@ impl crate::App {
             format!("{name} - {app}")
         }
     }
-}
 
-impl crate::App {
     /// In full screen, with the setting on, the pointer hidden once the mouse has been still for
     /// `POINTER_STILL`; never while work goes on (the busy pointer shows it; the shown image
     /// decoded does not count, or it would flash at each image of a slideshow), nor while a window,

@@ -25,6 +25,200 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::time::Instant;
 
+pub const NONE: egui::Modifiers = egui::Modifiers::NONE;
+
+pub const SHIFT: egui::Modifiers = egui::Modifiers::SHIFT;
+
+pub const CTRL: egui::Modifiers = egui::Modifiers::COMMAND;
+
+pub const ALT: egui::Modifiers = egui::Modifiers::ALT;
+
+pub const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
+    shift: true,
+    ..egui::Modifiers::COMMAND
+};
+
+/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh). The first
+/// one for an action is shown in the menu. egui ignores an extra Shift or Alt when matching, so
+/// those combinations come before the plain key.
+pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
+    use Action::*;
+    use egui::Key;
+    &[
+        (ExifRotate, ALT, Key::X),
+        // Before the plain arrows, Home and End, which would also match with Shift.
+        (SaveAs, CTRL_SHIFT, Key::S),
+        (MoveEarlier, CTRL_SHIFT, Key::ArrowUp),
+        (MoveLater, CTRL_SHIFT, Key::ArrowDown),
+        (MoveFirst, CTRL_SHIFT, Key::Home),
+        (MoveLast, CTRL_SHIFT, Key::End),
+        // Before R (random order) and F (full screen), which would also match with Shift.
+        (Rotate180, SHIFT, Key::R),
+        (Mirror, SHIFT, Key::M),
+        (Flip, SHIFT, Key::F),
+        (ViewFilter, SHIFT, Key::G),
+        (RotateCw, NONE, Key::CloseBracket),
+        (RotateCcw, NONE, Key::OpenBracket),
+        (DeletePermanently, SHIFT, Key::Delete),
+        // Only in a collection, where Delete takes the file out of it, as in Geeqie.
+        (RemoveFromCollection, NONE, Key::Delete),
+        (Delete, NONE, Key::Delete),
+        (Delete, CTRL, Key::D),
+        (NewFolder, CTRL, Key::F),
+        (Rename, CTRL, Key::R),
+        (Undo, CTRL, Key::Z),
+        // Before Ctrl+C (copy to a folder), which would also match with Shift.
+        (CopyImage, CTRL_SHIFT, Key::C),
+        (Copy, CTRL, Key::C),
+        (Move, CTRL, Key::M),
+        (CloseWindow, CTRL, Key::W),
+        (Quit, CTRL, Key::Q),
+        (First, NONE, Key::Home),
+        // Before the plain arrows, which would also match with Alt.
+        (PaneLeft, ALT, Key::ArrowLeft),
+        (PaneRight, ALT, Key::ArrowRight),
+        (PaneUp, ALT, Key::ArrowUp),
+        (PaneDown, ALT, Key::ArrowDown),
+        (Prev, NONE, Key::Backspace),
+        (Prev, NONE, Key::PageUp),
+        (Prev, NONE, Key::ArrowLeft),
+        (Prev, NONE, Key::ArrowUp),
+        (Next, NONE, Key::Space),
+        (Next, NONE, Key::PageDown),
+        (Next, NONE, Key::ArrowRight),
+        (Next, NONE, Key::ArrowDown),
+        (Last, NONE, Key::End),
+        (SelectNone, CTRL_SHIFT, Key::A),
+        (InvertSelection, CTRL_SHIFT, Key::I),
+        (Icons, CTRL, Key::I),
+        (SelectAll, CTRL, Key::A),
+        (Preferences, CTRL, Key::O),
+        (ZoomIn, NONE, Key::Equals),
+        (ZoomIn, NONE, Key::Plus),
+        (ZoomOut, NONE, Key::Minus),
+        (Zoom1To1, NONE, Key::Z),
+        (ZoomFit, NONE, Key::X),
+        (FitWidth, NONE, Key::H),
+        (FitHeight, NONE, Key::W),
+        (FullScreen, NONE, Key::F),
+        (FullScreen, NONE, Key::V),
+        (FullScreen, NONE, Key::F11),
+        (HideTools, CTRL, Key::H),
+        (Thumbnails, NONE, Key::T),
+        (Overlay, NONE, Key::I),
+        (Histogram, NONE, Key::K),
+        (HistogramLog, NONE, Key::J),
+        (Compare, NONE, Key::E),
+        (OneImage, NONE, Key::Y),
+        (AboveEachOther, NONE, Key::U),
+        (NextLayout, NONE, Key::L),
+        (Animate, NONE, Key::A),
+        (NextPage, CTRL, Key::PageDown),
+        (PrevPage, CTRL, Key::PageUp),
+        // Alt+digit before the plain digit, which would also match with Alt.
+        #[cfg(feature = "marks")]
+        (Rate0, ALT, Key::Num0),
+        #[cfg(feature = "marks")]
+        (Rate1, ALT, Key::Num1),
+        #[cfg(feature = "marks")]
+        (Rate2, ALT, Key::Num2),
+        #[cfg(feature = "marks")]
+        (Rate3, ALT, Key::Num3),
+        #[cfg(feature = "marks")]
+        (Rate4, ALT, Key::Num4),
+        #[cfg(feature = "marks")]
+        (Rate5, ALT, Key::Num5),
+        #[cfg(feature = "marks")]
+        (SelectMark1, CTRL, Key::Num1),
+        #[cfg(feature = "marks")]
+        (SelectMark2, CTRL, Key::Num2),
+        #[cfg(feature = "marks")]
+        (SelectMark3, CTRL, Key::Num3),
+        #[cfg(feature = "marks")]
+        (SelectMark4, CTRL, Key::Num4),
+        #[cfg(feature = "marks")]
+        (SelectMark5, CTRL, Key::Num5),
+        #[cfg(feature = "marks")]
+        (SelectMark6, CTRL, Key::Num6),
+        #[cfg(feature = "marks")]
+        (Mark1, NONE, Key::Num1),
+        #[cfg(feature = "marks")]
+        (Mark2, NONE, Key::Num2),
+        #[cfg(feature = "marks")]
+        (Mark3, NONE, Key::Num3),
+        #[cfg(feature = "marks")]
+        (Mark4, NONE, Key::Num4),
+        #[cfg(feature = "marks")]
+        (Mark5, NONE, Key::Num5),
+        #[cfg(feature = "marks")]
+        (Mark6, NONE, Key::Num6),
+        (ExifPanel, CTRL, Key::K),
+        (ExifWindow, CTRL, Key::E),
+        (Keywords, ALT, Key::K),
+        (PanView, CTRL, Key::J),
+        (FolderTree, CTRL, Key::T),
+        (Refresh, NONE, Key::F5),
+        // Before S (slideshow), which would also match with Shift.
+        (SortManager, SHIFT, Key::S),
+        (Slideshow, NONE, Key::S),
+        (Pause, NONE, Key::P),
+        (RandomOrder, NONE, Key::R),
+        (Faster, CTRL, Key::Equals),
+        (Slower, CTRL, Key::Minus),
+        (Play, NONE, Key::Enter),
+        (Escape, NONE, Key::Escape),
+        (Escape, NONE, Key::Q),
+        (NewWindow, CTRL, Key::N),
+        (Print, CTRL, Key::P),
+        // Before C (new collection), which would also match with Shift.
+        (Crop, SHIFT, Key::C),
+        (NewCollection, NONE, Key::C),
+        (OpenCollection, NONE, Key::O),
+        (FindDuplicates, NONE, Key::D),
+        (FocusSearch, NONE, Key::Slash),
+        (Help, NONE, Key::F1),
+    ]
+};
+
+/// The user's own keys (Preferences), which replace the defaults of their actions.
+pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
+    std::sync::RwLock::new(Vec::new());
+
+/// The actions a kiosk allows: showing and browsing, not changing files, settings or the
+/// window.
+pub(crate) const KIOSK_ACTIONS: &[Action] = &[
+    Action::Next,
+    Action::Prev,
+    Action::First,
+    Action::Last,
+    Action::Slideshow,
+    Action::Pause,
+    Action::Faster,
+    Action::Slower,
+    Action::RandomOrder,
+    Action::ZoomIn,
+    Action::ZoomOut,
+    Action::Zoom1To1,
+    Action::ZoomFit,
+    Action::FitWidth,
+    Action::FitHeight,
+    Action::FitFill,
+    Action::Overlay,
+    Action::Histogram,
+    Action::HistogramLog,
+    Action::Compare,
+    Action::Animate,
+    Action::OneImage,
+    Action::AboveEachOther,
+    Action::NextLayout,
+    Action::PaneLeft,
+    Action::PaneRight,
+    Action::PaneUp,
+    Action::PaneDown,
+    Action::NextPage,
+    Action::PrevPage,
+];
+
 /// Everything the user can do from a menu or a shortcut. The variants' names are stored in the
 /// settings for the user's own keys (`{a:?}`): renaming one loses those keys.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -506,197 +700,8 @@ impl Action {
     }
 }
 
-pub const NONE: egui::Modifiers = egui::Modifiers::NONE;
-
-pub const SHIFT: egui::Modifiers = egui::Modifiers::SHIFT;
-
-pub const CTRL: egui::Modifiers = egui::Modifiers::COMMAND;
-
-pub const ALT: egui::Modifiers = egui::Modifiers::ALT;
-
-pub const CTRL_SHIFT: egui::Modifiers = egui::Modifiers {
-    shift: true,
-    ..egui::Modifiers::COMMAND
-};
-
-/// Geeqie's default shortcuts, except R (random order; Geeqie: refresh) and F5 (refresh). The first
-/// one for an action is shown in the menu. egui ignores an extra Shift or Alt when matching, so
-/// those combinations come before the plain key.
-pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
-    use Action::*;
-    use egui::Key;
-    &[
-        (ExifRotate, ALT, Key::X),
-        // Before the plain arrows, Home and End, which would also match with Shift.
-        (SaveAs, CTRL_SHIFT, Key::S),
-        (MoveEarlier, CTRL_SHIFT, Key::ArrowUp),
-        (MoveLater, CTRL_SHIFT, Key::ArrowDown),
-        (MoveFirst, CTRL_SHIFT, Key::Home),
-        (MoveLast, CTRL_SHIFT, Key::End),
-        // Before R (random order) and F (full screen), which would also match with Shift.
-        (Rotate180, SHIFT, Key::R),
-        (Mirror, SHIFT, Key::M),
-        (Flip, SHIFT, Key::F),
-        (ViewFilter, SHIFT, Key::G),
-        (RotateCw, NONE, Key::CloseBracket),
-        (RotateCcw, NONE, Key::OpenBracket),
-        (DeletePermanently, SHIFT, Key::Delete),
-        // Only in a collection, where Delete takes the file out of it, as in Geeqie.
-        (RemoveFromCollection, NONE, Key::Delete),
-        (Delete, NONE, Key::Delete),
-        (Delete, CTRL, Key::D),
-        (NewFolder, CTRL, Key::F),
-        (Rename, CTRL, Key::R),
-        (Undo, CTRL, Key::Z),
-        // Before Ctrl+C (copy to a folder), which would also match with Shift.
-        (CopyImage, CTRL_SHIFT, Key::C),
-        (Copy, CTRL, Key::C),
-        (Move, CTRL, Key::M),
-        (CloseWindow, CTRL, Key::W),
-        (Quit, CTRL, Key::Q),
-        (First, NONE, Key::Home),
-        // Before the plain arrows, which would also match with Alt.
-        (PaneLeft, ALT, Key::ArrowLeft),
-        (PaneRight, ALT, Key::ArrowRight),
-        (PaneUp, ALT, Key::ArrowUp),
-        (PaneDown, ALT, Key::ArrowDown),
-        (Prev, NONE, Key::Backspace),
-        (Prev, NONE, Key::PageUp),
-        (Prev, NONE, Key::ArrowLeft),
-        (Prev, NONE, Key::ArrowUp),
-        (Next, NONE, Key::Space),
-        (Next, NONE, Key::PageDown),
-        (Next, NONE, Key::ArrowRight),
-        (Next, NONE, Key::ArrowDown),
-        (Last, NONE, Key::End),
-        (SelectNone, CTRL_SHIFT, Key::A),
-        (InvertSelection, CTRL_SHIFT, Key::I),
-        (Icons, CTRL, Key::I),
-        (SelectAll, CTRL, Key::A),
-        (Preferences, CTRL, Key::O),
-        (ZoomIn, NONE, Key::Equals),
-        (ZoomIn, NONE, Key::Plus),
-        (ZoomOut, NONE, Key::Minus),
-        (Zoom1To1, NONE, Key::Z),
-        (ZoomFit, NONE, Key::X),
-        (FitWidth, NONE, Key::H),
-        (FitHeight, NONE, Key::W),
-        (FullScreen, NONE, Key::F),
-        (FullScreen, NONE, Key::V),
-        (FullScreen, NONE, Key::F11),
-        (HideTools, CTRL, Key::H),
-        (Thumbnails, NONE, Key::T),
-        (Overlay, NONE, Key::I),
-        (Histogram, NONE, Key::K),
-        (HistogramLog, NONE, Key::J),
-        (Compare, NONE, Key::E),
-        (OneImage, NONE, Key::Y),
-        (AboveEachOther, NONE, Key::U),
-        (NextLayout, NONE, Key::L),
-        (Animate, NONE, Key::A),
-        (NextPage, CTRL, Key::PageDown),
-        (PrevPage, CTRL, Key::PageUp),
-        // Alt+digit before the plain digit, which would also match with Alt.
-        #[cfg(feature = "marks")]
-        (Rate0, ALT, Key::Num0),
-        #[cfg(feature = "marks")]
-        (Rate1, ALT, Key::Num1),
-        #[cfg(feature = "marks")]
-        (Rate2, ALT, Key::Num2),
-        #[cfg(feature = "marks")]
-        (Rate3, ALT, Key::Num3),
-        #[cfg(feature = "marks")]
-        (Rate4, ALT, Key::Num4),
-        #[cfg(feature = "marks")]
-        (Rate5, ALT, Key::Num5),
-        #[cfg(feature = "marks")]
-        (SelectMark1, CTRL, Key::Num1),
-        #[cfg(feature = "marks")]
-        (SelectMark2, CTRL, Key::Num2),
-        #[cfg(feature = "marks")]
-        (SelectMark3, CTRL, Key::Num3),
-        #[cfg(feature = "marks")]
-        (SelectMark4, CTRL, Key::Num4),
-        #[cfg(feature = "marks")]
-        (SelectMark5, CTRL, Key::Num5),
-        #[cfg(feature = "marks")]
-        (SelectMark6, CTRL, Key::Num6),
-        #[cfg(feature = "marks")]
-        (Mark1, NONE, Key::Num1),
-        #[cfg(feature = "marks")]
-        (Mark2, NONE, Key::Num2),
-        #[cfg(feature = "marks")]
-        (Mark3, NONE, Key::Num3),
-        #[cfg(feature = "marks")]
-        (Mark4, NONE, Key::Num4),
-        #[cfg(feature = "marks")]
-        (Mark5, NONE, Key::Num5),
-        #[cfg(feature = "marks")]
-        (Mark6, NONE, Key::Num6),
-        (ExifPanel, CTRL, Key::K),
-        (ExifWindow, CTRL, Key::E),
-        (Keywords, ALT, Key::K),
-        (PanView, CTRL, Key::J),
-        (FolderTree, CTRL, Key::T),
-        (Refresh, NONE, Key::F5),
-        // Before S (slideshow), which would also match with Shift.
-        (SortManager, SHIFT, Key::S),
-        (Slideshow, NONE, Key::S),
-        (Pause, NONE, Key::P),
-        (RandomOrder, NONE, Key::R),
-        (Faster, CTRL, Key::Equals),
-        (Slower, CTRL, Key::Minus),
-        (Play, NONE, Key::Enter),
-        (Escape, NONE, Key::Escape),
-        (Escape, NONE, Key::Q),
-        (NewWindow, CTRL, Key::N),
-        (Print, CTRL, Key::P),
-        // Before C (new collection), which would also match with Shift.
-        (Crop, SHIFT, Key::C),
-        (NewCollection, NONE, Key::C),
-        (OpenCollection, NONE, Key::O),
-        (FindDuplicates, NONE, Key::D),
-        (FocusSearch, NONE, Key::Slash),
-        (Help, NONE, Key::F1),
-    ]
-};
-
-/// The user's own keys (Preferences), which replace the defaults of their actions.
-pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
-    std::sync::RwLock::new(Vec::new());
-
 /// A shortcut: the action, and the modifiers and key that run it.
 pub type Shortcut = (Action, egui::Modifiers, egui::Key);
-
-/// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
-/// alone, where a key pressed (and an own key read back) has both.
-pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
-    let (x, y) = (a.1, b.1);
-    (x.command, x.shift, x.alt, a.2) == (y.command, y.shift, y.alt, b.2)
-}
-
-/// The shortcuts in use: the user's own, and the defaults of the other actions. Those with
-/// more modifiers come first, as egui ignores an extra Shift or Alt when matching. Made again
-/// only when the own keys change: it is asked for many times in every frame.
-pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
-    type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
-    static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
-    let own = OWN_KEYS.read().map(|o| o.clone()).unwrap_or_default();
-    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((from, all)) = made.as_ref()
-        && *from == own
-    {
-        return all.clone();
-    }
-    // Defaults of actions with own keys go, and so does a default whose key an own key took.
-    let mut all = own.clone();
-    all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
-    let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
-    all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
-    let all: std::sync::Arc<[Shortcut]> = all.into();
-    *made = Some((own, all.clone()));
-    all
-}
 
 /// Own keys in the config: "Next=Ctrl+N;ZoomIn=Plus", by action and egui's key names.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -745,47 +750,6 @@ impl std::fmt::Display for Keys {
         write!(f, "{}", items.join(";"))
     }
 }
-
-/// The first shortcut of an action, as shown in menus ("Ctrl+K").
-pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
-    let (_, mods, key) = shortcuts().iter().copied().find(|s| s.0 == action)?;
-    Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
-}
-
-/// The actions a kiosk allows: showing and browsing, not changing files, settings or the
-/// window.
-pub(crate) const KIOSK_ACTIONS: &[Action] = &[
-    Action::Next,
-    Action::Prev,
-    Action::First,
-    Action::Last,
-    Action::Slideshow,
-    Action::Pause,
-    Action::Faster,
-    Action::Slower,
-    Action::RandomOrder,
-    Action::ZoomIn,
-    Action::ZoomOut,
-    Action::Zoom1To1,
-    Action::ZoomFit,
-    Action::FitWidth,
-    Action::FitHeight,
-    Action::FitFill,
-    Action::Overlay,
-    Action::Histogram,
-    Action::HistogramLog,
-    Action::Compare,
-    Action::Animate,
-    Action::OneImage,
-    Action::AboveEachOther,
-    Action::NextLayout,
-    Action::PaneLeft,
-    Action::PaneRight,
-    Action::PaneUp,
-    Action::PaneDown,
-    Action::NextPage,
-    Action::PrevPage,
-];
 
 impl crate::App {
     // ---- Keys and actions ----
@@ -1548,6 +1512,42 @@ impl crate::App {
             );
         }
     }
+}
+
+/// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
+/// alone, where a key pressed (and an own key read back) has both.
+pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
+    let (x, y) = (a.1, b.1);
+    (x.command, x.shift, x.alt, a.2) == (y.command, y.shift, y.alt, b.2)
+}
+
+/// The shortcuts in use: the user's own, and the defaults of the other actions. Those with
+/// more modifiers come first, as egui ignores an extra Shift or Alt when matching. Made again
+/// only when the own keys change: it is asked for many times in every frame.
+pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
+    type Made = Option<(Vec<Shortcut>, std::sync::Arc<[Shortcut]>)>;
+    static MADE: std::sync::Mutex<Made> = std::sync::Mutex::new(None);
+    let own = OWN_KEYS.read().map(|o| o.clone()).unwrap_or_default();
+    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((from, all)) = made.as_ref()
+        && *from == own
+    {
+        return all.clone();
+    }
+    // Defaults of actions with own keys go, and so does a default whose key an own key took.
+    let mut all = own.clone();
+    all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
+    let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
+    all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
+    let all: std::sync::Arc<[Shortcut]> = all.into();
+    *made = Some((own, all.clone()));
+    all
+}
+
+/// The first shortcut of an action, as shown in menus ("Ctrl+K").
+pub fn shortcut_text(ctx: &egui::Context, action: Action) -> Option<String> {
+    let (_, mods, key) = shortcuts().iter().copied().find(|s| s.0 == action)?;
+    Some(ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key)))
 }
 
 #[cfg(test)]

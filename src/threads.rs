@@ -12,78 +12,8 @@ pub(crate) static CPU_USE: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static CPU_CHANGED: (Mutex<()>, std::sync::Condvar) =
     (Mutex::new(()), std::sync::Condvar::new());
 
-pub(crate) fn set_cpu_use(level: usize) {
-    let _lock = CPU_CHANGED.0.lock().unwrap();
-    CPU_USE.store(level, Ordering::Relaxed);
-    CPU_CHANGED.1.notify_all();
-}
-
-pub(crate) fn cores() -> usize {
-    std::thread::available_parallelism().map_or(2, |n| n.get())
-}
-
-/// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
-/// pan view.
-pub(crate) fn background_threads() -> usize {
-    background_threads_at(CPU_USE.load(Ordering::Relaxed))
-}
-
-pub(crate) fn background_threads_at(level: usize) -> usize {
-    match level {
-        0 => cores().min(2),
-        _ => cores(),
-    }
-}
-
-/// Thumbnails made at once; Balanced keeps one with the low memory level (`decoders` 1), so
-/// two full-size images are not decoded at once.
-pub(crate) fn thumb_threads(decoders: usize) -> usize {
-    thumb_threads_at(CPU_USE.load(Ordering::Relaxed), decoders)
-}
-
-pub(crate) fn thumb_threads_at(level: usize, decoders: usize) -> usize {
-    match level {
-        0 => 1,
-        1 => decoders.min(2),
-        _ => cores(),
-    }
-}
-
 /// Glimt runs with one malloc arena (`low_memory`): set at startup.
 pub(crate) static ONE_ARENA: AtomicBool = AtomicBool::new(false);
-
-/// Threads for work that allocates a little for every file, such as reading EXIF for the
-/// exif: index or pan view. With one malloc arena they wait for each other in the allocator:
-/// 2,000 files took 206 ms on one thread, 128 ms on two and 551 ms on four (20 cores); with an
-/// arena each, eight threads took 68 ms.
-pub(crate) fn small_alloc_threads() -> usize {
-    match ONE_ARENA.load(Ordering::Relaxed) {
-        true => background_threads().min(2),
-        false => background_threads(),
-    }
-}
-
-/// `work` on `items` cut into one part for each of `threads`, run at once; the results in the
-/// order of the parts. `work` gets a part and the place in `items` where it starts. A part that
-/// panics panics the caller too: a list short of it would put results on the wrong items.
-pub(crate) fn in_parts<T: Sync, R: Send>(
-    items: &[T],
-    threads: usize,
-    work: impl Fn(&[T], usize) -> Vec<R> + Sync,
-) -> Vec<R> {
-    let chunk = items.len().div_ceil(threads.max(1)).max(1);
-    std::thread::scope(|s| {
-        let parts: Vec<_> = (items.chunks(chunk).enumerate())
-            .map(|(c, part)| {
-                let work = &work;
-                s.spawn(move || work(part, c * chunk))
-            })
-            .collect();
-        (parts.into_iter())
-            .flat_map(|p| p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
-            .collect()
-    })
-}
 
 /// What a background thread's receiver has: nothing yet, its answer, or the thread gone without
 /// one (it panicked). Taken, the receiver is dropped, so nothing waits for it for ever.
@@ -195,6 +125,76 @@ impl Drop for Working {
 pub(crate) struct Timespec {
     sec: i64,
     nsec: i64,
+}
+
+pub(crate) fn set_cpu_use(level: usize) {
+    let _lock = CPU_CHANGED.0.lock().unwrap();
+    CPU_USE.store(level, Ordering::Relaxed);
+    CPU_CHANGED.1.notify_all();
+}
+
+pub(crate) fn cores() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get())
+}
+
+/// Threads for parallel work in the background: searches, the EXIF index, Find Duplicates and
+/// pan view.
+pub(crate) fn background_threads() -> usize {
+    background_threads_at(CPU_USE.load(Ordering::Relaxed))
+}
+
+pub(crate) fn background_threads_at(level: usize) -> usize {
+    match level {
+        0 => cores().min(2),
+        _ => cores(),
+    }
+}
+
+/// Thumbnails made at once; Balanced keeps one with the low memory level (`decoders` 1), so
+/// two full-size images are not decoded at once.
+pub(crate) fn thumb_threads(decoders: usize) -> usize {
+    thumb_threads_at(CPU_USE.load(Ordering::Relaxed), decoders)
+}
+
+pub(crate) fn thumb_threads_at(level: usize, decoders: usize) -> usize {
+    match level {
+        0 => 1,
+        1 => decoders.min(2),
+        _ => cores(),
+    }
+}
+
+/// Threads for work that allocates a little for every file, such as reading EXIF for the
+/// exif: index or pan view. With one malloc arena they wait for each other in the allocator:
+/// 2,000 files took 206 ms on one thread, 128 ms on two and 551 ms on four (20 cores); with an
+/// arena each, eight threads took 68 ms.
+pub(crate) fn small_alloc_threads() -> usize {
+    match ONE_ARENA.load(Ordering::Relaxed) {
+        true => background_threads().min(2),
+        false => background_threads(),
+    }
+}
+
+/// `work` on `items` cut into one part for each of `threads`, run at once; the results in the
+/// order of the parts. `work` gets a part and the place in `items` where it starts. A part that
+/// panics panics the caller too: a list short of it would put results on the wrong items.
+pub(crate) fn in_parts<T: Sync, R: Send>(
+    items: &[T],
+    threads: usize,
+    work: impl Fn(&[T], usize) -> Vec<R> + Sync,
+) -> Vec<R> {
+    let chunk = items.len().div_ceil(threads.max(1)).max(1);
+    std::thread::scope(|s| {
+        let parts: Vec<_> = (items.chunks(chunk).enumerate())
+            .map(|(c, part)| {
+                let work = &work;
+                s.spawn(move || work(part, c * chunk))
+            })
+            .collect();
+        (parts.into_iter())
+            .flat_map(|p| p.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    })
 }
 
 unsafe extern "C" {

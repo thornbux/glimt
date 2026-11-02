@@ -14,6 +14,95 @@ use std::time::Instant;
 /// Colour management on (Preferences); read by the decode and thumbnail threads.
 pub static COLOR_MANAGEMENT: AtomicBool = AtomicBool::new(true);
 
+/// View → Filter, for low vision: an index into `FILTERS`; read by the decode and thumbnail
+/// threads.
+pub static VIEW_FILTER: AtomicUsize = AtomicUsize::new(0);
+
+pub const FILTERS: [&str; 4] = ["None", "Greyscale", "Inverted", "More Contrast"];
+
+pub static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::RwLock::new(Colour {
+            screen: None,
+            screen_path: String::new(),
+            input: None,
+            own: true,
+            intent: moxcms::RenderingIntent::Perceptual,
+            transforms: Mutex::default(),
+        })
+    });
+
+/// Until when images for the screen wait for the desktop's screen profile at start, so the first
+/// ones are not shown in sRGB and then again in the screen's colours; `None`: no waiting.
+pub static SCREEN_WAIT: (Mutex<Option<Instant>>, std::sync::Condvar) =
+    (Mutex::new(None), std::sync::Condvar::new());
+
+/// How long images wait at start for colord, which usually answers in about 50 ms.
+pub const SCREEN_WAIT_MS: u64 = 150;
+
+/// The rendering intents: (config value, label, intent).
+pub const INTENTS: [(&str, &str, moxcms::RenderingIntent); 4] = [
+    (
+        "perceptual",
+        "Perceptual",
+        moxcms::RenderingIntent::Perceptual,
+    ),
+    (
+        "relative",
+        "Relative colorimetric",
+        moxcms::RenderingIntent::RelativeColorimetric,
+    ),
+    (
+        "saturation",
+        "Saturation",
+        moxcms::RenderingIntent::Saturation,
+    ),
+    (
+        "absolute",
+        "Absolute colorimetric",
+        moxcms::RenderingIntent::AbsoluteColorimetric,
+    ),
+];
+
+/// The built-in input profiles: (config value, label).
+pub const INPUT_PROFILES: [(&str, &str); 3] = [
+    ("srgb", "sRGB"),
+    ("adobe", "Adobe RGB"),
+    ("p3", "Display P3"),
+];
+
+/// Held by the tests that change the colour settings or depend on them, as tests run at once.
+#[cfg(test)]
+pub static COLOUR_TEST: Mutex<()> = Mutex::new(());
+
+/// An Adobe RGB profile, for images whose EXIF says Adobe RGB without carrying one.
+pub static ADOBE_RGB: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+    moxcms::ColorProfile::new_adobe_rgb()
+        .encode()
+        .unwrap_or_default()
+});
+
+/// The colour settings of Preferences, for the decoding threads.
+pub struct Colour {
+    /// `None`: the screen is taken to be sRGB.
+    pub screen: Option<moxcms::ColorProfile>,
+    /// The file `screen` was read from; empty for none.
+    pub screen_path: String,
+    /// For images without a profile of their own, or all with `own` off; `None`: sRGB.
+    pub input: Option<moxcms::ColorProfile>,
+    /// An image's own profile counts (Geeqie's "Use image's color profile").
+    pub own: bool,
+    /// Geeqie's rendering intent.
+    pub intent: moxcms::RenderingIntent,
+    /// Made once for each source and target: some profiles cost more to make a transform from
+    /// than the transform itself. By (source, to the screen): 0 is sRGB, 1 the input profile,
+    /// the rest a hash of the image's profile.
+    pub transforms: Mutex<Transforms>,
+}
+
+/// Colour transforms by (source, to the screen); `None` where none can be made.
+pub type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>>>;
+
 /// Colours from the image's own ICC profile (Adobe RGB, Display P3 …), or from the profile set
 /// for images without one, converted to sRGB: what the screen is taken to show without a screen
 /// profile, and what files and the shared thumbnail cache get. Without it such photos look dull.
@@ -41,12 +130,6 @@ pub fn srgb_to_display(img: image::DynamicImage) -> image::DynamicImage {
     )
 }
 
-/// View → Filter, for low vision: an index into `FILTERS`; read by the decode and thumbnail
-/// threads.
-pub static VIEW_FILTER: AtomicUsize = AtomicUsize::new(0);
-
-pub const FILTERS: [&str; 4] = ["None", "Greyscale", "Inverted", "More Contrast"];
-
 /// The pixels as the view filter `f` shows them; alpha as it was.
 fn filter(img: image::DynamicImage, f: usize) -> image::DynamicImage {
     if f == 0 {
@@ -71,39 +154,6 @@ fn filter(img: image::DynamicImage, f: usize) -> image::DynamicImage {
     }
     rgba.into()
 }
-
-/// The colour settings of Preferences, for the decoding threads.
-pub struct Colour {
-    /// `None`: the screen is taken to be sRGB.
-    pub screen: Option<moxcms::ColorProfile>,
-    /// The file `screen` was read from; empty for none.
-    pub screen_path: String,
-    /// For images without a profile of their own, or all with `own` off; `None`: sRGB.
-    pub input: Option<moxcms::ColorProfile>,
-    /// An image's own profile counts (Geeqie's "Use image's color profile").
-    pub own: bool,
-    /// Geeqie's rendering intent.
-    pub intent: moxcms::RenderingIntent,
-    /// Made once for each source and target: some profiles cost more to make a transform from
-    /// than the transform itself. By (source, to the screen): 0 is sRGB, 1 the input profile,
-    /// the rest a hash of the image's profile.
-    pub transforms: Mutex<Transforms>,
-}
-
-/// Colour transforms by (source, to the screen); `None` where none can be made.
-pub type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>>>;
-
-pub static COLOUR: std::sync::LazyLock<std::sync::RwLock<Colour>> =
-    std::sync::LazyLock::new(|| {
-        std::sync::RwLock::new(Colour {
-            screen: None,
-            screen_path: String::new(),
-            input: None,
-            own: true,
-            intent: moxcms::RenderingIntent::Perceptual,
-            transforms: Mutex::default(),
-        })
-    });
 
 /// The pixels of `img` from `icc` (when it counts, else the input profile or sRGB; sRGB with
 /// `srgb`) to the screen profile with `screen`, else to sRGB. Unchanged when both are sRGB, with
@@ -239,14 +289,6 @@ pub fn set_screen(path: &str) -> Result<bool, String> {
     Ok(changed)
 }
 
-/// Until when images for the screen wait for the desktop's screen profile at start, so the first
-/// ones are not shown in sRGB and then again in the screen's colours; `None`: no waiting.
-pub static SCREEN_WAIT: (Mutex<Option<Instant>>, std::sync::Condvar) =
-    (Mutex::new(None), std::sync::Condvar::new());
-
-/// How long images wait at start for colord, which usually answers in about 50 ms.
-pub const SCREEN_WAIT_MS: u64 = 150;
-
 /// Wait while the desktop's screen profile is being read at start, at most until the deadline.
 pub fn wait_for_screen() {
     let (lock, ready) = &SCREEN_WAIT;
@@ -276,30 +318,6 @@ pub fn set_input(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The rendering intents: (config value, label, intent).
-pub const INTENTS: [(&str, &str, moxcms::RenderingIntent); 4] = [
-    (
-        "perceptual",
-        "Perceptual",
-        moxcms::RenderingIntent::Perceptual,
-    ),
-    (
-        "relative",
-        "Relative colorimetric",
-        moxcms::RenderingIntent::RelativeColorimetric,
-    ),
-    (
-        "saturation",
-        "Saturation",
-        moxcms::RenderingIntent::Saturation,
-    ),
-    (
-        "absolute",
-        "Absolute colorimetric",
-        moxcms::RenderingIntent::AbsoluteColorimetric,
-    ),
-];
-
 /// The rendering intent named `name` in `INTENTS`; another name is perceptual.
 pub fn set_intent(name: &str) {
     let intent = INTENTS
@@ -308,13 +326,6 @@ pub fn set_intent(name: &str) {
         .map_or_else(Default::default, |i| i.2);
     set_colour(|c| c.intent = intent);
 }
-
-/// The built-in input profiles: (config value, label).
-pub const INPUT_PROFILES: [(&str, &str); 3] = [
-    ("srgb", "sRGB"),
-    ("adobe", "Adobe RGB"),
-    ("p3", "Display P3"),
-];
 
 /// The profile an image is shown from, for the EXIF panel: its own (by name), Adobe RGB from
 /// its EXIF, or the one taken for images without a profile.
@@ -405,17 +416,6 @@ pub fn desktop_screen_profile() -> Option<String> {
 pub fn first_quoted(text: &str) -> Option<&str> {
     text.split('\'').nth(1).filter(|s| !s.is_empty())
 }
-
-/// Held by the tests that change the colour settings or depend on them, as tests run at once.
-#[cfg(test)]
-pub static COLOUR_TEST: Mutex<()> = Mutex::new(());
-
-/// An Adobe RGB profile, for images whose EXIF says Adobe RGB without carrying one.
-pub static ADOBE_RGB: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
-    moxcms::ColorProfile::new_adobe_rgb()
-        .encode()
-        .unwrap_or_default()
-});
 
 /// `img` through the colour transform `t`, a megabyte at a time through one small buffer: a
 /// full-size photo for printing or saving does not need a second copy of itself.

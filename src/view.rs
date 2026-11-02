@@ -13,75 +13,16 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
-/// Where an image of `orig` is drawn in `rect`, and its scale: at the `zoom` and pan given, else
-/// fitted in fit `mode`, centred, and larger than its size only with `enlarge`.
-pub(crate) fn placed(
-    rect: egui::Rect,
-    orig: [usize; 2],
-    ppp: f32,
-    (enlarge, mode): (bool, u8),
-    zoom: Option<(f32, egui::Vec2)>,
-) -> (egui::Rect, f32) {
-    let size = egui::vec2(orig[0] as f32, orig[1] as f32);
-    let (scale, pan) = zoom.unwrap_or_else(|| {
-        let fit = fit_scale(rect.size() * ppp, size.into(), mode);
-        (if enlarge { fit } else { fit.min(1.0) }, egui::Vec2::ZERO)
-    });
-    let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
-    (at, scale)
-}
+/// View → Layout: the config value, the menu label and the panes as [columns, rows].
+pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
+    ("1", "One Image", [1, 1]),
+    ("2x1", "Two Side by Side", [2, 1]),
+    ("1x2", "Two Above Each Other", [1, 2]),
+    ("2x2", "Four (2 × 2)", [2, 2]),
+];
 
 /// A texture shown and its image's size, which a fade goes from.
 pub(crate) type Shown = (egui::TextureHandle, [usize; 2]);
-
-/// `tex` drawn in `rect` (its size before turning), turned by quarter `turns` and mirrored as
-/// the view is, tinted.
-pub(crate) fn paint_turned(
-    ui: &egui::Ui,
-    tex: &egui::TextureHandle,
-    rect: egui::Rect,
-    (turns, mirrored): (u8, bool),
-    tint: egui::Color32,
-) {
-    let uv = match mirrored {
-        true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
-        false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
-    };
-    let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
-    egui::Image::new(tex)
-        .uv(uv)
-        .rotate(angle, egui::Vec2::splat(0.5))
-        .tint(tint)
-        .paint_at(ui, rect);
-}
-
-/// A checkerboard under the image at `rect`, turned as the image is, for one that is
-/// transparent: one quad of a repeating 2×2 texture, 8-point squares at any size.
-pub(crate) fn paint_checker(p: &egui::Painter, rect: egui::Rect, turns: u8, tint: egui::Color32) {
-    let ctx = p.ctx();
-    let id = egui::Id::unique("checkerboard");
-    let tex = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id));
-    let tex = tex.unwrap_or_else(|| {
-        let (a, b) = (egui::Color32::from_gray(102), egui::Color32::from_gray(153));
-        let img = egui::ColorImage::new([2, 2], vec![a, b, b, a]);
-        let tex = ctx.load_texture("checkerboard", img, egui::TextureOptions::NEAREST_REPEAT);
-        ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
-        tex
-    });
-    let size = match turns % 2 {
-        1 => rect.size().yx(),
-        _ => rect.size(),
-    };
-    let rect = egui::Rect::from_center_size(rect.center(), size);
-    let uv = egui::Rect::from_min_size(egui::Pos2::ZERO, size / 16.0);
-    p.image(tex.id(), rect, uv, tint);
-}
-
-/// Faded to `alpha` (0 to 1), as a tint. A fade draws the image before at 1 - t⁴ under the new
-/// one at t: the sum stays near full brightness, where 1 - t would darken the middle.
-pub(crate) fn alpha(a: f32) -> egui::Color32 {
-    egui::Color32::from_white_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
-}
 
 /// The image area of the last frame, which the projector follows: where it was (points), the
 /// screen's pixels per point, the scale (screen pixels per image pixel), the offset of a zoomed
@@ -94,106 +35,6 @@ pub(crate) struct View {
     pan: egui::Vec2,
     zoomed: bool,
     pointer: Option<egui::Vec2>,
-}
-
-/// The scale (screen pixels per image pixel) at which an image of `size` fits `view`, both in
-/// pixels, in fit `mode`: 0 the whole image, 1 its width, 2 its height, 3 filling the view.
-pub(crate) fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
-    let (x, y) = (view.x / size[0], view.y / size[1]);
-    match mode {
-        1 => x,
-        2 => y,
-        3 => x.max(y),
-        _ => x.min(y),
-    }
-}
-
-/// Whether a texture of `tex` is too small to show an image of `orig` at `scale` in a view of
-/// `view` pixels (all unturned), zoomed: then full resolution is loaded, once. The decoders fit an
-/// image into a box of whole pixels: the side that fills the view comes out within a pixel or so of
-/// it, and the other is worked out from it, so one pixel there is `orig` side to side here
-/// (4000×2657 into a box 1328 high is 1998 wide, where 1328.9 high shows it 2000.6 wide). Short by
-/// more than that on any side: decoded again, which then gives a texture within it, so never again
-/// and again. A strip of 10000×5 grown from 1920 to 3840 wide is too small by its width, as its
-/// height fills nothing.
-pub(crate) fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> bool {
-    (0..2).any(|i| {
-        let j = 1 - i;
-        let [o, other] = [orig[i] as f32, orig[j] as f32];
-        let fills = other * scale >= view[j] - 1.0;
-        let slack = 1.5 + if fills { o / other.max(1.0) } else { 0.0 };
-        tex[i] as f32 + slack < (o * scale).min(o)
-    })
-}
-
-/// Whether an image decoded into the box `was`, to a texture of `tex`, is decoded again for the
-/// box `now`: when that is larger on a side, unless the texture is the whole image already.
-pub(crate) fn grown(now: [u32; 2], was: [u32; 2], tex: [usize; 2], orig: [usize; 2]) -> bool {
-    let larger = (0..2).any(|i| now[i] > was[i]);
-    larger && (0..2).any(|i| tex[i] < orig[i])
-}
-
-/// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
-/// then it is decoded again at that size, not at full resolution. Not the decoders' limit, whose
-/// free side is `long` itself in Fit Width and Fit Height.
-pub(crate) fn fits_texture(orig: [usize; 2], scale: f32, long: u32) -> bool {
-    orig.iter().all(|&side| side as f32 * scale < long as f32)
-}
-
-/// The box an image is decoded into: the `view` box for the shown image, turned with it when
-/// it is turned a quarter by hand (`quarter`; Fill's view has the turn in it already); for a
-/// neighbour the same box, unturned, or in Fill the longer side's square, as its shape is not
-/// known before it is decoded (shown larger, it is decoded again); and at least the projector's
-/// size, turned with the shown image too.
-pub(crate) fn decode_box(
-    view: [u32; 2],
-    area: [u32; 2],
-    fill: bool,
-    shown: bool,
-    quarter: bool,
-    projector: [u32; 2],
-) -> [u32; 2] {
-    let [w, h] = match (fill, shown) {
-        (true, false) => [area[0].max(area[1]); 2],
-        _ => view,
-    };
-    let turned = quarter && shown;
-    let [w, h] = if turned && !fill { [h, w] } else { [w, h] };
-    let [pw, ph] = if turned {
-        [projector[1], projector[0]]
-    } else {
-        projector
-    };
-    [w.max(pw), h.max(ph)]
-}
-
-/// A small map of the panes in the status bar, with the one it tells about filled in.
-pub(crate) fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
-    let cell = egui::vec2(9.0, 7.0);
-    let size = egui::vec2(cols as f32, rows as f32) * (cell + egui::vec2(2.0, 2.0));
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let v = ui.visuals();
-    for k in 0..cols * rows {
-        let at = egui::vec2((k % cols) as f32, (k / cols) as f32) * (cell + egui::vec2(2.0, 2.0));
-        let r = egui::Rect::from_min_size(rect.min + at + egui::vec2(1.0, 1.0), cell);
-        if k == on {
-            ui.painter().rect_filled(r, 1.0, v.selection.bg_fill);
-        } else {
-            let stroke = egui::Stroke::new(1.0, v.weak_text_color());
-            ui.painter()
-                .rect_stroke(r, 1.0, stroke, egui::StrokeKind::Inside);
-        }
-    }
-    response.on_hover_text(tr(
-        "The pane these details are of: the one under the pointer",
-    ));
-}
-
-pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
-    LAYOUTS
-        .iter()
-        .find(|l| l.0 == layout)
-        .map_or([1, 1], |l| l.2)
 }
 
 /// An image for the decode workers.
@@ -209,129 +50,6 @@ pub(crate) struct DecodeJob {
     /// The box to shrink into, sent with the job, so a decode is at the size asked for when it
     /// was asked, whatever the view did since.
     pub(crate) max: [u32; 2],
-}
-
-/// The decode workers: `workers` threads that take jobs and send back what they decoded,
-/// skipping images the list has moved past (`keep`).
-pub(crate) fn spawn_decoders(
-    ctx: &egui::Context,
-    workers: usize,
-    keep: &Arc<Mutex<Vec<usize>>>,
-    full_ok: &Arc<AtomicUsize>,
-    rotate: &Arc<AtomicBool>,
-) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
-    let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
-    let (done_tx, done) = mpsc::channel();
-    let job_rx = Arc::new(Mutex::new(job_rx));
-    for _ in 0..workers {
-        let (keep, full_ok, rotate, job_rx, done_tx, ctx) = (
-            keep.clone(),
-            full_ok.clone(),
-            rotate.clone(),
-            job_rx.clone(),
-            done_tx.clone(),
-            ctx.clone(),
-        );
-        std::thread::spawn(move || {
-            loop {
-                let Ok(DecodeJob {
-                    idx,
-                    full,
-                    path,
-                    page,
-                    job,
-                    max,
-                }) = job_rx.lock().unwrap().recv()
-                else {
-                    return;
-                };
-                // Cancellation: skip images the user has already moved past.
-                let wanted = {
-                    let w = keep.lock().unwrap();
-                    let n = full_ok.load(Ordering::Relaxed);
-                    w.contains(&idx) && (!full || w.iter().take(n).any(|&i| i == idx))
-                };
-                if !wanted {
-                    let _ = done_tx.send(Decoded {
-                        rotated: false,
-                        path,
-                        page,
-                        job,
-                        result: None,
-                    });
-                    continue;
-                }
-                let rotated = rotate.load(Ordering::Relaxed);
-                // The histogram here too, so the UI thread never walks the pixels.
-                let result = Some(survive(|| decode(&path, max, rotated, page)).map(
-                    |(frames, orig, pages)| {
-                        let hist = histogram(&frames[0].0);
-                        (frames, orig, hist, pages)
-                    },
-                ));
-                let _ = done_tx.send(Decoded {
-                    rotated,
-                    path,
-                    page,
-                    job,
-                    result,
-                });
-                // glibc does not return freed memory from the threads' malloc arenas on its own;
-                // decoding leaves several image-sized buffers per thread.
-                // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
-                unsafe { malloc_trim(0) };
-                ctx.request_repaint();
-            }
-        });
-    }
-    (jobs, done)
-}
-
-/// A play button over a video's preview frame in `area`, readable on any frame; whether it
-/// was clicked.
-#[cfg(feature = "video")]
-pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
-    let shade = egui::Color32::from_black_alpha(150);
-    let button = egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
-    let play = ui.interact(button, ui.scope_id().with("play"), egui::Sense::click());
-    let p = ui.painter();
-    p.circle_filled(button.center(), 48.0, shade);
-    let c = button.center();
-    let triangle = vec![
-        c + egui::vec2(-14.0, -22.0),
-        c + egui::vec2(24.0, 0.0),
-        c + egui::vec2(-14.0, 22.0),
-    ];
-    p.add(egui::Shape::convex_polygon(
-        triangle,
-        egui::Color32::WHITE,
-        egui::Stroke::NONE,
-    ));
-    let label = p.layout_no_wrap(
-        tr("Video: Enter or click to play").into(),
-        egui::FontId::proportional(16.0),
-        egui::Color32::WHITE,
-    );
-    let at = egui::Rect::from_center_size(
-        button.center_bottom() + egui::vec2(0.0, 28.0),
-        label.size() + egui::vec2(20.0, 10.0),
-    );
-    p.rect_filled(at, 6.0, shade);
-    p.galley(at.min + egui::vec2(10.0, 5.0), label, egui::Color32::WHITE);
-    play.clicked()
-}
-
-/// The sign of a file Check Images found broken: an orange disc with "!", at `centre`.
-pub(crate) fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32) {
-    p.circle_filled(centre, 7.0, egui::Color32::from_rgb(240, 140, 0));
-    let bold = egui::FontId::proportional(text_size * 0.85);
-    p.text(
-        centre,
-        egui::Align2::CENTER_CENTER,
-        "!",
-        bold,
-        egui::Color32::BLACK,
-    );
 }
 
 impl crate::App {
@@ -1384,13 +1102,295 @@ impl crate::App {
     }
 }
 
-/// View → Layout: the config value, the menu label and the panes as [columns, rows].
-pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
-    ("1", "One Image", [1, 1]),
-    ("2x1", "Two Side by Side", [2, 1]),
-    ("1x2", "Two Above Each Other", [1, 2]),
-    ("2x2", "Four (2 × 2)", [2, 2]),
-];
+/// Where an image of `orig` is drawn in `rect`, and its scale: at the `zoom` and pan given, else
+/// fitted in fit `mode`, centred, and larger than its size only with `enlarge`.
+pub(crate) fn placed(
+    rect: egui::Rect,
+    orig: [usize; 2],
+    ppp: f32,
+    (enlarge, mode): (bool, u8),
+    zoom: Option<(f32, egui::Vec2)>,
+) -> (egui::Rect, f32) {
+    let size = egui::vec2(orig[0] as f32, orig[1] as f32);
+    let (scale, pan) = zoom.unwrap_or_else(|| {
+        let fit = fit_scale(rect.size() * ppp, size.into(), mode);
+        (if enlarge { fit } else { fit.min(1.0) }, egui::Vec2::ZERO)
+    });
+    let at = egui::Rect::from_center_size(rect.center() + pan, size * scale / ppp);
+    (at, scale)
+}
+
+/// `tex` drawn in `rect` (its size before turning), turned by quarter `turns` and mirrored as
+/// the view is, tinted.
+pub(crate) fn paint_turned(
+    ui: &egui::Ui,
+    tex: &egui::TextureHandle,
+    rect: egui::Rect,
+    (turns, mirrored): (u8, bool),
+    tint: egui::Color32,
+) {
+    let uv = match mirrored {
+        true => egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)),
+        false => egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+    };
+    let angle = turns as f32 * std::f32::consts::FRAC_PI_2;
+    egui::Image::new(tex)
+        .uv(uv)
+        .rotate(angle, egui::Vec2::splat(0.5))
+        .tint(tint)
+        .paint_at(ui, rect);
+}
+
+/// A checkerboard under the image at `rect`, turned as the image is, for one that is
+/// transparent: one quad of a repeating 2×2 texture, 8-point squares at any size.
+pub(crate) fn paint_checker(p: &egui::Painter, rect: egui::Rect, turns: u8, tint: egui::Color32) {
+    let ctx = p.ctx();
+    let id = egui::Id::unique("checkerboard");
+    let tex = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id));
+    let tex = tex.unwrap_or_else(|| {
+        let (a, b) = (egui::Color32::from_gray(102), egui::Color32::from_gray(153));
+        let img = egui::ColorImage::new([2, 2], vec![a, b, b, a]);
+        let tex = ctx.load_texture("checkerboard", img, egui::TextureOptions::NEAREST_REPEAT);
+        ctx.data_mut(|d| d.insert_temp(id, tex.clone()));
+        tex
+    });
+    let size = match turns % 2 {
+        1 => rect.size().yx(),
+        _ => rect.size(),
+    };
+    let rect = egui::Rect::from_center_size(rect.center(), size);
+    let uv = egui::Rect::from_min_size(egui::Pos2::ZERO, size / 16.0);
+    p.image(tex.id(), rect, uv, tint);
+}
+
+/// Faded to `alpha` (0 to 1), as a tint. A fade draws the image before at 1 - t⁴ under the new
+/// one at t: the sum stays near full brightness, where 1 - t would darken the middle.
+pub(crate) fn alpha(a: f32) -> egui::Color32 {
+    egui::Color32::from_white_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
+}
+
+/// The scale (screen pixels per image pixel) at which an image of `size` fits `view`, both in
+/// pixels, in fit `mode`: 0 the whole image, 1 its width, 2 its height, 3 filling the view.
+pub(crate) fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
+    let (x, y) = (view.x / size[0], view.y / size[1]);
+    match mode {
+        1 => x,
+        2 => y,
+        3 => x.max(y),
+        _ => x.min(y),
+    }
+}
+
+/// Whether a texture of `tex` is too small to show an image of `orig` at `scale` in a view of
+/// `view` pixels (all unturned), zoomed: then full resolution is loaded, once. The decoders fit an
+/// image into a box of whole pixels: the side that fills the view comes out within a pixel or so of
+/// it, and the other is worked out from it, so one pixel there is `orig` side to side here
+/// (4000×2657 into a box 1328 high is 1998 wide, where 1328.9 high shows it 2000.6 wide). Short by
+/// more than that on any side: decoded again, which then gives a texture within it, so never again
+/// and again. A strip of 10000×5 grown from 1920 to 3840 wide is too small by its width, as its
+/// height fills nothing.
+pub(crate) fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> bool {
+    (0..2).any(|i| {
+        let j = 1 - i;
+        let [o, other] = [orig[i] as f32, orig[j] as f32];
+        let fills = other * scale >= view[j] - 1.0;
+        let slack = 1.5 + if fills { o / other.max(1.0) } else { 0.0 };
+        tex[i] as f32 + slack < (o * scale).min(o)
+    })
+}
+
+/// Whether an image decoded into the box `was`, to a texture of `tex`, is decoded again for the
+/// box `now`: when that is larger on a side, unless the texture is the whole image already.
+pub(crate) fn grown(now: [u32; 2], was: [u32; 2], tex: [usize; 2], orig: [usize; 2]) -> bool {
+    let larger = (0..2).any(|i| now[i] > was[i]);
+    larger && (0..2).any(|i| tex[i] < orig[i])
+}
+
+/// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
+/// then it is decoded again at that size, not at full resolution. Not the decoders' limit, whose
+/// free side is `long` itself in Fit Width and Fit Height.
+pub(crate) fn fits_texture(orig: [usize; 2], scale: f32, long: u32) -> bool {
+    orig.iter().all(|&side| side as f32 * scale < long as f32)
+}
+
+/// The box an image is decoded into: the `view` box for the shown image, turned with it when
+/// it is turned a quarter by hand (`quarter`; Fill's view has the turn in it already); for a
+/// neighbour the same box, unturned, or in Fill the longer side's square, as its shape is not
+/// known before it is decoded (shown larger, it is decoded again); and at least the projector's
+/// size, turned with the shown image too.
+pub(crate) fn decode_box(
+    view: [u32; 2],
+    area: [u32; 2],
+    fill: bool,
+    shown: bool,
+    quarter: bool,
+    projector: [u32; 2],
+) -> [u32; 2] {
+    let [w, h] = match (fill, shown) {
+        (true, false) => [area[0].max(area[1]); 2],
+        _ => view,
+    };
+    let turned = quarter && shown;
+    let [w, h] = if turned && !fill { [h, w] } else { [w, h] };
+    let [pw, ph] = if turned {
+        [projector[1], projector[0]]
+    } else {
+        projector
+    };
+    [w.max(pw), h.max(ph)]
+}
+
+/// A small map of the panes in the status bar, with the one it tells about filled in.
+pub(crate) fn pane_map(ui: &mut egui::Ui, [cols, rows]: [usize; 2], on: usize) {
+    let cell = egui::vec2(9.0, 7.0);
+    let size = egui::vec2(cols as f32, rows as f32) * (cell + egui::vec2(2.0, 2.0));
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let v = ui.visuals();
+    for k in 0..cols * rows {
+        let at = egui::vec2((k % cols) as f32, (k / cols) as f32) * (cell + egui::vec2(2.0, 2.0));
+        let r = egui::Rect::from_min_size(rect.min + at + egui::vec2(1.0, 1.0), cell);
+        if k == on {
+            ui.painter().rect_filled(r, 1.0, v.selection.bg_fill);
+        } else {
+            let stroke = egui::Stroke::new(1.0, v.weak_text_color());
+            ui.painter()
+                .rect_stroke(r, 1.0, stroke, egui::StrokeKind::Inside);
+        }
+    }
+    response.on_hover_text(tr(
+        "The pane these details are of: the one under the pointer",
+    ));
+}
+
+pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
+    LAYOUTS
+        .iter()
+        .find(|l| l.0 == layout)
+        .map_or([1, 1], |l| l.2)
+}
+
+/// The decode workers: `workers` threads that take jobs and send back what they decoded,
+/// skipping images the list has moved past (`keep`).
+pub(crate) fn spawn_decoders(
+    ctx: &egui::Context,
+    workers: usize,
+    keep: &Arc<Mutex<Vec<usize>>>,
+    full_ok: &Arc<AtomicUsize>,
+    rotate: &Arc<AtomicBool>,
+) -> (mpsc::Sender<DecodeJob>, mpsc::Receiver<Decoded>) {
+    let (jobs, job_rx) = mpsc::channel::<DecodeJob>();
+    let (done_tx, done) = mpsc::channel();
+    let job_rx = Arc::new(Mutex::new(job_rx));
+    for _ in 0..workers {
+        let (keep, full_ok, rotate, job_rx, done_tx, ctx) = (
+            keep.clone(),
+            full_ok.clone(),
+            rotate.clone(),
+            job_rx.clone(),
+            done_tx.clone(),
+            ctx.clone(),
+        );
+        std::thread::spawn(move || {
+            loop {
+                let Ok(DecodeJob {
+                    idx,
+                    full,
+                    path,
+                    page,
+                    job,
+                    max,
+                }) = job_rx.lock().unwrap().recv()
+                else {
+                    return;
+                };
+                // Cancellation: skip images the user has already moved past.
+                let wanted = {
+                    let w = keep.lock().unwrap();
+                    let n = full_ok.load(Ordering::Relaxed);
+                    w.contains(&idx) && (!full || w.iter().take(n).any(|&i| i == idx))
+                };
+                if !wanted {
+                    let _ = done_tx.send(Decoded {
+                        rotated: false,
+                        path,
+                        page,
+                        job,
+                        result: None,
+                    });
+                    continue;
+                }
+                let rotated = rotate.load(Ordering::Relaxed);
+                // The histogram here too, so the UI thread never walks the pixels.
+                let result = Some(survive(|| decode(&path, max, rotated, page)).map(
+                    |(frames, orig, pages)| {
+                        let hist = histogram(&frames[0].0);
+                        (frames, orig, hist, pages)
+                    },
+                ));
+                let _ = done_tx.send(Decoded {
+                    rotated,
+                    path,
+                    page,
+                    job,
+                    result,
+                });
+                // glibc does not return freed memory from the threads' malloc arenas on its own;
+                // decoding leaves several image-sized buffers per thread.
+                // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
+                unsafe { malloc_trim(0) };
+                ctx.request_repaint();
+            }
+        });
+    }
+    (jobs, done)
+}
+
+/// A play button over a video's preview frame in `area`, readable on any frame; whether it
+/// was clicked.
+#[cfg(feature = "video")]
+pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
+    let shade = egui::Color32::from_black_alpha(150);
+    let button = egui::Rect::from_center_size(area.center(), egui::vec2(96.0, 96.0));
+    let play = ui.interact(button, ui.scope_id().with("play"), egui::Sense::click());
+    let p = ui.painter();
+    p.circle_filled(button.center(), 48.0, shade);
+    let c = button.center();
+    let triangle = vec![
+        c + egui::vec2(-14.0, -22.0),
+        c + egui::vec2(24.0, 0.0),
+        c + egui::vec2(-14.0, 22.0),
+    ];
+    p.add(egui::Shape::convex_polygon(
+        triangle,
+        egui::Color32::WHITE,
+        egui::Stroke::NONE,
+    ));
+    let label = p.layout_no_wrap(
+        tr("Video: Enter or click to play").into(),
+        egui::FontId::proportional(16.0),
+        egui::Color32::WHITE,
+    );
+    let at = egui::Rect::from_center_size(
+        button.center_bottom() + egui::vec2(0.0, 28.0),
+        label.size() + egui::vec2(20.0, 10.0),
+    );
+    p.rect_filled(at, 6.0, shade);
+    p.galley(at.min + egui::vec2(10.0, 5.0), label, egui::Color32::WHITE);
+    play.clicked()
+}
+
+/// The sign of a file Check Images found broken: an orange disc with "!", at `centre`.
+pub(crate) fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32) {
+    p.circle_filled(centre, 7.0, egui::Color32::from_rgb(240, 140, 0));
+    let bold = egui::FontId::proportional(text_size * 0.85);
+    p.text(
+        centre,
+        egui::Align2::CENTER_CENTER,
+        "!",
+        bold,
+        egui::Color32::BLACK,
+    );
+}
 
 /// The milliseconds that `share` of the frames counted by milliseconds took at most; 0 for none.
 pub(crate) fn frame_at(frame_ms: &[u32], share: f64) -> usize {

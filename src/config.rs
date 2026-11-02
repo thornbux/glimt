@@ -10,18 +10,71 @@ use crate::{count, local_time, print};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
+/// The config struct, its defaults, and reading and writing it, from one list; the field
+/// name is the key in the file.
+macro_rules! config {
+    ($($(#[$doc:meta])* $name:ident: $ty:ty = $default:expr,)*) => {
+        /// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
+        #[derive(Debug, PartialEq)]
+        pub struct Config {
+            $($(#[$doc])* pub $name: $ty,)*
+        }
+
+        impl Default for Config {
+            fn default() -> Self {
+                Config { $($name: $default,)* }
+            }
+        }
+
+        impl Config {
+            /// Set `key` to `value`: None for a key that is no setting, false for a value that
+            /// cannot be read, which keeps the one before.
+            // String's parse cannot fail, so its `if let` is irrefutable.
+            #[allow(irrefutable_let_patterns)]
+            pub fn set(&mut self, key: &str, value: &str) -> Option<bool> {
+                let value = by_number(key, value);
+                let value = value.as_str();
+                match key {
+                    $(stringify!($name) => {
+                        if let Ok(v) = value.parse() {
+                            self.$name = v;
+                            return Some(true);
+                        }
+                        Some(false)
+                    })*
+                    _ => None,
+                }
+            }
+
+            pub fn to_text(&self) -> String {
+                let mut text = String::new();
+                $(text += &format!(
+                    "{}={}\n",
+                    stringify!($name),
+                    by_name(stringify!($name), self.$name.to_string())
+                );)*
+                text
+            }
+        }
+    };
+}
+
 // ---- Defaults and ranges of settings ----
 
 /// Default number of images kept decoded on each side of the shown one.
 pub(crate) const DEFAULT_PRELOAD: usize = 2;
+
 /// Default seconds between images in a slideshow.
 pub(crate) const DEFAULT_DELAY: u64 = 3;
+
 pub(crate) const MAX_DELAY: u64 = 60;
+
 /// The full screen info as Geeqie writes its overlay template: fields in percent signs, `|`
 /// between parts of a line (a part whose fields are all empty is left out) and `\n` for a new
 /// line. The default shows what Glimt always showed.
 pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
      %Focal length%|%marks%";
+
 /// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
 /// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
 /// two thumbnails at once and runs those on every core; Full makes thumbnails on every core.
@@ -47,21 +100,6 @@ pub(crate) const FADES: [(&str, &str, u64); 3] = [
     ("short", "Short", 400),
     ("long", "Long", 1000),
 ];
-
-/// A memory use level in Preferences. The config holds the values; the level shown is the one
-/// they match, or Custom.
-#[derive(Clone, Copy)]
-pub(crate) struct MemoryLevel {
-    pub(crate) name: &'static str,
-    /// Images preloaded on each side.
-    pub(crate) preload: usize,
-    pub(crate) decode_threads: usize,
-    /// The most an animation's frames may take, in MB.
-    pub(crate) animation_mb: usize,
-    /// One malloc arena for all threads.
-    pub(crate) one_arena: bool,
-    pub(crate) hover: &'static str,
-}
 
 pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
     MemoryLevel {
@@ -92,140 +130,56 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
     },
 ];
 
-/// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
-pub fn config_path() -> Option<PathBuf> {
-    xdg_file("XDG_CONFIG_HOME", ".config", "config")
-}
-
-/// `$XDG_CONFIG_HOME/glimt/keywords`: the keyword tree, a path such as "Places|Norway|Oslo"
-/// on each line.
-pub fn keyword_tree_path() -> Option<PathBuf> {
-    xdg_file("XDG_CONFIG_HOME", ".config", "keywords")
-}
-
-/// `$XDG_CONFIG_HOME/glimt/sort-folders`: the sort manager's folders, one on each line.
-pub fn sort_folders_path() -> Option<PathBuf> {
-    xdg_file("XDG_CONFIG_HOME", ".config", "sort-folders")
-}
-
-/// The folders of the sort-folders file, as bytes: one that is not UTF-8 is kept.
-pub fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    (text.split(|&b| b == b'\n'))
-        .filter(|l| !l.is_empty())
-        .map(|l| PathBuf::from(std::ffi::OsStr::from_bytes(l)))
-        .collect()
-}
-
-/// The sort-folders file's text for `dirs`; a name with a line break cannot be kept in it.
-pub fn sort_folders_text(dirs: &[PathBuf]) -> Vec<u8> {
-    let mut text = Vec::new();
-    for d in dirs {
-        let bytes = d.as_os_str().as_encoded_bytes();
-        if !bytes.contains(&b'\n') {
-            text.extend(bytes);
-            text.push(b'\n');
-        }
-    }
-    text
-}
-
-/// `on_disk` with `add` added and `remove` taken out: a change, applied to the file as it is
-/// now, so folders another window added meanwhile stay.
-pub fn sort_folders_changed(
-    mut on_disk: Vec<PathBuf>,
-    add: Option<&Path>,
-    remove: Option<&Path>,
-) -> Vec<PathBuf> {
-    on_disk.retain(|d| Some(d.as_path()) != remove);
-    if let Some(add) = add.filter(|a| !on_disk.iter().any(|d| d == a)) {
-        on_disk.push(add.to_path_buf());
-    }
-    on_disk
-}
-
-/// `$XDG_STATE_HOME/glimt/state`, otherwise `~/.local/state/glimt/state`.
-/// State (such as the last folder) is not configuration, and belongs here according to XDG.
-pub fn state_path() -> Option<PathBuf> {
-    xdg_file("XDG_STATE_HOME", ".local/state", "state")
-}
-
-/// `$XDG_STATE_HOME/glimt/recent`: File → Open Recent's folders and collections, newest first,
-/// one on each line, shared by the windows.
-pub fn recent_path() -> Option<PathBuf> {
-    xdg_file("XDG_STATE_HOME", ".local/state", "recent")
-}
-
 /// How many Open Recent keeps.
 pub const RECENT: usize = 10;
 
-/// The paths of a recent file's text, as bytes: a name need not be UTF-8.
-pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    (text.split(|&b| b == b'\n'))
-        .filter(|l| !l.is_empty())
-        .map(|l| std::ffi::OsStr::from_bytes(l).into())
-        .take(RECENT)
-        .collect()
-}
+/// Settings that are one of a few: written by name since 1.0 (fit_mode=width), read by name
+/// or by the number of before (fit_mode=1). A list grows at its end only, so the numbers keep
+/// their meaning.
+const NAMED: [(&str, &[&str]); 7] = [
+    ("fade", &["off", "short", "long"]),
+    ("fit_mode", &["whole", "width", "height", "fill"]),
+    ("histogram", &["off", "rgb", "brightness"]),
+    ("thumb_size", &["small", "medium", "large"]),
+    ("toolbar_icons", &["small", "medium", "large"]),
+    (
+        "view_filter",
+        &["none", "greyscale", "inverted", "contrast"],
+    ),
+    ("cpu_use", &["saving", "balanced", "full"]),
+];
 
-/// `path` first in `recent`, once, and no more than RECENT; a name with a line break in it
-/// cannot be kept on a line, and is left out.
-pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
-    use std::os::unix::ffi::OsStrExt;
-    let fits = !path.as_os_str().as_bytes().contains(&b'\n');
-    (fits.then(|| path.to_path_buf()).into_iter())
-        .chain(recent.iter().filter(|p| *p != path).cloned())
-        .take(RECENT)
-        .collect()
-}
+/// A file Glimt could not save, for the window to tell: from any thread.
+static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// The text of a recent file.
-pub fn recent_text(recent: &[PathBuf]) -> Vec<u8> {
-    use std::os::unix::ffi::OsStrExt;
-    recent
-        .iter()
-        .flat_map(|p| [p.as_os_str().as_bytes(), b"\n"].concat())
-        .collect()
-}
+/// The administrator's lock: while this file is there, every Glimt starts with --lock-settings.
+pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
 
-pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
-    Some(xdg_dir(var, home_fallback, "glimt")?.join(name))
-}
+/// --lock-settings: no Preferences, and nothing written to the settings files.
+static LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
-    // Tests have a home of their own: an App made in a test removed the user's recent list.
-    #[cfg(test)]
-    return {
-        let _ = var;
-        Some(test_home().join(home_fallback).join(app))
-    };
-    #[cfg(not(test))]
-    let base = std::env::var_os(var)
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))?;
-    #[cfg(not(test))]
-    Some(base.join(app))
-}
+/// The settings as this window last read or wrote them.
+static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-/// The home folder of the tests, under the temporary folder, for every XDG folder: one for
-/// every run, so what a test leaves there (Rename Many's empty plans folder) is never more
-/// than one tree; files in it have names of their own (plans by instance and time).
-#[cfg(test)]
-pub fn test_home() -> PathBuf {
-    std::env::temp_dir().join("glimt-test-home")
-}
+/// Everything being written for the user, counted by a `Working` held while it runs: the
+/// settings and marks (`write_later`), sidecars, file jobs, a turned image, a print. The one
+/// count closing waits for, so that no writer can be forgotten.
+pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
+    std::sync::LazyLock::new(Default::default);
 
-pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
-    state_value(state, "last_dir").map(PathBuf::from)
-}
-
-pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
-    state.lines().find_map(|l| {
-        l.strip_prefix(key)?
-            .strip_prefix('=')
-            .filter(|v| !v.is_empty())
-    })
+/// A memory use level in Preferences. The config holds the values; the level shown is the one
+/// they match, or Custom.
+#[derive(Clone, Copy)]
+pub(crate) struct MemoryLevel {
+    pub(crate) name: &'static str,
+    /// Images preloaded on each side.
+    pub(crate) preload: usize,
+    pub(crate) decode_threads: usize,
+    /// The most an animation's frames may take, in MB.
+    pub(crate) animation_mb: usize,
+    /// One malloc arena for all threads.
+    pub(crate) one_arena: bool,
+    pub(crate) hover: &'static str,
 }
 
 /// Window geometry saved at exit (points): size, position (not on Wayland, where apps cannot
@@ -282,87 +236,6 @@ impl std::fmt::Display for Rgb {
         let [r, g, b] = self.0;
         write!(f, "#{r:02x}{g:02x}{b:02x}")
     }
-}
-
-/// Settings that are one of a few: written by name since 1.0 (fit_mode=width), read by name
-/// or by the number of before (fit_mode=1). A list grows at its end only, so the numbers keep
-/// their meaning.
-const NAMED: [(&str, &[&str]); 7] = [
-    ("fade", &["off", "short", "long"]),
-    ("fit_mode", &["whole", "width", "height", "fill"]),
-    ("histogram", &["off", "rgb", "brightness"]),
-    ("thumb_size", &["small", "medium", "large"]),
-    ("toolbar_icons", &["small", "medium", "large"]),
-    (
-        "view_filter",
-        &["none", "greyscale", "inverted", "contrast"],
-    ),
-    ("cpu_use", &["saving", "balanced", "full"]),
-];
-
-/// `value` of `key` as the code holds it: a name's place in its list, else as given.
-fn by_number(key: &str, value: &str) -> String {
-    let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
-    let place = names.and_then(|names| names.iter().position(|n| n.eq_ignore_ascii_case(value)));
-    place.map_or_else(|| value.to_owned(), |k| k.to_string())
-}
-
-/// `value` of `key` as the file holds it: the name of a numbered choice.
-fn by_name(key: &str, value: String) -> String {
-    let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
-    match names.zip(value.parse::<usize>().ok()) {
-        Some((names, k)) if k < names.len() => names[k].to_owned(),
-        _ => value,
-    }
-}
-
-/// The config struct, its defaults, and reading and writing it, from one list; the field
-/// name is the key in the file.
-macro_rules! config {
-    ($($(#[$doc:meta])* $name:ident: $ty:ty = $default:expr,)*) => {
-        /// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
-        #[derive(Debug, PartialEq)]
-        pub struct Config {
-            $($(#[$doc])* pub $name: $ty,)*
-        }
-
-        impl Default for Config {
-            fn default() -> Self {
-                Config { $($name: $default,)* }
-            }
-        }
-
-        impl Config {
-            /// Set `key` to `value`: None for a key that is no setting, false for a value that
-            /// cannot be read, which keeps the one before.
-            // String's parse cannot fail, so its `if let` is irrefutable.
-            #[allow(irrefutable_let_patterns)]
-            pub fn set(&mut self, key: &str, value: &str) -> Option<bool> {
-                let value = by_number(key, value);
-                let value = value.as_str();
-                match key {
-                    $(stringify!($name) => {
-                        if let Ok(v) = value.parse() {
-                            self.$name = v;
-                            return Some(true);
-                        }
-                        Some(false)
-                    })*
-                    _ => None,
-                }
-            }
-
-            pub fn to_text(&self) -> String {
-                let mut text = String::new();
-                $(text += &format!(
-                    "{}={}\n",
-                    stringify!($name),
-                    by_name(stringify!($name), self.$name.to_string())
-                );)*
-                text
-            }
-        }
-    };
 }
 
 config! {
@@ -689,6 +562,158 @@ impl Config {
     }
 }
 
+/// Work for a `serial` thread.
+pub type Work = Box<dyn FnOnce() + Send>;
+
+/// `$XDG_CONFIG_HOME/glimt/config`, otherwise `~/.config/glimt/config`.
+pub fn config_path() -> Option<PathBuf> {
+    xdg_file("XDG_CONFIG_HOME", ".config", "config")
+}
+
+/// `$XDG_CONFIG_HOME/glimt/keywords`: the keyword tree, a path such as "Places|Norway|Oslo"
+/// on each line.
+pub fn keyword_tree_path() -> Option<PathBuf> {
+    xdg_file("XDG_CONFIG_HOME", ".config", "keywords")
+}
+
+/// `$XDG_CONFIG_HOME/glimt/sort-folders`: the sort manager's folders, one on each line.
+pub fn sort_folders_path() -> Option<PathBuf> {
+    xdg_file("XDG_CONFIG_HOME", ".config", "sort-folders")
+}
+
+/// The folders of the sort-folders file, as bytes: one that is not UTF-8 is kept.
+pub fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    (text.split(|&b| b == b'\n'))
+        .filter(|l| !l.is_empty())
+        .map(|l| PathBuf::from(std::ffi::OsStr::from_bytes(l)))
+        .collect()
+}
+
+/// The sort-folders file's text for `dirs`; a name with a line break cannot be kept in it.
+pub fn sort_folders_text(dirs: &[PathBuf]) -> Vec<u8> {
+    let mut text = Vec::new();
+    for d in dirs {
+        let bytes = d.as_os_str().as_encoded_bytes();
+        if !bytes.contains(&b'\n') {
+            text.extend(bytes);
+            text.push(b'\n');
+        }
+    }
+    text
+}
+
+/// `on_disk` with `add` added and `remove` taken out: a change, applied to the file as it is
+/// now, so folders another window added meanwhile stay.
+pub fn sort_folders_changed(
+    mut on_disk: Vec<PathBuf>,
+    add: Option<&Path>,
+    remove: Option<&Path>,
+) -> Vec<PathBuf> {
+    on_disk.retain(|d| Some(d.as_path()) != remove);
+    if let Some(add) = add.filter(|a| !on_disk.iter().any(|d| d == a)) {
+        on_disk.push(add.to_path_buf());
+    }
+    on_disk
+}
+
+/// `$XDG_STATE_HOME/glimt/state`, otherwise `~/.local/state/glimt/state`.
+/// State (such as the last folder) is not configuration, and belongs here according to XDG.
+pub fn state_path() -> Option<PathBuf> {
+    xdg_file("XDG_STATE_HOME", ".local/state", "state")
+}
+
+/// `$XDG_STATE_HOME/glimt/recent`: File → Open Recent's folders and collections, newest first,
+/// one on each line, shared by the windows.
+pub fn recent_path() -> Option<PathBuf> {
+    xdg_file("XDG_STATE_HOME", ".local/state", "recent")
+}
+
+/// The paths of a recent file's text, as bytes: a name need not be UTF-8.
+pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    (text.split(|&b| b == b'\n'))
+        .filter(|l| !l.is_empty())
+        .map(|l| std::ffi::OsStr::from_bytes(l).into())
+        .take(RECENT)
+        .collect()
+}
+
+/// `path` first in `recent`, once, and no more than RECENT; a name with a line break in it
+/// cannot be kept on a line, and is left out.
+pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let fits = !path.as_os_str().as_bytes().contains(&b'\n');
+    (fits.then(|| path.to_path_buf()).into_iter())
+        .chain(recent.iter().filter(|p| *p != path).cloned())
+        .take(RECENT)
+        .collect()
+}
+
+/// The text of a recent file.
+pub fn recent_text(recent: &[PathBuf]) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    recent
+        .iter()
+        .flat_map(|p| [p.as_os_str().as_bytes(), b"\n"].concat())
+        .collect()
+}
+
+pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
+    Some(xdg_dir(var, home_fallback, "glimt")?.join(name))
+}
+
+pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
+    // Tests have a home of their own: an App made in a test removed the user's recent list.
+    #[cfg(test)]
+    return {
+        let _ = var;
+        Some(test_home().join(home_fallback).join(app))
+    };
+    #[cfg(not(test))]
+    let base = std::env::var_os(var)
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))?;
+    #[cfg(not(test))]
+    Some(base.join(app))
+}
+
+/// The home folder of the tests, under the temporary folder, for every XDG folder: one for
+/// every run, so what a test leaves there (Rename Many's empty plans folder) is never more
+/// than one tree; files in it have names of their own (plans by instance and time).
+#[cfg(test)]
+pub fn test_home() -> PathBuf {
+    std::env::temp_dir().join("glimt-test-home")
+}
+
+pub fn parse_last_dir(state: &str) -> Option<PathBuf> {
+    state_value(state, "last_dir").map(PathBuf::from)
+}
+
+pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
+    state.lines().find_map(|l| {
+        l.strip_prefix(key)?
+            .strip_prefix('=')
+            .filter(|v| !v.is_empty())
+    })
+}
+
+/// `value` of `key` as the code holds it: a name's place in its list, else as given.
+fn by_number(key: &str, value: &str) -> String {
+    let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
+    let place = names.and_then(|names| names.iter().position(|n| n.eq_ignore_ascii_case(value)));
+    place.map_or_else(|| value.to_owned(), |k| k.to_string())
+}
+
+/// `value` of `key` as the file holds it: the name of a numbered choice.
+fn by_name(key: &str, value: String) -> String {
+    let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
+    match names.zip(value.parse::<usize>().ok()) {
+        Some((names, k)) if k < names.len() => names[k].to_owned(),
+        _ => value,
+    }
+}
+
 /// A file the windows share, changed as it is now: under its lock, read whole (one not there
 /// yet is empty), `change` gives its new contents and what the caller keeps, and it is written
 /// whole or not at all. One that is there but cannot be read is not written over, as all it
@@ -747,19 +772,10 @@ fn value_in(text: &str, key: &str) -> String {
     line.unwrap_or_default().to_owned()
 }
 
-/// A file Glimt could not save, for the window to tell: from any thread.
-static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
 /// The last file Glimt could not save, once.
 pub fn take_save_error() -> Option<String> {
     SAVE_ERROR.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
-
-/// The administrator's lock: while this file is there, every Glimt starts with --lock-settings.
-pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
-
-/// --lock-settings: no Preferences, and nothing written to the settings files.
-static LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn lock() {
     LOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -768,15 +784,6 @@ pub fn lock() {
 pub fn locked() -> bool {
     LOCKED.load(std::sync::atomic::Ordering::Relaxed)
 }
-
-/// The settings as this window last read or wrote them.
-static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-
-/// Everything being written for the user, counted by a `Working` held while it runs: the
-/// settings and marks (`write_later`), sidecars, file jobs, a turned image, a print. The one
-/// count closing waits for, so that no writer can be forgotten.
-pub static WRITING: std::sync::LazyLock<std::sync::Arc<std::sync::atomic::AtomicUsize>> =
-    std::sync::LazyLock::new(Default::default);
 
 /// `work` in the one thread that writes Glimt's own files, in the order given.
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
@@ -789,9 +796,6 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
     };
     let _ = WRITER.get_or_init(serial).send(Box::new(counted));
 }
-
-/// Work for a `serial` thread.
-pub type Work = Box<dyn FnOnce() + Send>;
 
 /// A thread that does the work sent to it one after another, in that order. One that panics
 /// does not end it, or every later work sent would be lost.

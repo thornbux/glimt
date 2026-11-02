@@ -10,27 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Instant;
 
-/// The row `delta` on from `row` of `n` rows, wrapping round or stopping at the ends; from
-/// before the first row (`None`, the shown file hidden by a search) the step counts from there.
-pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -> Option<usize> {
-    if n == 0 {
-        return None;
-    }
-    let (row, n) = (row.map_or(-1, |r| r as isize), n as isize);
-    let r = match wrap {
-        true => (row + delta).rem_euclid(n),
-        false => (row + delta).clamp(0, n - 1),
-    };
-    Some(r as usize)
-}
-
-/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
-/// also when the shown file is not in the list (hidden by a search). Several panes step by
-/// their number, so the round may end past the last row, not on the first.
-pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
-    row.is_none_or(|r| r + delta >= len)
-}
-
 impl crate::App {
     // ---- Moving through the list, and the selection ----
 
@@ -306,4 +285,25 @@ impl crate::App {
         let first = self.list.selected.first().copied().unwrap_or(self.list.cur);
         (self.list.selected.len().max(1), first)
     }
+}
+
+/// The row `delta` on from `row` of `n` rows, wrapping round or stopping at the ends; from
+/// before the first row (`None`, the shown file hidden by a search) the step counts from there.
+pub(crate) fn next_row(row: Option<usize>, delta: isize, n: usize, wrap: bool) -> Option<usize> {
+    if n == 0 {
+        return None;
+    }
+    let (row, n) = (row.map_or(-1, |r| r as isize), n as isize);
+    let r = match wrap {
+        true => (row + delta).rem_euclid(n),
+        false => (row + delta).clamp(0, n - 1),
+    };
+    Some(r as usize)
+}
+
+/// Whether a slideshow stepping `delta` on from `row` of a list of `len` starts again at the top:
+/// also when the shown file is not in the list (hidden by a search). Several panes step by
+/// their number, so the round may end past the last row, not on the first.
+pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
+    row.is_none_or(|r| r + delta >= len)
 }

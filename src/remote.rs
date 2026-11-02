@@ -71,9 +71,212 @@ pub const COMMANDS: &[(&str, &str)] = &[
 /// At most this many files for `select`: the window finds them in its own thread.
 pub const MAX_SELECT: usize = 100_000;
 
+/// How long a command and its answer may take: a client that sends nothing, or a window that
+/// does not answer, holds up the others no longer than this.
+const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The name from `--name`, set before the window opens.
+static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// A window took a command but gave no answer in time.
+static UNANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// This Glimt listens on its socket, so it removes it when it closes.
+static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The listening socket's file number, -1 when this Glimt does not listen.
+static LISTENER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+/// Clients connected, and queries sent to the window whose answers are not written yet.
+static ANSWERING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Where the window sends a query's answer: paths, each ending in a NUL byte, as `find -print0`
 /// writes them, since a file name can hold a line break.
 pub type Reply = mpsc::Sender<Vec<u8>>;
+
+/// One of `ANSWERING` while it lives.
+struct Answering;
+
+impl Answering {
+    fn new() -> Self {
+        ANSWERING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Answering
+    }
+}
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        ANSWERING.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl crate::App {
+    // ---- Remote control ----
+
+    /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
+    /// dialog asks about the selection.
+    pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
+        // After `open`, the folder is still being read: its files are not all listed. A dialog
+        // asking about the selection (Delete, Rename) is answered for the one it asked about, not
+        // one a script put in its place meanwhile.
+        let busy = |app: &Self| app.listing_rx.is_some() || app.asking_about_selection();
+        // Those held back, in the order they came, until one (an `open`) makes the window busy
+        // again: each gets its own answer, from the list as it was when it was sent.
+        while !self.waiting_select.is_empty() && !busy(self) {
+            let (command, reply) = self.waiting_select.remove(0);
+            self.remote_one(ctx, &command, reply);
+        }
+        while let Ok((command, reply)) = self.remote_rx.try_recv() {
+            let select = reply.is_some() && command.starts_with("select ");
+            // Behind a select held back, what can change the list it is answered for waits its
+            // turn: another script's `open`, subfolders, a slideshow with its subfolders. Other
+            // queries and commands are done at once, as without it.
+            let lists = ["open ", "subfolders", "slideshow"];
+            let relists = lists.iter().any(|c| command.starts_with(c));
+            let wait = (relists && !self.waiting_select.is_empty()) || (select && busy(self));
+            if !wait {
+                self.remote_one(ctx, &command, reply);
+            } else if self.waiting_select.len() < 64 {
+                self.waiting_select.push((command, reply));
+            }
+            // More than that waiting: the answer dropped, which the client is told as "no
+            // answer" (serve), so the script tries again.
+        }
+    }
+
+    /// At closing: each select still held back is answered with all its paths, none of them
+    /// selected. Left without an answer, the closed socket would read as "all found".
+    /// Also those sent just before, not yet taken from the channel: a query is answered as
+    /// usual (current, selection).
+    pub(crate) fn answer_held_selects(&mut self) {
+        let sent: Vec<_> = self.remote_rx.try_iter().collect();
+        let held = std::mem::take(&mut self.waiting_select);
+        let ctx = self.ctx.clone();
+        for (command, reply) in held.into_iter().chain(sent) {
+            let Some(reply) = reply else { continue };
+            match command.strip_prefix("select ") {
+                Some(paths) => {
+                    let paths = paths.split('\0').filter(|p| !p.is_empty());
+                    let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
+                }
+                // Answered as at any other time (`where` too, in the release tests' build).
+                None => self.remote_one(&ctx, &command, Some(reply)),
+            }
+        }
+    }
+
+    /// One command from `glimt --remote`, with the answer to send if it asks for one.
+    pub(crate) fn remote_one(&mut self, ctx: &egui::Context, command: &str, reply: Option<Reply>) {
+        match reply {
+            Some(reply) if command.starts_with("select ") => {
+                let _ = reply.send(self.remote_select(ctx, command));
+            }
+            #[cfg(feature = "test-hooks")]
+            Some(reply) if command.starts_with("where ") => {
+                let _ = reply.send(hooks::position(command.trim_start_matches("where ")));
+            }
+            Some(reply) => drop(reply.send(self.remote_query(command))),
+            None => self.remote_command(ctx, command),
+        }
+    }
+
+    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random and
+    /// fullscreen (each with on or off, or without to go to the other), subfolders on|off, quit,
+    /// open PATH, or title with this window's own title, or without to have the one in Preferences.
+    pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
+        let action = match command.trim() {
+            "next" => Some(Action::Next),
+            "prev" => Some(Action::Prev),
+            "first" => Some(Action::First),
+            "last" => Some(Action::Last),
+            // With on or off, a state a script can count on: nothing when it is so already.
+            "slideshow on" if self.slideshow.is_some() => None,
+            "slideshow off" if self.slideshow.is_none() => None,
+            "slideshow" | "slideshow on" | "slideshow off" => Some(Action::Slideshow),
+            "random" => Some(Action::RandomOrder),
+            "random on" => return self.set_random_order(ctx, true),
+            "random off" => return self.set_random_order(ctx, false),
+            "fullscreen on" if fullscreen => None,
+            "fullscreen off" if !fullscreen => None,
+            "fullscreen" | "fullscreen on" | "fullscreen off" => Some(Action::FullScreen),
+            "quit" => {
+                // The only way out of a kiosk.
+                self.kiosk_quit = true;
+                Some(Action::Quit)
+            }
+            "subfolders on" => return self.set_subfolders(ctx, true),
+            "subfolders off" => return self.set_subfolders(ctx, false),
+            "title" => return self.set_window_title(ctx, ""),
+            other if other.starts_with("title ") => {
+                return self.set_window_title(ctx, other["title ".len()..].trim());
+            }
+            other if other.starts_with("open ") => {
+                // The path as it was sent, not trimmed: a folder's name may end in a space.
+                if let Some(path) = command.trim_start().strip_prefix("open ") {
+                    self.visit(ctx, PathBuf::from(path));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(action) = action {
+            self.run(ctx, action);
+        }
+    }
+
+    /// The answer to `glimt --remote current` or `selection`: the paths, each ending in a NUL
+    /// byte. Nothing else is told, and nothing changes.
+    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
+    // selected; in a thread of its own if scripts ask for large selections often.
+    pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
+        use std::os::unix::ffi::OsStringExt;
+        let files = match command.trim() {
+            "current" => vec![self.list.cur],
+            _ => self.targets(),
+        };
+        (files.into_iter().filter(|&i| i < self.list.files.len()))
+            .flat_map(|i| {
+                let path = self.path(i).into_os_string().into_vec();
+                path.into_iter().chain([0])
+            })
+            .collect()
+    }
+
+    /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
+    /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
+    /// Only the selection changes; deleting or moving it is left to the user.
+    pub(crate) fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
+        let paths = command.strip_prefix("select ").unwrap_or_default();
+        let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
+        // The list's name of `p`: relative to the folder shown.
+        fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
+            Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
+        }
+        let dir = self.dir.clone();
+        let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
+        let found: std::collections::BTreeSet<usize> = (self.list.files.iter().enumerate())
+            .filter(|(_, f)| names.contains(f.as_os_str()))
+            .map(|(i, _)| i)
+            .collect();
+        let listed: HashSet<&std::ffi::OsStr> = found
+            .iter()
+            .map(|&i| self.list.files[i].as_os_str())
+            .collect();
+        let missing: Vec<u8> = (paths.iter())
+            .filter(|p| !name(&dir, p).is_some_and(|n| listed.contains(n)))
+            .flat_map(|p| p.bytes().chain([0]))
+            .collect();
+        if let Some(&first) = found.first() {
+            self.go(ctx, first);
+            self.list.selected = found;
+            self.list.anchor = None;
+            self.selection_changed(ctx);
+        }
+        missing
+    }
+}
 
 /// Commands that answer. None of them changes a file: `select` only selects, and what is done
 /// with the selection is the user's to do in the window.
@@ -82,10 +285,6 @@ fn is_query(command: &str) -> bool {
         || command.starts_with("select ")
         || command.starts_with("where ")
 }
-
-/// How long a command and its answer may take: a client that sends nothing, or a window that
-/// does not answer, holds up the others no longer than this.
-const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Glimt's runtime folder, which only the user can reach: sockets, and the sidecar locks.
 pub(crate) fn dir() -> Option<PathBuf> {
@@ -123,9 +322,6 @@ pub fn instance_id() -> &'static str {
         instance.map_or_else(|| pid.to_string(), |i| format!("{i}-{pid}"))
     })
 }
-
-/// The name from `--name`, set before the window opens.
-static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Listen as `name` instead of the process ID.
 pub fn set_name(name: String) {
@@ -175,9 +371,6 @@ pub fn known(words: &[String]) -> bool {
         }
     })
 }
-
-/// A window took a command but gave no answer in time.
-static UNANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether a window took a command but gave no answer within `WAIT`.
 pub fn unanswered() -> bool {
@@ -461,9 +654,6 @@ pub fn listening() -> bool {
     LISTENING.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// This Glimt listens on its socket, so it removes it when it closes.
-static LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// The socket at `path` for this Glimt: one left by a Glimt that did not close is replaced, but
 /// not one that a running Glimt (of the same `--name`) answers on.
 /// `Err(None)` when a running Glimt answers on it; `Err(Some(why))` when it cannot be made.
@@ -546,202 +736,12 @@ fn queued(fd: i32) -> bool {
     fd >= 0 && unsafe { poll(&mut p, 1, 0) } == 1 && p.revents & POLLIN != 0
 }
 
-/// The listening socket's file number, -1 when this Glimt does not listen.
-static LISTENER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
-
 /// No new client: this Glimt's socket removed, as it closes.
 pub fn close() {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
         && let Some(path) = socket(socket_id())
     {
         let _ = std::fs::remove_file(path);
-    }
-}
-
-/// Clients connected, and queries sent to the window whose answers are not written yet.
-static ANSWERING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-/// One of `ANSWERING` while it lives.
-struct Answering;
-
-impl Answering {
-    fn new() -> Self {
-        ANSWERING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Answering
-    }
-}
-
-impl Drop for Answering {
-    fn drop(&mut self) {
-        ANSWERING.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-impl crate::App {
-    // ---- Remote control ----
-
-    /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
-    /// dialog asks about the selection.
-    pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
-        // After `open`, the folder is still being read: its files are not all listed. A dialog
-        // asking about the selection (Delete, Rename) is answered for the one it asked about, not
-        // one a script put in its place meanwhile.
-        let busy = |app: &Self| app.listing_rx.is_some() || app.asking_about_selection();
-        // Those held back, in the order they came, until one (an `open`) makes the window busy
-        // again: each gets its own answer, from the list as it was when it was sent.
-        while !self.waiting_select.is_empty() && !busy(self) {
-            let (command, reply) = self.waiting_select.remove(0);
-            self.remote_one(ctx, &command, reply);
-        }
-        while let Ok((command, reply)) = self.remote_rx.try_recv() {
-            let select = reply.is_some() && command.starts_with("select ");
-            // Behind a select held back, what can change the list it is answered for waits its
-            // turn: another script's `open`, subfolders, a slideshow with its subfolders. Other
-            // queries and commands are done at once, as without it.
-            let lists = ["open ", "subfolders", "slideshow"];
-            let relists = lists.iter().any(|c| command.starts_with(c));
-            let wait = (relists && !self.waiting_select.is_empty()) || (select && busy(self));
-            if !wait {
-                self.remote_one(ctx, &command, reply);
-            } else if self.waiting_select.len() < 64 {
-                self.waiting_select.push((command, reply));
-            }
-            // More than that waiting: the answer dropped, which the client is told as "no
-            // answer" (serve), so the script tries again.
-        }
-    }
-
-    /// At closing: each select still held back is answered with all its paths, none of them
-    /// selected. Left without an answer, the closed socket would read as "all found".
-    /// Also those sent just before, not yet taken from the channel: a query is answered as
-    /// usual (current, selection).
-    pub(crate) fn answer_held_selects(&mut self) {
-        let sent: Vec<_> = self.remote_rx.try_iter().collect();
-        let held = std::mem::take(&mut self.waiting_select);
-        let ctx = self.ctx.clone();
-        for (command, reply) in held.into_iter().chain(sent) {
-            let Some(reply) = reply else { continue };
-            match command.strip_prefix("select ") {
-                Some(paths) => {
-                    let paths = paths.split('\0').filter(|p| !p.is_empty());
-                    let _ = reply.send(paths.flat_map(|p| p.bytes().chain([0])).collect());
-                }
-                // Answered as at any other time (`where` too, in the release tests' build).
-                None => self.remote_one(&ctx, &command, Some(reply)),
-            }
-        }
-    }
-
-    /// One command from `glimt --remote`, with the answer to send if it asks for one.
-    pub(crate) fn remote_one(&mut self, ctx: &egui::Context, command: &str, reply: Option<Reply>) {
-        match reply {
-            Some(reply) if command.starts_with("select ") => {
-                let _ = reply.send(self.remote_select(ctx, command));
-            }
-            #[cfg(feature = "test-hooks")]
-            Some(reply) if command.starts_with("where ") => {
-                let _ = reply.send(hooks::position(command.trim_start_matches("where ")));
-            }
-            Some(reply) => drop(reply.send(self.remote_query(command))),
-            None => self.remote_command(ctx, command),
-        }
-    }
-
-    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random and
-    /// fullscreen (each with on or off, or without to go to the other), subfolders on|off, quit,
-    /// open PATH, or title with this window's own title, or without to have the one in Preferences.
-    pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
-        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
-        let action = match command.trim() {
-            "next" => Some(Action::Next),
-            "prev" => Some(Action::Prev),
-            "first" => Some(Action::First),
-            "last" => Some(Action::Last),
-            // With on or off, a state a script can count on: nothing when it is so already.
-            "slideshow on" if self.slideshow.is_some() => None,
-            "slideshow off" if self.slideshow.is_none() => None,
-            "slideshow" | "slideshow on" | "slideshow off" => Some(Action::Slideshow),
-            "random" => Some(Action::RandomOrder),
-            "random on" => return self.set_random_order(ctx, true),
-            "random off" => return self.set_random_order(ctx, false),
-            "fullscreen on" if fullscreen => None,
-            "fullscreen off" if !fullscreen => None,
-            "fullscreen" | "fullscreen on" | "fullscreen off" => Some(Action::FullScreen),
-            "quit" => {
-                // The only way out of a kiosk.
-                self.kiosk_quit = true;
-                Some(Action::Quit)
-            }
-            "subfolders on" => return self.set_subfolders(ctx, true),
-            "subfolders off" => return self.set_subfolders(ctx, false),
-            "title" => return self.set_window_title(ctx, ""),
-            other if other.starts_with("title ") => {
-                return self.set_window_title(ctx, other["title ".len()..].trim());
-            }
-            other if other.starts_with("open ") => {
-                // The path as it was sent, not trimmed: a folder's name may end in a space.
-                if let Some(path) = command.trim_start().strip_prefix("open ") {
-                    self.visit(ctx, PathBuf::from(path));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                }
-                None
-            }
-            _ => None,
-        };
-        if let Some(action) = action {
-            self.run(ctx, action);
-        }
-    }
-
-    /// The answer to `glimt --remote current` or `selection`: the paths, each ending in a NUL
-    /// byte. Nothing else is told, and nothing changes.
-    // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
-    // selected; in a thread of its own if scripts ask for large selections often.
-    pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
-        use std::os::unix::ffi::OsStringExt;
-        let files = match command.trim() {
-            "current" => vec![self.list.cur],
-            _ => self.targets(),
-        };
-        (files.into_iter().filter(|&i| i < self.list.files.len()))
-            .flat_map(|i| {
-                let path = self.path(i).into_os_string().into_vec();
-                path.into_iter().chain([0])
-            })
-            .collect()
-    }
-
-    /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
-    /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
-    /// Only the selection changes; deleting or moving it is left to the user.
-    pub(crate) fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
-        let paths = command.strip_prefix("select ").unwrap_or_default();
-        let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
-        // The list's name of `p`: relative to the folder shown.
-        fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
-            Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
-        }
-        let dir = self.dir.clone();
-        let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
-        let found: std::collections::BTreeSet<usize> = (self.list.files.iter().enumerate())
-            .filter(|(_, f)| names.contains(f.as_os_str()))
-            .map(|(i, _)| i)
-            .collect();
-        let listed: HashSet<&std::ffi::OsStr> = found
-            .iter()
-            .map(|&i| self.list.files[i].as_os_str())
-            .collect();
-        let missing: Vec<u8> = (paths.iter())
-            .filter(|p| !name(&dir, p).is_some_and(|n| listed.contains(n)))
-            .flat_map(|p| p.bytes().chain([0]))
-            .collect();
-        if let Some(&first) = found.first() {
-            self.go(ctx, first);
-            self.list.selected = found;
-            self.list.anchor = None;
-            self.selection_changed(ctx);
-        }
-        missing
     }
 }
 

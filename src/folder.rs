@@ -16,48 +16,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
-/// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
-/// before them.
-pub(crate) fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {
-    map.into_iter()
-        .filter_map(|(i, v)| Some((i - removed.binary_search(&i).err()?, v)))
-        .collect()
-}
-
-/// Send sizes as partial sums of 10,000 files, so the status bar fills in gradually; stops
-/// when the receiver is gone. The closed channel tells the UI the sum is complete.
-pub(crate) fn send_sizes(
-    sizes: impl Iterator<Item = u64>,
-    tx: mpsc::Sender<u64>,
-    ctx: &egui::Context,
-) {
-    let mut sizes = sizes.peekable();
-    while sizes.peek().is_some() {
-        if tx.send(sizes.by_ref().take(10_000).sum()).is_err() {
-            return;
-        }
-        ctx.request_repaint();
-    }
-    drop(tx);
-    ctx.request_repaint();
-}
-
-/// Add the partial sums from `send_sizes` that have arrived; `rx` becomes `None` when done.
-pub(crate) fn drain(rx: &mut Receiving<u64>, total: &mut u64) {
-    while let Took::Answer(sum) = rx.next() {
-        *total += sum;
-    }
-}
-
-/// Sum of the file sizes (one stat per file); unreadable files are not counted.
-pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
-    paths
-        .iter()
-        .filter_map(|p| p.metadata().ok())
-        .map(|m| m.len())
-        .sum()
-}
-
 impl crate::App {
     // ---- Opening a folder, a collection or several folders, and listing it ----
 
@@ -775,9 +733,7 @@ impl crate::App {
             self.go(ctx, cur.min(self.list.files.len() - 1));
         }
     }
-}
 
-impl crate::App {
     pub(crate) fn receive_sizes(&mut self) {
         while let Ok(freed) = self.freed_rx.try_recv() {
             // shortcut: a delete while the sum is still being computed can make it slightly off;
@@ -793,4 +749,46 @@ impl crate::App {
         drain(&mut self.match_rx, &mut self.list.match_size);
         drain(&mut self.size_rx, &mut self.total_size);
     }
+}
+
+/// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
+/// before them.
+pub(crate) fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {
+    map.into_iter()
+        .filter_map(|(i, v)| Some((i - removed.binary_search(&i).err()?, v)))
+        .collect()
+}
+
+/// Send sizes as partial sums of 10,000 files, so the status bar fills in gradually; stops
+/// when the receiver is gone. The closed channel tells the UI the sum is complete.
+pub(crate) fn send_sizes(
+    sizes: impl Iterator<Item = u64>,
+    tx: mpsc::Sender<u64>,
+    ctx: &egui::Context,
+) {
+    let mut sizes = sizes.peekable();
+    while sizes.peek().is_some() {
+        if tx.send(sizes.by_ref().take(10_000).sum()).is_err() {
+            return;
+        }
+        ctx.request_repaint();
+    }
+    drop(tx);
+    ctx.request_repaint();
+}
+
+/// Add the partial sums from `send_sizes` that have arrived; `rx` becomes `None` when done.
+pub(crate) fn drain(rx: &mut Receiving<u64>, total: &mut u64) {
+    while let Took::Answer(sum) = rx.next() {
+        *total += sum;
+    }
+}
+
+/// Sum of the file sizes (one stat per file); unreadable files are not counted.
+pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
+    paths
+        .iter()
+        .filter_map(|p| p.metadata().ok())
+        .map(|m| m.len())
+        .sum()
 }

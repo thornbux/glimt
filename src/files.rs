@@ -40,41 +40,25 @@ pub const SVG_EXTS: &[&str] = if cfg!(feature = "svg") {
     &[]
 };
 
-/// A JPEG by its name: the one test, for the scaled decode, Check Images, duplicates, the
-/// orientation field and the EXIF read.
-pub fn is_jpeg(path: &Path) -> bool {
-    has_ext(path, &["jpg", "jpeg"])
-}
-
-pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
-    let ext = path.extension().and_then(|e| e.to_str());
-    ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
-}
-
-/// A new file name from `pattern`: * is the old name without extension, a run of # the number
-/// `n` with that many digits; the old extension is kept. As bytes: an old name that is not
-/// UTF-8 (Latin-1 from an old camera) keeps its letters.
-pub fn pattern_name(pattern: &str, old: &Path, n: usize) -> OsString {
-    let (mut out, mut chars) = (OsString::new(), pattern.chars().peekable());
-    while let Some(c) = chars.next() {
-        match c {
-            '*' => out.push(old.file_stem().unwrap_or_default()),
-            '#' => {
-                let mut width = 1;
-                while chars.next_if_eq(&'#').is_some() {
-                    width += 1;
-                }
-                out.push(format!("{n:0width$}"));
-            }
-            c => out.push(c.encode_utf8(&mut [0; 4])),
-        }
-    }
-    if let Some(ext) = old.extension() {
-        out.push(".");
-        out.push(ext);
-    }
-    out
-}
+/// Each order with its config value and menu label.
+pub const SORTS: [(Sort, &str, &str); 8] = [
+    (Sort::Name, "name", "Sort by name"),
+    (Sort::Number, "number", "Sort by number"),
+    (Sort::Date, "date", "Sort by date"),
+    (Sort::Created, "created", "Sort by file creation date"),
+    (
+        Sort::ExifOriginal,
+        "exif_original",
+        "Sort by EXIF date original",
+    ),
+    (
+        Sort::ExifDigitized,
+        "exif_digitized",
+        "Sort by EXIF date digitized",
+    ),
+    (Sort::Size, "size", "Sort by size"),
+    (Sort::Extension, "extension", "Sort by extension"),
+];
 
 /// The file types the list shows, as Geeqie's file classes in its file filter.
 #[derive(Clone, Copy)]
@@ -115,6 +99,81 @@ impl Types {
             hidden: is_hidden(path),
         }
     }
+}
+
+/// File list order, as in Geeqie's sort menu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Sort {
+    Name,
+    /// Numbers in names compared by value: "img2" before "img10".
+    Number,
+    /// Modification time.
+    Date,
+    Created,
+    ExifOriginal,
+    ExifDigitized,
+    Size,
+    /// File type: "jpg" before "mp4" before "png"; then by name.
+    Extension,
+}
+
+impl Sort {
+    pub fn row(self) -> (Sort, &'static str, &'static str) {
+        SORTS.into_iter().find(|s| s.0 == self).unwrap_or(SORTS[0])
+    }
+}
+
+impl std::str::FromStr for Sort {
+    type Err = ();
+    fn from_str(text: &str) -> Result<Self, ()> {
+        SORTS
+            .into_iter()
+            .find(|s| s.1 == text)
+            .map(|s| s.0)
+            .ok_or(())
+    }
+}
+
+impl std::fmt::Display for Sort {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.row().1)
+    }
+}
+
+/// A JPEG by its name: the one test, for the scaled decode, Check Images, duplicates, the
+/// orientation field and the EXIF read.
+pub fn is_jpeg(path: &Path) -> bool {
+    has_ext(path, &["jpg", "jpeg"])
+}
+
+pub fn has_ext(path: &Path, exts: &[&str]) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str());
+    ext.is_some_and(|e| exts.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// A new file name from `pattern`: * is the old name without extension, a run of # the number
+/// `n` with that many digits; the old extension is kept. As bytes: an old name that is not
+/// UTF-8 (Latin-1 from an old camera) keeps its letters.
+pub fn pattern_name(pattern: &str, old: &Path, n: usize) -> OsString {
+    let (mut out, mut chars) = (OsString::new(), pattern.chars().peekable());
+    while let Some(c) = chars.next() {
+        match c {
+            '*' => out.push(old.file_stem().unwrap_or_default()),
+            '#' => {
+                let mut width = 1;
+                while chars.next_if_eq(&'#').is_some() {
+                    width += 1;
+                }
+                out.push(format!("{n:0width$}"));
+            }
+            c => out.push(c.encode_utf8(&mut [0; 4])),
+        }
+    }
+    if let Some(ext) = old.extension() {
+        out.push(".");
+        out.push(ext);
+    }
+    out
 }
 
 /// Shown in the file list: an image, a RAW file or a video (video feature), of the `types` on.
@@ -237,48 +296,6 @@ pub fn list_folder(dir: &Path, types: Types) -> (Vec<PathBuf>, Vec<OsString>) {
     (dirs, images)
 }
 
-/// File list order, as in Geeqie's sort menu.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Sort {
-    Name,
-    /// Numbers in names compared by value: "img2" before "img10".
-    Number,
-    /// Modification time.
-    Date,
-    Created,
-    ExifOriginal,
-    ExifDigitized,
-    Size,
-    /// File type: "jpg" before "mp4" before "png"; then by name.
-    Extension,
-}
-
-/// Each order with its config value and menu label.
-pub const SORTS: [(Sort, &str, &str); 8] = [
-    (Sort::Name, "name", "Sort by name"),
-    (Sort::Number, "number", "Sort by number"),
-    (Sort::Date, "date", "Sort by date"),
-    (Sort::Created, "created", "Sort by file creation date"),
-    (
-        Sort::ExifOriginal,
-        "exif_original",
-        "Sort by EXIF date original",
-    ),
-    (
-        Sort::ExifDigitized,
-        "exif_digitized",
-        "Sort by EXIF date digitized",
-    ),
-    (Sort::Size, "size", "Sort by size"),
-    (Sort::Extension, "extension", "Sort by extension"),
-];
-
-impl Sort {
-    pub fn row(self) -> (Sort, &'static str, &'static str) {
-        SORTS.into_iter().find(|s| s.0 == self).unwrap_or(SORTS[0])
-    }
-}
-
 /// Sort file names in `dir`; `case`: case-sensitive names ("B" before "a"). Everything but name
 /// and number needs a stat (or EXIF) per file, so this runs in the listing thread; ties fall
 /// back to the name.
@@ -377,23 +394,6 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
             }
             (a, b) = (&a[ca.len_utf8()..], &b[cb.len_utf8()..]);
         }
-    }
-}
-
-impl std::str::FromStr for Sort {
-    type Err = ();
-    fn from_str(text: &str) -> Result<Self, ()> {
-        SORTS
-            .into_iter()
-            .find(|s| s.1 == text)
-            .map(|s| s.0)
-            .ok_or(())
-    }
-}
-
-impl std::fmt::Display for Sort {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str(self.row().1)
     }
 }
 

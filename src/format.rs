@@ -2,6 +2,21 @@
 
 use crate::lang::{self, tr};
 
+#[repr(C)]
+struct Tm {
+    sec: i32,
+    min: i32,
+    hour: i32,
+    mday: i32,
+    mon: i32,
+    year: i32,
+    wday: i32,
+    yday: i32,
+    isdst: i32,
+    gmtoff: i64,
+    zone: *const std::ffi::c_char,
+}
+
 /// A size for the status bar, or "calculating…" while it is summed (`None`).
 pub(crate) fn size_text(bytes: Option<u64>) -> String {
     bytes.map_or(tr("calculating…").to_owned(), human_size)
@@ -86,21 +101,6 @@ pub(crate) fn fill_template(template: &str, value: impl Fn(&str) -> String) -> S
         (!parts.is_empty()).then(|| parts.join(" · "))
     });
     lines.collect::<Vec<_>>().join("\n")
-}
-
-#[repr(C)]
-struct Tm {
-    sec: i32,
-    min: i32,
-    hour: i32,
-    mday: i32,
-    mon: i32,
-    year: i32,
-    wday: i32,
-    yday: i32,
-    isdst: i32,
-    gmtoff: i64,
-    zone: *const std::ffi::c_char,
 }
 
 unsafe extern "C" {

@@ -11,8 +11,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Decoded frames kept of one animation (bytes); longer ones loop the first part.
 pub static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
+
 /// Frames of an animation kept at most, whatever their size.
 const MAX_FRAMES: usize = 1000;
+
+/// image's default limit (`Limits::max_alloc`).
+pub const MAX_DECODE: u64 = 512 << 20;
 
 pub struct Decoded {
     /// The file the job was for; rejects results from a folder that has since been replaced.
@@ -33,6 +37,21 @@ pub type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
 /// Pixel counts per level of red, green, blue, brightness and alpha.
 pub type Hist = [[u32; 256]; 5];
 
+/// The decoded frames with their delays in ms; one frame for a still image.
+pub type Frames = Vec<(egui::ColorImage, u32)>;
+
+/// An image, its ICC profile if it has one, and its size upright before any shrinking.
+pub type Small = (image::DynamicImage, Option<Vec<u8>>, [usize; 2]);
+
+/// An image as read, its ICC profile, the EXIF turn still to do, and its real size where it
+/// came smaller.
+type Unturned = (
+    image::DynamicImage,
+    Option<Vec<u8>>,
+    Orientation,
+    Option<[usize; 2]>,
+);
+
 pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
     let mut h = Box::new([[0; 256]; 5]);
     for p in &img.pixels {
@@ -46,9 +65,6 @@ pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
     }
     h
 }
-
-/// The decoded frames with their delays in ms; one frame for a still image.
-pub type Frames = Vec<(egui::ColorImage, u32)>;
 
 /// Whether `path` is a file (also through a link): a pipe would block a reader for good, and
 /// a device such as /dev/zero would fill memory.
@@ -394,9 +410,6 @@ pub fn each_frame(
     Ok(done)
 }
 
-/// An image, its ICC profile if it has one, and its size upright before any shrinking.
-pub type Small = (image::DynamicImage, Option<Vec<u8>>, [usize; 2]);
-
 /// An image no larger than `max`, with its ICC profile and its size upright before it was
 /// shrunk: a JPEG at a fraction while decoding, else the whole image (HEIC, AVIF and video
 /// frames at `max` from ffmpeg) shrunk after. The one way for thumbnails, the print and its
@@ -421,15 +434,6 @@ pub fn load_icc(
     let (img, icc, _) = load_for(path, rotate, None)?;
     Ok((img, icc))
 }
-
-/// An image as read, its ICC profile, the EXIF turn still to do, and its real size where it
-/// came smaller.
-type Unturned = (
-    image::DynamicImage,
-    Option<Vec<u8>>,
-    Orientation,
-    Option<[usize; 2]>,
-);
 
 /// As `load_icc`, for a thumbnail no larger than `max`: HEIC, AVIF and video frames come so
 /// from ffmpeg, where other formats are shrunk after; and the image's real size, upright.
@@ -629,9 +633,6 @@ pub fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
         _ => Ok(()),
     }
 }
-
-/// image's default limit (`Limits::max_alloc`).
-pub const MAX_DECODE: u64 = 512 << 20;
 
 /// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first: a linked one
 /// only if it is a file under 64 MB (not /dev/zero or a pipe), and none whose header claims

@@ -14,6 +14,150 @@ use eframe::egui;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 
+// The texts of each section that the search field looks in, its title first. The test
+// `the_search_knows_every_text` keeps them the same as the texts the section shows.
+const LOOK: &[&str] = &[
+    "Look",
+    "Automatic (system language)",
+    "Background behind the image",
+    "Black",
+    "Checkerboard behind transparent images",
+    "Get More Themes…",
+    "High Contrast when the desktop asks for high contrast",
+    "Language",
+    "Large",
+    "Larger still when the desktop's text is (GNOME's Large Text)",
+    "Medium",
+    "Open Themes Folder",
+    "Save as Theme…",
+    "Show the file name search",
+    "Show the folder path",
+    "Show the toolbar",
+    "Small",
+    "Theme",
+    "Toolbar icons:",
+    "size of the menus, lists and text",
+];
+
+const KEYBOARD: &[&str] = &[
+    "Keyboard",
+    "Change",
+    "Keyboard shortcuts",
+    "Press a key (Esc cancels)",
+    "Reset",
+];
+
+const IMAGE: &[&str] = &[
+    "Image",
+    "Auto rotate images using EXIF (Alt+X)",
+    "Brightness",
+    "Default",
+    "Enlarge small images to fit the window",
+    "Hide the pointer in full screen when the mouse is still",
+    "Histogram (K):",
+    "Image info template:",
+    "Keep zoom and position when changing image",
+    "Logarithmic (J)",
+    "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
+    "Off",
+    "Play animated GIF and WebP (A)",
+    "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
+    "Show image info in full screen (I)",
+    "quality of a cropped JPEG (Edit → Crop)",
+    "quality when a lossy WebP is saved again",
+];
+
+const SLIDESHOW: &[&str] = &[
+    "Slideshow",
+    "Fade to the next image:",
+    "Include the images in subfolders",
+    "Not with CPU use Power saving",
+    "Random order",
+    "Repeat: start again after the last image",
+    "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
+    "seconds per image",
+];
+
+const FILE_LIST: &[&str] = &[
+    "File list",
+    "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam",
+    "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",
+    "Fuzzy, best matches first (like fzf)",
+    "In ~/.cache/thumbnails; kept for disks that are not plugged in",
+    "Include the images in subfolders in the file list",
+    "Large",
+    "Medium",
+    "Refresh the folder when files change",
+    "Regular expression, in list order (like Geeqie's file filter)",
+    "Remove thumbnails of deleted files",
+    "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
+    "Search field above the file list:",
+    "Show file size and date in the file list",
+    "Show folders as a tree (Ctrl+T)",
+    "Show marks and stars in the file list",
+    "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
+    "Show the file list as icons (Ctrl+I)",
+    "Show thumbnails in the file list (T)",
+    "Small",
+    "Thumbnail size:",
+];
+
+const DELETING: &[&str] = &[
+    "Deleting",
+    "Confirm move file to Trash",
+    "Confirm permanent file delete",
+    "Enable Delete key",
+    "Use no trash at all (Delete deletes permanently)",
+];
+
+const COLOUR: &[&str] = &[
+    "Colour management",
+    "Choose…",
+    "Colour management",
+    "From colord, which GNOME and KDE set",
+    "Images without a profile:",
+    "None",
+    "Profile file…",
+    "Rendering intent:",
+    "Screen profile:",
+    "Use the desktop's screen profile",
+    "Use the image's own profile",
+];
+
+const MEMORY: &[&str] = &[
+    "Memory and CPU",
+    "CPU use:",
+    "Custom",
+    "Decoding threads and one malloc arena take effect after a restart.",
+    "Details",
+    "MB at most for an animation's frames",
+    "Memory use:",
+    "One malloc arena: much less memory, decoding up to ~8 % slower",
+    "Preload next and previous images:",
+    "Up to ≈ {mb} MB, each image at most {w}×{h}",
+    "images decoded at once",
+    "images on each side",
+];
+
+const VIDEO: &[&str] = &[
+    "Video",
+    "Player (Enter):",
+    "Previews need ffmpeg",
+    "Show videos in the file list",
+    "default application",
+];
+
+const START: &[&str] = &[
+    "Start and system",
+    "Custom window title (empty: as above):",
+    "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty.",
+    "Keep a list of recent folders (File → Open Recent)",
+    "Keep the screen saver off in full screen",
+    "Listen for glimt --remote commands (after restart)",
+    "Remember the window size and position",
+    "Start in the last used folder",
+];
+
 impl crate::App {
     /// Edit → Preferences: every setting, saved when one changes; Esc closes it.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
@@ -928,141 +1072,6 @@ fn found(query: &str, texts: &[&'static str], more: &[&str]) -> bool {
     let all = all.to_lowercase();
     query.split_whitespace().all(|w| all.contains(w))
 }
-
-// The texts of each section that the search field looks in, its title first. The test
-// `the_search_knows_every_text` keeps them the same as the texts the section shows.
-const LOOK: &[&str] = &[
-    "Look",
-    "Automatic (system language)",
-    "Background behind the image",
-    "Black",
-    "Checkerboard behind transparent images",
-    "Get More Themes…",
-    "High Contrast when the desktop asks for high contrast",
-    "Language",
-    "Large",
-    "Larger still when the desktop's text is (GNOME's Large Text)",
-    "Medium",
-    "Open Themes Folder",
-    "Save as Theme…",
-    "Show the file name search",
-    "Show the folder path",
-    "Show the toolbar",
-    "Small",
-    "Theme",
-    "Toolbar icons:",
-    "size of the menus, lists and text",
-];
-const KEYBOARD: &[&str] = &[
-    "Keyboard",
-    "Change",
-    "Keyboard shortcuts",
-    "Press a key (Esc cancels)",
-    "Reset",
-];
-const IMAGE: &[&str] = &[
-    "Image",
-    "Auto rotate images using EXIF (Alt+X)",
-    "Brightness",
-    "Default",
-    "Enlarge small images to fit the window",
-    "Hide the pointer in full screen when the mouse is still",
-    "Histogram (K):",
-    "Image info template:",
-    "Keep zoom and position when changing image",
-    "Logarithmic (J)",
-    "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)",
-    "Off",
-    "Play animated GIF and WebP (A)",
-    "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)",
-    "Show image info in full screen (I)",
-    "quality of a cropped JPEG (Edit → Crop)",
-    "quality when a lossy WebP is saved again",
-];
-const SLIDESHOW: &[&str] = &[
-    "Slideshow",
-    "Fade to the next image:",
-    "Include the images in subfolders",
-    "Not with CPU use Power saving",
-    "Random order",
-    "Repeat: start again after the last image",
-    "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower",
-    "seconds per image",
-];
-const FILE_LIST: &[&str] = &[
-    "File list",
-    "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam",
-    "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",
-    "Fuzzy, best matches first (like fzf)",
-    "In ~/.cache/thumbnails; kept for disks that are not plugged in",
-    "Include the images in subfolders in the file list",
-    "Large",
-    "Medium",
-    "Refresh the folder when files change",
-    "Regular expression, in list order (like Geeqie's file filter)",
-    "Remove thumbnails of deleted files",
-    "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)",
-    "Search field above the file list:",
-    "Show file size and date in the file list",
-    "Show folders as a tree (Ctrl+T)",
-    "Show marks and stars in the file list",
-    "Show the EXIF panel (Ctrl+K; reads a little from each image shown)",
-    "Show the file list as icons (Ctrl+I)",
-    "Show thumbnails in the file list (T)",
-    "Small",
-    "Thumbnail size:",
-];
-const DELETING: &[&str] = &[
-    "Deleting",
-    "Confirm move file to Trash",
-    "Confirm permanent file delete",
-    "Enable Delete key",
-    "Use no trash at all (Delete deletes permanently)",
-];
-const COLOUR: &[&str] = &[
-    "Colour management",
-    "Choose…",
-    "Colour management",
-    "From colord, which GNOME and KDE set",
-    "Images without a profile:",
-    "None",
-    "Profile file…",
-    "Rendering intent:",
-    "Screen profile:",
-    "Use the desktop's screen profile",
-    "Use the image's own profile",
-];
-const MEMORY: &[&str] = &[
-    "Memory and CPU",
-    "CPU use:",
-    "Custom",
-    "Decoding threads and one malloc arena take effect after a restart.",
-    "Details",
-    "MB at most for an animation's frames",
-    "Memory use:",
-    "One malloc arena: much less memory, decoding up to ~8 % slower",
-    "Preload next and previous images:",
-    "Up to ≈ {mb} MB, each image at most {w}×{h}",
-    "images decoded at once",
-    "images on each side",
-];
-const VIDEO: &[&str] = &[
-    "Video",
-    "Player (Enter):",
-    "Previews need ffmpeg",
-    "Show videos in the file list",
-    "default application",
-];
-const START: &[&str] = &[
-    "Start and system",
-    "Custom window title (empty: as above):",
-    "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty.",
-    "Keep a list of recent folders (File → Open Recent)",
-    "Keep the screen saver off in full screen",
-    "Listen for glimt --remote commands (after restart)",
-    "Remember the window size and position",
-    "Start in the last used folder",
-];
 
 #[cfg(test)]
 mod tests {

@@ -8,6 +8,20 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+/// `tf!("Could not save {name}: {e}", name, e = err)`: the text in the language in use, its
+/// `{name}`s filled in. A name alone is a variable of that name.
+#[macro_export]
+macro_rules! tf {
+    (@value $name:ident = $value:expr) => { $value };
+    (@value $name:ident) => { $name };
+    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {
+        $crate::lang::fill(
+            $crate::lang::tr($text),
+            &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
+        )
+    };
+}
+
 /// The translations built in: code (the setting), name in its own language, the language codes
 /// of `$LANG` it is for, and its `.po` file. Each has every text of `no_nb.po`.
 pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
@@ -29,6 +43,21 @@ pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
     ("sv", "Svenska", &["sv"], include_str!("sv.po")),
 ];
 
+/// The translation in use; `None` for English.
+static CURRENT: RwLock<Option<&'static Table>> = RwLock::new(None);
+
+/// The most forms a noun has in a translation built in (Polish: one, few, many).
+const FORMS: usize = 4;
+
+/// A translation, parsed: each English text and its translation, and each noun of `count`
+/// with its forms; `code` picks the form.
+#[derive(Default)]
+struct Table {
+    code: &'static str,
+    texts: HashMap<String, String>,
+    plurals: HashMap<String, Vec<String>>,
+}
+
 /// Which of a noun's forms goes with `n`, by the language's rule (its `.po`'s Plural-Forms):
 /// one and many in most; 0 also one in French; 21 one in Icelandic; one, few and many in Polish.
 fn plural_form(code: &str, n: usize) -> usize {
@@ -41,18 +70,6 @@ fn plural_form(code: &str, n: usize) -> usize {
         _ => (n != 1) as usize,
     }
 }
-
-/// A translation, parsed: each English text and its translation, and each noun of `count`
-/// with its forms; `code` picks the form.
-#[derive(Default)]
-struct Table {
-    code: &'static str,
-    texts: HashMap<String, String>,
-    plurals: HashMap<String, Vec<String>>,
-}
-
-/// The translation in use; `None` for English.
-static CURRENT: RwLock<Option<&'static Table>> = RwLock::new(None);
 
 /// Use the language of `setting` (a code of `LANGUAGES`, "en"), or with "" the system's.
 pub fn set(setting: &str) {
@@ -159,20 +176,6 @@ pub fn fill(template: &str, values: &[(&str, &dyn std::fmt::Display)]) -> String
     out
 }
 
-/// `tf!("Could not save {name}: {e}", name, e = err)`: the text in the language in use, its
-/// `{name}`s filled in. A name alone is a variable of that name.
-#[macro_export]
-macro_rules! tf {
-    (@value $name:ident = $value:expr) => { $value };
-    (@value $name:ident) => { $name };
-    ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {
-        $crate::lang::fill(
-            $crate::lang::tr($text),
-            &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
-        )
-    };
-}
-
 /// The `.po` file's entries: msgid and msgstr, and msgid_plural with msgstr[0], [1] …; the
 /// header, untranslated ones and those marked fuzzy left out, as gettext does.
 fn parse(po: &str) -> Table {
@@ -252,9 +255,6 @@ fn parse(po: &str) -> Table {
     }
     table
 }
-
-/// The most forms a noun has in a translation built in (Polish: one, few, many).
-const FORMS: usize = 4;
 
 /// The text of a quoted `.po` string, its escapes read: \" \\ \n \t.
 fn unquote(s: &str) -> String {

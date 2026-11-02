@@ -6,6 +6,13 @@
 
 use std::path::{Path, PathBuf};
 
+const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
+
+const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
+
+/// The 64 locks within this Glimt, by `lock_slot`.
+static SLOTS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
+
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct Meta {
     pub keywords: Vec<String>,
@@ -44,8 +51,8 @@ pub struct Access {
     pub extended: String,
 }
 
-const ALT: &str = "Iptc4xmpCore:AltTextAccessibility";
-const EXTENDED: &str = "Iptc4xmpCore:ExtDescrAccessibility";
+/// A sidecar's lock while held: the lock file, if it could be made, and the mutex of its slot.
+pub(crate) type Held = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
 fn parse_access(xmp: &str) -> Access {
     let first = |tag| items(xmp, tag).into_iter().next().unwrap_or_default();
@@ -284,12 +291,6 @@ fn held_all_in<'a>(dir: Option<&Path>, paths: impl IntoIterator<Item = &'a PathB
 fn locks() -> Option<PathBuf> {
     crate::remote::dir().map(|d| d.join("sidecar-locks"))
 }
-
-/// A sidecar's lock while held: the lock file, if it could be made, and the mutex of its slot.
-pub(crate) type Held = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
-
-/// The 64 locks within this Glimt, by `lock_slot`.
-static SLOTS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;

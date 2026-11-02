@@ -29,6 +29,72 @@ pub(crate) struct RenameJob {
     undoing: bool,
 }
 
+/// What a move to the trash did, as it did it, for Undo to put back: the files or folder it
+/// moved, the sidecars that went with them, when it began (the trash may hold older files of the
+/// same names, which are not these), and what went with them elsewhere: their marks and stars,
+/// and their places in the collection shown. Recorded as it happens, never found out later: by
+/// the move's thread, and the marks by `receive_deleted` as it forgets them, which is the one
+/// way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
+/// older file of the same name from the trash.
+pub(crate) struct Thrown {
+    files: Vec<PathBuf>,
+    sidecars: Vec<PathBuf>,
+    since: std::time::SystemTime,
+    pub(crate) marks: Vec<(PathBuf, (u8, u8))>,
+    collection: Option<(PathBuf, Vec<(usize, PathBuf)>)>,
+}
+
+/// A file in a trash folder: where it came from, when (as the trash writes it, which sorts by
+/// time), and its file and its .trashinfo there.
+#[derive(Clone)]
+struct Trashed {
+    from: PathBuf,
+    date: String,
+    file: PathBuf,
+    info: PathBuf,
+}
+
+/// What a delete, move, copy or plugin reports, in one message: the files it was asked to
+/// delete or move, those gone now (found out in its thread, not one `stat` each in the
+/// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
+/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, the
+/// marks an Undo puts back, and files changed or written over. The one report of what happened
+/// to files on disk, and `receive_deleted` the one place that brings everything that follows a
+/// file along: marks, the collection, a turn not saved, decoded images, thumbnails, details and
+/// the `exif:` index. One message, so nothing depends on the order two would arrive in.
+#[derive(Default)]
+pub(crate) struct Deleted {
+    pub(crate) paths: Vec<PathBuf>,
+    pub(crate) gone: Vec<PathBuf>,
+    pub(crate) failed: bool,
+    pub(crate) moved: Vec<(PathBuf, PathBuf)>,
+    pub(crate) copied: bool,
+    /// The folder is to be read again: a plugin edited files in it, a repair renamed them.
+    pub(crate) relist: bool,
+    /// What Undo puts back, when this was a move to the trash or a move.
+    pub(crate) undo: Option<Undo>,
+    /// Marks and stars to put back: of files Undo brought back from the trash.
+    pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
+    /// Files a plugin changed in place: what is shown of them is read again. (A turn saved
+    /// comes through `saved_rx`, which also ends its guard, into the same `files_changed`.)
+    pub(crate) changed: Vec<PathBuf>,
+    /// Files written over by another image (Save As, Save This Frame onto a file there): read
+    /// again, and their marks and stars go, as their sidecar did.
+    pub(crate) overwritten: Vec<PathBuf>,
+    /// A folder renamed (old, new), which the window follows.
+    pub(crate) folder_renamed: Option<(PathBuf, PathBuf)>,
+    /// A folder made (New Folder): the tree reads its parent again, the list its folder.
+    pub(crate) folder_made: Option<PathBuf>,
+}
+
+/// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
+/// moved `(from, to)`, or the last renamed (old names, new names).
+pub(crate) enum Undo {
+    Trash(Thrown),
+    Move(Vec<(PathBuf, PathBuf)>),
+    Rename(Vec<PathBuf>, Vec<PathBuf>),
+}
+
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
@@ -900,6 +966,188 @@ impl crate::App {
             self.tree.remove(parent);
         }
     }
+
+    // ---- Work in the background: sidecars, frames, the backup and other jobs ----
+
+    /// `work`, which writes files and changes `touches`, in a thread of its own, the busy pointer
+    /// showing meanwhile and closing waiting for it; what it returns is told in the window.
+    /// Not started, with a notice, while something else works on `touches` (`none_saving`);
+    /// whether it started. Work within a job passes no `touches`: its job holds them.
+    pub(crate) fn background(
+        &mut self,
+        ctx: &egui::Context,
+        touches: Vec<PathBuf>,
+        work: impl FnOnce() -> Option<String> + Send + 'static,
+    ) -> bool {
+        // Work that changes none of the user's files (within a job that holds them, or
+        // Glimt's own collections) waits for nothing: a Lightroom import's collections were
+        // refused while its own keywords were being written.
+        if !touches.is_empty() && !self.none_saving(&touches) {
+            return false;
+        }
+        let touching = Arc::new(touches);
+        self.touching.push(touching.clone());
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let pointer = Working::new(&self.busy);
+        let writing = Working::new(&config::WRITING);
+        std::thread::spawn(move || {
+            let _writing = (writing, touching);
+            if let Some(text) = work() {
+                let _ = tx.send(text);
+            }
+            drop(pointer);
+            ctx.request_repaint();
+        });
+        true
+    }
+
+    /// Write the sidecars of `paths` in the background, through one thread for this window's
+    /// keywords, stars and Lightroom import (`sidecar_writer`), so changes to one file land in the
+    /// order they were made and never cross. The status bar counts them; `report` words the end
+    /// from how many failed. A thread of its own, not `config::write_later`'s: settings saved
+    /// meanwhile must not wait behind 3,000 sidecars.
+    pub(crate) fn write_sidecars(
+        &mut self,
+        ctx: &egui::Context,
+        doing: &'static str,
+        paths: Vec<PathBuf>,
+        write: impl Fn(&Path) -> bool + Send + 'static,
+        report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
+    ) {
+        use config::Work;
+        let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
+            return;
+        };
+        // "exif:" searches find keywords, comments and stars too: these are read again, also
+        // when the first index is still being read (it may have read them before this write).
+        let names = paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok());
+        self.exif_stale
+            .extend(names.map(|n| n.as_os_str().to_owned()));
+        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
+        let pointer = Working::new(&self.busy);
+        let work: Work = Box::new(move || {
+            // A file that makes the writing panic ends this job, not the count or the busy
+            // pointer.
+            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut failed = 0;
+                for path in &paths {
+                    if job.stopped() {
+                        break;
+                    }
+                    failed += !write(path) as usize;
+                    job.did(1);
+                }
+                report(failed, &job)
+            }))
+            .unwrap_or_else(|_| {
+                Some(tr("Writing the sidecars stopped at a file that broke it").into())
+            });
+            if let Some(text) = text {
+                let _ = tx.send(text);
+            }
+            drop(job);
+            drop(pointer);
+            ctx.request_repaint();
+        });
+        // Not sent: the work is dropped, and the busy pointer with it.
+        let _ = sidecar_writer().send(work);
+    }
+
+    /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
+    /// in `to` (never over a file), in the background, at full size.
+    pub(crate) fn export_frames(
+        &mut self,
+        ctx: &egui::Context,
+        path: PathBuf,
+        only: Option<usize>,
+        to: PathBuf,
+    ) {
+        let rotate = self.config.exif_rotate;
+        // A job, so closing waits for it (or stops it between frames), as for copies.
+        let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
+            return;
+        };
+        let deleted = self.deleted_tx.clone();
+        self.background(ctx, Vec::new(), move || {
+            // One frame over the animation itself would put a still in its place and take its
+            // sidecar, marks and stars with it: refused, as Save As refuses, here in the
+            // background, as a file on a share that stalls would hold the window.
+            if only.is_some() && crate::save::same_file(&path, &to) {
+                let e = "choose another name: the image itself is not changed";
+                return Some(tf!("Could not save the image: {e}", e));
+            }
+            // The name's own bytes, also when they are not UTF-8.
+            let named = |more: &str| crate::save::stem_and(&path, more);
+            let folder = match only {
+                Some(_) => to.clone(),
+                None => (1..)
+                    .map(|n| match n {
+                        1 => to.join(named("-frames")),
+                        n => to.join(named(&format!("-frames-{n}"))),
+                    })
+                    .find(|p| !p.exists())
+                    .unwrap_or_default(),
+            };
+            let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
+                Err(tf!("Could not make {folder}", folder = folder.display()))
+            } else {
+                decode::survive(|| {
+                    decode::each_frame(&path, only, rotate, |k, img| {
+                        if job.stopped() {
+                            return Err(job.stopped_text());
+                        }
+                        let file = match only {
+                            Some(_) => to.clone(),
+                            None => folder.join(named(&format!("-{:03}.png", k + 1))),
+                        };
+                        // Whole or not at all, also over a file the dialog let it replace, whose
+                        // sidecar is not the frame's: a frame is saved without one.
+                        let mut png = std::io::Cursor::new(Vec::new());
+                        (img.write_to(&mut png, image::ImageFormat::Png))
+                            .map_err(|e| e.to_string())
+                            .and_then(|_| {
+                                let png = png.into_inner();
+                                crate::save::land(&path, &file, &png, true, true)
+                                    .map_err(|e| e.to_string())
+                            })
+                            .map_err(|e| format!("{}: {e}", file.display()))
+                    })
+                })
+            };
+            // One frame saved over a file the dialog let it replace, maybe one in the list.
+            if only.is_some() && saved.as_ref().is_ok_and(|&n| n > 0) {
+                let _ = deleted.send(Deleted {
+                    overwritten: vec![to.clone()],
+                    ..Default::default()
+                });
+            }
+            Some(match (saved, only) {
+                (Ok(0), _) => "No such frame".to_owned(),
+                (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
+                (Ok(n), None) => tf!(
+                    "{frames} saved in {folder}",
+                    frames = count(n, "frame"),
+                    folder = folder.display()
+                ),
+                (Err(e), _) => tf!("Could not save the frames: {e}", e),
+            })
+        });
+    }
+
+    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
+    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
+    /// copy them back while Glimt is closed; the README says where.
+    pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
+        // A job, so closing waits for the copy to be whole.
+        let Some(job) = self.start_job(tr("Backing up"), 1, Vec::new()) else {
+            return;
+        };
+        self.background(ctx, Vec::new(), move || {
+            let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
+            drop(job);
+            Some(done)
+        });
+    }
 }
 
 /// Rename `from` to `to`, never over a file or folder there, also one another window put there
@@ -1235,31 +1483,6 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
     Err(std::io::ErrorKind::AlreadyExists.into())
 }
 
-/// What a move to the trash did, as it did it, for Undo to put back: the files or folder it
-/// moved, the sidecars that went with them, when it began (the trash may hold older files of the
-/// same names, which are not these), and what went with them elsewhere: their marks and stars,
-/// and their places in the collection shown. Recorded as it happens, never found out later: by
-/// the move's thread, and the marks by `receive_deleted` as it forgets them, which is the one
-/// way an `Undo::Trash` reaches `App::undo`. `since` has no default: one left out would take an
-/// older file of the same name from the trash.
-pub(crate) struct Thrown {
-    files: Vec<PathBuf>,
-    sidecars: Vec<PathBuf>,
-    since: std::time::SystemTime,
-    pub(crate) marks: Vec<(PathBuf, (u8, u8))>,
-    collection: Option<(PathBuf, Vec<(usize, PathBuf)>)>,
-}
-
-/// A file in a trash folder: where it came from, when (as the trash writes it, which sorts by
-/// time), and its file and its .trashinfo there.
-#[derive(Clone)]
-struct Trashed {
-    from: PathBuf,
-    date: String,
-    file: PathBuf,
-    info: PathBuf,
-}
-
 /// The trash folders a file at `path` may have gone to, each with the folder its relative paths
 /// start from: the home trash, and the two at the top of the file system `path` is on.
 fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
@@ -1493,195 +1716,11 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     Ok(())
 }
 
-// ---- Work in the background: sidecars, frames, the backup and other jobs ----
-
 /// The thread for this window's sidecar writes: keywords, comments, stars and imports land in
 /// the order they were made.
 fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
     static WRITER: std::sync::OnceLock<mpsc::Sender<config::Work>> = std::sync::OnceLock::new();
     WRITER.get_or_init(config::serial)
-}
-
-impl crate::App {
-    /// `work`, which writes files and changes `touches`, in a thread of its own, the busy pointer
-    /// showing meanwhile and closing waiting for it; what it returns is told in the window.
-    /// Not started, with a notice, while something else works on `touches` (`none_saving`);
-    /// whether it started. Work within a job passes no `touches`: its job holds them.
-    pub(crate) fn background(
-        &mut self,
-        ctx: &egui::Context,
-        touches: Vec<PathBuf>,
-        work: impl FnOnce() -> Option<String> + Send + 'static,
-    ) -> bool {
-        // Work that changes none of the user's files (within a job that holds them, or
-        // Glimt's own collections) waits for nothing: a Lightroom import's collections were
-        // refused while its own keywords were being written.
-        if !touches.is_empty() && !self.none_saving(&touches) {
-            return false;
-        }
-        let touching = Arc::new(touches);
-        self.touching.push(touching.clone());
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let pointer = Working::new(&self.busy);
-        let writing = Working::new(&config::WRITING);
-        std::thread::spawn(move || {
-            let _writing = (writing, touching);
-            if let Some(text) = work() {
-                let _ = tx.send(text);
-            }
-            drop(pointer);
-            ctx.request_repaint();
-        });
-        true
-    }
-
-    /// Write the sidecars of `paths` in the background, through one thread for this window's
-    /// keywords, stars and Lightroom import (`sidecar_writer`), so changes to one file land in the
-    /// order they were made and never cross. The status bar counts them; `report` words the end
-    /// from how many failed. A thread of its own, not `config::write_later`'s: settings saved
-    /// meanwhile must not wait behind 3,000 sidecars.
-    pub(crate) fn write_sidecars(
-        &mut self,
-        ctx: &egui::Context,
-        doing: &'static str,
-        paths: Vec<PathBuf>,
-        write: impl Fn(&Path) -> bool + Send + 'static,
-        report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
-    ) {
-        use config::Work;
-        let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
-            return;
-        };
-        // "exif:" searches find keywords, comments and stars too: these are read again, also
-        // when the first index is still being read (it may have read them before this write).
-        let names = paths.iter().filter_map(|p| p.strip_prefix(&self.dir).ok());
-        self.exif_stale
-            .extend(names.map(|n| n.as_os_str().to_owned()));
-        let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let pointer = Working::new(&self.busy);
-        let work: Work = Box::new(move || {
-            // A file that makes the writing panic ends this job, not the count or the busy
-            // pointer.
-            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut failed = 0;
-                for path in &paths {
-                    if job.stopped() {
-                        break;
-                    }
-                    failed += !write(path) as usize;
-                    job.did(1);
-                }
-                report(failed, &job)
-            }))
-            .unwrap_or_else(|_| {
-                Some(tr("Writing the sidecars stopped at a file that broke it").into())
-            });
-            if let Some(text) = text {
-                let _ = tx.send(text);
-            }
-            drop(job);
-            drop(pointer);
-            ctx.request_repaint();
-        });
-        // Not sent: the work is dropped, and the busy pointer with it.
-        let _ = sidecar_writer().send(work);
-    }
-
-    /// Save frame `only` of `path` as the PNG `to`, or every frame as PNG files in a new folder
-    /// in `to` (never over a file), in the background, at full size.
-    pub(crate) fn export_frames(
-        &mut self,
-        ctx: &egui::Context,
-        path: PathBuf,
-        only: Option<usize>,
-        to: PathBuf,
-    ) {
-        let rotate = self.config.exif_rotate;
-        // A job, so closing waits for it (or stops it between frames), as for copies.
-        let Some(job) = self.start_job(tr("Exporting"), 1, vec![to.clone()]) else {
-            return;
-        };
-        let deleted = self.deleted_tx.clone();
-        self.background(ctx, Vec::new(), move || {
-            // One frame over the animation itself would put a still in its place and take its
-            // sidecar, marks and stars with it: refused, as Save As refuses, here in the
-            // background, as a file on a share that stalls would hold the window.
-            if only.is_some() && crate::save::same_file(&path, &to) {
-                let e = "choose another name: the image itself is not changed";
-                return Some(tf!("Could not save the image: {e}", e));
-            }
-            // The name's own bytes, also when they are not UTF-8.
-            let named = |more: &str| crate::save::stem_and(&path, more);
-            let folder = match only {
-                Some(_) => to.clone(),
-                None => (1..)
-                    .map(|n| match n {
-                        1 => to.join(named("-frames")),
-                        n => to.join(named(&format!("-frames-{n}"))),
-                    })
-                    .find(|p| !p.exists())
-                    .unwrap_or_default(),
-            };
-            let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
-                Err(tf!("Could not make {folder}", folder = folder.display()))
-            } else {
-                decode::survive(|| {
-                    decode::each_frame(&path, only, rotate, |k, img| {
-                        if job.stopped() {
-                            return Err(job.stopped_text());
-                        }
-                        let file = match only {
-                            Some(_) => to.clone(),
-                            None => folder.join(named(&format!("-{:03}.png", k + 1))),
-                        };
-                        // Whole or not at all, also over a file the dialog let it replace, whose
-                        // sidecar is not the frame's: a frame is saved without one.
-                        let mut png = std::io::Cursor::new(Vec::new());
-                        (img.write_to(&mut png, image::ImageFormat::Png))
-                            .map_err(|e| e.to_string())
-                            .and_then(|_| {
-                                let png = png.into_inner();
-                                crate::save::land(&path, &file, &png, true, true)
-                                    .map_err(|e| e.to_string())
-                            })
-                            .map_err(|e| format!("{}: {e}", file.display()))
-                    })
-                })
-            };
-            // One frame saved over a file the dialog let it replace, maybe one in the list.
-            if only.is_some() && saved.as_ref().is_ok_and(|&n| n > 0) {
-                let _ = deleted.send(Deleted {
-                    overwritten: vec![to.clone()],
-                    ..Default::default()
-                });
-            }
-            Some(match (saved, only) {
-                (Ok(0), _) => "No such frame".to_owned(),
-                (Ok(_), Some(_)) => tf!("Saved {file}", file = to.display()),
-                (Ok(n), None) => tf!(
-                    "{frames} saved in {folder}",
-                    frames = count(n, "frame"),
-                    folder = folder.display()
-                ),
-                (Err(e), _) => tf!("Could not save the frames: {e}", e),
-            })
-        });
-    }
-
-    /// Copy Glimt's own folders (settings, marks and stars, collections, keyword tree, plugins,
-    /// decoders) to a new folder glimt-backup-DATE in `dir`, in the background. To restore,
-    /// copy them back while Glimt is closed; the README says where.
-    pub(crate) fn back_up(&mut self, ctx: &egui::Context, dir: PathBuf) {
-        // A job, so closing waits for the copy to be whole.
-        let Some(job) = self.start_job(tr("Backing up"), 1, Vec::new()) else {
-            return;
-        };
-        self.background(ctx, Vec::new(), move || {
-            let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
-            drop(job);
-            Some(done)
-        });
-    }
 }
 
 /// `(from, to)` pairs to look up by the old path.
@@ -1702,47 +1741,6 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
             false => to.join(rest),
         })
     })
-}
-
-/// What a delete, move, copy or plugin reports, in one message: the files it was asked to
-/// delete or move, those gone now (found out in its thread, not one `stat` each in the
-/// window's), whether to read the folder again, and the files moved or copied `(from, to)`,
-/// whose marks follow before the gone ones are forgotten; the Undo it makes possible, the
-/// marks an Undo puts back, and files changed or written over. The one report of what happened
-/// to files on disk, and `receive_deleted` the one place that brings everything that follows a
-/// file along: marks, the collection, a turn not saved, decoded images, thumbnails, details and
-/// the `exif:` index. One message, so nothing depends on the order two would arrive in.
-#[derive(Default)]
-pub(crate) struct Deleted {
-    pub(crate) paths: Vec<PathBuf>,
-    pub(crate) gone: Vec<PathBuf>,
-    pub(crate) failed: bool,
-    pub(crate) moved: Vec<(PathBuf, PathBuf)>,
-    pub(crate) copied: bool,
-    /// The folder is to be read again: a plugin edited files in it, a repair renamed them.
-    pub(crate) relist: bool,
-    /// What Undo puts back, when this was a move to the trash or a move.
-    pub(crate) undo: Option<Undo>,
-    /// Marks and stars to put back: of files Undo brought back from the trash.
-    pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
-    /// Files a plugin changed in place: what is shown of them is read again. (A turn saved
-    /// comes through `saved_rx`, which also ends its guard, into the same `files_changed`.)
-    pub(crate) changed: Vec<PathBuf>,
-    /// Files written over by another image (Save As, Save This Frame onto a file there): read
-    /// again, and their marks and stars go, as their sidecar did.
-    pub(crate) overwritten: Vec<PathBuf>,
-    /// A folder renamed (old, new), which the window follows.
-    pub(crate) folder_renamed: Option<(PathBuf, PathBuf)>,
-    /// A folder made (New Folder): the tree reads its parent again, the list its folder.
-    pub(crate) folder_made: Option<PathBuf>,
-}
-
-/// What Edit → Undo puts back: the last files or folder moved to the trash, the last files
-/// moved `(from, to)`, or the last renamed (old names, new names).
-pub(crate) enum Undo {
-    Trash(Thrown),
-    Move(Vec<(PathBuf, PathBuf)>),
-    Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
 #[cfg(test)]

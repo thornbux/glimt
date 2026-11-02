@@ -13,63 +13,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
-/// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
-/// take jobs: so scrolling the list never delays the shown image.
-#[allow(clippy::type_complexity)]
-pub(crate) fn spawn_thumbnailers(
-    ctx: &egui::Context,
-    workers: usize,
-    rotate: &Arc<AtomicBool>,
-    view: &ThumbView,
-    save: &Arc<AtomicBool>,
-) -> (
-    mpsc::Sender<(usize, PathBuf)>,
-    mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
-) {
-    let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
-    let (thumbs_tx, thumbs_done) = mpsc::channel();
-    let thumb_rx = Arc::new(Mutex::new(thumb_rx));
-    // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
-    // changes without a restart.
-    for k in 0..cores() {
-        let (rx, tx, view, rotate, save, ctx) = (
-            thumb_rx.clone(),
-            thumbs_tx.clone(),
-            view.clone(),
-            rotate.clone(),
-            save.clone(),
-            ctx.clone(),
-        );
-        std::thread::spawn(move || {
-            loop {
-                let mut idle = CPU_CHANGED.0.lock().unwrap();
-                while k >= thumb_threads(workers) {
-                    idle = CPU_CHANGED.1.wait(idle).unwrap();
-                }
-                drop(idle);
-                let Ok((idx, path)) = rx.lock().unwrap().recv() else {
-                    return;
-                };
-                let wanted = (view.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
-                let result = wanted.then(|| {
-                    let (rotate, save) =
-                        (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
-                    let large = LARGE_THUMBS.load(Ordering::Relaxed);
-                    thumbs::thumbnail(&path, rotate, save, large)
-                        .ok()
-                        // sRGB in the shared cache; to the screen only to be shown.
-                        .map(|img| color_image(srgb_to_display(img.into())))
-                });
-                let _ = tx.send((path, result));
-                // SAFETY: as for the image workers above.
-                unsafe { malloc_trim(0) };
-                ctx.request_repaint();
-            }
-        });
-    }
-    (thumb_jobs, thumbs_done)
-}
-
 impl crate::App {
     /// What the background threads and the rest of the desktop sent since the last frame: decoded
     /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
@@ -202,9 +145,7 @@ impl crate::App {
     pub(crate) fn stopped(&mut self, what: &str) {
         self.notice = Some(tf!("{what} stopped unexpectedly", what));
     }
-}
 
-impl crate::App {
     /// Busy pointer while the folder is read (also sorted anew), a share mounted, work done in
     /// the background, or the shown image still decoded.
     pub(crate) fn working(&self) -> bool {
@@ -221,4 +162,61 @@ impl crate::App {
             || self.mounting_rx.is_some()
             || self.busy.load(Ordering::Relaxed) > 0
     }
+}
+
+/// The thumbnail workers, one for each core of which CPU use lets `thumb_threads(workers)`
+/// take jobs: so scrolling the list never delays the shown image.
+#[allow(clippy::type_complexity)]
+pub(crate) fn spawn_thumbnailers(
+    ctx: &egui::Context,
+    workers: usize,
+    rotate: &Arc<AtomicBool>,
+    view: &ThumbView,
+    save: &Arc<AtomicBool>,
+) -> (
+    mpsc::Sender<(usize, PathBuf)>,
+    mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+) {
+    let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
+    let (thumbs_tx, thumbs_done) = mpsc::channel();
+    let thumb_rx = Arc::new(Mutex::new(thumb_rx));
+    // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
+    // changes without a restart.
+    for k in 0..cores() {
+        let (rx, tx, view, rotate, save, ctx) = (
+            thumb_rx.clone(),
+            thumbs_tx.clone(),
+            view.clone(),
+            rotate.clone(),
+            save.clone(),
+            ctx.clone(),
+        );
+        std::thread::spawn(move || {
+            loop {
+                let mut idle = CPU_CHANGED.0.lock().unwrap();
+                while k >= thumb_threads(workers) {
+                    idle = CPU_CHANGED.1.wait(idle).unwrap();
+                }
+                drop(idle);
+                let Ok((idx, path)) = rx.lock().unwrap().recv() else {
+                    return;
+                };
+                let wanted = (view.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
+                let result = wanted.then(|| {
+                    let (rotate, save) =
+                        (rotate.load(Ordering::Relaxed), save.load(Ordering::Relaxed));
+                    let large = LARGE_THUMBS.load(Ordering::Relaxed);
+                    thumbs::thumbnail(&path, rotate, save, large)
+                        .ok()
+                        // sRGB in the shared cache; to the screen only to be shown.
+                        .map(|img| color_image(srgb_to_display(img.into())))
+                });
+                let _ = tx.send((path, result));
+                // SAFETY: as for the image workers above.
+                unsafe { malloc_trim(0) };
+                ctx.request_repaint();
+            }
+        });
+    }
+    (thumb_jobs, thumbs_done)
 }

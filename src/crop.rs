@@ -27,9 +27,7 @@ impl crate::App {
     fn crop_shown(&self, crop: &Crop) -> bool {
         self.is_file(self.list.cur, &crop.path) && self.shown_copy() == crop.how
     }
-}
 
-impl crate::App {
     /// Edit → Crop: choose a part of the shown image. Not for a video, nor before the image
     /// is decoded.
     pub(crate) fn start_crop(&mut self) {

@@ -6,19 +6,190 @@ use std::path::Path;
 
 /// TIFF tags used in more than one place (the panel's own are named in `tag_name`).
 const ORIENTATION: u16 = 0x0112;
+
 const EXIF_IFD: u16 = 0x8769;
+
 const GPS_IFD: u16 = 0x8825;
+
 const INTEROP_IFD: u16 = 0xa005;
 
 /// TIFF value types.
 const BYTE: u16 = 1;
+
 const ASCII: u16 = 2;
+
 const SHORT: u16 = 3;
+
 const LONG: u16 = 4;
+
 const RATIONAL: u16 = 5;
+
 const UNDEFINED: u16 = 7;
+
 const SLONG: u16 = 9;
+
 const SRATIONAL: u16 = 10;
+
+/// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
+/// pixels to show them upright.
+const ORIENTATIONS: [[i8; 4]; 8] = [
+    [1, 0, 0, 1],
+    [-1, 0, 0, 1],
+    [-1, 0, 0, -1],
+    [1, 0, 0, -1],
+    [0, 1, 1, 0],
+    [0, -1, 1, 0],
+    [0, -1, -1, 0],
+    [0, 1, -1, 0],
+];
+
+/// A field of the EXIF window: (directory, name, value).
+pub type Field = (&'static str, String, String);
+
+/// JPEG segments: (marker, start of its data, length of its data).
+type Segments = Vec<(u8, usize, usize)>;
+
+type Ifd = Vec<(u16, Entry)>;
+
+struct Tiff<'a> {
+    data: &'a [u8],
+    little: bool,
+}
+
+impl Tiff<'_> {
+    fn u16(&self, at: usize) -> Option<u16> {
+        let b: [u8; 2] = self.data.get(at..at + 2)?.try_into().ok()?;
+        Some(if self.little {
+            u16::from_le_bytes(b)
+        } else {
+            u16::from_be_bytes(b)
+        })
+    }
+
+    fn u32(&self, at: usize) -> Option<u32> {
+        let b: [u8; 4] = self.data.get(at..at + 4)?.try_into().ok()?;
+        Some(if self.little {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        })
+    }
+
+    /// The entries of the IFD at `offset`, by tag.
+    fn ifd(&self, offset: usize) -> Vec<(u16, Entry)> {
+        let n = self.u16(offset).unwrap_or(0) as usize;
+        (0..n.min(500))
+            .filter_map(|i| {
+                let e = offset + 2 + i * 12;
+                let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
+                let size = match kind {
+                    SHORT => 2,
+                    LONG | SLONG => 4,
+                    RATIONAL | SRATIONAL => 8,
+                    _ => 1,
+                };
+                // Values of up to four bytes are stored in the entry itself.
+                let at = if size * count as usize <= 4 {
+                    e + 8
+                } else {
+                    self.u32(e + 8)? as usize
+                };
+                Some((tag, Entry { kind, count, at }))
+            })
+            .collect()
+    }
+
+    fn text(&self, e: Entry) -> Option<String> {
+        let bytes = self.data.get(e.at..e.at + e.count as usize)?;
+        let text = String::from_utf8_lossy(bytes);
+        let text = text.trim_end_matches('\0').trim();
+        (!text.is_empty()).then(|| text.to_owned())
+    }
+
+    /// Any field as text: strings as they are, numbers and fractions listed, other data as
+    /// text if it reads as such, else its length.
+    fn value(&self, e: Entry) -> String {
+        let n = (e.count as usize).min(16);
+        let list = |items: Vec<String>| {
+            let more = if e.count as usize > n { " …" } else { "" };
+            items.join(" ") + more
+        };
+        match e.kind {
+            ASCII => self.text(e).unwrap_or_default(),
+            BYTE | UNDEFINED => {
+                let bytes = self
+                    .data
+                    .get(e.at..e.at + (e.count as usize).min(256))
+                    .unwrap_or(&[]);
+                let text = String::from_utf8_lossy(bytes);
+                let text = text.trim_end_matches('\0').trim();
+                if !text.is_empty() && text.chars().all(|c| !c.is_control()) {
+                    text.to_owned()
+                } else if e.count <= 8 {
+                    list(bytes.iter().map(|b| b.to_string()).collect())
+                } else {
+                    format!("({} bytes)", e.count)
+                }
+            }
+            SHORT => list(
+                (0..n)
+                    .filter_map(|i| self.u16(e.at + 2 * i))
+                    .map(|v| v.to_string())
+                    .collect(),
+            ),
+            LONG | SLONG => list(
+                (0..n)
+                    .filter_map(|i| self.u32(e.at + 4 * i))
+                    .map(|v| v.to_string())
+                    .collect(),
+            ),
+            RATIONAL | SRATIONAL => list(
+                (0..n)
+                    .filter_map(|i| self.ratio(e, i))
+                    .map(|v| format!("{}", (v * 10000.0).round() / 10000.0))
+                    .collect(),
+            ),
+            _ => format!("({} values)", e.count),
+        }
+    }
+
+    fn int(&self, e: Entry) -> Option<u32> {
+        // No value at all: the bytes of its value field are not a number.
+        if e.count == 0 {
+            return None;
+        }
+        match e.kind {
+            SHORT => self.u16(e.at).map(u32::from),
+            LONG | SLONG => self.u32(e.at),
+            _ => None,
+        }
+    }
+
+    /// Rational number `i` of the entry (signed for SRATIONAL).
+    fn ratio(&self, e: Entry, i: usize) -> Option<f64> {
+        // Only the values the entry has: a GPS position of one value read its minutes and
+        // seconds from whatever followed.
+        if i >= e.count as usize {
+            return None;
+        }
+        let at = e.at + i * 8;
+        let (n, d) = (self.u32(at)?, self.u32(at + 4)?);
+        let (n, d) = if e.kind == SRATIONAL {
+            (n as i32 as f64, d as i32 as f64)
+        } else {
+            (n as f64, d as f64)
+        };
+        (d != 0.0).then(|| n / d)
+    }
+}
+
+/// A tag's type, count and where its value starts.
+#[derive(Clone, Copy)]
+struct Entry {
+    kind: u16,
+    count: u32,
+    at: usize,
+}
 
 /// The entry for `tag` in `ifd`.
 /// An exposure time as cameras show it: a fraction up to 1/4 s, then seconds with a decimal
@@ -39,9 +210,6 @@ fn find(ifd: &[(u16, Entry)], tag: u16) -> Option<Entry> {
 pub fn read(path: &Path) -> Vec<(&'static str, String)> {
     raw(path).map_or_else(Vec::new, |raw| parse(&raw))
 }
-
-/// A field of the EXIF window: (directory, name, value).
-pub type Field = (&'static str, String, String);
 
 /// `read` of `path`, and every field of IFD0, the Exif and the GPS directory for the EXIF
 /// window (unknown tags by number), from one reading of its EXIF block: on a network share
@@ -200,19 +368,6 @@ pub fn orientation(raw: &[u8]) -> Option<image::metadata::Orientation> {
     let e = find(&ifd0, ORIENTATION)?;
     image::metadata::Orientation::from_exif(t.int(e)? as u8)
 }
-
-/// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
-/// pixels to show them upright.
-const ORIENTATIONS: [[i8; 4]; 8] = [
-    [1, 0, 0, 1],
-    [-1, 0, 0, 1],
-    [-1, 0, 0, -1],
-    [1, 0, 0, -1],
-    [0, 1, 1, 0],
-    [0, -1, 1, 0],
-    [0, -1, -1, 0],
-    [0, 1, -1, 0],
-];
 
 fn mul(a: [i8; 4], b: [i8; 4]) -> [i8; 4] {
     [
@@ -419,9 +574,6 @@ pub fn set_upright(block: &mut [u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// JPEG segments: (marker, start of its data, length of its data).
-type Segments = Vec<(u8, usize, usize)>;
-
 /// The segments of a JPEG before its image data, and whether the image data was reached; `None`
 /// if a segment's length is cut off.
 fn jpeg_segments(data: &[u8]) -> Option<(Segments, bool)> {
@@ -581,8 +733,6 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         .flatten()
 }
 
-type Ifd = Vec<(u16, Entry)>;
-
 /// The TIFF block with its IFD0, Exif and GPS directories.
 fn ifds(raw: &[u8]) -> Option<(Tiff<'_>, Ifd, Ifd, Ifd)> {
     let data = raw.strip_prefix(b"Exif\0\0").unwrap_or(raw);
@@ -607,146 +757,6 @@ fn ifds(raw: &[u8]) -> Option<(Tiff<'_>, Ifd, Ifd, Ifd)> {
         sub(GPS_IFD).unwrap_or_default(),
     );
     Some((t, ifd0, exif, gps))
-}
-
-struct Tiff<'a> {
-    data: &'a [u8],
-    little: bool,
-}
-
-/// A tag's type, count and where its value starts.
-#[derive(Clone, Copy)]
-struct Entry {
-    kind: u16,
-    count: u32,
-    at: usize,
-}
-
-impl Tiff<'_> {
-    fn u16(&self, at: usize) -> Option<u16> {
-        let b: [u8; 2] = self.data.get(at..at + 2)?.try_into().ok()?;
-        Some(if self.little {
-            u16::from_le_bytes(b)
-        } else {
-            u16::from_be_bytes(b)
-        })
-    }
-
-    fn u32(&self, at: usize) -> Option<u32> {
-        let b: [u8; 4] = self.data.get(at..at + 4)?.try_into().ok()?;
-        Some(if self.little {
-            u32::from_le_bytes(b)
-        } else {
-            u32::from_be_bytes(b)
-        })
-    }
-
-    /// The entries of the IFD at `offset`, by tag.
-    fn ifd(&self, offset: usize) -> Vec<(u16, Entry)> {
-        let n = self.u16(offset).unwrap_or(0) as usize;
-        (0..n.min(500))
-            .filter_map(|i| {
-                let e = offset + 2 + i * 12;
-                let (tag, kind, count) = (self.u16(e)?, self.u16(e + 2)?, self.u32(e + 4)?);
-                let size = match kind {
-                    SHORT => 2,
-                    LONG | SLONG => 4,
-                    RATIONAL | SRATIONAL => 8,
-                    _ => 1,
-                };
-                // Values of up to four bytes are stored in the entry itself.
-                let at = if size * count as usize <= 4 {
-                    e + 8
-                } else {
-                    self.u32(e + 8)? as usize
-                };
-                Some((tag, Entry { kind, count, at }))
-            })
-            .collect()
-    }
-
-    fn text(&self, e: Entry) -> Option<String> {
-        let bytes = self.data.get(e.at..e.at + e.count as usize)?;
-        let text = String::from_utf8_lossy(bytes);
-        let text = text.trim_end_matches('\0').trim();
-        (!text.is_empty()).then(|| text.to_owned())
-    }
-
-    /// Any field as text: strings as they are, numbers and fractions listed, other data as
-    /// text if it reads as such, else its length.
-    fn value(&self, e: Entry) -> String {
-        let n = (e.count as usize).min(16);
-        let list = |items: Vec<String>| {
-            let more = if e.count as usize > n { " …" } else { "" };
-            items.join(" ") + more
-        };
-        match e.kind {
-            ASCII => self.text(e).unwrap_or_default(),
-            BYTE | UNDEFINED => {
-                let bytes = self
-                    .data
-                    .get(e.at..e.at + (e.count as usize).min(256))
-                    .unwrap_or(&[]);
-                let text = String::from_utf8_lossy(bytes);
-                let text = text.trim_end_matches('\0').trim();
-                if !text.is_empty() && text.chars().all(|c| !c.is_control()) {
-                    text.to_owned()
-                } else if e.count <= 8 {
-                    list(bytes.iter().map(|b| b.to_string()).collect())
-                } else {
-                    format!("({} bytes)", e.count)
-                }
-            }
-            SHORT => list(
-                (0..n)
-                    .filter_map(|i| self.u16(e.at + 2 * i))
-                    .map(|v| v.to_string())
-                    .collect(),
-            ),
-            LONG | SLONG => list(
-                (0..n)
-                    .filter_map(|i| self.u32(e.at + 4 * i))
-                    .map(|v| v.to_string())
-                    .collect(),
-            ),
-            RATIONAL | SRATIONAL => list(
-                (0..n)
-                    .filter_map(|i| self.ratio(e, i))
-                    .map(|v| format!("{}", (v * 10000.0).round() / 10000.0))
-                    .collect(),
-            ),
-            _ => format!("({} values)", e.count),
-        }
-    }
-
-    fn int(&self, e: Entry) -> Option<u32> {
-        // No value at all: the bytes of its value field are not a number.
-        if e.count == 0 {
-            return None;
-        }
-        match e.kind {
-            SHORT => self.u16(e.at).map(u32::from),
-            LONG | SLONG => self.u32(e.at),
-            _ => None,
-        }
-    }
-
-    /// Rational number `i` of the entry (signed for SRATIONAL).
-    fn ratio(&self, e: Entry, i: usize) -> Option<f64> {
-        // Only the values the entry has: a GPS position of one value read its minutes and
-        // seconds from whatever followed.
-        if i >= e.count as usize {
-            return None;
-        }
-        let at = e.at + i * 8;
-        let (n, d) = (self.u32(at)?, self.u32(at + 4)?);
-        let (n, d) = if e.kind == SRATIONAL {
-            (n as i32 as f64, d as i32 as f64)
-        } else {
-            (n as f64, d as f64)
-        };
-        (d != 0.0).then(|| n / d)
-    }
 }
 
 fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {

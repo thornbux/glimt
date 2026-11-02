@@ -41,14 +41,6 @@ impl Default for Choice {
     }
 }
 
-/// The dialog open, for the image `path` as shown (`how`), `orig` pixels large.
-pub struct SaveAs {
-    path: PathBuf,
-    how: CopyAs,
-    orig: [usize; 2],
-    choice: Choice,
-}
-
 impl Choice {
     /// The longest side asked for, if smaller than the image's `long` side.
     fn long_side(&self, long: usize) -> Option<u32> {
@@ -59,6 +51,14 @@ impl Choice {
         };
         ((side as usize) < long).then_some(side.max(1))
     }
+}
+
+/// The dialog open, for the image `path` as shown (`how`), `orig` pixels large.
+pub struct SaveAs {
+    path: PathBuf,
+    how: CopyAs,
+    orig: [usize; 2],
+    choice: Choice,
 }
 
 impl crate::App {

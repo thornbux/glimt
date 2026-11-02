@@ -18,20 +18,6 @@ use std::sync::mpsc;
 const TABLES: &str = "'aglibraryrootfolder', 'adobe_images', 'aglibraryfile', 'aglibraryfolder', \
     'aglibrarycollection', 'aglibrarycollectionimage', 'aglibrarykeyword', 'aglibrarykeywordimage'";
 
-/// Before `QUERY`, with -bail: each table it reads that is not a table (a view, or a virtual
-/// table such as zipfile('/any/file'), which -safe does not stop) printed as a 'v' row, and then
-/// an error (an integer overflow) that ends the run before anything is read from it.
-fn check() -> String {
-    let not_tables = format!(
-        "FROM pragma_table_list WHERE schema = 'main' AND lower(name) IN ({TABLES}) \
-         AND type <> 'table'"
-    );
-    format!(
-        "SELECT 'v', name, type, '', '' {not_tables};\n\
-         SELECT abs(-9223372036854775808) {not_tables} LIMIT 1;\n"
-    )
-}
-
 /// One query, so the catalog is read in one go: a row for each root folder (r), image (i),
 /// collection (c), image in a collection (m), keyword (k) and keyword of an image (w), with five
 /// columns each.
@@ -66,7 +52,10 @@ const ARGS: [&str; 11] = [
 
 /// Between the columns and after the rows: neither is in a file name or keyword.
 const COLUMN: u8 = 0x1f;
+
 const ROW: u8 = 0x1e;
+
+const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
 
 #[derive(Default)]
 pub struct Catalog {
@@ -84,84 +73,6 @@ pub struct Catalog {
     tagged: Vec<(i64, i64)>,
     /// The tables read that are something else: (name, type).
     not_tables: Vec<(String, String)>,
-}
-
-/// Read `file`; an error says why in words for the user.
-pub fn read(file: &Path) -> Result<Catalog, String> {
-    if file.with_extension("lrcat.lock").exists() {
-        return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
-    }
-    if !crate::external::has("sqlite3") {
-        return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
-    }
-    // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
-    // in the place of a table it reads would have sqlite3 run what the view says, its writefile
-    // and readfile too. -safe refuses those wherever they are. An sqlite3 older than 3.37 has no
-    // -safe and is not used: before 3.30 nothing else stops them.
-    // As every external program: its output read beside its errors, and ended after the usual
-    // limit, so a catalog on a share that stalls does not hold the import for ever.
-    let mut child = crate::external::stoppable_command("sqlite3")
-        .args(ARGS)
-        .arg(file)
-        .arg(check() + QUERY)
-        .spawn()
-        .map_err(|e| format!("{NEEDS}: {e}"))?;
-    let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
-    let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
-    let catalog = parse(&out);
-    if let Some((name, kind)) = catalog.not_tables.first() {
-        return Err(failed(&format!("{name} is of type {kind}, not a table")));
-    }
-    if !ok {
-        return Err(failed(&why));
-    }
-    Ok(catalog)
-}
-
-/// Why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or the
-/// catalog.
-fn failed(why: &str) -> String {
-    match why.contains("unknown option: -safe") {
-        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
-        false => tf!(
-            "Not a Lightroom Classic catalog Glimt can read: {why}",
-            why = why.trim()
-        ),
-    }
-}
-
-const NEEDS: &str = "Reading a Lightroom catalog needs the sqlite3 program";
-
-fn parse(text: &[u8]) -> Catalog {
-    let mut c = Catalog::default();
-    for row in text.split(|&b| b == ROW) {
-        let cols: Vec<String> = (row.split(|&b| b == COLUMN))
-            .map(|s| String::from_utf8_lossy(s).into_owned())
-            .collect();
-        let [kind, id, a, b, d] = &cols[..] else {
-            continue;
-        };
-        if kind == "v" {
-            c.not_tables.push((id.clone(), a.clone()));
-            continue;
-        }
-        let (Ok(id), n) = (id.parse::<i64>(), a.parse::<i64>()) else {
-            continue;
-        };
-        match (kind.as_str(), n) {
-            ("r", _) => c.roots.push((id, a.clone())),
-            ("i", Ok(n)) => drop(
-                c.images
-                    .insert(id, (n, b.clone(), d.parse().unwrap_or(0).min(5))),
-            ),
-            ("c", Ok(n)) => drop(c.collections.insert(id, (n, b.clone(), d.clone()))),
-            ("m", Ok(n)) => c.members.push((id, n)),
-            ("k", Ok(n)) => drop(c.keywords.insert(id, (n, b.clone()))),
-            ("w", Ok(n)) => c.tagged.push((id, n)),
-            _ => {}
-        }
-    }
-    c
 }
 
 impl Catalog {
@@ -290,52 +201,6 @@ impl Catalog {
             take_lightroom: false,
         }
     }
-}
-
-/// The names from the top down to `id`, through `parent_and_name`; the nameless root that
-/// Lightroom keeps keywords under is left out. A loop in a damaged catalog ends after 32 steps.
-fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)>) -> Vec<String> {
-    let mut names = Vec::new();
-    for _ in 0..32 {
-        let Some((parent, name)) = parent_and_name(id) else {
-            break;
-        };
-        if !name.is_empty() {
-            names.push(name.replace('|', "/"));
-        }
-        id = parent;
-    }
-    names.reverse();
-    names
-}
-
-/// The folder typed for a root folder: `~/` is the home folder, and a relative path or nothing
-/// is no folder (empty), as a collection keeps absolute paths only.
-pub fn root_now(typed: &str) -> PathBuf {
-    let typed = typed.trim();
-    let path = match typed.strip_prefix("~/") {
-        Some(rest) => std::env::home_dir().unwrap_or_default().join(rest),
-        None => PathBuf::from(typed),
-    };
-    if path.is_absolute() {
-        path
-    } else {
-        PathBuf::new()
-    }
-}
-
-/// Where each root folder is now: the same place if it is there, else empty for the user to
-/// fill in.
-pub fn roots_now(catalog: &Catalog) -> Vec<String> {
-    (catalog.roots.iter())
-        .map(|(_, r)| {
-            if Path::new(r).is_dir() {
-                r.clone()
-            } else {
-                String::new()
-            }
-        })
-        .collect()
 }
 
 /// A Lightroom catalog read, the folders where its root folders are now, and once Next is
@@ -587,6 +452,142 @@ impl crate::App {
             Some(msg)
         });
     }
+}
+
+/// Before `QUERY`, with -bail: each table it reads that is not a table (a view, or a virtual
+/// table such as zipfile('/any/file'), which -safe does not stop) printed as a 'v' row, and then
+/// an error (an integer overflow) that ends the run before anything is read from it.
+fn check() -> String {
+    let not_tables = format!(
+        "FROM pragma_table_list WHERE schema = 'main' AND lower(name) IN ({TABLES}) \
+         AND type <> 'table'"
+    );
+    format!(
+        "SELECT 'v', name, type, '', '' {not_tables};\n\
+         SELECT abs(-9223372036854775808) {not_tables} LIMIT 1;\n"
+    )
+}
+
+/// Read `file`; an error says why in words for the user.
+pub fn read(file: &Path) -> Result<Catalog, String> {
+    if file.with_extension("lrcat.lock").exists() {
+        return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
+    }
+    if !crate::external::has("sqlite3") {
+        return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
+    }
+    // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
+    // in the place of a table it reads would have sqlite3 run what the view says, its writefile
+    // and readfile too. -safe refuses those wherever they are. An sqlite3 older than 3.37 has no
+    // -safe and is not used: before 3.30 nothing else stops them.
+    // As every external program: its output read beside its errors, and ended after the usual
+    // limit, so a catalog on a share that stalls does not hold the import for ever.
+    let mut child = crate::external::stoppable_command("sqlite3")
+        .args(ARGS)
+        .arg(file)
+        .arg(check() + QUERY)
+        .spawn()
+        .map_err(|e| format!("{NEEDS}: {e}"))?;
+    let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
+    let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
+    let catalog = parse(&out);
+    if let Some((name, kind)) = catalog.not_tables.first() {
+        return Err(failed(&format!("{name} is of type {kind}, not a table")));
+    }
+    if !ok {
+        return Err(failed(&why));
+    }
+    Ok(catalog)
+}
+
+/// Why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or the
+/// catalog.
+fn failed(why: &str) -> String {
+    match why.contains("unknown option: -safe") {
+        true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
+        false => tf!(
+            "Not a Lightroom Classic catalog Glimt can read: {why}",
+            why = why.trim()
+        ),
+    }
+}
+
+fn parse(text: &[u8]) -> Catalog {
+    let mut c = Catalog::default();
+    for row in text.split(|&b| b == ROW) {
+        let cols: Vec<String> = (row.split(|&b| b == COLUMN))
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        let [kind, id, a, b, d] = &cols[..] else {
+            continue;
+        };
+        if kind == "v" {
+            c.not_tables.push((id.clone(), a.clone()));
+            continue;
+        }
+        let (Ok(id), n) = (id.parse::<i64>(), a.parse::<i64>()) else {
+            continue;
+        };
+        match (kind.as_str(), n) {
+            ("r", _) => c.roots.push((id, a.clone())),
+            ("i", Ok(n)) => drop(
+                c.images
+                    .insert(id, (n, b.clone(), d.parse().unwrap_or(0).min(5))),
+            ),
+            ("c", Ok(n)) => drop(c.collections.insert(id, (n, b.clone(), d.clone()))),
+            ("m", Ok(n)) => c.members.push((id, n)),
+            ("k", Ok(n)) => drop(c.keywords.insert(id, (n, b.clone()))),
+            ("w", Ok(n)) => c.tagged.push((id, n)),
+            _ => {}
+        }
+    }
+    c
+}
+
+/// The names from the top down to `id`, through `parent_and_name`; the nameless root that
+/// Lightroom keeps keywords under is left out. A loop in a damaged catalog ends after 32 steps.
+fn chain<'a>(mut id: i64, parent_and_name: impl Fn(i64) -> Option<(i64, &'a str)>) -> Vec<String> {
+    let mut names = Vec::new();
+    for _ in 0..32 {
+        let Some((parent, name)) = parent_and_name(id) else {
+            break;
+        };
+        if !name.is_empty() {
+            names.push(name.replace('|', "/"));
+        }
+        id = parent;
+    }
+    names.reverse();
+    names
+}
+
+/// The folder typed for a root folder: `~/` is the home folder, and a relative path or nothing
+/// is no folder (empty), as a collection keeps absolute paths only.
+pub fn root_now(typed: &str) -> PathBuf {
+    let typed = typed.trim();
+    let path = match typed.strip_prefix("~/") {
+        Some(rest) => std::env::home_dir().unwrap_or_default().join(rest),
+        None => PathBuf::from(typed),
+    };
+    if path.is_absolute() {
+        path
+    } else {
+        PathBuf::new()
+    }
+}
+
+/// Where each root folder is now: the same place if it is there, else empty for the user to
+/// fill in.
+pub fn roots_now(catalog: &Catalog) -> Vec<String> {
+    (catalog.roots.iter())
+        .map(|(_, r)| {
+            if Path::new(r).is_dir() {
+                r.clone()
+            } else {
+                String::new()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

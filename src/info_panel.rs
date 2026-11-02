@@ -100,52 +100,6 @@ impl KeywordNode {
     }
 }
 
-/// The EXIF reader: one thread that skips to the newest request, so fast browsing never
-/// queues up; it sends the panel's rows, every field, and the keywords and comment.
-pub(crate) fn spawn_exif_reader(
-    ctx: &egui::Context,
-) -> (mpsc::Sender<PathBuf>, mpsc::Receiver<ExifRead>) {
-    let (exif_jobs, paths_rx) = mpsc::channel::<PathBuf>();
-    let (exif_tx, exif_rx) = mpsc::channel();
-    let ctx = ctx.clone();
-    std::thread::spawn(move || {
-        while let Ok(mut path) = paths_rx.recv() {
-            path = paths_rx.try_iter().last().unwrap_or(path);
-            let size = std::fs::metadata(&path).map_or(0, |m| m.len());
-            let mut rows = vec![("File size", human_size(size))];
-            let (mut all, mut meta, mut paths, mut access) = Default::default();
-            // Not opened unless it is a file: a pipe would block this thread for good. A decoder
-            // that panics on the file leaves the panel without EXIF for it, not for good.
-            if decode::is_file(&path) {
-                let read = std::panic::catch_unwind(|| {
-                    let mut rows = vec![("Colour profile", colour_source(&path))];
-                    let (exif_rows, all) = exif::read_and_all(&path);
-                    rows.extend(exif_rows);
-                    let (meta, paths, access) = meta::read_all(&path);
-                    (rows, all, meta, paths, access)
-                });
-                if let Ok((more, a, m, p, x)) = read {
-                    rows.extend(more);
-                    (all, meta, paths, access) = (a, m, p, x);
-                }
-            }
-            let read = ExifRead {
-                path,
-                rows,
-                all,
-                meta,
-                paths,
-                access,
-            };
-            if exif_tx.send(read).is_err() {
-                return;
-            }
-            ctx.request_repaint();
-        }
-    });
-    (exif_jobs, exif_rx)
-}
-
 impl crate::App {
     // ---- EXIF, keywords, comment and marks ----
 
@@ -539,4 +493,50 @@ impl crate::App {
             self.exif_window = open;
         }
     }
+}
+
+/// The EXIF reader: one thread that skips to the newest request, so fast browsing never
+/// queues up; it sends the panel's rows, every field, and the keywords and comment.
+pub(crate) fn spawn_exif_reader(
+    ctx: &egui::Context,
+) -> (mpsc::Sender<PathBuf>, mpsc::Receiver<ExifRead>) {
+    let (exif_jobs, paths_rx) = mpsc::channel::<PathBuf>();
+    let (exif_tx, exif_rx) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::spawn(move || {
+        while let Ok(mut path) = paths_rx.recv() {
+            path = paths_rx.try_iter().last().unwrap_or(path);
+            let size = std::fs::metadata(&path).map_or(0, |m| m.len());
+            let mut rows = vec![("File size", human_size(size))];
+            let (mut all, mut meta, mut paths, mut access) = Default::default();
+            // Not opened unless it is a file: a pipe would block this thread for good. A decoder
+            // that panics on the file leaves the panel without EXIF for it, not for good.
+            if decode::is_file(&path) {
+                let read = std::panic::catch_unwind(|| {
+                    let mut rows = vec![("Colour profile", colour_source(&path))];
+                    let (exif_rows, all) = exif::read_and_all(&path);
+                    rows.extend(exif_rows);
+                    let (meta, paths, access) = meta::read_all(&path);
+                    (rows, all, meta, paths, access)
+                });
+                if let Ok((more, a, m, p, x)) = read {
+                    rows.extend(more);
+                    (all, meta, paths, access) = (a, m, p, x);
+                }
+            }
+            let read = ExifRead {
+                path,
+                rows,
+                all,
+                meta,
+                paths,
+                access,
+            };
+            if exif_tx.send(read).is_err() {
+                return;
+            }
+            ctx.request_repaint();
+        }
+    });
+    (exif_jobs, exif_rx)
 }

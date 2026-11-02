@@ -9,19 +9,15 @@ use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+/// The first part of a plan that counts the renames done.
+const COUNTED: &[u8] = b"counted";
+
 /// Renames in the order they are done: (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
 
 /// A plan left by a Rename Many that was cut short: its file, the renames, and how many of them
 /// were done; `None` for a plan of Glimt 0.34 or older, which did not count them.
 pub type CutShort = (PathBuf, Moves, Option<usize>);
-
-/// The first part of a plan that counts the renames done.
-const COUNTED: &[u8] = b"counted";
-
-pub fn dir() -> Option<PathBuf> {
-    crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("renames"))
-}
 
 /// The plan of a Rename Many being carried out; removed when dropped, as the renames are done
 /// or undone. Left on disk only when Glimt stops halfway.
@@ -58,6 +54,10 @@ impl Drop for Journal {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+pub fn dir() -> Option<PathBuf> {
+    crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("renames"))
 }
 
 /// Write `moves` down in `dir`, locked and on disk, before the first of them is done. `None`
