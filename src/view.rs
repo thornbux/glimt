@@ -12,6 +12,7 @@ use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
+use std::time::Instant;
 
 /// View → Layout: the config value, the menu label and the panes as [columns, rows].
 pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
@@ -52,6 +53,48 @@ pub(crate) struct DecodeJob {
     pub(crate) max: [u32; 2],
 }
 
+/// Decoding the shown image and its neighbours: the workers, which images they keep, and the size they decode to.
+pub(crate) struct Decoding {
+    /// The images to keep decoded, the shown one first: its neighbours in list order.
+    /// Shared with the workers, which skip jobs outside it.
+    pub(crate) keep: Arc<Mutex<Vec<usize>>>,
+    /// How many images at the start of `keep` may be decoded at full resolution: the shown one,
+    /// and the compared one beside it.
+    pub(crate) full_ok: Arc<AtomicUsize>,
+    /// Number of images preloaded on each side (Preferences).
+    pub(crate) preload: Arc<AtomicUsize>,
+    /// Workers apply EXIF orientation (Preferences, Alt+X).
+    pub(crate) rotate: Arc<AtomicBool>,
+    /// The view's box for the shown image, unturned, as `decode_size` works it out each frame
+    /// (per fit mode; in Fill from the image's own shape), and the view's size: what the decoders
+    /// shrink into, through `decode_box` for each job.
+    pub(crate) view_box: [u32; 2],
+    pub(crate) view_area: [u32; 2],
+    /// The longest side a texture may have.
+    pub(crate) max_side: u32,
+    /// To the decode workers.
+    pub(crate) jobs: mpsc::Sender<DecodeJob>,
+    pub(crate) rx: mpsc::Receiver<Decoded>,
+    pub(crate) sent: u64,
+    /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a
+    /// black screen.
+    pub(crate) last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
+    /// A slideshow's change of image fading in: when it began, and what each pane (the first,
+    /// then the others) showed before, kept until it has faded out.
+    pub(crate) fade: Option<(Instant, Vec<Option<Shown>>)>,
+    /// When the shown image was opened: the clock of an animation.
+    pub(crate) opened: Instant,
+    /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
+    /// standard error that the release tests read.
+    pub(crate) started: Option<Instant>,
+    /// How many frames after the first image took each number of milliseconds of the window
+    /// thread's processor time (the last: that
+    /// many or more), for the "frames:" line at exit that the release
+    /// tests read: work that grows with the list makes every frame slow, while the slowest alone
+    /// varies with one-off work such as Select All.
+    pub(crate) frame_ms: [u32; 256],
+}
+
 impl crate::App {
     // ---- Decoding and painting the image ----
 
@@ -63,23 +106,23 @@ impl crate::App {
             && !self.list.decode_errors.contains_key(&idx)
             && !self.list.decodes_pending.contains_key(&(idx, full))
         {
-            self.decodes_sent += 1;
+            self.decoding.sent += 1;
             let path = self.path(idx);
             let max = match full {
-                true => [self.max_side; 2],
+                true => [self.decoding.max_side; 2],
                 false => self.decode_box(idx),
             };
             self.list
                 .decodes_pending
-                .insert((idx, full), (self.decodes_sent, path.clone(), max));
+                .insert((idx, full), (self.decoding.sent, path.clone(), max));
             // The neighbours are preloaded at their first page.
             let page = if idx == self.list.cur {
                 self.viewing.page
             } else {
                 0
             };
-            let job = self.decodes_sent;
-            let _ = (self.decode_jobs).send(DecodeJob {
+            let job = self.decoding.sent;
+            let _ = (self.decoding.jobs).send(DecodeJob {
                 idx,
                 full,
                 path,
@@ -98,7 +141,10 @@ impl crate::App {
         }
         self.fill_panes();
         // The shown image first, then its neighbours in the order the list shows.
-        let (cur, ahead) = (self.list.cur, self.preload.load(Ordering::Relaxed) as isize);
+        let (cur, ahead) = (
+            self.list.cur,
+            self.decoding.preload.load(Ordering::Relaxed) as isize,
+        );
         let mut window = vec![cur];
         // The compared image second: it may be loaded at full resolution too.
         let other = self.compare_other().filter(|&i| i != cur);
@@ -111,7 +157,7 @@ impl crate::App {
                 .filter(|&&i| i != cur && Some(i) != other),
         );
         let full = window.len();
-        self.full_ok.store(full, Ordering::Relaxed);
+        self.decoding.full_ok.store(full, Ordering::Relaxed);
         let n = self.list.panes.len() + 1;
         let upcoming =
             (1..=n as isize).filter_map(|d| self.step_from(self.list.last_slide, d, true));
@@ -134,7 +180,7 @@ impl crate::App {
         self.list
             .slots
             .retain(|i, s| window.contains(i) && (!s.full || window[..full].contains(i)));
-        *self.keep.lock().unwrap() = window.clone();
+        *self.decoding.keep.lock().unwrap() = window.clone();
         for i in window {
             self.request(i, false);
         }
@@ -142,7 +188,7 @@ impl crate::App {
 
     /// Decoded images into textures, those still wanted; why for those that could not be.
     pub(crate) fn receive_decoded(&mut self, ctx: &egui::Context) {
-        while let Ok(d) = self.decoded_rx.try_recv() {
+        while let Ok(d) = self.decoding.rx.try_recv() {
             // Not a job still asked for: asked for again, in another list, page or look. Its
             // place in the list is the job's now, as the list may have been read again since.
             let Some(&(idx, full)) = (self.list.decodes_pending.iter())
@@ -156,7 +202,7 @@ impl crate::App {
             let wanted = self.is_file(idx, &d.path)
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.list.cur { self.viewing.page } else { 0 }
-                && self.keep.lock().unwrap().contains(&idx)
+                && self.decoding.keep.lock().unwrap().contains(&idx)
                 // Full resolution for each image on screen: the shown one, the compared one and
                 // the panes of a layout, zoomed together.
                 && (!full
@@ -205,7 +251,7 @@ impl crate::App {
                         self.viewing.frame = Some(frames - 1);
                     }
                     if idx == self.list.cur
-                        && let Some(t) = self.started.take()
+                        && let Some(t) = self.decoding.started.take()
                     {
                         eprintln!("first image: {} ms", t.elapsed().as_millis());
                     }
@@ -219,7 +265,7 @@ impl crate::App {
                 None if !full
                     && self.is_file(idx, &d.path)
                     && !self.list.slots.contains_key(&idx)
-                    && self.keep.lock().unwrap().contains(&idx) =>
+                    && self.decoding.keep.lock().unwrap().contains(&idx) =>
                 {
                     self.request(idx, false);
                 }
@@ -234,7 +280,7 @@ impl crate::App {
         self.list.decodes_pending.clear();
         self.list.decode_errors.clear();
         self.thumbs_changed();
-        self.last_drawn = None;
+        self.decoding.last_drawn = None;
         self.refill();
     }
 
@@ -255,10 +301,10 @@ impl crate::App {
         k: usize,
         now: egui::TextureId,
     ) -> Option<(f32, egui::TextureHandle, [usize; 2])> {
-        let (start, from) = self.fade.as_ref()?;
+        let (start, from) = self.decoding.fade.as_ref()?;
         let t = start.elapsed().as_millis() as f32 / self.fade_ms().max(1) as f32;
         if t >= 1.0 {
-            self.fade = None;
+            self.decoding.fade = None;
             return None;
         }
         ctx.request_repaint();
@@ -278,7 +324,8 @@ impl crate::App {
         if is_video(Path::new(name)) {
             return None;
         }
-        self.last_drawn
+        self.decoding
+            .last_drawn
             .as_ref()
             .map(|(t, orig)| (t.clone(), *orig, false))
     }
@@ -566,7 +613,10 @@ impl crate::App {
                 let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 if size != self.projector_size {
                     let old = std::mem::replace(&mut self.projector_size, size);
-                    let had = [self.view_box[0].max(old[0]), self.view_box[1].max(old[1])];
+                    let had = [
+                        self.decoding.view_box[0].max(old[0]),
+                        self.decoding.view_box[1].max(old[1]),
+                    ];
                     let grown = size[0] > had[0] || size[1] > had[1];
                     // Only then: a projector smaller than the view shows the images it has, and
                     // dragging its edge decodes nothing again.
@@ -649,7 +699,7 @@ impl crate::App {
     pub(crate) fn playing_frame(&self) -> usize {
         let slot = self.list.slots.get(&self.list.cur);
         match self.config.animate {
-            true => slot.map_or(0, |s| s.frame_at(self.opened.elapsed()).0),
+            true => slot.map_or(0, |s| s.frame_at(self.decoding.opened.elapsed()).0),
             false => 0,
         }
     }
@@ -663,7 +713,7 @@ impl crate::App {
     ) -> &'a egui::TextureHandle {
         match self.viewing.frame {
             Some(k) => slot.anim.get(k).map_or(&slot.tex, |f| &f.0),
-            None if self.config.animate => slot.frame(self.opened.elapsed(), ctx),
+            None if self.config.animate => slot.frame(self.decoding.opened.elapsed(), ctx),
             None => &slot.tex,
         }
     }
@@ -764,8 +814,11 @@ impl crate::App {
                 self.last_scale = scale;
                 // Panning only along a side where the image is larger than the view, and only up
                 // to its edge, so an image that fits stays put.
-                let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig))
-                    .or(self.last_drawn.as_ref().map(|d| d.1));
+                let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig)).or(self
+                    .decoding
+                    .last_drawn
+                    .as_ref()
+                    .map(|d| d.1));
                 if let Some([w, h]) = orig.map(turned) {
                     // Choosing a part to crop, a drag draws it instead.
                     if response.dragged() && self.viewing.crop.is_none() {
@@ -906,9 +959,12 @@ impl crate::App {
         // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
         // its size at its scale once that is known (also while it is decoded again, from
         // the image drawn), else the longer side.
-        let long = self.max_side;
-        let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig))
-            .or(self.last_drawn.as_ref().map(|d| d.1));
+        let long = self.decoding.max_side;
+        let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig)).or(self
+            .decoding
+            .last_drawn
+            .as_ref()
+            .map(|d| d.1));
         let view = match (mode, orig) {
             (0, _) => [w, h],
             (3, Some([ow, oh])) => {
@@ -921,15 +977,15 @@ impl crate::App {
             (2, _) => [long, h],
             _ => [w.max(h); 2],
         };
-        (self.view_box, self.view_area) = (view, [w, h]);
+        (self.decoding.view_box, self.decoding.view_area) = (view, [w, h]);
         long
     }
 
     /// The box file `idx` is shrunk into for the view and the projector, as `decode_box`.
     pub(crate) fn decode_box(&self, idx: usize) -> [u32; 2] {
         decode_box(
-            self.view_box,
-            self.view_area,
+            self.decoding.view_box,
+            self.decoding.view_area,
             self.config.fit_mode == 3,
             idx == self.list.cur,
             self.viewing.orient.0 % 2 == 1,
@@ -976,7 +1032,7 @@ impl crate::App {
             }
             paint_turned(ui, tex, rect, self.viewing.orient, alpha(shown));
             ui.set_clip_rect(clip);
-            self.last_drawn = Some((slot.tex.clone(), slot.orig));
+            self.decoding.last_drawn = Some((slot.tex.clone(), slot.orig));
             // For the projector: this view, and the pointer from the image's centre.
             let centre = area.center() + self.pan_offset;
             let pointer = (ctx.pointer_hover_pos())

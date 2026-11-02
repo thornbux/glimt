@@ -204,7 +204,7 @@ impl crate::App {
                 } else {
                     self.go(ctx, next);
                 }
-                self.fade = before.map(|b| (Instant::now(), b));
+                self.decoding.fade = before.map(|b| (Instant::now(), b));
                 if turns {
                     (self.list.last_slide, self.slideshow.next_pane) =
                         (next, (self.slideshow.next_pane + 1) % n);

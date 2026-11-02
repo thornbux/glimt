@@ -8,8 +8,8 @@ use crate::dialogs::{Pick, Prompt};
 use crate::file_list::{RubberBand, ThumbView};
 use crate::file_ops::{Deleted, Undo};
 use crate::info_panel::spawn_exif_reader;
-use crate::view::{DecodeJob, Shown, View, spawn_decoders};
 use crate::view::{LAYOUTS, frame_at};
+use crate::view::{View, spawn_decoders};
 use crate::window::Ender;
 use crate::workers::spawn_thumbnailers;
 use actions::{Action, OWN_KEYS};
@@ -22,7 +22,7 @@ use config::{
     Config, FADES, WindowState, keyword_tree_path, parse_last_dir, sort_folders_from,
     sort_folders_path, state_path, write_atomic,
 };
-use decode::{Decoded, Hist, MAX_ANIMATION, decode};
+use decode::{Hist, MAX_ANIMATION, decode};
 use duplicates::Dups;
 use eframe::egui;
 use external::{Login, Mounted};
@@ -539,44 +539,8 @@ struct App {
     status: file_list::StatusBar,
 
     // ---- Decoding: the shown image and its neighbours ----
-    /// The images to keep decoded, the shown one first: its neighbours in list order.
-    /// Shared with the workers, which skip jobs outside it.
-    keep: Arc<Mutex<Vec<usize>>>,
-    /// How many images at the start of `keep` may be decoded at full resolution: the shown one,
-    /// and the compared one beside it.
-    full_ok: Arc<AtomicUsize>,
-    /// Number of images preloaded on each side (Preferences).
-    preload: Arc<AtomicUsize>,
-    /// Workers apply EXIF orientation (Preferences, Alt+X).
-    rotate: Arc<AtomicBool>,
-    /// The view's box for the shown image, unturned, as `decode_size` works it out each frame
-    /// (per fit mode; in Fill from the image's own shape), and the view's size: what the decoders
-    /// shrink into, through `decode_box` for each job.
-    view_box: [u32; 2],
-    view_area: [u32; 2],
-    /// The longest side a texture may have.
-    max_side: u32,
-    /// To the decode workers.
-    decode_jobs: mpsc::Sender<DecodeJob>,
-    decoded_rx: mpsc::Receiver<Decoded>,
-    decodes_sent: u64,
-    /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a
-    /// black screen.
-    last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
-    /// A slideshow's change of image fading in: when it began, and what each pane (the first,
-    /// then the others) showed before, kept until it has faded out.
-    fade: Option<(Instant, Vec<Option<Shown>>)>,
-    /// When the shown image was opened: the clock of an animation.
-    opened: Instant,
-    /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
-    /// standard error that the release tests read.
-    started: Option<Instant>,
-    /// How many frames after the first image took each number of milliseconds of the window
-    /// thread's processor time (the last: that
-    /// many or more), for the "frames:" line at exit that the release
-    /// tests read: work that grows with the list makes every frame slow, while the slowest alone
-    /// varies with one-off work such as Select All.
-    frame_ms: [u32; 256],
+    /// Decoding the shown image and its neighbours: the workers, which images they keep, and the size they decode to.
+    decoding: view::Decoding,
 
     // ---- The view: zoom, panes, the window ----
     /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
@@ -903,10 +867,6 @@ impl App {
             notice: screen_error.or_else(|| config_notice(problems)),
             dir: PathBuf::new(),
             subdirs: Vec::new(),
-            keep,
-            full_ok,
-            preload,
-            rotate,
             preferences_open: false,
             preferences_unsaved: false,
             preferences_query: String::new(),
@@ -918,21 +878,11 @@ impl App {
             opened_type: Types::NONE,
             prompt: None,
             window_title: String::new(),
-            last_drawn: None,
-            fade: None,
             last_scale: 1.0,
             wheel: 0.0,
             config,
-            view_box: [1920, 1080],
-            view_area: [1920, 1080],
-            max_side: 8192,
-            decode_jobs: jobs,
-            decoded_rx: done,
-            decodes_sent: 0,
             zoom: None,
             pan_offset: egui::Vec2::ZERO,
-            started: Some(Instant::now()),
-            frame_ms: [0; 256],
             file_dialog: None,
             file_dialog_rx: Receiving::none(),
             kiosk: start.kiosk,
@@ -974,7 +924,6 @@ impl App {
             file_jobs: Vec::new(),
             touching: Vec::new(),
             closing: 0,
-            opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
             slideshow: slideshow::Slideshow {
                 shown_at: None,
@@ -1045,6 +994,23 @@ impl App {
                 selected_size: None,
                 selected_rx: Receiving::none(),
                 selected_size_due: None,
+            },
+            decoding: view::Decoding {
+                keep,
+                full_ok,
+                preload,
+                rotate,
+                view_box: [1920, 1080],
+                view_area: [1920, 1080],
+                max_side: 8192,
+                jobs,
+                rx: done,
+                sent: 0,
+                last_drawn: None,
+                fade: None,
+                opened: Instant::now(),
+                started: Some(Instant::now()),
+                frame_ms: [0; 256],
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
@@ -1158,7 +1124,7 @@ impl eframe::App for App {
         if self.closing < 2 {
             config::flush();
         }
-        let at = |share| frame_at(&self.frame_ms, share);
+        let at = |share| frame_at(&self.decoding.frame_ms, share);
         eprintln!(
             "frames: median {} ms, 90% within {} ms, slowest {} ms",
             at(0.5),
@@ -1170,9 +1136,9 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let start = thread_cpu_us();
         self.frame_ui(ui);
-        if self.started.is_none() {
+        if self.decoding.started.is_none() {
             let ms = thread_cpu_us().saturating_sub(start) / 1000;
-            self.frame_ms[(ms as usize).min(255)] += 1;
+            self.decoding.frame_ms[(ms as usize).min(255)] += 1;
         }
     }
 }

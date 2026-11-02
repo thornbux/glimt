@@ -58,7 +58,7 @@ impl crate::App {
             return;
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
-        self.fade = None;
+        self.decoding.fade = None;
         // Saving the old image's rotation may leave a notice, which must outlive the move.
         let saved = self.config.save_orientation && self.viewing.orient != (0, false);
         self.leave_image(ctx);
@@ -73,7 +73,7 @@ impl crate::App {
             self.zoom = None;
             self.pan_offset = egui::Vec2::ZERO;
         }
-        self.opened = Instant::now();
+        self.decoding.opened = Instant::now();
         self.panel.scroll_to_cur = true;
         // Every image gets the full delay, also when the user moves back or forward by hand.
         if self.slideshow.shown_at.is_some() {

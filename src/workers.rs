@@ -31,7 +31,7 @@ impl crate::App {
                 self.use_screen();
             }
         }
-        self.max_side = ctx.input(|i| i.max_texture_side) as u32;
+        self.decoding.max_side = ctx.input(|i| i.max_texture_side) as u32;
         self.receive_decoded(ctx);
         self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);

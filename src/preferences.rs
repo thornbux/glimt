@@ -607,7 +607,7 @@ impl crate::App {
                     self.set_preload(n);
                     changed = true;
                 }
-                let [w, h] = self.view_box;
+                let [w, h] = self.decoding.view_box;
                 let mb = (2 * n as u64 + 1) * w as u64 * h as u64 * 4 / 1_000_000;
                 ui.weak(tf!("Up to ≈ {mb} MB, each image at most {w}×{h}", mb, w, h));
                 let c = &mut self.config;
