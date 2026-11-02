@@ -6,13 +6,13 @@ use crate::config::sort_folders_from;
 use crate::config::sort_folders_path;
 use crate::external::Mounted;
 use crate::external::{Login, gio_mount};
-use crate::files::{
+use crate::lang::tr;
+use crate::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
-use crate::lang::tr;
 use crate::menus::{iconed, scroll_menu};
 use crate::threads::{Receiving, Took};
-use crate::{List, Slot, Viewing, collections, config, external, files, noted, tf, theme};
+use crate::{List, Slot, Viewing, collections, config, external, listing, noted, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -54,7 +54,7 @@ pub(crate) struct Folder {
     /// The next listing shows a tree's images as they are found (a folder opened).
     pub(crate) list_parts: bool,
     /// What the list shown was read and sorted as: folder, order, ascending, case, subfolders.
-    pub(crate) listed_as: Option<(PathBuf, files::Sort, bool, bool, bool)>,
+    pub(crate) listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
     /// The image the first part of a tree went to by itself: the whole list goes to its first.
     pub(crate) went_to: Option<OsString>,
     /// Set to stop the listing of the tree before, when another one starts.
@@ -131,7 +131,7 @@ struct Listing {
     /// relative to.
     dir: PathBuf,
     types: Types,
-    by: files::Sort,
+    by: listing::Sort,
     ascending: bool,
     case: bool,
     recursive: bool,
@@ -189,7 +189,7 @@ impl Listing {
         if sort {
             // By name with Case on, sort_files keeps the order as listed, a folder's;
             // a collection's is its own, so it is put in name order here.
-            if self.by == files::Sort::Name && self.case {
+            if self.by == listing::Sort::Name && self.case {
                 files.sort_unstable();
             }
             sort_files(&self.dir, &mut files, self.by, self.ascending, self.case);
@@ -256,7 +256,7 @@ impl Listing {
         if self.stop.load(Ordering::Relaxed) {
             return;
         }
-        match before.and_then(|before| files::kept_order(before, &files)) {
+        match before.and_then(|before| listing::kept_order(before, &files)) {
             Some(kept) => files = kept,
             None => sort_files(&self.dir, &mut files, self.by, self.ascending, self.case),
         }
@@ -282,7 +282,7 @@ impl Listing {
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|e| files::kind(e).0 && is_listed(&e.path(), self.types));
+            .filter(|e| listing::kind(e).0 && is_listed(&e.path(), self.types));
         // Through a link, the size of the file it points to, as the list shows that.
         let sizes = images.filter_map(|e| Some(std::fs::metadata(e.path()).ok()?.len()));
         send_sizes(sizes, self.size_tx, &self.ctx);
@@ -588,7 +588,10 @@ impl crate::App {
         // the order shown when no name is new, instead of reading every file's EXIF again.
         // shortcut: the list copied in the UI thread, 7-9 ms for 500,000 names, once per
         // refresh; share it with the thread (an Arc in List) if folders grow far past that.
-        let exif = matches!(by, files::Sort::ExifOriginal | files::Sort::ExifDigitized);
+        let exif = matches!(
+            by,
+            listing::Sort::ExifOriginal | listing::Sort::ExifDigitized
+        );
         let same = Some((self.folder.dir.clone(), by, ascending, case, recursive));
         let before =
             (exif && !self.folder.list_parts && !self.slideshow.shuffled && collection.is_none())
@@ -1056,7 +1059,7 @@ mod tests {
             image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        app.config.sort = crate::files::Sort::ExifOriginal;
+        app.config.sort = crate::listing::Sort::ExifOriginal;
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |app| app
             .folder
@@ -1101,7 +1104,7 @@ mod tests {
         let file = dir.join("c.gqv");
         std::fs::write(&file, gqv).unwrap();
         let (mut app, ctx) = app_on(&file);
-        app.config.sort = crate::files::Sort::Name;
+        app.config.sort = crate::listing::Sort::Name;
         app.config.sort_case = true;
         app.folder.sort_collection = true;
         app.list(&ctx);

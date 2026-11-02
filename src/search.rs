@@ -8,7 +8,7 @@ use crate::folder::send_sizes;
 use crate::lang::tr;
 use crate::threads::small_alloc_threads;
 use crate::threads::{Receiving, Took, Working, background_threads, in_parts};
-use crate::{exif, meta};
+use crate::{exif, xmp};
 use crate::{noted, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -648,7 +648,7 @@ pub fn exif_index(
             let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let rows = exif::read(&path);
                 let mut text: Vec<&str> = rows.iter().map(|r| r.1.as_str()).collect();
-                let meta = meta::read(&path).text();
+                let meta = xmp::read(&path).text();
                 text.push(&meta);
                 text.join(" ").to_lowercase()
             }));

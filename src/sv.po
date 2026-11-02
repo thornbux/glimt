@@ -2313,7 +2313,7 @@ msgstr "Ange fönstertitel …"
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel på det här fönstret (%name%, %path%, %folder%, %app%; tom: som i Inställningar):"
 
-#: src/meta.rs
+#: src/xmp.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} är en länk: skrivs inte igenom"
 

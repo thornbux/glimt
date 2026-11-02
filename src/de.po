@@ -2313,7 +2313,7 @@ msgstr "Fenstertitel festlegen …"
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Titel dieses Fensters (%name%, %path%, %folder%, %app%; leer: wie in den Einstellungen):"
 
-#: src/meta.rs
+#: src/xmp.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} ist ein Link: wird nicht durchgeschrieben"
 

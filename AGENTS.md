@@ -74,10 +74,10 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
 | `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths; the writer thread (`write_later`, `flush`), `edit_shared` for the files the windows share, `replace_file`/`create_file`/`write_atomic`, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
-| `src/decoders.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
+| `src/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
 | `src/file_ops.rs` | Delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `put_file`, `rename_never_over` (the one way to rename), `rename_files`; Undo, with `Thrown` (what a move to the trash did) and `restore` |
-| `src/files.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
+| `src/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
 | `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
 | `src/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
@@ -90,9 +90,9 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `src/lightroom.rs` | Import Lightroom Catalog: a Lightroom Classic `.lrcat` read through `sqlite3`, `Catalog::plan`, the dialog and the import |
 | `src/marks.rs` | Optional marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks`, and stars in XMP |
-| `src/meta.rs` | Keywords, comment, IPTC alt text and extended description in XMP sidecars, keyword tree paths; `update_sidecar` (also for stars); sidecars that follow their files |
+| `src/xmp.rs` | Keywords, comment, IPTC alt text and extended description in XMP sidecars, keyword tree paths; `update_sidecar` (also for stars); sidecars that follow their files |
 | `src/pan.rs` | Pan view: the list by day, its rows, the timeline and the calendar |
-| `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoders.rs reads with too |
+| `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoder_plugins.rs reads with too |
 | `src/preferences.rs` | Edit → Preferences: the window and its sections |
 | `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
@@ -150,7 +150,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   never drops them.
 - **A format:** built in when the `image` crate reads it with no new dependency (its feature in
   `Cargo.toml`, the extension in `files::EXTS`, a test in `decode.rs`). Otherwise a decoder
-  plugin in `examples/decoders` (`src/decoders.rs`), with a check in `tests.sh`, not code or a
+  plugin in `examples/decoders` (`src/decoder_plugins.rs`), with a check in `tests.sh`, not code or a
   dependency in Glimt.
 - **An optional feature** (chosen when building, not a plugin): a Cargo feature in `[features]`
   (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its

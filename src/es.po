@@ -2313,7 +2313,7 @@ msgstr "Establecer título de la ventana…"
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Título de esta ventana (%name%, %path%, %folder%, %app%; vacío: como en Preferencias):"
 
-#: src/meta.rs
+#: src/xmp.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} es un enlace: no se escribe a través de él"
 

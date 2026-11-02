@@ -602,10 +602,10 @@ pub fn caption(
             .map(|m| crate::format::human_size(m.len()))
             .unwrap_or_default(),
         "keywords" => meta
-            .get_or_init(|| crate::meta::read(path))
+            .get_or_init(|| crate::xmp::read(path))
             .keywords
             .join(", "),
-        "comment" => meta.get_or_init(|| crate::meta::read(path)).comment.clone(),
+        "comment" => meta.get_or_init(|| crate::xmp::read(path)).comment.clone(),
         label => (exif
             .get_or_init(|| crate::exif::read_and_all(path).0)
             .iter())

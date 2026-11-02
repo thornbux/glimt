@@ -40,7 +40,7 @@ mod crop;
 
 mod decode;
 
-mod decoders;
+mod decoder_plugins;
 
 mod dialogs;
 
@@ -53,8 +53,6 @@ mod external;
 mod file_list;
 
 mod file_ops;
-
-mod files;
 
 mod folder;
 
@@ -70,12 +68,12 @@ mod lang;
 
 mod lightroom;
 
+mod listing;
+
 #[cfg(feature = "marks")]
 mod marks;
 
 mod menus;
-
-mod meta;
 
 mod pan;
 
@@ -101,6 +99,7 @@ mod search;
 mod selection;
 
 mod slideshow;
+
 #[cfg(test)]
 mod source_rules;
 
@@ -118,6 +117,8 @@ mod view;
 mod window;
 
 mod workers;
+
+mod xmp;
 
 /// The release tests' hook (`test-hooks`): `glimt --remote where LABEL` tells where the menu
 /// item, button or choice with that text was drawn last frame, so the tests click by text and
@@ -1044,7 +1045,7 @@ mod tests {
             image::RgbImage::from_pixel(8, 8, image::Rgb(colour))
                 .save(&png)
                 .unwrap();
-            std::fs::write(crate::meta::sidecar(&png), file).unwrap();
+            std::fs::write(crate::xmp::sidecar(&png), file).unwrap();
         }
         let gqv = format!(
             "#GQview collection\n\"{}\"\n\"{}\"\n",

@@ -188,7 +188,7 @@ pub fn is_hidden(path: &Path) -> bool {
 }
 
 fn is_listed_type(path: &Path, types: Types) -> bool {
-    (types.images && (built_in_image(path) || crate::decoders::for_path(path).is_some()))
+    (types.images && (built_in_image(path) || crate::decoder_plugins::for_path(path).is_some()))
         || (types.raw && has_ext(path, raw::EXTS))
         || (types.videos && is_video(path))
 }

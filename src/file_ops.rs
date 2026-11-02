@@ -7,13 +7,13 @@ use crate::decode::survive;
 use crate::dialogs::Pick;
 use crate::dialogs::Prompt;
 use crate::external;
-use crate::files::pattern_name;
 use crate::folder::total_size;
 use crate::format::count;
 use crate::lang::tr;
+use crate::listing::pattern_name;
 use crate::save::save_rotated;
 use crate::threads::{Receiving, Working};
-use crate::{Job, collections, config, decode, exif, journal, meta, tf};
+use crate::{Job, collections, config, decode, exif, journal, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -341,7 +341,7 @@ impl crate::App {
                 // A chunk's sidecars held until they too are gone: a keyword written meanwhile
                 // would else make one under the name of a photo no longer there. Only for the
                 // chunk, so a sidecar write in another window waits for one chunk, not the job.
-                let _held = meta::held_all(chunk);
+                let _held = xmp::held_all(chunk);
                 if trash {
                     if let Err(e) = self::trash(chunk) {
                         errors.push(e);
@@ -357,7 +357,7 @@ impl crate::App {
                 // their keywords.
                 let went: Vec<PathBuf> = chunk.iter().filter(|p| !p.exists()).cloned().collect();
                 let side: Vec<PathBuf> = (went.iter())
-                    .map(|p| meta::sidecar(p))
+                    .map(|p| xmp::sidecar(p))
                     .filter(|s| s.exists())
                     .collect();
                 if trash && !side.is_empty() {
@@ -600,14 +600,14 @@ impl crate::App {
                 // that waited lands on no old name. Not a copy, where the photo stays; a move to
                 // another disk holds it while the photo is copied, which only makes writes of
                 // the same lock wait.
-                let _held = (!keep).then(|| meta::held(path));
+                let _held = (!keep).then(|| xmp::held(path));
                 if let Some(at) = taken(&target, &HashSet::new()) {
                     failed(&at, std::io::ErrorKind::AlreadyExists.into());
                 } else if let Err(e) = put_file(path, &target, keep) {
                     failed(&target, e);
                 } else {
-                    if let Err(e) = meta::follow(path, &target, keep) {
-                        failed(&meta::sidecar(&target), e);
+                    if let Err(e) = xmp::follow(path, &target, keep) {
+                        failed(&xmp::sidecar(&target), e);
                     }
                     put.push((path.clone(), target));
                 }
@@ -784,7 +784,7 @@ impl crate::App {
             let held = tr("The rotation was not saved: other work is still changing the file");
             return self.notice = Some(held.into());
         }
-        let jpeg = crate::files::is_jpeg(&path);
+        let jpeg = crate::listing::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (self.work.saved_tx.clone(), self.notices_tx.clone());
         let ctx = ctx.clone();
@@ -974,15 +974,15 @@ impl crate::App {
             Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
                 let (mut errors, mut back) = (Vec::new(), Vec::new());
                 for (from, to) in pairs {
-                    let _held = meta::held(&to);
+                    let _held = xmp::held(&to);
                     let result = match taken(&from, &HashSet::new()) {
                         Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
                         None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
                     };
                     match result {
                         Ok(()) => {
-                            if let Err(e) = meta::follow(&to, &from, false) {
-                                errors.push(format!("{}: {e}", meta::sidecar(&from).display()));
+                            if let Err(e) = xmp::follow(&to, &from, false) {
+                                errors.push(format!("{}: {e}", xmp::sidecar(&from).display()));
                             }
                             back.push((to, from));
                         }
@@ -1743,7 +1743,7 @@ fn forget_in_collection(
 /// show that file's keywords and stars, and leave its own behind). `ours` are the operation's
 /// own names, which a swap reuses. The one rule for Copy, Move, Rename and Rename Many.
 pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
-    [to.to_path_buf(), meta::sidecar(to)]
+    [to.to_path_buf(), xmp::sidecar(to)]
         .into_iter()
         .find(|p| p.exists() && !ours.contains(p))
 }
@@ -1754,11 +1754,11 @@ pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
 pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> Result<(), String> {
     // Held as a sidecar write holds them, from before the look at which have one: a keyword
     // written meanwhile would else land on an old name.
-    let _held = meta::held_all(&from);
+    let _held = xmp::held_all(&from);
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
-        .map(|(f, t)| (meta::sidecar(f), meta::sidecar(t)))
+        .map(|(f, t)| (xmp::sidecar(f), xmp::sidecar(t)))
         .filter(|(f, _)| f.exists())
         .collect();
     for (f, t) in sides {
@@ -2279,7 +2279,7 @@ mod tests {
 
     /// The sidecar's text of `path`, or "" when it has none.
     fn side(path: &std::path::Path) -> String {
-        std::fs::read_to_string(crate::meta::sidecar(path)).unwrap_or_default()
+        std::fs::read_to_string(crate::xmp::sidecar(path)).unwrap_or_default()
     }
 
     /// Work on a file holds every other operation on it back, also work started outside a job
@@ -2375,7 +2375,7 @@ mod tests {
                     to.exists()
                         && !d.join("a.png").exists()
                         && side(&to) == "a"
-                        && !crate::meta::sidecar(&d.join("a.png")).exists()
+                        && !crate::xmp::sidecar(&d.join("a.png")).exists()
                         && (!cfg!(feature = "marks")
                             || (stars(app, &to) == 3 && stars(app, &d.join("a.png")) == 0))
                 },
@@ -2427,7 +2427,7 @@ mod tests {
                 |app, ctx, _| app.delete_now(ctx, false, vec![0]),
                 |app, d| {
                     !d.join("a.png").exists()
-                        && !crate::meta::sidecar(&d.join("a.png")).exists()
+                        && !crate::xmp::sidecar(&d.join("a.png")).exists()
                         && (!cfg!(feature = "marks") || stars(app, &d.join("a.png")) == 0)
                 },
             ),
@@ -2446,7 +2446,7 @@ mod tests {
                 "save frame over b",
                 |app, ctx, d| app.export_frames(ctx, d.join("g.gif"), Some(0), d.join("b.png")),
                 |app, d| {
-                    !crate::meta::sidecar(&d.join("b.png")).exists()
+                    !crate::xmp::sidecar(&d.join("b.png")).exists()
                         && (!cfg!(feature = "marks") || stars(app, &d.join("b.png")) == 0)
                 },
             ),
@@ -2493,12 +2493,12 @@ mod tests {
                 "keywords",
                 |app, ctx, d| {
                     // The fixture's sidecar says only whose it is: no XMP Glimt writes over.
-                    let _ = std::fs::remove_file(crate::meta::sidecar(&d.join("a.png")));
+                    let _ = std::fs::remove_file(crate::xmp::sidecar(&d.join("a.png")));
                     app.write_sidecars(
                         ctx,
                         "Saving keywords",
                         vec![d.join("a.png")],
-                        |p| crate::meta::add_tags(p, &["Tag".into()]).is_ok(),
+                        |p| crate::xmp::add_tags(p, &["Tag".into()]).is_ok(),
                         |_, _| None,
                     );
                 },
@@ -2643,7 +2643,7 @@ mod tests {
             |app: &crate::App| (app.work.jobs.iter()).all(|j| std::sync::Arc::strong_count(j) == 1);
         let waits =
             |app: &mut crate::App, file: &std::path::Path, start: &dyn Fn(&mut crate::App)| {
-                let held = crate::meta::held(file);
+                let held = crate::xmp::held(file);
                 start(app);
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 assert!(file.exists(), "{} gone while held", file.display());
@@ -2674,7 +2674,7 @@ mod tests {
         // 100 files of other lock slots, then two more, of which the second is held; the first
         // of them waits too, as it is in its chunk (not one gio call and one taking of the locks
         // per file).
-        let slot = |n: &str| crate::meta::lock_slot(&crate::meta::sidecar(&d.join(n)));
+        let slot = |n: &str| crate::xmp::lock_slot(&crate::xmp::sidecar(&d.join(n)));
         let names: Vec<String> = (0..400).map(|k| format!("d{k:03}.png")).collect();
         let y = &names[0];
         let first: Vec<&String> = names
@@ -2690,7 +2690,7 @@ mod tests {
             std::fs::write(d.join(n), "").unwrap();
         }
         for n in [first[0], y] {
-            std::fs::write(crate::meta::sidecar(&d.join(n)), n).unwrap();
+            std::fs::write(crate::xmp::sidecar(&d.join(n)), n).unwrap();
         }
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |app| app
@@ -2701,7 +2701,7 @@ mod tests {
         let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
         all.extend([at(&app, z), at(&app, y)]);
         let (x, y, z) = (d.join(first[0]), d.join(y), d.join(z));
-        let held = crate::meta::held(&y);
+        let held = crate::xmp::held(&y);
         app.delete_now(&ctx, false, all);
         assert!(
             settle(&mut app, &ctx, |_| first
@@ -2709,13 +2709,13 @@ mod tests {
                 .all(|n| !d.join(n).exists())),
             "the first chunk waits not for the second"
         );
-        assert!(y.exists() && crate::meta::sidecar(&y).exists());
+        assert!(y.exists() && crate::xmp::sidecar(&y).exists());
         assert!(z.exists(), "the second chunk is one");
         drop(held);
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && !y.exists()
             && !z.exists()));
-        assert!(!crate::meta::sidecar(&x).exists() && !crate::meta::sidecar(&y).exists());
+        assert!(!crate::xmp::sidecar(&x).exists() && !crate::xmp::sidecar(&y).exists());
         std::fs::remove_dir_all(d).unwrap();
     }
 

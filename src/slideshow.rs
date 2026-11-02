@@ -4,7 +4,7 @@ use crate::actions::Action;
 use crate::collections;
 use crate::config::FADES;
 use crate::config::MAX_DELAY;
-use crate::files::shuffle;
+use crate::listing::shuffle;
 use crate::selection::round_ends;
 use eframe::egui;
 use std::ffi::OsString;

@@ -5,9 +5,9 @@
 //! failed write told once; `--lock-settings`; and the backup of Glimt's folders.
 
 use crate::actions::Keys;
-use crate::files::Sort;
 use crate::format::count;
 use crate::format::local_time;
+use crate::listing::Sort;
 use crate::print;
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -1411,11 +1411,11 @@ mod tests {
         let c = Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case=false");
         assert_eq!(
             (c.sort, c.sort_ascending, c.sort_case),
-            (crate::files::Sort::ExifDigitized, false, false)
+            (crate::listing::Sort::ExifDigitized, false, false)
         );
         assert_eq!(
             Config::parse("sort=nonsense").sort,
-            crate::files::Sort::Name
+            crate::listing::Sort::Name
         );
         assert_eq!(Config::default().toolbar_icons, 0);
         assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);
@@ -1470,7 +1470,7 @@ mod tests {
         let long = dir.join(format!("{}.jpg", "a".repeat(240)));
         super::create_file(&long, "x").unwrap();
         super::replace_file(&long, "y").unwrap();
-        super::replace_file(&crate::meta::sidecar(&long), "<x/>").unwrap();
+        super::replace_file(&crate::xmp::sidecar(&long), "<x/>").unwrap();
         assert_eq!(std::fs::read_to_string(&long).unwrap(), "y");
         let file = dir.join("config");
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();

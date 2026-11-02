@@ -4,7 +4,7 @@
 use crate::colour::to_srgb;
 use crate::decode::load_icc;
 use crate::exif;
-use crate::files::has_ext;
+use crate::listing::has_ext;
 use image::ImageDecoder;
 use std::path::Path;
 
@@ -51,7 +51,7 @@ impl Format {
 
     /// The format `path` would be copied in "as the original".
     pub fn of(path: &Path) -> Format {
-        if crate::files::is_jpeg(path) {
+        if crate::listing::is_jpeg(path) {
             Format::Jpeg
         } else if has_ext(path, &["webp"]) && webp_lossless(path) == Some(false) {
             Format::WebPLossy
@@ -234,8 +234,8 @@ pub(crate) fn land(
 ) -> std::io::Result<()> {
     // Read before the copy is written: one that cannot be read leaves no copy behind. One that
     // is a link is none: what it points to (a private key) is not the photo's.
-    let side = crate::meta::sidecar(path);
-    let source = match strip || crate::meta::linked(&side) {
+    let side = crate::xmp::sidecar(path);
+    let source = match strip || crate::xmp::linked(&side) {
         true => None,
         false => crate::config::read_or_none(&side)?,
     };
@@ -243,7 +243,7 @@ pub(crate) fn land(
         true => crate::config::replace_file(new, out)?,
         false => crate::config::create_file(new, out)?,
     }
-    let side = crate::meta::sidecar(new);
+    let side = crate::xmp::sidecar(new);
     // A link goes, not what it points to; `create_file` never follows one.
     match std::fs::remove_file(&side) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -1072,7 +1072,7 @@ mod tests {
         image::RgbImage::from_pixel(4, 4, image::Rgb([0, 0, 255]))
             .save(&b)
             .unwrap();
-        let side = |p: &std::path::Path| crate::meta::sidecar(p);
+        let side = |p: &std::path::Path| crate::xmp::sidecar(p);
         let text = |p: &std::path::Path| std::fs::read_to_string(side(p)).ok();
         std::fs::write(side(&a), "a's").unwrap();
         let how = |page, strip| super::CopyAs {

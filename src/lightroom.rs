@@ -8,7 +8,7 @@ use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
 use crate::threads::{Receiving, Working};
-use crate::{collections, meta, tf};
+use crate::{collections, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -415,7 +415,7 @@ impl crate::App {
                 let stars = *n == 0 || marks::write_xmp(path, *n).is_ok();
                 #[cfg(not(feature = "marks"))]
                 let stars = *n == 0;
-                stars && (tags.is_empty() || meta::add_tags(path, tags).is_ok())
+                stars && (tags.is_empty() || xmp::add_tags(path, tags).is_ok())
             },
             |failed, job| match () {
                 _ if failed > 0 => Some(tf!(

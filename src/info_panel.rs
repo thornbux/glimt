@@ -8,8 +8,8 @@ use crate::format::{count, human_size, thousands};
 use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
-use crate::meta::Meta;
-use crate::{config, decode, exif, meta, noted, tf};
+use crate::xmp::Meta;
+use crate::{config, decode, exif, noted, tf, xmp};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -22,9 +22,9 @@ pub(crate) struct ExifRead {
     rows: Vec<(&'static str, String)>,
     all: Vec<(&'static str, String, String)>,
     /// Keywords and comment, their keyword tree paths, and the alt text and description.
-    meta: meta::Meta,
+    meta: xmp::Meta,
     paths: Vec<String>,
-    access: meta::Access,
+    access: xmp::Access,
 }
 
 /// Keywords, comment, alt text and extended description of the shown image as being edited in
@@ -33,13 +33,13 @@ pub(crate) struct MetaEdit {
     pub(crate) path: PathBuf,
     keywords: String,
     comment: String,
-    pub(crate) saved: meta::Meta,
+    pub(crate) saved: xmp::Meta,
     /// Its keyword tree paths, which tick the tree's boxes with `saved`'s keywords.
     paths: Vec<String>,
     /// The IPTC alt text and extended description as edited, and as last read or saved.
     alt: String,
     extended: String,
-    pub(crate) access: meta::Access,
+    pub(crate) access: xmp::Access,
 }
 
 /// A level of the keyword tree: its children by name.
@@ -72,7 +72,7 @@ impl KeywordNode {
                 format!("{prefix}|{name}")
             };
             let mut box_of = |ui: &mut egui::Ui| {
-                let mut on = meta::has_tag(have.0, have.1, &path);
+                let mut on = xmp::has_tag(have.0, have.1, &path);
                 let response = noted(&ui.checkbox(&mut on, name), name);
                 if response.changed() {
                     *tick = Some((path.clone(), on));
@@ -137,7 +137,7 @@ impl Info {
             meta: None,
             focus_keywords: false,
             keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
-                .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
+                .map_or_else(Vec::new, |t| xmp::keyword_paths(t.lines())),
             new_keyword: String::new(),
         }
     }
@@ -348,7 +348,7 @@ impl crate::App {
         // as the other settings do, and the file is not written.
         let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
             self.info.keyword_tree =
-                meta::keyword_tree_changed(&self.info.keyword_tree, add, remove);
+                xmp::keyword_tree_changed(&self.info.keyword_tree, add, remove);
             return;
         };
         // One that cannot be read is not written over: its keywords would be lost.
@@ -357,7 +357,7 @@ impl crate::App {
                 .lines()
                 .map(str::to_owned)
                 .collect();
-            let tree = meta::keyword_tree_changed(&on_disk, add, remove);
+            let tree = xmp::keyword_tree_changed(&on_disk, add, remove);
             ((tree.join("\n") + "\n").into_bytes(), tree)
         };
         match config::edit_shared(&p, change) {
@@ -374,7 +374,7 @@ impl crate::App {
         if targets.contains(&self.list.cur)
             && let Some(edit) = &mut self.info.meta
         {
-            meta::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
+            xmp::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
         }
         let paths: Vec<PathBuf> = targets.iter().map(|&i| self.path(i)).collect();
@@ -387,7 +387,7 @@ impl crate::App {
             ctx,
             doing,
             paths,
-            move |path| meta::tag_file(path, &written, on).is_ok(),
+            move |path| xmp::tag_file(path, &written, on).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
                     "The keyword could not be saved for {count}",
@@ -408,7 +408,7 @@ impl crate::App {
         let Some(edit) = &mut self.info.meta else {
             return;
         };
-        let access = meta::Access {
+        let access = xmp::Access {
             alt: edit.alt.trim().to_owned(),
             extended: edit.extended.trim().to_owned(),
         };
@@ -424,7 +424,7 @@ impl crate::App {
                 ctx,
                 tr("Saving the alt text"),
                 vec![path],
-                move |p| match meta::write_access(p, &access) {
+                move |p| match xmp::write_access(p, &access) {
                     Ok(()) => true,
                     Err(e) => {
                         let _ = tx.send(tf!("Could not save the alt text: {e}", e));
@@ -461,7 +461,7 @@ impl crate::App {
             ctx,
             tr("Saving keywords"),
             vec![path],
-            move |p| match meta::write_changed(p, keywords.clone(), comment.clone()) {
+            move |p| match xmp::write_changed(p, keywords.clone(), comment.clone()) {
                 Ok(_) => true,
                 Err(e) => {
                     let _ = tx.send(tf!("Could not save the keywords: {e}", e));
@@ -485,7 +485,7 @@ impl crate::App {
             ctx,
             tr("Adding keywords"),
             paths,
-            move |path| meta::add_keywords(path, &keywords).is_ok(),
+            move |path| xmp::add_keywords(path, &keywords).is_ok(),
             move |failed, job| match () {
                 _ if failed > 0 => Some(tf!(
                     "Keywords could not be saved for {count}",
@@ -564,7 +564,7 @@ pub(crate) fn spawn_exif_reader(
                     let mut rows = vec![("Colour profile", colour_source(&path))];
                     let (exif_rows, all) = exif::read_and_all(&path);
                     rows.extend(exif_rows);
-                    let (meta, paths, access) = meta::read_all(&path);
+                    let (meta, paths, access) = xmp::read_all(&path);
                     (rows, all, meta, paths, access)
                 });
                 if let Ok((more, a, m, p, x)) = read {
