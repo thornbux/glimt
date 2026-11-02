@@ -17,9 +17,7 @@ use crate::pan::Pan;
 use crate::threads::{Receiving, Working};
 use crate::view::LAYOUTS;
 use crate::view::layout_grid;
-use crate::{
-    POINTER_STILL, collections, config, external, help, own_program, remote, save, tf, window_shown,
-};
+use crate::{collections, config, external, help, own_program, remote, save, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -814,42 +812,6 @@ impl crate::App {
         self.listing_rx.is_some()
             || self.mounting_rx.is_some()
             || self.busy.load(Ordering::Relaxed) > 0
-    }
-
-    /// In full screen, with the setting on, the pointer hidden once the mouse has been still for
-    /// `POINTER_STILL`; never while work goes on (the busy pointer shows it; the shown image
-    /// decoded does not count, or it would flash at each image of a slideshow), nor while a window,
-    /// menu or popup shows (Help, the EXIF window, pan view, a dialog): one reads it, and wants
-    /// the pointer there at once.
-    pub(crate) fn hide_still_pointer(&mut self, ctx: &egui::Context, fullscreen: bool) {
-        let moved = ctx.input(|i| {
-            i.pointer.delta() != egui::Vec2::ZERO
-                || i.pointer.any_down()
-                || i.smooth_scroll_delta != egui::Vec2::ZERO
-        });
-        if moved || !fullscreen {
-            self.pointer_moved = std::time::Instant::now();
-        }
-        if fullscreen && self.config.hide_pointer && self.working_besides_image() {
-            // A job may end without a repaint; look again, for the pointer to hide then.
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
-        }
-        if !self.pointer_hides(fullscreen) || window_shown(ctx) {
-            return;
-        }
-        match POINTER_STILL.checked_sub(self.pointer_moved.elapsed()) {
-            Some(left) if !left.is_zero() => ctx.request_repaint_after(left),
-            _ => ctx.set_cursor_icon(egui::CursorIcon::None),
-        }
-    }
-
-    /// Whether the pointer may be hidden while still: full screen, the setting on, no work going
-    /// on but the shown image's decode, and no dialog open.
-    pub(crate) fn pointer_hides(&self, fullscreen: bool) -> bool {
-        fullscreen
-            && self.config.hide_pointer
-            && !self.working_besides_image()
-            && !self.dialog_open()
     }
 
     pub(crate) fn dialog_open(&self) -> bool {
