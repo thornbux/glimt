@@ -290,8 +290,16 @@ fn alike(a: &[u8], b: &[u8], percent: u8) -> bool {
     likeness(a, b) >= percent as f32
 }
 
-/// A picture to compare: its mean, its place in the list, its band and row means, its signature.
-type Item = (f32, usize, [f32; 4], [f32; 16], Vec<u8>);
+/// A picture to compare.
+struct Item {
+    mean: f32,
+    /// Its place in the list.
+    at: usize,
+    /// The means of its four bands and of its 16 rows.
+    bands: [f32; 4],
+    rows: [f32; 16],
+    signature: Vec<u8>,
+}
 
 /// Groups of pictures at least `percent` alike, each around its first picture as in Geeqie,
 /// so a chain of small changes does not make one long group. Pictures are taken in order of
@@ -311,26 +319,30 @@ fn similar(
     let mut items: Vec<Item> = (signatures.into_iter().enumerate())
         .filter_map(|(i, s)| {
             let s = s?;
-            Some((mean(&s), i, bands(&s), parts(&s), s))
+            Some(Item {
+                mean: mean(&s),
+                at: i,
+                bands: bands(&s),
+                rows: parts(&s),
+                signature: s,
+            })
         })
         .collect();
-    items.sort_by(|a, b| a.0.total_cmp(&b.0));
+    items.sort_by(|a, b| a.mean.total_cmp(&b.mean));
     let reach = (100.0 - percent as f32) * 255.0 / 100.0;
     // Those alike enough with `k` after it, of those not in a group when its block began.
     let matches = |k: usize, grouped: &[bool]| -> Vec<usize> {
-        let (mean, _, bands, rows, sig) = &items[k];
+        let this = &items[k];
         let mut out = Vec::new();
-        for (n, (other_mean, _, other_bands, other_rows, other)) in
-            items.iter().enumerate().skip(k + 1)
-        {
-            if other_mean - mean > reach {
+        for (n, other) in items.iter().enumerate().skip(k + 1) {
+            if other.mean - this.mean > reach {
                 break;
             }
             // A little room for rounding: these only rule out pairs that cannot match.
             if !grouped[n]
-                && apart(bands, other_bands) <= 4.0 * reach + 0.01
-                && apart(rows, other_rows) <= 16.0 * reach + 0.01
-                && alike(sig, other, percent)
+                && apart(&this.bands, &other.bands) <= 4.0 * reach + 0.01
+                && apart(&this.rows, &other.rows) <= 16.0 * reach + 0.01
+                && alike(&this.signature, &other.signature, percent)
             {
                 out.push(n);
             }
@@ -363,11 +375,11 @@ fn similar(
             // Left out as found by a picture before it, which another group took after all.
             let alike = alike.unwrap_or_else(|| matches(k, &grouped));
             kept += alike.len();
-            let mut group = vec![paths[items[k].1].clone()];
+            let mut group = vec![paths[items[k].at].clone()];
             for n in alike {
                 if !grouped[n] {
                     grouped[n] = true;
-                    group.push(paths[items[n].1].clone());
+                    group.push(paths[items[n].at].clone());
                 }
             }
             if group.len() > 1 {
