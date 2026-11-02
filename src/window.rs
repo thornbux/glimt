@@ -1,6 +1,6 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
-use crate::WindowState;
+use crate::config::WindowState;
 use crate::format::fill_template;
 use crate::{external, remote, tf};
 use eframe::egui;

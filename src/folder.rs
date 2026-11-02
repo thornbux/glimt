@@ -1,16 +1,16 @@
 //! Opening a folder, a collection or several folders, listing them, and following changes.
 
-use crate::Config;
-use crate::Mounted;
 use crate::actions::Action;
+use crate::config::Config;
+use crate::config::sort_folders_from;
+use crate::config::sort_folders_path;
+use crate::external::Mounted;
 use crate::external::{Login, gio_mount};
 use crate::files::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::lang::tr;
 use crate::menus::{iconed, scroll_menu};
-use crate::sort_folders_from;
-use crate::sort_folders_path;
 use crate::threads::{Receiving, Took};
 use crate::{List, Slot, Viewing, collections, config, external, files, noted, tf, theme};
 use eframe::egui;

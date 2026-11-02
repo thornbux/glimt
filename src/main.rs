@@ -4,34 +4,25 @@
 //! is decoded only when the user zooms past what that covers. Only a small window around
 //! the current image is kept in memory.
 
-use crate::file_list::{RubberBand, ThumbView};
-use crate::file_ops::Deleted;
+use crate::actions::OWN_KEYS;
+use crate::check::Check;
+use crate::config::{Config, FADES, WindowState, parse_last_dir, state_path, write_atomic};
+use crate::decode::{Hist, MAX_ANIMATION, decode};
+use crate::duplicates::Dups;
+use crate::file_list::RubberBand;
+use crate::format::{count, thousands};
+use crate::pan::Pan;
+use crate::print::PrintDialog;
+use crate::threads::{ONE_ARENA, Receiving, Working, cores, set_cpu_use, thread_cpu_us};
 use crate::view::View;
 use crate::view::{LAYOUTS, frame_at};
-use crate::workers::spawn_thumbnailers;
-use actions::OWN_KEYS;
-use check::Check;
-use config::{
-    Config, FADES, WindowState, parse_last_dir, sort_folders_from, sort_folders_path, state_path,
-    write_atomic,
-};
-use decode::{Hist, MAX_ANIMATION, decode};
-use duplicates::Dups;
 use eframe::egui;
-use external::Mounted;
-use files::has_ext;
-use format::{count, human_size, local_time, thousands};
-use pan::Pan;
-use print::PrintDialog;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
-use threads::{
-    ONE_ARENA, Receiving, Working, cores, set_cpu_use, small_alloc_threads, thread_cpu_us,
-};
 #[cfg(feature = "accessibility")]
 mod accessibility;
 

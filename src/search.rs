@@ -6,8 +6,9 @@
 use crate::FileRow;
 use crate::folder::send_sizes;
 use crate::lang::tr;
+use crate::threads::small_alloc_threads;
 use crate::threads::{Receiving, Took, Working, background_threads, in_parts};
-use crate::{exif, meta, small_alloc_threads};
+use crate::{exif, meta};
 use crate::{noted, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};

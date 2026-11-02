@@ -1,8 +1,8 @@
 //! The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare,
 //! painting, the wheel.
 
-use crate::Config;
 use crate::actions::{Action, KIOSK_ACTIONS};
+use crate::config::Config;
 use crate::decode::{Decoded, decode, histogram, survive};
 use crate::external::is_video;
 use crate::format::fill_template;

@@ -6,7 +6,9 @@
 
 use crate::actions::Keys;
 use crate::files::Sort;
-use crate::{count, local_time, print};
+use crate::format::count;
+use crate::format::local_time;
+use crate::print;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
@@ -1359,7 +1361,7 @@ mod tests {
 
     #[test]
     fn parses_config() {
-        use crate::Config;
+        use super::Config;
         assert_eq!(Config::parse("# comment\npreload= 5\n").preload, 5);
         assert_eq!(Config::parse("preload=99").preload, 20);
         let c = Config::parse("decode_threads=0\nanimation_mb=5000");
@@ -1426,8 +1428,8 @@ mod tests {
             maximized: true,
         };
         let text = format!("last_dir=/x\n{}", win.to_text());
-        assert_eq!(crate::WindowState::parse(&text), win);
-        assert_eq!(crate::WindowState::parse("window_size=5,5\n").size, None);
+        assert_eq!(super::WindowState::parse(&text), win);
+        assert_eq!(super::WindowState::parse("window_size=5,5\n").size, None);
         assert_eq!(
             Config::parse("background=#1a2B3c").background.0,
             [0x1a, 0x2b, 0x3c]

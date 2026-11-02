@@ -129,6 +129,10 @@ Every `.rs` file has its items in this order, so a reader finds things where the
 `source_rules::items_are_in_order` fails on an item out of place, and on a second
 `impl crate::App` block.
 
+A name is imported from the module that defines it (`use crate::config::Config`), never through
+main.rs's own imports (`crate::Config`); main.rs names its modules as `crate::actions::…` too
+(`source_rules::imports_name_where_defined`).
+
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module
 of that part. The exceptions are the tables of one arm per action (`Action::english`,

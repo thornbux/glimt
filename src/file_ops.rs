@@ -2812,7 +2812,7 @@ mod tests {
         // The frame that sees the jobs end searches again, and the held marks are read.
         app.poll_background(&ctx);
         assert!(app.search.exif_stale.is_empty() && app.search.exif_index_rx.is_some());
-        app.search.exif_index_rx = crate::Receiving::none();
+        app.search.exif_index_rx = crate::threads::Receiving::none();
         app.search.query.clear();
         // Renamed by another program, the folder read again: the new name is read too.
         std::fs::rename(dir.join("a.png"), dir.join("c.png")).unwrap();

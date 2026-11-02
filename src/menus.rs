@@ -9,9 +9,10 @@ use crate::colour::{
 use crate::config::xdg_dir;
 use crate::dialogs::Prompt;
 use crate::external::{apps_for, command, open_url};
+use crate::file_ops::Deleted;
 use crate::lang::tr;
 use crate::threads::Receiving;
-use crate::{Deleted, collections, config, external, noted, plugins, tf, theme};
+use crate::{collections, config, external, noted, plugins, tf, theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

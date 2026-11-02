@@ -2,7 +2,9 @@
 //! drawn to size), with its EXIF turn, colours and histogram; animations frame by frame.
 
 use crate::colour::{ADOBE_RGB, to_display, to_srgb};
-use crate::{exif, has_ext, human_size, raw};
+use crate::files::has_ext;
+use crate::format::human_size;
+use crate::{exif, raw};
 use eframe::egui;
 use image::ImageDecoder;
 use image::metadata::Orientation;

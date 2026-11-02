@@ -2,8 +2,9 @@
 
 #[cfg(feature = "video")]
 use crate::external::is_video;
+use crate::file_ops::Deleted;
 use crate::lang::tr;
-use crate::{Deleted, tf};
+use crate::tf;
 use eframe::egui;
 #[cfg(feature = "video")]
 use std::path::Path;

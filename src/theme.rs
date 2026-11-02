@@ -1,8 +1,8 @@
 //! Glimt's look: Inter for text, Phosphor icons, rounder widgets with more room, and the
 //! desktop's light or dark style and accent colour, from the XDG desktop portal (GNOME, KDE).
 
-use crate::Receiving;
 use crate::theme;
+use crate::threads::Receiving;
 use eframe::egui;
 use std::sync::Arc;
 use std::sync::mpsc;

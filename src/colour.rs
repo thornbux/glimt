@@ -2,7 +2,7 @@
 //! profile chosen for images without one) to sRGB or to the screen's profile, with moxcms. The
 //! screen profile can come from colord.
 
-use crate::Config;
+use crate::config::Config;
 use crate::exif;
 use eframe::egui;
 use image::ImageDecoder;

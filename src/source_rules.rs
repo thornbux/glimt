@@ -203,3 +203,64 @@ fn functions_stay_short() {
         wrong.join("\n")
     );
 }
+
+/// A name is imported from the module that defines it, `crate::config::Config`, not through
+/// main.rs's own imports (`crate::Config`), which hide where it lives and break when main.rs
+/// stops using it. main.rs names its modules the same way, `crate::actions::…`.
+#[test]
+fn imports_name_where_defined() {
+    let all = sources();
+    let rust = || all.iter().filter(|(n, _)| n.ends_with(".rs"));
+    let modules: Vec<&str> = rust().map(|(n, _)| n.trim_end_matches(".rs")).collect();
+    let main = &all.iter().find(|(n, _)| n == "main.rs").unwrap().1;
+    let main_items = main.split("\nmod tests {").next().unwrap();
+    // What main.rs defines itself, the macros, and main.rs's tests module.
+    let defined = |name: &str| {
+        let words = [
+            "struct", "enum", "fn", "type", "const", "static", "trait", "mod",
+        ];
+        let defines = |l: &str| {
+            let l = l.trim_start();
+            let l = l.strip_prefix("pub(crate) ").unwrap_or(l);
+            words.iter().any(|w| {
+                l.strip_prefix(w)
+                    .and_then(|r| r.strip_prefix(' '))
+                    .is_some_and(|r| {
+                        r.starts_with(name)
+                            && !r[name.len()..]
+                                .starts_with(|c: char| c == '_' || c.is_alphanumeric())
+                    })
+            })
+        };
+        main_items.lines().any(defines)
+            || rust().any(|(_, t)| t.contains(&format!("macro_rules! {name} ")))
+            || name == "tests"
+    };
+    let mut wrong = Vec::new();
+    for (file, text) in rust() {
+        for (i, line) in text.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            let mut rest = line;
+            while let Some(at) = rest.find("crate::") {
+                rest = &rest[at + 7..];
+                let name: String = (rest.chars())
+                    .take_while(|c| *c == '_' || c.is_alphanumeric())
+                    .collect();
+                if !name.is_empty() && !modules.contains(&name.as_str()) && !defined(&name) {
+                    wrong.push(format!("{file}:{}: crate::{name}", i + 1));
+                }
+            }
+            let bare = line.strip_prefix("use ").and_then(|l| l.split("::").next());
+            if file == "main.rs" && bare.is_some_and(|m| modules.contains(&m)) {
+                wrong.push(format!("main.rs:{}: use without crate::", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "import these from the module that defines them:\n{}",
+        wrong.join("\n")
+    );
+}

@@ -3,12 +3,13 @@
 
 use crate::config::xdg_dir;
 use crate::external::{Login, command};
+use crate::file_ops::Deleted;
 use crate::files::pattern_name;
 use crate::format::count;
 use crate::lang::tr;
 use crate::print::{PrintJob, PrintTo};
 use crate::threads::{Receiving, Took};
-use crate::{Deleted, collections, config, external, journal, noted, save, tf, theme};
+use crate::{collections, config, external, journal, noted, save, tf, theme};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
