@@ -758,7 +758,7 @@ impl crate::App {
     /// A question about the selection on screen (Delete, Rename): what it acts on must stay as
     /// it was when asked. Preferences and the like do not count: a script would wait on them.
     pub(crate) fn asking_about_selection(&self) -> bool {
-        self.confirm_delete.is_some() || self.prompt.is_some()
+        self.dialogs.confirm_delete.is_some() || self.dialogs.prompt.is_some()
     }
 
     /// The action for a shortcut pressed this frame, if any.
@@ -811,7 +811,7 @@ impl crate::App {
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
             Action::NewCollection if !self.list.files.is_empty() => {
-                self.prompt = Some((Prompt::NewCollection, String::new()));
+                self.dialogs.prompt = Some((Prompt::NewCollection, String::new()));
             }
             Action::NewCollection => {
                 self.notice = Some(tr("No images for a collection here").into())
@@ -840,7 +840,7 @@ impl crate::App {
             Action::RenameCollection => {
                 if let Some(name) = self.folder.collection.as_ref().and_then(|f| f.file_stem()) {
                     let name = name.to_string_lossy().into_owned();
-                    self.prompt = Some((Prompt::RenameCollection, name));
+                    self.dialogs.prompt = Some((Prompt::RenameCollection, name));
                 }
             }
             Action::TrashCollection => self.trash_collection(ctx),
@@ -1162,7 +1162,7 @@ impl crate::App {
                 self.notice =
                     Some(tr("New Folder makes a folder in the folder shown: open one").into());
             }
-            Action::NewFolder => self.prompt = Some((Prompt::NewFolder, String::new())),
+            Action::NewFolder => self.dialogs.prompt = Some((Prompt::NewFolder, String::new())),
             Action::Print if !self.list.files.is_empty() => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
@@ -1175,7 +1175,7 @@ impl crate::App {
             Action::Print => {}
             Action::Rename if self.targets().len() > 1 => {
                 self.ask_about_targets();
-                self.prompt = Some((Prompt::RenameMany, "*_###".into()));
+                self.dialogs.prompt = Some((Prompt::RenameMany, "*_###".into()));
             }
             Action::Rename => {
                 // The one file selected, as Delete and Move take it (right-clicked in the list,
@@ -1190,14 +1190,15 @@ impl crate::App {
                     .get(self.list.cur)
                     .and_then(|f| Path::new(f).file_name())
                 {
-                    self.prompt = Some((Prompt::Rename, name.to_string_lossy().into_owned()));
+                    self.dialogs.prompt =
+                        Some((Prompt::Rename, name.to_string_lossy().into_owned()));
                     self.ask_about_targets();
                 }
             }
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
-                self.prompt = Some((Prompt::WindowTitle, self.window.title.clone()));
+                self.dialogs.prompt = Some((Prompt::WindowTitle, self.window.title.clone()));
             }
             Action::Projector => {
                 self.window.projector = !self.window.projector;

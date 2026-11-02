@@ -65,13 +65,30 @@ pub(crate) enum Prompt {
     WindowTitle,
 }
 
+/// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file chooser.
+pub(crate) struct Dialogs {
+    /// Open text dialog and the text typed so far.
+    pub(crate) prompt: Option<(Prompt, String)>,
+    /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
+    pub(crate) confirm_delete: Option<bool>,
+    /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
+    pub(crate) folder_target: Option<PathBuf>,
+    pub(crate) confirm_folder: bool,
+    /// Answer from an open file dialog (zenity or kdialog).
+    pub(crate) file_dialog: Option<Pick>,
+    pub(crate) file_dialog_rx: Receiving<Option<PathBuf>>,
+    /// The files Rename or a delete asked about, by their names in the list, and where the list
+    /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
+    pub(crate) asked_for: (u64, Vec<OsString>),
+}
+
 impl crate::App {
     /// Run zenity's (or kdialog's) file dialog in its own thread so the window does not freeze.
     pub(crate) fn pick(&mut self, ctx: &egui::Context, folder: bool, purpose: Pick) {
         use std::os::unix::ffi::OsStringExt;
         // One at a time: only one answer is waited for, and a second dialog's would replace the
         // first's, whose copy or move would then never happen.
-        if self.file_dialog.is_some() {
+        if self.dialogs.file_dialog.is_some() {
             self.notice = Some(tr("A file dialog is open already").into());
             return;
         }
@@ -179,20 +196,20 @@ impl crate::App {
             let _ = tx.send(picked);
             ctx.request_repaint();
         });
-        self.file_dialog = Some(purpose);
-        self.file_dialog_rx = Receiving::of(rx);
+        self.dialogs.file_dialog = Some(purpose);
+        self.dialogs.file_dialog_rx = Receiving::of(rx);
     }
 
     /// The file dialog's answer, for what it was opened for.
     pub(crate) fn receive_picked(&mut self, ctx: &egui::Context) {
-        let picked = match self.file_dialog_rx.take() {
+        let picked = match self.dialogs.file_dialog_rx.take() {
             Took::Answer(picked) => picked,
             // A dialog whose thread ended without an answer is over too: the next may open.
-            Took::Gone => return self.file_dialog = None,
+            Took::Gone => return self.dialogs.file_dialog = None,
             Took::Nothing => return,
         };
         {
-            let Some(purpose) = self.file_dialog.take() else {
+            let Some(purpose) = self.dialogs.file_dialog.take() else {
                 return;
             };
             match (purpose, picked) {
@@ -264,7 +281,7 @@ impl crate::App {
     /// Asks for a name: a new folder, a new name for a folder or file, Rename Many's pattern, a new
     /// collection, a theme to save.
     pub(crate) fn prompt_dialog(&mut self, ctx: &egui::Context) {
-        if let Some((prompt, mut text)) = self.prompt.take() {
+        if let Some((prompt, mut text)) = self.dialogs.prompt.take() {
             let title = match prompt {
                 Prompt::NewFolder => "New folder name:".to_owned(),
                 Prompt::RenameFolder => "New folder name:".to_owned(),
@@ -313,7 +330,7 @@ impl crate::App {
             if let Some(text) = answer {
                 self.answer_prompt(ctx, prompt, text.trim());
             } else if !modal.should_close() {
-                self.prompt = Some((prompt, text));
+                self.dialogs.prompt = Some((prompt, text));
             }
         }
     }
@@ -567,7 +584,7 @@ impl crate::App {
 
     /// Asks before files go to the trash or are deleted for good.
     pub(crate) fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(trash) = self.confirm_delete {
+        if let Some(trash) = self.dialogs.confirm_delete {
             let what = match self.first_target() {
                 (1, i) => format!("\"{}\"", self.name(i)),
                 (many, _) => count(many, "file"),
@@ -589,20 +606,20 @@ impl crate::App {
                 });
             });
             if delete {
-                self.confirm_delete = None;
+                self.dialogs.confirm_delete = None;
                 if let Some(targets) = self.asked_targets() {
                     self.delete_now(ctx, trash, targets);
                 }
             } else if modal.should_close() {
-                self.confirm_delete = None;
+                self.dialogs.confirm_delete = None;
             }
         }
     }
 
     /// Asks before a folder goes to the trash.
     pub(crate) fn confirm_folder_dialog(&mut self, ctx: &egui::Context) {
-        if self.confirm_folder {
-            let name = (self.folder_target.as_deref())
+        if self.dialogs.confirm_folder {
+            let name = (self.dialogs.folder_target.as_deref())
                 .and_then(Path::file_name)
                 .unwrap_or_default()
                 .to_string_lossy()
@@ -622,20 +639,20 @@ impl crate::App {
                 });
             });
             if trash {
-                self.confirm_folder = false;
+                self.dialogs.confirm_folder = false;
                 self.trash_folder(ctx);
             } else if modal.should_close() {
-                self.confirm_folder = false;
-                self.folder_target = None;
+                self.dialogs.confirm_folder = false;
+                self.dialogs.folder_target = None;
             }
         }
     }
 
     pub(crate) fn dialog_open(&self) -> bool {
         self.prefs.open
-            || self.confirm_delete.is_some()
-            || self.confirm_folder
-            || self.prompt.is_some()
+            || self.dialogs.confirm_delete.is_some()
+            || self.dialogs.confirm_folder
+            || self.dialogs.prompt.is_some()
             || self.folder.login.is_some()
             || self.print_window.is_some()
             || self.lightroom.is_some()

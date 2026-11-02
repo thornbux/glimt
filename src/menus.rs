@@ -66,7 +66,7 @@ impl crate::App {
     /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
     pub(crate) fn theme_buttons(&mut self, ui: &mut egui::Ui) {
         if ui.button(tr("Save as Theme…")).clicked() {
-            self.prompt = Some((Prompt::SaveTheme, String::new()));
+            self.dialogs.prompt = Some((Prompt::SaveTheme, String::new()));
         }
         if ui.button(tr("Open Themes Folder")).clicked()
             && let Some(dir) = theme::dir()

@@ -4,7 +4,6 @@
 //! is decoded only when the user zooms past what that covers. Only a small window around
 //! the current image is kept in memory.
 
-use crate::dialogs::{Pick, Prompt};
 use crate::file_list::{RubberBand, ThumbView};
 use crate::file_ops::Deleted;
 use crate::info_panel::spawn_exif_reader;
@@ -532,9 +531,8 @@ struct App {
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
-    /// The files Rename or a delete asked about, by their names in the list, and where the list
-    /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
-    asked_for: (u64, Vec<OsString>),
+    /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the file chooser.
+    dialogs: dialogs::Dialogs,
 
     // ---- Dialogs, windows and messages ----
     /// "Open With" applications by file extension, found once per extension.
@@ -548,21 +546,11 @@ struct App {
     plugins_running: plugins::Running,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
-    /// Open text dialog and the text typed so far.
-    prompt: Option<(Prompt, String)>,
-    /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
-    confirm_delete: Option<bool>,
-    /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
-    folder_target: Option<PathBuf>,
-    confirm_folder: bool,
     print_window: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
     lightroom_rx: Receiving<Result<lightroom::Catalog, String>>,
     lightroom: Option<lightroom::Import>,
-    /// Answer from an open file dialog (zenity or kdialog).
-    file_dialog: Option<Pick>,
-    file_dialog_rx: Receiving<Option<PathBuf>>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
     /// File → Save As: the dialog while open, and what it asked last.
@@ -698,7 +686,6 @@ impl App {
             viewing: Viewing::default(),
             save_as: None,
             save_as_last: Default::default(),
-            asked_for: (0, Vec::new()),
             compare: false,
             dups: None,
             check: None,
@@ -722,13 +709,7 @@ impl App {
             notices_rx: notices,
             notice: screen_error.or_else(|| config_notice(problems)),
             help: None,
-            confirm_delete: None,
-            folder_target: None,
-            confirm_folder: false,
-            prompt: None,
             config,
-            file_dialog: None,
-            file_dialog_rx: Receiving::none(),
             last_view: None,
             image_id: None,
             focus_by_keys: false,
@@ -903,6 +884,15 @@ impl App {
                 query: String::new(),
                 focus_search: false,
                 capturing: None,
+            },
+            dialogs: dialogs::Dialogs {
+                prompt: None,
+                confirm_delete: None,
+                folder_target: None,
+                confirm_folder: false,
+                file_dialog: None,
+                file_dialog_rx: Receiving::none(),
+                asked_for: (0, Vec::new()),
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

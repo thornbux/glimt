@@ -140,7 +140,7 @@ impl crate::App {
             self.config.confirm_delete
         } {
             self.ask_about_targets();
-            self.confirm_delete = Some(trash);
+            self.dialogs.confirm_delete = Some(trash);
         } else {
             self.delete_now(ctx, trash, self.targets());
         }
@@ -167,13 +167,13 @@ impl crate::App {
             .iter()
             .map(|&i| self.list.files[i].clone())
             .collect();
-        self.asked_for = (self.list_place(), names);
+        self.dialogs.asked_for = (self.list_place(), names);
     }
 
     /// The places now of the files the dialog asked about, those still in the list; `None`, with
     /// a notice, when none is, or another folder or collection is shown.
     pub(crate) fn asked_targets(&mut self) -> Option<Vec<usize>> {
-        let (place, names) = std::mem::take(&mut self.asked_for);
+        let (place, names) = std::mem::take(&mut self.dialogs.asked_for);
         let names: HashSet<OsString> = names.into_iter().collect();
         let found: Vec<usize> = match place == self.list_place() {
             true => (self.list.files.iter().enumerate())
@@ -806,7 +806,7 @@ impl crate::App {
     /// Rename `folder_target` within its parent; never over another. The open folder, or one
     /// inside it, is followed to the new name.
     pub(crate) fn rename_folder(&mut self, ctx: &egui::Context, name: &str) {
-        let Some(old) = self.folder_target.take() else {
+        let Some(old) = self.dialogs.folder_target.take() else {
             return;
         };
         let new = old.with_file_name(name);
@@ -859,7 +859,7 @@ impl crate::App {
     /// Move `folder_target` and all in it to the trash, in the background; the open folder, or
     /// one inside it, is left for the folder above first.
     pub(crate) fn trash_folder(&mut self, ctx: &egui::Context) {
-        let Some(dir) = self.folder_target.take() else {
+        let Some(dir) = self.dialogs.folder_target.take() else {
             return;
         };
         if !self.none_saving(std::slice::from_ref(&dir)) {
@@ -2774,7 +2774,7 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("sub/c.png")));
         // A folder renamed, in the background: its images in the collection follow.
-        app.folder_target = Some(d.join("sub"));
+        app.dialogs.folder_target = Some(d.join("sub"));
         app.rename_folder(&ctx, "moved");
         assert!(settle(&mut app, &ctx, |app| idle(app)
             && entries(&gqv).contains("moved/c.png")));

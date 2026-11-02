@@ -627,12 +627,12 @@ impl crate::App {
             }
             if ui.button(tr("Rename Folder…")).clicked() {
                 let name = dir.file_name().unwrap_or_default().to_string_lossy();
-                self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
-                self.folder_target = Some(dir.to_path_buf());
+                self.dialogs.prompt = Some((Prompt::RenameFolder, name.into_owned()));
+                self.dialogs.folder_target = Some(dir.to_path_buf());
             }
             if ui.button(tr("Move Folder to Trash…")).clicked() {
-                self.folder_target = Some(dir.to_path_buf());
-                self.confirm_folder = true;
+                self.dialogs.folder_target = Some(dir.to_path_buf());
+                self.dialogs.confirm_folder = true;
             }
         });
     }

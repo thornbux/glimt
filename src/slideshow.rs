@@ -163,8 +163,8 @@ impl crate::App {
         // Waits while Rename or a delete asks about the shown image.
         if self.list.files.is_empty()
             || self.slideshow.paused
-            || self.prompt.is_some()
-            || self.confirm_delete.is_some()
+            || self.dialogs.prompt.is_some()
+            || self.dialogs.confirm_delete.is_some()
         {
             return;
         }
