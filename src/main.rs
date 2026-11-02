@@ -638,19 +638,8 @@ struct App {
     has_focus: bool,
 
     // ---- The slideshow ----
-    /// The file list is shuffled for a random slideshow.
-    shuffled: bool,
-    /// The next listing is shuffled as a whole instead of merged into the current order.
-    whole_shuffle: bool,
-    /// Slideshow: when the previous image was shown; `None` = off.
-    slideshow: Option<Instant>,
-    /// Slideshow paused (P): stays on the image until resumed.
-    paused: bool,
-    /// --slideshow: start it once the folder is read.
-    slideshow_at_start: bool,
-    /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
-    /// shown last.
-    next_pane: usize,
+    /// The slideshow: whether it runs, its order and the pane it changes next.
+    slideshow: slideshow::Slideshow,
 
     // ---- Thumbnails ----
     /// Thumbnails still being made when a setting changed how they look: their results are
@@ -972,7 +961,6 @@ impl App {
             asked_for: (0, Vec::new()),
             grid_cols: 1,
             compare: false,
-            next_pane: 0,
             capturing: None,
             recursive: false,
             collection: None,
@@ -982,7 +970,6 @@ impl App {
             dups: None,
             check: None,
             broken_files: HashSet::new(),
-            whole_shuffle: false,
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
             tree: HashMap::new(),
@@ -1032,9 +1019,6 @@ impl App {
             last_scale: 1.0,
             wheel: 0.0,
             config,
-            slideshow: None,
-            slideshow_at_start: start.slideshow,
-            shuffled: false,
             view_box: [1920, 1080],
             view_area: [1920, 1080],
             max_side: 8192,
@@ -1060,7 +1044,6 @@ impl App {
             changed_tx,
             changed_rx,
             relist: false,
-            paused: false,
             back: Vec::new(),
             forward: Vec::new(),
             subdirs_rx: Receiving::none(),
@@ -1129,6 +1112,14 @@ impl App {
             exif_index_stop: Arc::default(),
             opened: Instant::now(),
             max_pan: egui::Vec2::ZERO,
+            slideshow: slideshow::Slideshow {
+                shown_at: None,
+                shuffled: false,
+                whole_shuffle: false,
+                paused: false,
+                at_start: start.slideshow,
+                next_pane: 0,
+            },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
         match path.to_str().filter(|p| p.contains("://")) {

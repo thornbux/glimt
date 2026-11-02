@@ -150,7 +150,7 @@ impl crate::App {
         self.broken_files.clear();
         self.subdirs.clear();
         self.deleting.clear();
-        self.shuffled = false;
+        self.slideshow.shuffled = false;
         self.thumbs.clear();
         self.thumbs_pending.clear();
         self.exif_index = None;
@@ -293,7 +293,10 @@ impl crate::App {
         let (list_dir, ctx2, types) = (self.dir.clone(), ctx.clone(), self.types());
         let c = &self.config;
         let (by, ascending, case) = (c.sort, c.sort_ascending, c.sort_case);
-        let (recursive, shuffled) = (self.recursive, self.shuffled && self.whole_shuffle);
+        let (recursive, shuffled) = (
+            self.recursive,
+            self.slideshow.shuffled && self.slideshow.whole_shuffle,
+        );
         let collection = self.collection.is_some().then(|| self.list.files.clone());
         // A collection's file, which every move writes at once: read again, it has what moved
         // after the list was copied. A plain list is never written: the list as shown.
@@ -307,7 +310,7 @@ impl crate::App {
         // refresh; share it with the thread (an Arc in List) if folders grow far past that.
         let exif = matches!(by, files::Sort::ExifOriginal | files::Sort::ExifDigitized);
         let same = Some((self.dir.clone(), by, ascending, case, recursive));
-        let before = (exif && !self.list_parts && !self.shuffled && collection.is_none())
+        let before = (exif && !self.list_parts && !self.slideshow.shuffled && collection.is_none())
             .then_some(())
             .filter(|_| folders.is_empty() && self.listed_as == same)
             .map(|_| self.list.files.clone());
@@ -324,7 +327,7 @@ impl crate::App {
         // Only for a folder opened, or its tree asked for: a folder read again (a refresh) keeps
         // its whole list on screen until the new one is read, instead of shrinking and growing.
         // Nor in random order: a list in name order would take the shuffled one's place.
-        let parts = std::mem::take(&mut self.list_parts) && !self.shuffled;
+        let parts = std::mem::take(&mut self.list_parts) && !self.slideshow.shuffled;
         self.went_to = None;
         std::thread::spawn(move || {
             // Several folders: their images, each folder (with its subfolders) after the other.
@@ -521,16 +524,17 @@ impl crate::App {
         self.subdirs = dirs;
         self.take_files(ctx, files, true);
         let c = &self.config;
-        self.listed_as = (self.collection.is_none() && self.folders.is_empty() && !self.shuffled)
-            .then(|| {
-                (
-                    self.dir.clone(),
-                    c.sort,
-                    c.sort_ascending,
-                    c.sort_case,
-                    self.recursive,
-                )
-            });
+        self.listed_as =
+            (self.collection.is_none() && self.folders.is_empty() && !self.slideshow.shuffled)
+                .then(|| {
+                    (
+                        self.dir.clone(),
+                        c.sort,
+                        c.sort_ascending,
+                        c.sort_case,
+                        self.recursive,
+                    )
+                });
     }
 
     /// The images of the folder read in the background as the list: all of them when `whole`,
@@ -545,8 +549,8 @@ impl crate::App {
         // through the images that were shown; a list shuffled whole in the thread stays as it is.
         // The flag is for this listing, taken whether or not the order is still random: left,
         // it would shuffle every later listing.
-        let fresh = whole && std::mem::take(&mut self.whole_shuffle);
-        let mut files = if whole && self.shuffled && !fresh {
+        let fresh = whole && std::mem::take(&mut self.slideshow.whole_shuffle);
+        let mut files = if whole && self.slideshow.shuffled && !fresh {
             merge_shuffled(&self.list.files, files)
         } else {
             files
@@ -554,7 +558,7 @@ impl crate::App {
         // Shuffled whole for a random slideshow: the image shown first, as R puts it, so a
         // slideshow without Repeat shows all before it ends.
         if fresh
-            && self.shuffled
+            && self.slideshow.shuffled
             && let Some(at) = (self.list.files.get(self.list.cur))
                 .and_then(|shown| files.iter().position(|f| f == shown))
         {

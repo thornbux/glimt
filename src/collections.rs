@@ -44,7 +44,7 @@ impl crate::App {
 
     /// The collection's file put in the order of the list, unless shuffled for a slideshow.
     pub(crate) fn save_collection_order(&mut self) {
-        if self.shuffled {
+        if self.slideshow.shuffled {
             return;
         }
         let ours: Vec<PathBuf> = (0..self.list.files.len()).map(|i| self.path(i)).collect();
@@ -70,7 +70,7 @@ impl crate::App {
         if self.list.files.is_empty() {
             return;
         }
-        if self.shuffled {
+        if self.slideshow.shuffled {
             self.notice = Some(tr("Random order is on: R turns it off to move images").into());
             return;
         }

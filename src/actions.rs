@@ -891,8 +891,8 @@ impl crate::App {
                 if is_video(&self.location()) {
                     self.launch(&self.config.video_player);
                     // The slideshow waits while the video plays; P resumes it.
-                    if self.slideshow.is_some() {
-                        self.paused = true;
+                    if self.slideshow.shown_at.is_some() {
+                        self.slideshow.paused = true;
                         self.title(ctx);
                     }
                 }
@@ -1265,12 +1265,12 @@ impl crate::App {
                 self.cur_size = None;
                 self.list(ctx);
             }
-            Action::Slideshow if self.slideshow.is_some() => self.stop_slideshow(ctx),
+            Action::Slideshow if self.slideshow.shown_at.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
             // Resuming gives the shown image the full delay again.
-            Action::Pause if self.slideshow.is_some() => {
-                self.paused = !self.paused;
-                self.slideshow = Some(Instant::now());
+            Action::Pause if self.slideshow.shown_at.is_some() => {
+                self.slideshow.paused = !self.slideshow.paused;
+                self.slideshow.shown_at = Some(Instant::now());
                 self.title(ctx);
             }
             Action::Pause => {}
@@ -1288,7 +1288,7 @@ impl crate::App {
             // As in Geeqie, Escape never quits; it stops the slideshow and leaves full screen.
             Action::Escape => {
                 self.help = None;
-                if self.slideshow.is_some() {
+                if self.slideshow.shown_at.is_some() {
                     self.stop_slideshow(ctx);
                 }
                 if fullscreen {

@@ -191,8 +191,8 @@ impl crate::App {
             "first" => Some(Action::First),
             "last" => Some(Action::Last),
             // With on or off, a state a script can count on: nothing when it is so already.
-            "slideshow on" if self.slideshow.is_some() => None,
-            "slideshow off" if self.slideshow.is_none() => None,
+            "slideshow on" if self.slideshow.shown_at.is_some() => None,
+            "slideshow off" if self.slideshow.shown_at.is_none() => None,
             "slideshow" | "slideshow on" | "slideshow off" => Some(Action::Slideshow),
             "random" => Some(Action::RandomOrder),
             "random on" => return self.set_random_order(ctx, true),

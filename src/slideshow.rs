@@ -32,6 +32,23 @@ pub(crate) struct Place {
     pub(crate) len: usize,
 }
 
+/// The slideshow: whether it runs, its order and the pane it changes next.
+pub(crate) struct Slideshow {
+    /// When the image shown last came up; `None`: the slideshow is off.
+    pub(crate) shown_at: Option<Instant>,
+    /// The file list is shuffled for a random slideshow.
+    pub(crate) shuffled: bool,
+    /// The next listing is shuffled as a whole instead of merged into the current order.
+    pub(crate) whole_shuffle: bool,
+    /// Slideshow paused (P): stays on the image until resumed.
+    pub(crate) paused: bool,
+    /// --slideshow: start it once the folder is read.
+    pub(crate) at_start: bool,
+    /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
+    /// shown last.
+    pub(crate) next_pane: usize,
+}
+
 impl crate::App {
     // ---- The slideshow ----
 
@@ -41,10 +58,10 @@ impl crate::App {
             return;
         }
         self.leave_image(ctx);
-        self.shuffled = on;
+        self.slideshow.shuffled = on;
         // Back on while a random slideshow still reads its list, which random off asked for in
         // sort order: read again, shuffled whole.
-        if on && self.whole_shuffle && self.listing_rx.is_some() {
+        if on && self.slideshow.whole_shuffle && self.listing_rx.is_some() {
             return self.list(ctx);
         }
         if !on {
@@ -89,15 +106,15 @@ impl crate::App {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
             self.recursive = true;
-            self.shuffled = self.config.random;
-            self.whole_shuffle = self.shuffled;
+            self.slideshow.shuffled = self.config.random;
+            self.slideshow.whole_shuffle = self.slideshow.shuffled;
             self.list(ctx);
-        } else if self.config.random != self.shuffled {
+        } else if self.config.random != self.slideshow.shuffled {
             self.shuffle_list(ctx, self.config.random);
         }
         // The first slide comes at once: start as if the delay has already run out.
         let delay = std::time::Duration::from_secs(self.config.delay);
-        self.slideshow = Some(
+        self.slideshow.shown_at = Some(
             Instant::now()
                 .checked_sub(delay)
                 .unwrap_or_else(Instant::now),
@@ -109,13 +126,13 @@ impl crate::App {
     /// A random order ends with the slideshow: the list goes back to the chosen sort order,
     /// keeping the shown image.
     pub(crate) fn stop_slideshow(&mut self, ctx: &egui::Context) {
-        self.slideshow = None;
-        self.paused = false;
+        self.slideshow.shown_at = None;
+        self.slideshow.paused = false;
         if self.recursive != self.config.show_subfolders {
             self.recursive = self.config.show_subfolders;
-            self.shuffled = false;
+            self.slideshow.shuffled = false;
             self.list(ctx);
-        } else if self.shuffled {
+        } else if self.slideshow.shuffled {
             self.shuffle_list(ctx, false);
         }
         self.title(ctx);
@@ -124,15 +141,17 @@ impl crate::App {
     /// Switch image when the time is up. Waits for a preloaded image that is still
     /// decoding, so the slideshow never shows a black screen.
     pub(crate) fn slideshow_tick(&mut self, ctx: &egui::Context) {
-        let Some(last) = self.slideshow else { return };
+        let Some(last) = self.slideshow.shown_at else {
+            return;
+        };
         // The list to show (with the subfolders, shuffled) is still being read: a step in the
         // list before it would end a round without Repeat at once on the last image.
-        if self.whole_shuffle && self.listing_rx.is_some() {
+        if self.slideshow.whole_shuffle && self.listing_rx.is_some() {
             return;
         }
         // Waits while Rename or a delete asks about the shown image.
         if self.list.files.is_empty()
-            || self.paused
+            || self.slideshow.paused
             || self.prompt.is_some()
             || self.confirm_delete.is_some()
         {
@@ -171,7 +190,7 @@ impl crate::App {
             at,
             next,
             self.config.slideshow_repeat,
-            self.shuffled,
+            self.slideshow.shuffled,
             pending,
         ) {
             Slide::Stop => self.stop_slideshow(ctx),
@@ -179,17 +198,18 @@ impl crate::App {
             Slide::Hold => {}
             Slide::Step(next) => {
                 let before = self.shown_textures();
-                if turns && self.next_pane > 0 {
-                    self.list.panes[self.next_pane - 1] = next;
+                if turns && self.slideshow.next_pane > 0 {
+                    self.list.panes[self.slideshow.next_pane - 1] = next;
                     self.refill();
                 } else {
                     self.go(ctx, next);
                 }
                 self.fade = before.map(|b| (Instant::now(), b));
                 if turns {
-                    (self.list.last_slide, self.next_pane) = (next, (self.next_pane + 1) % n);
+                    (self.list.last_slide, self.slideshow.next_pane) =
+                        (next, (self.slideshow.next_pane + 1) % n);
                 }
-                self.slideshow = Some(Instant::now());
+                self.slideshow.shown_at = Some(Instant::now());
             }
         }
     }
@@ -206,7 +226,7 @@ impl crate::App {
     pub(crate) fn set_random_order(&mut self, ctx: &egui::Context, on: bool) {
         self.config.random = on;
         self.config.save();
-        if self.slideshow.is_some() {
+        if self.slideshow.shown_at.is_some() {
             self.shuffle_list(ctx, on);
             self.title(ctx);
         }
@@ -275,7 +295,10 @@ mod tests {
             app.config.slideshow_repeat = false;
             app.start_slideshow(&ctx);
             app.slideshow_tick(&ctx);
-            assert!(app.slideshow.is_some(), "ended before its list came");
+            assert!(
+                app.slideshow.shown_at.is_some(),
+                "ended before its list came"
+            );
             if stop {
                 app.stop_slideshow(&ctx);
             } else {
@@ -323,7 +346,7 @@ mod tests {
         let order = app.list.files.clone();
         app.config.random = true;
         app.start_slideshow(&ctx);
-        assert!(app.shuffled && app.list.files != order);
+        assert!(app.slideshow.shuffled && app.list.files != order);
         // A refresh on its way.
         app.list(&ctx);
         app.set_random_order(&ctx, false);
@@ -363,7 +386,7 @@ mod tests {
             app.start_slideshow(&ctx);
             assert!(settle(&mut app, &ctx, |a| a.listing_rx.is_none()));
             assert!(
-                app.shuffled && app.list.files != order,
+                app.slideshow.shuffled && app.list.files != order,
                 "R first: {shuffled_first}"
             );
             // The round starts at the image shown (the first slide may have come since): without

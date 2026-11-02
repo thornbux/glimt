@@ -62,8 +62,8 @@ impl crate::App {
             }
         }
         // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.slideshow_at_start && self.listing_rx.is_none() {
-            self.slideshow_at_start = false;
+        if self.slideshow.at_start && self.listing_rx.is_none() {
+            self.slideshow.at_start = false;
             self.start_slideshow(ctx);
         }
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));

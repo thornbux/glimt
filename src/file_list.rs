@@ -709,7 +709,7 @@ impl crate::App {
         if changed {
             self.config.save();
             // A chosen order replaces a shuffled one (kept after a random slideshow).
-            self.shuffled = false;
+            self.slideshow.shuffled = false;
             self.sort_collection = self.collection.is_some();
             self.listed_as = None;
             self.list(ctx);
