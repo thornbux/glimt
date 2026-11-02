@@ -531,14 +531,8 @@ struct App {
     forward: Vec<PathBuf>,
     /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to the shown image.
     panel: file_list::Panel,
-    /// Subfolders by folder for the folder tree; `None` while being read.
-    tree: HashMap<PathBuf, Option<Vec<PathBuf>>>,
-    tree_tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
-    tree_rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
-    /// The folder the tree was last opened up to; it opens again when the folder changes.
-    tree_shown: PathBuf,
-    /// The folders open in the tree.
-    tree_open: HashSet<PathBuf>,
+    /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
+    tree: file_list::Tree,
 
     // ---- The selection ----
     /// Size of the selected files; computed in the background when the selection changes.
@@ -949,11 +943,6 @@ impl App {
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: marks::Marks::load(),
-            tree: HashMap::new(),
-            tree_tx,
-            tree_rx,
-            tree_shown: PathBuf::new(),
-            tree_open: HashSet::new(),
             clip_rx: Receiving::none(),
             clipboard: None,
             remote_rx,
@@ -1101,6 +1090,13 @@ impl App {
                 grid_cols: 1,
                 row_step: 1,
                 scroll_to_cur: true,
+            },
+            tree: file_list::Tree {
+                children: HashMap::new(),
+                tx: tree_tx,
+                rx: tree_rx,
+                shown: PathBuf::new(),
+                open: HashSet::new(),
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

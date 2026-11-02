@@ -1013,8 +1013,8 @@ impl crate::App {
                 self.config.show_hidden = !self.config.show_hidden;
                 self.config.save();
                 // Read again, and scrolled back to the open folder.
-                self.tree.clear();
-                self.tree_shown = PathBuf::new();
+                self.tree.children.clear();
+                self.tree.shown = PathBuf::new();
                 self.list(ctx);
             }
             // An animation: stopped at the frame before or after the one shown, which A plays on.
@@ -1254,7 +1254,7 @@ impl crate::App {
             Action::Refresh => {
                 // Asked for: sorted anew, also in an EXIF date order whose names stayed.
                 self.listed_as = None;
-                self.tree.clear();
+                self.tree.children.clear();
                 self.list.slots.clear();
                 self.list.decodes_pending.clear();
                 self.list.decode_errors.clear();

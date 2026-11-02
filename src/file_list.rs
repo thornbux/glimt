@@ -96,6 +96,18 @@ pub(crate) struct Panel {
     pub(crate) scroll_to_cur: bool,
 }
 
+/// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
+pub(crate) struct Tree {
+    /// Subfolders by folder for the folder tree; `None` while being read.
+    pub(crate) children: HashMap<PathBuf, Option<Vec<PathBuf>>>,
+    pub(crate) tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
+    pub(crate) rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
+    /// The folder the tree was last opened up to; it opens again when the folder changes.
+    pub(crate) shown: PathBuf,
+    /// The folders open in the tree.
+    pub(crate) open: HashSet<PathBuf>,
+}
+
 impl crate::App {
     // ---- The file list, folders and thumbnails ----
 
@@ -472,26 +484,27 @@ impl crate::App {
     /// Folders as a tree from /, opened up to the current folder. Subfolders are read in the
     /// background when a folder is opened in the tree.
     pub(crate) fn folder_tree(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
-        while let Ok((dir, subdirs)) = self.tree_rx.try_recv() {
-            self.tree.insert(dir, Some(subdirs));
+        while let Ok((dir, subdirs)) = self.tree.rx.try_recv() {
+            self.tree.children.insert(dir, Some(subdirs));
         }
         // Opened up to the folder shown when that changes.
-        let follow = self.tree_shown != self.dir;
+        let follow = self.tree.shown != self.dir;
         if follow {
-            self.tree_open
+            self.tree
+                .open
                 .extend(self.dir.ancestors().map(Path::to_path_buf));
         }
         // The open folders as rows, so only those on screen are drawn: a folder of 100,000
         // folders opened. An empty path is a folder still being read.
         // shortcut: the rows are made again each frame, a lookup for each; keep them until the
         // tree changes if trees of millions of folders are opened.
-        let tree = std::mem::take(&mut self.tree);
+        let tree = std::mem::take(&mut self.tree.children);
         let mut rows: Vec<(usize, &Path)> = Vec::new();
         let mut unread = Vec::new();
         let mut stack = vec![(0, Path::new("/"))];
         while let Some((depth, path)) = stack.pop() {
             rows.push((depth, path));
-            if !self.tree_open.contains(path) {
+            if !self.tree.open.contains(path) {
                 continue;
             }
             match tree.get(path) {
@@ -510,7 +523,7 @@ impl crate::App {
             let step = row_h + ui.spacing().item_spacing.y;
             let top = i as f32 * step - ui.available_height() / 2.0;
             area = area.vertical_scroll_offset(top.max(0.0));
-            self.tree_shown = self.dir.clone();
+            self.tree.shown = self.dir.clone();
         }
         let mut toggled = None;
         area.show_rows(ui, row_h, rows.len(), |ui, range| {
@@ -520,7 +533,7 @@ impl crate::App {
                     if path.as_os_str().is_empty() {
                         return drop(ui.label("…"));
                     }
-                    let open = self.tree_open.contains(path);
+                    let open = self.tree.open.contains(path);
                     let caret = match open {
                         true => theme::icon::CARET_DOWN,
                         false => theme::icon::CARET_RIGHT,
@@ -548,19 +561,19 @@ impl crate::App {
             }
         });
         drop(rows);
-        self.tree = tree;
+        self.tree.children = tree;
         if let Some(path) = toggled
-            && !self.tree_open.remove(&path)
+            && !self.tree.open.remove(&path)
         {
-            self.tree_open.insert(path);
+            self.tree.open.insert(path);
         }
         let folders = Types {
             hidden: self.config.show_hidden,
             ..Types::NONE
         };
         for dir in unread {
-            self.tree.insert(dir.clone(), None);
-            let (tx, ctx) = (self.tree_tx.clone(), ui.ctx().clone());
+            self.tree.children.insert(dir.clone(), None);
+            let (tx, ctx) = (self.tree.tx.clone(), ui.ctx().clone());
             std::thread::spawn(move || {
                 let subdirs = list_folder(&dir, folders).0;
                 let _ = tx.send((dir, subdirs));

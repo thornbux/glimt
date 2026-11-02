@@ -519,7 +519,9 @@ impl crate::App {
         self.part_rx.clear();
         // Several folders shown together are listed as "/" with no subfolders: not the tree's.
         if self.collection.is_none() && self.folders.is_empty() {
-            self.tree.insert(self.dir.clone(), Some(dirs.clone()));
+            self.tree
+                .children
+                .insert(self.dir.clone(), Some(dirs.clone()));
         }
         self.subdirs = dirs;
         self.take_files(ctx, files, true);

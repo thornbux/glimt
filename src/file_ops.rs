@@ -956,14 +956,14 @@ impl crate::App {
             })),
         }
         // A folder that came back shows in the tree again.
-        self.tree.clear();
+        self.tree.children.clear();
     }
 
     /// Forget what the folder tree read of `dir` and its parent, so it is read again.
     pub(crate) fn forget_folder(&mut self, dir: &Path) {
-        self.tree.retain(|d, _| !d.starts_with(dir));
+        self.tree.children.retain(|d, _| !d.starts_with(dir));
         if let Some(parent) = dir.parent() {
-            self.tree.remove(parent);
+            self.tree.children.remove(parent);
         }
     }
 
