@@ -134,10 +134,30 @@ A name is imported from the module that defines it (`use crate::config::Config`)
 main.rs's own imports (`crate::Config`); main.rs names its modules as `crate::actions::…` too
 (`source_rules::imports_name_where_defined`).
 
-Comments are English sentences that say why, or what a reader cannot see from the code; the
-doc comment of a function opens with what it does, and says what it gives back with
-"Returns …" when that is not plain from its name. Comments fit 100 columns
-(`source_rules::comments_fit_the_width`).
+Comments say why, or what a reader cannot see from the code. They are written for someone new
+to the code, in plain English prose: whole sentences with a subject and a verb, with the
+articles kept, and one thought to a sentence. The older comments use a clipped style, where a
+semicolon or colon joins a fragment (`…; None for no search.`) and punctuation stands in for
+"because", "when" and "so". New and changed comments do not. An older comment is rewritten in
+the new style when the code it describes changes, not on its own.
+
+For example, not this:
+
+```rust
+/// Files whose keywords or comment changed since they were indexed: read again, alone,
+/// at the next "exif:" search.
+```
+
+but this:
+
+```rust
+/// The files whose keywords or comment changed after they were indexed. The next "exif:"
+/// search reads only these files again, not the whole folder.
+```
+
+The doc comment of a function starts with what the function does. When its name does not make
+the result plain, a sentence starting with "Returns" says what it gives back, and when it gives
+back `None`. Comments fit 100 columns (`source_rules::comments_fit_the_width`).
 
 A function is at most 120 lines outside the tests (`source_rules::functions_stay_short`): a
 longer one is split into functions named for what each part does, beside it or in the module
