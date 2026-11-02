@@ -359,61 +359,6 @@ const START_OPTIONS: &[(&str, &str)] = &[
 /// How long the mouse is still in full screen before the pointer hides.
 const POINTER_STILL: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// What a slideshow does once its delay is up.
-#[derive(Debug, PartialEq)]
-enum Slide {
-    /// The round is over and it does not repeat.
-    Stop,
-    /// A new round of a random order: the list shuffled again.
-    Shuffle,
-    /// The next image, or the next set.
-    Step(usize),
-    /// The next image is still being decoded: looked at again soon.
-    Hold,
-}
-
-/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
-/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
-#[derive(Clone, Copy)]
-struct Place {
-    row: Option<usize>,
-    delta: usize,
-    shown: usize,
-    len: usize,
-}
-
-/// The slideshow's move from `at`, to `next` if there is one; repeating or not, in a `shuffled`
-/// order, with `next` `pending` (still being decoded) or not.
-fn next_slide(
-    at: Place,
-    next: Option<usize>,
-    repeat: bool,
-    shuffled: bool,
-    pending: bool,
-) -> Slide {
-    let Place {
-        row,
-        delta,
-        shown,
-        len,
-    } = at;
-    let round_over = round_ends(row, delta, shown);
-    let Some(next) = next else { return Slide::Hold };
-    if round_over && !repeat {
-        return Slide::Stop;
-    }
-    // A new round shuffles again instead of repeating the same order. Not when a search hides
-    // the shown image, nor when it shows no more images than one step: the shuffled list starts
-    // with the shown image, so the round would be over again, and shuffled on every frame.
-    if shuffled && round_over && row.is_some() && len > 2 && !round_ends(Some(0), delta, shown) {
-        return Slide::Shuffle;
-    }
-    match pending {
-        true => Slide::Hold,
-        false => Slide::Step(next),
-    }
-}
-
 /// What the start options ask for.
 #[derive(Clone, Default)]
 struct Start {
@@ -1281,8 +1226,6 @@ impl App {
 // The parts of a frame, in the order `ui` draws them, and what reaches it from the threads in the
 // background. The windows of one feature (pan view, Find Duplicates, Check Images, Preferences,
 // the projector) are with that feature: above, or in its own module.
-impl App {}
-
 impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -3064,8 +3007,8 @@ mod tests {
     /// it stops at the end of the round and not before.
     #[test]
     fn slideshow_advances_on_every_tick() {
-        use super::{Place, Slide, next_slide};
         use crate::selection::next_row;
+        use crate::slideshow::{Place, Slide, next_slide};
         // (files, rows shown by a search or all, step: the panes changed at once)
         let cases: Vec<(usize, Option<Vec<usize>>, usize)> = vec![
             (3, None, 1),

@@ -1,10 +1,8 @@
 //! The slideshow: its timer, its order, the fade and the next image.
 
 use crate::FADES;
-use crate::Place;
-use crate::Slide;
 use crate::collections;
-use crate::next_slide;
+use crate::round_ends;
 use crate::shuffle;
 use eframe::egui;
 use std::ffi::OsString;
@@ -188,5 +186,60 @@ impl crate::App {
             self.shuffle_list(ctx, on);
             self.title(ctx);
         }
+    }
+}
+
+/// What a slideshow does once its delay is up.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Slide {
+    /// The round is over and it does not repeat.
+    Stop,
+    /// A new round of a random order: the list shuffled again.
+    Shuffle,
+    /// The next image, or the next set.
+    Step(usize),
+    /// The next image is still being decoded: looked at again soon.
+    Hold,
+}
+
+/// Where a slideshow is in its order: at `row` of the `shown` rows (`None` when a search hides
+/// the image), stepping `delta` (the panes changed at once), in a list of `len` files.
+#[derive(Clone, Copy)]
+pub(crate) struct Place {
+    pub(crate) row: Option<usize>,
+    pub(crate) delta: usize,
+    pub(crate) shown: usize,
+    pub(crate) len: usize,
+}
+
+/// The slideshow's move from `at`, to `next` if there is one; repeating or not, in a `shuffled`
+/// order, with `next` `pending` (still being decoded) or not.
+pub(crate) fn next_slide(
+    at: Place,
+    next: Option<usize>,
+    repeat: bool,
+    shuffled: bool,
+    pending: bool,
+) -> Slide {
+    let Place {
+        row,
+        delta,
+        shown,
+        len,
+    } = at;
+    let round_over = round_ends(row, delta, shown);
+    let Some(next) = next else { return Slide::Hold };
+    if round_over && !repeat {
+        return Slide::Stop;
+    }
+    // A new round shuffles again instead of repeating the same order. Not when a search hides
+    // the shown image, nor when it shows no more images than one step: the shuffled list starts
+    // with the shown image, so the round would be over again, and shuffled on every frame.
+    if shuffled && round_over && row.is_some() && len > 2 && !round_ends(Some(0), delta, shown) {
+        return Slide::Shuffle;
+    }
+    match pending {
+        true => Slide::Hold,
+        false => Slide::Step(next),
     }
 }
