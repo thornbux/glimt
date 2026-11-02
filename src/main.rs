@@ -7,7 +7,7 @@
 use crate::dialogs::{Pick, Prompt};
 use crate::file_list::{RubberBand, ThumbView};
 use crate::file_ops::{Deleted, Undo};
-use crate::info_panel::{ExifRead, MetaEdit, spawn_exif_reader};
+use crate::info_panel::spawn_exif_reader;
 use crate::view::{DecodeJob, Shown, View, spawn_decoders};
 use crate::view::{LAYOUTS, frame_at};
 use crate::window::Ender;
@@ -634,25 +634,8 @@ struct App {
     thumbs: file_list::Thumbs,
 
     // ---- EXIF, keywords, comment and marks ----
-    /// To the EXIF reader thread, and its answers.
-    exif_jobs: mpsc::Sender<PathBuf>,
-    exif_rx: mpsc::Receiver<ExifRead>,
-    /// The file the EXIF panel asked for last, and the panel's rows as read for a file.
-    exif_asked: Option<PathBuf>,
-    exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
-    /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
-    exif_all: Vec<(&'static str, String, String)>,
-    /// View → EXIF Window is open.
-    exif_window: bool,
-    /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
-    /// loses the focus, or another image is shown.
-    meta: Option<MetaEdit>,
-    /// Alt+K: put the focus in the keywords field when the panel shows next.
-    focus_keywords: bool,
-    /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
-    keyword_tree: Vec<String>,
-    /// A path being typed to add to the keyword tree.
-    new_keyword: String,
+    /// The info panel and the EXIF window: what is read of the shown image, and what is being edited.
+    info: info_panel::Info,
     /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
     search: search::Search,
     #[cfg(feature = "marks")]
@@ -900,9 +883,6 @@ impl App {
             cut_short: Vec::new(),
             renaming: None,
             renaming_rx: Receiving::none(),
-            keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
-                .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
-            new_keyword: String::new(),
             sort_folders: (sort_folders_path().and_then(|p| crate::decode::read_limited(p).ok()))
                 .map_or_else(Vec::new, |t| sort_folders_from(&t)),
             pan_window: None,
@@ -1004,14 +984,6 @@ impl App {
             selected_size: None,
             selected_rx: Receiving::none(),
             selected_size_due: None,
-            exif_jobs,
-            exif_rx,
-            exif_all: Vec::new(),
-            exif_window: false,
-            exif_asked: None,
-            meta: None,
-            focus_keywords: false,
-            exif: None,
             cur_size: None,
             pane_info: Vec::new(),
             status_pane: 0,
@@ -1078,6 +1050,19 @@ impl App {
                 exif_stale: HashSet::new(),
                 exif_index_rx: Receiving::none(),
                 exif_index_stop: Arc::default(),
+            },
+            info: info_panel::Info {
+                exif_jobs,
+                exif_rx,
+                exif_asked: None,
+                exif: None,
+                exif_all: Vec::new(),
+                exif_window: false,
+                meta: None,
+                focus_keywords: false,
+                keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
+                    .map_or_else(Vec::new, |t| meta::keyword_paths(t.lines())),
+                new_keyword: String::new(),
             },
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.

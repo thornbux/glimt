@@ -100,17 +100,40 @@ impl KeywordNode {
     }
 }
 
+/// The info panel and the EXIF window: what is read of the shown image, and what is being edited.
+pub(crate) struct Info {
+    /// To the EXIF reader thread, and its answers.
+    pub(crate) exif_jobs: mpsc::Sender<PathBuf>,
+    pub(crate) exif_rx: mpsc::Receiver<ExifRead>,
+    /// The file the EXIF panel asked for last, and the panel's rows as read for a file.
+    pub(crate) exif_asked: Option<PathBuf>,
+    pub(crate) exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
+    /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
+    pub(crate) exif_all: Vec<(&'static str, String, String)>,
+    /// View → EXIF Window is open.
+    pub(crate) exif_window: bool,
+    /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
+    /// loses the focus, or another image is shown.
+    pub(crate) meta: Option<MetaEdit>,
+    /// Alt+K: put the focus in the keywords field when the panel shows next.
+    pub(crate) focus_keywords: bool,
+    /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
+    pub(crate) keyword_tree: Vec<String>,
+    /// A path being typed to add to the keyword tree.
+    pub(crate) new_keyword: String,
+}
+
 impl crate::App {
     // ---- EXIF, keywords, comment and marks ----
 
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
     pub(crate) fn want_exif(&mut self, ctx: &egui::Context) {
         let path = self.path(self.list.cur);
-        if self.exif_asked.as_ref() != Some(&path) {
-            let _ = self.exif_jobs.send(path.clone());
-            self.exif_asked = Some(path);
+        if self.info.exif_asked.as_ref() != Some(&path) {
+            let _ = self.info.exif_jobs.send(path.clone());
+            self.info.exif_asked = Some(path);
         }
-        let done: Vec<ExifRead> = self.exif_rx.try_iter().collect();
+        let done: Vec<ExifRead> = self.info.exif_rx.try_iter().collect();
         for ExifRead {
             path,
             rows,
@@ -121,9 +144,9 @@ impl crate::App {
         } in done
         {
             // Kept while being edited: the reader may answer for the image again.
-            if self.meta.as_ref().is_none_or(|m| m.path != path) {
+            if self.info.meta.as_ref().is_none_or(|m| m.path != path) {
                 self.save_meta(ctx);
-                self.meta = Some(MetaEdit {
+                self.info.meta = Some(MetaEdit {
                     path: path.clone(),
                     keywords: meta.keywords_text(),
                     comment: meta.comment.clone(),
@@ -134,8 +157,8 @@ impl crate::App {
                     access,
                 });
             }
-            self.exif = Some((path, rows));
-            self.exif_all = all;
+            self.info.exif = Some((path, rows));
+            self.info.exif_all = all;
         }
     }
 
@@ -158,7 +181,7 @@ impl crate::App {
                         }
                         // The old rows stay until the new ones arrive, so the panel does not
                         // flicker.
-                        for (label, value) in self.exif.iter().flat_map(|e| &e.1) {
+                        for (label, value) in self.info.exif.iter().flat_map(|e| &e.1) {
                             ui.weak(*label);
                             // The place opens on a map in the browser.
                             if *label == "GPS" {
@@ -187,7 +210,7 @@ impl crate::App {
     /// extended description.
     pub(crate) fn meta_fields(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.list.cur);
-        let Some(edit) = self.meta.as_mut().filter(|m| m.path == path) else {
+        let Some(edit) = self.info.meta.as_mut().filter(|m| m.path == path) else {
             return;
         };
         ui.weak(tr("Keywords"));
@@ -196,7 +219,7 @@ impl crate::App {
                 .hint_text(tr("Separated by commas"))
                 .desired_width(f32::INFINITY),
         );
-        if std::mem::take(&mut self.focus_keywords) {
+        if std::mem::take(&mut self.info.focus_keywords) {
             keywords.request_focus();
         }
         ui.weak(tr("Comment"));
@@ -245,7 +268,7 @@ impl crate::App {
     /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
     pub(crate) fn keyword_tree(&mut self, ui: &mut egui::Ui) {
         let path = self.path(self.list.cur);
-        let Some((have, paths)) = (self.meta.as_ref())
+        let Some((have, paths)) = (self.info.meta.as_ref())
             .filter(|m| m.path == path)
             .map(|m| (m.saved.keywords.clone(), m.paths.clone()))
         else {
@@ -254,7 +277,7 @@ impl crate::App {
         ui.separator();
         ui.weak(tr("Keyword tree"));
         let mut root = KeywordNode::default();
-        for p in &self.keyword_tree {
+        for p in &self.info.keyword_tree {
             root.insert(p);
         }
         let (mut tick, mut drop) = (None, None);
@@ -265,17 +288,17 @@ impl crate::App {
         let layout = egui::Layout::right_to_left(egui::Align::Center);
         ui.allocate_ui_with_layout(row, layout, |ui| {
             let add = ui.button(tr("Add")).clicked();
-            let field = egui::TextEdit::singleline(&mut self.new_keyword)
+            let field = egui::TextEdit::singleline(&mut self.info.new_keyword)
                 .hint_text(tr("Places|Norway|Oslo"))
                 .desired_width(ui.available_width());
             let enter = ui.add(field).lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if (add || enter) && !self.new_keyword.trim().is_empty() {
-                let new = std::mem::take(&mut self.new_keyword);
+            if (add || enter) && !self.info.new_keyword.trim().is_empty() {
+                let new = std::mem::take(&mut self.info.new_keyword);
                 self.change_keyword_tree(vec![new], None);
             }
         });
         // The image's own keywords that the tree does not have yet, at its top.
-        let names: HashSet<String> = (self.keyword_tree.iter())
+        let names: HashSet<String> = (self.info.keyword_tree.iter())
             .map(|p| p.rsplit('|').next().unwrap_or(p).to_lowercase())
             .collect();
         let missing: Vec<String> = (have.iter())
@@ -304,7 +327,8 @@ impl crate::App {
         // Locked settings (--lock-settings, a kiosk): the tree changes for this session only,
         // as the other settings do, and the file is not written.
         let Some(p) = keyword_tree_path().filter(|_| !config::locked()) else {
-            self.keyword_tree = meta::keyword_tree_changed(&self.keyword_tree, add, remove);
+            self.info.keyword_tree =
+                meta::keyword_tree_changed(&self.info.keyword_tree, add, remove);
             return;
         };
         // One that cannot be read is not written over: its keywords would be lost.
@@ -317,7 +341,7 @@ impl crate::App {
             ((tree.join("\n") + "\n").into_bytes(), tree)
         };
         match config::edit_shared(&p, change) {
-            Ok(tree) => self.keyword_tree = tree,
+            Ok(tree) => self.info.keyword_tree = tree,
             Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),
         }
     }
@@ -328,7 +352,7 @@ impl crate::App {
         self.save_meta(ctx);
         let targets = self.targets();
         if targets.contains(&self.list.cur)
-            && let Some(edit) = &mut self.meta
+            && let Some(edit) = &mut self.info.meta
         {
             meta::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
             edit.keywords = edit.saved.keywords_text();
@@ -361,7 +385,9 @@ impl crate::App {
     /// window's, as a sidecar on a slow share would hold the window up for its read, write and
     /// sync. The fields show what was saved at once; a failure is told.
     pub(crate) fn save_meta(&mut self, ctx: &egui::Context) {
-        let Some(edit) = &mut self.meta else { return };
+        let Some(edit) = &mut self.info.meta else {
+            return;
+        };
         let access = meta::Access {
             alt: edit.alt.trim().to_owned(),
             extended: edit.extended.trim().to_owned(),
@@ -388,7 +414,9 @@ impl crate::App {
                 |_, _| None,
             );
         }
-        let Some(edit) = &mut self.meta else { return };
+        let Some(edit) = &mut self.info.meta else {
+            return;
+        };
         // Fields as they were shown are no change, also when splitting them again at commas
         // would read them differently ("Smith, John" as one keyword, a comment's last newline).
         if edit.keywords == edit.saved.keywords_text() && edit.comment == edit.saved.comment {
@@ -428,8 +456,8 @@ impl crate::App {
     pub(crate) fn add_keywords(&mut self, ctx: &egui::Context, keywords: Vec<String>) {
         // The shown image's own edit first; it is read again afterwards, with the added ones.
         self.save_meta(ctx);
-        self.meta = None;
-        self.exif_asked = None;
+        self.info.meta = None;
+        self.info.exif_asked = None;
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
         let n = paths.len();
         // Through the sidecar writer, with keywords ticked and stars: in the order asked.
@@ -465,7 +493,7 @@ impl crate::App {
 
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
     pub(crate) fn exif_fields_window(&mut self, ctx: &egui::Context) {
-        if self.exif_window && !self.list.files.is_empty() {
+        if self.info.exif_window && !self.list.files.is_empty() {
             self.want_exif(ctx);
             let mut open = true;
             let title = format!("EXIF: {}", self.name(self.list.cur));
@@ -475,14 +503,14 @@ impl crate::App {
                 .default_size([560.0, 600.0])
                 .vscroll(true)
                 .show(ctx, |ui| {
-                    if self.exif_all.is_empty() {
+                    if self.info.exif_all.is_empty() {
                         ui.weak(tr("No EXIF data"));
                     }
                     egui::Grid::new("exif all")
                         .striped(true)
                         .num_columns(3)
                         .show(ui, |ui| {
-                            for (group, name, value) in &self.exif_all {
+                            for (group, name, value) in &self.info.exif_all {
                                 ui.weak(*group);
                                 ui.label(name);
                                 ui.label(value);
@@ -490,7 +518,7 @@ impl crate::App {
                             }
                         });
                 });
-            self.exif_window = open;
+            self.info.exif_window = open;
         }
     }
 }

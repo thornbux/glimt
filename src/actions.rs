@@ -1051,11 +1051,11 @@ impl crate::App {
                     self.refill();
                 }
             }
-            Action::ExifWindow => self.exif_window = !self.exif_window,
+            Action::ExifWindow => self.info.exif_window = !self.info.exif_window,
             Action::Keywords => {
                 self.config.exif_panel = true;
                 self.config.save();
-                self.focus_keywords = true;
+                self.info.focus_keywords = true;
             }
             Action::PanView => {
                 self.pan_window = match self.pan_window {

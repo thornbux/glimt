@@ -738,7 +738,7 @@ impl crate::App {
                 self.list
                     .decodes_pending
                     .retain(|p, _| p.0 != self.list.cur);
-                self.exif = None;
+                self.info.exif = None;
             }
             self.list.slots.retain(|_, s| s.path != *path);
             if let Ok(name) = path.strip_prefix(&self.dir) {

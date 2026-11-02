@@ -501,6 +501,7 @@ impl crate::App {
         self.want_exif(ui.ctx());
         let path = self.path(self.list.cur);
         let meta = self
+            .info
             .meta
             .as_ref()
             .filter(|m| m.path == path)
@@ -515,7 +516,7 @@ impl crate::App {
             "marks" => self.mark_text(self.list.cur),
             "keywords" => meta.map(|m| m.keywords.join(", ")).unwrap_or_default(),
             "comment" => meta.map(|m| m.comment.clone()).unwrap_or_default(),
-            label => (self.exif.as_ref().filter(|e| e.0 == path))
+            label => (self.info.exif.as_ref().filter(|e| e.0 == path))
                 .and_then(|(_, rows)| rows.iter().find(|r| r.0 == label))
                 .map(|r| r.1.clone())
                 .unwrap_or_default(),
