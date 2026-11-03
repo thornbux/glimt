@@ -432,8 +432,7 @@ impl crate::App {
         self.folder.subdirs.clear();
         self.work.deleting.clear();
         self.slideshow.shuffled = false;
-        self.thumbs.textures.clear();
-        self.thumbs.pending.clear();
+        self.thumbs.forget_all();
         self.search.exif_index = None;
         self.search.exif_stale.clear();
         self.search.exif_index_rx = Receiving::none();

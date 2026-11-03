@@ -17,7 +17,7 @@ use crate::{files::config, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -69,22 +69,22 @@ pub(crate) type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
 pub(crate) struct Thumbs {
     /// Thumbnails still being made when a setting changed how they look: their results are
     /// dropped once, as they come back in the old look.
-    pub(crate) stale: HashSet<OsString>,
+    stale: HashSet<OsString>,
     /// File list thumbnails by file name; `None` = could not be made.
-    pub(crate) textures: HashMap<OsString, Option<egui::TextureHandle>>,
-    pub(crate) pending: HashSet<OsString>,
+    textures: HashMap<OsString, Option<egui::TextureHandle>>,
+    pending: HashSet<OsString>,
     /// (image index, file)
-    pub(crate) jobs: mpsc::Sender<(usize, PathBuf)>,
+    jobs: mpsc::Sender<(usize, PathBuf)>,
     /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
-    pub(crate) rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+    rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
     /// The files the file list (or film strip) shows, with some rows around them, and those pan
     /// view shows, both sorted: a thumbnail job for another file is skipped. Files, not a range:
     /// the matches of a search, or pan view's days, are spread over the whole folder.
-    pub(crate) view: ThumbView,
+    view: ThumbView,
     /// The rows the file list showed last, in the list as shown; thumbnails near them are kept.
-    pub(crate) list_rows: std::ops::Range<usize>,
+    list_rows: std::ops::Range<usize>,
     /// Workers write new thumbnails to the shared cache (Preferences).
-    pub(crate) save: Arc<AtomicBool>,
+    save: Arc<AtomicBool>,
 }
 
 impl Thumbs {
@@ -109,6 +109,38 @@ impl Thumbs {
             list_rows: 0..0,
             save,
         }
+    }
+
+    /// The thumbnail of `name`, if one was made.
+    pub(crate) fn made(&self, name: &OsStr) -> Option<&egui::TextureHandle> {
+        self.textures.get(name)?.as_ref()
+    }
+
+    /// Forgets the thumbnail of `name`, made or being made, so it is made again.
+    pub(crate) fn forget(&mut self, name: &OsStr) {
+        self.textures.remove(name);
+        self.pending.remove(name);
+    }
+
+    /// Forgets every thumbnail, as another folder opens.
+    pub(crate) fn forget_all(&mut self) {
+        self.textures.clear();
+        self.pending.clear();
+    }
+
+    /// Whether the workers write new thumbnails to the shared cache.
+    pub(crate) fn save_to_cache(&self, save: bool) {
+        self.save.store(save, Ordering::Relaxed);
+    }
+
+    /// The files pan view shows, sorted, for the workers to make.
+    pub(crate) fn pan_view_shows(&self, files: Vec<usize>) {
+        self.view.lock().unwrap()[1] = files;
+    }
+
+    /// The rows the file list showed last.
+    pub(crate) fn list_rows(&self) -> std::ops::Range<usize> {
+        self.list_rows.clone()
     }
 }
 
