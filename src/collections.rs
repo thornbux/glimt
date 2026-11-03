@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn survives_broken_lists() {
         let seed = b"#EXTM3U\nb.jpg\n\"sub/a.jpg\"\nfile:///x%2Fy%zz.jpg\n";
-        for bytes in crate::broken(seed) {
+        for bytes in crate::test_support::broken(seed) {
             super::parse_list(&bytes, std::path::Path::new("/"));
         }
     }
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn survives_broken_files() {
         let paths = [PathBuf::from("/a b/c.jpg"), PathBuf::from("/x/\"q\".png")];
-        for text in crate::broken(&super::to_text(&paths, &[])) {
+        for text in crate::test_support::broken(&super::to_text(&paths, &[])) {
             super::parse(&text);
         }
     }

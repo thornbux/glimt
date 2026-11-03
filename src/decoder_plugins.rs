@@ -183,7 +183,7 @@ mod tests {
     fn survives_broken_decoder_files() {
         let seed = b"[Glimt Decoder]\nName=JPEG 2000\nExtensions=jp2;j2k\n\
                      Exec=ffmpeg -v error -i \"%f\" -f image2pipe -vcodec ppm -\n";
-        for bytes in crate::broken(seed) {
+        for bytes in crate::test_support::broken(seed) {
             super::parse(&String::from_utf8_lossy(&bytes), Path::new("/"));
         }
     }

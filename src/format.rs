@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn survives_broken_templates() {
         let seed = b"%name% | %exif:DateTimeOriginal%\\n[%keywords%] %stars% %%";
-        for bytes in crate::broken(seed) {
+        for bytes in crate::test_support::broken(seed) {
             super::fill_template(&String::from_utf8_lossy(&bytes), |_| "x".into());
         }
     }

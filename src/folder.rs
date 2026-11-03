@@ -1020,7 +1020,7 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::{app_on, contract_folder, settle};
+    use crate::test_support::{app_on, contract_folder, settle};
 
     /// A refresh of a collection that started before a rename landed (auto refresh saw the
     /// folder change first) loses neither the image in the list nor its entry in the file.

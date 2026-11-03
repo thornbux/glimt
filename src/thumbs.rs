@@ -351,7 +351,7 @@ mod tests {
             std::env::temp_dir().join(format!("glimt-test-thumb-{}.png", std::process::id()));
         std::fs::write(&file, &png).unwrap();
         assert_eq!(super::thumb_source(&file), Some("/home/u/a b.jpg".into()));
-        for bytes in crate::broken(&png) {
+        for bytes in crate::test_support::broken(&png) {
             std::fs::write(&file, bytes).unwrap();
             super::thumb_source(&file);
         }

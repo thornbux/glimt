@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn survives_broken_desktop_answers() {
         for seed in ["(<uint32 1>,)", "(<(0.93, 0.36, 0.0)>,)", "(<1.25>,)"] {
-            for bytes in crate::broken(seed.as_bytes()) {
+            for bytes in crate::test_support::broken(seed.as_bytes()) {
                 let text = String::from_utf8_lossy(&bytes);
                 super::parse_scheme(&text);
                 super::parse_contrast(&text);
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn survives_broken_themes() {
         let seed = "dark = true\naccent=#88c0d0\nradius=9\ntext=#fff\ntext_size=15\n";
-        for bytes in crate::broken(seed.as_bytes()) {
+        for bytes in crate::test_support::broken(seed.as_bytes()) {
             super::Theme::parse(&String::from_utf8_lossy(&bytes));
         }
     }

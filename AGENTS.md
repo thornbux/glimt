@@ -56,10 +56,11 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. Its tests module has what tests that need a whole `App` start from (`app_on`, `settle`, `contract_folder`); each module's tests use them, so a test sits beside the code it tests |
+| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, `Slot`, an image decoded for the view, and `Viewing`, what belongs to the image shown |
 | `src/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
+| `src/test_support.rs` | What tests start from, built only for tests: `app_on` (an `App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
 | `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
@@ -207,8 +208,8 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it
-  `crate::broken(sample)`: 2,000 damaged forms of a good input in every run, five million
-  every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
+  `crate::test_support::broken(sample)`: 2,000 damaged forms of a good input in every run, five
+  million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
@@ -343,7 +344,7 @@ without the host permission says how to give it and with it runs; the AppImage, 
 that stays when the first one closes.
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
-without a window: `crate::tests::app_on(dir)` makes an `App` on `egui::Context::default()`
+without a window: `crate::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`
 with settings of its own, listed, in milliseconds. A fix there gets such a test, in the tests of
 the module the fix is in, not in main.rs (`source_rules::tests_sit_beside_their_code`).
 

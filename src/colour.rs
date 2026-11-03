@@ -458,7 +458,7 @@ mod tests {
     /// A damaged colour profile in a photo gives the photo as it is, never a panic.
     #[test]
     fn survives_broken_device_lists() {
-        for bytes in crate::broken(b"([objectpath '/a', '/b'],)") {
+        for bytes in crate::test_support::broken(b"([objectpath '/a', '/b'],)") {
             super::first_quoted(&String::from_utf8_lossy(&bytes));
         }
     }
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn survives_broken_profiles() {
         let img = image::DynamicImage::new_rgb8(2, 2);
-        for bytes in crate::broken(&super::ADOBE_RGB) {
+        for bytes in crate::test_support::broken(&super::ADOBE_RGB) {
             let _ = super::convert(img.clone(), Some(&bytes), false, true);
         }
     }

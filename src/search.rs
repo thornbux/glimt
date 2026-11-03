@@ -733,7 +733,7 @@ mod tests {
     #[test]
     fn survives_broken_searches() {
         let seed = b"sunset ( exif:canon | -exif:nikon 2024 ) -( re:^(a|b) | stars:1 ) mark:2";
-        for bytes in crate::broken(seed) {
+        for bytes in crate::test_support::broken(seed) {
             super::parse(&String::from_utf8_lossy(&bytes));
         }
     }

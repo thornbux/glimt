@@ -1098,14 +1098,14 @@ mod tests {
             c:tile_grid:height=500|c:rotation=-90|t:stream_index=0|t:tile_horizontal_offset=0|\
             t:tile_vertical_offset=0|t:stream_index=1|t:tile_horizontal_offset=512|\
             t:tile_vertical_offset=0\n";
-        for bytes in crate::broken(probe.as_bytes()) {
+        for bytes in crate::test_support::broken(probe.as_bytes()) {
             let text = String::from_utf8_lossy(&bytes);
             if let Some(filter) = super::heif_filter(&text) {
                 assert!(!filter.contains(';'), "{filter}");
             }
             super::heif_size(&text);
         }
-        for bytes in crate::broken(b"width=1920\nheight=1080\nrotation=-90\n") {
+        for bytes in crate::test_support::broken(b"width=1920\nheight=1080\nrotation=-90\n") {
             super::size_in(&String::from_utf8_lossy(&bytes));
         }
     }

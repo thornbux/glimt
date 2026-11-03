@@ -293,7 +293,7 @@ pub(crate) fn next_slide(
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::{app_on, settle};
+    use crate::test_support::{app_on, settle};
 
     /// A random slideshow with subfolders, without Repeat, started on the last image: it does
     /// not end before its list is read, and stopped before that, the list comes back in sort

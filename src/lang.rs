@@ -466,7 +466,7 @@ msgstr[1] "bilder"
     #[test]
     fn survives_broken_po_files() {
         let seed = "msgid \"a\\\"b\"\nmsgstr \"c\\n\"\n\"d\"\nmsgid \"x\"\nmsgid_plural \"xs\"\nmsgstr[0] \"y\"\nmsgstr[1] \"ys\"\n";
-        for bytes in crate::broken(seed.as_bytes()) {
+        for bytes in crate::test_support::broken(seed.as_bytes()) {
             super::parse(&String::from_utf8_lossy(&bytes));
         }
     }

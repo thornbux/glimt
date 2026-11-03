@@ -340,7 +340,7 @@ fn window_shown(ctx: &egui::Context) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::{app_on, contract_folder, settle};
+    use crate::test_support::{app_on, contract_folder, settle};
 
     /// The window title from the template in Preferences, and the default order when it is
     /// empty or all its fields are.

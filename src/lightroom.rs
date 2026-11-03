@@ -757,7 +757,7 @@ mod tests {
     #[test]
     fn survives_broken_output() {
         let now = [PathBuf::from("/x")];
-        for text in crate::broken(&sample()) {
+        for text in crate::test_support::broken(&sample()) {
             let c = super::parse(&text);
             let paths = c.paths(&now);
             c.collections(&paths);

@@ -351,7 +351,7 @@ pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::app_on;
+    use crate::test_support::app_on;
 
     /// Moving the end of a Shift range changes the selection as selecting the range anew does,
     /// in the list and among search matches, also across the anchor.

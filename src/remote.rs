@@ -772,7 +772,7 @@ pub fn close() {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::app_on;
+    use crate::test_support::app_on;
 
     /// Only the commands Glimt knows go out, with a path only where one is taken.
     #[test]

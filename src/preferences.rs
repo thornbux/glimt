@@ -1105,7 +1105,7 @@ fn sections_shown(query: &str) -> [bool; 10] {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::app_on;
+    use crate::test_support::app_on;
 
     use super::*;
 

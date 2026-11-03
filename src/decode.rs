@@ -978,7 +978,7 @@ mod tests {
                 image::ImageFormat::Jpeg,
             )
             .unwrap();
-        for bytes in crate::broken(&jpeg) {
+        for bytes in crate::test_support::broken(&jpeg) {
             let _ = super::scaled(&bytes, [8, 8], true, None);
         }
     }
@@ -996,13 +996,13 @@ mod tests {
             )
             .unwrap();
         let file = dir.join("a.tif");
-        for bytes in crate::broken(&tiff) {
+        for bytes in crate::test_support::broken(&tiff) {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::tiff_pages(&file);
             let _ = super::tiff_page(&file, 0);
         }
         let file = dir.join("a.ico");
-        for bytes in crate::broken(&two_sizes_ico()) {
+        for bytes in crate::test_support::broken(&two_sizes_ico()) {
             std::fs::write(&file, &bytes).unwrap();
             for k in 0..super::pages(&file) {
                 let _ = super::page_of(&file, k);
@@ -1061,7 +1061,7 @@ mod tests {
             }
         }
         let file = dir.join("a.gif");
-        for bytes in crate::broken(&gif) {
+        for bytes in crate::test_support::broken(&gif) {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::animation(&file, [8, 8]);
         }
@@ -1604,7 +1604,7 @@ mod tests {
             let led = bomb.replacen(at, put, 1);
             assert!(super::entities_too_large(led.as_bytes()), "{put}");
         }
-        for broken in crate::broken(bomb[..400].as_bytes()) {
+        for broken in crate::test_support::broken(bomb[..400].as_bytes()) {
             let _ = super::entities_too_large(&broken);
         }
         std::fs::remove_dir_all(dir).unwrap();

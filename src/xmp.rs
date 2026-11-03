@@ -1269,7 +1269,7 @@ mod tests {
             extended: "On a beach".into(),
         };
         let seed = set_access(&set(empty, &meta, false).unwrap(), &access, false).unwrap();
-        for bytes in crate::broken(seed.as_bytes()) {
+        for bytes in crate::test_support::broken(seed.as_bytes()) {
             let xmp = String::from_utf8_lossy(&bytes);
             parse(&xmp);
             set(&xmp, &meta, true);

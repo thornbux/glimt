@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn survives_broken_desktop_files() {
         let seed = b"[Desktop Entry]\nName=Stamp\nExec=stamp %f \"a b\" %%\nType=Application\n";
-        for bytes in crate::broken(seed) {
+        for bytes in crate::test_support::broken(seed) {
             super::parse(
                 &String::from_utf8_lossy(&bytes),
                 std::path::Path::new("/tmp"),

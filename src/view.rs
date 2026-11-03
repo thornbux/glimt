@@ -1703,7 +1703,7 @@ fn pane_rects(
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::app_on;
+    use crate::test_support::app_on;
 
     /// Going to another image leaves nothing of the one before: its turn, page, frame and crop
     /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets

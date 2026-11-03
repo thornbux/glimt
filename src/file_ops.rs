@@ -1953,7 +1953,7 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::{app_on, contract_folder, settle};
+    use crate::test_support::{app_on, contract_folder, settle};
 
     /// A file that is not writable goes into the trash by hand as the trash spec says, a second
     /// of the same name beside it, and the trash reader of Undo finds both where they were.
