@@ -653,7 +653,7 @@ impl crate::App {
     }
 
     pub(crate) fn dialog_open(&self) -> bool {
-        self.prefs.open
+        self.prefs.is_open()
             || self.dialogs.confirm_delete.is_some()
             || self.dialogs.confirm_folder
             || self.dialogs.prompt.is_some()

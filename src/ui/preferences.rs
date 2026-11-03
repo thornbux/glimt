@@ -162,15 +162,29 @@ const START: &[&str] = &[
 #[derive(Default)]
 pub(crate) struct Prefs {
     /// Edit → Preferences is open.
-    pub(crate) open: bool,
+    open: bool,
     /// Preferences changed while the pointer is down: saved when it is let go.
-    pub(crate) unsaved: bool,
+    unsaved: bool,
     /// The search field of Preferences: only the sections with these words show.
-    pub(crate) query: String,
+    query: String,
     /// Preferences was just opened: its search field takes the keys.
-    pub(crate) focus_search: bool,
+    focus_search: bool,
     /// The action whose key is being chosen in Preferences: the next key press goes to it.
-    pub(crate) capturing: Option<Action>,
+    capturing: Option<Action>,
+}
+
+impl Prefs {
+    /// Opens Preferences with an empty search, because a search from last time would hide
+    /// settings without saying why. The search field takes the keys.
+    pub(crate) fn show(&mut self) {
+        self.open = true;
+        self.query.clear();
+        self.focus_search = true;
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.open
+    }
 }
 
 impl crate::App {
@@ -1250,13 +1264,13 @@ mod tests {
             };
             let _ = ctx.run_ui(input, |ui| app.preferences_window(ui.ctx()));
         };
-        app.prefs.open = true;
+        app.prefs.show();
         app.prefs.query = "zoom".into();
         escape(&mut app);
         assert!(app.prefs.open && app.prefs.query.is_empty());
         escape(&mut app);
         assert!(!app.prefs.open);
-        app.prefs.open = true;
+        app.prefs.show();
         app.prefs.query = "  ".into();
         escape(&mut app);
         assert!(!app.prefs.open && app.prefs.query.is_empty());

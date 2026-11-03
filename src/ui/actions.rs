@@ -900,12 +900,7 @@ impl crate::App {
             Action::Preferences if config::locked() => {
                 self.notice = Some(tr("The settings are locked (--lock-settings)").into());
             }
-            Action::Preferences => {
-                // A search from last time would hide settings without saying why.
-                self.prefs.open = true;
-                self.prefs.query.clear();
-                self.prefs.focus_search = true;
-            }
+            Action::Preferences => self.prefs.show(),
             Action::Help => self.help = Some(help::Page::Manual),
             Action::Shortcuts => self.help = Some(help::Page::Shortcuts),
             Action::KeyboardMap => self.help = Some(help::Page::Keymap),
