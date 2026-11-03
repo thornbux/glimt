@@ -227,7 +227,7 @@ impl crate::App {
             "fullscreen" | "fullscreen on" | "fullscreen off" => Some(Action::FullScreen),
             "quit" => {
                 // The only way out of a kiosk.
-                self.window.kiosk_quit = true;
+                self.window.let_kiosk_quit();
                 Some(Action::Quit)
             }
             "subfolders on" => return self.set_subfolders(ctx, true),

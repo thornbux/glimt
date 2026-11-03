@@ -210,7 +210,7 @@ impl crate::App {
                 scroll_menu(ui, tr("Help"), |ui| self.menu_help(ui, act));
             });
         });
-        close_menus(ui.ctx(), bar.response.rect, &mut self.window.menu_away);
+        self.window.close_menus(ui.ctx(), bar.response.rect);
         if self.config.toolbar {
             self.toolbar(ui, act);
         }
@@ -420,7 +420,7 @@ impl crate::App {
         menu_item(ui, act, Action::CloseWindow);
         menu_item(ui, act, Action::WindowTitle);
         ui.separator();
-        menu_toggle(ui, act, self.window.projector, Action::Projector);
+        menu_toggle(ui, act, self.window.has_projector(), Action::Projector);
         let pointer = self.config.projector_pointer;
         menu_toggle(ui, act, pointer, Action::ProjectorPointer);
     }

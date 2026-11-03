@@ -287,7 +287,7 @@ impl App {
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
-        let bare = fullscreen || self.panel.is_hidden() || self.window.kiosk;
+        let bare = fullscreen || self.panel.is_hidden() || self.window.is_kiosk();
         if !bare {
             self.menu_bar(ui, &mut act);
         }
@@ -330,7 +330,7 @@ impl App {
             self.save_meta(ui.ctx());
         }
         self.image_area(ctx, ui, fullscreen, bare);
-        if self.window.projector {
+        if self.window.has_projector() {
             self.projector_window(ctx);
         }
     }
@@ -356,7 +356,7 @@ impl eframe::App for App {
             state += &format!("last_dir={}\n", last.display());
         }
         if self.config.remember_window {
-            state += &self.window.state.to_text();
+            state += &self.window.state_text();
         }
         // Nothing to keep: the folder and window of before go too, not left for a later start.
         match state_path() {
@@ -367,7 +367,7 @@ impl eframe::App for App {
         self.inhibit(false);
         // The state above, the settings, and the keywords queued at the first close: waited for,
         // a few seconds at most. Not after a third close, which ends at once whatever runs.
-        if self.window.closing < 2 {
+        if self.window.closes_asked() < 2 {
             crate::files::file_io::flush();
         }
         let at = |share| frame_at(self.decoding.frame_times(), share);

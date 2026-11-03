@@ -757,8 +757,7 @@ impl crate::App {
                 // images decoded again to its size, which they were too small for.
                 let ppp = pctx.pixels_per_point();
                 let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
-                if size != self.window.projector_size {
-                    let old = std::mem::replace(&mut self.window.projector_size, size);
+                if let Some(old) = self.window.projector_resized(size) {
                     let had = [
                         self.decoding.view_box[0].max(old[0]),
                         self.decoding.view_box[1].max(old[1]),
@@ -781,8 +780,7 @@ impl crate::App {
             pctx.input(|i| i.viewport().close_requested())
         });
         if closed {
-            self.window.projector = false;
-            self.window.projector_size = [0, 0];
+            self.window.close_projector();
         }
         if let Some(action) = act {
             self.run(ctx, action);
@@ -932,7 +930,7 @@ impl crate::App {
                 {
                     later = Some(step);
                 }
-                if response.double_clicked() && !self.window.kiosk {
+                if response.double_clicked() && !self.window.is_kiosk() {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
                 }
                 let scale = self.zoom.level.unwrap_or(fit);
@@ -962,7 +960,7 @@ impl crate::App {
                 clicked_pane = self.paint_panes(ui, &panes, area, right, [cols, rows], bare);
                 // Full screen: a film strip of the images around this one, while the pointer
                 // is near the bottom.
-                if fullscreen && !self.window.kiosk && !self.list.files.is_empty() {
+                if fullscreen && !self.window.is_kiosk() && !self.list.files.is_empty() {
                     clicked_pane = self.filmstrip(ui, ui.max_rect()).or(clicked_pane);
                 }
                 self.paint_notice(ui, area);
@@ -1165,7 +1163,7 @@ impl crate::App {
             self.config.fit_mode == 3,
             idx == self.list.cur,
             self.viewing.orient.0 % 2 == 1,
-            self.window.projector_size,
+            self.window.projector_size(),
         )
     }
 

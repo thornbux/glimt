@@ -795,11 +795,11 @@ impl crate::App {
     pub(crate) fn run(&mut self, ctx: &egui::Context, action: Action) {
         // Without remote control (no $XDG_RUNTIME_DIR, the socket not made) --remote quit
         // cannot come to a kiosk, so Ctrl+Q is its way out then, rather than none.
-        if self.window.kiosk && action == Action::Quit && !remote::listening() {
-            self.window.kiosk_quit = true;
+        if self.window.is_kiosk() && action == Action::Quit && !remote::listening() {
+            self.window.let_kiosk_quit();
         }
         // A kiosk shows and browses; it does not change files, settings or the window.
-        if self.window.kiosk && !KIOSK_ACTIONS.contains(&action) && !self.window.kiosk_quit {
+        if !self.window.allows(action) {
             return;
         }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
@@ -841,7 +841,7 @@ impl crate::App {
             Action::CheckImages => drop(self.check.get_or_insert(None)),
             Action::BackUp => self.pick(ctx, true, Pick::BackUp),
             // A kiosk shows only the image.
-            Action::FocusSearch if self.window.kiosk => {}
+            Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
             Action::Copy | Action::Move if !self.list.files.is_empty() => {
                 self.pick_copy_or_move(ctx, action)
@@ -997,11 +997,10 @@ impl crate::App {
             // A separate process: windows share nothing but the config file.
             Action::NewWindow => self.new_window(),
             Action::WindowTitle => {
-                self.dialogs.prompt = Some((Prompt::WindowTitle, self.window.title.clone()));
+                self.dialogs.prompt = Some((Prompt::WindowTitle, self.window.title().to_owned()));
             }
             Action::Projector => {
-                self.window.projector = !self.window.projector;
-                self.window.projector_size = [0, 0];
+                self.window.toggle_projector();
             }
             Action::ProjectorPointer => {
                 self.config.projector_pointer = !self.config.projector_pointer;

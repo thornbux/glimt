@@ -96,7 +96,7 @@ impl crate::App {
         self.work.touching.retain(|t| Arc::strong_count(t) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        } else if self.window.closing > 0 {
+        } else if self.window.closes_asked() > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         while let Ok((path, result)) = self.work.saved_rx.try_recv() {
@@ -112,15 +112,15 @@ impl crate::App {
     /// window made meanwhile are read.
     fn receive_focus(&mut self, ctx: &egui::Context) {
         let focus = ctx.input(|i| i.viewport().focused.unwrap_or(false));
-        if focus && !self.window.has_focus && self.config.remote_control {
+        let gained = self.window.focus(focus);
+        if gained && self.config.remote_control {
             remote::mark_focused();
         }
         // Back from another window, which may have marked files meanwhile.
         #[cfg(feature = "marks")]
-        if focus && !self.window.has_focus {
+        if gained {
             self.marks.refresh();
         }
-        self.window.has_focus = focus;
     }
 
     /// A file or folder dropped on the window opens there, as File → Open would.
@@ -129,7 +129,7 @@ impl crate::App {
             let mut paths = i.raw.dropped_files.iter().map(|f| f.path().to_path_buf());
             paths.find(|p| !p.as_os_str().is_empty())
         });
-        if let Some(path) = dropped.filter(|_| !self.window.kiosk) {
+        if let Some(path) = dropped.filter(|_| !self.window.is_kiosk()) {
             self.visit(ctx, path);
         }
     }

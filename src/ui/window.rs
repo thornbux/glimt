@@ -2,6 +2,7 @@
 
 use crate::files::config::WindowState;
 use crate::support::format::fill_template;
+use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::{features::remote, files::external, tf};
 use eframe::egui;
 use std::path::Path;
@@ -20,33 +21,33 @@ pub(crate) type Ender = Box<dyn FnOnce() + Send>;
 /// the title.
 pub(crate) struct Window {
     /// Window geometry seen in the last frame, saved at exit.
-    pub(crate) state: WindowState,
+    state: WindowState,
     /// --kiosk: full screen, only the image, only actions that show and browse.
-    pub(crate) kiosk: bool,
+    kiosk: bool,
     /// `--remote quit` came: a kiosk may close.
-    pub(crate) kiosk_quit: bool,
+    kiosk_quit: bool,
     /// Window → Projector: a second window with only the image, following this one.
-    pub(crate) projector: bool,
+    projector: bool,
     /// The projector's image area in pixels, which images are decoded to cover too.
-    pub(crate) projector_size: [u32; 2],
+    projector_size: [u32; 2],
     /// The screen saver inhibitor running while in full screen, and how many times full screen
     /// was turned on or off: the inhibitor is looked for and started in a thread, and one that
     /// comes after full screen ended again is ended at once.
-    pub(crate) inhibitor: Arc<Mutex<(u64, Option<Ender>)>>,
+    inhibitor: Arc<Mutex<(u64, Option<Ender>)>>,
     /// Whether it was asked for: tried once, not on every frame where none could be started.
-    pub(crate) inhibit_on: bool,
+    inhibit_on: bool,
     /// Since when the pointer has been away from an open menu of the menu bar.
-    pub(crate) menu_away: Option<Instant>,
+    menu_away: Option<Instant>,
     /// The window had the focus last frame; getting it makes this Glimt the one `--remote`
     /// talks to.
-    pub(crate) has_focus: bool,
+    has_focus: bool,
     /// When the mouse last moved, or full screen began: the pointer hides after `POINTER_STILL`.
-    pub(crate) pointer_moved: std::time::Instant,
+    pointer_moved: std::time::Instant,
     /// Window → Set Window Title: this window's title template; empty, the one in Preferences.
-    pub(crate) title: String,
+    title: String,
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
-    pub(crate) closing: u8,
+    closing: u8,
 }
 
 impl Window {
@@ -66,6 +67,74 @@ impl Window {
             title: String::new(),
             closing: 0,
         }
+    }
+
+    pub(crate) fn is_kiosk(&self) -> bool {
+        self.kiosk
+    }
+
+    /// `--remote quit` came, or Ctrl+Q where it cannot: a kiosk may close.
+    pub(crate) fn let_kiosk_quit(&mut self) {
+        self.kiosk_quit = true;
+    }
+
+    /// Whether `action` may run: a kiosk shows and browses, and does not change files, settings
+    /// or the window, until it may quit.
+    pub(crate) fn allows(&self, action: Action) -> bool {
+        !self.kiosk || KIOSK_ACTIONS.contains(&action) || self.kiosk_quit
+    }
+
+    /// Window → Projector, open or closed; its size is learnt anew.
+    pub(crate) fn toggle_projector(&mut self) {
+        self.projector = !self.projector;
+        self.projector_size = [0, 0];
+    }
+
+    /// The projector window was closed.
+    pub(crate) fn close_projector(&mut self) {
+        self.projector = false;
+        self.projector_size = [0, 0];
+    }
+
+    pub(crate) fn has_projector(&self) -> bool {
+        self.projector
+    }
+
+    /// The projector's image area in pixels.
+    pub(crate) fn projector_size(&self) -> [u32; 2] {
+        self.projector_size
+    }
+
+    /// The projector's image area is `size` now: the size before when it changed.
+    pub(crate) fn projector_resized(&mut self, size: [u32; 2]) -> Option<[u32; 2]> {
+        (size != self.projector_size).then(|| std::mem::replace(&mut self.projector_size, size))
+    }
+
+    /// The window's size and place, as kept for the next start.
+    pub(crate) fn state_text(&self) -> String {
+        self.state.to_text()
+    }
+
+    /// Window → Set Window Title's template for this window; empty, the one in Preferences.
+    pub(crate) fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// How many times closing was asked for while files were being written.
+    pub(crate) fn closes_asked(&self) -> u8 {
+        self.closing
+    }
+
+    /// The window has the focus or not; true when it just got it.
+    pub(crate) fn focus(&mut self, focus: bool) -> bool {
+        let gained = focus && !self.has_focus;
+        self.has_focus = focus;
+        gained
+    }
+
+    /// Closes an open menu of the menu bar when the pointer has stayed away from it.
+    pub(crate) fn close_menus(&mut self, ctx: &egui::Context, bar: egui::Rect) {
+        crate::ui::menus::close_menus(ctx, bar, &mut self.menu_away);
     }
 }
 
