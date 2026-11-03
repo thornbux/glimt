@@ -15,7 +15,7 @@ use crate::listing::pattern_name;
 use crate::save::save_rotated;
 use crate::threads::{Receiving, Working};
 use crate::trash::{Thrown, restore, trash_dirs};
-use crate::{collections, config, decode, exif, journal, tf, xmp};
+use crate::{collections, decode, exif, journal, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -1275,7 +1275,7 @@ impl crate::App {
             return;
         };
         self.background(ctx, Vec::new(), move || {
-            let done = config::back_up_to(&dir).unwrap_or_else(|e| e);
+            let done = crate::backup::back_up_to(&dir).unwrap_or_else(|e| e);
             drop(job);
             Some(done)
         });

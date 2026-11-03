@@ -28,6 +28,8 @@ mod accessibility;
 
 mod actions;
 
+mod backup;
+
 mod check;
 
 mod cli;

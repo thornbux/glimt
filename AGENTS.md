@@ -76,7 +76,8 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
+| `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, and `--lock-settings` |
+| `src/backup.rs` | The backup (File → Back Up, `--back-up`): Glimt's own folders (`own_folders`) copied into a new folder (`copy_tree`, `back_up_to`) |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |

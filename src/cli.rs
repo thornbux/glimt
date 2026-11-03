@@ -155,7 +155,7 @@ fn back_up(dir: Option<&OsString>) {
         eprintln!("glimt: --back-up takes the folder to put the backup in");
         std::process::exit(2);
     };
-    match config::back_up_to(Path::new(dir)) {
+    match crate::backup::back_up_to(Path::new(dir)) {
         Ok(done) => println!("{done}"),
         Err(e) => {
             eprintln!("glimt: {e}");
