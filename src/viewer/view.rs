@@ -129,15 +129,15 @@ impl Decoding {
 /// The zoom, and where the zoomed image is in the view.
 pub(crate) struct Zoom {
     /// Physical screen pixels per original pixel; `None` = fit to window.
-    pub(crate) level: Option<f32>,
-    pub(crate) offset: egui::Vec2,
+    level: Option<f32>,
+    offset: egui::Vec2,
     /// How far the shown image can be panned each way (points); zero where it fits.
-    pub(crate) max_pan: egui::Vec2,
+    max_pan: egui::Vec2,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in
     /// the status bar.
-    pub(crate) last_scale: f32,
+    last_scale: f32,
     /// Mouse wheel notches not yet turned into an image step (wheel_zoom off).
-    pub(crate) wheel: f32,
+    wheel: f32,
 }
 
 impl Default for Zoom {
@@ -149,6 +149,38 @@ impl Default for Zoom {
             last_scale: 1.0,
             wheel: 0.0,
         }
+    }
+}
+
+impl Zoom {
+    /// The whole image fitted to the window, in the middle.
+    pub(crate) fn fit(&mut self) {
+        self.level = None;
+        self.offset = egui::Vec2::ZERO;
+    }
+
+    /// One image pixel to one screen pixel, where the image is.
+    pub(crate) fn one_to_one(&mut self) {
+        self.level = Some(1.0);
+    }
+
+    pub(crate) fn is_fitted(&self) -> bool {
+        self.level.is_none()
+    }
+
+    /// How far the image can be moved each way, in points: zero along a side where it fits.
+    pub(crate) fn pan_room(&self) -> egui::Vec2 {
+        self.max_pan
+    }
+
+    /// Moves the image by `d` points, no further than it can go.
+    pub(crate) fn pan_by(&mut self, d: egui::Vec2) {
+        self.offset = (self.offset + d).clamp(-self.max_pan, self.max_pan);
+    }
+
+    /// The scale painted last, in screen pixels per image pixel.
+    pub(crate) fn scale_shown(&self) -> f32 {
+        self.last_scale
     }
 }
 
@@ -1356,8 +1388,7 @@ impl crate::App {
     /// Fit, Fit Width, Fit Height and Fill: modes that stay for the next images, as ImageGlass's;
     /// X goes back to the whole.
     pub(crate) fn set_fit_mode(&mut self, action: Action) {
-        self.zoom.level = None;
-        self.zoom.offset = egui::Vec2::ZERO;
+        self.zoom.fit();
         self.config.fit_mode = match action {
             Action::FitWidth => 1,
             Action::FitHeight => 2,

@@ -687,7 +687,7 @@ impl crate::App {
                     act,
                     theme::icon::FIT,
                     Action::ZoomFit,
-                    self.zoom.level.is_none(),
+                    self.zoom.is_fitted(),
                 );
                 ui.separator();
                 tool_button(

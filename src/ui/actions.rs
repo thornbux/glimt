@@ -1020,7 +1020,7 @@ impl crate::App {
             | Action::Flip => self.turn(action),
             Action::ZoomIn => self.zoom_by(1.25),
             Action::ZoomOut => self.zoom_by(0.8),
-            Action::Zoom1To1 => self.zoom.level = Some(1.0),
+            Action::Zoom1To1 => self.zoom.one_to_one(),
             // Modes that stay for the next images, as ImageGlass's; X goes back to the whole.
             Action::ZoomFit | Action::FitWidth | Action::FitHeight | Action::FitFill => {
                 self.set_fit_mode(action)
@@ -1195,9 +1195,9 @@ impl crate::App {
             .is_some_and(|f| Some(f) != self.image_id);
         // A zoomed image larger than the window: the arrow keys move it, as in Geeqie; along a
         // side where it fits they still browse.
-        if !self.dialog_open() && !typing && self.zoom.level.is_some() {
+        if !self.dialog_open() && !typing && !self.zoom.is_fitted() {
             let step = 100.0;
-            let max = self.zoom.max_pan;
+            let max = self.zoom.pan_room();
             ctx.input_mut(|i| {
                 for (key, d) in [
                     (egui::Key::ArrowLeft, egui::vec2(step, 0.0)),
@@ -1207,7 +1207,7 @@ impl crate::App {
                 ] {
                     let along = if d.x != 0.0 { max.x } else { max.y };
                     if along > 0.0 && i.consume_key(egui::Modifiers::NONE, key) {
-                        self.zoom.offset = (self.zoom.offset + d).clamp(-max, max);
+                        self.zoom.pan_by(d);
                     }
                 }
             });
