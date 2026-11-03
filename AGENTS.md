@@ -59,10 +59,6 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, `Slot`, an image decoded for the view, and `Viewing`, what belongs to the image shown |
-| `src/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
-| `src/test_support.rs` | What tests start from, built only for tests: `app_on` (an `App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
-| `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
-| `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
 | `src/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
 | `src/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
@@ -88,7 +84,6 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
 | `src/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
-| `src/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
 | `src/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`in_flatpak`, `print`, `open_with`, `inhibit_idle`) |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
@@ -109,7 +104,13 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
 | `src/video.rs` | Optional video feature |
-| `src/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
+| `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
+| `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
+| `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (an `App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
+| `src/support/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
+| `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
+| `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
+| `src/support/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |

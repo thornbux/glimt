@@ -3,11 +3,11 @@
 //! own files. Only columns that have been the same for many Lightroom versions are read. Also
 //! File → Import Lightroom Catalog's dialog, what it will do (`Catalog::plan`) and the import.
 
-use crate::format::count;
-use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
-use crate::threads::{Receiving, Working};
+use crate::support::format::count;
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Working};
 use crate::{collections, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -271,7 +271,8 @@ impl crate::App {
                     );
                     ui.horizontal(|ui| {
                         next =
-                            crate::test_hooks::noted(&ui.button(tr("Next")), tr("Next")).clicked();
+                            crate::support::test_hooks::noted(&ui.button(tr("Next")), tr("Next"))
+                                .clicked();
                         if ui.button(tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
@@ -318,8 +319,11 @@ impl crate::App {
                         );
                     }
                     ui.horizontal(|ui| {
-                        go = crate::test_hooks::noted(&ui.button(tr("Import")), tr("Import"))
-                            .clicked();
+                        go = crate::support::test_hooks::noted(
+                            &ui.button(tr("Import")),
+                            tr("Import"),
+                        )
+                        .clicked();
                         back = ui.button(tr("Back")).clicked();
                         if ui.button(tr("Cancel (Esc)")).clicked() {
                             ui.close();
@@ -757,7 +761,7 @@ mod tests {
     #[test]
     fn survives_broken_output() {
         let now = [PathBuf::from("/x")];
-        for text in crate::test_support::broken(&sample()) {
+        for text in crate::support::test_support::broken(&sample()) {
             let c = super::parse(&text);
             let paths = c.paths(&now);
             c.collections(&paths);

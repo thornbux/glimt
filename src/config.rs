@@ -1010,10 +1010,12 @@ mod tests {
     #[test]
     fn survives_broken_files() {
         let seed = super::Config::default().to_text();
-        for bytes in crate::test_support::broken(seed.as_bytes()) {
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             super::Config::parse(&String::from_utf8_lossy(&bytes));
         }
-        for bytes in crate::test_support::broken(b"maximized=true\nsize=1000x700.5\npos=10,-20\n") {
+        for bytes in
+            crate::support::test_support::broken(b"maximized=true\nsize=1000x700.5\npos=10,-20\n")
+        {
             super::WindowState::parse(&String::from_utf8_lossy(&bytes));
         }
     }

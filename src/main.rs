@@ -18,7 +18,7 @@ use crate::file_io::write_atomic;
 use crate::list::{List, Viewing};
 use crate::pan::Pan;
 use crate::print::PrintDialog;
-use crate::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
+use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
 use crate::view::View;
 use crate::view::frame_at;
 use eframe::egui;
@@ -66,15 +66,11 @@ mod file_ops;
 
 mod folder;
 
-mod format;
-
 mod help;
 
 mod info_panel;
 
 mod journal;
-
-mod lang;
 
 mod lightroom;
 
@@ -112,19 +108,10 @@ mod selection;
 
 mod slideshow;
 
-#[cfg(test)]
-mod source_rules;
-
-#[cfg(test)]
-mod test_support;
-
-mod test_hooks;
-
+mod support;
 mod theme;
 
 mod trash;
-
-mod threads;
 
 mod thumbs;
 
@@ -267,7 +254,7 @@ impl App {
         path: Option<PathBuf>,
         start: Start,
     ) -> Self {
-        lang::set(&config.language);
+        crate::support::lang::set(&config.language);
         // Start options are kept, as choosing them in the View menu would.
         if let Some(layout) = start.layout {
             config.layout = layout.into();
@@ -374,7 +361,7 @@ impl App {
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
         #[cfg(feature = "test-hooks")]
-        test_hooks::begin_frame();
+        crate::support::test_hooks::begin_frame();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
         let mut act = self.read_keys(ctx);
@@ -604,7 +591,7 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::app_on;
+    use crate::support::test_support::app_on;
 
     /// The window's state is made and lists a folder without a window, so its logic can be
     /// tested in milliseconds rather than through the release tests' virtual display.

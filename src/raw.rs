@@ -204,7 +204,7 @@ mod tests {
             .unwrap();
         let mut seed = b"FUJIFILMCCD-RAW ".to_vec();
         seed.extend(&out);
-        for data in crate::test_support::broken(&seed) {
+        for data in crate::support::test_support::broken(&seed) {
             super::preview(&data);
         }
         let markers = [0xff, 0xd8, 0xff, 0xe0, 0, 4].repeat(1 << 20);

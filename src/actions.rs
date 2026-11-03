@@ -6,12 +6,12 @@ use crate::decode::{color_image, survive};
 use crate::dialogs::{Pick, Prompt};
 use crate::duplicates::Dups;
 #[cfg(feature = "marks")]
-use crate::format::count;
-use crate::lang::tr;
-#[cfg(feature = "marks")]
 use crate::marks;
 use crate::pan::Pan;
-use crate::threads::{Receiving, Working};
+#[cfg(feature = "marks")]
+use crate::support::format::count;
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Working};
 use crate::view::LAYOUTS;
 use crate::{collections, config, help, own_program, remote, save, tf};
 use eframe::egui;
@@ -403,7 +403,7 @@ impl Action {
 
     /// The name shown in menus and in the help window.
     pub fn label(self) -> &'static str {
-        crate::lang::tr(self.english())
+        crate::support::lang::tr(self.english())
     }
 
     /// The name in English, as Preferences' search also looks for it.

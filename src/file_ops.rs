@@ -9,11 +9,11 @@ use crate::dialogs::Prompt;
 use crate::external;
 use crate::file_io::{put_file, rename_never_over};
 use crate::folder::total_size;
-use crate::format::{count, thousands};
-use crate::lang::tr;
 use crate::listing::pattern_name;
 use crate::save::save_rotated;
-use crate::threads::{Receiving, Working};
+use crate::support::format::{count, thousands};
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Working};
 use crate::trash::{Thrown, restore, trash_dirs};
 use crate::{collections, decode, exif, journal, tf, xmp};
 use eframe::egui;
@@ -1539,7 +1539,7 @@ pub(crate) fn new_place(path: &Path, moved: &HashMap<&Path, &Path>) -> Option<Pa
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, settle};
 
     /// Entries taken out of a collection go back to their places, also when some are there again.
     #[test]
@@ -1952,7 +1952,7 @@ mod tests {
             ),
         ];
         let mut found = std::collections::BTreeSet::new();
-        for (_, text) in crate::source_rules::sources() {
+        for (_, text) in crate::support::source_rules::sources() {
             let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
             let mut function = String::new();
             for line in code.lines() {
@@ -2166,7 +2166,7 @@ mod tests {
         // The frame that sees the jobs end searches again, and the held marks are read.
         app.poll_background(&ctx);
         assert!(app.search.exif_stale.is_empty() && app.search.exif_index_rx.is_some());
-        app.search.exif_index_rx = crate::threads::Receiving::none();
+        app.search.exif_index_rx = crate::support::threads::Receiving::none();
         app.search.query.clear();
         // Renamed by another program, the folder read again: the new name is read too.
         std::fs::rename(dir.join("a.png"), dir.join("c.png")).unwrap();

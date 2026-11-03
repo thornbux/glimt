@@ -283,7 +283,7 @@ fn tests_sit_beside_their_code() {
             assert!(
                 OWN.contains(&name),
                 "{name} is in main.rs: put it in the tests of the module it tests, with \
-                 crate::test_support::app_on for an App, or list it in OWN if it tests main.rs"
+                 crate::support::test_support::app_on for an App, or list it in OWN if it tests main.rs"
             );
         }
     }

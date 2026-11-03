@@ -6,10 +6,10 @@ use crate::dialogs::Pick;
 #[cfg(feature = "video")]
 use crate::external::is_video;
 use crate::file_ops::Deleted;
-use crate::lang::tr;
 use crate::save;
 use crate::save::{CopyAs, Format};
-use crate::test_hooks::noted;
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
 use crate::tf;
 use eframe::egui;
 #[cfg(feature = "video")]

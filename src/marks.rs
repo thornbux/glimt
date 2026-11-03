@@ -260,7 +260,7 @@ fn to_text(map: &HashMap<PathBuf, (u8, u8)>) -> Vec<u8> {
 fn save(edit: Edit) {
     // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
     // a mark set, or moved with its file, just before closing is not lost.
-    let writing = crate::threads::Working::new(&WRITING);
+    let writing = crate::support::threads::Working::new(&WRITING);
     crate::file_io::write_later(move || {
         let _writing = writing;
         if let Some(file) = file() {
@@ -458,14 +458,14 @@ mod tests {
     #[test]
     fn survives_broken_marks() {
         let seed = b"3\t4\t/a/b c.jpg\n0\t0\t/d.png\n255\t9\tbroken\n";
-        for bytes in crate::test_support::broken(seed) {
+        for bytes in crate::support::test_support::broken(seed) {
             let _ = super::parse(&bytes);
         }
         // The rating set in a sidecar broken in thousands of ways, as an attribute and an element.
         let xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
                    xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"><xmp:Rating>-1</xmp:Rating>\
                    </rdf:Description></rdf:RDF></x:xmpmeta>";
-        for bytes in crate::test_support::broken(xmp.as_bytes()) {
+        for bytes in crate::support::test_support::broken(xmp.as_bytes()) {
             let _ = super::set_rating(&String::from_utf8_lossy(&bytes), 4);
         }
     }
@@ -593,7 +593,7 @@ mod tests {
         let a = std::path::PathBuf::from("/a.jpg");
         m.toggle(std::slice::from_ref(&a), 2);
         m.rate(&[a], 3);
-        for text in crate::test_support::broken(&super::to_text(&m.map)) {
+        for text in crate::support::test_support::broken(&super::to_text(&m.map)) {
             super::parse(&text);
         }
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);

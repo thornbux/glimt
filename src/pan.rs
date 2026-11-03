@@ -2,9 +2,9 @@
 //! each day, oldest first, or as a calendar of the months that have images. The days come from
 //! the file dates, or from the EXIF dates.
 
-use crate::format::{count, thousands};
-use crate::lang::tr;
-use crate::threads::{Receiving, Took, Working};
+use crate::support::format::{count, thousands};
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Took, Working};
 use crate::{pan, tf};
 use eframe::egui;
 use std::ffi::OsString;
@@ -87,12 +87,12 @@ impl Pan {
     fn tabs(&mut self, ui: &mut egui::Ui, version: usize) {
         ui.horizontal(|ui| {
             let tab = ui.selectable_value(&mut self.calendar, false, tr("Timeline"));
-            crate::test_hooks::noted(&tab, tr("Timeline"));
+            crate::support::test_hooks::noted(&tab, tr("Timeline"));
             let tab = ui.selectable_value(&mut self.calendar, true, tr("Calendar"));
-            crate::test_hooks::noted(&tab, tr("Calendar"));
+            crate::support::test_hooks::noted(&tab, tr("Calendar"));
             ui.separator();
             let exif = ui.checkbox(&mut self.exif, tr("EXIF date"));
-            if crate::test_hooks::noted(&exif, tr("EXIF date")).changed() {
+            if crate::support::test_hooks::noted(&exif, tr("EXIF date")).changed() {
                 self.days = None;
                 self.days_rx.clear();
                 self.days_stop.store(true, Ordering::Relaxed);
@@ -459,7 +459,7 @@ pub fn timeline(
     let mut last = (i64::MIN, String::new());
     let day = move |&t: &i64| {
         if t.div_euclid(900) != last.0 {
-            let local = crate::format::local_time(t);
+            let local = crate::support::format::local_time(t);
             last = (
                 t.div_euclid(900),
                 local.get(..10).unwrap_or(&local).to_owned(),
@@ -505,24 +505,28 @@ fn each<T: Send>(
     stop: &AtomicBool,
     f: impl Fn(&Path) -> Option<T> + Sync,
 ) -> Vec<Option<T>> {
-    crate::threads::in_parts(files, crate::threads::small_alloc_threads(), |part, _| {
-        let mut path = dir.to_path_buf();
-        let mut out = Vec::with_capacity(part.len());
-        for name in part {
-            // Left (the window closed, another folder): nothing more is read for no one.
-            if stop.load(Ordering::Relaxed) {
-                out.push(None);
-                continue;
+    crate::support::threads::in_parts(
+        files,
+        crate::support::threads::small_alloc_threads(),
+        |part, _| {
+            let mut path = dir.to_path_buf();
+            let mut out = Vec::with_capacity(part.len());
+            for name in part {
+                // Left (the window closed, another folder): nothing more is read for no one.
+                if stop.load(Ordering::Relaxed) {
+                    out.push(None);
+                    continue;
+                }
+                path.push(name);
+                // A file that breaks its reader has no date: a whole part lost would give the
+                // files after it the dates of others.
+                let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&path)));
+                out.push(found.ok().flatten());
+                path.pop();
             }
-            path.push(name);
-            // A file that breaks its reader has no date: a whole part lost would give the
-            // files after it the dates of others.
-            let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&path)));
-            out.push(found.ok().flatten());
-            path.pop();
-        }
-        out
-    })
+            out
+        },
+    )
 }
 
 /// The files in order of `keys`, those without one last, cut into days by `day`.
@@ -625,7 +629,8 @@ mod tests {
         });
         assert_eq!(got.len(), 4);
         assert!(
-            got.iter().filter(|g| g.is_some()).count() <= crate::threads::small_alloc_threads()
+            got.iter().filter(|g| g.is_some()).count()
+                <= crate::support::threads::small_alloc_threads()
         );
     }
 

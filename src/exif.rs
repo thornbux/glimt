@@ -839,7 +839,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.heic");
         let seed = b"\0\0\0\x18ftypheic\0\0\0\0mif1heic\0\0\0\x10Exif\0\0MM\0*\0\0\0\x08\0\0";
-        for bytes in crate::test_support::broken(seed) {
+        for bytes in crate::support::test_support::broken(seed) {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::raw(&file);
         }
@@ -875,7 +875,7 @@ mod tests {
 
     #[test]
     fn survives_broken_xmp_orientation() {
-        for mut xmp in crate::test_support::broken(
+        for mut xmp in crate::support::test_support::broken(
             br#"<x tiff:Orientation="6"/><tiff:Orientation>8</tiff:Orientation>"#,
         ) {
             super::set_xmp_orientation(&mut xmp, 1);
@@ -1259,7 +1259,7 @@ mod tests {
         let mm = b"Exif\0\0MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
                    \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
         for seed in [sample(), mm.to_vec()] {
-            for mut block in crate::test_support::broken(&seed) {
+            for mut block in crate::support::test_support::broken(&seed) {
                 super::parse(&block);
                 super::fields(&block);
                 super::orientation(&block);
@@ -1280,8 +1280,8 @@ mod tests {
         with_exif.extend(mm);
         with_exif.extend(&jpeg[2..]);
         assert!(super::oriented(with_exif.clone(), 1, false, true).is_ok());
-        for data in
-            crate::test_support::broken(&jpeg).chain(crate::test_support::broken(&with_exif))
+        for data in crate::support::test_support::broken(&jpeg)
+            .chain(crate::support::test_support::broken(&with_exif))
         {
             if let Some((segments, _)) = super::jpeg_segments(&data) {
                 segments.iter().for_each(|s| {

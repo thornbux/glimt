@@ -641,7 +641,7 @@ mod tests {
         image::RgbImage::new(4, 2)
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        for bytes in crate::test_support::broken(&png) {
+        for bytes in crate::support::test_support::broken(&png) {
             let _ = super::png_with_xmp(&bytes, b"<x:xmpmeta/>");
         }
         let mut webp = Vec::new();
@@ -651,7 +651,7 @@ mod tests {
                 image::ImageFormat::WebP,
             )
             .unwrap();
-        for bytes in crate::test_support::broken(&webp) {
+        for bytes in crate::support::test_support::broken(&webp) {
             let _ = super::webp_with_chunk(&bytes, b"EXIF", b"Exif", 4, 2);
         }
     }
@@ -704,7 +704,7 @@ mod tests {
         let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
         assert_eq!(&out[at + 4..at + 13], &[0, 0, 0, 98, 0, 0, 0, 204, 1]);
         image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
-        for broken in crate::test_support::broken(&old) {
+        for broken in crate::support::test_support::broken(&old) {
             super::png_with_chunks(&new, &broken, true);
         }
     }
@@ -720,7 +720,7 @@ mod tests {
             .unwrap();
         let file =
             std::env::temp_dir().join(format!("glimt-test-webp-{}.webp", std::process::id()));
-        for bytes in crate::test_support::broken(&webp) {
+        for bytes in crate::support::test_support::broken(&webp) {
             std::fs::write(&file, bytes).unwrap();
             super::webp_lossless(&file);
         }

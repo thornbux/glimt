@@ -6,14 +6,14 @@ use crate::config::sort_folders_from;
 use crate::config::sort_folders_path;
 use crate::external::Mounted;
 use crate::external::{Login, gio_mount};
-use crate::lang::tr;
 use crate::list::{List, Slot, Viewing};
 use crate::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::menus::{iconed, scroll_menu};
-use crate::test_hooks::noted;
-use crate::threads::{Receiving, Took};
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
+use crate::support::threads::{Receiving, Took};
 use crate::{collections, config, external, listing, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -1020,7 +1020,7 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, settle};
 
     /// A refresh of a collection that started before a rename landed (auto refresh saw the
     /// folder change first) loses neither the image in the list nor its entry in the file.

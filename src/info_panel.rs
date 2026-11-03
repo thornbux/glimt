@@ -4,11 +4,11 @@
 use crate::colour::colour_source;
 use crate::config::keyword_tree_path;
 use crate::external::open_url;
-use crate::format::{count, human_size, thousands};
-use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
-use crate::test_hooks::noted;
+use crate::support::format::{count, human_size, thousands};
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
 use crate::xmp::Meta;
 use crate::{config, decode, exif, tf, xmp};
 use eframe::egui;

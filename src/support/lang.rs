@@ -15,8 +15,8 @@ macro_rules! tf {
     (@value $name:ident = $value:expr) => { $value };
     (@value $name:ident) => { $name };
     ($text:literal $(, $name:ident $(= $value:expr)?)* $(,)?) => {
-        $crate::lang::fill(
-            $crate::lang::tr($text),
+        $crate::support::lang::fill(
+            $crate::support::lang::tr($text),
             &[$((stringify!($name), &$crate::tf!(@value $name $(= $value)?) as &dyn ::std::fmt::Display)),*],
         )
     };
@@ -25,22 +25,22 @@ macro_rules! tf {
 /// The translations built in: code (the setting), name in its own language, the language codes
 /// of `$LANG` it is for, and its `.po` file. Each has every text of `no_nb.po`.
 pub const LANGUAGES: &[(&str, &str, &[&str], &str)] = &[
-    ("da", "Dansk", &["da"], include_str!("da.po")),
-    ("de", "Deutsch", &["de"], include_str!("de.po")),
-    ("es", "Español", &["es"], include_str!("es.po")),
-    ("fr", "Français", &["fr"], include_str!("fr.po")),
-    ("is", "Íslenska", &["is"], include_str!("is.po")),
-    ("it", "Italiano", &["it"], include_str!("it.po")),
-    ("nl", "Nederlands", &["nl"], include_str!("nl.po")),
+    ("da", "Dansk", &["da"], include_str!("../da.po")),
+    ("de", "Deutsch", &["de"], include_str!("../de.po")),
+    ("es", "Español", &["es"], include_str!("../es.po")),
+    ("fr", "Français", &["fr"], include_str!("../fr.po")),
+    ("is", "Íslenska", &["is"], include_str!("../is.po")),
+    ("it", "Italiano", &["it"], include_str!("../it.po")),
+    ("nl", "Nederlands", &["nl"], include_str!("../nl.po")),
     (
         "no_nb",
         "Norsk bokmål",
         &["nb", "no"],
-        include_str!("no_nb.po"),
+        include_str!("../no_nb.po"),
     ),
-    ("pl", "Polski", &["pl"], include_str!("pl.po")),
-    ("fi", "Suomi", &["fi"], include_str!("fi.po")),
-    ("sv", "Svenska", &["sv"], include_str!("sv.po")),
+    ("pl", "Polski", &["pl"], include_str!("../pl.po")),
+    ("fi", "Suomi", &["fi"], include_str!("../fi.po")),
+    ("sv", "Svenska", &["sv"], include_str!("../sv.po")),
 ];
 
 /// The translation in use; `None` for English.
@@ -403,9 +403,9 @@ msgstr[1] "bilder"
     fn every_language_has_every_text() {
         // Every text the code puts through tr or tf! is in the catalogue, so in every language:
         // "Renaming" in the status bar showed in English in all eleven.
-        let nb = super::parse(include_str!("no_nb.po"));
+        let nb = super::parse(include_str!("../no_nb.po"));
         let mut lacking = Vec::new();
-        for (path, text) in crate::source_rules::sources() {
+        for (path, text) in crate::support::source_rules::sources() {
             if !path.ends_with(".rs") {
                 continue;
             }
@@ -436,7 +436,7 @@ msgstr[1] "bilder"
             }
         }
         assert!(lacking.is_empty(), "not in no_nb.po: {lacking:?}");
-        let nb = super::parse(include_str!("no_nb.po"));
+        let nb = super::parse(include_str!("../no_nb.po"));
         for (code, _, _, po) in super::LANGUAGES {
             let t = super::parse(po);
             let lacks: Vec<&String> = (nb.texts.keys())
@@ -463,7 +463,7 @@ msgstr[1] "bilder"
     #[test]
     fn survives_broken_po_files() {
         let seed = "msgid \"a\\\"b\"\nmsgstr \"c\\n\"\n\"d\"\nmsgid \"x\"\nmsgid_plural \"xs\"\nmsgstr[0] \"y\"\nmsgstr[1] \"ys\"\n";
-        for bytes in crate::test_support::broken(seed.as_bytes()) {
+        for bytes in crate::support::test_support::broken(seed.as_bytes()) {
             super::parse(&String::from_utf8_lossy(&bytes));
         }
     }

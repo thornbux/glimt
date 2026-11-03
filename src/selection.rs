@@ -2,9 +2,9 @@
 
 use crate::actions::Action;
 use crate::folder::total_size;
-use crate::format::thousands;
 use crate::list::Viewing;
-use crate::threads::Receiving;
+use crate::support::format::thousands;
+use crate::support::threads::Receiving;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -351,7 +351,7 @@ pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::app_on;
+    use crate::support::test_support::app_on;
 
     /// Moving the end of a Shift range changes the selection as selecting the range anew does,
     /// in the list and among search matches, also across the anchor.

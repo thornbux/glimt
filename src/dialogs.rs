@@ -4,12 +4,12 @@
 use crate::config::xdg_dir;
 use crate::external::{Login, command};
 use crate::file_ops::Deleted;
-use crate::format::count;
-use crate::lang::tr;
 use crate::listing::pattern_name;
 use crate::print::{PrintJob, PrintTo};
-use crate::test_hooks::noted;
-use crate::threads::{Receiving, Took};
+use crate::support::format::count;
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
+use crate::support::threads::{Receiving, Took};
 use crate::{collections, external, journal, save, tf, theme};
 use eframe::egui;
 use std::ffi::OsString;

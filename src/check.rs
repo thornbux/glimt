@@ -1,9 +1,9 @@
 //! File → Check Images: every image of the list decoded in the background, the broken ones listed.
 
-use crate::format::{count, thousands};
-use crate::lang::tr;
-use crate::test_hooks::noted;
-use crate::threads::{Working, background_threads};
+use crate::support::format::{count, thousands};
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
+use crate::support::threads::{Working, background_threads};
 use crate::{decode, tf};
 use eframe::egui;
 use std::ffi::OsString;

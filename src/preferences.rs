@@ -6,10 +6,10 @@ use crate::colour::{INPUT_PROFILES, INTENTS};
 use crate::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
 use crate::decode::MAX_ANIMATION;
 use crate::dialogs::Pick;
-use crate::format::thousands;
-use crate::lang::tr;
-use crate::threads::{Working, set_cpu_use};
-use crate::{actions, config, lang, tf, theme, thumbs};
+use crate::support::format::thousands;
+use crate::support::lang::tr;
+use crate::support::threads::{Working, set_cpu_use};
+use crate::{actions, config, support::lang, tf, theme, thumbs};
 use eframe::egui;
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -226,7 +226,10 @@ impl crate::App {
                             .show(ui, |ui| {
                                 self.key_settings(ui, &query);
                             });
-                        crate::test_hooks::noted(&keys.header_response, tr("Keyboard shortcuts"));
+                        crate::support::test_hooks::noted(
+                            &keys.header_response,
+                            tr("Keyboard shortcuts"),
+                        );
                     }
                     if shown[2] {
                         section(ui, theme::icon::IMAGE, tr(IMAGE[0]));
@@ -980,8 +983,11 @@ impl crate::App {
                 }
                 ui.horizontal(|ui| {
                     let change = ui.small_button(tr("Change"));
-                    if crate::test_hooks::noted(&change, &format!("Change {}", action.label()))
-                        .clicked()
+                    if crate::support::test_hooks::noted(
+                        &change,
+                        &format!("Change {}", action.label()),
+                    )
+                    .clicked()
                     {
                         self.prefs.capturing = Some(action);
                     }
@@ -1105,7 +1111,7 @@ fn sections_shown(query: &str) -> [bool; 10] {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::app_on;
+    use crate::support::test_support::app_on;
 
     use super::*;
 

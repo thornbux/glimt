@@ -1,6 +1,6 @@
 //! Text for the user: sizes, counts, times, a text cut to fit, and templates filled in.
 
-use crate::lang::{self, tr};
+use crate::support::lang::{self, tr};
 
 #[repr(C)]
 struct Tm {
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn survives_broken_templates() {
         let seed = b"%name% | %exif:DateTimeOriginal%\\n[%keywords%] %stars% %%";
-        for bytes in crate::test_support::broken(seed) {
+        for bytes in crate::support::test_support::broken(seed) {
             super::fill_template(&String::from_utf8_lossy(&bytes), |_| "x".into());
         }
     }

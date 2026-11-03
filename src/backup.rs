@@ -2,7 +2,7 @@
 //! stars, collections, plugins and decoders, copied into a new folder.
 
 use crate::config::xdg_dir;
-use crate::format::{count, local_time};
+use crate::support::format::{count, local_time};
 use std::path::{Path, PathBuf};
 
 /// Glimt's own folders, to back up, with their names in a backup: its settings, keyword tree,

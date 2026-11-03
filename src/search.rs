@@ -4,11 +4,11 @@
 //! `exif:` terms search: each file's fields and keywords as one line.
 
 use crate::folder::send_sizes;
-use crate::lang::tr;
 use crate::list::FileRow;
-use crate::test_hooks::noted;
-use crate::threads::small_alloc_threads;
-use crate::threads::{Receiving, Took, Working, background_threads, in_parts};
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
+use crate::support::threads::small_alloc_threads;
+use crate::support::threads::{Receiving, Took, Working, background_threads, in_parts};
 use crate::{exif, xmp};
 use crate::{tf, theme};
 use eframe::egui;
@@ -618,9 +618,9 @@ fn in_parallel(
     names: &[std::ffi::OsString],
     score_one: impl Fn(&std::ffi::OsString, &mut Vec<u8>) -> Option<i32> + Sync,
 ) -> Vec<(i32, usize)> {
-    crate::threads::in_parts(
+    crate::support::threads::in_parts(
         names,
-        crate::threads::background_threads().min(8),
+        crate::support::threads::background_threads().min(8),
         |part, at| {
             let mut buf = Vec::new();
             (part.iter().enumerate())
@@ -636,7 +636,7 @@ pub fn exif_index(
     files: &[OsString],
     stop: &std::sync::atomic::AtomicBool,
 ) -> HashMap<OsString, String> {
-    let index = crate::threads::in_parts(files, small_alloc_threads(), |part, _| {
+    let index = crate::support::threads::in_parts(files, small_alloc_threads(), |part, _| {
         let mut out = Vec::with_capacity(part.len());
         for name in part {
             // Left: the folder is gone from the window, and no one waits for this.
@@ -733,7 +733,7 @@ mod tests {
     #[test]
     fn survives_broken_searches() {
         let seed = b"sunset ( exif:canon | -exif:nikon 2024 ) -( re:^(a|b) | stars:1 ) mark:2";
-        for bytes in crate::test_support::broken(seed) {
+        for bytes in crate::support::test_support::broken(seed) {
             super::parse(&String::from_utf8_lossy(&bytes));
         }
     }

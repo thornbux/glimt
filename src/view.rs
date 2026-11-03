@@ -5,11 +5,11 @@ use crate::actions::{Action, KIOSK_ACTIONS};
 use crate::config::Config;
 use crate::decode::{Decoded, decode, histogram, survive};
 use crate::external::is_video;
-use crate::format::fill_template;
-use crate::lang::tr;
 use crate::list::Slot;
 use crate::menus::{iconed, menu_item, scroll_menu};
-use crate::test_hooks::noted;
+use crate::support::format::fill_template;
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
 use crate::{app_id, malloc_trim, theme};
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -1703,7 +1703,7 @@ fn pane_rects(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::app_on;
+    use crate::support::test_support::app_on;
 
     /// Going to another image leaves nothing of the one before: its turn, page, frame and crop
     /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets

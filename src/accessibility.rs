@@ -13,7 +13,7 @@ impl App {
     pub fn speak_image(&mut self, ui: &egui::Ui, response: &egui::Response) {
         self.image_id = Some(response.id);
         let text = if self.list.files.is_empty() {
-            crate::lang::tr("No images").to_owned()
+            crate::support::lang::tr("No images").to_owned()
         } else {
             // Read in the background, as for the EXIF panel: here once for each image.
             self.want_exif(ui.ctx());
@@ -26,7 +26,10 @@ impl App {
             }
             #[cfg(feature = "marks")]
             if let stars @ 1.. = self.marks.get(&path).1 {
-                text += &format!(", {}", crate::format::count(stars as usize, "star"));
+                text += &format!(
+                    ", {}",
+                    crate::support::format::count(stars as usize, "star")
+                );
             }
             if let Some(meta) = self.info.meta.as_ref().filter(|m| m.path == path) {
                 if !meta.saved.keywords.is_empty() {

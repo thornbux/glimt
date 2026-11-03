@@ -3,9 +3,9 @@
 //! collections can be opened too.
 
 use crate::actions::Action;
-use crate::lang::tr;
 use crate::menus::{iconed, menu_item, scroll_menu};
-use crate::test_hooks::noted;
+use crate::support::lang::tr;
+use crate::support::test_hooks::noted;
 use crate::{tf, theme};
 use eframe::egui;
 use std::collections::HashSet;
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn survives_broken_lists() {
         let seed = b"#EXTM3U\nb.jpg\n\"sub/a.jpg\"\nfile:///x%2Fy%zz.jpg\n";
-        for bytes in crate::test_support::broken(seed) {
+        for bytes in crate::support::test_support::broken(seed) {
             super::parse_list(&bytes, std::path::Path::new("/"));
         }
     }
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn survives_broken_files() {
         let paths = [PathBuf::from("/a b/c.jpg"), PathBuf::from("/x/\"q\".png")];
-        for text in crate::test_support::broken(&super::to_text(&paths, &[])) {
+        for text in crate::support::test_support::broken(&super::to_text(&paths, &[])) {
             super::parse(&text);
         }
     }

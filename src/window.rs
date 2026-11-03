@@ -1,7 +1,7 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
 use crate::config::WindowState;
-use crate::format::fill_template;
+use crate::support::format::fill_template;
 use crate::{external, remote, tf};
 use eframe::egui;
 use std::path::Path;
@@ -340,7 +340,7 @@ fn window_shown(ctx: &egui::Context) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{app_on, contract_folder, settle};
+    use crate::support::test_support::{app_on, contract_folder, settle};
 
     /// The window title from the template in Preferences, and the default order when it is
     /// empty or all its fields are.
@@ -388,7 +388,7 @@ mod tests {
         app.config.hide_pointer = true;
         assert!(app.pointer_hides(true));
         assert!(!app.pointer_hides(false));
-        let job = crate::threads::Working::new(&app.busy);
+        let job = crate::support::threads::Working::new(&app.busy);
         assert!(!app.pointer_hides(true));
         drop(job);
         app.list(&ctx);

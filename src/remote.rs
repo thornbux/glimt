@@ -9,7 +9,7 @@
 use crate::actions::Action;
 use crate::remote;
 #[cfg(feature = "test-hooks")]
-use crate::test_hooks;
+use crate::support::test_hooks;
 use eframe::egui;
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
@@ -772,7 +772,7 @@ pub fn close() {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::app_on;
+    use crate::support::test_support::app_on;
 
     /// Only the commands Glimt knows go out, with a path only where one is taken.
     #[test]
@@ -907,7 +907,7 @@ mod tests {
         app.remote.rx = rx;
         // A folder still being read.
         let (_reading, listing) = std::sync::mpsc::channel();
-        app.folder.listing_rx = crate::threads::Receiving::of(listing);
+        app.folder.listing_rx = crate::support::threads::Receiving::of(listing);
         let mut answers = Vec::new();
         for name in ["a.png", "none.png"] {
             let (reply, answer) = std::sync::mpsc::channel();
@@ -916,7 +916,7 @@ mod tests {
             answers.push(answer);
         }
         app.receive_remote(&ctx);
-        app.folder.listing_rx = crate::threads::Receiving::none();
+        app.folder.listing_rx = crate::support::threads::Receiving::none();
         app.receive_remote(&ctx);
         let got: Vec<Vec<u8>> = answers.iter().map(|a| a.try_recv().unwrap()).collect();
         assert!(got[0].is_empty(), "a.png is there");
@@ -940,7 +940,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         app.remote.rx = rx;
         let (_reading, listing) = std::sync::mpsc::channel();
-        app.folder.listing_rx = crate::threads::Receiving::of(listing);
+        app.folder.listing_rx = crate::support::threads::Receiving::of(listing);
         let (reply, answer) = std::sync::mpsc::channel();
         let select = format!("select {}\0", dir.join("a.png").display());
         tx.send((select.clone(), Some(reply))).unwrap();
@@ -963,7 +963,7 @@ mod tests {
             more[62].try_recv(),
             Err(std::sync::mpsc::TryRecvError::Disconnected)
         ));
-        app.folder.listing_rx = crate::threads::Receiving::none();
+        app.folder.listing_rx = crate::support::threads::Receiving::none();
         app.receive_remote(&ctx);
         assert!(
             answer.try_recv().unwrap().is_empty(),

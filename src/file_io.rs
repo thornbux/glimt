@@ -202,7 +202,7 @@ pub fn take_save_error() -> Option<String> {
 pub fn write_later(work: impl FnOnce() + Send + 'static) {
     static WRITER: std::sync::OnceLock<std::sync::mpsc::Sender<Work>> = std::sync::OnceLock::new();
     // Dropped with the work, also when it panics or is never run: Glimt would wait for it at exit.
-    let writing = crate::threads::Working::new(&WRITING);
+    let writing = crate::support::threads::Working::new(&WRITING);
     let counted = move || {
         let _writing = writing;
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));

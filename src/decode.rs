@@ -2,8 +2,8 @@
 //! drawn to size), with its EXIF turn, colours and histogram; animations frame by frame.
 
 use crate::colour::{ADOBE_RGB, to_display, to_srgb};
-use crate::format::human_size;
 use crate::listing::has_ext;
+use crate::support::format::human_size;
 use crate::{exif, raw};
 use eframe::egui;
 use image::ImageDecoder;
@@ -978,7 +978,7 @@ mod tests {
                 image::ImageFormat::Jpeg,
             )
             .unwrap();
-        for bytes in crate::test_support::broken(&jpeg) {
+        for bytes in crate::support::test_support::broken(&jpeg) {
             let _ = super::scaled(&bytes, [8, 8], true, None);
         }
     }
@@ -996,13 +996,13 @@ mod tests {
             )
             .unwrap();
         let file = dir.join("a.tif");
-        for bytes in crate::test_support::broken(&tiff) {
+        for bytes in crate::support::test_support::broken(&tiff) {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::tiff_pages(&file);
             let _ = super::tiff_page(&file, 0);
         }
         let file = dir.join("a.ico");
-        for bytes in crate::test_support::broken(&two_sizes_ico()) {
+        for bytes in crate::support::test_support::broken(&two_sizes_ico()) {
             std::fs::write(&file, &bytes).unwrap();
             for k in 0..super::pages(&file) {
                 let _ = super::page_of(&file, k);
@@ -1061,7 +1061,7 @@ mod tests {
             }
         }
         let file = dir.join("a.gif");
-        for bytes in crate::test_support::broken(&gif) {
+        for bytes in crate::support::test_support::broken(&gif) {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::animation(&file, [8, 8]);
         }
@@ -1604,7 +1604,7 @@ mod tests {
             let led = bomb.replacen(at, put, 1);
             assert!(super::entities_too_large(led.as_bytes()), "{put}");
         }
-        for broken in crate::test_support::broken(&bomb.as_bytes()[..400]) {
+        for broken in crate::support::test_support::broken(&bomb.as_bytes()[..400]) {
             let _ = super::entities_too_large(&broken);
         }
         std::fs::remove_dir_all(dir).unwrap();

@@ -610,7 +610,7 @@ mod tests {
     #[test]
     fn survives_broken_plans() {
         let seed = b"counted\0/p/a\0/p/.t-0\0/p/b\0/p/.t-1\0/p/.t-0\0/p/b\0\0\0";
-        for bytes in crate::test_support::broken(seed) {
+        for bytes in crate::support::test_support::broken(seed) {
             if let Some((moves, Some(done))) = super::parse(&bytes) {
                 assert!(done <= moves.len());
             }

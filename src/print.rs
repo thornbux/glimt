@@ -6,9 +6,9 @@
 use crate::config::Config;
 use crate::decode::survive;
 use crate::dialogs::Pick;
-use crate::format::count;
-use crate::lang::tr;
-use crate::threads::{Receiving, Took, Working};
+use crate::support::format::count;
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Took, Working};
 use crate::{decode, print, tf};
 use eframe::egui;
 use std::io::Write;
@@ -585,7 +585,7 @@ pub fn caption(
 ) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let (exif, meta) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
-    let text = crate::format::fill_template(template, |field| match field {
+    let text = crate::support::format::fill_template(template, |field| match field {
         "name" => name.to_string(),
         "path" => path.display().to_string(),
         "position" => format!("{}/{n}", k + 1),
@@ -599,7 +599,7 @@ pub fn caption(
             .map(|(w, h)| format!("{w} × {h}"))
             .unwrap_or_default(),
         "File size" => std::fs::metadata(path)
-            .map(|m| crate::format::human_size(m.len()))
+            .map(|m| crate::support::format::human_size(m.len()))
             .unwrap_or_default(),
         "keywords" => meta
             .get_or_init(|| crate::xmp::read(path))
@@ -845,7 +845,9 @@ pub fn send(
     #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if dog.gave_up() {
-        return Err(crate::lang::tr("No answer from the print server in two minutes").into());
+        return Err(
+            crate::support::lang::tr("No answer from the print server in two minutes").into(),
+        );
     }
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());

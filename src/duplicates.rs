@@ -1,9 +1,9 @@
 //! Find Duplicates, as in Geeqie: groups of images that are the same file, have the same name,
 //! size or dimensions, or look alike. Runs over the images of the list in background threads.
 
-use crate::format::{count, human_size, thousands};
-use crate::lang::tr;
-use crate::threads::{Receiving, Took, in_parts};
+use crate::support::format::{count, human_size, thousands};
+use crate::support::lang::tr;
+use crate::support::threads::{Receiving, Took, in_parts};
 use crate::{duplicates, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
@@ -416,7 +416,7 @@ fn parallel<T: Send>(
     p.total.store(paths.len(), Ordering::Relaxed);
     p.done.store(0, Ordering::Relaxed);
     let next = AtomicUsize::new(0);
-    let threads = crate::threads::background_threads();
+    let threads = crate::support::threads::background_threads();
     let mut results: Vec<(usize, Option<T>)> = std::thread::scope(|s| {
         let workers: Vec<_> = (0..threads)
             .map(|_| {
@@ -611,7 +611,7 @@ fn similar(
         let ks: Vec<usize> = (k..(k + block).min(items.len()))
             .filter(|&k| !grouped[k])
             .collect();
-        let each = in_block(&ks, crate::threads::background_threads(), |k| {
+        let each = in_block(&ks, crate::support::threads::background_threads(), |k| {
             matches(k, &grouped)
         });
         let mut kept = 0;
