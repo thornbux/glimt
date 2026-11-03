@@ -73,6 +73,23 @@ fn module_names() -> Vec<String> {
     names
 }
 
+/// The names a `crate::` path can start with: main.rs's own modules, a file directly in `src/`
+/// or a folder of modules. A module inside a folder is not one, as `crate::config` reaches it
+/// only through an import in main.rs.
+fn root_names() -> Vec<String> {
+    let mut names: Vec<String> = (rust_sources().into_iter())
+        .map(|(path, _)| {
+            path.trim_end_matches(".rs")
+                .split('/')
+                .next()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    names.dedup();
+    names
+}
+
 /// The Rust files of `sources`.
 fn rust_sources() -> Vec<(String, String)> {
     (sources().into_iter())
@@ -454,7 +471,7 @@ fn crate_paths(lines: &[String]) -> Vec<(usize, String)> {
 #[test]
 fn imports_name_where_defined() {
     let files = rust_sources();
-    let modules = module_names();
+    let modules = root_names();
     let main = code_lines(&source("main.rs"));
     let main_end = tests_start(&main);
     let words = [
@@ -470,8 +487,9 @@ fn imports_name_where_defined() {
         })
         .map(|l| qualifiers_off(l.trim_start()))
         .collect();
-    // An item main.rs defines there, a macro, or main.rs's tests module.
-    let defined = |name: &str| {
+    // An item main.rs defines there, a macro not taken for a module path, or main.rs's tests
+    // module.
+    let defined = |name: &str, path: bool| {
         let defines = |l: &&str| {
             words.iter().any(|w| {
                 (l.strip_prefix(w).and_then(|r| r.strip_prefix(name)))
@@ -480,13 +498,15 @@ fn imports_name_where_defined() {
         };
         let macro_rule = format!("macro_rules! {name} ");
         top.iter().any(defines)
-            || files.iter().any(|(_, t)| t.contains(&macro_rule))
+            || !path && files.iter().any(|(_, t)| t.contains(&macro_rule))
             || name == "tests"
     };
     let mut wrong = Vec::new();
     for (file, text) in &files {
-        for (line, name) in crate_paths(&code_lines(text)) {
-            if !modules.contains(&name) && !defined(&name) {
+        let lines = code_lines(text);
+        for (line, name) in crate_paths(&lines) {
+            let path = lines[line - 1].contains(&format!("crate::{name}::"));
+            if !modules.contains(&name) && !defined(&name, path) {
                 wrong.push(format!("{file}:{line}: crate::{name}"));
             }
         }
@@ -575,17 +595,24 @@ fn modules_live_in_their_folder() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut wrong = Vec::new();
     for (path, text) in rust_sources() {
-        if path.contains('/') || ROOT.contains(&path.as_str()) {
+        if ROOT.contains(&path.as_str()) {
             continue;
         }
+        // A folder's file is the one beside a folder of its name, at any depth.
         if !src.join(path.trim_end_matches(".rs")).is_dir() {
-            wrong.push(format!("{path}: put it in the folder of what it does"));
+            if !path.contains('/') {
+                wrong.push(format!("{path}: put it in the folder of what it does"));
+            }
             continue;
         }
         let lines = code_lines(&text);
         for (i, line) in lines.iter().enumerate() {
-            let is_mod = qualifiers_off(line).starts_with("mod ") && line.ends_with(';');
-            if !line.is_empty() && !is_mod && !line.starts_with("#[cfg(") {
+            let name = qualifiers_off(line)
+                .strip_prefix("mod ")
+                .and_then(|l| l.strip_suffix(';'));
+            let is_mod = name.is_some_and(|n| n.chars().all(|c| c == '_' || c.is_alphanumeric()));
+            let is_cfg = line.starts_with("#[cfg(") && line.ends_with(")]") && !line.contains("] ");
+            if !line.is_empty() && !is_mod && !is_cfg {
                 wrong.push(format!(
                     "{path}:{}: a folder's file holds only mod lines",
                     i + 1
