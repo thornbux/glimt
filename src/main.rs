@@ -203,7 +203,7 @@ impl App {
         let thumbs = crate::ui::file_list::Thumbs::new(
             ctx,
             workers,
-            &decoding.rotate,
+            decoding.rotation(),
             config.save_thumbnails,
         );
         // A name is only of use with remote control, so it listens anyway; a kiosk too, as
@@ -370,7 +370,7 @@ impl eframe::App for App {
         if self.window.closing < 2 {
             crate::files::file_io::flush();
         }
-        let at = |share| frame_at(&self.decoding.frame_ms, share);
+        let at = |share| frame_at(self.decoding.frame_times(), share);
         eprintln!(
             "frames: median {} ms, 90% within {} ms, slowest {} ms",
             at(0.5),
@@ -382,9 +382,9 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let start = thread_cpu_us();
         self.frame_ui(ui);
-        if self.decoding.started.is_none() {
+        if self.decoding.counts_frames() {
             let ms = thread_cpu_us().saturating_sub(start) / 1000;
-            self.decoding.frame_ms[(ms as usize).min(255)] += 1;
+            self.decoding.count_frame(ms);
         }
     }
 }

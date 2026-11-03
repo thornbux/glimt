@@ -61,41 +61,41 @@ pub(crate) struct DecodeJob {
 pub(crate) struct Decoding {
     /// The images to keep decoded, the shown one first: its neighbours in list order.
     /// Shared with the workers, which skip jobs outside it.
-    pub(crate) keep: Arc<Mutex<Vec<usize>>>,
+    keep: Arc<Mutex<Vec<usize>>>,
     /// How many images at the start of `keep` may be decoded at full resolution: the shown one,
     /// and the compared one beside it.
-    pub(crate) full_ok: Arc<AtomicUsize>,
+    full_ok: Arc<AtomicUsize>,
     /// Number of images preloaded on each side (Preferences).
-    pub(crate) preload: Arc<AtomicUsize>,
+    preload: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
-    pub(crate) rotate: Arc<AtomicBool>,
+    rotate: Arc<AtomicBool>,
     /// The view's box for the shown image, unturned, as `decode_size` works it out each frame
     /// (per fit mode; in Fill from the image's own shape), and the view's size: what the decoders
     /// shrink into, through `decode_box` for each job.
-    pub(crate) view_box: [u32; 2],
-    pub(crate) view_area: [u32; 2],
+    view_box: [u32; 2],
+    view_area: [u32; 2],
     /// The longest side a texture may have.
-    pub(crate) max_side: u32,
+    max_side: u32,
     /// To the decode workers.
-    pub(crate) jobs: mpsc::Sender<DecodeJob>,
-    pub(crate) rx: mpsc::Receiver<Decoded>,
-    pub(crate) sent: u64,
+    jobs: mpsc::Sender<DecodeJob>,
+    rx: mpsc::Receiver<Decoded>,
+    sent: u64,
     /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a
     /// black screen.
-    pub(crate) last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
+    last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
     /// A slideshow's change of image fading in: when it began, and what each pane (the first,
     /// then the others) showed before, kept until it has faded out.
-    pub(crate) fade: Option<(Instant, Vec<Option<Shown>>)>,
+    fade: Option<(Instant, Vec<Option<Shown>>)>,
     /// When the shown image was opened: the clock of an animation.
-    pub(crate) opened: Instant,
+    opened: Instant,
     /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
     /// standard error that the release tests read.
-    pub(crate) started: Option<Instant>,
+    started: Option<Instant>,
     /// How many frames after the first image took each number of milliseconds of the window
     /// thread's processor time (the last: that many or more), for the "frames:" line at exit
     /// that the release tests read: work that grows with the list makes every frame slow, while
     /// the slowest alone varies with one-off work such as Select All.
-    pub(crate) frame_ms: [u32; 256],
+    frame_ms: [u32; 256],
 }
 
 impl Decoding {
@@ -123,6 +123,62 @@ impl Decoding {
             started: Some(Instant::now()),
             frame_ms: [0; 256],
         }
+    }
+
+    /// Whether Auto Rotate is on, shared with the thumbnail workers, which turn by it as well.
+    pub(crate) fn rotation(&self) -> &Arc<AtomicBool> {
+        &self.rotate
+    }
+
+    /// The workers apply the EXIF orientation, or not.
+    pub(crate) fn set_rotate(&self, on: bool) {
+        self.rotate.store(on, Ordering::Relaxed);
+    }
+
+    /// Preload `n` images on each side.
+    pub(crate) fn set_preload(&self, n: usize) {
+        self.preload.store(n, Ordering::Relaxed);
+    }
+
+    /// The longest side a texture may have, as the window's graphics allow.
+    pub(crate) fn set_max_side(&mut self, side: u32) {
+        self.max_side = side;
+    }
+
+    /// The box the shown image is decoded into, unturned.
+    pub(crate) fn view_box(&self) -> [u32; 2] {
+        self.view_box
+    }
+
+    /// Another image is shown: the clock of an animation starts again.
+    pub(crate) fn image_opened(&mut self) {
+        self.opened = Instant::now();
+    }
+
+    /// The change of image shows at once, with no fade.
+    pub(crate) fn stop_fade(&mut self) {
+        self.fade = None;
+    }
+
+    /// The change of image fades in from what the panes showed `before`, when they showed
+    /// anything.
+    pub(crate) fn fade_from(&mut self, before: Option<Vec<Option<Shown>>>) {
+        self.fade = before.map(|b| (Instant::now(), b));
+    }
+
+    /// Until the first image shows, frames are not counted for the "frames:" line.
+    pub(crate) fn counts_frames(&self) -> bool {
+        self.started.is_none()
+    }
+
+    /// A frame that took `ms` milliseconds of the window thread's processor time.
+    pub(crate) fn count_frame(&mut self, ms: u64) {
+        self.frame_ms[(ms as usize).min(255)] += 1;
+    }
+
+    /// How many frames took each number of milliseconds.
+    pub(crate) fn frame_times(&self) -> &[u32; 256] {
+        &self.frame_ms
     }
 }
 

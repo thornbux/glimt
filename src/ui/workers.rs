@@ -23,7 +23,8 @@ impl crate::App {
             self.notice = Some(error);
         }
         self.receive_desktop(ctx);
-        self.decoding.max_side = ctx.input(|i| i.max_texture_side) as u32;
+        self.decoding
+            .set_max_side(ctx.input(|i| i.max_texture_side) as u32);
         self.receive_decoded(ctx);
         self.receive_thumbs(ctx);
         self.receive_listing(ctx, std::time::Duration::ZERO);
