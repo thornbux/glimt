@@ -3,11 +3,12 @@
 
 use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
+use crate::model::folder::drain;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::support::threads::Receiving;
+use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{Pick, Prompt};
 use crate::ui::menus::scroll_menu;
@@ -264,27 +265,27 @@ impl Tree {
 /// selection's size.
 pub(crate) struct StatusBar {
     /// Size in bytes of the shown file, for the status bar.
-    pub(crate) cur_size: Option<(PathBuf, u64)>,
+    cur_size: Option<(PathBuf, u64)>,
     /// Image and scale in each pane of the last frame, the pane the status bar tells about (the
     /// one under the pointer, else the first) and the panes as [columns, rows].
-    pub(crate) pane_info: Vec<(usize, Option<f32>)>,
-    pub(crate) pane: usize,
-    pub(crate) grid: [usize; 2],
+    pane_info: Vec<(usize, Option<f32>)>,
+    pane: usize,
+    grid: [usize; 2],
     /// The place "[n/m]" of an image in another pane than the first, by image and list length.
-    pub(crate) place: Option<(usize, usize, String)>,
+    place: Option<(usize, usize, String)>,
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
-    pub(crate) total_size: u64,
+    total_size: u64,
     /// Partial sums from the background; `None` once all have arrived.
-    pub(crate) size_rx: Receiving<u64>,
+    size_rx: Receiving<u64>,
     /// Bytes freed by deletions in the background.
-    pub(crate) freed_tx: mpsc::Sender<u64>,
-    pub(crate) freed_rx: mpsc::Receiver<u64>,
+    freed_tx: mpsc::Sender<u64>,
+    freed_rx: mpsc::Receiver<u64>,
     /// Size of the selected files; computed in the background when the selection changes.
-    pub(crate) selected_size: Option<u64>,
-    pub(crate) selected_rx: Receiving<u64>,
+    selected_size: Option<u64>,
+    selected_rx: Receiving<u64>,
     /// When to work out that size: once the selection has stayed the same a moment.
-    pub(crate) selected_size_due: Option<Instant>,
+    selected_size_due: Option<Instant>,
 }
 
 impl Default for StatusBar {
@@ -304,6 +305,124 @@ impl Default for StatusBar {
             selected_rx: Receiving::none(),
             selected_size_due: None,
         }
+    }
+}
+
+/// Whether the selection's size is to be worked out now.
+pub(crate) enum SizeDue {
+    /// Not asked for: nothing is selected, or it is known.
+    No,
+    /// The selection may change again within this time.
+    Later(std::time::Duration),
+    Now,
+}
+
+impl StatusBar {
+    /// Where the background tells of bytes freed by a delete.
+    pub(crate) fn freed_sender(&self) -> mpsc::Sender<u64> {
+        self.freed_tx.clone()
+    }
+
+    /// The shown file's size is read again, as it changed.
+    pub(crate) fn forget_size(&mut self) {
+        self.cur_size = None;
+    }
+
+    /// The folder's total, summed anew from `sums`.
+    pub(crate) fn sum_folder(&mut self, sums: mpsc::Receiver<u64>) {
+        self.size_rx = Receiving::of(sums);
+        self.total_size = 0;
+    }
+
+    /// The folder's total, once every sum has come.
+    pub(crate) fn folder_total(&self) -> Option<u64> {
+        self.size_rx.is_none().then_some(self.total_size)
+    }
+
+    /// Takes what the background sent: bytes freed, the selection's size and the folder's sums.
+    pub(crate) fn receive(&mut self) {
+        while let Ok(freed) = self.freed_rx.try_recv() {
+            // shortcut: a delete while the sum is still being computed can make it slightly off;
+            // fine for a status bar figure.
+            self.total_size = self.total_size.saturating_sub(freed);
+        }
+        match self.selected_rx.take() {
+            Took::Answer(size) => self.selected_size = Some(size),
+            // The summing thread broke: no size, instead of "calculating…" for good.
+            Took::Gone => self.selected_size = Some(0),
+            Took::Nothing => {}
+        }
+        drain(&mut self.size_rx, &mut self.total_size);
+    }
+
+    /// The place "[n/m]" of image `idx` among `total`: made by `make` only when another image or
+    /// another total asks, so the search matches are looked through once per image.
+    pub(crate) fn place(
+        &mut self,
+        idx: usize,
+        total: usize,
+        make: impl FnOnce() -> String,
+    ) -> String {
+        if let Some((i, t, text)) = &self.place
+            && (*i, *t) == (idx, total)
+        {
+            return text.clone();
+        }
+        let text = make();
+        self.place = Some((idx, total, text.clone()));
+        text
+    }
+
+    /// The place told for another pane is made again: another search may have as many matches.
+    pub(crate) fn forget_place(&mut self) {
+        self.place = None;
+    }
+
+    /// The selection changed: its size is unknown, and worked out once it has stayed the same
+    /// a moment, which this returns. Not at once: Shift+↓ held in a selection of 500,000
+    /// changes it every frame, and each time a path for every file would be made.
+    pub(crate) fn selection_changed(&mut self, any: bool) -> std::time::Duration {
+        let wait = std::time::Duration::from_millis(200);
+        self.selected_size = None;
+        self.selected_rx = Receiving::none();
+        self.selected_size_due = any.then(|| Instant::now() + wait);
+        wait
+    }
+
+    /// Whether the selection's size is due; once it is, it is no longer asked for.
+    pub(crate) fn size_due(&mut self) -> SizeDue {
+        let Some(due) = self.selected_size_due else {
+            return SizeDue::No;
+        };
+        if let Some(wait) = due.checked_duration_since(Instant::now()) {
+            return SizeDue::Later(wait);
+        }
+        self.selected_size_due = None;
+        SizeDue::Now
+    }
+
+    /// The selection's size, known already.
+    pub(crate) fn selection_is(&mut self, size: u64) {
+        self.selected_size = Some(size);
+        self.selected_rx = Receiving::none();
+    }
+
+    /// The selection's size, summed in the background.
+    pub(crate) fn sum_selection(&mut self, sum: mpsc::Receiver<u64>) {
+        self.selected_rx = Receiving::of(sum);
+    }
+
+    /// What the image area showed: the pane the status bar tells about, the panes as
+    /// [columns, rows], and each pane's image and scale.
+    pub(crate) fn panes_shown(
+        &mut self,
+        pane: usize,
+        grid: [usize; 2],
+        panes: Vec<(usize, Option<f32>)>,
+    ) {
+        self.pane = pane;
+        self.grid = grid;
+        self.pane_info = panes;
     }
 }
 

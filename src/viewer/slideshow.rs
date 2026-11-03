@@ -377,7 +377,7 @@ mod tests {
         app.list(&ctx);
         app.set_random_order(&ctx, false);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()
-            && a.status.size_rx.is_none()));
+            && a.status.folder_total().is_some()));
         assert_eq!(app.list.files, order);
         std::fs::remove_dir_all(&d).unwrap();
     }
@@ -423,9 +423,9 @@ mod tests {
             app.start_slideshow(&ctx);
             app.set_random_order(&ctx, false);
             assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()
-                && a.status.size_rx.is_none()));
+                && a.status.folder_total().is_some()));
             assert_eq!(app.list.files, order);
-            assert!(app.status.total_size > 0, "size");
+            assert!(app.status.folder_total() > Some(0), "size");
             std::fs::remove_dir_all(&d).unwrap();
         }
     }

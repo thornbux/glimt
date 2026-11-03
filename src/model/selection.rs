@@ -3,8 +3,8 @@
 use crate::model::folder::total_size;
 use crate::model::list::Viewing;
 use crate::support::format::thousands;
-use crate::support::threads::Receiving;
 use crate::ui::actions::Action;
+use crate::ui::file_list::SizeDue;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -159,19 +159,15 @@ impl crate::App {
             .matches
             .as_ref()
             .map_or(self.list.files.len(), Vec::len);
-        if let Some((i, t, text)) = &self.status.place
-            && (*i, *t) == (idx, total)
-        {
-            return text.clone();
-        }
-        let row = match &self.list.matches {
-            Some(m) => m.iter().position(|&x| x == idx),
-            None => Some(idx),
-        };
-        let row = row.map_or("–".into(), |r| thousands(r + 1));
-        let text = format!("[{row}/{}]", thousands(total));
-        self.status.place = Some((idx, total, text.clone()));
-        text
+        let matches = &self.list.matches;
+        self.status.place(idx, total, || {
+            let row = match matches {
+                Some(m) => m.iter().position(|&x| x == idx),
+                None => Some(idx),
+            };
+            let row = row.map_or("–".into(), |r| thousands(r + 1));
+            format!("[{row}/{}]", thousands(total))
+        })
     }
 
     /// The files the list shows: the search matches, or all.
@@ -225,34 +221,28 @@ impl crate::App {
         if self.compare {
             self.refill();
         }
-        self.status.selected_size = None;
-        self.status.selected_rx = Receiving::none();
-        // Not at once: Shift+↓ held in a selection of 500,000 changes it every frame, and each
-        // time a path for every file would be made here.
-        let wait = std::time::Duration::from_millis(200);
-        self.status.selected_size_due =
-            (!self.list.selected.is_empty()).then(|| Instant::now() + wait);
+        let wait = self
+            .status
+            .selection_changed(!self.list.selected.is_empty());
         ctx.request_repaint_after(wait);
     }
 
     /// The size of the selection, in the background, once it has stayed the same a moment.
     pub(crate) fn selection_size(&mut self, ctx: &egui::Context) {
-        let Some(due) = self.status.selected_size_due else {
-            return;
-        };
-        // Asked again each frame: a frame drawn before it is due drops the earlier request.
-        if let Some(wait) = due.checked_duration_since(Instant::now()) {
-            return ctx.request_repaint_after(wait);
+        match self.status.size_due() {
+            SizeDue::No => return,
+            // Asked again each frame: a frame drawn before it is due drops the earlier request.
+            SizeDue::Later(wait) => return ctx.request_repaint_after(wait),
+            SizeDue::Now => {}
         }
-        self.status.selected_size_due = None;
         if self.list.selected.is_empty() {
             return;
         }
         // All of them (Select All in a folder of 500,000): the folder's size, summed already.
-        if self.list.selected.len() == self.list.files.len() && self.status.size_rx.is_none() {
-            self.status.selected_size = Some(self.status.total_size);
-            self.status.selected_rx = Receiving::none();
-            return;
+        if self.list.selected.len() == self.list.files.len()
+            && let Some(total) = self.status.folder_total()
+        {
+            return self.status.selection_is(total);
         }
         // The paths made in the thread: only the names are copied here.
         let names: Vec<OsString> = self
@@ -269,7 +259,7 @@ impl crate::App {
                 ctx.request_repaint();
             }
         });
-        self.status.selected_rx = Receiving::of(rx);
+        self.status.sum_selection(rx);
     }
 
     /// File operations act on the selected files, otherwise on the shown image. Sorted.

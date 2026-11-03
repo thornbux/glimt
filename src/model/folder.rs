@@ -643,8 +643,7 @@ impl crate::App {
             }
         });
         self.folder.listing_rx = Receiving::of(rx);
-        self.status.size_rx = Receiving::of(size_rx);
-        self.status.total_size = 0;
+        self.status.sum_folder(size_rx);
         self.folder.relist = false;
     }
 
@@ -920,19 +919,8 @@ impl crate::App {
     }
 
     pub(crate) fn receive_sizes(&mut self) {
-        while let Ok(freed) = self.status.freed_rx.try_recv() {
-            // shortcut: a delete while the sum is still being computed can make it slightly off;
-            // fine for a status bar figure.
-            self.status.total_size = self.status.total_size.saturating_sub(freed);
-        }
-        match self.status.selected_rx.take() {
-            Took::Answer(size) => self.status.selected_size = Some(size),
-            // The summing thread broke: no size, instead of "calculating…" for good.
-            Took::Gone => self.status.selected_size = Some(0),
-            Took::Nothing => {}
-        }
+        self.status.receive();
         drain(&mut self.search.match_rx, &mut self.list.match_size);
-        drain(&mut self.status.size_rx, &mut self.status.total_size);
     }
 
     /// Go → Back and Forward: the folder opened before or after this one.
@@ -973,7 +961,7 @@ impl crate::App {
         // asks for nothing. Thumbnails and the size too, of a file edited elsewhere.
         self.refill();
         self.thumbs_changed();
-        self.status.cur_size = None;
+        self.status.forget_size();
         self.list(ctx);
     }
 }

@@ -369,7 +369,7 @@ impl crate::App {
             .extend(targets.iter().map(|&i| self.list.files[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
-        let (freed_tx, deleted_tx) = (self.status.freed_tx.clone(), self.work.deleted_tx.clone());
+        let (freed_tx, deleted_tx) = (self.status.freed_sender(), self.work.deleted_tx.clone());
         let collection = self.folder.collection.clone();
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
@@ -622,7 +622,7 @@ impl crate::App {
         }
         let (tx, freed_tx, ctx) = (
             self.notices_tx.clone(),
-            self.status.freed_tx.clone(),
+            self.status.freed_sender(),
             ctx.clone(),
         );
         let deleted_tx = self.work.deleted_tx.clone();
@@ -881,7 +881,7 @@ impl crate::App {
             }
         }
         // Their size changed: the status bar and the list read it again.
-        self.status.cur_size = None;
+        self.status.forget_size();
         self.refill();
     }
 

@@ -126,7 +126,7 @@ impl crate::App {
         // Other rows: a Shift range of the keys is no longer the rows it was.
         self.list.range_end = None;
         // A place "[n/m]" told for another pane: another search may have as many matches.
-        self.status.place = None;
+        self.status.forget_place();
         self.search.error = None;
         self.list.matches = self.search_matches(ctx, query);
         // Size of the matches in the background; a new search drops the receiver, which

@@ -1049,13 +1049,13 @@ impl crate::App {
             ui.painter()
                 .rect_stroke(rects[k], 0.0, stroke, egui::StrokeKind::Inside);
         }
-        self.status.pane = hovered.filter(|&k| k < shown.len()).unwrap_or(0);
-        self.status.grid = if right.is_some() {
+        let pane = hovered.filter(|&k| k < shown.len()).unwrap_or(0);
+        let grid = if right.is_some() {
             [2, 1]
         } else {
             [cols, rows]
         };
-        self.status.pane_info = shown;
+        self.status.panes_shown(pane, grid, shown);
         if panes.len() > 1 && self.config.layout_names && !self.list.files.is_empty() {
             let shown = std::iter::once(self.list.cur).chain(self.list.panes.iter().copied());
             for (rect, i) in panes.iter().zip(shown) {
