@@ -480,11 +480,11 @@ msgstr "Zoom ud"
 msgid "Zoom to Fit"
 msgstr "Tilpas til vinduet"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Ikke et gyldigt samlingsnavn: »{name}«"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Der findes allerede en samling med navnet »{name}«"
 

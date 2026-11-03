@@ -3,8 +3,8 @@
 
 use crate::images::colour::to_srgb;
 use crate::images::decode::load_icc;
-use crate::listing::has_ext;
 use crate::metadata::exif;
+use crate::model::listing::has_ext;
 use image::ImageDecoder;
 use std::path::Path;
 
@@ -51,7 +51,7 @@ impl Format {
 
     /// The format `path` would be copied in "as the original".
     pub fn of(path: &Path) -> Format {
-        if crate::listing::is_jpeg(path) {
+        if crate::model::listing::is_jpeg(path) {
             Format::Jpeg
         } else if has_ext(path, &["webp"]) && webp_lossless(path) == Some(false) {
             Format::WebPLossy

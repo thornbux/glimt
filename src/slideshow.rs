@@ -1,11 +1,11 @@
 //! The slideshow: its timer, its order, the fade and the next image.
 
 use crate::actions::Action;
-use crate::collections;
 use crate::files::config::FADES;
 use crate::files::config::MAX_DELAY;
-use crate::listing::shuffle;
-use crate::selection::round_ends;
+use crate::model::collections;
+use crate::model::listing::shuffle;
+use crate::model::selection::round_ends;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn slideshow_advances_on_every_tick() {
         use super::{Place, Slide, next_slide};
-        use crate::selection::next_row;
+        use crate::model::selection::next_row;
         // (files, rows shown by a search or all, step: the panes changed at once)
         let cases: Vec<(usize, Option<Vec<usize>>, usize)> = vec![
             (3, None, 1),
@@ -510,10 +510,10 @@ mod tests {
     #[test]
     fn slideshow_round_ends_past_the_last() {
         // Ten images in three panes: 0, 3, 6, 9, then a new round.
-        assert!(!crate::selection::round_ends(Some(6), 3, 10));
-        assert!(crate::selection::round_ends(Some(9), 3, 10));
-        assert!(crate::selection::round_ends(Some(8), 3, 10));
-        assert!(crate::selection::round_ends(Some(0), 1, 1));
-        assert!(crate::selection::round_ends(None, 1, 5));
+        assert!(!crate::model::selection::round_ends(Some(6), 3, 10));
+        assert!(crate::model::selection::round_ends(Some(9), 3, 10));
+        assert!(crate::model::selection::round_ends(Some(8), 3, 10));
+        assert!(crate::model::selection::round_ends(Some(0), 1, 1));
+        assert!(crate::model::selection::round_ends(None, 1, 5));
     }
 }

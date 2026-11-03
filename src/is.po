@@ -480,11 +480,11 @@ msgstr "Minnka aðdrátt"
 msgid "Zoom to Fit"
 msgstr "Laga að glugga"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Ekki gilt heiti á safni: „{name}“"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Það er þegar til safn sem heitir „{name}“"
 

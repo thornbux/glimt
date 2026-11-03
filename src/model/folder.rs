@@ -6,15 +6,15 @@ use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
-use crate::list::{List, Slot, Viewing};
-use crate::listing::{
+use crate::menus::{iconed, scroll_menu};
+use crate::model::list::{List, Slot, Viewing};
+use crate::model::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
-use crate::menus::{iconed, scroll_menu};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
-use crate::{collections, files::config, files::external, listing, tf, theme};
+use crate::{files::config, files::external, model::collections, model::listing, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -1067,7 +1067,7 @@ mod tests {
             image::RgbImage::new(2, 2).save(dir.join(name)).unwrap();
         }
         let (mut app, ctx) = app_on(&dir);
-        app.config.sort = crate::listing::Sort::ExifOriginal;
+        app.config.sort = crate::model::listing::Sort::ExifOriginal;
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |app| app
             .folder
@@ -1112,7 +1112,7 @@ mod tests {
         let file = dir.join("c.gqv");
         std::fs::write(&file, gqv).unwrap();
         let (mut app, ctx) = app_on(&file);
-        app.config.sort = crate::listing::Sort::Name;
+        app.config.sort = crate::model::listing::Sort::Name;
         app.config.sort_case = true;
         app.folder.sort_collection = true;
         app.list(&ctx);

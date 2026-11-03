@@ -480,11 +480,11 @@ msgstr "Alejar"
 msgid "Zoom to Fit"
 msgstr "Ajustar a la ventana"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Nombre de colección no válido: «{name}»"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Ya hay una colección llamada «{name}»"
 

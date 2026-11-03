@@ -13,7 +13,7 @@ use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
 use crate::view::LAYOUTS;
-use crate::{collections, files::config, help, images::save, own_program, remote, tf};
+use crate::{files::config, help, images::save, model::collections, own_program, remote, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;

@@ -3,7 +3,7 @@
 //! reads a program's output with a limit of time and size, also for decoder plugins, and
 //! `stoppable_command` starts one that can be stopped with everything it started.
 
-use crate::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
+use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
 use std::path::{Path, PathBuf};
 
 /// ffmpeg's input options for files that come from anywhere: only local files (no network),
@@ -562,7 +562,7 @@ pub fn without_password(uri: &str) -> (String, Option<String>) {
     let Some((user, password)) = info.split_once(':') else {
         return (uri.to_owned(), None);
     };
-    let password = crate::collections::percent_decoded(password.as_bytes());
+    let password = crate::model::collections::percent_decoded(password.as_bytes());
     let password = String::from_utf8_lossy(&password).into_owned();
     let user = match user.is_empty() {
         true => String::new(),

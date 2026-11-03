@@ -58,32 +58,26 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 |---|---|
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
-| `src/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, `Slot`, an image decoded for the view, and `Viewing`, what belongs to the image shown |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
 | `src/check.rs` | File → Check Images: every image decoded in the background, the broken ones listed |
 | `src/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
 | `src/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMBS`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
-| `src/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |
 | `src/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
 | `src/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `iconed`) |
-| `src/selection.rs` | Moving through the list (next, previous, a page, random) and the selection |
 | `src/slideshow.rs` | The slideshow: its timer, order, fade and the next slide's rule (`next_slide`) |
 | `src/view.rs` | The image area: decoding the shown image and its neighbours, zoom and fit, panes (`LAYOUTS`) and Compare, painting, the wheel |
 | `src/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
 | `src/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
-| `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders, and putting them in order (`moved`, `dropped`) |
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
 | `src/pan.rs` | Pan view: the list by day, its rows, the timeline and the calendar |
 | `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoder_plugins.rs reads with too |
 | `src/preferences.rs` | Edit → Preferences: the window and its sections |
 | `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
-| `src/search.rs` | The search: fuzzy names and `exif:`, `re:`, `mark:` and `stars:` terms with `|`, `-` and `( )`, in parallel; the EXIF index (`exif_index`) |
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
@@ -114,6 +108,13 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/metadata/lightroom.rs` | Import Lightroom Catalog: a Lightroom Classic `.lrcat` read through `sqlite3`, `Catalog::plan`, the dialog and the import |
 | `src/metadata/marks.rs` | Optional marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks`, and stars in XMP |
 | `src/metadata/xmp.rs` | Keywords, comment, IPTC alt text and extended description in XMP sidecars, keyword tree paths; `update_sidecar` (also for stars); sidecars that follow their files |
+| `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
+| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, `Slot`, an image decoded for the view, and `Viewing`, what belongs to the image shown |
+| `src/model/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |
+| `src/model/selection.rs` | Moving through the list (next, previous, a page, random) and the selection |
+| `src/model/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
+| `src/model/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders, and putting them in order (`moved`, `dropped`) |
+| `src/model/search.rs` | The search: fuzzy names and `exif:`, `re:`, `mark:` and `stars:` terms with `|`, `-` and `( )`, in parallel; the EXIF index (`exif_index`) |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |

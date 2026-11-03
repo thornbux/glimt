@@ -3,7 +3,7 @@
 //! folders' own files.
 
 use crate::files::file_io::rename_never_over;
-use crate::{collections, files::config, tf};
+use crate::{files::config, model::collections, tf};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

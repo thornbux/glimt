@@ -2,7 +2,7 @@
 //! drawn to size), with its EXIF turn, colours and histogram; animations frame by frame.
 
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
-use crate::listing::has_ext;
+use crate::model::listing::has_ext;
 use crate::support::format::human_size;
 use crate::{images::raw, metadata::exif};
 use eframe::egui;
@@ -469,11 +469,11 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((img, None, upright, size));
     }
     #[cfg(feature = "svg")]
-    if has_ext(path, crate::listing::SVG_EXTS) {
+    if has_ext(path, crate::model::listing::SVG_EXTS) {
         return Ok((svg(path, max)?, None, upright, None));
     }
     #[cfg(feature = "jxl")]
-    if has_ext(path, crate::listing::JXL_EXTS) {
+    if has_ext(path, crate::model::listing::JXL_EXTS) {
         let file = open(path).map_err(|e| e.to_string())?;
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;
@@ -493,7 +493,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         .map_err(|e| e.to_string());
     // Grey TIFFs the image crate does not take (floats, signed): through the tiff crate.
     let mut dec = match dec {
-        Err(e) if has_ext(path, crate::listing::TIFF_LIKE) => {
+        Err(e) if has_ext(path, crate::model::listing::TIFF_LIKE) => {
             return tiff_page(path, 0)
                 .map(|img| (img, None, upright, None))
                 .map_err(|_| e);
@@ -528,7 +528,7 @@ pub fn scaled_jpeg(
     max: [u32; 2],
     rotate: bool,
 ) -> Option<(image::DynamicImage, Option<Vec<u8>>, [usize; 2])> {
-    if crate::listing::is_jpeg(path) {
+    if crate::model::listing::is_jpeg(path) {
         return scaled(&read_limited(path).ok()?, max, rotate, None);
     }
     if has_ext(path, raw::EXTS) {
@@ -807,7 +807,7 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
 /// it may still decode, grey at the bottom. Why not, if it cannot.
 pub fn check(path: &Path) -> Result<(), String> {
     survive(|| decode(path, [64, 64], false, 0).map(drop))?;
-    if crate::listing::is_jpeg(path) && !jpeg_ends(path)? {
+    if crate::model::listing::is_jpeg(path) && !jpeg_ends(path)? {
         return Err("cut off: the JPEG has no end".into());
     }
     Ok(())
@@ -1328,13 +1328,13 @@ mod tests {
         (TiffEncoder::new(file).unwrap())
             .write_image::<colortype::Gray32Float>(60, 30, &floats)
             .unwrap();
-        let types = crate::listing::Types {
+        let types = crate::model::listing::Types {
             images: true,
             raw: false,
             videos: false,
             hidden: false,
         };
-        let (_, images) = crate::listing::list_folder(&dir, types);
+        let (_, images) = crate::model::listing::list_folder(&dir, types);
         assert_eq!(images, ["a.gel", "b.lsm"].map(std::ffi::OsString::from));
         for name in images {
             let (frames, orig, _) = super::decode(&dir.join(name), [100, 100], true, 0).unwrap();
@@ -1382,13 +1382,13 @@ mod tests {
         image::RgbImage::new(60, 30)
             .save(dir.join("f.ppm"))
             .unwrap();
-        let types = crate::listing::Types {
+        let types = crate::model::listing::Types {
             images: true,
             raw: false,
             videos: false,
             hidden: false,
         };
-        let (_, images) = crate::listing::list_folder(&dir, types);
+        let (_, images) = crate::model::listing::list_folder(&dir, types);
         assert_eq!(
             images,
             ["c.bmp", "d.ico", "e.qoi", "f.ppm"].map(std::ffi::OsString::from)
@@ -1412,18 +1412,18 @@ mod tests {
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::create_dir_all(dir.join(".hidden")).unwrap();
         std::fs::write(dir.join(".b.png"), "").unwrap();
-        let mut all = crate::listing::Types {
+        let mut all = crate::model::listing::Types {
             images: true,
             raw: true,
             videos: true,
             hidden: false,
         };
-        let (dirs, images) = crate::listing::list_folder(&dir, all);
+        let (dirs, images) = crate::model::listing::list_folder(&dir, all);
         assert_eq!(images, vec![std::ffi::OsString::from("a.png")]);
         assert_eq!(dirs, vec![dir.join("sub")]);
         // Hidden files and folders, when shown.
         all.hidden = true;
-        let (dirs, images) = crate::listing::list_folder(&dir, all);
+        let (dirs, images) = crate::model::listing::list_folder(&dir, all);
         assert_eq!(images, [".b.png", "a.png"].map(std::ffi::OsString::from));
         assert_eq!(dirs, vec![dir.join(".hidden"), dir.join("sub")]);
         std::fs::remove_file(dir.join(".b.png")).unwrap();
@@ -1457,9 +1457,9 @@ mod tests {
         std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();
         assert_eq!(
-            crate::listing::list_tree(
+            crate::model::listing::list_tree(
                 &dir,
-                crate::listing::Types {
+                crate::model::listing::Types {
                     images: true,
                     raw: true,
                     videos: true,

@@ -15,7 +15,7 @@ use crate::duplicates::Dups;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::images::decode::MAX_ANIMATION;
-use crate::list::{List, Viewing};
+use crate::model::list::{List, Viewing};
 use crate::pan::Pan;
 use crate::print::PrintDialog;
 use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
@@ -36,8 +36,6 @@ mod check;
 
 mod cli;
 
-mod collections;
-
 mod crop;
 
 mod dialogs;
@@ -47,20 +45,16 @@ mod duplicates;
 mod file_list;
 
 mod files;
-mod folder;
 
 mod help;
 
 mod images;
 mod info_panel;
 
-mod list;
-
-mod listing;
-
 mod menus;
 
 mod metadata;
+mod model;
 mod pan;
 
 mod plugins;
@@ -72,10 +66,6 @@ mod print;
 mod remote;
 
 mod save_as;
-
-mod search;
-
-mod selection;
 
 mod slideshow;
 
@@ -106,7 +96,7 @@ struct App {
     // ---- What is open and its files ----
     /// What is open (a folder, a collection or several folders), its listing in the
     /// background, the way back and forward, and the folders sorted into.
-    folder: folder::Folder,
+    folder: crate::model::folder::Folder,
     /// The file list with everything indexed into it.
     list: List,
     /// File operations in the background: the jobs, the files they touch, what they report,
@@ -125,7 +115,7 @@ struct App {
     /// Thumbnails for the file list: those made, those being made, and the workers making them.
     thumbs: file_list::Thumbs,
     /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
-    search: search::Search,
+    search: crate::model::search::Search,
     /// The status bar's numbers: the shown image's size and place, the folder's total, and the
     /// selection's size.
     status: file_list::StatusBar,
@@ -236,7 +226,8 @@ impl App {
             .or_else(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
                 parse_last_dir(&state).filter(|d| {
-                    config.remember_dir && (d.is_dir() || collections::is_collection(d))
+                    config.remember_dir
+                        && (d.is_dir() || crate::model::collections::is_collection(d))
                 })
             })
             .unwrap_or_else(|| ".".into());
@@ -257,14 +248,14 @@ impl App {
         let mut app = App {
             ctx: ctx.clone(),
             desktop: theme::FromDesktop::new(ctx, config.desktop_profile),
-            folder: folder::Folder::new(&config),
+            folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
             work: crate::files::file_ops::Work::new(),
             busy: Arc::default(),
             panel: file_list::Panel::default(),
             tree: file_list::Tree::default(),
             thumbs,
-            search: search::Search::default(),
+            search: crate::model::search::Search::default(),
             status: file_list::StatusBar::default(),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]

@@ -3,8 +3,8 @@
 //! together, at the start of a word or early in the name rank first. Also the EXIF index that
 //! `exif:` terms search: each file's fields and keywords as one line.
 
-use crate::folder::send_sizes;
-use crate::list::FileRow;
+use crate::model::folder::send_sizes;
+use crate::model::list::FileRow;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::small_alloc_threads;

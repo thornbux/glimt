@@ -204,7 +204,7 @@ fn thumb_source(thumb: &Path) -> Option<PathBuf> {
         .iter()
         .find(|t| t.keyword == "Thumb::URI")?;
     let encoded = uri.text.strip_prefix("file://")?.as_bytes();
-    let bytes = crate::collections::percent_decoded(encoded);
+    let bytes = crate::model::collections::percent_decoded(encoded);
     Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
 

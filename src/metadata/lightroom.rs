@@ -8,7 +8,7 @@ use crate::metadata::marks;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
-use crate::{collections, metadata::xmp, tf};
+use crate::{metadata::xmp, model::collections, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

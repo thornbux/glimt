@@ -1,8 +1,8 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::actions::Action;
-use crate::folder::total_size;
-use crate::list::Viewing;
+use crate::model::folder::total_size;
+use crate::model::list::Viewing;
 use crate::support::format::thousands;
 use crate::support::threads::Receiving;
 use eframe::egui;

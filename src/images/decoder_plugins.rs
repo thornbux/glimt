@@ -116,7 +116,7 @@ pub fn for_path(path: &Path) -> Option<&'static Decoder> {
     if all().is_empty() {
         return None;
     }
-    if crate::listing::built_in_format(path) {
+    if crate::model::listing::built_in_format(path) {
         return None;
     }
     // Lossy: a name in another encoding (a Latin-1 "røntgen.dcm") still has its ending.

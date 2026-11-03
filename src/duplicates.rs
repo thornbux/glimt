@@ -352,7 +352,7 @@ pub fn find(
         }
         By::Dimensions => {
             let dims = parallel(&paths, p, |path| {
-                if crate::listing::is_jpeg(path)
+                if crate::model::listing::is_jpeg(path)
                     && let Some(size) = jpeg_size(path)
                 {
                     return Some(size);

@@ -480,11 +480,11 @@ msgstr "Uitzoomen"
 msgid "Zoom to Fit"
 msgstr "Passend in venster"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Geen geldige naam voor een verzameling: “{name}”"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Er is al een verzameling met de naam “{name}”"
 

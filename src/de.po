@@ -480,11 +480,11 @@ msgstr "Verkleinern"
 msgid "Zoom to Fit"
 msgstr "In Fenster einpassen"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Kein gültiger Sammlungsname: »{name}«"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Es gibt bereits eine Sammlung namens »{name}«"
 

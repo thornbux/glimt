@@ -175,13 +175,13 @@ mod tests {
             data.extend(&preview);
             std::fs::write(dir.join(name), data).unwrap();
         }
-        let types = crate::listing::Types {
+        let types = crate::model::listing::Types {
             images: false,
             raw: true,
             videos: false,
             hidden: false,
         };
-        let (_, listed) = crate::listing::list_folder(&dir, types);
+        let (_, listed) = crate::model::listing::list_folder(&dir, types);
         assert_eq!(
             listed,
             ["a.arq", "b.gpr", "c.raw"].map(std::ffi::OsString::from)

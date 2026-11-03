@@ -480,11 +480,11 @@ msgstr "Loitonna"
 msgid "Zoom to Fit"
 msgstr "Sovita ikkunaan"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "Not a valid collection name: \"{name}\""
 msgstr "Ei kelvollinen kokoelman nimi: ”{name}”"
 
-#: src/collections.rs
+#: src/model/collections.rs
 msgid "There is a collection called \"{name}\" already"
 msgstr "Kokoelma nimeltä ”{name}” on jo olemassa"
 

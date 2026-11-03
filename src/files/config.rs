@@ -4,7 +4,7 @@
 
 use crate::actions::Keys;
 use crate::files::file_io::{edit_shared, save_failed, write_later};
-use crate::listing::Sort;
+use crate::model::listing::Sort;
 use crate::print;
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -890,11 +890,11 @@ mod tests {
         let c = Config::parse("sort=exif_digitized\nsort_ascending=false\nsort_case=false");
         assert_eq!(
             (c.sort, c.sort_ascending, c.sort_case),
-            (crate::listing::Sort::ExifDigitized, false, false)
+            (crate::model::listing::Sort::ExifDigitized, false, false)
         );
         assert_eq!(
             Config::parse("sort=nonsense").sort,
-            crate::listing::Sort::Name
+            crate::model::listing::Sort::Name
         );
         assert_eq!(Config::default().toolbar_icons, 0);
         assert!(Config::default().search_bar && !Config::parse("search_bar=false").search_bar);

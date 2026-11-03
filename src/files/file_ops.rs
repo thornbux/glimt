@@ -8,14 +8,16 @@ use crate::dialogs::Prompt;
 use crate::files::external;
 use crate::files::file_io::{put_file, rename_never_over};
 use crate::files::trash::{Thrown, restore, trash_dirs};
-use crate::folder::total_size;
 use crate::images::decode::survive;
 use crate::images::save::save_rotated;
-use crate::listing::pattern_name;
+use crate::model::folder::total_size;
+use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
-use crate::{collections, files::journal, images::decode, metadata::exif, metadata::xmp, tf};
+use crate::{
+    files::journal, images::decode, metadata::exif, metadata::xmp, model::collections, tf,
+};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -831,7 +833,7 @@ impl crate::App {
             let held = tr("The rotation was not saved: other work is still changing the file");
             return self.notice = Some(held.into());
         }
-        let jpeg = crate::listing::is_jpeg(&path);
+        let jpeg = crate::model::listing::is_jpeg(&path);
         let (rotate, quality) = (self.config.exif_rotate, self.config.webp_quality);
         let (saved, notices) = (self.work.saved_tx.clone(), self.notices_tx.clone());
         let ctx = ctx.clone();
