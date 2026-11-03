@@ -7,7 +7,7 @@
 //! share. Both ends are here: `client` sends, `listen` receives.
 
 use crate::actions::Action;
-use crate::remote;
+use crate::features::remote;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
 use eframe::egui;

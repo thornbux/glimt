@@ -4,7 +4,7 @@
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, in_parts};
-use crate::{duplicates, tf};
+use crate::{features::duplicates, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;

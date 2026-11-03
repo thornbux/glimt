@@ -1,11 +1,11 @@
 //! The file chooser (zenity or kdialog) and the small dialogs: a name asked for, a delete
 //! confirmed, a share's login, a job cut short.
 
+use crate::features::print::{PrintJob, PrintTo};
 use crate::files::config::xdg_dir;
 use crate::files::external::{Login, command};
 use crate::files::file_ops::Deleted;
 use crate::model::listing::pattern_name;
-use crate::print::{PrintJob, PrintTo};
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;

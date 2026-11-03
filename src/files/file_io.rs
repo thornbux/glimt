@@ -350,7 +350,7 @@ pub fn own_tag() -> &'static str {
         let n = std::collections::hash_map::RandomState::new()
             .build_hasher()
             .finish() as u32;
-        format!("{}-{n:08x}", crate::remote::instance_id())
+        format!("{}-{n:08x}", crate::features::remote::instance_id())
     });
     &OWN
 }
@@ -628,7 +628,9 @@ mod tests {
         let (a, b) = (super::tmp_path(path), super::tmp_path(path));
         assert_ne!(a, b);
         let name = a.file_name().unwrap().to_str().unwrap();
-        let rest = name.strip_prefix(crate::remote::instance_id()).unwrap();
+        let rest = name
+            .strip_prefix(crate::features::remote::instance_id())
+            .unwrap();
         let own = rest.strip_prefix('-').unwrap().split('-').next().unwrap();
         assert!(
             own.len() == 8 && own.chars().all(|c| c.is_ascii_hexdigit()),

@@ -2,7 +2,7 @@
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
 use crate::dialogs::{Pick, Prompt};
-use crate::duplicates::Dups;
+use crate::features::duplicates::Dups;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{color_image, survive};
 #[cfg(feature = "marks")]
@@ -13,7 +13,9 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
 use crate::viewer::pan::Pan;
 use crate::viewer::view::LAYOUTS;
-use crate::{files::config, help, images::save, model::collections, own_program, remote, tf};
+use crate::{
+    features::remote, files::config, help, images::save, model::collections, own_program, tf,
+};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;

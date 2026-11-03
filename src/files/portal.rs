@@ -101,7 +101,7 @@ pub fn print(
         .and_then(|s| String::try_from(s.get("printer")?.try_clone().ok()?).ok())
         // A backend that does not name it: the dialog, for the message.
         .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| crate::support::lang::tr(crate::print::SYSTEM_DIALOG).into());
+        .unwrap_or_else(|| crate::support::lang::tr(crate::features::print::SYSTEM_DIALOG).into());
     let ticket = (chosen.get("token"))
         .and_then(|t| u32::try_from(t).ok())
         .ok_or("no token from the print dialog")?;

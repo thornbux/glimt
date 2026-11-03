@@ -70,7 +70,10 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    let path = dir.join(format!("{}-{nanos}", crate::remote::instance_id()));
+    let path = dir.join(format!(
+        "{}-{nanos}",
+        crate::features::remote::instance_id()
+    ));
     #[allow(clippy::disallowed_methods)] // a plan made new, in Glimt's own state folder
     let file = std::fs::OpenOptions::new()
         .write(true)

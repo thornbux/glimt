@@ -291,7 +291,7 @@ fn held_all_in<'a>(dir: Option<&Path>, paths: impl IntoIterator<Item = &'a PathB
 
 /// The folder of the lock files, where there is a runtime folder.
 fn locks() -> Option<PathBuf> {
-    crate::remote::dir().map(|d| d.join("sidecar-locks"))
+    crate::features::remote::dir().map(|d| d.join("sidecar-locks"))
 }
 
 fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {

@@ -2,8 +2,8 @@
 //! commands that answer and end without opening a window (--help, --version, --check-config
 //! and --back-up). The --remote commands are in remote.rs.
 
+use crate::features::remote;
 use crate::files::config::{self, Config, FADES};
-use crate::remote;
 use crate::viewer::view::LAYOUTS;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

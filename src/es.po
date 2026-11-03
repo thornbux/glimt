@@ -488,75 +488,75 @@ msgstr "Nombre de colección no válido: «{name}»"
 msgid "There is a collection called \"{name}\" already"
 msgstr "Ya hay una colección llamada «{name}»"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Among the {count} in the list, compare by"
 msgstr "Entre las {count} de la lista, comparar por"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Check all but the first of each group"
 msgstr "Marcar todas menos la primera de cada grupo"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Checksum (identical files)"
 msgstr "Suma de verificación (archivos idénticos)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Comparing… {done} of {total}"
 msgstr "Comparando… {done} de {total}"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Find"
 msgstr "Buscar"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Find Duplicates"
 msgstr "Buscar duplicados"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Group {n} ({files})"
 msgstr "Grupo {n} ({files})"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Incluir subcarpetas, en el menú Ver, busca también en las carpetas de debajo."
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Move {n} checked to trash…"
 msgstr "Mover {n} marcadas a la papelera…"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Nombre"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (90%)"
 msgstr "Similitud (90 %)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (high, 95%)"
 msgstr "Similitud (alta, 95 %)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (low, 85%)"
 msgstr "Similitud (baja, 85 %)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Size"
 msgstr "Tamaño"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Stop"
 msgstr "Detener"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "The checked files are no longer all in the list"
 msgstr "Los archivos marcados ya no están todos en la lista"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Uncheck all"
 msgstr "Desmarcar todo"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, entre {images}"
 
@@ -1710,63 +1710,63 @@ msgstr "Usar el perfil propio de la imagen"
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} era también la tecla de {others}: ahora solo de {label}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Copies:"
 msgstr "Copias:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Images per page:"
 msgstr "Imágenes por página:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No image could be read: nothing printed"
 msgstr "No se pudo leer ninguna imagen: no se imprimió nada"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No printers found"
 msgstr "No se encontraron impresoras"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Paper:"
 msgstr "Papel:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "PDF file"
 msgstr "Archivo PDF"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print (Enter)"
 msgstr "Imprimir (Enter)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print {count}"
 msgstr "Imprimir {count}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Printer:"
 msgstr "Impresora:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Printing failed: {e}"
 msgstr "Error al imprimir: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save PDF… (Enter)"
 msgstr "Guardar PDF… (Enter)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{images} on {pages}"
 msgstr "{images} en {pages}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; {f} no se pudieron leer"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{what} saved in {file}"
 msgstr "{what} guardado en {file}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{what} sent to {printer}"
 msgstr "{what} enviado a {printer}"
 
@@ -1825,183 +1825,183 @@ msgid_plural "steps"
 msgstr[0] "paso"
 msgstr[1] "pasos"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Orientation:"
 msgstr "Orientación:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Automatic"
 msgstr "Automática"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Portrait"
 msgstr "Vertical"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Landscape"
 msgstr "Horizontal"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Margin (mm):"
 msgstr "Margen (mm):"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Image size (%):"
 msgstr "Tamaño de la imagen (%):"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Fill each box, cutting the image to it"
 msgstr "Llenar cada recuadro recortando la imagen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Text under each image:"
 msgstr "Texto bajo cada imagen:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Como la información en pantalla completa: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% es el número de página, %pages% cuántas hay"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Top of each page:"
 msgstr "Arriba de cada página:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Bottom of each page:"
 msgstr "Abajo de cada página:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Both sides of the paper"
 msgstr "Por las dos caras del papel"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print the image"
 msgstr "Imprimir la imagen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} copied to {folder}"
 msgstr "{files} copiados a {folder}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} moved to {folder}"
 msgstr "{files} movidos a {folder}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Could not move the folder to the trash: {e}"
 msgstr "No se pudo mover la carpeta a la papelera: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "calculating…"
 msgstr "calculando…"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folder"
 msgstr "Abrir carpeta"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open File"
 msgstr "Abrir archivo"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Abrir carpetas (Ctrl+clic para varias)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folder with Its Subfolders"
 msgstr "Abrir carpeta con sus subcarpetas"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Collection"
 msgstr "Abrir colección"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Copy to Folder"
 msgstr "Copiar a carpeta"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Move to Folder"
 msgstr "Mover a carpeta"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save as PDF"
 msgstr "Guardar como PDF"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Add to the Sort Manager"
 msgstr "Añadir al gestor de clasificación"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Screen Profile"
 msgstr "Perfil de pantalla"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Profile of Images Without One"
 msgstr "Perfil de las imágenes sin uno propio"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Import Lightroom Catalog"
 msgstr "Importar catálogo de Lightroom"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Back Up Glimt's Data To"
 msgstr "Copia de seguridad de los datos de Glimt en"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save This Frame as PNG"
 msgstr "Guardar este fotograma como PNG"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Export Every Frame To"
 msgstr "Exportar cada fotograma a"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Collection {name} moved to the trash"
 msgstr "Colección {name} movida a la papelera"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Not a pattern: {e}"
 msgstr "No es un patrón: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{text} exists already: choose another name"
 msgstr "{text} ya existe: elija otro nombre"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Guardado como {file}: edítelo y vuelva a elegirlo"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} given their old names back"
 msgstr "{files} recuperaron sus nombres antiguos"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} renamed"
 msgstr "{files} renombrados"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "; {files} could not be, asked again at the next start"
 msgstr "; {files} no se pudieron, se volverá a preguntar en el próximo inicio"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{found} of {images} ({size})"
 msgstr "{found} de {images} ({size})"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid ", {m} selected ({size})"
 msgstr ", {m} seleccionadas ({size})"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{n} bytes"
 msgstr "{n} bytes"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid " page {n}/{pages}"
 msgstr " página {n}/{pages}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid " frame {n}/{frames}"
 msgstr " fotograma {n}/{frames}"
 
@@ -2097,7 +2097,7 @@ msgstr "Guardando el texto alternativo"
 msgid "Reading the folder"
 msgstr "Leyendo la carpeta"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No answer from the print server in two minutes"
 msgstr "Sin respuesta del servidor de impresión en dos minutos"
 

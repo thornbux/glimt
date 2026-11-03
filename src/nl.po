@@ -488,75 +488,75 @@ msgstr "Geen geldige naam voor een verzameling: “{name}”"
 msgid "There is a collection called \"{name}\" already"
 msgstr "Er is al een verzameling met de naam “{name}”"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Among the {count} in the list, compare by"
 msgstr "Vergelijk onder de {count} in de lijst op"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Check all but the first of each group"
 msgstr "Alle aanvinken behalve de eerste van elke groep"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Checksum (identical files)"
 msgstr "Controlesom (identieke bestanden)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Comparing… {done} of {total}"
 msgstr "Vergelijken … {done} van {total}"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Find"
 msgstr "Zoeken"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Find Duplicates"
 msgstr "Duplicaten zoeken"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Group {n} ({files})"
 msgstr "Groep {n} ({files})"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Submappen meenemen in het menu Beeld doorzoekt ook de mappen eronder."
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Move {n} checked to trash…"
 msgstr "{n} aangevinkte naar prullenbak verplaatsen …"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Naam"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (90%)"
 msgstr "Gelijkenis (90%)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (high, 95%)"
 msgstr "Gelijkenis (hoog, 95%)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (low, 85%)"
 msgstr "Gelijkenis (laag, 85%)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Size"
 msgstr "Grootte"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Stop"
 msgstr "Stoppen"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "The checked files are no longer all in the list"
 msgstr "De aangevinkte bestanden staan niet meer allemaal in de lijst"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Uncheck all"
 msgstr "Alles uitvinken"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, onder {images}"
 
@@ -1710,63 +1710,63 @@ msgstr "Het eigen profiel van de afbeelding gebruiken"
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} was ook de toets van {others}: nu alleen van {label}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Copies:"
 msgstr "Exemplaren:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Images per page:"
 msgstr "Afbeeldingen per pagina:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No image could be read: nothing printed"
 msgstr "Geen afbeelding kon worden gelezen: niets afgedrukt"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No printers found"
 msgstr "Geen printers gevonden"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Paper:"
 msgstr "Papier:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "PDF file"
 msgstr "PDF-bestand"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print (Enter)"
 msgstr "Afdrukken (Enter)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print {count}"
 msgstr "{count} afdrukken"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Printer:"
 msgstr "Printer:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Printing failed: {e}"
 msgstr "Afdrukken mislukt: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save PDF… (Enter)"
 msgstr "PDF opslaan … (Enter)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{images} on {pages}"
 msgstr "{images} op {pages}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; {f} konden niet worden gelezen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{what} saved in {file}"
 msgstr "{what} opgeslagen in {file}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{what} sent to {printer}"
 msgstr "{what} verzonden naar {printer}"
 
@@ -1825,183 +1825,183 @@ msgid_plural "steps"
 msgstr[0] "stap"
 msgstr[1] "stappen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Orientation:"
 msgstr "Oriëntatie:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Automatic"
 msgstr "Automatisch"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Portrait"
 msgstr "Staand"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Landscape"
 msgstr "Liggend"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Margin (mm):"
 msgstr "Marge (mm):"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Image size (%):"
 msgstr "Afbeeldingsgrootte (%):"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Fill each box, cutting the image to it"
 msgstr "Elk vak vullen en de afbeelding erop bijsnijden"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Text under each image:"
 msgstr "Tekst onder elke afbeelding:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Zoals de afbeeldingsinfo in volledig scherm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% is het paginanummer, %pages% hoeveel er zijn"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Top of each page:"
 msgstr "Boven aan elke pagina:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Bottom of each page:"
 msgstr "Onder aan elke pagina:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Both sides of the paper"
 msgstr "Beide zijden van het papier"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print the image"
 msgstr "De afbeelding afdrukken"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} copied to {folder}"
 msgstr "{files} gekopieerd naar {folder}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} moved to {folder}"
 msgstr "{files} verplaatst naar {folder}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Could not move the folder to the trash: {e}"
 msgstr "Kon de map niet naar de prullenbak verplaatsen: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "calculating…"
 msgstr "berekenen …"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folder"
 msgstr "Map openen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open File"
 msgstr "Bestand openen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Mappen openen (Ctrl+klik voor meerdere)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folder with Its Subfolders"
 msgstr "Map met submappen openen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Collection"
 msgstr "Verzameling openen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Copy to Folder"
 msgstr "Naar map kopiëren"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Move to Folder"
 msgstr "Naar map verplaatsen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save as PDF"
 msgstr "Opslaan als PDF"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Add to the Sort Manager"
 msgstr "Aan de sorteerhulp toevoegen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Screen Profile"
 msgstr "Schermprofiel"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Profile of Images Without One"
 msgstr "Profiel van afbeeldingen zonder eigen profiel"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Import Lightroom Catalog"
 msgstr "Lightroom-catalogus importeren"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Back Up Glimt's Data To"
 msgstr "Gegevens van Glimt back-uppen naar"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save This Frame as PNG"
 msgstr "Dit frame opslaan als PNG"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Export Every Frame To"
 msgstr "Elk frame exporteren naar"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Collection {name} moved to the trash"
 msgstr "Verzameling {name} naar prullenbak verplaatst"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Not a pattern: {e}"
 msgstr "Geen patroon: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{text} exists already: choose another name"
 msgstr "{text} bestaat al: kies een andere naam"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Opgeslagen als {file}: bewerk het en kies het dan opnieuw"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} given their old names back"
 msgstr "{files} kregen hun oude namen terug"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} renamed"
 msgstr "{files} hernoemd"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "; {files} could not be, asked again at the next start"
 msgstr "; {files} niet, opnieuw gevraagd bij de volgende start"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{found} of {images} ({size})"
 msgstr "{found} van {images} ({size})"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid ", {m} selected ({size})"
 msgstr ", {m} geselecteerd ({size})"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{n} bytes"
 msgstr "{n} bytes"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid " page {n}/{pages}"
 msgstr " pagina {n}/{pages}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid " frame {n}/{frames}"
 msgstr " frame {n}/{frames}"
 
@@ -2097,7 +2097,7 @@ msgstr "De alternatieve tekst opslaan"
 msgid "Reading the folder"
 msgstr "De map lezen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No answer from the print server in two minutes"
 msgstr "Geen antwoord van de afdrukserver binnen twee minuten"
 

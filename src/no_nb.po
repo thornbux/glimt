@@ -576,75 +576,75 @@ msgstr "Lagre …"
 msgid "Could not save the image: {e}"
 msgstr "Kunne ikke lagre bildet: {e}"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Among the {count} in the list, compare by"
 msgstr "Blant de {count} i listen, sammenlign etter"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Check all but the first of each group"
 msgstr "Merk av alle unntatt det første i hver gruppe"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Checksum (identical files)"
 msgstr "Sjekksum (identiske filer)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Comparing… {done} of {total}"
 msgstr "Sammenligner … {done} av {total}"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Find"
 msgstr "Finn"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Find Duplicates"
 msgstr "Finn duplikater"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Group {n} ({files})"
 msgstr "Gruppe {n} ({files})"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Include Subfolders in the View menu searches the folders below too."
 msgstr "Ta med undermapper i Vis-menyen søker også i mappene under."
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Move {n} checked to trash…"
 msgstr "Flytt {n} avmerkede til papirkurven …"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Name"
 msgstr "Navn"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (90%)"
 msgstr "Likhet (90 %)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (high, 95%)"
 msgstr "Likhet (høy, 95 %)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Similarity (low, 85%)"
 msgstr "Likhet (lav, 85 %)"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Size"
 msgstr "Størrelse"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Stop"
 msgstr "Stopp"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "The checked files are no longer all in the list"
 msgstr "De avmerkede filene er ikke lenger alle i listen"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "Uncheck all"
 msgstr "Fjern alle avmerkinger"
 
-#: src/duplicates.rs
+#: src/features/duplicates.rs
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, blant {images}"
 
@@ -1858,63 +1858,63 @@ msgstr "Bruk bildets egen profil"
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} var også tasten til {others}: nå bare til {label}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Copies:"
 msgstr "Kopier:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Images per page:"
 msgstr "Bilder per side:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No image could be read: nothing printed"
 msgstr "Ingen bilder kunne leses: ingenting skrevet ut"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No printers found"
 msgstr "Fant ingen skrivere"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Paper:"
 msgstr "Papir:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "PDF file"
 msgstr "PDF-fil"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print (Enter)"
 msgstr "Skriv ut (Enter)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print {count}"
 msgstr "Skriv ut {count}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Printer:"
 msgstr "Skriver:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Printing failed: {e}"
 msgstr "Utskriften mislyktes: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save PDF… (Enter)"
 msgstr "Lagre PDF … (Enter)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{images} on {pages}"
 msgstr "{images} på {pages}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{msg}; {f} could not be read"
 msgstr "{msg}; {f} kunne ikke leses"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{what} saved in {file}"
 msgstr "{what} lagret i {file}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{what} sent to {printer}"
 msgstr "{what} sendt til {printer}"
 
@@ -1984,107 +1984,107 @@ msgid_plural "steps"
 msgstr[0] "steg"
 msgstr[1] "steg"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Orientation:"
 msgstr "Retning:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Automatic"
 msgstr "Automatisk"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Portrait"
 msgstr "Stående"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Landscape"
 msgstr "Liggende"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Margin (mm):"
 msgstr "Marg (mm):"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Image size (%):"
 msgstr "Bildestørrelse (%):"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Fill each box, cutting the image to it"
 msgstr "Fyll hver rute, og beskjær bildet etter den"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Text under each image:"
 msgstr "Tekst under hvert bilde:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 msgstr "Som bildeinformasjonen i fullskjerm: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "%page% is the page's number, %pages% how many there are"
 msgstr "%page% er sidens nummer, %pages% hvor mange det er"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Top of each page:"
 msgstr "Øverst på hver side:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Bottom of each page:"
 msgstr "Nederst på hver side:"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Both sides of the paper"
 msgstr "Begge sider av arket"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Print the image"
 msgstr "Skriv ut bildet"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} copied to {folder}"
 msgstr "{files} kopiert til {folder}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} moved to {folder}"
 msgstr "{files} flyttet til {folder}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Could not move the folder to the trash: {e}"
 msgstr "Kunne ikke flytte mappen til papirkurven: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "calculating…"
 msgstr "regner ut …"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folder"
 msgstr "Åpne mappe"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open File"
 msgstr "Åpne fil"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folders (Ctrl+click for several)"
 msgstr "Åpne mapper (Ctrl+klikk for flere)"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Folder with Its Subfolders"
 msgstr "Åpne mappe med undermapper"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Open Collection"
 msgstr "Åpne samling"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Copy to Folder"
 msgstr "Kopier til mappe"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Move to Folder"
 msgstr "Flytt til mappe"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save as PDF"
 msgstr "Lagre som PDF"
 
@@ -2092,79 +2092,79 @@ msgstr "Lagre som PDF"
 msgid "Save As"
 msgstr "Lagre som"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Add to the Sort Manager"
 msgstr "Legg til i sorteringsbehandleren"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Screen Profile"
 msgstr "Skjermprofil"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Profile of Images Without One"
 msgstr "Profil for bilder uten profil"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Import Lightroom Catalog"
 msgstr "Importer Lightroom-katalog"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Back Up Glimt's Data To"
 msgstr "Sikkerhetskopier Glimts data til"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Save This Frame as PNG"
 msgstr "Lagre denne ruten som PNG"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Export Every Frame To"
 msgstr "Eksporter alle rutene til"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Collection {name} moved to the trash"
 msgstr "Samlingen {name} er flyttet til papirkurven"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Not a pattern: {e}"
 msgstr "Ikke et mønster: {e}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{text} exists already: choose another name"
 msgstr "{text} finnes allerede: velg et annet navn"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "Saved as {file}: edit it, then choose it again"
 msgstr "Lagret som {file}: rediger den, og velg den igjen"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} given their old names back"
 msgstr "{files} har fått tilbake de gamle navnene"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{files} renamed"
 msgstr "{files} omdøpt"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "; {files} could not be, asked again at the next start"
 msgstr "; {files} kunne ikke, spørres igjen ved neste oppstart"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{found} of {images} ({size})"
 msgstr "{found} av {images} ({size})"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid ", {m} selected ({size})"
 msgstr ", {m} valgt ({size})"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "{n} bytes"
 msgstr "{n} byte"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid " page {n}/{pages}"
 msgstr " side {n}/{pages}"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid " frame {n}/{frames}"
 msgstr " rute {n}/{frames}"
 
@@ -2260,7 +2260,7 @@ msgstr "Lagrer alt-teksten"
 msgid "Reading the folder"
 msgstr "Lesing av mappa"
 
-#: src/print.rs
+#: src/features/print.rs
 msgid "No answer from the print server in two minutes"
 msgstr "Ikke noe svar fra utskriftstjeneren på to minutter"
 

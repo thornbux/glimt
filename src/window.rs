@@ -2,7 +2,7 @@
 
 use crate::files::config::WindowState;
 use crate::support::format::fill_template;
-use crate::{files::external, remote, tf};
+use crate::{features::remote, files::external, tf};
 use eframe::egui;
 use std::path::Path;
 use std::sync::Arc;

@@ -13,7 +13,7 @@ use crate::images::colour::{
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;
-use crate::{files::config, files::external, model::collections, plugins, tf, theme};
+use crate::{features::plugins, files::config, files::external, model::collections, tf, theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -996,7 +996,7 @@ fn manual(ui: &mut egui::Ui) {
         if *heading == "Command line" {
             table(ui, "options", crate::cli::START_OPTIONS);
             ui.add_space(4.0);
-            table(ui, "commands", crate::remote::COMMANDS);
+            table(ui, "commands", crate::features::remote::COMMANDS);
         }
         ui.add_space(6.0);
     }

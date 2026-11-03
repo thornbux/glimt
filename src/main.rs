@@ -9,14 +9,14 @@
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
 use crate::actions::OWN_KEYS;
-use crate::check::Check;
 use crate::cli::Start;
-use crate::duplicates::Dups;
+use crate::features::check::Check;
+use crate::features::duplicates::Dups;
+use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::images::decode::MAX_ANIMATION;
 use crate::model::list::{List, Viewing};
-use crate::print::PrintDialog;
 use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
 use crate::viewer::pan::Pan;
 use crate::viewer::view::View;
@@ -32,14 +32,11 @@ mod accessibility;
 
 mod actions;
 
-mod check;
-
 mod cli;
 
 mod dialogs;
 
-mod duplicates;
-
+mod features;
 mod file_list;
 
 mod files;
@@ -54,13 +51,7 @@ mod menus;
 mod metadata;
 mod model;
 
-mod plugins;
-
 mod preferences;
-
-mod print;
-
-mod remote;
 
 mod support;
 mod theme;
@@ -157,9 +148,9 @@ struct App {
     /// Open With's programs for each file type, read in the background.
     open_with: menus::OpenWith,
     /// Edit → Plugins, read at start.
-    plugins: Vec<plugins::Plugin>,
+    plugins: Vec<crate::features::plugins::Plugin>,
     /// The plugins running, for Stop in their menu.
-    plugins_running: plugins::Running,
+    plugins_running: crate::features::plugins::Running,
     /// The help page open (F1), if any.
     help: Option<help::Page>,
     /// File → Print's dialog, while open.
@@ -178,7 +169,7 @@ struct App {
     /// The Check Images window: `None` closed, `Some(None)` open and not started.
     check: Option<Option<Check>>,
     /// Commands from --remote, and selects held back until the list is read.
-    remote: remote::Listener,
+    remote: crate::features::remote::Listener,
 }
 
 impl App {
@@ -235,7 +226,8 @@ impl App {
         let thumbs = file_list::Thumbs::new(ctx, workers, &decoding.rotate, config.save_thumbnails);
         // A name is only of use with remote control, so it listens anyway; a kiosk too, as
         // --remote quit is its way out.
-        let listen = config.remote_control || remote::given_name().is_some() || start.kiosk;
+        let listen =
+            config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
         let (notices_tx, notices_rx) = mpsc::channel();
         let mut app = App {
             ctx: ctx.clone(),
@@ -271,8 +263,8 @@ impl App {
             dialogs: dialogs::Dialogs::default(),
             prefs: preferences::Prefs::default(),
             open_with: menus::OpenWith::default(),
-            plugins: plugins::find(),
-            plugins_running: plugins::Running::default(),
+            plugins: crate::features::plugins::find(),
+            plugins_running: crate::features::plugins::Running::default(),
             help: None,
             print_window: None,
             lightroom_rx: Receiving::none(),
@@ -282,7 +274,7 @@ impl App {
             save_as_last: Default::default(),
             dups: None,
             check: None,
-            remote: remote::Listener::new(ctx, listen),
+            remote: crate::features::remote::Listener::new(ctx, listen),
             config,
         };
         // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
@@ -369,9 +361,9 @@ impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // No new client first: one coming after the answers would have none.
-        remote::close();
+        crate::features::remote::close();
         self.answer_held_selects();
-        remote::stop(|| self.answer_held_selects());
+        crate::features::remote::stop(|| self.answer_held_selects());
         let ctx = self.ctx.clone();
         self.save_meta(&ctx);
         // shortcut: the path is stored as UTF-8, lossless for ordinary paths; store its bytes
@@ -484,7 +476,7 @@ fn main() -> eframe::Result {
     let to_all = args.first().is_some_and(|a| a == "--remote-all");
     if args.first().is_some_and(|a| a == "--remote") || to_all {
         let paths = args_os.get(2..).unwrap_or_default();
-        match remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
+        match crate::features::remote::client(&args[1..], paths, start.name.as_deref(), to_all) {
             Some(path) => arg = Some(path),
             None => return Ok(()),
         }
@@ -521,7 +513,7 @@ fn main() -> eframe::Result {
         viewport = viewport.with_fullscreen(true);
     }
     if let Some(name) = start.name.clone() {
-        remote::set_name(name);
+        crate::features::remote::set_name(name);
     }
     let options = eframe::NativeOptions {
         viewport,

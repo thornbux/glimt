@@ -9,7 +9,7 @@ use crate::images::decode::survive;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
-use crate::{images::decode, print, tf};
+use crate::{features::print, images::decode, tf};
 use eframe::egui;
 use std::io::Write;
 use std::path::{Path, PathBuf};

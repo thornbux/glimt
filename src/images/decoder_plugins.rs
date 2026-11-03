@@ -78,7 +78,7 @@ impl Decoder {
 pub fn all() -> &'static [Decoder] {
     static ALL: std::sync::OnceLock<Vec<Decoder>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
-        (crate::plugins::desktop_files("decoders").into_iter())
+        (crate::features::plugins::desktop_files("decoders").into_iter())
             .filter_map(|(path, text)| {
                 let decoder = parse(&text, path.parent()?)?;
                 Some((path.file_name()?.to_owned(), decoder))
@@ -92,13 +92,13 @@ pub fn all() -> &'static [Decoder] {
 /// The decoder of a desktop file. Returns `None` without a name, extensions, or %f in its command
 /// (also inside a word, as ImageMagick's %f[0] for a file's first frame).
 fn parse(text: &str, dir: &Path) -> Option<Decoder> {
-    let value = crate::plugins::values(text);
+    let value = crate::features::plugins::values(text);
     let exts: Vec<String> = (value("Extensions")?.split(';'))
         .map(|e| e.trim().trim_start_matches('.').to_lowercase())
         .filter(|e| !e.is_empty())
         .map(|e| format!(".{e}"))
         .collect();
-    let exec = crate::plugins::words(value("Exec")?);
+    let exec = crate::features::plugins::words(value("Exec")?);
     if exts.is_empty() || !exec.iter().any(|w| w.contains("%f")) {
         return None;
     }
