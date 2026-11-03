@@ -1286,71 +1286,71 @@ msgstr "Vier (2 × 2)"
 msgid "Two Side by Side"
 msgstr "Zwei nebeneinander"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "April"
 msgstr "April"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "August"
 msgstr "August"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Calendar"
 msgstr "Kalender"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "December"
 msgstr "Dezember"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "EXIF date"
 msgstr "EXIF-Datum"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "February"
 msgstr "Februar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "January"
 msgstr "Januar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "July"
 msgstr "Juli"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "June"
 msgstr "Juni"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "March"
 msgstr "März"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "May"
 msgstr "Mai"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "No date"
 msgstr "Kein Datum"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "November"
 msgstr "November"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "October"
 msgstr "Oktober"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "September"
 msgstr "September"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Timeline"
 msgstr "Zeitleiste"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "{images} on {days}"
 msgstr "{images} an {days}"
 
@@ -2009,31 +2009,31 @@ msgstr " Einzelbild {n}/{frames}"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Konnte {f} nicht in {t} umbenennen: {e}; nicht alle Namen konnten zurückgegeben werden, Glimt bietet beim nächsten Start an, sie zu korrigieren"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Mon"
 msgstr "Mo"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Tue"
 msgstr "Di"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Wed"
 msgstr "Mi"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Thu"
 msgstr "Do"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Fri"
 msgstr "Fr"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sat"
 msgstr "Sa"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sun"
 msgstr "So"
 
@@ -2213,19 +2213,19 @@ msgstr "Schachbrett hinter transparenten Bildern"
 msgid "Crop…"
 msgstr "Zuschneiden …"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "A video is not cropped"
 msgstr "Ein Video wird nicht zugeschnitten"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Drag over the image to choose the part to keep"
 msgstr "Über das Bild ziehen, um den Teil zu wählen, der bleiben soll"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Save Copy (Enter)"
 msgstr "Kopie speichern (Enter)"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Could not crop the image: {e}"
 msgstr "Konnte das Bild nicht zuschneiden: {e}"
 
@@ -2237,59 +2237,59 @@ msgstr "Qualität eines zugeschnittenen JPEG (Bearbeiten → Zuschneiden)"
 msgid "Save As…"
 msgstr "Speichern unter …"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "A video is not saved as an image"
 msgstr "Ein Video wird nicht als Bild gespeichert"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Format:"
 msgstr "Format:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "As the original ({format})"
 msgstr "Wie das Original ({format})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossless"
 msgstr "WebP, verlustfrei"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossy"
 msgstr "WebP, verlustbehaftet"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Size:"
 msgstr "Größe:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Original ({w} × {h})"
 msgstr "Original ({w} × {h})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Longest side"
 msgstr "Längste Seite"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Percent"
 msgstr "Prozent"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Gespeichert in {w} × {h}; nie vergrößert"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Quality:"
 msgstr "Qualität:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "EXIF und GPS (Kamera, Datum, Ort), XMP und die Begleitdatei entfernen"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Save…"
 msgstr "Speichern …"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Could not save the image: {e}"
 msgstr "Konnte das Bild nicht speichern: {e}"
 

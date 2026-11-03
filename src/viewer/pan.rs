@@ -5,7 +5,7 @@
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
-use crate::{pan, tf};
+use crate::{tf, viewer::pan};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::Path;

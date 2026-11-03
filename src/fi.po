@@ -1286,71 +1286,71 @@ msgstr "Neljä (2 × 2)"
 msgid "Two Side by Side"
 msgstr "Kaksi rinnakkain"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "April"
 msgstr "huhtikuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "August"
 msgstr "elokuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Calendar"
 msgstr "Kalenteri"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "December"
 msgstr "joulukuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "EXIF date"
 msgstr "EXIF-päiväys"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "February"
 msgstr "helmikuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "January"
 msgstr "tammikuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "July"
 msgstr "heinäkuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "June"
 msgstr "kesäkuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "March"
 msgstr "maaliskuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "May"
 msgstr "toukokuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "No date"
 msgstr "Ei päiväystä"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "November"
 msgstr "marraskuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "October"
 msgstr "lokakuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "September"
 msgstr "syyskuu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Timeline"
 msgstr "Aikajana"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "{images} on {days}"
 msgstr "{images}, {days}"
 
@@ -2009,31 +2009,31 @@ msgstr " ruutu {n}/{frames}"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa, Glimt tarjoutuu korjaamaan ne seuraavalla käynnistyskerralla"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Mon"
 msgstr "ma"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Tue"
 msgstr "ti"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Wed"
 msgstr "ke"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Thu"
 msgstr "to"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Fri"
 msgstr "pe"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sat"
 msgstr "la"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sun"
 msgstr "su"
 
@@ -2213,19 +2213,19 @@ msgstr "Shakkiruudukko läpinäkyvien kuvien takana"
 msgid "Crop…"
 msgstr "Rajaa…"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "A video is not cropped"
 msgstr "Videota ei rajata"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Drag over the image to choose the part to keep"
 msgstr "Vedä kuvan yli valitaksesi säilytettävän osan"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Save Copy (Enter)"
 msgstr "Tallenna kopio (Enter)"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Could not crop the image: {e}"
 msgstr "Kuvaa ei voitu rajata: {e}"
 
@@ -2237,59 +2237,59 @@ msgstr "rajatun JPEG-kuvan laatu (Muokkaa → Rajaa)"
 msgid "Save As…"
 msgstr "Tallenna nimellä…"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "A video is not saved as an image"
 msgstr "Videota ei tallenneta kuvana"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Format:"
 msgstr "Muoto:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "As the original ({format})"
 msgstr "Kuten alkuperäinen ({format})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossless"
 msgstr "WebP, häviötön"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossy"
 msgstr "WebP, häviöllinen"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Size:"
 msgstr "Koko:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Original ({w} × {h})"
 msgstr "Alkuperäinen ({w} × {h})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Longest side"
 msgstr "Pisin sivu"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Percent"
 msgstr "Prosentti"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Tallennetaan kokoon {w} × {h}; ei koskaan suurenneta"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Quality:"
 msgstr "Laatu:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Poista EXIF ja GPS (kamera, päiväys, paikka), XMP ja sivutiedosto"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Save…"
 msgstr "Tallenna…"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Could not save the image: {e}"
 msgstr "Kuvaa ei voitu tallentaa: {e}"
 

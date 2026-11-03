@@ -1286,71 +1286,71 @@ msgstr "Fjórar (2 × 2)"
 msgid "Two Side by Side"
 msgstr "Tvær hlið við hlið"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "April"
 msgstr "apríl"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "August"
 msgstr "ágúst"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Calendar"
 msgstr "Dagatal"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "December"
 msgstr "desember"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "EXIF date"
 msgstr "EXIF-dagsetning"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "February"
 msgstr "febrúar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "January"
 msgstr "janúar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "July"
 msgstr "júlí"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "June"
 msgstr "júní"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "March"
 msgstr "mars"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "May"
 msgstr "maí"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "No date"
 msgstr "Engin dagsetning"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "November"
 msgstr "nóvember"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "October"
 msgstr "október"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "September"
 msgstr "september"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Timeline"
 msgstr "Tímalína"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "{images} on {days}"
 msgstr "{images} á {days}"
 
@@ -2009,31 +2009,31 @@ msgstr " rammi {n}/{frames}"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur, Glimt býðst til að laga þau við næstu ræsingu"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Mon"
 msgstr "mán"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Tue"
 msgstr "þri"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Wed"
 msgstr "mið"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Thu"
 msgstr "fim"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Fri"
 msgstr "fös"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sat"
 msgstr "lau"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sun"
 msgstr "sun"
 
@@ -2213,19 +2213,19 @@ msgstr "Taflborð á bak við gegnsæjar myndir"
 msgid "Crop…"
 msgstr "Skera…"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "A video is not cropped"
 msgstr "Myndskeið er ekki skorið"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Drag over the image to choose the part to keep"
 msgstr "Dragðu yfir myndina til að velja hlutann sem á að halda"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Save Copy (Enter)"
 msgstr "Vista afrit (Enter)"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Could not crop the image: {e}"
 msgstr "Gat ekki skorið myndina: {e}"
 
@@ -2237,59 +2237,59 @@ msgstr "gæði skorinnar JPEG-myndar (Breyta → Skera)"
 msgid "Save As…"
 msgstr "Vista sem…"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "A video is not saved as an image"
 msgstr "Myndskeið er ekki vistað sem mynd"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Format:"
 msgstr "Snið:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "As the original ({format})"
 msgstr "Eins og frumritið ({format})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossless"
 msgstr "WebP, taplaust"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossy"
 msgstr "WebP, með tapi"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Size:"
 msgstr "Stærð:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Original ({w} × {h})"
 msgstr "Upprunaleg ({w} × {h})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Longest side"
 msgstr "Lengsta hlið"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Percent"
 msgstr "Prósent"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Vistuð {w} × {h}; aldrei stækkuð"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Quality:"
 msgstr "Gæði:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Fjarlægja EXIF og GPS (myndavél, dagsetningu, stað), XMP og hliðarskrána"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Save…"
 msgstr "Vista…"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Could not save the image: {e}"
 msgstr "Gat ekki vistað myndina: {e}"
 

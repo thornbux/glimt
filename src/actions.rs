@@ -7,12 +7,12 @@ use crate::images::colour::FILTERS;
 use crate::images::decode::{color_image, survive};
 #[cfg(feature = "marks")]
 use crate::metadata::marks;
-use crate::pan::Pan;
 #[cfg(feature = "marks")]
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
-use crate::view::LAYOUTS;
+use crate::viewer::pan::Pan;
+use crate::viewer::view::LAYOUTS;
 use crate::{files::config, help, images::save, model::collections, own_program, remote, tf};
 use eframe::egui;
 use std::collections::HashSet;

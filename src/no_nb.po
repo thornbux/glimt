@@ -504,75 +504,75 @@ msgstr "Ikke et gyldig samlingsnavn: «{name}»"
 msgid "There is a collection called \"{name}\" already"
 msgstr "Det finnes allerede en samling som heter «{name}»"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "A video is not cropped"
 msgstr "En video beskjæres ikke"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Drag over the image to choose the part to keep"
 msgstr "Dra over bildet for å velge delen som skal beholdes"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Save Copy (Enter)"
 msgstr "Lagre kopi (Enter)"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Could not crop the image: {e}"
 msgstr "Kunne ikke beskjære bildet: {e}"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "A video is not saved as an image"
 msgstr "En video lagres ikke som bilde"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Format:"
 msgstr "Format:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "As the original ({format})"
 msgstr "Som originalen ({format})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossless"
 msgstr "WebP, tapsfri"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossy"
 msgstr "WebP, tapsbefengt"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Size:"
 msgstr "Størrelse:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Original ({w} × {h})"
 msgstr "Original ({w} × {h})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Longest side"
 msgstr "Lengste side"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Percent"
 msgstr "Prosent"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Lagres {w} × {h}; forstørres aldri"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Quality:"
 msgstr "Kvalitet:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Fjern EXIF og GPS (kamera, dato, sted), XMP og sidefilen"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Save…"
 msgstr "Lagre …"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Could not save the image: {e}"
 msgstr "Kunne ikke lagre bildet: {e}"
 
@@ -1422,71 +1422,71 @@ msgstr "Fire (2 × 2)"
 msgid "Two Side by Side"
 msgstr "To side ved side"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "April"
 msgstr "april"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "August"
 msgstr "august"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Calendar"
 msgstr "Kalender"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "December"
 msgstr "desember"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "EXIF date"
 msgstr "EXIF-dato"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "February"
 msgstr "februar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "January"
 msgstr "januar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "July"
 msgstr "juli"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "June"
 msgstr "juni"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "March"
 msgstr "mars"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "May"
 msgstr "mai"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "No date"
 msgstr "Uten dato"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "November"
 msgstr "november"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "October"
 msgstr "oktober"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "September"
 msgstr "september"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Timeline"
 msgstr "Tidslinje"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "{images} on {days}"
 msgstr "{images} på {days}"
 
@@ -2172,31 +2172,31 @@ msgstr " rute {n}/{frames}"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunne ikke gi {f} navnet {t}: {e}; ikke alle navn kunne settes tilbake, Glimt tilbyr å rette dem ved neste oppstart"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Mon"
 msgstr "man"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Tue"
 msgstr "tir"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Wed"
 msgstr "ons"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Thu"
 msgstr "tor"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Fri"
 msgstr "fre"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sat"
 msgstr "lør"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sun"
 msgstr "søn"
 

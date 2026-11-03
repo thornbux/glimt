@@ -16,11 +16,11 @@ use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::images::decode::MAX_ANIMATION;
 use crate::model::list::{List, Viewing};
-use crate::pan::Pan;
 use crate::print::PrintDialog;
 use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
-use crate::view::View;
-use crate::view::frame_at;
+use crate::viewer::pan::Pan;
+use crate::viewer::view::View;
+use crate::viewer::view::frame_at;
 use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -35,8 +35,6 @@ mod actions;
 mod check;
 
 mod cli;
-
-mod crop;
 
 mod dialogs;
 
@@ -55,7 +53,6 @@ mod menus;
 
 mod metadata;
 mod model;
-mod pan;
 
 mod plugins;
 
@@ -65,15 +62,10 @@ mod print;
 
 mod remote;
 
-mod save_as;
-
-mod slideshow;
-
 mod support;
 mod theme;
 
-mod view;
-
+mod viewer;
 mod window;
 
 mod workers;
@@ -127,11 +119,11 @@ struct App {
     // ---- The image and the window ----
     /// Decoding the shown image and its neighbours: the workers, which images they keep, and
     /// the size they decode to.
-    decoding: view::Decoding,
+    decoding: crate::viewer::view::Decoding,
     /// What belongs to the image shown, made anew when it is left.
     viewing: Viewing,
     /// The zoom, and where the zoomed image is in the view.
-    zoom: view::Zoom,
+    zoom: crate::viewer::view::Zoom,
     /// Two images side by side (E): the shown one and `compare_other`.
     compare: bool,
     /// What the image area showed in the last frame, for the projector to show the same.
@@ -142,7 +134,7 @@ struct App {
     /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
     focus_by_keys: bool,
     /// The slideshow: whether it runs, its order and the pane it changes next.
-    slideshow: slideshow::Slideshow,
+    slideshow: crate::viewer::slideshow::Slideshow,
     /// The window: its state remembered, the kiosk, the projector, the screen saver, the
     /// pointer and the title.
     window: window::Window,
@@ -179,8 +171,8 @@ struct App {
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
     /// File → Save As: the dialog while open, and what it asked last.
-    save_as: Option<save_as::SaveAs>,
-    save_as_last: save_as::Choice,
+    save_as: Option<crate::viewer::save_as::SaveAs>,
+    save_as_last: crate::viewer::save_as::Choice,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
     /// The Check Images window: `None` closed, `Some(None)` open and not started.
@@ -239,7 +231,7 @@ impl App {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
         let workers = cores().min(config.decode_threads);
-        let decoding = view::Decoding::new(ctx, &config, workers);
+        let decoding = crate::viewer::view::Decoding::new(ctx, &config, workers);
         let thumbs = file_list::Thumbs::new(ctx, workers, &decoding.rotate, config.save_thumbnails);
         // A name is only of use with remote control, so it listens anyway; a kiosk too, as
         // --remote quit is its way out.
@@ -262,12 +254,12 @@ impl App {
             marks: crate::metadata::marks::Marks::load(),
             decoding,
             viewing: Viewing::default(),
-            zoom: view::Zoom::default(),
+            zoom: crate::viewer::view::Zoom::default(),
             compare: false,
             last_view: None,
             image_id: None,
             focus_by_keys: false,
-            slideshow: slideshow::Slideshow {
+            slideshow: crate::viewer::slideshow::Slideshow {
                 at_start: start.slideshow,
                 ..Default::default()
             },

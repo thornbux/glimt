@@ -11,7 +11,7 @@ use crate::support::format::{count, local_time, middle_cut, size_text, thousands
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;
-use crate::view::{broken_mark, pane_map};
+use crate::viewer::view::{broken_mark, pane_map};
 use crate::workers::spawn_thumbnailers;
 use crate::{files::config, model::collections, tf, theme};
 use eframe::egui;

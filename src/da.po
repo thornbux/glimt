@@ -1286,71 +1286,71 @@ msgstr "Fire (2 × 2)"
 msgid "Two Side by Side"
 msgstr "To side om side"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "April"
 msgstr "april"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "August"
 msgstr "august"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Calendar"
 msgstr "Kalender"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "December"
 msgstr "december"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "EXIF date"
 msgstr "EXIF-dato"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "February"
 msgstr "februar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "January"
 msgstr "januar"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "July"
 msgstr "juli"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "June"
 msgstr "juni"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "March"
 msgstr "marts"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "May"
 msgstr "maj"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "No date"
 msgstr "Ingen dato"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "November"
 msgstr "november"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "October"
 msgstr "oktober"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "September"
 msgstr "september"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Timeline"
 msgstr "Tidslinje"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "{images} on {days}"
 msgstr "{images} på {days}"
 
@@ -2009,31 +2009,31 @@ msgstr " ramme {n}/{frames}"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunne ikke omdøbe {f} til {t}: {e}; ikke alle navne kunne sættes tilbage, Glimt tilbyder at rette dem ved næste start"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Mon"
 msgstr "man"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Tue"
 msgstr "tir"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Wed"
 msgstr "ons"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Thu"
 msgstr "tor"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Fri"
 msgstr "fre"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sat"
 msgstr "lør"
 
-#: src/pan.rs
+#: src/viewer/pan.rs
 msgid "Sun"
 msgstr "søn"
 
@@ -2213,19 +2213,19 @@ msgstr "Skakbræt bag gennemsigtige billeder"
 msgid "Crop…"
 msgstr "Beskær …"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "A video is not cropped"
 msgstr "En video beskæres ikke"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Drag over the image to choose the part to keep"
 msgstr "Træk hen over billedet for at vælge den del, der skal beholdes"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Save Copy (Enter)"
 msgstr "Gem kopi (Enter)"
 
-#: src/crop.rs
+#: src/viewer/crop.rs
 msgid "Could not crop the image: {e}"
 msgstr "Kunne ikke beskære billedet: {e}"
 
@@ -2237,59 +2237,59 @@ msgstr "kvalitet for en beskåret JPEG (Redigér → Beskær)"
 msgid "Save As…"
 msgstr "Gem som …"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "A video is not saved as an image"
 msgstr "En video gemmes ikke som billede"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Format:"
 msgstr "Format:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "As the original ({format})"
 msgstr "Som originalen ({format})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossless"
 msgstr "WebP, tabsfri"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "WebP, lossy"
 msgstr "WebP, med tab"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Size:"
 msgstr "Størrelse:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Original ({w} × {h})"
 msgstr "Original ({w} × {h})"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Longest side"
 msgstr "Længste side"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Percent"
 msgstr "Procent"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Saved {w} × {h}; never enlarged"
 msgstr "Gemmes {w} × {h}; forstørres aldrig"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Quality:"
 msgstr "Kvalitet:"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Remove EXIF and GPS (camera, date, place), XMP and the sidecar"
 msgstr "Fjern EXIF og GPS (kamera, dato, sted), XMP og sidefilen"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Save…"
 msgstr "Gem …"
 
-#: src/save_as.rs
+#: src/viewer/save_as.rs
 msgid "Could not save the image: {e}"
 msgstr "Kunne ikke gemme billedet: {e}"
 

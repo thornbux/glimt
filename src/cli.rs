@@ -4,7 +4,7 @@
 
 use crate::files::config::{self, Config, FADES};
 use crate::remote;
-use crate::view::LAYOUTS;
+use crate::viewer::view::LAYOUTS;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
