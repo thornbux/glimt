@@ -1176,7 +1176,7 @@ msgstr "Ostatni obrót tego pliku jest jeszcze zapisywany"
 msgid "Stop Slideshow"
 msgstr "Zatrzymaj pokaz slajdów"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Zatrzymano: {done} z {total}"
 
@@ -2184,7 +2184,7 @@ msgstr "Przeniesiono z powrotem: {files}"
 msgid "{name} exists already"
 msgstr "{name} już istnieje"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} nie ma w koszu"
 

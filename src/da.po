@@ -1176,7 +1176,7 @@ msgstr "Gemmer stadig den seneste rotation af denne fil"
 msgid "Stop Slideshow"
 msgstr "Stop diasshow"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Stoppet: {done} af {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} flyttet tilbage"
 msgid "{name} exists already"
 msgstr "{name} findes allerede"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} er ikke i papirkurven"
 

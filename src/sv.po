@@ -1176,7 +1176,7 @@ msgstr "Sparar fortfarande den senaste rotationen av denna fil"
 msgid "Stop Slideshow"
 msgstr "Stoppa bildspel"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Stoppad: {done} av {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} flyttade tillbaka"
 msgid "{name} exists already"
 msgstr "{name} finns redan"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} finns inte i papperskorgen"
 

@@ -1176,7 +1176,7 @@ msgstr "Tämän tiedoston viimeisintä kiertoa tallennetaan vielä"
 msgid "Stop Slideshow"
 msgstr "Lopeta diaesitys"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Pysäytetty: {done}/{total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} siirretty takaisin"
 msgid "{name} exists already"
 msgstr "{name} on jo olemassa"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} ei ole roskakorissa"
 

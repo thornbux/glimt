@@ -14,7 +14,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (what is open), `viewer/` (the image area), `ui/` (the window around it), `features/`,
   `images/` (from file to pixels and back), `metadata/`, `files/` (how files change on disk)
   and `support/`. AGENTS.md lists the modules folder by folder.
-- `main.rs` is down from about 3,100 lines to 560. The command line is in `cli.rs`, the list of
+- `main.rs` is down from about 1,200 lines to 560. The command line is in `cli.rs`, the list of
   files in `model/list.rs`, the trash in `files/trash.rs`, the safe writes and renames in
   `files/file_io.rs`, `--back-up` in `files/backup.rs`, and the test helpers in modules of
   their own.

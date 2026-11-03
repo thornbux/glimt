@@ -1176,7 +1176,7 @@ msgstr "La dernière rotation de ce fichier est encore en cours d'enregistrement
 msgid "Stop Slideshow"
 msgstr "Arrêter le diaporama"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Arrêté : {done} sur {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} remis en place"
 msgid "{name} exists already"
 msgstr "{name} existe déjà"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} n'est pas dans la corbeille"
 

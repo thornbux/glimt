@@ -1176,7 +1176,7 @@ msgstr "De laatste draaiing van dit bestand wordt nog opgeslagen"
 msgid "Stop Slideshow"
 msgstr "Diavoorstelling stoppen"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Gestopt: {done} van {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} teruggezet"
 msgid "{name} exists already"
 msgstr "{name} bestaat al"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} is niet in de prullenbak"
 

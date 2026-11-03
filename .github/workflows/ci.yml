@@ -52,7 +52,7 @@ jobs:
       - run: cargo fmt --check
       # --locked as the release builds: a Cargo.toml changed without its Cargo.lock fails here,
       # not on the tag.
-      - run: cargo clippy --locked --release ${{ matrix.features }} -- -D warnings
+      - run: cargo clippy --locked --release --all-targets ${{ matrix.features }} -- -D warnings
       - run: cargo test --locked --release ${{ matrix.features }}
       # The SBOM in step with Cargo.lock, also after Dependabot changed it.
       - name: sbom.cdx.json up to date

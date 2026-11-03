@@ -1176,7 +1176,7 @@ msgstr "Enn er verið að vista síðasta snúning þessarar skrár"
 msgid "Stop Slideshow"
 msgstr "Stöðva skyggnusýningu"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Stöðvað: {done} af {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} fært til baka"
 msgid "{name} exists already"
 msgstr "{name} er þegar til"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} er ekki í ruslinu"
 

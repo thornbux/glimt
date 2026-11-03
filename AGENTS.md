@@ -153,8 +153,8 @@ Every `.rs` file has its items in this order, so a reader finds things where the
 `source_rules::items_are_in_order` fails on an item out of place, and on a second
 `impl crate::App` block.
 
-A name is imported from the module that defines it (`use crate::config::Config`), never through
-main.rs's own imports (`crate::Config`); main.rs names its modules as `crate::actions::…` too
+A name is imported from the module that defines it (`use crate::files::config::Config`), never through
+main.rs's own imports (`crate::Config`); main.rs names its modules as `crate::ui::actions::…` too
 (`source_rules::imports_name_where_defined`).
 
 Comments say why, or what a reader cannot see from the code. They are written for someone new
@@ -227,7 +227,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.
 - **A parser of file contents** also gets a `survives_broken_*` test that feeds it
-  `crate::test_support::broken(sample)`: 2,000 damaged forms of a good input in every run, five
+  `crate::support::test_support::broken(sample)`: 2,000 damaged forms of a good input in every run, five
   million every Sunday (`.github/workflows/parsers.yml`, `GLIMT_FUZZ`).
 - **Touching the disk or starting a program** goes through one function each, and
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
@@ -363,7 +363,7 @@ without the host permission says how to give it and with it runs; the AppImage, 
 that stays when the first one closes.
 
 The window's logic (the list, the selection, file operations and what follows them) is tested
-without a window: `crate::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`
+without a window: `crate::support::test_support::app_on(dir)` makes an `App` on `egui::Context::default()`
 with settings of its own, listed, in milliseconds. A fix there gets such a test, in the tests of
 the module the fix is in, not in main.rs (`source_rules::tests_sit_beside_their_code`).
 

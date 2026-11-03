@@ -1,6 +1,6 @@
 //! Glimt's own files: the settings (the config! macro, one line per setting, with their defaults
-//! and ranges), the window state and the XDG paths they live in, `--lock-settings`, and the
-//! backup of Glimt's folders. How the files are written is in file_io.rs.
+//! and ranges), the window state and the XDG paths they live in, and `--lock-settings`. How the
+//! files are written is in file_io.rs, and the backup of Glimt's folders in backup.rs.
 
 use crate::features::print;
 use crate::files::file_io::{edit_shared, save_failed, write_later};

@@ -1176,7 +1176,7 @@ msgstr "Todavía se está guardando el último giro de este archivo"
 msgid "Stop Slideshow"
 msgstr "Detener la presentación"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Detenido: {done} de {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} devueltos a su sitio"
 msgid "{name} exists already"
 msgstr "{name} ya existe"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} no está en la papelera"
 

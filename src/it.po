@@ -1176,7 +1176,7 @@ msgstr "Si sta ancora salvando l'ultima rotazione di questo file"
 msgid "Stop Slideshow"
 msgstr "Ferma presentazione"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Fermato: {done} di {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} rimessi a posto"
 msgid "{name} exists already"
 msgstr "{name} esiste già"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} non è nel cestino"
 

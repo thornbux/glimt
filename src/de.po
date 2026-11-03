@@ -1176,7 +1176,7 @@ msgstr "Die letzte Drehung dieser Datei wird noch gespeichert"
 msgid "Stop Slideshow"
 msgstr "Diaschau beenden"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Angehalten: {done} von {total}"
 
@@ -2173,7 +2173,7 @@ msgstr "{files} zurückverschoben"
 msgid "{name} exists already"
 msgstr "{name} gibt es bereits"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} ist nicht im Papierkorb"
 

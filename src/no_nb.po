@@ -764,7 +764,7 @@ msgstr "{name} finnes allerede"
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} finnes allerede; ingenting er omdøpt"
 
-#: src/files/file_ops.rs
+#: src/files/trash.rs
 msgid "{name} is not in the trash"
 msgstr "{name} er ikke i papirkurven"
 
@@ -1308,7 +1308,7 @@ msgstr "Lagrer fortsatt den siste rotasjonen av denne filen"
 msgid "Stop Slideshow"
 msgstr "Stopp lysbildefremvisning"
 
-#: src/main.rs
+#: src/files/file_ops.rs
 msgid "Stopped: {done} of {total}"
 msgstr "Stoppet: {done} av {total}"
 
