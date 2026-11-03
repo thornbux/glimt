@@ -74,7 +74,7 @@ impl crate::App {
             self.zoom.fit();
         }
         self.decoding.opened = Instant::now();
-        self.panel.scroll_to_cur = true;
+        self.panel.scroll_to_current();
         // Every image gets the full delay, also when the user moves back or forward by hand.
         if self.slideshow.shown_at.is_some() {
             self.slideshow.shown_at = Some(Instant::now());
@@ -293,7 +293,7 @@ impl crate::App {
     /// file manager, and moving without Shift clears it.
     pub(crate) fn move_along(&mut self, ctx: &egui::Context, action: Action) {
         // Along the list as shown: the search matches while searching.
-        let row = self.panel.row_step;
+        let row = self.panel.row_step();
         let delta = match action {
             Action::First => -isize::MAX / 2,
             Action::Prev => -row,

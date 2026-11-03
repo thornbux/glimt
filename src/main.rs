@@ -287,7 +287,7 @@ impl App {
         // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
-        let bare = fullscreen || self.panel.hidden || self.window.kiosk;
+        let bare = fullscreen || self.panel.is_hidden() || self.window.kiosk;
         if !bare {
             self.menu_bar(ui, &mut act);
         }
@@ -295,7 +295,7 @@ impl App {
             self.run(ctx, action);
         }
         // The icon grid sets it again in the file list; the next frame's ↑ and ↓ read it.
-        self.panel.grid_cols = 1;
+        self.panel.start_frame();
         self.preferences_window(ctx);
         self.prompt_dialog(ctx);
         self.print_dialog(ctx);
@@ -316,7 +316,7 @@ impl App {
         }
         if bare {
             // A scroll to the shown image asked for while the list is hidden is dropped.
-            self.panel.scroll_to_cur = false;
+            self.panel.drop_scroll();
         } else {
             self.side_panel(ctx, ui);
         }

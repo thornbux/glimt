@@ -1028,7 +1028,7 @@ impl crate::App {
             Action::FullScreen => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen))
             }
-            Action::HideTools => self.panel.hidden = !self.panel.hidden,
+            Action::HideTools => self.panel.toggle_hidden(),
             Action::Refresh => self.refresh(ctx),
             Action::Slideshow if self.slideshow.shown_at.is_some() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
@@ -1215,11 +1215,7 @@ impl crate::App {
         // In the icon grid ↑ and ↓ move a row; read before the shortcut takes the key.
         let vertical =
             ctx.input(|i| i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowDown));
-        self.panel.row_step = if vertical {
-            self.panel.grid_cols as isize
-        } else {
-            1
-        };
+        self.panel.set_row_step(vertical);
         (!self.dialog_open() && !typing)
             .then(|| {
                 Self::shortcut(

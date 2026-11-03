@@ -69,7 +69,7 @@ impl crate::App {
             if !self.search.query.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
                 self.search.query.clear();
                 self.update_search(ui.ctx());
-                self.panel.scroll_to_cur = true;
+                self.panel.scroll_to_current();
             }
             // A fixed ID: the X button appearing in front of it must not make it a new
             // widget, which would lose the focus after the first letter.
@@ -422,7 +422,7 @@ impl crate::App {
             self.config.search_bar = true;
             self.config.save();
         }
-        self.panel.hidden = false;
+        self.panel.show();
         if fullscreen {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
         }

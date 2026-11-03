@@ -717,7 +717,7 @@ impl crate::App {
     /// The View menu's toggles of a setting: the path bar, toolbar, panels, overlay, icons,
     /// histogram scale and animation. A stepped through an animation plays it on instead.
     pub(crate) fn toggle_setting(&mut self, action: Action) {
-        self.panel.scroll_to_cur = true;
+        self.panel.scroll_to_current();
         let c = &mut self.config;
         let flag = match action {
             Action::PathBar => &mut c.path_bar,

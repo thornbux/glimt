@@ -148,13 +148,13 @@ impl Thumbs {
 /// the shown image.
 pub(crate) struct Panel {
     /// View → Hide File List: only the image, as in full screen but in a window.
-    pub(crate) hidden: bool,
+    hidden: bool,
     /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
-    pub(crate) grid_cols: usize,
+    grid_cols: usize,
     /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
-    pub(crate) row_step: isize,
+    row_step: isize,
     /// Scroll the file list to the current image on the next frame.
-    pub(crate) scroll_to_cur: bool,
+    scroll_to_cur: bool,
 }
 
 impl Default for Panel {
@@ -165,6 +165,46 @@ impl Default for Panel {
             row_step: 1,
             scroll_to_cur: true,
         }
+    }
+}
+
+impl Panel {
+    /// View → Hide File List, or showing it again.
+    pub(crate) fn toggle_hidden(&mut self) {
+        self.hidden = !self.hidden;
+    }
+
+    /// The file list shows again, as for a search.
+    pub(crate) fn show(&mut self) {
+        self.hidden = false;
+    }
+
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.hidden
+    }
+
+    /// The file list scrolls to the shown image on the next frame.
+    pub(crate) fn scroll_to_current(&mut self) {
+        self.scroll_to_cur = true;
+    }
+
+    /// A scroll asked for while the list is hidden is dropped.
+    pub(crate) fn drop_scroll(&mut self) {
+        self.scroll_to_cur = false;
+    }
+
+    /// One column until the icon grid, drawn later in the frame, says how many it has.
+    pub(crate) fn start_frame(&mut self) {
+        self.grid_cols = 1;
+    }
+
+    /// How far Previous and Next move: a row of the icon grid for ↑ and ↓, else one image.
+    pub(crate) fn set_row_step(&mut self, vertical: bool) {
+        self.row_step = if vertical { self.grid_cols as isize } else { 1 };
+    }
+
+    pub(crate) fn row_step(&self) -> isize {
+        self.row_step
     }
 }
 
