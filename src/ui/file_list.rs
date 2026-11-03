@@ -139,13 +139,13 @@ impl Default for Panel {
 /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
 pub(crate) struct Tree {
     /// Subfolders by folder for the folder tree; `None` while being read.
-    pub(crate) children: HashMap<PathBuf, Option<Vec<PathBuf>>>,
-    pub(crate) tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
-    pub(crate) rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
+    children: HashMap<PathBuf, Option<Vec<PathBuf>>>,
+    tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
+    rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
     /// The folder the tree was last opened up to; it opens again when the folder changes.
-    pub(crate) shown: PathBuf,
+    shown: PathBuf,
     /// The folders open in the tree.
-    pub(crate) open: HashSet<PathBuf>,
+    open: HashSet<PathBuf>,
 }
 
 impl Default for Tree {
@@ -157,6 +157,33 @@ impl Default for Tree {
             rx,
             shown: PathBuf::new(),
             open: HashSet::new(),
+        }
+    }
+}
+
+impl Tree {
+    /// Every folder is read again when the tree shows it, as after a folder came back from the
+    /// trash.
+    pub(crate) fn read_again(&mut self) {
+        self.children.clear();
+    }
+
+    /// Every folder is read again, and the tree opens up to the open folder once more.
+    pub(crate) fn read_again_and_reopen(&mut self) {
+        self.children.clear();
+        self.shown = PathBuf::new();
+    }
+
+    /// The subfolders of `dir`, read with the folder's listing.
+    pub(crate) fn read(&mut self, dir: PathBuf, subfolders: Vec<PathBuf>) {
+        self.children.insert(dir, Some(subfolders));
+    }
+
+    /// Forgets what was read of `dir`, its subfolders and its parent, so they are read again.
+    pub(crate) fn forget(&mut self, dir: &Path) {
+        self.children.retain(|d, _| !d.starts_with(dir));
+        if let Some(parent) = dir.parent() {
+            self.children.remove(parent);
         }
     }
 }

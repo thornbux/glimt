@@ -700,9 +700,7 @@ impl crate::App {
         self.folder.part_rx.clear();
         // Several folders shown together are listed as "/" with no subfolders: not the tree's.
         if self.folder.collection.is_none() && self.folder.folders.is_empty() {
-            self.tree
-                .children
-                .insert(self.folder.dir.clone(), Some(dirs.clone()));
+            self.tree.read(self.folder.dir.clone(), dirs.clone());
         }
         self.folder.subdirs = dirs;
         self.take_files(ctx, files, true);
@@ -959,8 +957,7 @@ impl crate::App {
         self.config.show_hidden = !self.config.show_hidden;
         self.config.save();
         // Read again, and scrolled back to the open folder.
-        self.tree.children.clear();
-        self.tree.shown = PathBuf::new();
+        self.tree.read_again_and_reopen();
         self.list(ctx);
     }
 
@@ -969,7 +966,7 @@ impl crate::App {
     pub(crate) fn refresh(&mut self, ctx: &egui::Context) {
         // Asked for: sorted anew, also in an EXIF date order whose names stayed.
         self.folder.listed_as = None;
-        self.tree.children.clear();
+        self.tree.read_again();
         self.list.slots.clear();
         self.list.decodes_pending.clear();
         self.list.decode_errors.clear();

@@ -483,7 +483,7 @@ impl crate::App {
                 self.folder_renamed(ctx, old, new);
             }
             if let Some(made) = folder_made {
-                self.forget_folder(&made);
+                self.tree.forget(&made);
                 self.folder.relist = true;
             }
             // Moved before their sources are taken for deleted ones: the marks go along first.
@@ -914,7 +914,7 @@ impl crate::App {
 
     /// The folder `old` renamed to `new`: the window follows it.
     fn folder_renamed(&mut self, ctx: &egui::Context, old: PathBuf, new: PathBuf) {
-        self.forget_folder(&old);
+        self.tree.forget(&old);
         // Several folders shown together: the renamed one is read under its new name.
         for folder in &mut self.folder.folders {
             if let Ok(rest) = folder.strip_prefix(&old) {
@@ -948,7 +948,7 @@ impl crate::App {
         if !self.none_saving(std::slice::from_ref(&dir)) {
             return;
         }
-        self.forget_folder(&dir);
+        self.tree.forget(&dir);
         self.folder.subdirs.retain(|d| *d != dir);
         if self.folder.dir.starts_with(&dir)
             && let Some(parent) = dir.parent()
@@ -1087,15 +1087,7 @@ impl crate::App {
             })),
         }
         // A folder that came back shows in the tree again.
-        self.tree.children.clear();
-    }
-
-    /// Forget what the folder tree read of `dir` and its parent, so it is read again.
-    pub(crate) fn forget_folder(&mut self, dir: &Path) {
-        self.tree.children.retain(|d, _| !d.starts_with(dir));
-        if let Some(parent) = dir.parent() {
-            self.tree.children.remove(parent);
-        }
+        self.tree.read_again();
     }
 
     // ---- Work in the background: sidecars, frames, the backup and other jobs ----
