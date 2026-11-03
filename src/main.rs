@@ -44,8 +44,6 @@ mod dialogs;
 
 mod duplicates;
 
-mod exif;
-
 mod file_list;
 
 mod files;
@@ -56,17 +54,13 @@ mod help;
 mod images;
 mod info_panel;
 
-mod lightroom;
-
 mod list;
 
 mod listing;
 
-#[cfg(feature = "marks")]
-mod marks;
-
 mod menus;
 
+mod metadata;
 mod pan;
 
 mod plugins;
@@ -93,8 +87,6 @@ mod view;
 mod window;
 
 mod workers;
-
-mod xmp;
 
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
@@ -140,7 +132,7 @@ struct App {
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken_files: HashSet<OsString>,
     #[cfg(feature = "marks")]
-    marks: marks::Marks,
+    marks: crate::metadata::marks::Marks,
 
     // ---- The image and the window ----
     /// Decoding the shown image and its neighbours: the workers, which images they keep, and
@@ -192,8 +184,8 @@ struct App {
     print_window: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
     /// are now.
-    lightroom_rx: Receiving<Result<lightroom::Catalog, String>>,
-    lightroom: Option<lightroom::Import>,
+    lightroom_rx: Receiving<Result<crate::metadata::lightroom::Catalog, String>>,
+    lightroom: Option<crate::metadata::lightroom::Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
     /// File → Save As: the dialog while open, and what it asked last.
@@ -276,7 +268,7 @@ impl App {
             status: file_list::StatusBar::default(),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
-            marks: marks::Marks::load(),
+            marks: crate::metadata::marks::Marks::load(),
             decoding,
             viewing: Viewing::default(),
             zoom: view::Zoom::default(),

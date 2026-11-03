@@ -4,11 +4,11 @@
 //! File → Import Lightroom Catalog's dialog, what it will do (`Catalog::plan`) and the import.
 
 #[cfg(feature = "marks")]
-use crate::marks;
+use crate::metadata::marks;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
-use crate::{collections, tf, xmp};
+use crate::{collections, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

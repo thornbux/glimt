@@ -1,10 +1,10 @@
 //! Saving a turned image: the pixels turned, the EXIF kept with orientation 1 and the XMP kept,
 //! in the same format (a lossy WebP gets them back in RIFF chunks).
 
-use crate::exif;
 use crate::images::colour::to_srgb;
 use crate::images::decode::load_icc;
 use crate::listing::has_ext;
+use crate::metadata::exif;
 use image::ImageDecoder;
 use std::path::Path;
 
@@ -234,8 +234,8 @@ pub(crate) fn land(
 ) -> std::io::Result<()> {
     // Read before the copy is written: one that cannot be read leaves no copy behind. One that
     // is a link is none: what it points to (a private key) is not the photo's.
-    let side = crate::xmp::sidecar(path);
-    let source = match strip || crate::xmp::linked(&side) {
+    let side = crate::metadata::xmp::sidecar(path);
+    let source = match strip || crate::metadata::xmp::linked(&side) {
         true => None,
         false => crate::files::file_io::read_or_none(&side)?,
     };
@@ -243,7 +243,7 @@ pub(crate) fn land(
         true => crate::files::file_io::replace_file(new, out)?,
         false => crate::files::file_io::create_file(new, out)?,
     }
-    let side = crate::xmp::sidecar(new);
+    let side = crate::metadata::xmp::sidecar(new);
     // A link goes, not what it points to; `create_file` never follows one.
     match std::fs::remove_file(&side) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
@@ -794,7 +794,7 @@ mod tests {
             image::metadata::Orientation::NoTransforms
         );
         assert_eq!(dec.xmp_metadata().unwrap().as_deref(), Some(&xmp[..]));
-        let rows = crate::exif::read(&file);
+        let rows = crate::metadata::exif::read(&file);
         assert!(rows.contains(&("Camera", "Canon".to_string())), "{rows:?}");
         // An animated PNG (an acTL chunk after IHDR) is refused and left as it was.
         let apng = dir.join("b.png");
@@ -1073,7 +1073,7 @@ mod tests {
         image::RgbImage::from_pixel(4, 4, image::Rgb([0, 0, 255]))
             .save(&b)
             .unwrap();
-        let side = |p: &std::path::Path| crate::xmp::sidecar(p);
+        let side = |p: &std::path::Path| crate::metadata::xmp::sidecar(p);
         let text = |p: &std::path::Path| std::fs::read_to_string(side(p)).ok();
         std::fs::write(side(&a), "a's").unwrap();
         let how = |page, strip| super::CopyAs {

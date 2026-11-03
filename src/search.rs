@@ -9,7 +9,7 @@ use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, background_threads, in_parts};
-use crate::{exif, xmp};
+use crate::{metadata::exif, metadata::xmp};
 use crate::{tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};

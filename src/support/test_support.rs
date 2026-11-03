@@ -40,7 +40,7 @@ pub(crate) fn contract_folder(name: &str) -> std::path::PathBuf {
         image::RgbImage::from_pixel(8, 8, image::Rgb(colour))
             .save(&png)
             .unwrap();
-        std::fs::write(crate::xmp::sidecar(&png), file).unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&png), file).unwrap();
     }
     let gqv = format!(
         "#GQview collection\n\"{}\"\n\"{}\"\n",

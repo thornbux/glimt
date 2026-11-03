@@ -8,7 +8,7 @@ use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::support::lang::tr;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
-use crate::{images::thumbs, lightroom, malloc_trim, remote, tf};
+use crate::{images::thumbs, malloc_trim, metadata::lightroom, remote, tf};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -188,7 +188,7 @@ pub fn read(path: &Path) -> Meta {
 /// The XMP packet inside the image. A JPEG's is read from its first 256 KB, as its EXIF is.
 fn embedded(path: &Path) -> Option<String> {
     const JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
-    let bytes = match crate::exif::jpeg_app1(path, JPEG) {
+    let bytes = match crate::metadata::exif::jpeg_app1(path, JPEG) {
         Some(found) => found?[JPEG.len()..].to_vec(),
         None => {
             use image::ImageDecoder;

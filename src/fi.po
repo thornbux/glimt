@@ -656,79 +656,79 @@ msgstr "{name} on jo olemassa; mitään ei nimetty uudelleen"
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} epäonnistui ({count}): {first}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Cancel (Esc)"
 msgstr "Peruuta (Esc)"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Import"
 msgstr "Tuo"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Import from Lightroom"
 msgstr "Tuo Lightroomista"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Importing"
 msgstr "Tuodaan"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Keep Glimt's stars"
 msgstr "Säilytä Glimtin tähdet"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Lightroom has the catalog open: close Lightroom first"
 msgstr "Lightroomissa on luettelo auki: sulje ensin Lightroom"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
 msgstr "Lightroomin tähtiä tai avainsanoja ei kirjoitettu sivutiedostoihin: {count}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Next"
 msgstr "Seuraava"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
 msgstr "Ei Lightroom Classic -luettelo, jota Glimt osaa lukea: {why}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Reading a Lightroom catalog needs the sqlite3 program"
 msgstr "Lightroom-luettelon lukeminen vaatii sqlite3-ohjelman"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Take Lightroom's stars"
 msgstr "Ota Lightroomin tähdet"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "the keywords of {count}"
 msgstr "avainsanat: {count}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "the stars of {count}"
 msgstr "tähdet: {count}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "There already, so they get only the images they lack: {names}."
 msgstr "Ovat jo olemassa, joten ne saavat vain puuttuvat kuvat: {names}."
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Missä luettelon kansiot nyt ovat (tyhjä: jätetään pois):"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{collections}, {keywords} and the stars of {images}."
 msgstr "{collections}, {keywords} ja tähdet: {images}."
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{count} have"
 msgstr "{count}:"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{needs}, which is not installed"
 msgstr "{needs}, jota ei ole asennettu"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{n} other stars in Glimt:"
 msgstr "{n} muuta tähteä Glimtissä:"
 
@@ -2077,7 +2077,7 @@ msgstr "Nimeä useita uudelleen"
 msgid "No answer from the server in a minute"
 msgstr "Ei vastausta palvelimelta minuuttiin"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "The catalog is too large to read"
 msgstr "Luettelo on liian suuri luettavaksi"
 
@@ -2313,11 +2313,11 @@ msgstr "Aseta ikkunan otsikko…"
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tämän ikkunan otsikko (%name%, %path%, %folder%, %app%; tyhjä: kuten asetuksissa):"
 
-#: src/xmp.rs
+#: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} on linkki: sen kautta ei kirjoiteta"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Lightroom-luettelon lukeminen vaatii sqlite3:n version 3.37 tai uudemman"
 

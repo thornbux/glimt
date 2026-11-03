@@ -5,12 +5,12 @@ use crate::files::config::keyword_tree_path;
 use crate::files::external::open_url;
 use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
-use crate::marks;
+use crate::metadata::marks;
+use crate::metadata::xmp::Meta;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::xmp::Meta;
-use crate::{exif, files::config, images::decode, tf, xmp};
+use crate::{files::config, images::decode, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;

@@ -656,79 +656,79 @@ msgstr "{name} już istnieje; nic nie zmieniono"
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb}: niepowodzenie ({count}): {first}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Cancel (Esc)"
 msgstr "Anuluj (Esc)"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Import"
 msgstr "Importuj"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Import from Lightroom"
 msgstr "Importuj z Lightroom"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Importing"
 msgstr "Importowanie"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Keep Glimt's stars"
 msgstr "Zachowaj gwiazdki Glimt"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Lightroom has the catalog open: close Lightroom first"
 msgstr "Lightroom ma otwarty katalog: najpierw zamknij Lightroom"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Lightroom's stars or keywords not written to the sidecars of {count}"
 msgstr "Gwiazdki lub słowa kluczowe z Lightroom nie zostały zapisane w plikach pobocznych: {count}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Next"
 msgstr "Dalej"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Not a Lightroom Classic catalog Glimt can read: {why}"
 msgstr "To nie jest katalog Lightroom Classic, który Glimt potrafi odczytać: {why}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Reading a Lightroom catalog needs the sqlite3 program"
 msgstr "Odczyt katalogu Lightroom wymaga programu sqlite3"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Take Lightroom's stars"
 msgstr "Przejmij gwiazdki z Lightroom"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "the keywords of {count}"
 msgstr "słowa kluczowe: {count}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "the stars of {count}"
 msgstr "gwiazdki: {count}"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "There already, so they get only the images they lack: {names}."
 msgstr "Już istnieją, więc dostaną tylko brakujące obrazy: {names}."
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Where the catalog's folders are now (empty: left out):"
 msgstr "Gdzie są teraz foldery katalogu (puste: pominięte):"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{collections}, {keywords} and the stars of {images}."
 msgstr "{collections}, {keywords} i gwiazdki: {images}."
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{count} have"
 msgstr "{count}:"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{needs}, which is not installed"
 msgstr "{needs}, który nie jest zainstalowany"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "{n} other stars in Glimt:"
 msgstr "Inne gwiazdki w Glimt ({n}):"
 
@@ -2088,7 +2088,7 @@ msgstr "Zmień wiele nazw"
 msgid "No answer from the server in a minute"
 msgstr "Brak odpowiedzi serwera od minuty"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "The catalog is too large to read"
 msgstr "Katalog jest za duży, by go odczytać"
 
@@ -2324,11 +2324,11 @@ msgstr "Ustaw tytuł okna…"
 msgid "Title of this window (%name%, %path%, %folder%, %app%; empty: as in Preferences):"
 msgstr "Tytuł tego okna (%name%, %path%, %folder%, %app%; puste: jak w Preferencjach):"
 
-#: src/xmp.rs
+#: src/metadata/xmp.rs
 msgid "{name} is a link: not written through"
 msgstr "{name} to dowiązanie: zapis przez nie jest pomijany"
 
-#: src/lightroom.rs
+#: src/metadata/lightroom.rs
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Odczyt katalogu Lightroom wymaga sqlite3 w wersji 3.37 lub nowszej"
 

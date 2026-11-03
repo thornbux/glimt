@@ -949,7 +949,7 @@ mod tests {
         let long = dir.join(format!("{}.jpg", "a".repeat(240)));
         crate::files::file_io::create_file(&long, "x").unwrap();
         crate::files::file_io::replace_file(&long, "y").unwrap();
-        crate::files::file_io::replace_file(&crate::xmp::sidecar(&long), "<x/>").unwrap();
+        crate::files::file_io::replace_file(&crate::metadata::xmp::sidecar(&long), "<x/>").unwrap();
         assert_eq!(std::fs::read_to_string(&long).unwrap(), "y");
         let file = dir.join("config");
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();

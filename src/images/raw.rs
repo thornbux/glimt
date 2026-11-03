@@ -28,7 +28,7 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
         .map_err(|e| e.to_string())?;
     crate::images::decode::check_size(&dec)?;
     // TIFF-based RAW files carry the orientation in their own header; others in the JPEG.
-    let orientation = crate::exif::orientation(data)
+    let orientation = crate::metadata::exif::orientation(data)
         .or_else(|| dec.orientation().ok())
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
@@ -79,7 +79,7 @@ pub fn preview(data: &[u8]) -> Option<&[u8]> {
 /// Whether all of the JPEG at the start of `data` is there: its end marker after its image data,
 /// not only the one of the thumbnail in its EXIF.
 pub fn whole_jpeg(data: &[u8]) -> bool {
-    crate::exif::jpeg_scan_start(data)
+    crate::metadata::exif::jpeg_scan_start(data)
         .is_some_and(|scan| data[scan..].windows(2).any(|w| w == [0xff, 0xd9]))
 }
 

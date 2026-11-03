@@ -6,7 +6,7 @@ use crate::duplicates::Dups;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{color_image, survive};
 #[cfg(feature = "marks")]
-use crate::marks;
+use crate::metadata::marks;
 use crate::pan::Pan;
 #[cfg(feature = "marks")]
 use crate::support::format::count;

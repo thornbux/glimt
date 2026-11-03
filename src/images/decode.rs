@@ -4,7 +4,7 @@
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::listing::has_ext;
 use crate::support::format::human_size;
-use crate::{exif, images::raw};
+use crate::{images::raw, metadata::exif};
 use eframe::egui;
 use image::ImageDecoder;
 use image::metadata::Orientation;
@@ -1081,7 +1081,7 @@ mod tests {
         assert_eq!(size, [400, 300]);
         let jpeg = dir.join("b.jpg");
         image::RgbImage::new(40, 20).save(&jpeg).unwrap();
-        crate::exif::write_orientation(&jpeg, 1, false, true).unwrap();
+        crate::metadata::exif::write_orientation(&jpeg, 1, false, true).unwrap();
         let (img, _, size) = super::small(&jpeg, [100, 100], true).unwrap();
         assert_eq!((img.width(), img.height(), size), (20, 40, [20, 40]));
         std::fs::remove_dir_all(dir).unwrap();
@@ -1229,7 +1229,7 @@ mod tests {
         });
         img.save(&file).unwrap();
         // A quarter turn clockwise (EXIF orientation 6): the left half ends up on top.
-        crate::exif::write_orientation(&file, 1, false, true).unwrap();
+        crate::metadata::exif::write_orientation(&file, 1, false, true).unwrap();
         let (img, _, orig) = super::scaled_jpeg(&file, [60, 100], true).unwrap();
         assert_eq!(orig, [200, 400]);
         assert_eq!((img.width(), img.height()), (50, 100));

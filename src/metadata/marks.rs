@@ -319,7 +319,7 @@ fn parse_line(line: &[u8]) -> Option<(PathBuf, (u8, u8))> {
 /// An existing sidecar keeps everything else: only the rating changes, or is added to its first
 /// rdf:Description. Without a sidecar, 0 stars writes none.
 pub fn write_xmp(path: &Path, stars: u8) -> Result<(), String> {
-    crate::xmp::update_sidecar(path, stars == 0, |x| set_rating(x, stars))
+    crate::metadata::xmp::update_sidecar(path, stars == 0, |x| set_rating(x, stars))
 }
 
 /// `xmp` with its rating set to `stars`, as an attribute or element, or added; `None` if it has

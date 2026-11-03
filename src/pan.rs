@@ -447,7 +447,7 @@ pub fn timeline(
     if exif {
         // EXIF writes "2024:05:06 07:08:09", which sorts as it is.
         // A date that is no day (the blank "    :  :  " of a camera that had none) is none.
-        let date = |p: &Path| crate::exif::date(p, false).filter(|d| ymd(d).is_some());
+        let date = |p: &Path| crate::metadata::exif::date(p, false).filter(|d| ymd(d).is_some());
         let day = |d: &String| d.get(..10).unwrap_or(d).replace(':', "-");
         return as_read(dir, files, stop, found, date, day);
     }
