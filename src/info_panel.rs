@@ -8,8 +8,9 @@ use crate::format::{count, human_size, thousands};
 use crate::lang::tr;
 #[cfg(feature = "marks")]
 use crate::marks;
+use crate::test_hooks::noted;
 use crate::xmp::Meta;
-use crate::{config, decode, exif, noted, tf, xmp};
+use crate::{config, decode, exif, tf, xmp};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;

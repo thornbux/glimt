@@ -7,9 +7,9 @@
 //! share. Both ends are here: `client` sends, `listen` receives.
 
 use crate::actions::Action;
-#[cfg(feature = "test-hooks")]
-use crate::hooks;
 use crate::remote;
+#[cfg(feature = "test-hooks")]
+use crate::test_hooks;
 use eframe::egui;
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
@@ -198,7 +198,7 @@ impl crate::App {
             }
             #[cfg(feature = "test-hooks")]
             Some(reply) if command.starts_with("where ") => {
-                let _ = reply.send(hooks::position(command.trim_start_matches("where ")));
+                let _ = reply.send(test_hooks::position(command.trim_start_matches("where ")));
             }
             Some(reply) => drop(reply.send(self.remote_query(command))),
             None => self.remote_command(ctx, command),

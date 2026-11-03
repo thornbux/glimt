@@ -6,10 +6,11 @@
 use crate::folder::send_sizes;
 use crate::lang::tr;
 use crate::list::FileRow;
+use crate::test_hooks::noted;
 use crate::threads::small_alloc_threads;
 use crate::threads::{Receiving, Took, Working, background_threads, in_parts};
 use crate::{exif, xmp};
-use crate::{noted, tf, theme};
+use crate::{tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;

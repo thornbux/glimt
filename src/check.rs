@@ -2,8 +2,9 @@
 
 use crate::format::{count, thousands};
 use crate::lang::tr;
+use crate::test_hooks::noted;
 use crate::threads::{Working, background_threads};
-use crate::{decode, noted, tf};
+use crate::{decode, tf};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::PathBuf;

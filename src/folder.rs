@@ -12,8 +12,9 @@ use crate::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::menus::{iconed, scroll_menu};
+use crate::test_hooks::noted;
 use crate::threads::{Receiving, Took};
-use crate::{collections, config, external, listing, noted, tf, theme};
+use crate::{collections, config, external, listing, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;

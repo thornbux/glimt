@@ -5,7 +5,8 @@
 use crate::actions::Action;
 use crate::lang::tr;
 use crate::menus::{iconed, menu_item, scroll_menu};
-use crate::{file_ops, noted, tf, theme};
+use crate::test_hooks::noted;
+use crate::{file_ops, tf, theme};
 use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};

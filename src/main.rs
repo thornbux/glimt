@@ -106,6 +106,8 @@ mod slideshow;
 #[cfg(test)]
 mod source_rules;
 
+mod test_hooks;
+
 mod theme;
 
 mod threads;
@@ -122,39 +124,6 @@ mod window;
 mod workers;
 
 mod xmp;
-
-/// The release tests' hook (`test-hooks`): `glimt --remote where LABEL` tells where the menu
-/// item, button or choice with that text was drawn last frame, so the tests click by text and
-/// need no screen coordinates that every change to the look would move.
-#[cfg(feature = "test-hooks")]
-mod hooks {
-    use eframe::egui;
-    use std::sync::Mutex;
-    static LABELS: Mutex<Vec<(String, egui::Rect)>> = Mutex::new(Vec::new());
-    static LAST: Mutex<Vec<(String, egui::Rect)>> = Mutex::new(Vec::new());
-
-    /// A text drawn this frame, where it was.
-    pub fn note(label: &str, rect: egui::Rect) {
-        LABELS.lock().unwrap().push((label.to_owned(), rect));
-    }
-
-    /// At the start of a frame: last frame's notes are the ones asked about.
-    pub fn begin_frame() {
-        *LAST.lock().unwrap() = std::mem::take(&mut *LABELS.lock().unwrap());
-    }
-
-    /// The answer to `where LABEL`: "x y" of the text's middle, in the window's pixels (the
-    /// tests' window is at the top left, unscaled), or nothing when it was not on the screen.
-    pub fn position(label: &str) -> Vec<u8> {
-        let last = LAST.lock().unwrap();
-        match last.iter().rev().find(|(l, _)| *l == label) {
-            Some((_, rect)) => {
-                format!("{} {}\n", rect.center().x as i32, rect.center().y as i32).into()
-            }
-            None => Vec::new(),
-        }
-    }
-}
 
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
@@ -391,7 +360,7 @@ impl App {
     fn frame_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = &ui.ctx().clone();
         #[cfg(feature = "test-hooks")]
-        hooks::begin_frame();
+        test_hooks::begin_frame();
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
         let mut act = self.read_keys(ctx);
@@ -498,18 +467,6 @@ impl eframe::App for App {
             self.decoding.frame_ms[(ms as usize).min(255)] += 1;
         }
     }
-}
-
-/// The text of a widget as the release tests name it: the label without the icon before it.
-fn noted(response: &egui::Response, text: &str) -> egui::Response {
-    #[cfg(feature = "test-hooks")]
-    hooks::note(
-        text.trim_start_matches(|c: char| ('\u{e000}'..='\u{f8ff}').contains(&c) || c == ' '),
-        response.rect,
-    );
-    #[cfg(not(feature = "test-hooks"))]
-    let _ = text;
-    response.clone()
 }
 
 /// The windows' app ID, the desktop file's name, so the desktop shows its icon for them:

@@ -56,9 +56,10 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 
 | File | Contents |
 |---|---|
-| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`), `noted` for the release tests' hook, and `main()`; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. Its tests module has what tests that need a whole `App` start from (`app_on`, `settle`, `contract_folder`); each module's tests use them, so a test sits beside the code it tests |
+| `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`; `crate::broken` for tests. The window's parts are each in a module of their own below, as `impl crate::App` blocks. Its tests module has what tests that need a whole `App` start from (`app_on`, `settle`, `contract_folder`); each module's tests use them, so a test sits beside the code it tests |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, `Slot`, an image decoded for the view, and `Viewing`, what belongs to the image shown |
+| `src/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
 | `src/threads.rs` | How many threads for each kind of work (the CPU use level, `background_threads`, `thumb_threads`, `small_alloc_threads`), `in_parts`, `Receiving`/`Took` for a background thread's answer, `Working` for work counted while it runs |
 | `src/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |

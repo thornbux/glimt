@@ -226,7 +226,7 @@ impl crate::App {
                             .show(ui, |ui| {
                                 self.key_settings(ui, &query);
                             });
-                        crate::noted(&keys.header_response, tr("Keyboard shortcuts"));
+                        crate::test_hooks::noted(&keys.header_response, tr("Keyboard shortcuts"));
                     }
                     if shown[2] {
                         section(ui, theme::icon::IMAGE, tr(IMAGE[0]));
@@ -980,7 +980,9 @@ impl crate::App {
                 }
                 ui.horizontal(|ui| {
                     let change = ui.small_button(tr("Change"));
-                    if crate::noted(&change, &format!("Change {}", action.label())).clicked() {
+                    if crate::test_hooks::noted(&change, &format!("Change {}", action.label()))
+                        .clicked()
+                    {
                         self.prefs.capturing = Some(action);
                     }
                     let own = self.config.keys.0.iter().any(|k| k.0 == action);

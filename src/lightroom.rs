@@ -270,7 +270,8 @@ impl crate::App {
                          stars to the marks. Smart collections are left out.",
                     );
                     ui.horizontal(|ui| {
-                        next = crate::noted(&ui.button(tr("Next")), tr("Next")).clicked();
+                        next =
+                            crate::test_hooks::noted(&ui.button(tr("Next")), tr("Next")).clicked();
                         if ui.button(tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
@@ -317,7 +318,8 @@ impl crate::App {
                         );
                     }
                     ui.horizontal(|ui| {
-                        go = crate::noted(&ui.button(tr("Import")), tr("Import")).clicked();
+                        go = crate::test_hooks::noted(&ui.button(tr("Import")), tr("Import"))
+                            .clicked();
                         back = ui.button(tr("Back")).clicked();
                         if ui.button(tr("Cancel (Esc)")).clicked() {
                             ui.close();

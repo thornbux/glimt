@@ -87,12 +87,12 @@ impl Pan {
     fn tabs(&mut self, ui: &mut egui::Ui, version: usize) {
         ui.horizontal(|ui| {
             let tab = ui.selectable_value(&mut self.calendar, false, tr("Timeline"));
-            crate::noted(&tab, tr("Timeline"));
+            crate::test_hooks::noted(&tab, tr("Timeline"));
             let tab = ui.selectable_value(&mut self.calendar, true, tr("Calendar"));
-            crate::noted(&tab, tr("Calendar"));
+            crate::test_hooks::noted(&tab, tr("Calendar"));
             ui.separator();
             let exif = ui.checkbox(&mut self.exif, tr("EXIF date"));
-            if crate::noted(&exif, tr("EXIF date")).changed() {
+            if crate::test_hooks::noted(&exif, tr("EXIF date")).changed() {
                 self.days = None;
                 self.days_rx.clear();
                 self.days_stop.store(true, Ordering::Relaxed);
