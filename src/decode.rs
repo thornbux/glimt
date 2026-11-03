@@ -1604,7 +1604,7 @@ mod tests {
             let led = bomb.replacen(at, put, 1);
             assert!(super::entities_too_large(led.as_bytes()), "{put}");
         }
-        for broken in crate::test_support::broken(bomb[..400].as_bytes()) {
+        for broken in crate::test_support::broken(&bomb.as_bytes()[..400]) {
             let _ = super::entities_too_large(&broken);
         }
         std::fs::remove_dir_all(dir).unwrap();

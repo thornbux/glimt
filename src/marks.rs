@@ -480,11 +480,11 @@ mod tests {
         let mut m = super::Marks::default();
         let (a, b) = (PathBuf::from("/a.jpg"), PathBuf::from("/b.jpg"));
         let both = [a.clone(), b.clone()];
-        m.toggle(&[a.clone()], 2);
+        m.toggle(std::slice::from_ref(&a), 2);
         // Mark 2 on only one of them: the toggle sets it on both, the next clears both.
         m.toggle(&both, 2);
         assert_eq!((m.get(&a), m.get(&b)), ((0b10, 0), (0b10, 0)));
-        m.rate(&[b.clone()], 3);
+        m.rate(std::slice::from_ref(&b), 3);
         assert_eq!(super::text(m.get(&b)), "★★★  2");
         m.toggle(&both, 2);
         assert_eq!(m.get(&a), (0, 0));
@@ -501,8 +501,12 @@ mod tests {
             .split(|&b| b == b'\n')
             .filter_map(super::parse_line)
             .collect();
-        super::apply(&mut map, &[a.clone()], super::Change::Mark(4, true));
-        super::apply(&mut map, &[b.clone()], super::Change::Stars(4));
+        super::apply(
+            &mut map,
+            std::slice::from_ref(&a),
+            super::Change::Mark(4, true),
+        );
+        super::apply(&mut map, std::slice::from_ref(&b), super::Change::Stars(4));
         assert_eq!((map[&a], map[&b]), ((5, 0), (0, 4)));
         // A darktable sidecar keeps its fields; the rating is changed or added.
         let dt = r#"<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1" darktable:x="y">"#;

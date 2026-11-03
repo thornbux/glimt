@@ -266,9 +266,9 @@ should fix.
 
 ```sh
 cargo fmt
-cargo clippy --release -- -D warnings
+cargo clippy --release --all-targets -- -D warnings
 cargo test --release
-cargo clippy --release --all-features -- -D warnings
+cargo clippy --release --all-targets --all-features -- -D warnings
 cargo test --release --all-features
 python3 tools/sbom.py        # keeps sbom.cdx.json and THIRD-PARTY-LICENSES.txt in step with Cargo.lock
 python3 tools/flatpak-sources.py  # and flatpak/cargo-sources.json, the Flatpak's crates

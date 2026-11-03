@@ -1961,10 +1961,10 @@ mod tests {
             for line in code.lines() {
                 if let Some(at) = line.find("fn ") {
                     let rest = &line[at + 3..];
-                    if let Some(end) = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')) {
-                        if rest[end..].starts_with('(') || rest[end..].starts_with('<') {
-                            function = rest[..end].to_owned();
-                        }
+                    if let Some(end) = rest.find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        && (rest[end..].starts_with('(') || rest[end..].starts_with('<'))
+                    {
+                        function = rest[..end].to_owned();
                     }
                 }
                 let starts = ["self.start_job(", "self.start_job_of(", "self.background("];

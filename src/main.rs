@@ -4,6 +4,10 @@
 //! is decoded only when the user zooms past what that covers. Only a small window around
 //! the current image is kept in memory.
 
+// Tests make and read their files directly. The rules in clippy.toml are for Glimt's own code,
+// which `cargo clippy --release` checks without the tests.
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
+
 use crate::actions::OWN_KEYS;
 use crate::check::Check;
 use crate::cli::Start;
@@ -621,7 +625,7 @@ mod tests {
     fn tells_settings_problems_but_unknown_ones() {
         let unknown = "line 3: there is no setting projector_screen".to_string();
         let wrong = "line 5: delay=fast is not a number; 3 is used".to_string();
-        assert_eq!(super::config_notice(&[unknown.clone()]), None);
+        assert_eq!(super::config_notice(std::slice::from_ref(&unknown)), None);
         assert_eq!(
             super::config_notice(&[unknown, wrong.clone()]),
             Some(format!("Settings file: {wrong}"))

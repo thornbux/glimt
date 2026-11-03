@@ -1248,7 +1248,7 @@ mod tests {
             std::fs::symlink_metadata(sidecar(&c)).is_err(),
             "landed through the link"
         );
-        std::fs::rename(&a, &b.with_file_name("d.png")).unwrap();
+        std::fs::rename(&a, b.with_file_name("d.png")).unwrap();
         follow(&a, &dir.join("d.png"), false).unwrap();
         assert!(linked(&sidecar(&dir.join("d.png"))), "moved as itself");
         assert_eq!(std::fs::read_to_string(&secret).unwrap(), "PRIVATE KEY");
