@@ -69,15 +69,15 @@ pub mod icon {
 /// The themes that come with Glimt; "Desktop" sets nothing.
 const BUILT_IN: [(&str, &str); 6] = [
     ("Desktop", ""),
-    ("Light", include_str!("../themes/Light.theme")),
-    ("Dark", include_str!("../themes/Dark.theme")),
-    ("Nord", include_str!("../themes/Nord.theme")),
+    ("Light", include_str!("../../themes/Light.theme")),
+    ("Dark", include_str!("../../themes/Dark.theme")),
+    ("Nord", include_str!("../../themes/Nord.theme")),
     // For low vision: white on black, and black on white.
     (
         "High Contrast",
-        include_str!("../themes/High Contrast.theme"),
+        include_str!("../../themes/High Contrast.theme"),
     ),
-    ("Contrast", include_str!("../themes/Contrast.theme")),
+    ("Contrast", include_str!("../../themes/Contrast.theme")),
 ];
 
 /// The theme for those who ask the desktop for high contrast.
@@ -220,8 +220,14 @@ pub fn fonts(ctx: &egui::Context) {
         let data = egui::FontData::from_static(bytes);
         fonts.font_data.insert(name.to_owned(), Arc::new(data));
     };
-    add("Inter", include_bytes!("../assets/fonts/Inter-Regular.ttf"));
-    add("Phosphor", include_bytes!("../assets/fonts/Phosphor.ttf"));
+    add(
+        "Inter",
+        include_bytes!("../../assets/fonts/Inter-Regular.ttf"),
+    );
+    add(
+        "Phosphor",
+        include_bytes!("../../assets/fonts/Phosphor.ttf"),
+    );
     let families = &mut fonts.families;
     let proportional = families.entry(egui::FontFamily::Proportional).or_default();
     proportional.insert(0, "Phosphor".to_owned());

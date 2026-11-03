@@ -1,16 +1,16 @@
 //! The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare,
 //! painting, the wheel.
 
-use crate::actions::{Action, KIOSK_ACTIONS};
 use crate::files::config::Config;
 use crate::files::external::is_video;
 use crate::images::decode::{Decoded, decode, histogram, survive};
-use crate::menus::{iconed, menu_item, scroll_menu};
 use crate::model::list::Slot;
 use crate::support::format::fill_template;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::{app_id, malloc_trim, theme};
+use crate::ui::actions::{Action, KIOSK_ACTIONS};
+use crate::ui::menus::{iconed, menu_item, scroll_menu};
+use crate::{app_id, malloc_trim, ui::theme};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

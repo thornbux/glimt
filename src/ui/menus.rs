@@ -1,8 +1,6 @@
 //! The menu bar and toolbar, the menus that change settings, Plugins and Open With, and the helpers
 //! every menu is drawn with.
 
-use crate::actions::{Action, shortcut_text};
-use crate::dialogs::Prompt;
 use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_url};
 use crate::files::file_ops::Deleted;
@@ -13,7 +11,9 @@ use crate::images::colour::{
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;
-use crate::{features::plugins, files::config, files::external, model::collections, tf, theme};
+use crate::ui::actions::{Action, shortcut_text};
+use crate::ui::dialogs::Prompt;
+use crate::{features::plugins, files::config, files::external, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

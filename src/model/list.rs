@@ -1,8 +1,8 @@
 //! The model of what is open: the file list with everything that holds a place in it
 //! (`List`), the decoded images (`Slot`), and what belongs to the image shown (`Viewing`).
 
-use crate::file_list::RubberBand;
 use crate::images::decode::Hist;
+use crate::ui::file_list::RubberBand;
 use crate::viewer::crop;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};

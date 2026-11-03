@@ -1,7 +1,7 @@
 //! The Help menu's pages: manual, keyboard shortcuts, keyboard map and About.
 
-use crate::actions::Action;
-use crate::actions::shortcuts as all_shortcuts;
+use crate::ui::actions::Action;
+use crate::ui::actions::shortcuts as all_shortcuts;
 use eframe::egui;
 use egui::Key;
 
@@ -1204,7 +1204,7 @@ fn about(ui: &mut egui::Ui) {
             });
         });
     egui::CollapsingHeader::new("License (MIT)").show(ui, |ui| {
-        ui.label(include_str!("../LICENSE"));
+        ui.label(include_str!("../../LICENSE"));
     });
 }
 

@@ -2,10 +2,10 @@
 //! and ranges), the window state and the XDG paths they live in, `--lock-settings`, and the
 //! backup of Glimt's folders. How the files are written is in file_io.rs.
 
-use crate::actions::Keys;
 use crate::features::print;
 use crate::files::file_io::{edit_shared, save_failed, write_later};
 use crate::model::listing::Sort;
+use crate::ui::actions::Keys;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 

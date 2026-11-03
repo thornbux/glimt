@@ -1,11 +1,11 @@
 //! The slideshow: its timer, its order, the fade and the next image.
 
-use crate::actions::Action;
 use crate::files::config::FADES;
 use crate::files::config::MAX_DELAY;
 use crate::model::collections;
 use crate::model::listing::shuffle;
 use crate::model::selection::round_ends;
+use crate::ui::actions::Action;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::PathBuf;

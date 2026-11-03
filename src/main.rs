@@ -8,7 +8,6 @@
 // which `cargo clippy --release` checks without the tests.
 #![cfg_attr(test, allow(clippy::disallowed_methods))]
 
-use crate::actions::OWN_KEYS;
 use crate::cli::Start;
 use crate::features::check::Check;
 use crate::features::duplicates::Dups;
@@ -18,6 +17,7 @@ use crate::files::file_io::write_atomic;
 use crate::images::decode::MAX_ANIMATION;
 use crate::model::list::{List, Viewing};
 use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
+use crate::ui::actions::OWN_KEYS;
 use crate::viewer::pan::Pan;
 use crate::viewer::view::View;
 use crate::viewer::view::frame_at;
@@ -27,39 +27,22 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
-#[cfg(feature = "accessibility")]
-mod accessibility;
-
-mod actions;
 
 mod cli;
 
-mod dialogs;
-
 mod features;
-mod file_list;
 
 mod files;
 
-mod help;
-
 mod images;
-mod info_panel;
-
-mod menus;
 
 mod metadata;
 mod model;
 
-mod preferences;
-
 mod support;
-mod theme;
 
+mod ui;
 mod viewer;
-mod window;
-
-mod workers;
 
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
@@ -74,7 +57,7 @@ struct App {
     ctx: egui::Context,
     config: Config,
     /// What the desktop says: its dark style and accent, and its screen profile.
-    desktop: theme::FromDesktop,
+    desktop: crate::ui::theme::FromDesktop,
 
     // ---- What is open and its files ----
     /// What is open (a folder, a collection or several folders), its listing in the
@@ -92,16 +75,16 @@ struct App {
     // ---- The side panel ----
     /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it
     /// scrolls to the shown image.
-    panel: file_list::Panel,
+    panel: crate::ui::file_list::Panel,
     /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
-    tree: file_list::Tree,
+    tree: crate::ui::file_list::Tree,
     /// Thumbnails for the file list: those made, those being made, and the workers making them.
-    thumbs: file_list::Thumbs,
+    thumbs: crate::ui::file_list::Thumbs,
     /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
     search: crate::model::search::Search,
     /// The status bar's numbers: the shown image's size and place, the folder's total, and the
     /// selection's size.
-    status: file_list::StatusBar,
+    status: crate::ui::file_list::StatusBar,
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken_files: HashSet<OsString>,
     #[cfg(feature = "marks")]
@@ -128,10 +111,10 @@ struct App {
     slideshow: crate::viewer::slideshow::Slideshow,
     /// The window: its state remembered, the kiosk, the projector, the screen saver, the
     /// pointer and the title.
-    window: window::Window,
+    window: crate::ui::window::Window,
     /// The info panel and the EXIF window: what is read of the shown image, and what is being
     /// edited.
-    info: info_panel::Info,
+    info: crate::ui::info_panel::Info,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
@@ -141,18 +124,18 @@ struct App {
     // ---- Menus, dialogs and windows ----
     /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the
     /// file chooser.
-    dialogs: dialogs::Dialogs,
+    dialogs: crate::ui::dialogs::Dialogs,
     /// The Preferences window: open or not, its search, and the action whose key is being
     /// chosen.
-    prefs: preferences::Prefs,
+    prefs: crate::ui::preferences::Prefs,
     /// Open With's programs for each file type, read in the background.
-    open_with: menus::OpenWith,
+    open_with: crate::ui::menus::OpenWith,
     /// Edit → Plugins, read at start.
     plugins: Vec<crate::features::plugins::Plugin>,
     /// The plugins running, for Stop in their menu.
     plugins_running: crate::features::plugins::Running,
     /// The help page open (F1), if any.
-    help: Option<help::Page>,
+    help: Option<crate::ui::help::Page>,
     /// File → Print's dialog, while open.
     print_window: Option<PrintDialog>,
     /// A Lightroom catalog being read, then imported with the folders where its root folders
@@ -216,14 +199,19 @@ impl App {
             .unwrap_or_else(|| ".".into());
         MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
         set_cpu_use(config.cpu_use);
-        theme::fonts(ctx);
-        theme::apply(ctx, &theme::load(&config.theme), None, None);
+        crate::ui::theme::fonts(ctx);
+        crate::ui::theme::apply(ctx, &crate::ui::theme::load(&config.theme), None, None);
         // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
         let workers = cores().min(config.decode_threads);
         let decoding = crate::viewer::view::Decoding::new(ctx, &config, workers);
-        let thumbs = file_list::Thumbs::new(ctx, workers, &decoding.rotate, config.save_thumbnails);
+        let thumbs = crate::ui::file_list::Thumbs::new(
+            ctx,
+            workers,
+            &decoding.rotate,
+            config.save_thumbnails,
+        );
         // A name is only of use with remote control, so it listens anyway; a kiosk too, as
         // --remote quit is its way out.
         let listen =
@@ -231,16 +219,16 @@ impl App {
         let (notices_tx, notices_rx) = mpsc::channel();
         let mut app = App {
             ctx: ctx.clone(),
-            desktop: theme::FromDesktop::new(ctx, config.desktop_profile),
+            desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
             folder: crate::model::folder::Folder::new(&config),
             list: List::default(),
             work: crate::files::file_ops::Work::new(),
             busy: Arc::default(),
-            panel: file_list::Panel::default(),
-            tree: file_list::Tree::default(),
+            panel: crate::ui::file_list::Panel::default(),
+            tree: crate::ui::file_list::Tree::default(),
             thumbs,
             search: crate::model::search::Search::default(),
-            status: file_list::StatusBar::default(),
+            status: crate::ui::file_list::StatusBar::default(),
             broken_files: HashSet::new(),
             #[cfg(feature = "marks")]
             marks: crate::metadata::marks::Marks::load(),
@@ -255,14 +243,14 @@ impl App {
                 at_start: start.slideshow,
                 ..Default::default()
             },
-            window: window::Window::new(start.kiosk),
-            info: info_panel::Info::new(ctx),
+            window: crate::ui::window::Window::new(start.kiosk),
+            info: crate::ui::info_panel::Info::new(ctx),
             notice: screen_error.or_else(|| config_notice(problems)),
             notices_tx,
             notices_rx,
-            dialogs: dialogs::Dialogs::default(),
-            prefs: preferences::Prefs::default(),
-            open_with: menus::OpenWith::default(),
+            dialogs: crate::ui::dialogs::Dialogs::default(),
+            prefs: crate::ui::preferences::Prefs::default(),
+            open_with: crate::ui::menus::OpenWith::default(),
             plugins: crate::features::plugins::find(),
             plugins_running: crate::features::plugins::Running::default(),
             help: None,
@@ -327,7 +315,7 @@ impl App {
         self.confirm_folder_dialog(ctx);
         self.duplicates_window(ctx);
         self.check_window(ctx);
-        help::window(ctx, &mut self.help);
+        crate::ui::help::window(ctx, &mut self.help);
         self.focus_ring(ctx);
         if !bare {
             self.status_bar(ctx, ui);

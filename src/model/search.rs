@@ -10,7 +10,7 @@ use crate::support::test_hooks::noted;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, background_threads, in_parts};
 use crate::{metadata::exif, metadata::xmp};
-use crate::{tf, theme};
+use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;

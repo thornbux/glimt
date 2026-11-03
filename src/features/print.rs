@@ -3,12 +3,12 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
-use crate::dialogs::Pick;
 use crate::files::config::Config;
 use crate::images::decode::survive;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
+use crate::ui::dialogs::Pick;
 use crate::{features::print, images::decode, tf};
 use eframe::egui;
 use std::io::Write;

@@ -8,475 +8,475 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: src/accessibility.rs
+#: src/ui/accessibility.rs
 msgid "No images"
 msgstr "No hay imágenes"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "About Glimt"
 msgstr "Acerca de Glimt"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Auto Rotate Using EXIF"
 msgstr "Girar automáticamente según EXIF"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Back"
 msgstr "Atrás"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Back Up Glimt's Data…"
 msgstr "Hacer copia de seguridad de los datos de Glimt…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Check Images…"
 msgstr "Comprobar imágenes…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Close Window"
 msgstr "Cerrar ventana"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Compare Side by Side"
 msgstr "Comparar lado a lado"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Copy Files to Clipboard"
 msgstr "Copiar archivos al portapapeles"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Copy Image to Clipboard"
 msgstr "Copiar imagen al portapapeles"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Copy Path (Unquoted)"
 msgstr "Copiar ruta (sin comillas)"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Copy Path to Clipboard"
 msgstr "Copiar ruta al portapapeles"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Copy…"
 msgstr "Copiar…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Delete Permanently…"
 msgstr "Eliminar permanentemente…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Delete…"
 msgstr "Eliminar…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "EXIF Window"
 msgstr "Ventana EXIF"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Export Frames…"
 msgstr "Exportar fotogramas…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Faster"
 msgstr "Más rápido"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Fill the View"
 msgstr "Llenar la vista"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Find Duplicates…"
 msgstr "Buscar duplicados…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "First Image"
 msgstr "Primera imagen"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Fit the Height"
 msgstr "Ajustar a la altura"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Fit the Width"
 msgstr "Ajustar a la anchura"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Flip"
 msgstr "Voltear verticalmente"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Forward"
 msgstr "Adelante"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Full Screen"
 msgstr "Pantalla completa"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Help Manual"
 msgstr "Manual de ayuda"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Hide File List"
 msgstr "Ocultar la lista de archivos"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Histogram: Off, RGB, Brightness"
 msgstr "Histograma: desactivado, RGB, brillo"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Home"
 msgstr "Carpeta personal"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Import Lightroom Catalog…"
 msgstr "Importar catálogo de Lightroom…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Include Subfolders"
 msgstr "Incluir subcarpetas"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Invert Selection"
 msgstr "Invertir selección"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Keyboard Map"
 msgstr "Mapa del teclado"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Keyboard Shortcuts"
 msgstr "Atajos de teclado"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Keywords and Comment"
 msgstr "Palabras clave y comentario"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Last Image"
 msgstr "Última imagen"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Logarithmic Histogram"
 msgstr "Histograma logarítmico"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mark 1"
 msgstr "Marca 1"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mark 2"
 msgstr "Marca 2"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mark 3"
 msgstr "Marca 3"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mark 4"
 msgstr "Marca 4"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mark 5"
 msgstr "Marca 5"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mark 6"
 msgstr "Marca 6"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Mirror"
 msgstr "Reflejar"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Move Collection to Trash"
 msgstr "Mover la colección a la papelera"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Move Earlier in Collection"
 msgstr "Mover antes en la colección"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Move Later in Collection"
 msgstr "Mover después en la colección"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Move to End of Collection"
 msgstr "Mover al final de la colección"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Move to Start of Collection"
 msgstr "Mover al principio de la colección"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Move…"
 msgstr "Mover…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "New Collection…"
 msgstr "Nueva colección…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "New Folder…"
 msgstr "Nueva carpeta…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "New Window"
 msgstr "Nueva ventana"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Next Filter"
 msgstr "Filtro siguiente"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Next Image"
 msgstr "Imagen siguiente"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Next Layout"
 msgstr "Disposición siguiente"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Next Page"
 msgstr "Página siguiente"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "No Stars"
 msgstr "Sin estrellas"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "One Image"
 msgstr "Una imagen"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Open Collection…"
 msgstr "Abrir colección…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Open File…"
 msgstr "Abrir archivo…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Open Folder Recursive…"
 msgstr "Abrir carpeta recursivamente…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Open Folder…"
 msgstr "Abrir carpeta…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Open Several Folders…"
 msgstr "Abrir varias carpetas…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Open With Default App"
 msgstr "Abrir con la aplicación predeterminada"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Pan View"
 msgstr "Vista panorámica"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Pane Above"
 msgstr "Panel de arriba"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Pane Below"
 msgstr "Panel de abajo"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Pane to the Left"
 msgstr "Panel de la izquierda"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Pane to the Right"
 msgstr "Panel de la derecha"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Pause Slideshow"
 msgstr "Pausar la presentación"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Play Animations"
 msgstr "Reproducir animaciones"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Play Video"
 msgstr "Reproducir vídeo"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Preferences…"
 msgstr "Preferencias…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Previous Image"
 msgstr "Imagen anterior"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Previous Page"
 msgstr "Página anterior"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Print…"
 msgstr "Imprimir…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Projector"
 msgstr "Proyector"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Quit"
 msgstr "Salir"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Random Order"
 msgstr "Orden aleatorio"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Refresh"
 msgstr "Actualizar"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Remove from Collection"
 msgstr "Quitar de la colección"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Rename Collection…"
 msgstr "Renombrar la colección…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Rename…"
 msgstr "Renombrar…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Rotate 180°"
 msgstr "Girar 180°"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Rotate Clockwise"
 msgstr "Girar en sentido horario"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Rotate Counterclockwise"
 msgstr "Girar en sentido antihorario"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Save Orientation to File"
 msgstr "Guardar la orientación en el archivo"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Save This Frame…"
 msgstr "Guardar este fotograma…"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Search File Names"
 msgstr "Buscar nombres de archivo"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select All"
 msgstr "Seleccionar todo"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select Mark 1"
 msgstr "Seleccionar marca 1"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select Mark 2"
 msgstr "Seleccionar marca 2"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select Mark 3"
 msgstr "Seleccionar marca 3"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select Mark 4"
 msgstr "Seleccionar marca 4"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select Mark 5"
 msgstr "Seleccionar marca 5"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select Mark 6"
 msgstr "Seleccionar marca 6"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Select None"
 msgstr "No seleccionar nada"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show EXIF Panel"
 msgstr "Mostrar el panel EXIF"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Folder Path"
 msgstr "Mostrar la ruta de la carpeta"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Folder Tree"
 msgstr "Mostrar el árbol de carpetas"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Hidden Files"
 msgstr "Mostrar archivos ocultos"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Image Info in Full Screen"
 msgstr "Mostrar información de la imagen en pantalla completa"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Sort Manager"
 msgstr "Mostrar el gestor de clasificación"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show the Pointer on the Projector"
 msgstr "Mostrar el puntero en el proyector"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Thumbnails"
 msgstr "Mostrar miniaturas"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Show Toolbar"
 msgstr "Mostrar la barra de herramientas"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Slower"
 msgstr "Más lento"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Start/Stop Slideshow"
 msgstr "Iniciar/detener la presentación"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Stop Slideshow, Leave Full Screen"
 msgstr "Detener la presentación, salir de pantalla completa"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Two Above Each Other"
 msgstr "Dos una encima de otra"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Up"
 msgstr "Arriba"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "View Images as Icons"
 msgstr "Ver imágenes como iconos"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Zoom 1:1"
 msgstr "Zoom 1:1"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Zoom In"
 msgstr "Acercar"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Zoom Out"
 msgstr "Alejar"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Zoom to Fit"
 msgstr "Ajustar a la ventana"
 
@@ -1354,359 +1354,359 @@ msgstr "Cronología"
 msgid "{images} on {days}"
 msgstr "{images} en {days}"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"
 msgstr "Escribir también las estrellas en archivos complementarios XMP (photo.jpg.xmp), para darktable y digiKam"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Auto rotate images using EXIF (Alt+X)"
 msgstr "Girar las imágenes automáticamente según EXIF (Alt+X)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Automatic (system language)"
 msgstr "Automático (idioma del sistema)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Background behind the image"
 msgstr "Fondo detrás de la imagen"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Black"
 msgstr "Negro"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Brightness"
 msgstr "Brillo"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Change"
 msgstr "Cambiar"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Choose…"
 msgstr "Elegir…"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Colour management"
 msgstr "Gestión del color"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Confirm move file to Trash"
 msgstr "Confirmar el envío a la papelera"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Confirm permanent file delete"
 msgstr "Confirmar la eliminación permanente"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "CPU use:"
 msgstr "Uso del procesador:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Custom"
 msgstr "Personalizado"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Decoding threads and one malloc arena take effect after a restart."
 msgstr "Los hilos de decodificación y la arena malloc única se aplican tras reiniciar."
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Default"
 msgstr "Predeterminado"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "default application"
 msgstr "aplicación predeterminada"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Details"
 msgstr "Detalles"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Enable Delete key"
 msgstr "Activar la tecla Delete"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Enlarge small images to fit the window"
 msgstr "Ampliar las imágenes pequeñas al tamaño de la ventana"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Fade to the next image:"
 msgstr "Fundido a la imagen siguiente:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "From colord, which GNOME and KDE set"
 msgstr "De colord, que configuran GNOME y KDE"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Fuzzy, best matches first (like fzf)"
 msgstr "Aproximada, mejores coincidencias primero (como fzf)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "High Contrast when the desktop asks for high contrast"
 msgstr "Alto contraste cuando el escritorio pide alto contraste"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Histogram (K):"
 msgstr "Histograma (K):"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Image info template:"
 msgstr "Plantilla de información de la imagen:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "images decoded at once"
 msgstr "imágenes decodificadas a la vez"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "images on each side"
 msgstr "imágenes a cada lado"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Images without a profile:"
 msgstr "Imágenes sin perfil:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "In ~/.cache/thumbnails; kept for disks that are not plugged in"
 msgstr "En ~/.cache/thumbnails; se conservan para discos no conectados"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Include the images in subfolders"
 msgstr "Incluir las imágenes de las subcarpetas"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Include the images in subfolders in the file list"
 msgstr "Incluir las imágenes de las subcarpetas en la lista de archivos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Keep the screen saver off in full screen"
 msgstr "Mantener desactivado el salvapantallas en pantalla completa"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Keep zoom and position when changing image"
 msgstr "Mantener el zoom y la posición al cambiar de imagen"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Keyboard shortcuts"
 msgstr "Atajos de teclado"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Language"
 msgstr "Idioma"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Large"
 msgstr "Grande"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Larger still when the desktop's text is (GNOME's Large Text)"
 msgstr "Aún más grande cuando el texto del escritorio lo es (Texto grande de GNOME)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Listen for glimt --remote commands (after restart)"
 msgstr "Escuchar órdenes glimt --remote (tras reiniciar)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Logarithmic (J)"
 msgstr "Logarítmico (J)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "MB at most for an animation's frames"
 msgstr "MB como máximo para los fotogramas de una animación"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Medium"
 msgstr "Mediano"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Memory use:"
 msgstr "Uso de memoria:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"
 msgstr "La rueda del ratón hace zoom (desactivado: imagen siguiente/anterior, Ctrl+rueda hace zoom)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "None"
 msgstr "Ninguno"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Not with CPU use Power saving"
 msgstr "No con uso del procesador Ahorro de energía"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Off"
 msgstr "Desactivado"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "One malloc arena: much less memory, decoding up to ~8 % slower"
 msgstr "Una sola arena malloc: mucha menos memoria, decodificación hasta ~8 % más lenta"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Play animated GIF and WebP (A)"
 msgstr "Reproducir GIF y WebP animados (A)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Player (Enter):"
 msgstr "Reproductor (Enter):"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Preferences"
 msgstr "Preferencias"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Preload next and previous images:"
 msgstr "Precargar las imágenes siguientes y anteriores:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Press a key (Esc cancels)"
 msgstr "Pulse una tecla (Esc cancela)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Profile file…"
 msgstr "Archivo de perfil…"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "quality when a lossy WebP is saved again"
 msgstr "calidad al volver a guardar un WebP con pérdida"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Random order"
 msgstr "Orden aleatorio"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Refresh the folder when files change"
 msgstr "Actualizar la carpeta cuando cambian los archivos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Regular expression, in list order (like Geeqie's file filter)"
 msgstr "Expresión regular, en el orden de la lista (como el filtro de archivos de Geeqie)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Remember the window size and position"
 msgstr "Recordar el tamaño y la posición de la ventana"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Remove thumbnails of deleted files"
 msgstr "Quitar las miniaturas de archivos eliminados"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Removed {removed} of {seen} thumbnails"
 msgstr "Se quitaron {removed} de {seen} miniaturas"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Rendering intent:"
 msgstr "Intención de renderizado:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Repeat: start again after the last image"
 msgstr "Repetir: volver a empezar tras la última imagen"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Reset"
 msgstr "Restablecer"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Save new thumbnails to ~/.cache/thumbnails (shared with other programs)"
 msgstr "Guardar miniaturas nuevas en ~/.cache/thumbnails (compartidas con otros programas)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"
 msgstr "Guardar el giro en el archivo al cambiar de imagen (JPEG; PNG y WebP se vuelven a guardar)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Screen profile:"
 msgstr "Perfil de pantalla:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Search field above the file list:"
 msgstr "Campo de búsqueda sobre la lista de archivos:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "seconds per image"
 msgstr "segundos por imagen"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show file size and date in the file list"
 msgstr "Mostrar tamaño y fecha en la lista de archivos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show folders as a tree (Ctrl+T)"
 msgstr "Mostrar las carpetas como árbol (Ctrl+T)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show image info in full screen (I)"
 msgstr "Mostrar información de la imagen en pantalla completa (I)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show marks and stars in the file list"
 msgstr "Mostrar marcas y estrellas en la lista de archivos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show the EXIF panel (Ctrl+K; reads a little from each image shown)"
 msgstr "Mostrar el panel EXIF (Ctrl+K; lee un poco de cada imagen mostrada)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show the file list as icons (Ctrl+I)"
 msgstr "Mostrar la lista de archivos como iconos (Ctrl+I)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show the file name search"
 msgstr "Mostrar la búsqueda de nombres de archivo"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show the folder path"
 msgstr "Mostrar la ruta de la carpeta"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show the toolbar"
 msgstr "Mostrar la barra de herramientas"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show thumbnails in the file list (T)"
 msgstr "Mostrar miniaturas en la lista de archivos (T)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Show videos in the file list"
 msgstr "Mostrar vídeos en la lista de archivos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "size of the menus, lists and text"
 msgstr "tamaño de menús, listas y texto"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Small"
 msgstr "Pequeño"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Start in the last used folder"
 msgstr "Empezar en la última carpeta usada"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Thumbnail size:"
 msgstr "Tamaño de las miniaturas:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Toolbar icons:"
 msgstr "Iconos de la barra de herramientas:"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Up to ≈ {mb} MB, each image at most {w}×{h}"
 msgstr "Hasta ≈ {mb} MB, cada imagen como máximo {w}×{h}"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Use no trash at all (Delete deletes permanently)"
 msgstr "No usar papelera (Delete elimina permanentemente)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Use the desktop's screen profile"
 msgstr "Usar el perfil de pantalla del escritorio"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Use the image's own profile"
 msgstr "Usar el perfil propio de la imagen"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "{keys} was the key of {others} too: now of {label} only"
 msgstr "{keys} era también la tecla de {others}: ahora solo de {label}"
 
@@ -2105,47 +2105,47 @@ msgstr "Sin respuesta del servidor de impresión en dos minutos"
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "No se pudo renombrar {f} a {t}: {e}; no se pudieron restaurar todos los nombres y no se pudo guardar ningún plan: los archivos con nombres .glimt-rename-* a su lado son suyos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Look"
 msgstr "Aspecto"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Keyboard"
 msgstr "Teclado"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Image"
 msgstr "Imagen"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Slideshow"
 msgstr "Presentación"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "File list"
 msgstr "Lista de archivos"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Memory and CPU"
 msgstr "Memoria y procesador"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Video"
 msgstr "Vídeo"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Start and system"
 msgstr "Inicio y sistema"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Previews need ffmpeg"
 msgstr "Las vistas previas necesitan ffmpeg"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "S starts and stops, R random order, Ctrl+= faster, Ctrl+- slower"
 msgstr "S inicia y detiene, R orden aleatorio, Ctrl+= más rápido, Ctrl+- más lento"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Undo"
 msgstr "Deshacer"
 
@@ -2177,7 +2177,7 @@ msgstr "{name} ya existe"
 msgid "{name} is not in the trash"
 msgstr "{name} no está en la papelera"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Set as Wallpaper"
 msgstr "Usar como fondo de escritorio"
 
@@ -2201,15 +2201,15 @@ msgstr "Abrir reciente"
 msgid "{name} is gone"
 msgstr "{name} ya no existe"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Keep a list of recent folders (File → Open Recent)"
 msgstr "Mantener una lista de carpetas recientes (Archivo → Abrir reciente)"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Checkerboard behind transparent images"
 msgstr "Tablero de ajedrez detrás de las imágenes transparentes"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Crop…"
 msgstr "Recortar…"
 
@@ -2229,11 +2229,11 @@ msgstr "Guardar copia (Enter)"
 msgid "Could not crop the image: {e}"
 msgstr "No se pudo recortar la imagen: {e}"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "quality of a cropped JPEG (Edit → Crop)"
 msgstr "calidad de un JPEG recortado (Editar → Recortar)"
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Save As…"
 msgstr "Guardar como…"
 
@@ -2297,15 +2297,15 @@ msgstr "No se pudo guardar la imagen: {e}"
 msgid "Save As"
 msgstr "Guardar como"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Custom window title (empty: as above):"
 msgstr "Título de ventana propio (vacío: como arriba):"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Fields: %name%, %path%, %folder% and %app%. A | starts a part, left out when its fields are empty."
 msgstr "Campos: %name%, %path%, %folder% y %app%. Una | empieza una parte, que se omite cuando sus campos están vacíos."
 
-#: src/actions.rs
+#: src/ui/actions.rs
 msgid "Set Window Title…"
 msgstr "Establecer título de la ventana…"
 
@@ -2321,7 +2321,7 @@ msgstr "{name} es un enlace: no se escribe a través de él"
 msgid "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
 msgstr "Leer un catálogo de Lightroom requiere sqlite3 3.37 o posterior"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there"
 msgstr "Copias de las imágenes en tu carpeta personal: las de un volumen cifrado o una memoria USB siguen siendo legibles allí"
 
@@ -2333,15 +2333,15 @@ msgstr "Detener {name}"
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "La rotación no se guardó: otra tarea sigue cambiando el archivo"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Hide the pointer in full screen when the mouse is still"
 msgstr "Ocultar el puntero en pantalla completa cuando el ratón está quieto"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "Search the settings"
 msgstr "Buscar en los ajustes"
 
-#: src/preferences.rs
+#: src/ui/preferences.rs
 msgid "No setting has these words"
 msgstr "Ningún ajuste contiene estas palabras"
 

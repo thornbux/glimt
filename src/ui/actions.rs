@@ -1,7 +1,6 @@
 //! Everything the user can do from a menu or a key: the Action list with menu labels, Geeqie's
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
-use crate::dialogs::{Pick, Prompt};
 use crate::features::duplicates::Dups;
 use crate::images::colour::FILTERS;
 use crate::images::decode::{color_image, survive};
@@ -11,10 +10,11 @@ use crate::metadata::marks;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
+use crate::ui::dialogs::{Pick, Prompt};
 use crate::viewer::pan::Pan;
 use crate::viewer::view::LAYOUTS;
 use crate::{
-    features::remote, files::config, help, images::save, model::collections, own_program, tf,
+    features::remote, files::config, images::save, model::collections, own_program, tf, ui::help,
 };
 use eframe::egui;
 use std::collections::HashSet;
@@ -1323,7 +1323,7 @@ mod tests {
         let src = include_str!("actions.rs");
         let start = src.find("pub fn english(").unwrap();
         let body = &src[start..start + src[start..].find("\n    }\n").unwrap()];
-        let po = include_str!("no_nb.po");
+        let po = include_str!("../no_nb.po");
         let lacking: Vec<&str> = (body.split("=> \"").skip(1))
             .map(|rest| &rest[..rest.find('"').unwrap()])
             .filter(|name| name.chars().any(char::is_alphabetic))
@@ -1340,7 +1340,7 @@ mod tests {
         let now: std::collections::HashSet<String> = (super::SHORTCUTS.iter())
             .flat_map(|(a, _, k)| [format!("{a:?}"), k.name().to_owned()])
             .collect();
-        let frozen: Vec<&str> = (include_str!("keys-1.0.txt").lines())
+        let frozen: Vec<&str> = (include_str!("../keys-1.0.txt").lines())
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
         let mut sorted: Vec<&String> = now.iter().collect();

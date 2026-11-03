@@ -2,9 +2,6 @@
 //! the orientation, and the jobs that run them in the background with their progress and Stop.
 //! Copies are written under a hidden name and get their own once whole; no file is overwritten.
 
-use crate::actions::Action;
-use crate::dialogs::Pick;
-use crate::dialogs::Prompt;
 use crate::files::external;
 use crate::files::file_io::{put_file, rename_never_over};
 use crate::files::trash::{Thrown, restore, trash_dirs};
@@ -15,6 +12,9 @@ use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
+use crate::ui::actions::Action;
+use crate::ui::dialogs::Pick;
+use crate::ui::dialogs::Prompt;
 use crate::{
     files::journal, images::decode, metadata::exif, metadata::xmp, model::collections, tf,
 };
@@ -2112,13 +2112,13 @@ mod tests {
         let d = contract_folder("new-folder");
         let (mut app, ctx) = app_on(&d);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
-        app.answer_prompt(&ctx, crate::dialogs::Prompt::NewFolder, "trip");
+        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         assert!(settle(&mut app, &ctx, |a| {
             a.folder.listing_rx.is_none() && a.folder.subdirs.iter().any(|s| s.ends_with("trip"))
         }));
         assert!(d.join("trip").is_dir());
         // There already: said, and nothing else made.
-        app.answer_prompt(&ctx, crate::dialogs::Prompt::NewFolder, "trip");
+        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         assert!(settle(&mut app, &ctx, |a| a.notice.is_some()));
         std::fs::remove_dir_all(d).unwrap();
     }

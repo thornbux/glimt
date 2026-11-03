@@ -6,10 +6,10 @@
 //! folder is in the app's own runtime folder, the part of `$XDG_RUNTIME_DIR` its instances
 //! share. Both ends are here: `client` sends, `listen` receives.
 
-use crate::actions::Action;
 use crate::features::remote;
 #[cfg(feature = "test-hooks")]
 use crate::support::test_hooks;
+use crate::ui::actions::Action;
 use eframe::egui;
 use std::collections::HashSet;
 use std::io::{BufRead, Write};

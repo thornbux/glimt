@@ -1,15 +1,15 @@
 //! Edit → Preferences: one window of every setting, in sections, saved when one changes (when
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
-use crate::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
-use crate::dialogs::Pick;
 use crate::files::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
 use crate::images::decode::MAX_ANIMATION;
 use crate::support::format::thousands;
 use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
-use crate::{actions, files::config, images::thumbs, support::lang, tf, theme};
+use crate::ui::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
+use crate::ui::dialogs::Pick;
+use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -1210,7 +1210,7 @@ mod tests {
                 wrong.push(format!("{}: {shown:#?}", list[0]));
             }
             // The titles go through tr from the lists, which the translation test cannot see.
-            if !include_str!("no_nb.po").contains(&format!("msgid \"{}\"\n", list[0])) {
+            if !include_str!("../no_nb.po").contains(&format!("msgid \"{}\"\n", list[0])) {
                 wrong.push(format!("{} is not translated", list[0]));
             }
         }

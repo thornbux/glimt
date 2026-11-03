@@ -315,9 +315,9 @@ fn app_stays_small() {
 fn functions_stay_short() {
     const MOST: usize = 120;
     const TABLES: &[(&str, &str)] = &[
-        ("actions.rs", "english"),
-        ("actions.rs", "icon"),
-        ("actions.rs", "run"),
+        ("ui/actions.rs", "english"),
+        ("ui/actions.rs", "icon"),
+        ("ui/actions.rs", "run"),
     ];
     let mut wrong = Vec::new();
     for (file, text) in rust_sources() {
@@ -525,7 +525,7 @@ fn super_only_inside_modules() {
     );
 }
 
-/// main.rs imports from its modules as every other file does, `use crate::actions::…`, not
+/// main.rs imports from its modules as every other file does, `use crate::ui::actions::…`, not
 /// `use actions::…`.
 #[test]
 fn main_names_its_modules_with_crate() {

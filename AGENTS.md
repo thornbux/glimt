@@ -22,9 +22,9 @@ for Linux in Rust/egui, inspired by Geeqie. Read this before changing anything.
 ## Behaviour
 
 - Shortcuts and behaviour follow **Geeqie's defaults** (see its keyboard reference). Every
-  deliberate deviation goes in the `DIFFERENCES` table in `src/help.rs`, which the Help Manual
+  deliberate deviation goes in the `DIFFERENCES` table in `src/ui/help.rs`, which the Help Manual
   (F1) shows. Remove a row when Glimt starts behaving like Geeqie.
-- New user-visible features are described in `src/help.rs` (manual, shortcuts, keyboard map)
+- New user-visible features are described in `src/ui/help.rs` (manual, shortcuts, keyboard map)
   and, where relevant, in `README.md`.
 
 ## Frozen in 1.x
@@ -58,17 +58,6 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 |---|---|
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
-| `src/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
-| `src/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
-| `src/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMBS`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
-| `src/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
-| `src/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `iconed`) |
-| `src/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
-| `src/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
-| `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
-| `src/preferences.rs` | Edit → Preferences: the window and its sections |
-| `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
 | `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (an `App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
@@ -117,6 +106,18 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/features/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoder_plugins.rs reads with too |
 | `src/features/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
 | `src/features/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
+| `src/ui.rs` | **The ui/ folder:** the window around the image: actions and keys, menus, dialogs, the side panel, the info panel, Preferences, help, the window, the look, the screen reader and the background work each frame collects |
+| `src/ui/actions.rs` | The `Action` enum with its menu labels, the `SHORTCUTS` table, the user's own keys (variants are stored by name, never rename one); `run`, which does each action, and reading the keys |
+| `src/ui/dialogs.rs` | The file chooser (zenity or kdialog, `Pick`), `dialog_open`, and the small dialogs: a name asked for (`Prompt`), a delete confirmed, a share's login, a job cut short |
+| `src/ui/file_list.rs` | The side panel: the folder list, the file list or icon grid with its thumbnails (their sizes, `THUMBS`, `MAX_THUMBS`), dragging, the rubber band, and the status bar |
+| `src/ui/info_panel.rs` | The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt text, marks; the EXIF reader thread |
+| `src/ui/menus.rs` | The menu bar and the toolbar, the menus that change settings, Plugins and Open With, and the helpers every menu is drawn with (`menu_item`, `scroll_menu`, `iconed`) |
+| `src/ui/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
+| `src/ui/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
+| `src/ui/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
+| `src/ui/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
+| `src/ui/preferences.rs` | Edit → Preferences: the window and its sections |
+| `src/ui/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |

@@ -1,12 +1,10 @@
 //! Opening a folder, a collection or several folders, listing them, and following changes.
 
-use crate::actions::Action;
 use crate::files::config::Config;
 use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
-use crate::menus::{iconed, scroll_menu};
 use crate::model::list::{List, Slot, Viewing};
 use crate::model::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
@@ -14,7 +12,9 @@ use crate::model::listing::{
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
-use crate::{files::config, files::external, model::collections, model::listing, tf, theme};
+use crate::ui::actions::Action;
+use crate::ui::menus::{iconed, scroll_menu};
+use crate::{files::config, files::external, model::collections, model::listing, tf, ui::theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -1074,7 +1074,7 @@ mod tests {
             .listing_rx
             .is_none()));
         assert!(app.folder.listed_as.is_some());
-        app.run(&ctx, crate::actions::Action::Refresh);
+        app.run(&ctx, crate::ui::actions::Action::Refresh);
         assert!(app.folder.listed_as.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1089,7 +1089,7 @@ mod tests {
         let (mut app, ctx) = app_on(&dir);
         let cur = app.list.cur;
         assert!(settle(&mut app, &ctx, |a| a.list.slots.contains_key(&cur)));
-        app.run(&ctx, crate::actions::Action::Refresh);
+        app.run(&ctx, crate::ui::actions::Action::Refresh);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
         let asked = |a: &crate::App| {
             a.list.slots.contains_key(&cur) || a.list.decodes_pending.keys().any(|k| k.0 == cur)

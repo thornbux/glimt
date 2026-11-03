@@ -1,13 +1,13 @@
 //! The background workers: decoding thumbnails, and what the window collects from every background
 //! job each frame.
 
-use crate::file_list::LARGE_THUMBS;
-use crate::file_list::ThumbView;
 use crate::files::file_ops::Job;
 use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::support::lang::tr;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
+use crate::ui::file_list::LARGE_THUMBS;
+use crate::ui::file_list::ThumbView;
 use crate::{features::remote, images::thumbs, malloc_trim, metadata::lightroom, tf};
 use eframe::egui;
 use std::path::PathBuf;

@@ -1,19 +1,19 @@
 //! The side panel: the folder list, the file list or icon grid with its thumbnails, dragging and
 //! the rubber band, and the status bar under it.
 
-use crate::actions::Action;
-use crate::dialogs::{Pick, Prompt};
 use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
-use crate::menus::scroll_menu;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;
+use crate::ui::actions::Action;
+use crate::ui::dialogs::{Pick, Prompt};
+use crate::ui::menus::scroll_menu;
+use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{broken_mark, pane_map};
-use crate::workers::spawn_thumbnailers;
-use crate::{files::config, model::collections, tf, theme};
+use crate::{files::config, model::collections, tf, ui::theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::collections::HashSet;

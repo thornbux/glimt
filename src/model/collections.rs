@@ -2,11 +2,11 @@
 //! file, one quoted path per line, kept in `$XDG_DATA_HOME/glimt/collections`; Geeqie's own
 //! collections can be opened too.
 
-use crate::actions::Action;
-use crate::menus::{iconed, menu_item, scroll_menu};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::{tf, theme};
+use crate::ui::actions::Action;
+use crate::ui::menus::{iconed, menu_item, scroll_menu};
+use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
