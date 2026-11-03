@@ -487,26 +487,24 @@ fn imports_name_where_defined() {
         })
         .map(|l| qualifiers_off(l.trim_start()))
         .collect();
-    // An item main.rs defines there, a macro not taken for a module path, or main.rs's tests
-    // module.
-    let defined = |name: &str, path: bool| {
+    // An item main.rs defines there, a macro exported to the crate root, or main.rs's tests
+    // module. A macro that is not exported, such as config!, is no name at the root.
+    let defined = |name: &str| {
         let defines = |l: &&str| {
             words.iter().any(|w| {
                 (l.strip_prefix(w).and_then(|r| r.strip_prefix(name)))
                     .is_some_and(|r| !r.starts_with(|c: char| c == '_' || c.is_alphanumeric()))
             })
         };
-        let macro_rule = format!("macro_rules! {name} ");
+        let macro_rule = format!("#[macro_export]\nmacro_rules! {name} ");
         top.iter().any(defines)
-            || !path && files.iter().any(|(_, t)| t.contains(&macro_rule))
+            || files.iter().any(|(_, t)| t.contains(&macro_rule))
             || name == "tests"
     };
     let mut wrong = Vec::new();
     for (file, text) in &files {
-        let lines = code_lines(text);
-        for (line, name) in crate_paths(&lines) {
-            let path = lines[line - 1].contains(&format!("crate::{name}::"));
-            if !modules.contains(&name) && !defined(&name, path) {
+        for (line, name) in crate_paths(&code_lines(text)) {
+            if !modules.contains(&name) && !defined(&name) {
                 wrong.push(format!("{file}:{line}: crate::{name}"));
             }
         }
