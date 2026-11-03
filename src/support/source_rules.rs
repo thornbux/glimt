@@ -565,6 +565,37 @@ fn agents_md_lists_every_module() {
     );
 }
 
+/// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
+/// and one file for each folder. A folder's file holds its `//!` doc and its `mod` lines and
+/// nothing else. A `pub use` there would let other files import a name through the folder, which
+/// hides the module that defines it.
+#[test]
+fn modules_live_in_their_folder() {
+    const ROOT: &[&str] = &["main.rs", "cli.rs"];
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut wrong = Vec::new();
+    for (path, text) in rust_sources() {
+        if path.contains('/') || ROOT.contains(&path.as_str()) {
+            continue;
+        }
+        if !src.join(path.trim_end_matches(".rs")).is_dir() {
+            wrong.push(format!("{path}: put it in the folder of what it does"));
+            continue;
+        }
+        let lines = code_lines(&text);
+        for (i, line) in lines.iter().enumerate() {
+            let is_mod = qualifiers_off(line).starts_with("mod ") && line.ends_with(';');
+            if !line.is_empty() && !is_mod && !line.starts_with("#[cfg(") {
+                wrong.push(format!(
+                    "{path}:{}: a folder's file holds only mod lines",
+                    i + 1
+                ));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 /// A comment fits the 100 columns rustfmt keeps code to, which rustfmt does not wrap: a longer
 /// one is read sideways, or wrapped by an editor in the middle of a word. Also one at the end
 /// of a line of code.
