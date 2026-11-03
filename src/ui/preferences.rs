@@ -194,8 +194,7 @@ impl crate::App {
         // Esc closes Preferences (shortcuts are off while it is open), unless a dialog on top
         // of it is the one Esc is meant for; a search in its field is cleared first.
         if open
-            && self.dialogs.prompt.is_none()
-            && self.dialogs.confirm_delete.is_none()
+            && !self.dialogs.asks_about_files()
             && self.prefs.capturing.is_none()
             && ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {

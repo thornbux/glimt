@@ -72,18 +72,69 @@ pub(crate) enum Prompt {
 #[derive(Default)]
 pub(crate) struct Dialogs {
     /// Open text dialog and the text typed so far.
-    pub(crate) prompt: Option<(Prompt, String)>,
+    prompt: Option<(Prompt, String)>,
     /// The delete confirmation is open: `Some(true)` = move to trash, `Some(false)` = permanently.
-    pub(crate) confirm_delete: Option<bool>,
+    confirm_delete: Option<bool>,
     /// The folder a folder's context menu acts on: to rename, or, with `confirm_folder`, to trash.
-    pub(crate) folder_target: Option<PathBuf>,
-    pub(crate) confirm_folder: bool,
+    folder_target: Option<PathBuf>,
+    confirm_folder: bool,
     /// Answer from an open file dialog (zenity or kdialog).
-    pub(crate) file_dialog: Option<Pick>,
-    pub(crate) file_dialog_rx: Receiving<Option<PathBuf>>,
+    file_dialog: Option<Pick>,
+    file_dialog_rx: Receiving<Option<PathBuf>>,
     /// The files Rename or a delete asked about, by their names in the list, and where the list
     /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
-    pub(crate) asked_for: (u64, Vec<OsString>),
+    asked_for: (u64, Vec<OsString>),
+}
+
+impl Dialogs {
+    /// Opens the text dialog `prompt`, with `text` typed in already.
+    pub(crate) fn ask(&mut self, prompt: Prompt, text: String) {
+        self.prompt = Some((prompt, text));
+    }
+
+    /// Asks whether to delete the files: to the trash when `trash`, else for good.
+    pub(crate) fn confirm_delete(&mut self, trash: bool) {
+        self.confirm_delete = Some(trash);
+    }
+
+    /// Whether Rename or a delete is asking about the files on screen.
+    pub(crate) fn asks_about_files(&self) -> bool {
+        self.prompt.is_some() || self.confirm_delete.is_some()
+    }
+
+    /// The files asked about, by their names, and where the list was when asked.
+    pub(crate) fn asked_about(&mut self, place: u64, names: Vec<OsString>) {
+        self.asked_for = (place, names);
+    }
+
+    /// The files asked about, taken for the answer to act on.
+    pub(crate) fn take_asked(&mut self) -> (u64, Vec<OsString>) {
+        std::mem::take(&mut self.asked_for)
+    }
+
+    /// Asks for a new name for the folder `dir`.
+    pub(crate) fn ask_rename_folder(&mut self, dir: &Path) {
+        let name = dir.file_name().unwrap_or_default().to_string_lossy();
+        self.prompt = Some((Prompt::RenameFolder, name.into_owned()));
+        self.folder_target = Some(dir.to_path_buf());
+    }
+
+    /// Asks whether to move the folder `dir` to the trash.
+    pub(crate) fn ask_trash_folder(&mut self, dir: &Path) {
+        self.folder_target = Some(dir.to_path_buf());
+        self.confirm_folder = true;
+    }
+
+    /// The folder the answer acts on, taken.
+    pub(crate) fn take_folder(&mut self) -> Option<PathBuf> {
+        self.folder_target.take()
+    }
+
+    /// The folder an answer acts on, without a dialog, for a test of the answer alone.
+    #[cfg(test)]
+    pub(crate) fn act_on_folder(&mut self, dir: PathBuf) {
+        self.folder_target = Some(dir);
+    }
 }
 
 impl crate::App {

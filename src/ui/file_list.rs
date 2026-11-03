@@ -10,7 +10,7 @@ use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
-use crate::ui::dialogs::{Pick, Prompt};
+use crate::ui::dialogs::Pick;
 use crate::ui::menus::scroll_menu;
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{broken_mark, pane_map};
@@ -917,13 +917,10 @@ impl crate::App {
                 self.folder.together = Some(all);
             }
             if ui.button(tr("Rename Folder…")).clicked() {
-                let name = dir.file_name().unwrap_or_default().to_string_lossy();
-                self.dialogs.prompt = Some((Prompt::RenameFolder, name.into_owned()));
-                self.dialogs.folder_target = Some(dir.to_path_buf());
+                self.dialogs.ask_rename_folder(dir);
             }
             if ui.button(tr("Move Folder to Trash…")).clicked() {
-                self.dialogs.folder_target = Some(dir.to_path_buf());
-                self.dialogs.confirm_folder = true;
+                self.dialogs.ask_trash_folder(dir);
             }
         });
     }

@@ -164,11 +164,7 @@ impl crate::App {
             return;
         }
         // Waits while Rename or a delete asks about the shown image.
-        if self.list.files.is_empty()
-            || self.slideshow.paused
-            || self.dialogs.prompt.is_some()
-            || self.dialogs.confirm_delete.is_some()
-        {
+        if self.list.files.is_empty() || self.slideshow.paused || self.dialogs.asks_about_files() {
             return;
         }
         // Several panes: the next set together, or the next image into one pane at a time.
