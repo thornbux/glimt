@@ -29,18 +29,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 
 mod cli;
-
 mod features;
-
 mod files;
-
 mod images;
-
 mod metadata;
 mod model;
-
 mod support;
-
 mod ui;
 mod viewer;
 
