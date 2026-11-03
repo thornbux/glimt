@@ -3,9 +3,9 @@
 //! together, at the start of a word or early in the name rank first. Also the EXIF index that
 //! `exif:` terms search: each file's fields and keywords as one line.
 
-use crate::FileRow;
 use crate::folder::send_sizes;
 use crate::lang::tr;
+use crate::list::FileRow;
 use crate::threads::small_alloc_threads;
 use crate::threads::{Receiving, Took, Working, background_threads, in_parts};
 use crate::{exif, xmp};

@@ -1,9 +1,9 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
-use crate::Viewing;
 use crate::actions::Action;
 use crate::folder::total_size;
 use crate::format::thousands;
+use crate::list::Viewing;
 use crate::threads::Receiving;
 use eframe::egui;
 use std::ffi::OsString;

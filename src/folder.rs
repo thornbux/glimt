@@ -7,12 +7,13 @@ use crate::config::sort_folders_path;
 use crate::external::Mounted;
 use crate::external::{Login, gio_mount};
 use crate::lang::tr;
+use crate::list::{List, Slot, Viewing};
 use crate::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::menus::{iconed, scroll_menu};
 use crate::threads::{Receiving, Took};
-use crate::{List, Slot, Viewing, collections, config, external, listing, noted, tf, theme};
+use crate::{collections, config, external, listing, noted, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
