@@ -8,7 +8,7 @@
 /// not written in tests). The window's logic without a window.
 pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Context) {
     let ctx = eframe::egui::Context::default();
-    let config = crate::config::Config {
+    let config = crate::files::config::Config {
         remote_control: false,
         keep_recent: false,
         save_thumbnails: false,

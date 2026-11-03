@@ -95,7 +95,7 @@ pub fn decode(
         None => {
             // HEIC, AVIF and video frames come from ffmpeg no larger than the box, with their
             // real size from the probe; the others whole, and shrunk here.
-            let to_box = crate::external::ffmpeg_decodes(path).then_some(max);
+            let to_box = crate::files::external::ffmpeg_decodes(path).then_some(max);
             let (img, icc, turn, size) = if page > 0 {
                 (page_of(path, page)?, None, Orientation::NoTransforms, None)
             } else {
@@ -456,7 +456,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
     let _ = max;
     #[cfg(feature = "video")]
-    if crate::external::is_video(path) {
+    if crate::files::external::is_video(path) {
         let (img, size) = crate::video::preview(path, max)?;
         return Ok((img, None, upright, size));
     }
@@ -464,8 +464,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((raw::load(path, rotate)?, None, upright, None));
     }
     #[cfg(any(feature = "heic", feature = "avif"))]
-    if crate::external::is_heif(path) {
-        let (img, size) = crate::external::heif(path, max)?;
+    if crate::files::external::is_heif(path) {
+        let (img, size) = crate::files::external::heif(path, max)?;
         return Ok((img, None, upright, size));
     }
     #[cfg(feature = "svg")]

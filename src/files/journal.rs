@@ -57,7 +57,8 @@ impl Drop for Journal {
 }
 
 pub fn dir() -> Option<PathBuf> {
-    crate::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt").map(|d| d.join("renames"))
+    crate::files::config::xdg_dir("XDG_STATE_HOME", ".local/state", "glimt")
+        .map(|d| d.join("renames"))
 }
 
 /// Write `moves` down in `dir`, locked and on disk, before the first of them is done. `None`
@@ -161,7 +162,7 @@ pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
     if same_file(a, b) {
         return std::fs::remove_file(a);
     }
-    crate::file_io::put_file(a, b, false)
+    crate::files::file_io::put_file(a, b, false)
 }
 
 /// The first `done` steps of `moves` undone, last first; (renamed, left). A name no longer

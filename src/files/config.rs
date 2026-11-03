@@ -3,7 +3,7 @@
 //! backup of Glimt's folders. How the files are written is in file_io.rs.
 
 use crate::actions::Keys;
-use crate::file_io::{edit_shared, save_failed, write_later};
+use crate::files::file_io::{edit_shared, save_failed, write_later};
 use crate::listing::Sort;
 use crate::print;
 use eframe::egui;
@@ -935,8 +935,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // A new file never lands over one made meanwhile.
         let file = dir.join("new.gqv");
-        crate::file_io::create_file(&file, "first").unwrap();
-        assert!(crate::file_io::create_file(&file, "second").is_err());
+        crate::files::file_io::create_file(&file, "first").unwrap();
+        assert!(crate::files::file_io::create_file(&file, "second").is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "first");
         let left = std::fs::read_dir(&dir).unwrap().flatten();
         assert!(
@@ -947,9 +947,9 @@ mod tests {
         // A name near the limit of 255 bytes is written again, and its sidecar too: the
         // temporary name made from it was too long.
         let long = dir.join(format!("{}.jpg", "a".repeat(240)));
-        crate::file_io::create_file(&long, "x").unwrap();
-        crate::file_io::replace_file(&long, "y").unwrap();
-        crate::file_io::replace_file(&crate::xmp::sidecar(&long), "<x/>").unwrap();
+        crate::files::file_io::create_file(&long, "x").unwrap();
+        crate::files::file_io::replace_file(&long, "y").unwrap();
+        crate::files::file_io::replace_file(&crate::xmp::sidecar(&long), "<x/>").unwrap();
         assert_eq!(std::fs::read_to_string(&long).unwrap(), "y");
         let file = dir.join("config");
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
@@ -957,11 +957,15 @@ mod tests {
         assert_eq!(Config::parse(&text).delay, 5);
         // Not there: none; there but unreadable (a folder): an error, never written over.
         assert_eq!(
-            crate::file_io::read_or_none(&dir.join("none")).unwrap(),
+            crate::files::file_io::read_or_none(&dir.join("none")).unwrap(),
             None
         );
-        assert!(crate::file_io::read_or_none(&dir).is_err());
-        assert!(crate::file_io::read_or_none(&file).unwrap().is_some());
+        assert!(crate::files::file_io::read_or_none(&dir).is_err());
+        assert!(
+            crate::files::file_io::read_or_none(&file)
+                .unwrap()
+                .is_some()
+        );
         assert!(text.contains('\u{fffd}'));
         std::fs::remove_dir_all(&dir).unwrap();
         // The choices by name, or by the number of before 1.0; written by name.

@@ -560,99 +560,99 @@ msgstr "Togli tutte le spunte"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, tra {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Backup in corso"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Copia"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Copia in corso"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Impossibile creare {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Impossibile rinominare {f} in {t}: {e}; nulla è stato rinominato"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Impossibile salvare i fotogrammi: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Eliminazione non riuscita ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Eliminazione"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Ridenominazione"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Esportazione"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (da glib): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Sposta"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Spostamento"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "{file} salvato"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Salvato; si vede quando Ruota automaticamente secondo l'EXIF è attivo"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Si sta ancora salvando una rotazione: riprova tra un momento"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "I file richiesti non sono più nell'elenco: non è stato fatto nulla"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Lo schema dà lo stesso nome a più file; aggiungi # per un numero"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "La scrittura dei file sidecar si è fermata su un file che l'ha fatta fallire"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} eliminati"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} spostati nel cestino"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} salvati in {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} esiste già; nulla è stato rinominato"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb}: non riuscito ({count}): {first}"
 
@@ -2005,7 +2005,7 @@ msgstr " pagina {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " fotogramma {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Impossibile rinominare {f} in {t}: {e}; non è stato possibile rimettere tutti i nomi, Glimt propone di correggerli al prossimo avvio"
 
@@ -2037,11 +2037,11 @@ msgstr "sab"
 msgid "Sun"
 msgstr "dom"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Si stanno ancora scrivendo parole chiave: riprova tra un momento"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Si sta ancora lavorando su questi file: riprova tra un momento"
 
@@ -2073,7 +2073,7 @@ msgstr "I giorni della vista panoramica"
 msgid "Rename Many"
 msgstr "Rinomina multipla"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Nessuna risposta dal server in un minuto"
 
@@ -2081,7 +2081,7 @@ msgstr "Nessuna risposta dal server in un minuto"
 msgid "The catalog is too large to read"
 msgstr "Il catalogo è troppo grande da leggere"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "fermato"
 
@@ -2101,7 +2101,7 @@ msgstr "Lettura della cartella"
 msgid "No answer from the print server in two minutes"
 msgstr "Nessuna risposta dal server di stampa in due minuti"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Impossibile rinominare {f} in {t}: {e}; non è stato possibile rimettere tutti i nomi né conservare un piano: i file con nomi .glimt-rename-* accanto sono loro"
 
@@ -2149,31 +2149,31 @@ msgstr "S avvia e ferma, R ordine casuale, Ctrl+= più veloce, Ctrl+- più lenta
 msgid "Undo"
 msgstr "Annulla"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Niente da annullare"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Annullamento non riuscito ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Annullamento non riuscito: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} ripristinati dal cestino"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} rimessi a posto"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} esiste già"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} non è nel cestino"
 
@@ -2329,7 +2329,7 @@ msgstr "Copie delle immagini nella tua cartella home: quelle di un volume cifrat
 msgid "Stop {name}"
 msgstr "Ferma {name}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "La rotazione non è stata salvata: un altro lavoro sta ancora modificando il file"
 

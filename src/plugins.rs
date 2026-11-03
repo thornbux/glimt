@@ -49,7 +49,7 @@ impl Plugin {
             // `stoppable_command`: its --watch-bus would end an editor
             // on the host when the Flatpak's Glimt closes, with its unsaved work.
             use std::os::unix::process::CommandExt;
-            let child = crate::external::host_command(program.to_string_lossy().as_ref())
+            let child = crate::files::external::host_command(program.to_string_lossy().as_ref())
                 .process_group(0)
                 .args(&args[1..])
                 .current_dir(folder)
@@ -92,7 +92,7 @@ pub fn find() -> Vec<Plugin> {
 /// and the system's, with their text: one in the user's hides one of the same name in the
 /// system's.
 pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
-    let home = crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
+    let home = crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt");
     let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
     let mut seen = std::collections::HashSet::new();
     (home.into_iter())
@@ -247,7 +247,7 @@ mod tests {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
                 let (_, pid) = running.lock().unwrap().remove(0);
-                crate::external::stop(pid);
+                crate::files::external::stop(pid);
             })
         };
         assert_eq!(endless.run(&files, &dir, &running), Err("stopped".into()));

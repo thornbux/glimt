@@ -1,7 +1,7 @@
 //! The backup (File → Back Up, glimt --back-up): Glimt's own folders of settings, marks and
 //! stars, collections, plugins and decoders, copied into a new folder.
 
-use crate::config::xdg_dir;
+use crate::files::config::xdg_dir;
 use crate::support::format::{count, local_time};
 use std::path::{Path, PathBuf};
 

@@ -3,13 +3,13 @@
 
 use crate::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
 use crate::colour::{INPUT_PROFILES, INTENTS};
-use crate::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
 use crate::decode::MAX_ANIMATION;
 use crate::dialogs::Pick;
+use crate::files::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
 use crate::support::format::thousands;
 use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
-use crate::{actions, config, support::lang, tf, theme, thumbs};
+use crate::{actions, files::config, support::lang, tf, theme, thumbs};
 use eframe::egui;
 use std::path::Path;
 use std::sync::atomic::Ordering;

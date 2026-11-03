@@ -35,7 +35,7 @@ impl Decoder {
 
     /// The image the command writes for `path`.
     pub fn decode(&self, path: &Path) -> Result<image::DynamicImage, String> {
-        self.run(path, crate::external::LIMIT)
+        self.run(path, crate::files::external::LIMIT)
     }
 
     fn run(&self, path: &Path, limit: Duration) -> Result<image::DynamicImage, String> {
@@ -56,12 +56,13 @@ impl Decoder {
         let program = PathBuf::from(&args[0]);
         let local = self.dir.join(&program);
         let program = if local.is_file() { local } else { program };
-        let mut child = crate::external::stoppable_host_command(program.to_string_lossy().as_ref())
-            .args(&args[1..])
-            .spawn()
-            .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
+        let mut child =
+            crate::files::external::stoppable_host_command(program.to_string_lossy().as_ref())
+                .args(&args[1..])
+                .spawn()
+                .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
         let max = crate::decode::MAX_DECODE + 64;
-        let (image, err, ok) = crate::external::output_of(&mut child, max, limit);
+        let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
             let last = err.lines().last().unwrap_or("no image").trim().to_owned();

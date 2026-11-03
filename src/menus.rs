@@ -6,14 +6,14 @@ use crate::colour::{
     COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, read_desktop_screen, set_colour, set_input, set_intent,
     set_screen,
 };
-use crate::config::xdg_dir;
 use crate::dialogs::Prompt;
-use crate::external::{apps_for, command, open_url};
-use crate::file_ops::Deleted;
+use crate::files::config::xdg_dir;
+use crate::files::external::{apps_for, command, open_url};
+use crate::files::file_ops::Deleted;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;
-use crate::{collections, config, external, plugins, tf, theme};
+use crate::{collections, files::config, files::external, plugins, tf, theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -571,7 +571,7 @@ impl crate::App {
                 return;
             };
             #[cfg(feature = "portals")]
-            if apps.is_empty() && crate::portal::in_flatpak() {
+            if apps.is_empty() && crate::files::portal::in_flatpak() {
                 // The Flatpak, without the host's applications: the desktop's own chooser.
                 if ui
                     .button(iconed(ui, theme::icon::APP, tr("Choose Application…")))
@@ -584,7 +584,7 @@ impl crate::App {
                     std::thread::spawn(move || {
                         // Cancel ends them all, not only the one asked about.
                         for path in files {
-                            match crate::portal::open_with(&path) {
+                            match crate::files::portal::open_with(&path) {
                                 Ok(true) => {}
                                 Ok(false) => break,
                                 Err(e) => drop(tx.send(e)),

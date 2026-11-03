@@ -560,99 +560,99 @@ msgstr "Fjern alle markeringer"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, blandt {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Sikkerhedskopierer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Kopiér"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Kopierer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Kunne ikke oprette {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kunne ikke omdøbe {f} til {t}: {e}; intet blev omdøbt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Kunne ikke gemme rammerne: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Sletning mislykkedes ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Sletter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Omdøber"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Eksporterer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (fra glib): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Flyt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Flytter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "Gemte {file}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Gemt; det ses, når Roter automatisk efter EXIF er slået til"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Gemmer stadig en rotation: prøv igen om et øjeblik"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Filerne, der blev spurgt om, er ikke længere i listen: intet blev gjort"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Mønsteret giver flere filer samme navn; tilføj # for et nummer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Skrivningen af sidefilerne stoppede ved en fil, der fik den til at fejle"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} slettet"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} flyttet til papirkurven"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} gemt i {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} findes allerede; intet blev omdøbt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} mislykkedes ({count}): {first}"
 
@@ -2005,7 +2005,7 @@ msgstr " side {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " ramme {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunne ikke omdøbe {f} til {t}: {e}; ikke alle navne kunne sættes tilbage, Glimt tilbyder at rette dem ved næste start"
 
@@ -2037,11 +2037,11 @@ msgstr "lør"
 msgid "Sun"
 msgstr "søn"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Skriver stadig nøgleord: prøv igen om et øjeblik"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Arbejder stadig med disse filer: prøv igen om et øjeblik"
 
@@ -2073,7 +2073,7 @@ msgstr "Panoramavisningens dage"
 msgid "Rename Many"
 msgstr "Omdøb flere"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Intet svar fra serveren i et minut"
 
@@ -2081,7 +2081,7 @@ msgstr "Intet svar fra serveren i et minut"
 msgid "The catalog is too large to read"
 msgstr "Kataloget er for stort til at blive læst"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "stoppet"
 
@@ -2101,7 +2101,7 @@ msgstr "Læser mappen"
 msgid "No answer from the print server in two minutes"
 msgstr "Intet svar fra printserveren i to minutter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Kunne ikke omdøbe {f} til {t}: {e}; ikke alle navne kunne sættes tilbage, og ingen plan kunne gemmes: filerne med .glimt-rename-*-navne ved siden af dem er deres"
 
@@ -2149,31 +2149,31 @@ msgstr "S starter og stopper, R tilfældig rækkefølge, Ctrl+= hurtigere, Ctrl+
 msgid "Undo"
 msgstr "Fortryd"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Intet at fortryde"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Fortryd mislykkedes ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Fortryd mislykkedes: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} tilbage fra papirkurven"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} flyttet tilbage"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} findes allerede"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} er ikke i papirkurven"
 
@@ -2329,7 +2329,7 @@ msgstr "Kopier af billederne i din hjemmemappe: dem fra et krypteret drev eller 
 msgid "Stop {name}"
 msgstr "Stop {name}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Rotationen blev ikke gemt: andet arbejde ændrer stadig filen"
 

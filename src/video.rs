@@ -16,7 +16,7 @@ pub fn preview(
     path: &Path,
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
-    use crate::external::{ffmpeg_frame, probe_size};
+    use crate::files::external::{ffmpeg_frame, probe_size};
     let img = ffmpeg_frame(path, "1", max).or_else(|_| ffmpeg_frame(path, "0", max))?;
     Ok((img, max.and_then(|_| probe_size(path))))
 }

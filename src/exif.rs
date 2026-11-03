@@ -408,7 +408,7 @@ pub fn write_orientation(
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let data = crate::decode::read_limited(path).map_err(|e| e.to_string())?;
-    crate::file_io::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
+    crate::files::file_io::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
         .map_err(|e| e.to_string())
 }
 
@@ -705,7 +705,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     }
     // HEIC and AVIF keep the EXIF block as an item of its own, "Exif\0\0" and a TIFF header.
     // From the first MB, where it usually is, before the whole file; a MB of it at most.
-    if crate::external::is_heif(path) {
+    if crate::files::external::is_heif(path) {
         let find = |data: &[u8]| {
             let at = (data.windows(8))
                 .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;

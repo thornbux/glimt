@@ -560,99 +560,99 @@ msgstr "Poista kaikki valinnat"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, joukossa {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Varmuuskopioidaan"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Kopioi"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Kopioidaan"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Kohdetta {folder} ei voitu luoda"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; mitään ei nimetty uudelleen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Ruutuja ei voitu tallentaa: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Poisto epäonnistui ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Poistetaan"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Nimetään uudelleen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Viedään"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (glibistä): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Siirrä"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Siirretään"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "Tallennettu {file}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Tallennettu; näkyy, kun Kierrä automaattisesti EXIFin mukaan on päällä"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Kiertoa tallennetaan vielä: yritä hetken päästä uudelleen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Kysytyt tiedostot eivät ole enää luettelossa: mitään ei tehty"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Kaava antaa usealle tiedostolle saman nimen; lisää # numeroa varten"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Sivutiedostojen kirjoitus pysähtyi tiedostoon, joka sai sen epäonnistumaan"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} poistettu"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} siirretty roskakoriin"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} tallennettu kansioon {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} on jo olemassa; mitään ei nimetty uudelleen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} epäonnistui ({count}): {first}"
 
@@ -2005,7 +2005,7 @@ msgstr " sivu {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " ruutu {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa, Glimt tarjoutuu korjaamaan ne seuraavalla käynnistyskerralla"
 
@@ -2037,11 +2037,11 @@ msgstr "la"
 msgid "Sun"
 msgstr "su"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Avainsanoja kirjoitetaan vielä: yritä hetken päästä uudelleen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Näitä tiedostoja käsitellään vielä: yritä hetken päästä uudelleen"
 
@@ -2073,7 +2073,7 @@ msgstr "Yleiskatsauksen päivät"
 msgid "Rename Many"
 msgstr "Nimeä useita uudelleen"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Ei vastausta palvelimelta minuuttiin"
 
@@ -2081,7 +2081,7 @@ msgstr "Ei vastausta palvelimelta minuuttiin"
 msgid "The catalog is too large to read"
 msgstr "Luettelo on liian suuri luettavaksi"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "pysäytetty"
 
@@ -2101,7 +2101,7 @@ msgstr "Luetaan kansiota"
 msgid "No answer from the print server in two minutes"
 msgstr "Ei vastausta tulostuspalvelimelta kahteen minuuttiin"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Kohdetta {f} ei voitu nimetä nimelle {t}: {e}; kaikkia nimiä ei voitu palauttaa eikä suunnitelmaa voitu säilyttää: niiden vieressä olevat .glimt-rename-*-nimiset tiedostot ovat niiden"
 
@@ -2149,31 +2149,31 @@ msgstr "S aloittaa ja lopettaa, R satunnainen järjestys, Ctrl+= nopeammin, Ctrl
 msgid "Undo"
 msgstr "Kumoa"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Ei mitään kumottavaa"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Kumoaminen epäonnistui ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Kumoaminen epäonnistui: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} palautettu roskakorista"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} siirretty takaisin"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} on jo olemassa"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} ei ole roskakorissa"
 
@@ -2329,7 +2329,7 @@ msgstr "Kuvien kopioita kotikansiossasi: salatun aseman tai muistitikun kuvat ov
 msgid "Stop {name}"
 msgstr "Pysäytä {name}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Kiertoa ei tallennettu: muu työ muuttaa tiedostoa yhä"
 

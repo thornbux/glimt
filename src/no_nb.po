@@ -648,127 +648,127 @@ msgstr "Fjern alle avmerkinger"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, blant {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Tar sikkerhetskopi"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Kopier"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Kopierer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Kunne ikke lage {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kunne ikke gi {f} navnet {t}: {e}; ingenting er omdøpt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Kunne ikke lagre rutene: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Sletting mislyktes ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Sletter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Omdøper"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Eksporterer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Ingenting å angre"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Angring mislyktes ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Angring mislyktes: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (fra glib): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Flytt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Flytter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "Lagret {file}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Lagret; det vises når Roter automatisk etter EXIF er på"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Lagrer fortsatt en rotasjon: prøv igjen om et øyeblikk"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Filene det ble spurt om er ikke lenger i listen: ingenting ble gjort"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Mønsteret gir flere filer samme navn; legg til # for et nummer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Skrivingen av sidefilene stoppet ved en fil som gjorde at den feilet"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} hentet tilbake fra papirkurven"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} slettet"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} flyttet til papirkurven"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} flyttet tilbake"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} lagret i {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} finnes allerede"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} finnes allerede; ingenting er omdøpt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} er ikke i papirkurven"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} mislyktes ({count}): {first}"
 
@@ -2168,7 +2168,7 @@ msgstr " side {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " rute {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunne ikke gi {f} navnet {t}: {e}; ikke alle navn kunne settes tilbake, Glimt tilbyr å rette dem ved neste oppstart"
 
@@ -2200,11 +2200,11 @@ msgstr "lør"
 msgid "Sun"
 msgstr "søn"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Skriver fortsatt nøkkelord: prøv igjen om et øyeblikk"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Arbeider fortsatt med disse filene: prøv igjen om et øyeblikk"
 
@@ -2236,7 +2236,7 @@ msgstr "Panoramavisningens dager"
 msgid "Rename Many"
 msgstr "Gi mange nye navn"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Ikke noe svar fra tjeneren på et minutt"
 
@@ -2244,7 +2244,7 @@ msgstr "Ikke noe svar fra tjeneren på et minutt"
 msgid "The catalog is too large to read"
 msgstr "Katalogen er for stor til å lese"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "stoppet"
 
@@ -2264,7 +2264,7 @@ msgstr "Lesing av mappa"
 msgid "No answer from the print server in two minutes"
 msgstr "Ikke noe svar fra utskriftstjeneren på to minutter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Kunne ikke døpe om {f} til {t}: {e}; ikke alle navn kunne settes tilbake, og ingen plan kunne lagres: filene med .glimt-rename-*-navn ved siden av er deres"
 
@@ -2340,7 +2340,7 @@ msgstr "Kopier av bildene i hjemmemappa di: de fra et kryptert volum eller en mi
 msgid "Stop {name}"
 msgstr "Stopp {name}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Rotasjonen ble ikke lagret: annet arbeid endrer fortsatt fila"
 

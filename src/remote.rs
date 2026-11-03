@@ -708,7 +708,7 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
 pub fn mark_focused() {
     if let Some(d) = dir() {
         // Whole, never truncated first: a `--remote` reading it meanwhile got an empty name.
-        let _ = crate::file_io::replace_file(&d.join("focused"), socket_id());
+        let _ = crate::files::file_io::replace_file(&d.join("focused"), socket_id());
     }
 }
 

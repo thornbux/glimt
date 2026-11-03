@@ -114,7 +114,10 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         // shortcut: a third close (which waits for nothing) or a stick pulled out leaves the
         // part under this hidden name, and nothing removes it later; a sweep of
         // .glimt-copy-* at the next start if those are ever seen in numbers.
-        let part = to.with_file_name(format!(".glimt-copy-{}-{k}", crate::file_io::own_tag()));
+        let part = to.with_file_name(format!(
+            ".glimt-copy-{}-{k}",
+            crate::files::file_io::own_tag()
+        ));
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.
         #[allow(clippy::disallowed_methods)] // a copy's hidden part, made new
@@ -322,7 +325,7 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
         &tmp_path(path),
         path,
         |f| f.write_all(bytes.as_ref()),
-        |tmp| crate::file_io::rename_never_over(tmp, path),
+        |tmp| crate::files::file_io::rename_never_over(tmp, path),
     )
 }
 

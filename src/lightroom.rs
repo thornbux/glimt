@@ -479,7 +479,7 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     if file.with_extension("lrcat.lock").exists() {
         return Err(tr("Lightroom has the catalog open: close Lightroom first").into());
     }
-    if !crate::external::has("sqlite3") {
+    if !crate::files::external::has("sqlite3") {
         return Err(tf!("{needs}, which is not installed", needs = tr(NEEDS)));
     }
     // A catalog may come from anywhere: one with a view (or a schema whose rows say otherwise)
@@ -488,13 +488,14 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     // -safe and is not used: before 3.30 nothing else stops them.
     // As every external program: its output read beside its errors, and ended after the usual
     // limit, so a catalog on a share that stalls does not hold the import for ever.
-    let mut child = crate::external::stoppable_command("sqlite3")
+    let mut child = crate::files::external::stoppable_command("sqlite3")
         .args(ARGS)
         .arg(file)
         .arg(check() + QUERY)
         .spawn()
         .map_err(|e| format!("{NEEDS}: {e}"))?;
-    let (out, why, ok) = crate::external::output_of(&mut child, 256 << 20, crate::external::LIMIT);
+    let (out, why, ok) =
+        crate::files::external::output_of(&mut child, 256 << 20, crate::files::external::LIMIT);
     let out = out.ok_or_else(|| tr("The catalog is too large to read").to_owned())?;
     let catalog = parse(&out);
     if let Some((name, kind)) = catalog.not_tables.first() {
@@ -669,7 +670,7 @@ mod tests {
     /// before it is read.
     #[test]
     fn refuses_a_catalog_with_views() {
-        if !crate::external::has("sqlite3") {
+        if !crate::files::external::has("sqlite3") {
             return eprintln!("no sqlite3: not tested");
         }
         let dir = std::env::temp_dir().join(format!("glimt-test-lrcat-{}", std::process::id()));
@@ -685,9 +686,10 @@ mod tests {
                 CREATE TABLE AgLibraryKeyword(id_local, parent, name);
                 CREATE TABLE AgLibraryKeywordImage(image, tag);"
             );
-            let mut sqlite = crate::external::stoppable_command("sqlite3");
+            let mut sqlite = crate::files::external::stoppable_command("sqlite3");
             sqlite.arg(&file).arg(schema);
-            crate::external::run_limited(sqlite, 1 << 16, crate::external::LIMIT).unwrap();
+            crate::files::external::run_limited(sqlite, 1 << 16, crate::files::external::LIMIT)
+                .unwrap();
             file
         };
         let tables = make(
@@ -728,19 +730,21 @@ mod tests {
     /// database, which a test cannot point elsewhere.
     #[test]
     fn ignores_the_users_sqliterc() {
-        if !crate::external::has("sqlite3") {
+        if !crate::files::external::has("sqlite3") {
             return eprintln!("no sqlite3: not tested");
         }
         let config = std::env::temp_dir().join(format!("glimt-test-rc-{}", std::process::id()));
         std::fs::create_dir_all(config.join("sqlite3")).unwrap();
         std::fs::write(config.join("sqlite3/sqliterc"), ".mode json\n").unwrap();
-        let mut sqlite = crate::external::stoppable_command("sqlite3");
+        let mut sqlite = crate::files::external::stoppable_command("sqlite3");
         sqlite
             .env("XDG_CONFIG_HOME", &config)
             .args(super::ARGS)
             .arg(":memory:");
         sqlite.arg("SELECT 'r', 1, '/Photos/', '', '';");
-        let out = crate::external::run_limited(sqlite, 1 << 16, crate::external::LIMIT).unwrap();
+        let out =
+            crate::files::external::run_limited(sqlite, 1 << 16, crate::files::external::LIMIT)
+                .unwrap();
         assert_eq!(super::parse(&out).roots, [(1, "/Photos/".to_owned())]);
         std::fs::remove_dir_all(config).unwrap();
     }

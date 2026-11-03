@@ -1,7 +1,7 @@
 //! The file list: which files are images (by extension and file type), reading a folder or a tree
 //! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
 
-use crate::external::{is_heif, is_video};
+use crate::files::external::{is_heif, is_video};
 use crate::{exif, raw};
 use std::collections::HashSet;
 use std::ffi::OsString;

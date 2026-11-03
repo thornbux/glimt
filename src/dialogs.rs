@@ -1,16 +1,16 @@
 //! The file chooser (zenity or kdialog) and the small dialogs: a name asked for, a delete
 //! confirmed, a share's login, a job cut short.
 
-use crate::config::xdg_dir;
-use crate::external::{Login, command};
-use crate::file_ops::Deleted;
+use crate::files::config::xdg_dir;
+use crate::files::external::{Login, command};
+use crate::files::file_ops::Deleted;
 use crate::listing::pattern_name;
 use crate::print::{PrintJob, PrintTo};
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
-use crate::{collections, external, journal, save, tf, theme};
+use crate::{collections, files::external, files::journal, save, tf, theme};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -377,7 +377,7 @@ impl crate::App {
                 }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
                 // Whole or not at all: a full disk left half a theme, whose name was then taken.
-                let made = crate::file_io::create_file(&f, theme::Theme::file_from(ctx));
+                let made = crate::files::file_io::create_file(&f, theme::Theme::file_from(ctx));
                 made.map(|_| f).map_err(|e| match e.kind() {
                     std::io::ErrorKind::AlreadyExists => {
                         tf!("{text} exists already: choose another name", text)

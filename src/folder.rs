@@ -1,11 +1,11 @@
 //! Opening a folder, a collection or several folders, listing them, and following changes.
 
 use crate::actions::Action;
-use crate::config::Config;
-use crate::config::sort_folders_from;
-use crate::config::sort_folders_path;
-use crate::external::Mounted;
-use crate::external::{Login, gio_mount};
+use crate::files::config::Config;
+use crate::files::config::sort_folders_from;
+use crate::files::config::sort_folders_path;
+use crate::files::external::Mounted;
+use crate::files::external::{Login, gio_mount};
 use crate::list::{List, Slot, Viewing};
 use crate::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
@@ -14,7 +14,7 @@ use crate::menus::{iconed, scroll_menu};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
-use crate::{collections, config, external, listing, tf, theme};
+use crate::{collections, files::config, files::external, listing, tf, theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -87,7 +87,9 @@ impl Folder {
         // No list kept: one of before goes too, also when the setting was changed in the file.
         let recent = match config::recent_path() {
             Some(file) if !config.keep_recent => {
-                crate::file_io::write_later(move || crate::file_io::remove_shared(&file));
+                crate::files::file_io::write_later(move || {
+                    crate::files::file_io::remove_shared(&file)
+                });
                 Vec::new()
             }
             Some(file) => crate::decode::read_limited(file)
@@ -351,7 +353,7 @@ impl crate::App {
         }
         self.folder.recent = config::add_recent(&self.folder.recent, path);
         let path = path.to_path_buf();
-        crate::file_io::write_later(move || {
+        crate::files::file_io::write_later(move || {
             let Some(file) = config::recent_path() else {
                 return;
             };
@@ -361,8 +363,11 @@ impl crate::App {
                 let all = config::add_recent(&config::parse_recent(old), &path);
                 (config::recent_text(&all), ())
             };
-            if let Err(e) = crate::file_io::edit_shared(&file, add) {
-                crate::file_io::save_failed(format!("Could not save {}: {e}", file.display()));
+            if let Err(e) = crate::files::file_io::edit_shared(&file, add) {
+                crate::files::file_io::save_failed(format!(
+                    "Could not save {}: {e}",
+                    file.display()
+                ));
             }
         });
     }
@@ -371,7 +376,7 @@ impl crate::App {
     pub(crate) fn clear_recent(&mut self) {
         self.folder.recent.clear();
         if let Some(file) = config::recent_path() {
-            crate::file_io::write_later(move || crate::file_io::remove_shared(&file));
+            crate::files::file_io::write_later(move || crate::files::file_io::remove_shared(&file));
         }
     }
 

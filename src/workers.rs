@@ -5,7 +5,7 @@ use crate::colour::srgb_to_display;
 use crate::decode::color_image;
 use crate::file_list::LARGE_THUMBS;
 use crate::file_list::ThumbView;
-use crate::file_ops::Job;
+use crate::files::file_ops::Job;
 use crate::support::lang::tr;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
 use crate::{lightroom, malloc_trim, remote, tf, thumbs};
@@ -19,7 +19,7 @@ impl crate::App {
     /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
     /// notices and the file dialog's answer.
     pub(crate) fn poll_background(&mut self, ctx: &egui::Context) {
-        if let Some(error) = crate::file_io::take_save_error() {
+        if let Some(error) = crate::files::file_io::take_save_error() {
             self.notice = Some(error);
         }
         self.receive_desktop(ctx);

@@ -72,25 +72,17 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, and `--lock-settings` |
-| `src/backup.rs` | The backup (File → Back Up, `--back-up`): Glimt's own folders (`own_folders`) copied into a new folder (`copy_tree`, `back_up_to`) |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `rename_files`; Undo |
-| `src/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
-| `src/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `Thrown` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
 | `src/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
 | `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
 | `src/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
-| `src/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
-| `src/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`in_flatpak`, `print`, `open_with`, `inhibit_idle`) |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
 | `src/collections.rs` | Collections: Geeqie `.gqv` files of images from any folders, and putting them in order (`moved`, `dropped`) |
 | `src/duplicates.rs` | Find Duplicates: groups by checksum, name, size, dimensions or likeness, and its window |
 | `src/exif.rs` | Minimal EXIF (TIFF) parser for the panel, the EXIF window's every field, the overlay and date sorting; writes a JPEG's orientation |
-| `src/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `src/lightroom.rs` | Import Lightroom Catalog: a Lightroom Classic `.lrcat` read through `sqlite3`, `Catalog::plan`, the dialog and the import |
 | `src/marks.rs` | Optional marks 1–6 and stars, kept in `$XDG_STATE_HOME/glimt/marks`, and stars in XMP |
 | `src/xmp.rs` | Keywords, comment, IPTC alt text and extended description in XMP sidecars, keyword tree paths; `update_sidecar` (also for stars); sidecars that follow their files |
@@ -111,6 +103,15 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
 | `src/support/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
+| `src/files.rs` | **The files/ folder:** how files change on disk: file operations, the trash, the writers, Glimt's own files, and the external programs and portals |
+| `src/files/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, and `--lock-settings` |
+| `src/files/backup.rs` | The backup (File → Back Up, `--back-up`): Glimt's own folders (`own_folders`) copied into a new folder (`copy_tree`, `back_up_to`) |
+| `src/files/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `rename_files`; Undo |
+| `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
+| `src/files/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `Thrown` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
+| `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
+| `src/files/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`in_flatpak`, `print`, `open_with`, `inhibit_idle`) |
+| `src/files/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
@@ -426,7 +427,7 @@ flatpak run io.github.thornbux.Glimt
   On a local build (`builddir`) the linter's only complaints are the screenshots and icons not
   mirrored, which Flathub's builder does.
 - Glimt's own external programs go through `command()` or `stoppable_command()` in
-  `src/external.rs`, which in the Flatpak run the runtime's, in the sandbox (Flathub allows no
+  `src/files/external.rs`, which in the Flatpak run the runtime's, in the sandbox (Flathub allows no
   `flatpak-spawn --host`). The user's own programs, and those only the host has, go through
   `host_command()` or `stoppable_host_command()`: on the host, after `flatpak override --user
   --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`, else an error saying so.

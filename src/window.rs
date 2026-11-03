@@ -1,8 +1,8 @@
 //! The window itself: its size and place remembered, and the screen saver kept off in full screen.
 
-use crate::config::WindowState;
+use crate::files::config::WindowState;
 use crate::support::format::fill_template;
-use crate::{external, remote, tf};
+use crate::{files::external, remote, tf};
 use eframe::egui;
 use std::path::Path;
 use std::sync::Arc;
@@ -177,8 +177,8 @@ impl crate::App {
         let inhibitor = self.window.inhibitor.clone();
         std::thread::spawn(move || {
             #[cfg(feature = "portals")]
-            let portal = (crate::portal::in_flatpak())
-                .then(|| crate::portal::inhibit_idle("Glimt full screen"))
+            let portal = (crate::files::portal::in_flatpak())
+                .then(|| crate::files::portal::inhibit_idle("Glimt full screen"))
                 .and_then(|held| held.map_err(|e| eprintln!("inhibit portal: {e}")).ok());
             #[cfg(not(feature = "portals"))]
             let portal: Option<std::sync::mpsc::Sender<()>> = None;

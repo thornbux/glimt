@@ -560,99 +560,99 @@ msgstr "Alles uitvinken"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, onder {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Back-up maken"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Kopiëren"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Kopiëren"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Kon {folder} niet aanmaken"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kon {f} niet hernoemen naar {t}: {e}; niets hernoemd"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Kon de frames niet opslaan: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Verwijderen mislukt ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Verwijderen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Hernoemen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Exporteren"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (uit glib): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Verplaatsen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Verplaatsen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "{file} opgeslagen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Opgeslagen; zichtbaar wanneer Automatisch draaien volgens EXIF aan staat"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Er wordt nog een draaiing opgeslagen: probeer het zo opnieuw"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "De gevraagde bestanden staan niet meer in de lijst: er is niets gedaan"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Het patroon geeft meerdere bestanden dezelfde naam; voeg # toe voor een nummer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Het schrijven van de sidecar-bestanden stopte bij een bestand dat het liet mislukken"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} verwijderd"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} naar prullenbak verplaatst"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} opgeslagen in {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} bestaat al; niets hernoemd"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} mislukt ({count}): {first}"
 
@@ -2005,7 +2005,7 @@ msgstr " pagina {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " frame {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kon {f} niet hernoemen naar {t}: {e}; niet alle namen konden worden teruggezet, Glimt biedt aan ze bij de volgende start te herstellen"
 
@@ -2037,11 +2037,11 @@ msgstr "za"
 msgid "Sun"
 msgstr "zo"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Er worden nog trefwoorden geschreven: probeer het zo opnieuw"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Er wordt nog aan deze bestanden gewerkt: probeer het zo opnieuw"
 
@@ -2073,7 +2073,7 @@ msgstr "De dagen van het overzicht"
 msgid "Rename Many"
 msgstr "Meerdere hernoemen"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Geen antwoord van de server binnen een minuut"
 
@@ -2081,7 +2081,7 @@ msgstr "Geen antwoord van de server binnen een minuut"
 msgid "The catalog is too large to read"
 msgstr "De catalogus is te groot om te lezen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "gestopt"
 
@@ -2101,7 +2101,7 @@ msgstr "De map lezen"
 msgid "No answer from the print server in two minutes"
 msgstr "Geen antwoord van de afdrukserver binnen twee minuten"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Kon {f} niet hernoemen naar {t}: {e}; niet alle namen konden worden teruggezet en er kon geen plan worden bewaard: de bestanden met .glimt-rename-*-namen ernaast zijn van hen"
 
@@ -2149,31 +2149,31 @@ msgstr "S start en stopt, R willekeurige volgorde, Ctrl+= sneller, Ctrl+- langza
 msgid "Undo"
 msgstr "Ongedaan maken"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Niets om ongedaan te maken"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Ongedaan maken mislukt ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Ongedaan maken mislukt: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} terug uit de prullenbak"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} teruggezet"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} bestaat al"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} is niet in de prullenbak"
 
@@ -2329,7 +2329,7 @@ msgstr "Kopieën van de afbeeldingen in je thuismap: die van een versleuteld vol
 msgid "Stop {name}"
 msgstr "{name} stoppen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "De draaiing is niet opgeslagen: ander werk wijzigt het bestand nog"
 

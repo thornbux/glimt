@@ -6,16 +6,16 @@ use crate::actions::Action;
 use crate::decode::survive;
 use crate::dialogs::Pick;
 use crate::dialogs::Prompt;
-use crate::external;
-use crate::file_io::{put_file, rename_never_over};
+use crate::files::external;
+use crate::files::file_io::{put_file, rename_never_over};
+use crate::files::trash::{Thrown, restore, trash_dirs};
 use crate::folder::total_size;
 use crate::listing::pattern_name;
 use crate::save::save_rotated;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
-use crate::trash::{Thrown, restore, trash_dirs};
-use crate::{collections, decode, exif, journal, tf, xmp};
+use crate::{collections, decode, exif, files::journal, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -108,7 +108,7 @@ impl Job {
             done: AtomicUsize::new(0),
             stop: Default::default(),
             started: Instant::now(),
-            _writing: Working::new(&crate::file_io::WRITING),
+            _writing: Working::new(&crate::files::file_io::WRITING),
             sidecars,
             touches,
         }
@@ -322,7 +322,7 @@ impl crate::App {
     /// Whether files are still being written (`file_io::WRITING`): file jobs, a turned image, a
     /// print, keywords, the settings. Closing waits for them.
     pub(crate) fn work_left(&self) -> bool {
-        crate::file_io::WRITING.load(Ordering::Relaxed) > 0
+        crate::files::file_io::WRITING.load(Ordering::Relaxed) > 0
     }
 
     /// A file operation on `total` files that changes `touches`, shown in the status bar until its
@@ -390,7 +390,7 @@ impl crate::App {
                 // chunk, so a sidecar write in another window waits for one chunk, not the job.
                 let _held = xmp::held_all(chunk);
                 if trash {
-                    if let Err(e) = crate::trash::trash(chunk) {
+                    if let Err(e) = crate::files::trash::trash(chunk) {
                         errors.push(e);
                     }
                 } else {
@@ -408,7 +408,7 @@ impl crate::App {
                     .filter(|s| s.exists())
                     .collect();
                 if trash && !side.is_empty() {
-                    let _ = crate::trash::trash(&side);
+                    let _ = crate::files::trash::trash(&side);
                 } else {
                     side.iter().for_each(|s| drop(std::fs::remove_file(s)));
                 }
@@ -837,7 +837,7 @@ impl crate::App {
         let ctx = ctx.clone();
         self.work.saving.insert(path.clone());
         let pointer = Working::new(&self.busy);
-        let writing = Working::new(&crate::file_io::WRITING);
+        let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
             let result = survive(|| match jpeg {
@@ -957,7 +957,7 @@ impl crate::App {
         let collection = self.folder.collection.clone();
         self.background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
-            let error = crate::trash::trash(std::slice::from_ref(&dir)).err();
+            let error = crate::files::trash::trash(std::slice::from_ref(&dir)).err();
             // Failed: listed again, as a failed delete of files is.
             let gone = if error.is_none() {
                 vec![dir.clone()]
@@ -1118,7 +1118,7 @@ impl crate::App {
         self.work.touching.push(touching.clone());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        let writing = Working::new(&crate::file_io::WRITING);
+        let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = (writing, touching);
             if let Some(text) = work() {
@@ -1143,7 +1143,7 @@ impl crate::App {
         write: impl Fn(&Path) -> bool + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
-        use crate::file_io::Work;
+        use crate::files::file_io::Work;
         let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
             return;
         };
@@ -1275,7 +1275,7 @@ impl crate::App {
             return;
         };
         self.background(ctx, Vec::new(), move || {
-            let done = crate::backup::back_up_to(&dir).unwrap_or_else(|e| e);
+            let done = crate::files::backup::back_up_to(&dir).unwrap_or_else(|e| e);
             drop(job);
             Some(done)
         });
@@ -1431,7 +1431,10 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     // Next to the file: in a collection the files are in different folders.
     let tmp = |f: &Path, k: usize| {
         // This Glimt's name: Flatpak windows can share a process ID.
-        f.with_file_name(format!(".glimt-rename-{}-{k}", crate::file_io::own_tag()))
+        f.with_file_name(format!(
+            ".glimt-rename-{}-{k}",
+            crate::files::file_io::own_tag()
+        ))
     };
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     if swap {
@@ -1511,10 +1514,10 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
 
 /// The thread for this window's sidecar writes: keywords, comments, stars and imports land in
 /// the order they were made.
-fn sidecar_writer() -> &'static mpsc::Sender<crate::file_io::Work> {
-    static WRITER: std::sync::OnceLock<mpsc::Sender<crate::file_io::Work>> =
+fn sidecar_writer() -> &'static mpsc::Sender<crate::files::file_io::Work> {
+    static WRITER: std::sync::OnceLock<mpsc::Sender<crate::files::file_io::Work>> =
         std::sync::OnceLock::new();
-    WRITER.get_or_init(crate::file_io::serial)
+    WRITER.get_or_init(crate::files::file_io::serial)
 }
 
 /// `(from, to)` pairs to look up by the old path.

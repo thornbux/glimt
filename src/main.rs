@@ -11,10 +11,10 @@
 use crate::actions::OWN_KEYS;
 use crate::check::Check;
 use crate::cli::Start;
-use crate::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::decode::{MAX_ANIMATION, decode};
 use crate::duplicates::Dups;
-use crate::file_io::write_atomic;
+use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
+use crate::files::file_io::write_atomic;
 use crate::list::{List, Viewing};
 use crate::pan::Pan;
 use crate::print::PrintDialog;
@@ -32,8 +32,6 @@ mod accessibility;
 
 mod actions;
 
-mod backup;
-
 mod check;
 
 mod cli;
@@ -41,8 +39,6 @@ mod cli;
 mod collections;
 
 mod colour;
-
-mod config;
 
 mod crop;
 
@@ -56,21 +52,14 @@ mod duplicates;
 
 mod exif;
 
-mod external;
-
-mod file_io;
-
 mod file_list;
 
-mod file_ops;
-
+mod files;
 mod folder;
 
 mod help;
 
 mod info_panel;
-
-mod journal;
 
 mod lightroom;
 
@@ -86,9 +75,6 @@ mod menus;
 mod pan;
 
 mod plugins;
-
-#[cfg(feature = "portals")]
-mod portal;
 
 mod preferences;
 
@@ -110,8 +96,6 @@ mod slideshow;
 
 mod support;
 mod theme;
-
-mod trash;
 
 mod thumbs;
 
@@ -149,7 +133,7 @@ struct App {
     list: List,
     /// File operations in the background: the jobs, the files they touch, what they report,
     /// and Undo.
-    work: file_ops::Work,
+    work: crate::files::file_ops::Work,
     /// Work still running in the background, for the busy pointer: deletes, copies and moves,
     /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
     busy: Arc<AtomicUsize>,
@@ -297,7 +281,7 @@ impl App {
             desktop: theme::FromDesktop::new(ctx, config.desktop_profile),
             folder: folder::Folder::new(&config),
             list: List::default(),
-            work: file_ops::Work::new(),
+            work: crate::files::file_ops::Work::new(),
             busy: Arc::default(),
             panel: file_list::Panel::default(),
             tree: file_list::Tree::default(),
@@ -449,7 +433,7 @@ impl eframe::App for App {
         // The state above, the settings, and the keywords queued at the first close: waited for,
         // a few seconds at most. Not after a third close, which ends at once whatever runs.
         if self.window.closing < 2 {
-            crate::file_io::flush();
+            crate::files::file_io::flush();
         }
         let at = |share| frame_at(&self.decoding.frame_ms, share);
         eprintln!(
@@ -557,8 +541,8 @@ fn main() -> eframe::Result {
         });
     }
     // A kiosk changes no settings either: a visitor's keys would last until the next boot.
-    if start.lock_settings || start.kiosk || Path::new(config::LOCK_FILE).exists() {
-        config::lock();
+    if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
+        crate::files::config::lock();
     }
     if Config::load().remember_window
         && let Some(state) = state_path().and_then(|p| crate::decode::read_text(p).ok())

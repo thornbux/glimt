@@ -108,7 +108,7 @@ pub fn save_rotated(
     let img = turned(img, turns, mirrored);
     let quarter = (turns % 2 == 1) != stored_quarter;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
-    crate::file_io::replace_existing(path, out).map_err(|e| e.to_string())
+    crate::files::file_io::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. With its profile, and
@@ -237,11 +237,11 @@ pub(crate) fn land(
     let side = crate::xmp::sidecar(path);
     let source = match strip || crate::xmp::linked(&side) {
         true => None,
-        false => crate::file_io::read_or_none(&side)?,
+        false => crate::files::file_io::read_or_none(&side)?,
     };
     match replace {
-        true => crate::file_io::replace_file(new, out)?,
-        false => crate::file_io::create_file(new, out)?,
+        true => crate::files::file_io::replace_file(new, out)?,
+        false => crate::files::file_io::create_file(new, out)?,
     }
     let side = crate::xmp::sidecar(new);
     // A link goes, not what it points to; `create_file` never follows one.
@@ -250,7 +250,7 @@ pub(crate) fn land(
         _ => Ok(()),
     }
     .and_then(|_| match source {
-        Some(xmp) => crate::file_io::create_file(&side, xmp),
+        Some(xmp) => crate::files::file_io::create_file(&side, xmp),
         None => Ok(()),
     })
     .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
@@ -561,7 +561,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     let mut png = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
-    let mut child = crate::external::stoppable_command("ffmpeg")
+    let mut child = crate::files::external::stoppable_command("ffmpeg")
         .args([
             "-v", "error", "-f", "png_pipe", "-i", "-", "-c:v", "libwebp",
         ])
@@ -581,7 +581,8 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     let mut stdin = child.stdin.take();
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
     let max = crate::decode::MAX_DECODE;
-    let (webp, err, ok) = crate::external::output_of(&mut child, max, crate::external::LIMIT);
+    let (webp, err, ok) =
+        crate::files::external::output_of(&mut child, max, crate::files::external::LIMIT);
     let _ = feed.join();
     match webp {
         Some(webp) if ok && !webp.is_empty() => Ok(webp),
@@ -738,12 +739,12 @@ mod tests {
         let file = dir.join("a.png");
         std::fs::write(&file, "old").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
-        crate::file_io::replace_file(&file, b"new").unwrap();
+        crate::files::file_io::replace_file(&file, b"new").unwrap();
         assert_eq!(std::fs::read(&file).unwrap(), b"new");
         let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
         // A folder cannot be replaced by a file.
-        assert!(crate::file_io::replace_file(&dir.join("busy.png"), b"new").is_err());
+        assert!(crate::files::file_io::replace_file(&dir.join("busy.png"), b"new").is_err());
         let left: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .flatten()
@@ -1161,8 +1162,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (png, webp) = (dir.join("a.png"), dir.join("a.webp"));
         assert_ne!(
-            crate::file_io::tmp_path(&png),
-            crate::file_io::tmp_path(&webp)
+            crate::files::file_io::tmp_path(&png),
+            crate::files::file_io::tmp_path(&webp)
         );
         image::RgbImage::from_pixel(1200, 800, image::Rgb([255, 0, 0]))
             .save(&png)

@@ -105,10 +105,12 @@ impl crate::App {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            Some(match crate::trash::trash(std::slice::from_ref(&file)) {
-                Ok(()) => tf!("Collection {name} moved to the trash", name),
-                Err(err) => tf!("Could not trash {name}: {err}", name, err),
-            })
+            Some(
+                match crate::files::trash::trash(std::slice::from_ref(&file)) {
+                    Ok(()) => tf!("Collection {name} moved to the trash", name),
+                    Err(err) => tf!("Could not trash {name}: {err}", name, err),
+                },
+            )
         }) {
             return;
         }
@@ -209,7 +211,8 @@ impl crate::App {
 
 /// Where new collections go.
 pub fn dir() -> Option<PathBuf> {
-    crate::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt").map(|d| d.join("collections"))
+    crate::files::config::xdg_dir("XDG_DATA_HOME", ".local/share", "glimt")
+        .map(|d| d.join("collections"))
 }
 
 /// A `.gqv` collection, or a plain list: what opens as a list of images from any folders.
@@ -264,11 +267,11 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
     #[allow(clippy::disallowed_methods)] // a collection's own lock, as edit
-    let _held = crate::file_io::file_lock(file);
+    let _held = crate::files::file_io::file_lock(file);
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
     // rename.
-    match crate::file_io::rename_never_over(file, &new) {
+    match crate::files::file_io::rename_never_over(file, &new) {
         Ok(()) => Ok(new),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(tf!("There is a collection called \"{name}\" already", name))
@@ -358,7 +361,7 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 /// that cannot be read is never written over: what it holds would be lost.
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
-    let _held = crate::file_io::file_lock(file);
+    let _held = crate::files::file_io::file_lock(file);
     let (text, was_new) = match crate::decode::read_limited(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         read => (read?, false),
@@ -374,8 +377,8 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
     let out = to_text(&all, &other_lines(&text));
     match was_new {
-        true => crate::file_io::create_file(file, out),
-        false => crate::file_io::replace_file(file, out),
+        true => crate::files::file_io::create_file(file, out),
+        false => crate::files::file_io::replace_file(file, out),
     }
 }
 
@@ -614,7 +617,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("trip.gqv");
         std::fs::write(&file, "#GQview collection\n\"/a.jpg\"\n").unwrap();
-        let held = crate::file_io::file_lock(&file).unwrap();
+        let held = crate::files::file_io::file_lock(&file).unwrap();
         let renaming = {
             let file = file.clone();
             std::thread::spawn(move || super::rename(&file, "trip 2024"))

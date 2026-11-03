@@ -149,7 +149,7 @@ mod tests {
             _ => String::new(),
         };
         let fill = |t| super::fill_template(t, value);
-        assert_eq!(fill(crate::config::OSD_TEMPLATE), "a.jpg\nISO 200");
+        assert_eq!(fill(crate::files::config::OSD_TEMPLATE), "a.jpg\nISO 200");
         assert_eq!(
             fill("%Taken%|x %name%|%comment%\\n%keywords%\\n50%"),
             "x a.jpg\n50%"

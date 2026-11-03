@@ -1,8 +1,8 @@
 //! Edit → Crop: a part of the shown image dragged out over it, saved as a new file beside it.
 
 #[cfg(feature = "video")]
-use crate::external::is_video;
-use crate::file_ops::Deleted;
+use crate::files::external::is_video;
+use crate::files::file_ops::Deleted;
 use crate::support::lang::tr;
 use crate::tf;
 use eframe::egui;

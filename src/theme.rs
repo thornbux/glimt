@@ -233,7 +233,7 @@ pub fn fonts(ctx: &egui::Context) {
 
 /// Where more themes go: `$XDG_CONFIG_HOME/glimt/themes`, one `name.theme` file each.
 pub fn dir() -> Option<std::path::PathBuf> {
-    crate::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
+    crate::files::config::xdg_dir("XDG_CONFIG_HOME", ".config", "glimt").map(|d| d.join("themes"))
 }
 
 /// The built-in themes, then the user's, by name.
@@ -377,7 +377,7 @@ pub fn desktop() -> Desktop {
             namespace,
             key,
         ];
-        crate::external::limited("gdbus", &args, 1 << 16).unwrap_or_default()
+        crate::files::external::limited("gdbus", &args, 1 << 16).unwrap_or_default()
     };
     Desktop {
         dark: parse_scheme(&read("org.freedesktop.appearance", "color-scheme")),

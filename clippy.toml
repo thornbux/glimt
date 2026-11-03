@@ -20,5 +20,5 @@ disallowed-methods = [
     { path = "image::open", reason = "decode::image_reader(path)?.decode(): the image crate's own open lets a pipe or device through" },
     { path = "std::process::Child::wait", reason = "external::output_of or a Watchdog: never wait for good" },
     { path = "std::process::Child::wait_with_output", reason = "external::output_of or a Watchdog: never wait for good" },
-    { path = "glimt::file_io::file_lock", reason = "file_io::edit_shared: lock, read, change and write a shared file as one" },
+    { path = "glimt::files::file_io::file_lock", reason = "file_io::edit_shared: lock, read, change and write a shared file as one" },
 ]

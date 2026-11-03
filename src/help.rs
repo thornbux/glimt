@@ -1181,7 +1181,7 @@ fn about(ui: &mut egui::Ui) {
                     ),
                 ] {
                     if ui.link(text).on_hover_text(url).clicked() {
-                        crate::external::open_url(url);
+                        crate::files::external::open_url(url);
                     }
                 }
             });

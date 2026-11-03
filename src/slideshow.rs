@@ -2,8 +2,8 @@
 
 use crate::actions::Action;
 use crate::collections;
-use crate::config::FADES;
-use crate::config::MAX_DELAY;
+use crate::files::config::FADES;
+use crate::files::config::MAX_DELAY;
 use crate::listing::shuffle;
 use crate::selection::round_ends;
 use eframe::egui;

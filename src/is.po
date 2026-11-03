@@ -560,99 +560,99 @@ msgstr "Taka hak af öllum"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, meðal {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Tekur afrit"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Afrita"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Afritar"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Gat ekki búið til {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekkert endurnefnt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Gat ekki vistað rammana: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Eyðing mistókst ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Eyðir"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Endurnefnir"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Flytur út"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (úr glib): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Færa"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Færir"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "Vistaði {file}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Vistað; sést þegar Snúa sjálfkrafa samkvæmt EXIF er virkt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Enn er verið að vista snúning: reyndu aftur eftir smástund"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Skrárnar sem spurt var um eru ekki lengur í listanum: ekkert var gert"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Mynstrið gefur nokkrum skrám sama heiti; bættu við # fyrir númer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Ritun hliðarskránna stöðvaðist við skrá sem lét hana mistakast"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} eytt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} fært í ruslið"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} vistað í {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} er þegar til; ekkert endurnefnt"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} mistókst ({count}): {first}"
 
@@ -2005,7 +2005,7 @@ msgstr " síða {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " rammi {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur, Glimt býðst til að laga þau við næstu ræsingu"
 
@@ -2037,11 +2037,11 @@ msgstr "lau"
 msgid "Sun"
 msgstr "sun"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Enn er verið að skrifa efnisorð: reyndu aftur eftir smástund"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Enn er verið að vinna með þessar skrár: reyndu aftur eftir smástund"
 
@@ -2073,7 +2073,7 @@ msgstr "Dagar yfirlitssýnarinnar"
 msgid "Rename Many"
 msgstr "Endurnefna margar"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Ekkert svar frá þjóninum í mínútu"
 
@@ -2081,7 +2081,7 @@ msgstr "Ekkert svar frá þjóninum í mínútu"
 msgid "The catalog is too large to read"
 msgstr "Skráin er of stór til að lesa"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "stöðvað"
 
@@ -2101,7 +2101,7 @@ msgstr "Les möppuna"
 msgid "No answer from the print server in two minutes"
 msgstr "Ekkert svar frá prentþjóninum í tvær mínútur"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Gat ekki endurnefnt {f} sem {t}: {e}; ekki var hægt að setja öll heiti aftur og engin áætlun var geymd: skrárnar með .glimt-rename-*-heitum við hliðina eru þeirra"
 
@@ -2149,31 +2149,31 @@ msgstr "S ræsir og stöðvar, R slembiröð, Ctrl+= hraðar, Ctrl+- hægar"
 msgid "Undo"
 msgstr "Afturkalla"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Ekkert að afturkalla"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Afturköllun mistókst ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Afturköllun mistókst: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} aftur úr ruslinu"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} fært til baka"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} er þegar til"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} er ekki í ruslinu"
 
@@ -2329,7 +2329,7 @@ msgstr "Afrit af myndunum í heimamöppunni þinni: þau af dulkóðuðu drifi e
 msgid "Stop {name}"
 msgstr "Stöðva {name}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Snúningurinn var ekki vistaður: önnur vinna er enn að breyta skránni"
 

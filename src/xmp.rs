@@ -348,7 +348,7 @@ fn update(
     }
     // One that is there but cannot be read (no permission, not UTF-8) is not written over: it
     // may hold another program's edits.
-    let old = match crate::file_io::read_or_none(&side) {
+    let old = match crate::files::file_io::read_or_none(&side) {
         Err(e) => return Err(format!("{}: {e}", side.display())),
         Ok(Some(bytes)) => {
             String::from_utf8(bytes).map_err(|e| format!("{}: {e}", side.display()))?
@@ -368,8 +368,8 @@ fn update(
     use std::io::Write;
     #[allow(clippy::disallowed_methods)] // the sidecar replaced on purpose, never through a link
     let land = |tmp: &Path| std::fs::rename(tmp, &side);
-    let tmp = crate::file_io::tmp_path(&side);
-    crate::file_io::write_beside(&tmp, &side, |f| f.write_all(text.as_bytes()), land)
+    let tmp = crate::files::file_io::tmp_path(&side);
+    crate::files::file_io::write_beside(&tmp, &side, |f| f.write_all(text.as_bytes()), land)
         .map_err(|e| e.to_string())
 }
 
@@ -386,7 +386,7 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     if linked(&side) {
         return match copy {
             true => Ok(()),
-            false => crate::file_io::rename_never_over(&side, &to).or(Ok(())),
+            false => crate::files::file_io::rename_never_over(&side, &to).or(Ok(())),
         };
     }
     if !side.exists() {
@@ -395,8 +395,8 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     // As the file went: on disk before the original goes, never over one there, which belongs
     // to another file or is a copy kept on purpose. One that cannot be moved (someone else's in
     // a shared folder) is copied, so the keywords go with the photo.
-    match crate::file_io::put_file(&side, &to, copy) {
-        Err(_) if !copy => crate::file_io::put_file(&side, &to, true),
+    match crate::files::file_io::put_file(&side, &to, copy) {
+        Err(_) if !copy => crate::files::file_io::put_file(&side, &to, true),
         done => done,
     }
 }
@@ -711,7 +711,7 @@ mod tests {
             std::thread::spawn(move || super::add_keywords(&from, &["Oslo".to_owned()]))
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
-        crate::file_io::put_file(&from, &to, false).unwrap();
+        crate::files::file_io::put_file(&from, &to, false).unwrap();
         super::follow(&from, &to, false).unwrap();
         drop(move_held);
         assert!(writer.join().unwrap().is_err());

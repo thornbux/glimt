@@ -2,9 +2,9 @@
 //! the rubber band, and the status bar under it.
 
 use crate::actions::Action;
-use crate::config::{sort_folders_from, sort_folders_path};
 use crate::dialogs::{Pick, Prompt};
-use crate::external::is_video;
+use crate::files::config::{sort_folders_from, sort_folders_path};
+use crate::files::external::is_video;
 use crate::listing::{SORTS, Types, list_folder};
 use crate::menus::scroll_menu;
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
@@ -13,7 +13,7 @@ use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;
 use crate::view::{broken_mark, pane_map};
 use crate::workers::spawn_thumbnailers;
-use crate::{collections, config, tf, theme};
+use crate::{collections, files::config, tf, theme};
 use eframe::egui;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -790,7 +790,7 @@ impl crate::App {
             let dirs = config::sort_folders_changed(sort_folders_from(old), add, remove);
             (config::sort_folders_text(&dirs), dirs)
         };
-        match crate::file_io::edit_shared(&path, change) {
+        match crate::files::file_io::edit_shared(&path, change) {
             Ok(dirs) => self.folder.sort_folders = dirs,
             Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),
         }

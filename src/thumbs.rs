@@ -119,7 +119,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     // This Glimt and the thread in the name: several workers and windows may write at once.
     let tmp = file.with_extension(format!(
         "{}.{:?}.tmp",
-        crate::file_io::own_tag(),
+        crate::files::file_io::own_tag(),
         std::thread::current().id()
     ));
     // Encoded in memory first: the encoder writes its last chunk when it is dropped, where a
@@ -139,7 +139,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     encoded.map_err(std::io::Error::other)?;
     // As every file Glimt writes: made new beside it, never through a link planted at its name;
     // private, as the shared cache's spec asks.
-    crate::file_io::write_beside(
+    crate::files::file_io::write_beside(
         &tmp,
         file,
         |out| {
@@ -159,7 +159,7 @@ fn cache_dir() -> Option<std::path::PathBuf> {
         Some(_) => "HOST_XDG_CACHE_HOME",
         None => "XDG_CACHE_HOME",
     };
-    crate::config::xdg_dir(var, ".cache", "thumbnails")
+    crate::files::config::xdg_dir(var, ".cache", "thumbnails")
 }
 
 /// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is
@@ -275,7 +275,7 @@ fn worth_marking(path: &Path, error: &str) -> bool {
 
 /// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
 fn needs_program(path: &Path) -> bool {
-    crate::external::ffmpeg_decodes(path) || crate::decoder_plugins::for_path(path).is_some()
+    crate::files::external::ffmpeg_decodes(path) || crate::decoder_plugins::for_path(path).is_some()
 }
 
 /// Whether `error` says the program was not found (or may not run), not that the file is bad.
@@ -383,7 +383,7 @@ mod tests {
         std::fs::write(&victim, "keep").unwrap();
         let tmp = file.with_extension(format!(
             "{}.{:?}.tmp",
-            crate::file_io::own_tag(),
+            crate::files::file_io::own_tag(),
             std::thread::current().id()
         ));
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();

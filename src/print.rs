@@ -3,9 +3,9 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
-use crate::config::Config;
 use crate::decode::survive;
 use crate::dialogs::Pick;
+use crate::files::config::Config;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
@@ -169,7 +169,7 @@ impl<W: Write> Pdf<W> {
 /// A writer that tells `dog` of each write taken: a full pipe holds the write until lp reads.
 struct Fed<'a, W: Write> {
     out: W,
-    dog: &'a crate::external::Watchdog,
+    dog: &'a crate::files::external::Watchdog,
 }
 
 impl<W: Write> Write for Fed<'_, W> {
@@ -386,7 +386,7 @@ impl crate::App {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         // A PDF half made would be lost, its temporary file left beside the one chosen.
-        let writing = Working::new(&crate::file_io::WRITING);
+        let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
             let max = print::max_pixels(&job.layout);
@@ -430,7 +430,7 @@ impl crate::App {
             let done = match &to {
                 #[cfg(feature = "portals")]
                 PrintTo::Printer(printer) if printer == print::SYSTEM_DIALOG => {
-                    let sent = crate::portal::print(job.copies, sides, &title, |w| {
+                    let sent = crate::files::portal::print(job.copies, sides, &title, |w| {
                         print::pdf(pages, &job.layout, total, w)
                     });
                     match sent {
@@ -454,7 +454,7 @@ impl crate::App {
                 // image was read (one of them may be the file chosen).
                 PrintTo::File(file) => {
                     // As every file Glimt writes again: beside it, whole, then its name.
-                    crate::file_io::replace_with(file, false, |f| {
+                    crate::files::file_io::replace_with(file, false, |f| {
                         let mut out = std::io::BufWriter::new(f);
                         print::pdf(pages, &job.layout, total, &mut out)?;
                         out.flush()
@@ -783,11 +783,12 @@ fn pdf_text(text: &str) -> String {
 /// dialog.
 pub fn printers() -> (Vec<String>, Option<String>) {
     #[cfg(feature = "portals")]
-    if crate::portal::in_flatpak() {
+    if crate::files::portal::in_flatpak() {
         return (vec![SYSTEM_DIALOG.into()], Some(SYSTEM_DIALOG.into()));
     }
     // With the usual limit: a CUPS server that does not answer would else hold the dialog.
-    let run = |arg: &str| crate::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
+    let run =
+        |arg: &str| crate::files::external::limited("lpstat", &[arg], 1 << 16).unwrap_or_default();
     let names = run("-e").lines().map(str::to_owned).collect();
     // "system default destination: name"
     let default = run("-d").rsplit_once(": ").map(|d| d.1.trim().to_owned());
@@ -825,7 +826,7 @@ pub fn send(
     title: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    let mut child = crate::external::stoppable_command("lp")
+    let mut child = crate::files::external::stoppable_command("lp")
         .args(lp_args(printer, copies, sides, title))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
@@ -834,7 +835,7 @@ pub fn send(
     // A CUPS server that does not answer: lp is ended after two minutes without progress and
     // the print told as failed, instead of the busy pointer for ever. A long print is not: the
     // PDF is made while lp reads it, and each write lp takes feeds the dog.
-    let dog = crate::external::Watchdog::new(child.id(), crate::external::LIMIT * 4);
+    let dog = crate::files::external::Watchdog::new(child.id(), crate::files::external::LIMIT * 4);
     let written = match child.stdin.take() {
         Some(input) => write(&mut Fed {
             out: std::io::BufWriter::new(input),
@@ -856,7 +857,7 @@ pub fn send(
 }
 
 /// The layout the print settings ask for.
-pub fn layout_of(c: &crate::config::Config) -> Layout {
+pub fn layout_of(c: &crate::files::config::Config) -> Layout {
     let paper = (PAPERS.iter())
         .find(|p| p.0 == c.print_paper)
         .unwrap_or(&PAPERS[0])
@@ -874,7 +875,7 @@ pub fn layout_of(c: &crate::config::Config) -> Layout {
 
 /// The first page as it will print, laid out by `place` as the PDF is: white paper, the images
 /// (grey until decoded), their text and the page text.
-fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::config::Config) {
+fn preview(ui: &mut egui::Ui, dialog: &PrintDialog, c: &crate::files::config::Config) {
     let layout = layout_of(c);
     let n = layout.per_page.min(dialog.paths.len());
     let size = |k: usize| {

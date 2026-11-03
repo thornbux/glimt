@@ -2,8 +2,8 @@
 //! the Flatpak's trash portal refuses one), and put back from it for Undo by reading the trash
 //! folders' own files.
 
-use crate::file_io::rename_never_over;
-use crate::{collections, config, tf};
+use crate::files::file_io::rename_never_over;
+use crate::{collections, files::config, tf};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -133,7 +133,7 @@ fn first_of_each<K: Ord>(
 /// is not writable: GLib hands the portal a descriptor open for writing, though a move needs only
 /// the folder) by hand into the home trash, as gio on the host would.
 pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
-    let refused = crate::external::trash(paths);
+    let refused = crate::files::external::trash(paths);
     let Err(e) = refused else {
         return Ok(());
     };

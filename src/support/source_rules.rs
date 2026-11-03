@@ -448,7 +448,7 @@ fn crate_paths(lines: &[String]) -> Vec<(usize, String)> {
     paths
 }
 
-/// A name is imported from the module that defines it, `crate::config::Config`, not through
+/// A name is imported from the module that defines it, `crate::files::config::Config`, not through
 /// main.rs's own imports (`crate::Config`), which hide where it lives and break when main.rs
 /// stops using it; and never `crate::*`.
 #[test]

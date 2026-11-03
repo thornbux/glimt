@@ -4,8 +4,8 @@
 use crate::decode;
 use crate::dialogs::Pick;
 #[cfg(feature = "video")]
-use crate::external::is_video;
-use crate::file_ops::Deleted;
+use crate::files::external::is_video;
+use crate::files::file_ops::Deleted;
 use crate::save;
 use crate::save::{CopyAs, Format};
 use crate::support::lang::tr;

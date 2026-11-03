@@ -2,7 +2,7 @@
 //! commands that answer and end without opening a window (--help, --version, --check-config
 //! and --back-up). The --remote commands are in remote.rs.
 
-use crate::config::{self, Config, FADES};
+use crate::files::config::{self, Config, FADES};
 use crate::remote;
 use crate::view::LAYOUTS;
 use std::ffi::OsString;
@@ -155,7 +155,7 @@ fn back_up(dir: Option<&OsString>) {
         eprintln!("glimt: --back-up takes the folder to put the backup in");
         std::process::exit(2);
     };
-    match crate::backup::back_up_to(Path::new(dir)) {
+    match crate::files::backup::back_up_to(Path::new(dir)) {
         Ok(done) => println!("{done}"),
         Err(e) => {
             eprintln!("glimt: {e}");

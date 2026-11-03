@@ -560,99 +560,99 @@ msgstr "Kryssa ur alla"
 msgid "{groups}, {files}, among {images}"
 msgstr "{groups}, {files}, bland {images}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Backing up"
 msgstr "Säkerhetskopierar"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copy"
 msgstr "Kopiera"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Copying"
 msgstr "Kopierar"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not make {folder}"
 msgstr "Kunde inte skapa {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; nothing renamed"
 msgstr "Kunde inte byta namn på {f} till {t}: {e}; inget namn ändrades"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not save the frames: {e}"
 msgstr "Kunde inte spara bildrutorna: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Delete failed ({count}): {first}"
 msgstr "Radering misslyckades ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Deleting"
 msgstr "Raderar"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Renaming"
 msgstr "Byter namn"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Exporting"
 msgstr "Exporterar"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "gio trash (from glib): {e}"
 msgstr "gio trash (från glib): {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Move"
 msgstr "Flytta"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Moving"
 msgstr "Flyttar"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved {file}"
 msgstr "Sparade {file}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Saved; it shows when Auto Rotate Using EXIF is on"
 msgstr "Sparad; det syns när Rotera automatiskt enligt EXIF är på"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still saving a rotation: try again in a moment"
 msgstr "Sparar fortfarande en rotation: försök igen om en stund"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The files asked about are no longer in the list: nothing was done"
 msgstr "Filerna som frågan gällde finns inte längre i listan: inget gjordes"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The pattern gives several files the same name; add # for a number"
 msgstr "Mönstret ger flera filer samma namn; lägg till # för ett nummer"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Writing the sidecars stopped at a file that broke it"
 msgstr "Skrivningen av sidofilerna stoppade vid en fil som fick den att misslyckas"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} deleted"
 msgstr "{count} raderade"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} moved to the trash"
 msgstr "{count} flyttade till papperskorgen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{frames} saved in {folder}"
 msgstr "{frames} sparade i {folder}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already; nothing renamed"
 msgstr "{name} finns redan; inget namn ändrades"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{verb} failed ({count}): {first}"
 msgstr "{verb} misslyckades ({count}): {first}"
 
@@ -2005,7 +2005,7 @@ msgstr " sida {n}/{pages}"
 msgid " frame {n}/{frames}"
 msgstr " bildruta {n}/{frames}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, Glimt offers to put them right at the next start"
 msgstr "Kunde inte byta namn på {f} till {t}: {e}; inte alla namn kunde sättas tillbaka, Glimt erbjuder att rätta dem vid nästa start"
 
@@ -2037,11 +2037,11 @@ msgstr "lör"
 msgid "Sun"
 msgstr "sön"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still writing keywords: try again in a moment"
 msgstr "Skriver fortfarande nyckelord: försök igen om en stund"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Still working on these files: try again in a moment"
 msgstr "Arbetar fortfarande med de här filerna: försök igen om en stund"
 
@@ -2073,7 +2073,7 @@ msgstr "Panoreringsvyns dagar"
 msgid "Rename Many"
 msgstr "Byt namn på flera"
 
-#: src/external.rs
+#: src/files/external.rs
 msgid "No answer from the server in a minute"
 msgstr "Inget svar från servern på en minut"
 
@@ -2081,7 +2081,7 @@ msgstr "Inget svar från servern på en minut"
 msgid "The catalog is too large to read"
 msgstr "Katalogen är för stor för att läsas"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "stopped"
 msgstr "stoppad"
 
@@ -2101,7 +2101,7 @@ msgstr "Läser mappen"
 msgid "No answer from the print server in two minutes"
 msgstr "Inget svar från utskriftsservern på två minuter"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Could not rename {f} to {t}: {e}; not all names could be put back, and no plan could be kept: the files under .glimt-rename-* names next to them are theirs"
 msgstr "Kunde inte byta namn på {f} till {t}: {e}; inte alla namn kunde sättas tillbaka och ingen plan kunde sparas: filerna med .glimt-rename-*-namn bredvid dem är deras"
 
@@ -2149,31 +2149,31 @@ msgstr "S startar och stoppar, R slumpvis ordning, Ctrl+= snabbare, Ctrl+- lång
 msgid "Undo"
 msgstr "Ångra"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Nothing to undo"
 msgstr "Inget att ångra"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Ångra misslyckades ({count}): {first}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "Undo failed: {e}"
 msgstr "Ångra misslyckades: {e}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{count} back from the trash"
 msgstr "{count} tillbaka från papperskorgen"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{files} moved back"
 msgstr "{files} flyttade tillbaka"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} exists already"
 msgstr "{name} finns redan"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "{name} is not in the trash"
 msgstr "{name} finns inte i papperskorgen"
 
@@ -2329,7 +2329,7 @@ msgstr "Kopior av bilderna i din hemmapp: de från en krypterad volym eller ett 
 msgid "Stop {name}"
 msgstr "Stoppa {name}"
 
-#: src/file_ops.rs
+#: src/files/file_ops.rs
 msgid "The rotation was not saved: other work is still changing the file"
 msgstr "Rotationen sparades inte: annat arbete ändrar fortfarande filen"
 

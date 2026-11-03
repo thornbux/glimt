@@ -2,15 +2,15 @@
 //! text, and marks.
 
 use crate::colour::colour_source;
-use crate::config::keyword_tree_path;
-use crate::external::open_url;
+use crate::files::config::keyword_tree_path;
+use crate::files::external::open_url;
 #[cfg(feature = "marks")]
 use crate::marks;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::xmp::Meta;
-use crate::{config, decode, exif, tf, xmp};
+use crate::{decode, exif, files::config, tf, xmp};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -361,7 +361,7 @@ impl crate::App {
             let tree = xmp::keyword_tree_changed(&on_disk, add, remove);
             ((tree.join("\n") + "\n").into_bytes(), tree)
         };
-        match crate::file_io::edit_shared(&p, change) {
+        match crate::files::file_io::edit_shared(&p, change) {
             Ok(tree) => self.info.keyword_tree = tree,
             Err(e) => self.notice = Some(tf!("Could not save the keyword tree: {e}", e)),
         }
