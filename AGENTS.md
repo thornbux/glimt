@@ -80,7 +80,8 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
-| `src/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `put_file`, `rename_never_over` (the one way to rename), `rename_files`; Undo |
+| `src/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `rename_files`; Undo |
+| `src/file_io.rs` | The one way each change on disk is made: `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file) |
 | `src/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `Thrown` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
 | `src/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
 | `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
@@ -218,7 +219,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   - write with `config::replace_file`, `create_file` or `write_atomic` (whole or not at all,
     never through a link), and a file the windows share with `config::edit_shared` (lock,
     read, change and write as one; clippy refuses `file_lock` elsewhere);
-  - rename with `file_ops::rename_never_over` (never over a file), move or copy with `put_file`;
+  - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
   - start a program with `external::command` or `stoppable_command`, and wait for it only with
     `run_limited`, `limited`, `output_of` or a `Watchdog` (never `.output()`/`.status()`);
   - make a copy of the shown image from `App::shown_copy` and save it with `save::land`.

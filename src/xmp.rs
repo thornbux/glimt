@@ -386,7 +386,7 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     if linked(&side) {
         return match copy {
             true => Ok(()),
-            false => crate::file_ops::rename_never_over(&side, &to).or(Ok(())),
+            false => crate::file_io::rename_never_over(&side, &to).or(Ok(())),
         };
     }
     if !side.exists() {
@@ -395,8 +395,8 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     // As the file went: on disk before the original goes, never over one there, which belongs
     // to another file or is a copy kept on purpose. One that cannot be moved (someone else's in
     // a shared folder) is copied, so the keywords go with the photo.
-    match crate::file_ops::put_file(&side, &to, copy) {
-        Err(_) if !copy => crate::file_ops::put_file(&side, &to, true),
+    match crate::file_io::put_file(&side, &to, copy) {
+        Err(_) if !copy => crate::file_io::put_file(&side, &to, true),
         done => done,
     }
 }
@@ -711,7 +711,7 @@ mod tests {
             std::thread::spawn(move || super::add_keywords(&from, &["Oslo".to_owned()]))
         };
         std::thread::sleep(std::time::Duration::from_millis(50));
-        crate::file_ops::put_file(&from, &to, false).unwrap();
+        crate::file_io::put_file(&from, &to, false).unwrap();
         super::follow(&from, &to, false).unwrap();
         drop(move_held);
         assert!(writer.join().unwrap().is_err());

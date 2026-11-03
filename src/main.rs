@@ -51,6 +51,8 @@ mod exif;
 
 mod external;
 
+mod file_io;
+
 mod file_list;
 
 mod file_ops;

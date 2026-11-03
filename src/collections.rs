@@ -268,7 +268,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
     // rename.
-    match crate::file_ops::rename_never_over(file, &new) {
+    match crate::file_io::rename_never_over(file, &new) {
         Ok(()) => Ok(new),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             Err(tf!("There is a collection called \"{name}\" already", name))

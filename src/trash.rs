@@ -2,7 +2,7 @@
 //! the Flatpak's trash portal refuses one), and put back from it for Undo by reading the trash
 //! folders' own files.
 
-use crate::file_ops::rename_never_over;
+use crate::file_io::rename_never_over;
 use crate::{collections, config, tf};
 use std::collections::HashMap;
 use std::ffi::OsString;

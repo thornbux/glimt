@@ -161,7 +161,7 @@ pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
     if same_file(a, b) {
         return std::fs::remove_file(a);
     }
-    crate::file_ops::put_file(a, b, false)
+    crate::file_io::put_file(a, b, false)
 }
 
 /// The first `done` steps of `moves` undone, last first; (renamed, left). A name no longer

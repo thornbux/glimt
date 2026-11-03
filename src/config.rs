@@ -958,7 +958,7 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
         &tmp_path(path),
         path,
         |f| f.write_all(bytes.as_ref()),
-        |tmp| crate::file_ops::rename_never_over(tmp, path),
+        |tmp| crate::file_io::rename_never_over(tmp, path),
     )
 }
 
