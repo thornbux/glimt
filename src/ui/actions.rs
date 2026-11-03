@@ -1092,7 +1092,7 @@ impl crate::App {
             }
         }
         // A "mark:" or "stars:" search shows the new state.
-        if self.search.query.starts_with("mark:") || self.search.query.starts_with("stars:") {
+        if self.search.is_about_marks() {
             self.update_search(ctx);
         }
     }

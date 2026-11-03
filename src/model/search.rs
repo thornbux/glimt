@@ -3,7 +3,7 @@
 //! together, at the start of a word or early in the name rank first. Also the EXIF index that
 //! `exif:` terms search: each file's fields and keywords as one line.
 
-use crate::model::folder::send_sizes;
+use crate::model::folder::{drain, send_sizes};
 use crate::model::list::FileRow;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -37,27 +37,117 @@ pub enum Query {
 pub(crate) struct Search {
     /// File name search above the file list, and the matching files best first while it has
     /// at least three letters.
-    pub(crate) query: String,
+    query: String,
     /// Why a re: search pattern is not one, shown under the search field.
-    pub(crate) error: Option<String>,
+    error: Option<String>,
     /// The search field takes the focus when it is next drawn (/).
-    pub(crate) focus: bool,
+    focus: bool,
     /// The rows among the matches of the shown file and of the one a slideshow of several panes
     /// steps from, as (file, row): found once per image and search, not in every frame, as the
     /// matches can be 300,000 long.
-    pub(crate) match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
-    pub(crate) match_rx: Receiving<u64>,
+    match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
+    match_rx: Receiving<u64>,
     /// When to sum the matches' size: once the search has stayed the same a moment.
-    pub(crate) match_size_due: Option<Instant>,
+    match_size_due: Option<Instant>,
     /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
     /// first one, dropped with the folder.
-    pub(crate) exif_index: Option<HashMap<OsString, String>>,
+    exif_index: Option<HashMap<OsString, String>>,
     /// Files whose keywords or comment changed since they were indexed: read again, alone,
     /// at the next "exif:" search.
-    pub(crate) exif_stale: HashSet<OsString>,
-    pub(crate) exif_index_rx: Receiving<HashMap<OsString, String>>,
+    exif_stale: HashSet<OsString>,
+    exif_index_rx: Receiving<HashMap<OsString, String>>,
     /// Set when the index being read is no longer wanted (another folder): the thread stops.
-    pub(crate) exif_index_stop: Arc<AtomicBool>,
+    exif_index_stop: Arc<AtomicBool>,
+}
+
+impl Search {
+    /// Whether the search looks at marks or stars, so a change of them changes the matches.
+    #[cfg(feature = "marks")]
+    pub(crate) fn is_about_marks(&self) -> bool {
+        self.query.starts_with("mark:") || self.query.starts_with("stars:")
+    }
+
+    /// The search field emptied, so the whole list shows.
+    pub(crate) fn clear_query(&mut self) {
+        self.query.clear();
+    }
+
+    /// The files' EXIF text is read again at the next "exif:" search, as their keywords or
+    /// comment changed.
+    pub(crate) fn read_exif_again(&mut self, names: impl IntoIterator<Item = OsString>) {
+        self.exif_stale.extend(names);
+    }
+
+    /// Whether an "exif:" search holds back files whose keywords are still being written.
+    pub(crate) fn holds_exif_reads(&self) -> bool {
+        !self.exif_stale.is_empty() && self.query.contains("exif:")
+    }
+
+    /// The EXIF index of the folder dropped, and its reading stopped: another folder opens.
+    pub(crate) fn forget_exif_index(&mut self) {
+        self.exif_index = None;
+        self.exif_stale.clear();
+        self.exif_index_rx = Receiving::none();
+        // Its reading of every file ends: no one waits for it now.
+        self.exif_index_stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Adds the sums of the matches' size that came to `size`.
+    pub(crate) fn receive_match_size(&mut self, size: &mut u64) {
+        drain(&mut self.match_rx, size);
+    }
+
+    /// Whether the matches' size is summed.
+    pub(crate) fn match_size_known(&self) -> bool {
+        self.match_rx.is_none() && self.match_size_due.is_none()
+    }
+
+    /// The row of `file` among the matches, found by `find` only for a file other than the two
+    /// kept: the shown file `cur` and one other.
+    pub(crate) fn row_of(
+        &self,
+        file: usize,
+        cur: usize,
+        find: impl FnOnce() -> Option<usize>,
+    ) -> Option<usize> {
+        let mut rows = self.match_rows.get();
+        if let Some((_, row)) = rows.iter().flatten().find(|r| r.0 == file) {
+            return *row;
+        }
+        let row = find();
+        rows[(file != cur) as usize] = Some((file, row));
+        self.match_rows.set(rows);
+        row
+    }
+}
+
+/// For tests of other modules, which set up a search or look at what it holds.
+#[cfg(test)]
+impl Search {
+    pub(crate) fn set_query(&mut self, query: &str) {
+        self.query = query.into();
+    }
+
+    pub(crate) fn set_exif_index(&mut self, index: HashMap<OsString, String>) {
+        self.exif_index = Some(index);
+    }
+
+    pub(crate) fn reads_exif_again(&self, name: &str) -> bool {
+        self.exif_stale.contains(std::ffi::OsStr::new(name))
+    }
+
+    pub(crate) fn has_nothing_to_read_again(&self) -> bool {
+        self.exif_stale.is_empty()
+    }
+
+    pub(crate) fn reads_index(&self) -> bool {
+        self.exif_index_rx.is_some()
+    }
+
+    /// The index being read is no longer waited for.
+    pub(crate) fn drop_index_reading(&mut self) {
+        self.exif_index_rx = Receiving::none();
+    }
 }
 
 impl crate::App {

@@ -433,11 +433,7 @@ impl crate::App {
         self.work.deleting.clear();
         self.slideshow.shuffled = false;
         self.thumbs.forget_all();
-        self.search.exif_index = None;
-        self.search.exif_stale.clear();
-        self.search.exif_index_rx = Receiving::none();
-        // Its reading of every file ends: no one waits for it now.
-        self.search.exif_index_stop.store(true, Ordering::Relaxed);
+        self.search.forget_exif_index();
     }
 
     /// Show the collection in `file` as the list.
@@ -920,7 +916,7 @@ impl crate::App {
 
     pub(crate) fn receive_sizes(&mut self) {
         self.status.receive();
-        drain(&mut self.search.match_rx, &mut self.list.match_size);
+        self.search.receive_match_size(&mut self.list.match_size);
     }
 
     /// Go → Back and Forward: the folder opened before or after this one.

@@ -1578,9 +1578,7 @@ impl crate::App {
                     // A search shows the matches: count and size of what the list shows.
                     Some(found) => {
                         let size = size_text(
-                            (self.search.match_rx.is_none()
-                                && self.search.match_size_due.is_none())
-                            .then_some(self.list.match_size),
+                            (self.search.match_size_known()).then_some(self.list.match_size),
                         );
                         tf!(
                             "{found} of {images} ({size})",

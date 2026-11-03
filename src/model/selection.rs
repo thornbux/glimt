@@ -126,14 +126,7 @@ impl crate::App {
 
     /// The row of `file` among the search matches `m`, kept for the shown file and one other.
     pub(crate) fn row_of(&self, m: &[usize], file: usize) -> Option<usize> {
-        let mut rows = self.search.match_rows.get();
-        if let Some((_, row)) = rows.iter().flatten().find(|r| r.0 == file) {
-            return *row;
-        }
-        let row = m.iter().position(|&i| i == file);
-        rows[(file != self.list.cur) as usize] = Some((file, row));
-        self.search.match_rows.set(rows);
-        row
+        (self.search).row_of(file, self.list.cur, || m.iter().position(|&i| i == file))
     }
 
     /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.

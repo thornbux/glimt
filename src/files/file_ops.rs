@@ -877,7 +877,7 @@ impl crate::App {
                 self.thumbs.forget(name);
                 self.list.details.remove(name);
                 // Also while the first index is being read, which may have read it before.
-                self.search.exif_stale.insert(name.to_owned());
+                self.search.read_exif_again([name.to_owned()]);
             }
         }
         // Their size changed: the status bar and the list read it again.
@@ -1145,9 +1145,7 @@ impl crate::App {
         let names = paths
             .iter()
             .filter_map(|p| p.strip_prefix(&self.folder.dir).ok());
-        self.search
-            .exif_stale
-            .extend(names.map(|n| n.as_os_str().to_owned()));
+        (self.search).read_exif_again(names.map(|n| n.as_os_str().to_owned()));
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let work: Work = Box::new(move || {
@@ -2134,26 +2132,18 @@ mod tests {
             |_| true,
             |_, _| None,
         );
-        assert!(
-            app.search
-                .exif_stale
-                .contains(std::ffi::OsStr::new("a.png"))
-        );
+        assert!(app.search.reads_exif_again("a.png"));
         let names = ["a.png", "b.png"].map(|n| (std::ffi::OsString::from(n), String::new()));
-        app.search.exif_index = Some(names.into_iter().collect());
+        app.search.set_exif_index(names.into_iter().collect());
         // A search while keywords are still being written keeps the marks for after: the file
         // would be read before its sidecar landed. Once written, it is read again.
         let writing = app
             .start_job_of("Saving keywords", 1, true, vec![dir.join("a.png")])
             .unwrap();
-        app.search.query = "exif:x".into();
+        app.search.set_query("exif:x");
         app.update_search(&ctx);
-        assert!(
-            app.search
-                .exif_stale
-                .contains(std::ffi::OsStr::new("a.png"))
-        );
-        assert!(app.search.exif_index_rx.is_none());
+        assert!(app.search.reads_exif_again("a.png"));
+        assert!(!app.search.reads_index());
         drop(writing);
         // The first keywords job above is over too, once the guard lets everything through.
         let over = (0..250).any(|_| {
@@ -2166,17 +2156,13 @@ mod tests {
         assert!(over);
         // The frame that sees the jobs end searches again, and the held marks are read.
         app.poll_background(&ctx);
-        assert!(app.search.exif_stale.is_empty() && app.search.exif_index_rx.is_some());
-        app.search.exif_index_rx = crate::support::threads::Receiving::none();
-        app.search.query.clear();
+        assert!(app.search.has_nothing_to_read_again() && app.search.reads_index());
+        app.search.drop_index_reading();
+        app.search.clear_query();
         // Renamed by another program, the folder read again: the new name is read too.
         std::fs::rename(dir.join("a.png"), dir.join("c.png")).unwrap();
         app.replace_files(&ctx, vec!["b.png".into(), "c.png".into()], None);
-        assert!(
-            app.search
-                .exif_stale
-                .contains(std::ffi::OsStr::new("c.png"))
-        );
+        assert!(app.search.reads_exif_again("c.png"));
         // Written over by another image: read again, and its stars gone.
         let b = dir.join("b.png");
         #[cfg(feature = "marks")]
@@ -2187,11 +2173,7 @@ mod tests {
         };
         app.work.deleted_tx.send(over).unwrap();
         app.receive_deleted(&ctx);
-        assert!(
-            app.search
-                .exif_stale
-                .contains(std::ffi::OsStr::new("b.png"))
-        );
+        assert!(app.search.reads_exif_again("b.png"));
         #[cfg(feature = "marks")]
         assert_eq!(app.marks.get(&b), (0, 0));
         std::fs::remove_dir_all(dir).unwrap();
