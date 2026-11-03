@@ -31,7 +31,7 @@ impl App {
                     crate::support::format::count(stars as usize, "star")
                 );
             }
-            if let Some(meta) = self.info.meta.as_ref().filter(|m| m.path == path) {
+            if let Some(meta) = self.info.meta_of(&path) {
                 if !meta.saved.keywords.is_empty() {
                     text += &format!(", keywords: {}", meta.saved.keywords.join(", "));
                 }

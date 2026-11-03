@@ -13,7 +13,7 @@ use crate::support::test_hooks::noted;
 use crate::{files::config, images::decode, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 /// A file's EXIF from the reader thread.
@@ -104,24 +104,24 @@ impl KeywordNode {
 /// The info panel and the EXIF window: what is read of the shown image, and what is being edited.
 pub(crate) struct Info {
     /// To the EXIF reader thread, and its answers.
-    pub(crate) exif_jobs: mpsc::Sender<PathBuf>,
-    pub(crate) exif_rx: mpsc::Receiver<ExifRead>,
+    exif_jobs: mpsc::Sender<PathBuf>,
+    exif_rx: mpsc::Receiver<ExifRead>,
     /// The file the EXIF panel asked for last, and the panel's rows as read for a file.
-    pub(crate) exif_asked: Option<PathBuf>,
-    pub(crate) exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
+    exif_asked: Option<PathBuf>,
+    exif: Option<(PathBuf, Vec<(&'static str, String)>)>,
     /// Every EXIF field of the shown image, for the EXIF window (Ctrl+E).
-    pub(crate) exif_all: Vec<(&'static str, String, String)>,
+    exif_all: Vec<(&'static str, String, String)>,
     /// View → EXIF Window is open.
-    pub(crate) exif_window: bool,
+    exif_window: bool,
     /// Keywords, comment, alt text and extended description in the EXIF panel; saved when a field
     /// loses the focus, or another image is shown.
-    pub(crate) meta: Option<MetaEdit>,
+    meta: Option<MetaEdit>,
     /// Alt+K: put the focus in the keywords field when the panel shows next.
-    pub(crate) focus_keywords: bool,
+    focus_keywords: bool,
     /// The keyword tree (Geeqie's), as paths "Places|Norway|Oslo", sorted; in the EXIF panel.
-    pub(crate) keyword_tree: Vec<String>,
+    keyword_tree: Vec<String>,
     /// A path being typed to add to the keyword tree.
-    pub(crate) new_keyword: String,
+    new_keyword: String,
 }
 
 impl Info {
@@ -142,6 +142,36 @@ impl Info {
             .map_or_else(Vec::new, |t| xmp::keyword_paths(t.lines())),
             new_keyword: String::new(),
         }
+    }
+
+    /// The EXIF of the shown image is read again, as its file changed.
+    pub(crate) fn forget_exif(&mut self) {
+        self.exif = None;
+    }
+
+    /// The EXIF panel's row `label` of `path`, when that is the file read.
+    pub(crate) fn exif_row(&self, path: &Path, label: &str) -> Option<&str> {
+        let (_, rows) = self.exif.as_ref().filter(|e| e.0 == path)?;
+        rows.iter().find(|r| r.0 == label).map(|r| r.1.as_str())
+    }
+
+    /// What the panel edits of `path`, when it is that file's.
+    pub(crate) fn meta_of(&self, path: &Path) -> Option<&MetaEdit> {
+        self.meta.as_ref().filter(|m| m.path == path)
+    }
+
+    /// View → EXIF Window, open or closed.
+    pub(crate) fn toggle_exif_window(&mut self) {
+        self.exif_window = !self.exif_window;
+    }
+
+    pub(crate) fn exif_window_open(&self) -> bool {
+        self.exif_window
+    }
+
+    /// Alt+K: the keywords field takes the focus when the panel shows next.
+    pub(crate) fn focus_keywords(&mut self) {
+        self.focus_keywords = true;
     }
 }
 

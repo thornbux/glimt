@@ -394,7 +394,7 @@ impl crate::App {
         menu_toggle(ui, act, c.icons, Action::Icons);
         menu_toggle(ui, act, c.exif_panel, Action::ExifPanel);
         menu_toggle(ui, act, c.sort_manager, Action::SortManager);
-        menu_toggle(ui, act, self.info.exif_window, Action::ExifWindow);
+        menu_toggle(ui, act, self.info.exif_window_open(), Action::ExifWindow);
         menu_toggle(ui, act, self.pan_window.is_some(), Action::PanView);
         menu_toggle(ui, act, c.osd, Action::Overlay);
         menu_item(ui, act, Action::Histogram);

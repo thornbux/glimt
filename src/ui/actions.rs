@@ -914,11 +914,11 @@ impl crate::App {
             // An animation: stopped at the frame before or after the one shown, which A plays on.
             Action::NextPage | Action::PrevPage if self.animated() => self.step_frame(action),
             Action::NextPage | Action::PrevPage => self.step_page(action),
-            Action::ExifWindow => self.info.exif_window = !self.info.exif_window,
+            Action::ExifWindow => self.info.toggle_exif_window(),
             Action::Keywords => {
                 self.config.exif_panel = true;
                 self.config.save();
-                self.info.focus_keywords = true;
+                self.info.focus_keywords();
             }
             Action::PanView => {
                 self.pan_window = match self.pan_window {
