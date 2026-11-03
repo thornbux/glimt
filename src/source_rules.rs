@@ -30,21 +30,47 @@ impl Place {
     }
 }
 
-/// Every source file's name and text, read from `src/`: the Rust files and the translations
-/// (`.po`). A file added is checked without being listed anywhere.
+/// Every source file's path below `src/` and its text: the Rust files and the translations
+/// (`.po`), also those in folders (`files/config.rs`). A file added is checked without being
+/// listed anywhere.
 pub(crate) fn sources() -> Vec<(String, String)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files: Vec<(String, String)> = std::fs::read_dir(&src)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .filter(|name| name.ends_with(".rs") || name.ends_with(".po"))
-        .map(|name| {
-            let text = std::fs::read_to_string(src.join(&name)).unwrap();
-            (name, text)
-        })
-        .collect();
+    let mut files = Vec::new();
+    let mut folders = vec![src.clone()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+                continue;
+            }
+            let name = path
+                .strip_prefix(&src)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            if name.ends_with(".rs") || name.ends_with(".po") {
+                files.push((name, std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
     files.sort();
     files
+}
+
+/// The names a `crate::` path can start with: every module, which is a file's name without its
+/// folder and `.rs`, and every folder of modules.
+fn module_names() -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for (path, _) in rust_sources() {
+        let mut parts: Vec<&str> = path.trim_end_matches(".rs").split('/').collect();
+        names.push(parts.pop().unwrap().to_owned());
+        names.extend(parts.into_iter().map(str::to_owned));
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// The Rust files of `sources`.
@@ -428,10 +454,7 @@ fn crate_paths(lines: &[String]) -> Vec<(usize, String)> {
 #[test]
 fn imports_name_where_defined() {
     let files = rust_sources();
-    let modules: Vec<&str> = files
-        .iter()
-        .map(|(n, _)| n.trim_end_matches(".rs"))
-        .collect();
+    let modules = module_names();
     let main = code_lines(&source("main.rs"));
     let main_end = tests_start(&main);
     let words = [
@@ -463,7 +486,7 @@ fn imports_name_where_defined() {
     let mut wrong = Vec::new();
     for (file, text) in &files {
         for (line, name) in crate_paths(&code_lines(text)) {
-            if !modules.contains(&name.as_str()) && !defined(&name) {
+            if !modules.contains(&name) && !defined(&name) {
                 wrong.push(format!("{file}:{line}: crate::{name}"));
             }
         }
@@ -506,9 +529,7 @@ fn super_only_inside_modules() {
 /// `use actions::…`.
 #[test]
 fn main_names_its_modules_with_crate() {
-    let modules: Vec<String> = (rust_sources().into_iter())
-        .map(|(n, _)| n.trim_end_matches(".rs").to_owned())
-        .collect();
+    let modules = module_names();
     for (i, line) in code_lines(&source("main.rs")).iter().enumerate() {
         let first = (qualifiers_off(line).strip_prefix("use "))
             .and_then(|l| l.split("::").next())

@@ -1951,11 +1951,8 @@ mod tests {
                 "journal's tests put every cut-short plan right",
             ),
         ];
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = std::collections::BTreeSet::new();
-        for entry in std::fs::read_dir(src).unwrap() {
-            let path = entry.unwrap().path();
-            let text = std::fs::read_to_string(&path).unwrap();
+        for (_, text) in crate::source_rules::sources() {
             let code = text.split("\n#[cfg(test)]\nmod tests").next().unwrap();
             let mut function = String::new();
             for line in code.lines() {
