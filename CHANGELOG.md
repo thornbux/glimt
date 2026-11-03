@@ -5,6 +5,22 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-11-03
+
+### Changed
+
+- The source is in folders by what it does; Glimt itself works as before. `src/` holds only
+  `main.rs`, `cli.rs` and eight folders, in the order a reader meets the program: `model/`
+  (what is open), `viewer/` (the image area), `ui/` (the window around it), `features/`,
+  `images/` (from file to pixels and back), `metadata/`, `files/` (how files change on disk)
+  and `support/`. AGENTS.md lists the modules folder by folder.
+- `main.rs` is down from about 3,100 lines to 560. The command line is in `cli.rs`, the list of
+  files in `model/list.rs`, the trash in `files/trash.rs`, the safe writes and renames in
+  `files/file_io.rs`, `--back-up` in `files/backup.rs`, and the test helpers in modules of
+  their own.
+- A new test keeps the layout: a module file directly in `src/`, or a folder's file with more
+  than its `mod` lines, fails it.
+
 ## [0.52.0] - 2026-11-02
 
 ### Changed
@@ -2274,7 +2290,9 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.51.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.53.0...HEAD
+[0.53.0]: https://github.com/thornbux/glimt/compare/v0.52.0...v0.53.0
+[0.52.0]: https://github.com/thornbux/glimt/compare/v0.51.0...v0.52.0
 [0.51.0]: https://github.com/thornbux/glimt/compare/v0.50.0...v0.51.0
 [0.50.0]: https://github.com/thornbux/glimt/compare/v0.49.0...v0.50.0
 [0.49.0]: https://github.com/thornbux/glimt/compare/v0.48.0...v0.49.0
