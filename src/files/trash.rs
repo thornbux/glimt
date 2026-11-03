@@ -175,7 +175,7 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
         .replacen(' ', "T", 1);
     let text = format!(
         "[Trash Info]\nPath={}\nDeletionDate={date}\n",
-        crate::thumbs::uri_path(path)
+        crate::images::thumbs::uri_path(path)
     );
     let name = path.file_name().unwrap_or_default();
     let (stem, ext) = (Path::new(name).file_stem(), Path::new(name).extension());
@@ -283,7 +283,7 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
                 .to_str()?
                 .strip_suffix(".trashinfo")?
                 .to_owned();
-            let text = crate::decode::read_text(&info).ok()?;
+            let text = crate::images::decode::read_text(&info).ok()?;
             let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
             let from = collections::percent_decoded(value("Path=")?.as_bytes());
             Some(Trashed {

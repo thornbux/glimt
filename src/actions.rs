@@ -1,10 +1,10 @@
 //! Everything the user can do from a menu or a key: the Action list with menu labels, Geeqie's
 //! default keys (SHORTCUTS), and the user's own keys from Preferences.
 
-use crate::colour::FILTERS;
-use crate::decode::{color_image, survive};
 use crate::dialogs::{Pick, Prompt};
 use crate::duplicates::Dups;
+use crate::images::colour::FILTERS;
+use crate::images::decode::{color_image, survive};
 #[cfg(feature = "marks")]
 use crate::marks;
 use crate::pan::Pan;
@@ -13,7 +13,7 @@ use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
 use crate::view::LAYOUTS;
-use crate::{collections, files::config, help, own_program, remote, save, tf};
+use crate::{collections, files::config, help, images::save, own_program, remote, tf};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;

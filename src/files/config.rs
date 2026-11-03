@@ -704,7 +704,7 @@ fn by_name(key: &str, value: String) -> String {
 /// A settings file's text, a byte that is not UTF-8 (a path in another encoding) made the
 /// replacement character: read so when loaded, and when saved again, which merges into it.
 fn read_lossy(path: &Path) -> std::io::Result<String> {
-    Ok(String::from_utf8_lossy(&crate::decode::read_limited(path)?).into_owned())
+    Ok(String::from_utf8_lossy(&crate::images::decode::read_limited(path)?).into_owned())
 }
 
 /// The value of `key` in key=value lines, as `to_text` writes them.

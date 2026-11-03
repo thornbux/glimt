@@ -2,14 +2,14 @@
 //! a slider is let go). The settings themselves are `Config`'s (config.rs).
 
 use crate::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
-use crate::colour::{INPUT_PROFILES, INTENTS};
-use crate::decode::MAX_ANIMATION;
 use crate::dialogs::Pick;
 use crate::files::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
+use crate::images::colour::{INPUT_PROFILES, INTENTS};
+use crate::images::decode::MAX_ANIMATION;
 use crate::support::format::thousands;
 use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
-use crate::{actions, files::config, support::lang, tf, theme, thumbs};
+use crate::{actions, files::config, images::thumbs, support::lang, tf, theme};
 use eframe::egui;
 use std::path::Path;
 use std::sync::atomic::Ordering;

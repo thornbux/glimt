@@ -1,9 +1,9 @@
 //! Saving a turned image: the pixels turned, the EXIF kept with orientation 1 and the XMP kept,
 //! in the same format (a lossy WebP gets them back in RIFF chunks).
 
-use crate::colour::to_srgb;
-use crate::decode::load_icc;
 use crate::exif;
+use crate::images::colour::to_srgb;
+use crate::images::decode::load_icc;
 use crate::listing::has_ext;
 use image::ImageDecoder;
 use std::path::Path;
@@ -144,7 +144,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
     // A later page as the view decodes it: the image crate reads only the first.
     let (img, icc) = match how.page {
         0 => load_icc(path, how.rotate)?,
-        page => (crate::decode::page_of(path, page)?, None),
+        page => (crate::images::decode::page_of(path, page)?, None),
     };
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
@@ -163,7 +163,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
 /// first page.
 pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {
     let (img, icc) = pixels(path, how)?;
-    Ok(crate::colour::to_srgb(img, icc.as_deref()))
+    Ok(crate::images::colour::to_srgb(img, icc.as_deref()))
 }
 
 /// `img` with its longest side `long` at most, by Lanczos3: sharp, for a copy kept.
@@ -296,11 +296,11 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
 /// file is, as it is read by its content: an animated GIF named a.png is still animated, a
 /// JPEG named so is not.
 fn animated(path: &Path) -> Result<bool, String> {
-    let format = crate::decode::image_reader(path)
+    let format = crate::images::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .format();
-    let file = || crate::decode::open(path).map(std::io::BufReader::new);
+    let file = || crate::images::decode::open(path).map(std::io::BufReader::new);
     Ok(match format {
         Some(image::ImageFormat::Gif) => true,
         Some(image::ImageFormat::Png) => (file().ok())
@@ -314,7 +314,7 @@ fn animated(path: &Path) -> Result<bool, String> {
 }
 
 fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
-    let (mut exif, mut xmp, stored) = crate::decode::image_reader(path)
+    let (mut exif, mut xmp, stored) = crate::images::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
@@ -330,7 +330,7 @@ fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
     if let Some(xmp) = &mut xmp {
         exif::set_xmp_orientation(xmp, 1);
     }
-    let quarter = rotate && stored.is_some_and(crate::decode::quarter_turn);
+    let quarter = rotate && stored.is_some_and(crate::images::decode::quarter_turn);
     Ok((exif, xmp, quarter))
 }
 
@@ -420,7 +420,7 @@ fn encode(
     // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn. Only from a PNG.
     if let Kind::Png = kind
         && has_ext(path, &["png"])
-        && let Ok(old) = crate::decode::read_limited(path)
+        && let Ok(old) = crate::images::decode::read_limited(path)
     {
         out = png_with_chunks(&out, &old, quarter);
     }
@@ -533,7 +533,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// Whether a WebP file is lossless (a VP8L image) or lossy (VP8); `None` if neither is found.
 pub fn webp_lossless(path: &Path) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut file = crate::decode::open(path).ok()?;
+    let mut file = crate::images::decode::open(path).ok()?;
     let mut head = [0; 12];
     file.read_exact(&mut head).ok()?;
     if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {
@@ -580,7 +580,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
     // Written in a thread of its own, while its output is read: neither pipe fills and stops it.
     let mut stdin = child.stdin.take();
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
-    let max = crate::decode::MAX_DECODE;
+    let max = crate::images::decode::MAX_DECODE;
     let (webp, err, ok) =
         crate::files::external::output_of(&mut child, max, crate::files::external::LIMIT);
     let _ = feed.join();
@@ -838,7 +838,7 @@ mod tests {
     #[test]
     fn saves_rotated_as_seen() {
         // The copy's colours go through the colour settings, which another test changes.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         use image::{ImageDecoder, ImageEncoder};
@@ -913,7 +913,7 @@ mod tests {
     #[test]
     fn saves_a_cropped_copy() {
         // The copy's colours go through the colour settings, which another test changes.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         use image::ImageDecoder;
@@ -1061,7 +1061,7 @@ mod tests {
     fn a_copy_has_its_own_sidecar_and_page() {
         use tiff::encoder::{TiffEncoder, colortype};
         // The copy's colours go through the colour settings, which another test changes.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-copy-own-{}", std::process::id()));
@@ -1155,7 +1155,7 @@ mod tests {
     #[test]
     fn saves_same_names_at_once() {
         // The copy's colours go through the colour settings, which another test changes.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-same-{}", std::process::id()));

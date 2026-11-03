@@ -19,7 +19,7 @@ pub(crate) fn app_on(dir: &std::path::Path) -> (crate::App, eframe::egui::Contex
     let start = crate::cli::Start::default();
     // A new window sets the colour settings, which also empties the transforms a colour
     // test running beside it was looking at.
-    let held = crate::colour::COLOUR_TEST
+    let held = crate::images::colour::COLOUR_TEST
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let mut app = crate::App::with(&ctx, config, &[], Some(dir.into()), start);

@@ -3,19 +3,19 @@
 //! Copies are written under a hidden name and get their own once whole; no file is overwritten.
 
 use crate::actions::Action;
-use crate::decode::survive;
 use crate::dialogs::Pick;
 use crate::dialogs::Prompt;
 use crate::files::external;
 use crate::files::file_io::{put_file, rename_never_over};
 use crate::files::trash::{Thrown, restore, trash_dirs};
 use crate::folder::total_size;
+use crate::images::decode::survive;
+use crate::images::save::save_rotated;
 use crate::listing::pattern_name;
-use crate::save::save_rotated;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Working};
-use crate::{collections, decode, exif, files::journal, tf, xmp};
+use crate::{collections, exif, files::journal, images::decode, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -1204,12 +1204,12 @@ impl crate::App {
             // One frame over the animation itself would put a still in its place and take its
             // sidecar, marks and stars with it: refused, as Save As refuses, here in the
             // background, as a file on a share that stalls would hold the window.
-            if only.is_some() && crate::save::same_file(&path, &to) {
+            if only.is_some() && crate::images::save::same_file(&path, &to) {
                 let e = "choose another name: the image itself is not changed";
                 return Some(tf!("Could not save the image: {e}", e));
             }
             // The name's own bytes, also when they are not UTF-8.
-            let named = |more: &str| crate::save::stem_and(&path, more);
+            let named = |more: &str| crate::images::save::stem_and(&path, more);
             let folder = match only {
                 Some(_) => to.clone(),
                 None => (1..)
@@ -1239,7 +1239,7 @@ impl crate::App {
                             .map_err(|e| e.to_string())
                             .and_then(|_| {
                                 let png = png.into_inner();
-                                crate::save::land(&path, &file, &png, true, true)
+                                crate::images::save::land(&path, &file, &png, true, true)
                                     .map_err(|e| e.to_string())
                             })
                             .map_err(|e| format!("{}: {e}", file.display()))

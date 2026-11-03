@@ -2,8 +2,8 @@
 //! (`List`), the decoded images (`Slot`), and what belongs to the image shown (`Viewing`).
 
 use crate::crop;
-use crate::decode::Hist;
 use crate::file_list::RubberBand;
+use crate::images::decode::Hist;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;

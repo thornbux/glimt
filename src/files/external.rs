@@ -414,7 +414,7 @@ pub fn ffmpeg_ppm(
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
         .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
-    let limit = crate::decode::MAX_DECODE + 64;
+    let limit = crate::images::decode::MAX_DECODE + 64;
     let (frame, err, ok) = output_of(&mut child, limit, LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
@@ -430,7 +430,7 @@ pub fn ffmpeg_ppm(
 
 #[cfg(feature = "video")]
 pub fn is_video(path: &Path) -> bool {
-    has_ext(path, crate::video::EXTS)
+    has_ext(path, crate::images::video::EXTS)
 }
 
 #[cfg(not(feature = "video"))]
@@ -664,7 +664,7 @@ pub fn open_url(url: &str) {
 /// of their own, so the photo may be moved or deleted later. gdbus comes with gio.
 pub fn set_wallpaper(path: &Path) -> Result<(), String> {
     // A GVariant string: uri_path leaves no " or \ in it.
-    let uri = format!("\"file://{}\"", crate::thumbs::uri_path(path));
+    let uri = format!("\"file://{}\"", crate::images::thumbs::uri_path(path));
     let mut gdbus = stoppable_command("gdbus");
     gdbus
         .args([

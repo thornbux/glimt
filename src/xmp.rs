@@ -66,7 +66,7 @@ fn parse_access(xmp: &str) -> Access {
 /// sidecar if that has them, else from the image), its sidecar and the XMP inside it each read
 /// once, for the panel: on a network share each reading of a large photo costs.
 pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
-    let side = crate::decode::read_text(sidecar(path)).ok();
+    let side = crate::images::decode::read_text(sidecar(path)).ok();
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
     let has_meta = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
@@ -167,7 +167,9 @@ pub fn tree_paths(path: &Path) -> Vec<String> {
 /// image's own.
 fn source(path: &Path) -> Option<String> {
     let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let side = crate::decode::read_text(sidecar(path)).ok().filter(has);
+    let side = crate::images::decode::read_text(sidecar(path))
+        .ok()
+        .filter(has);
     side.or_else(|| embedded(path))
 }
 
@@ -190,7 +192,7 @@ fn embedded(path: &Path) -> Option<String> {
         Some(found) => found?[JPEG.len()..].to_vec(),
         None => {
             use image::ImageDecoder;
-            let reader = crate::decode::image_reader(path)
+            let reader = crate::images::decode::image_reader(path)
                 .ok()?
                 .with_guessed_format()
                 .ok()?;
@@ -1243,7 +1245,7 @@ mod tests {
             std::fs::symlink_metadata(sidecar(&b)).is_err(),
             "copied through the link"
         );
-        crate::save::land(&a, &c, b"x", false, false).unwrap();
+        crate::images::save::land(&a, &c, b"x", false, false).unwrap();
         assert!(
             std::fs::symlink_metadata(sidecar(&c)).is_err(),
             "landed through the link"

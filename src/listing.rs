@@ -2,7 +2,7 @@
 //! of them, and sorting them (by name as numbers, date, size, EXIF date or shuffled).
 
 use crate::files::external::{is_heif, is_video};
-use crate::{exif, raw};
+use crate::{exif, images::raw};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -188,7 +188,8 @@ pub fn is_hidden(path: &Path) -> bool {
 }
 
 fn is_listed_type(path: &Path, types: Types) -> bool {
-    (types.images && (built_in_image(path) || crate::decoder_plugins::for_path(path).is_some()))
+    (types.images
+        && (built_in_image(path) || crate::images::decoder_plugins::for_path(path).is_some()))
         || (types.raw && has_ext(path, raw::EXTS))
         || (types.videos && is_video(path))
 }

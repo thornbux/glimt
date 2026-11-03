@@ -407,7 +407,7 @@ pub fn write_orientation(
 ) -> Result<(), String> {
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let data = crate::decode::read_limited(path).map_err(|e| e.to_string())?;
+    let data = crate::images::decode::read_limited(path).map_err(|e| e.to_string())?;
     crate::files::file_io::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
         .map_err(|e| e.to_string())
 }
@@ -614,7 +614,7 @@ fn segment<'a>(data: &'a [u8], &(_, start, len): &(u8, usize, usize)) -> &'a [u8
 /// of the folder. `Some(None)` if it has none; `None` if it is no JPEG or that part is not enough
 /// to tell, so the decoder reads the whole file after all.
 pub fn jpeg_app1(path: &Path, prefix: &[u8]) -> Option<Option<Vec<u8>>> {
-    let head = crate::decode::read_head(path, 1 << 18).ok()?;
+    let head = crate::images::decode::read_head(path, 1 << 18).ok()?;
     if !head.starts_with(&[0xff, 0xd8]) {
         return None;
     }
@@ -694,12 +694,12 @@ fn add_orientation(
 
 fn raw(path: &Path) -> Option<Vec<u8>> {
     use image::ImageDecoder;
-    if crate::listing::has_ext(path, crate::raw::EXTS) {
-        return crate::raw::exif(path);
+    if crate::listing::has_ext(path, crate::images::raw::EXTS) {
+        return crate::images::raw::exif(path);
     }
     #[cfg(feature = "jxl")]
     if crate::listing::has_ext(path, crate::listing::JXL_EXTS) {
-        let file = std::io::BufReader::new(crate::decode::open(path).ok()?);
+        let file = std::io::BufReader::new(crate::images::decode::open(path).ok()?);
         let mut dec = jxl_oxide::integration::JxlDecoder::new(file).ok()?;
         return dec.exif_metadata().ok().flatten();
     }
@@ -711,12 +711,12 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
                 .position(|w| w.starts_with(b"Exif\0\0") && matches!(&w[6..], b"II" | b"MM"))?;
             Some(data[at..data.len().min(at + (1 << 20))].to_vec())
         };
-        let head = crate::decode::read_head(path, 1 << 20).ok()?;
+        let head = crate::images::decode::read_head(path, 1 << 20).ok()?;
         // Found too near the head's end, it may be cut short (EXIF blocks reach 64 KB).
         let whole = head.len() < 1 << 20;
         let in_head = find(&head).filter(|e| whole || e.len() > 1 << 16);
         // Read whole only when the head was not all of it, and never more than a decode would.
-        let rest = || find(&crate::decode::read_limited(path).ok()?);
+        let rest = || find(&crate::images::decode::read_limited(path).ok()?);
         return in_head.or_else(|| (!whole).then(rest).flatten());
     }
     if crate::listing::is_jpeg(path)
@@ -724,7 +724,7 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
     {
         return exif;
     }
-    crate::decode::image_reader(path)
+    crate::images::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .ok()?
         .into_decoder()

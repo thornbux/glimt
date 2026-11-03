@@ -135,7 +135,7 @@ fn check_config(file: Option<PathBuf>) -> ! {
         eprintln!("glimt: no home folder, so no settings file");
         std::process::exit(1);
     };
-    let problems = match crate::decode::read_text(&path) {
+    let problems = match crate::images::decode::read_text(&path) {
         Ok(text) => Config::check(&text).1,
         Err(e) => vec![format!("cannot be read ({e})")],
     };

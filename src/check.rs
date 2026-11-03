@@ -4,7 +4,7 @@ use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::{Working, background_threads};
-use crate::{decode, tf};
+use crate::{images::decode, tf};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::PathBuf;

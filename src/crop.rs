@@ -16,7 +16,7 @@ use std::path::PathBuf;
 /// another image's. Another image, turn or page shown ends it.
 pub struct Crop {
     path: PathBuf,
-    how: crate::save::CopyAs,
+    how: crate::images::save::CopyAs,
     anchor: egui::Pos2,
     part: Option<egui::Rect>,
 }
@@ -155,14 +155,15 @@ impl crate::App {
         } else {
             [w, h]
         };
-        let how = crate::save::CopyAs {
+        let how = crate::images::save::CopyAs {
             crop: Some(part_pixels(part, pixels)),
             ..crop.how
         };
         let path = crop.path;
         let deleted = self.work.deleted_tx.clone();
         self.background(ctx, vec![path.clone()], move || {
-            let saved = crate::decode::survive(|| crate::save::save_cropped(&path, &how));
+            let saved =
+                crate::images::decode::survive(|| crate::images::save::save_cropped(&path, &how));
             Some(match saved {
                 Ok(new) => {
                     let _ = deleted.send(Deleted {

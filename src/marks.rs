@@ -29,7 +29,7 @@ impl Marks {
             known().insert(f.clone(), seen(f));
         }
         let text = file
-            .and_then(|f| crate::decode::read_limited(f).ok())
+            .and_then(|f| crate::images::decode::read_limited(f).ok())
             .unwrap_or_default();
         Marks { map: parse(&text) }
     }

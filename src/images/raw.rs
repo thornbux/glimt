@@ -16,7 +16,7 @@ pub const EXTS: &[&str] = &[
 /// The preview, turned upright if `rotate`.
 pub fn load(path: &Path, rotate: bool) -> Result<image::DynamicImage, String> {
     load_data(
-        &crate::decode::read_limited(path).map_err(|e| e.to_string())?,
+        &crate::images::decode::read_limited(path).map_err(|e| e.to_string())?,
         rotate,
     )
 }
@@ -26,7 +26,7 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
     let jpeg = preview(data).ok_or("no preview image in the RAW file")?;
     let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg))
         .map_err(|e| e.to_string())?;
-    crate::decode::check_size(&dec)?;
+    crate::images::decode::check_size(&dec)?;
     // TIFF-based RAW files carry the orientation in their own header; others in the JPEG.
     let orientation = crate::exif::orientation(data)
         .or_else(|| dec.orientation().ok())
@@ -41,7 +41,7 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
 /// The EXIF block: the file itself if it is TIFF-based (its header is enough), else the one
 /// in the preview JPEG.
 pub fn exif(path: &Path) -> Option<Vec<u8>> {
-    let head = crate::decode::read_head(path, 1 << 20).ok()?;
+    let head = crate::images::decode::read_head(path, 1 << 20).ok()?;
     if matches!(head.get(..2), Some(b"II" | b"MM")) {
         return Some(head);
     }
@@ -52,7 +52,7 @@ pub fn exif(path: &Path) -> Option<Vec<u8>> {
         let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg)).ok()?;
         dec.exif_metadata().ok().flatten()
     };
-    from(&head).or_else(|| from(&crate::decode::read_limited(path).ok()?))
+    from(&head).or_else(|| from(&crate::images::decode::read_limited(path).ok()?))
 }
 
 /// The largest JPEG in `data` that the decoder handles: baseline or progressive. Lossless JPEG

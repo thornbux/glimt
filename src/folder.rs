@@ -92,7 +92,7 @@ impl Folder {
                 });
                 Vec::new()
             }
-            Some(file) => crate::decode::read_limited(file)
+            Some(file) => crate::images::decode::read_limited(file)
                 .map_or_else(|_| Vec::new(), |t| config::parse_recent(&t)),
             None => Vec::new(),
         };
@@ -123,8 +123,9 @@ impl Folder {
             forward: Vec::new(),
             mounting_rx: Receiving::none(),
             login: None,
-            sort_folders: (sort_folders_path().and_then(|p| crate::decode::read_limited(p).ok()))
-                .map_or_else(Vec::new, |t| sort_folders_from(&t)),
+            sort_folders: (sort_folders_path()
+                .and_then(|p| crate::images::decode::read_limited(p).ok()))
+            .map_or_else(Vec::new, |t| sort_folders_from(&t)),
         }
     }
 }

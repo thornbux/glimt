@@ -72,11 +72,7 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
-| `src/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
-| `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
 | `src/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
-| `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
 | `src/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
 | `src/help.rs` | Help Manual, Keyboard Shortcuts, Keyboard Map, About, `DIFFERENCES` |
@@ -90,12 +86,9 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/plugins.rs` | Plugins: desktop files whose command runs on the selected files; `desktop_files` and `values`, which decoder_plugins.rs reads with too |
 | `src/preferences.rs` | Edit → Preferences: the window and its sections |
 | `src/print.rs` | Printing: a PDF of the images, sent to `lp` or saved, and the print dialog |
-| `src/raw.rs` | Camera RAW: the largest embedded JPEG preview |
 | `src/remote.rs` | `--remote`, `--remote-all` and `--name`: a socket for each Glimt in `$XDG_RUNTIME_DIR/glimt`, `COMMANDS`, the sender (`client`) and the listener |
 | `src/search.rs` | The search: fuzzy names and `exif:`, `re:`, `mark:` and `stars:` terms with `|`, `-` and `( )`, in parallel; the EXIF index (`exif_index`) |
 | `src/theme.rs` | The look: Inter and Phosphor fonts, themes (`themes/*.theme` built in, own ones in `~/.config/glimt/themes`), the desktop's dark style and accent |
-| `src/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
-| `src/video.rs` | Optional video feature |
 | `src/support.rs` | **The support/ folder:** what the rest is built on: threads, text for the user, the languages, and what the tests use |
 | `src/support/test_hooks.rs` | The release tests' hook (feature `test-hooks`): where a widget with a text was drawn, for `glimt --remote where LABEL`, and `noted`, which every widget the tests click goes through |
 | `src/support/test_support.rs` | What tests start from, built only for tests: `app_on` (an `App` on a folder without a window), `settle`, `contract_folder`, and `broken` for the parsers' `survives_broken_*` tests; each module's tests use them, so a test sits beside the code it tests |
@@ -112,6 +105,14 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/files/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`in_flatpak`, `print`, `open_with`, `inhibit_idle`) |
 | `src/files/journal.rs` | Rename Many's steps on disk while they run, put right at the next start after a crash |
+| `src/images.rs` | **The images/ folder:** from a file to pixels and back: decoding, RAW, colour, video, decoder plugins, thumbnails and saving |
+| `src/images/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
+| `src/images/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
+| `src/images/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
+| `src/images/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
+| `src/images/raw.rs` | Camera RAW: the largest embedded JPEG preview |
+| `src/images/thumbs.rs` | Freedesktop thumbnail cache (`~/.cache/thumbnails`) |
+| `src/images/video.rs` | Optional video feature |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
@@ -185,7 +186,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   never drops them.
 - **A format:** built in when the `image` crate reads it with no new dependency (its feature in
   `Cargo.toml`, the extension in `listing::EXTS`, a test in `decode.rs`). Otherwise a decoder
-  plugin in `examples/decoders` (`src/decoder_plugins.rs`), with a check in `tests.sh`, not code or a
+  plugin in `examples/decoders` (`src/images/decoder_plugins.rs`), with a check in `tests.sh`, not code or a
   dependency in Glimt.
 - **An optional feature** (chosen when building, not a plugin): a Cargo feature in `[features]`
   (also add it to `full`), a module or extension list behind `#[cfg(feature = "...")]`, and its

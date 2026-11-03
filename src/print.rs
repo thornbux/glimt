@@ -3,13 +3,13 @@
 //! the file name under it in Helvetica, which every PDF reader has.
 //! Several on a page make a contact sheet, as Geeqie's.
 
-use crate::decode::survive;
 use crate::dialogs::Pick;
 use crate::files::config::Config;
+use crate::images::decode::survive;
 use crate::support::format::count;
 use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took, Working};
-use crate::{decode, print, tf};
+use crate::{images::decode, print, tf};
 use eframe::egui;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -330,7 +330,7 @@ impl crate::App {
                 // In the colours of the print: a photo with its own profile looks as on paper.
                 let small = survive(|| {
                     let (img, icc, size) = decode::small(path, [PREVIEW_PX; 2], rotate)?;
-                    Ok((crate::colour::to_srgb(img, icc.as_deref()), size))
+                    Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 // Gone with the dialog: the rest are not decoded.
                 if let Ok((img, size)) = small
@@ -399,7 +399,7 @@ impl crate::App {
                 // enough.
                 let img = survive(|| {
                     let (img, icc, size) = decode::small(path, [max, max], job.rotate)?;
-                    Ok((crate::colour::to_srgb(img, icc.as_deref()), size))
+                    Ok((crate::images::colour::to_srgb(img, icc.as_deref()), size))
                 });
                 failed.set(failed.get() + img.is_err() as usize);
                 let (img, size) = img.ok()?;
@@ -591,7 +591,7 @@ pub fn caption(
         "position" => format!("{}/{n}", k + 1),
         "dimensions" => (size.map(|[w, h]| (w as u32, h as u32)))
             .or_else(|| {
-                crate::decode::image_reader(path)
+                crate::images::decode::image_reader(path)
                     .ok()?
                     .into_dimensions()
                     .ok()

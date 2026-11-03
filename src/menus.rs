@@ -2,14 +2,14 @@
 //! every menu is drawn with.
 
 use crate::actions::{Action, shortcut_text};
-use crate::colour::{
-    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, read_desktop_screen, set_colour, set_input, set_intent,
-    set_screen,
-};
 use crate::dialogs::Prompt;
 use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_url};
 use crate::files::file_ops::Deleted;
+use crate::images::colour::{
+    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, read_desktop_screen, set_colour, set_input, set_intent,
+    set_screen,
+};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::support::threads::Receiving;

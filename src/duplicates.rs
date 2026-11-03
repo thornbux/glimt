@@ -357,7 +357,7 @@ pub fn find(
                 {
                     return Some(size);
                 }
-                crate::decode::image_reader(path)
+                crate::images::decode::image_reader(path)
                     .ok()?
                     .with_guessed_format()
                     .ok()?
@@ -368,7 +368,7 @@ pub fn find(
         }
         By::Similar(percent) => {
             let signatures = parallel(&paths, p, |path| {
-                let thumb = crate::thumbs::thumbnail(path, rotate, save, false).ok()?;
+                let thumb = crate::images::thumbs::thumbnail(path, rotate, save, false).ok()?;
                 Some(signature(&thumb))
             });
             similar(paths, signatures, percent, p)
@@ -387,9 +387,9 @@ pub fn find(
 /// A JPEG's width and height from its first 256 KB, where its frame header is: the decoder
 /// would read the whole file. `None` if it is not there, so the decoder is asked after all.
 fn jpeg_size(path: &Path) -> Option<(u32, u32)> {
-    let head = crate::decode::read_head(path, 1 << 18).ok()?;
+    let head = crate::images::decode::read_head(path, 1 << 18).ok()?;
     head.starts_with(&[0xff, 0xd8])
-        .then(|| crate::raw::jpeg_size(&head))?
+        .then(|| crate::images::raw::jpeg_size(&head))?
 }
 
 fn size(path: &Path) -> Option<u64> {
@@ -470,7 +470,10 @@ fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
 
 /// Whether files `a` and `b` hold the same bytes; not when one cannot be read.
 fn same_bytes(a: &Path, b: &Path) -> bool {
-    let (Ok(mut a), Ok(mut b)) = (crate::decode::open(a), crate::decode::open(b)) else {
+    let (Ok(mut a), Ok(mut b)) = (
+        crate::images::decode::open(a),
+        crate::images::decode::open(b),
+    ) else {
         return false;
     };
     let (mut x, mut y) = (vec![0; 1 << 16], vec![0; 1 << 16]);
@@ -489,7 +492,7 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
 
 /// A 64-bit hash of the whole file.
 fn checksum(path: &Path) -> Option<u64> {
-    let mut file = crate::decode::open(path).ok()?;
+    let mut file = crate::images::decode::open(path).ok()?;
     let mut hasher = std::hash::DefaultHasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {
@@ -896,7 +899,7 @@ mod tests {
     #[test]
     fn finds_duplicates() {
         // Similarity goes through the colour settings, which another test changes.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-dups-{}", std::process::id()));

@@ -2,9 +2,9 @@
 //! painting, the wheel.
 
 use crate::actions::{Action, KIOSK_ACTIONS};
-use crate::decode::{Decoded, decode, histogram, survive};
 use crate::files::config::Config;
 use crate::files::external::is_video;
+use crate::images::decode::{Decoded, decode, histogram, survive};
 use crate::list::Slot;
 use crate::menus::{iconed, menu_item, scroll_menu};
 use crate::support::format::fill_template;

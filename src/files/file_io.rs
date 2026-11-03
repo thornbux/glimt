@@ -128,7 +128,7 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
             .open(&part)?;
         // Its time kept, as mv does (sorting by date), and on disk before a move removes the
         // source: a stick pulled out right after must not lose both.
-        let copied = crate::decode::open(from)
+        let copied = crate::images::decode::open(from)
             .and_then(|mut f| std::io::copy(&mut f, &mut out))
             .and_then(|_| {
                 // Its read, write and run bits, as cp gives them: not set-user-ID, set-group-ID
@@ -189,7 +189,7 @@ pub fn remove_shared(path: &Path) {
 /// write over, as everything it holds would be lost. The one rule for the settings, the marks,
 /// the keyword tree, the sort manager's folders and a sidecar.
 pub fn read_or_none(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    match crate::decode::read_limited(path) {
+    match crate::images::decode::read_limited(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),

@@ -281,7 +281,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
 }
 
 pub fn load(file: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let text = crate::decode::read_limited(file)?;
+    let text = crate::images::decode::read_limited(file)?;
     // A list's entries relative to it start from its folder as an absolute path: `glimt
     // show.m3u` in its own folder gave "" as that folder, and every entry was left out.
     let file = std::path::absolute(file)?;
@@ -362,7 +362,7 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
     let _held = crate::files::file_io::file_lock(file);
-    let (text, was_new) = match crate::decode::read_limited(file) {
+    let (text, was_new) = match crate::images::decode::read_limited(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         read => (read?, false),
     };

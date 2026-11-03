@@ -29,7 +29,7 @@ fn thumbnail_in(
     save: bool,
     large: bool,
 ) -> Result<image::RgbaImage, String> {
-    if !crate::decode::is_file(path) {
+    if !crate::images::decode::is_file(path) {
         return Err("not a regular file".into());
     }
     let (size, folder) = SIZES[large as usize];
@@ -57,9 +57,9 @@ fn thumbnail_in(
     // A JPEG at 1/8 while decoding: under 1 MB for a 12 MP photo instead of 38. A decoder that
     // panics on the file fails here, inside, so the failure is marked like any other and the
     // file is not decoded again at every visit.
-    let made = crate::decode::survive(|| {
-        let (img, icc, _) = crate::decode::small(path, [size, size], rotate)?;
-        Ok(crate::colour::to_srgb(img, icc.as_deref()).into_rgba8())
+    let made = crate::images::decode::survive(|| {
+        let (img, icc, _) = crate::images::decode::small(path, [size, size], rotate)?;
+        Ok(crate::images::colour::to_srgb(img, icc.as_deref()).into_rgba8())
     });
     // The spec forbids thumbnails of the thumbnails themselves. Others show them as made, so
     // one not turned upright by EXIF (Auto Rotate off) is not shared; the failure mark, Glimt's
@@ -92,7 +92,7 @@ fn cache_file(cache: &Path, folder: &str, uri: &str) -> PathBuf {
 
 /// A cached thumbnail, if it was made from the file as it is now (same Thumb::MTime).
 fn read_cached(file: &Path, mtime: u64) -> Option<image::RgbaImage> {
-    let bytes = crate::decode::read_limited(file).ok()?;
+    let bytes = crate::images::decode::read_limited(file).ok()?;
     let reader = png::Decoder::new(std::io::Cursor::new(&bytes))
         .read_info()
         .ok()?;
@@ -196,7 +196,7 @@ fn clean_in(cache: &Path) -> (usize, usize) {
 /// The file a cached thumbnail was made from, from its Thumb::URI (file:// only).
 fn thumb_source(thumb: &Path) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStringExt;
-    let file = std::io::BufReader::new(crate::decode::open(thumb).ok()?);
+    let file = std::io::BufReader::new(crate::images::decode::open(thumb).ok()?);
     let reader = png::Decoder::new(file).read_info().ok()?;
     let info = reader.info();
     let uri = info
@@ -275,7 +275,8 @@ fn worth_marking(path: &Path, error: &str) -> bool {
 
 /// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
 fn needs_program(path: &Path) -> bool {
-    crate::files::external::ffmpeg_decodes(path) || crate::decoder_plugins::for_path(path).is_some()
+    crate::files::external::ffmpeg_decodes(path)
+        || crate::images::decoder_plugins::for_path(path).is_some()
 }
 
 /// Whether `error` says the program was not found (or may not run), not that the file is bad.

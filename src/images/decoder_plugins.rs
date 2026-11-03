@@ -61,7 +61,7 @@ impl Decoder {
                 .args(&args[1..])
                 .spawn()
                 .map_err(|e| format!("{} ({}): {e}", self.name, program.display()))?;
-        let max = crate::decode::MAX_DECODE + 64;
+        let max = crate::images::decode::MAX_DECODE + 64;
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {

@@ -238,7 +238,7 @@ pub fn convert(
 /// costs nothing); an error for one that cannot be read or is not RGB.
 pub fn rgb_profile(path: &str) -> Result<Option<moxcms::ColorProfile>, String> {
     use moxcms::{ColorProfile, DataColorSpace};
-    let bytes = crate::decode::read_limited(path).map_err(|e| format!("{path}: {e}"))?;
+    let bytes = crate::images::decode::read_limited(path).map_err(|e| format!("{path}: {e}"))?;
     let profile = ColorProfile::new_from_slice(&bytes)
         .ok()
         .filter(|p| p.color_space == DataColorSpace::Rgb)
@@ -334,7 +334,7 @@ pub fn colour_source(path: &Path) -> String {
     use moxcms::{ColorProfile, ProfileText};
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
-    let dec = crate::decode::image_reader(path)
+    let dec = crate::images::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok());

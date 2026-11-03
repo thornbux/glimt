@@ -11,10 +11,10 @@
 use crate::actions::OWN_KEYS;
 use crate::check::Check;
 use crate::cli::Start;
-use crate::decode::{MAX_ANIMATION, decode};
 use crate::duplicates::Dups;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
+use crate::images::decode::MAX_ANIMATION;
 use crate::list::{List, Viewing};
 use crate::pan::Pan;
 use crate::print::PrintDialog;
@@ -38,13 +38,7 @@ mod cli;
 
 mod collections;
 
-mod colour;
-
 mod crop;
-
-mod decode;
-
-mod decoder_plugins;
 
 mod dialogs;
 
@@ -59,6 +53,7 @@ mod folder;
 
 mod help;
 
+mod images;
 mod info_panel;
 
 mod lightroom;
@@ -80,11 +75,7 @@ mod preferences;
 
 mod print;
 
-mod raw;
-
 mod remote;
-
-mod save;
 
 mod save_as;
 
@@ -96,11 +87,6 @@ mod slideshow;
 
 mod support;
 mod theme;
-
-mod thumbs;
-
-#[cfg(feature = "video")]
-mod video;
 
 mod view;
 
@@ -250,13 +236,13 @@ impl App {
         if start.layout.is_some() || start.random || start.fade.is_some() {
             config.save();
         }
-        let screen_error = colour::set_up(&config);
+        let screen_error = crate::images::colour::set_up(&config);
         if let Ok(mut own) = OWN_KEYS.write() {
             own.clone_from(&config.keys.0);
         }
         let path = path
             .or_else(|| {
-                let state = crate::decode::read_text(state_path()?).ok()?;
+                let state = crate::images::decode::read_text(state_path()?).ok()?;
                 parse_last_dir(&state).filter(|d| {
                     config.remember_dir && (d.is_dir() || collections::is_collection(d))
                 })
@@ -545,7 +531,7 @@ fn main() -> eframe::Result {
         crate::files::config::lock();
     }
     if Config::load().remember_window
-        && let Some(state) = state_path().and_then(|p| crate::decode::read_text(p).ok())
+        && let Some(state) = state_path().and_then(|p| crate::images::decode::read_text(p).ok())
     {
         let win = WindowState::parse(&state);
         if let Some(size) = win.size {

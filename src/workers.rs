@@ -1,14 +1,14 @@
 //! The background workers: decoding thumbnails, and what the window collects from every background
 //! job each frame.
 
-use crate::colour::srgb_to_display;
-use crate::decode::color_image;
 use crate::file_list::LARGE_THUMBS;
 use crate::file_list::ThumbView;
 use crate::files::file_ops::Job;
+use crate::images::colour::srgb_to_display;
+use crate::images::decode::color_image;
 use crate::support::lang::tr;
 use crate::support::threads::{CPU_CHANGED, Took, cores, thumb_threads};
-use crate::{lightroom, malloc_trim, remote, tf, thumbs};
+use crate::{images::thumbs, lightroom, malloc_trim, remote, tf};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};

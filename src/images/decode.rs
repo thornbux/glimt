@@ -1,10 +1,10 @@
 //! Decoding: an image file to pixels at the size it is shown (JPEG scaled while decoding, SVG
 //! drawn to size), with its EXIF turn, colours and histogram; animations frame by frame.
 
-use crate::colour::{ADOBE_RGB, to_display, to_srgb};
+use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::listing::has_ext;
 use crate::support::format::human_size;
-use crate::{exif, raw};
+use crate::{exif, images::raw};
 use eframe::egui;
 use image::ImageDecoder;
 use image::metadata::Orientation;
@@ -457,7 +457,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     let _ = max;
     #[cfg(feature = "video")]
     if crate::files::external::is_video(path) {
-        let (img, size) = crate::video::preview(path, max)?;
+        let (img, size) = crate::images::video::preview(path, max)?;
         return Ok((img, None, upright, size));
     }
     if has_ext(path, raw::EXTS) {
@@ -483,7 +483,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
         return Ok((img, icc, upright, None));
     }
-    if let Some(decoder) = crate::decoder_plugins::for_path(path) {
+    if let Some(decoder) = crate::images::decoder_plugins::for_path(path) {
         return Ok((decoder.decode(path)?, None, upright, None));
     }
     let dec = image_reader(path)
@@ -820,7 +820,7 @@ pub fn check(path: &Path) -> Result<(), String> {
 // data's start in blocks if motion photos of hundreds of MB make it slow.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
     let data = read_limited(path).map_err(|e| e.to_string())?;
-    Ok(crate::raw::whole_jpeg(&data))
+    Ok(crate::images::raw::whole_jpeg(&data))
 }
 
 /// Whether the EXIF orientation turns the image a quarter, so its width and height swap: the
@@ -1092,7 +1092,7 @@ mod tests {
     #[test]
     fn shows_turned_photos_shrunk_first() {
         // Pixel values: no other test may change the colour settings meanwhile.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         use image::ImageEncoder;
@@ -1122,7 +1122,7 @@ mod tests {
     #[test]
     fn gives_each_frame() {
         // The ICO's colours go through the colour settings, which another test changes.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-frames-{}", std::process::id()));
@@ -1257,7 +1257,7 @@ mod tests {
     #[test]
     fn shows_float_tiff() {
         // Pixel values: no other test may change the colour settings meanwhile.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         use tiff::encoder::{TiffEncoder, colortype};
@@ -1287,7 +1287,7 @@ mod tests {
     #[test]
     fn tone_maps_radiance_hdr() {
         // Pixel values: no other test may change the colour settings meanwhile.
-        let _held = crate::colour::COLOUR_TEST
+        let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("glimt-test-hdr-{}", std::process::id()));
@@ -1639,7 +1639,7 @@ mod tests {
         assert!(super::jpeg_ends(&file).is_err());
         let raf = file.with_extension("raf");
         std::fs::hard_link(&file, &raf).unwrap();
-        assert!(crate::raw::exif(&raf).is_none());
+        assert!(crate::images::raw::exif(&raf).is_none());
         std::fs::remove_file(&raf).unwrap();
         f.set_len(10).unwrap();
         assert_eq!(super::read_limited(&file).unwrap().len(), 10);

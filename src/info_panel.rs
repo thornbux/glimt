@@ -1,16 +1,16 @@
 //! The info panel (Ctrl+K) and what it edits: EXIF, keywords and the keyword tree, comment, alt
 //! text, and marks.
 
-use crate::colour::colour_source;
 use crate::files::config::keyword_tree_path;
 use crate::files::external::open_url;
+use crate::images::colour::colour_source;
 #[cfg(feature = "marks")]
 use crate::marks;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::xmp::Meta;
-use crate::{decode, exif, files::config, tf, xmp};
+use crate::{exif, files::config, images::decode, tf, xmp};
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -137,8 +137,9 @@ impl Info {
             exif_window: false,
             meta: None,
             focus_keywords: false,
-            keyword_tree: (keyword_tree_path().and_then(|p| crate::decode::read_text(p).ok()))
-                .map_or_else(Vec::new, |t| xmp::keyword_paths(t.lines())),
+            keyword_tree: (keyword_tree_path()
+                .and_then(|p| crate::images::decode::read_text(p).ok()))
+            .map_or_else(Vec::new, |t| xmp::keyword_paths(t.lines())),
             new_keyword: String::new(),
         }
     }

@@ -1,13 +1,13 @@
 //! File → Save As: the shown image saved again, smaller or in another format, through the file
 //! dialog; never over the image itself.
 
-use crate::decode;
 use crate::dialogs::Pick;
 #[cfg(feature = "video")]
 use crate::files::external::is_video;
 use crate::files::file_ops::Deleted;
-use crate::save;
-use crate::save::{CopyAs, Format};
+use crate::images::decode;
+use crate::images::save;
+use crate::images::save::{CopyAs, Format};
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::tf;
