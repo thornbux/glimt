@@ -10,11 +10,10 @@ use crate::cli::Start;
 use crate::config::{Config, WindowState, parse_last_dir, state_path, write_atomic};
 use crate::decode::{MAX_ANIMATION, decode};
 use crate::duplicates::Dups;
-use crate::format::{count, thousands};
 use crate::list::{List, Viewing};
 use crate::pan::Pan;
 use crate::print::PrintDialog;
-use crate::threads::{ONE_ARENA, Receiving, Working, cores, set_cpu_use, thread_cpu_us};
+use crate::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
 use crate::view::View;
 use crate::view::frame_at;
 use eframe::egui;
@@ -23,7 +22,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
-use std::time::Instant;
 #[cfg(feature = "accessibility")]
 mod accessibility;
 
@@ -163,70 +161,6 @@ const M_ARENA_MAX: i32 = -8;
 
 /// Glimt's logo, 256 pixels square: the window's icon, and on the About page.
 const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
-
-/// A file operation running in the background (copy, move, delete, keywords, a Lightroom
-/// import), for the status bar: how far it is, and a Stop that takes effect between files.
-struct Job {
-    /// "Copying", "Deleting" …, before "120 of 3,000".
-    doing: &'static str,
-    total: usize,
-    done: AtomicUsize,
-    stop: std::sync::atomic::AtomicBool,
-    started: Instant,
-    /// Every job writes files: closing waits for it, as long as its thread holds the job.
-    _writing: Working,
-    /// Writes the sidecars of its files: they must not be moved, renamed or deleted meanwhile.
-    sidecars: bool,
-    /// The files and folders it changes: no other operation starts on them meanwhile.
-    touches: Vec<PathBuf>,
-}
-
-impl Job {
-    /// A job on `total` files, holding the writing count until it is dropped.
-    fn new(doing: &'static str, total: usize, sidecars: bool, touches: Vec<PathBuf>) -> Job {
-        Job {
-            doing,
-            total,
-            done: AtomicUsize::new(0),
-            stop: Default::default(),
-            started: Instant::now(),
-            _writing: Working::new(&config::WRITING),
-            sidecars,
-            touches,
-        }
-    }
-
-    /// Whether Stop was pressed.
-    fn stopped(&self) -> bool {
-        self.stop.load(Ordering::Relaxed)
-    }
-
-    fn did(&self, n: usize) {
-        self.done.fetch_add(n, Ordering::Relaxed);
-    }
-
-    /// How far a stopped one got.
-    fn stopped_text(&self) -> String {
-        let done = self.done.load(Ordering::Relaxed);
-        tf!(
-            "Stopped: {done} of {total}",
-            done = thousands(done),
-            total = count(self.total, "file")
-        )
-    }
-
-    /// What to tell when it ends: how far a stopped one got; `finished` for one that took long
-    /// enough to be lost sight of; nothing for a quick one, which the list already shows.
-    fn report(&self, finished: impl FnOnce() -> String) -> Option<String> {
-        if self.stopped() {
-            Some(self.stopped_text())
-        } else if self.started.elapsed() > std::time::Duration::from_secs(2) {
-            Some(finished())
-        } else {
-            None
-        }
-    }
-}
 
 /// The window's state. Each part is a struct in the module whose code uses it; a new part's
 /// state goes there too, not in a field of its own here (`source_rules::app_stays_small`).

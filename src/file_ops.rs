@@ -8,18 +8,19 @@ use crate::dialogs::Pick;
 use crate::dialogs::Prompt;
 use crate::external;
 use crate::folder::total_size;
-use crate::format::count;
+use crate::format::{count, thousands};
 use crate::lang::tr;
 use crate::listing::pattern_name;
 use crate::save::save_rotated;
 use crate::threads::{Receiving, Working};
-use crate::{Job, collections, config, decode, exif, journal, tf, xmp};
+use crate::{collections, config, decode, exif, journal, tf, xmp};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
+use std::time::Instant;
 
 /// A Rename Many running in the background: the list as it was (`App::files_gen`), the files
 /// renamed with their new names, and which of them was shown.
@@ -97,6 +98,75 @@ pub(crate) enum Undo {
     Trash(Thrown),
     Move(Vec<(PathBuf, PathBuf)>),
     Rename(Vec<PathBuf>, Vec<PathBuf>),
+}
+
+/// A file operation running in the background (copy, move, delete, keywords, a Lightroom
+/// import), for the status bar: how far it is, and a Stop that takes effect between files.
+pub(crate) struct Job {
+    /// "Copying", "Deleting" …, before "120 of 3,000".
+    pub(crate) doing: &'static str,
+    pub(crate) total: usize,
+    pub(crate) done: AtomicUsize,
+    pub(crate) stop: std::sync::atomic::AtomicBool,
+    pub(crate) started: Instant,
+    /// Every job writes files: closing waits for it, as long as its thread holds the job.
+    _writing: Working,
+    /// Writes the sidecars of its files: they must not be moved, renamed or deleted meanwhile.
+    pub(crate) sidecars: bool,
+    /// The files and folders it changes: no other operation starts on them meanwhile.
+    pub(crate) touches: Vec<PathBuf>,
+}
+
+impl Job {
+    /// A job on `total` files, holding the writing count until it is dropped.
+    pub(crate) fn new(
+        doing: &'static str,
+        total: usize,
+        sidecars: bool,
+        touches: Vec<PathBuf>,
+    ) -> Job {
+        Job {
+            doing,
+            total,
+            done: AtomicUsize::new(0),
+            stop: Default::default(),
+            started: Instant::now(),
+            _writing: Working::new(&config::WRITING),
+            sidecars,
+            touches,
+        }
+    }
+
+    /// Whether Stop was pressed.
+    pub(crate) fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn did(&self, n: usize) {
+        self.done.fetch_add(n, Ordering::Relaxed);
+    }
+
+    /// How far a stopped one got.
+    pub(crate) fn stopped_text(&self) -> String {
+        let done = self.done.load(Ordering::Relaxed);
+        tf!(
+            "Stopped: {done} of {total}",
+            done = thousands(done),
+            total = count(self.total, "file")
+        )
+    }
+
+    /// What to tell when it ends: how far a stopped one got; `finished` for one that took long
+    /// enough to be lost sight of; nothing for a quick one, which the list already shows.
+    pub(crate) fn report(&self, finished: impl FnOnce() -> String) -> Option<String> {
+        if self.stopped() {
+            Some(self.stopped_text())
+        } else if self.started.elapsed() > std::time::Duration::from_secs(2) {
+            Some(finished())
+        } else {
+            None
+        }
+    }
 }
 
 /// File operations in the background: the jobs, the files they touch, what they report, and Undo.
@@ -2222,7 +2292,7 @@ mod tests {
         for (n, t) in [("a.jpg", "a"), ("b.jpg", "b"), ("a.jpg.xmp", "a's")] {
             std::fs::write(p(n), t).unwrap();
         }
-        let job = crate::Job::new("Renaming", 2, false, Vec::new());
+        let job = super::Job::new("Renaming", 2, false, Vec::new());
         super::rename_files(
             vec![p("a.jpg"), p("b.jpg")],
             vec![p("b.jpg"), p("a.jpg")],
