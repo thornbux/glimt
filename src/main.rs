@@ -113,6 +113,8 @@ mod test_hooks;
 
 mod theme;
 
+mod trash;
+
 mod threads;
 
 mod thumbs;

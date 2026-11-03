@@ -6,7 +6,7 @@ use crate::actions::Action;
 use crate::lang::tr;
 use crate::menus::{iconed, menu_item, scroll_menu};
 use crate::test_hooks::noted;
-use crate::{file_ops, tf, theme};
+use crate::{tf, theme};
 use eframe::egui;
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
@@ -105,7 +105,7 @@ impl crate::App {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            Some(match file_ops::trash(std::slice::from_ref(&file)) {
+            Some(match crate::trash::trash(std::slice::from_ref(&file)) {
                 Ok(()) => tf!("Collection {name} moved to the trash", name),
                 Err(err) => tf!("Could not trash {name}: {err}", name, err),
             })
