@@ -22,9 +22,9 @@ In short:
 
    ```sh
    cargo fmt
-   cargo clippy --release -- -D warnings
+   cargo clippy --release --all-targets -- -D warnings
    cargo test --release
-   cargo clippy --release --all-features -- -D warnings
+   cargo clippy --release --all-targets --all-features -- -D warnings
    cargo test --release --all-features
    ```
 

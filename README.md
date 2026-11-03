@@ -256,9 +256,9 @@ cargo build --release --features full   # all of them, same as --all-features
 
 ```sh
 cargo fmt
-cargo clippy --release -- -D warnings
+cargo clippy --release --all-targets -- -D warnings
 cargo test --release
-cargo clippy --release --all-features -- -D warnings
+cargo clippy --release --all-targets --all-features -- -D warnings
 cargo test --release --all-features
 python3 tools/sbom.py        # keeps sbom.cdx.json in step with Cargo.lock
 ```
