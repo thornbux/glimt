@@ -242,7 +242,6 @@ fn tests_sit_beside_their_code() {
     const OWN: &[&str] = &[
         "an_app_lists_its_folder_without_a_window",
         "tells_settings_problems_but_unknown_ones",
-        "parses_start_options",
         "new_window_program",
     ];
     let code = code_lines(&source("main.rs"));

@@ -994,7 +994,7 @@ fn manual(ui: &mut egui::Ui) {
         ui.label(*text);
         // The same lists as glimt --help, so they are never behind.
         if *heading == "Command line" {
-            table(ui, "options", crate::START_OPTIONS);
+            table(ui, "options", crate::cli::START_OPTIONS);
             ui.add_space(4.0);
             table(ui, "commands", crate::remote::COMMANDS);
         }
