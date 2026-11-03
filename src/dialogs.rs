@@ -10,7 +10,7 @@ use crate::listing::pattern_name;
 use crate::print::{PrintJob, PrintTo};
 use crate::test_hooks::noted;
 use crate::threads::{Receiving, Took};
-use crate::{collections, config, external, journal, save, tf, theme};
+use crate::{collections, external, journal, save, tf, theme};
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -377,7 +377,7 @@ impl crate::App {
                 }
                 let _ = std::fs::create_dir_all(f.parent().unwrap_or(&f));
                 // Whole or not at all: a full disk left half a theme, whose name was then taken.
-                let made = config::create_file(&f, theme::Theme::file_from(ctx));
+                let made = crate::file_io::create_file(&f, theme::Theme::file_from(ctx));
                 made.map(|_| f).map_err(|e| match e.kind() {
                     std::io::ErrorKind::AlreadyExists => {
                         tf!("{text} exists already: choose another name", text)

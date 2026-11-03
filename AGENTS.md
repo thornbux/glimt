@@ -76,12 +76,12 @@ quotation marks Inter has (`«»`, `“”`, `„`, `”`). A noun of `count` ha
 | `src/window.rs` | The window's size, place and title, the pointer hidden in full screen, and the screen saver kept off |
 | `src/workers.rs` | The thumbnail workers, what the window collects from every background job each frame (`poll_background`), and whether work is running (`working`) |
 | `src/accessibility.rs` | Optional screen reader support: the shown image as text for Orca (AccessKit) |
-| `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths; the writer thread (`write_later`, `flush`), `edit_shared` for the files the windows share, `replace_file`/`create_file`/`write_atomic`, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
+| `src/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, `--lock-settings`, and the backup (`own_folders`, `copy_tree`, `back_up_to`) |
 | `src/decode.rs` | An image file to pixels at the size shown: scaled JPEG, SVG, animations, the histogram; `read_limited`, `read_text` and `read_head`, the one way a file is read whole |
 | `src/decoder_plugins.rs` | Decoder plugins: programs in `glimt/decoders` that turn other formats into images |
 | `src/colour.rs` | Colour management: ICC profiles, the screen profile (also from colord), rendering intent |
 | `src/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `rename_files`; Undo |
-| `src/file_io.rs` | The one way each change on disk is made: `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file) |
+| `src/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
 | `src/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `Thrown` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
 | `src/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
 | `src/save.rs` | Saving a turned image with its EXIF and XMP, also lossy WebP; copies of the shown image (`CopyAs`, `copy_bytes`, `shown_image`) and `land`, the one way a copy and its sidecar are saved |
@@ -216,8 +216,8 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   `clippy.toml` (`disallowed-methods`) refuses the raw calls, so `cargo clippy` fails on a
   bypass:
   - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device);
-  - write with `config::replace_file`, `create_file` or `write_atomic` (whole or not at all,
-    never through a link), and a file the windows share with `config::edit_shared` (lock,
+  - write with `file_io::replace_file`, `create_file` or `write_atomic` (whole or not at all,
+    never through a link), and a file the windows share with `file_io::edit_shared` (lock,
     read, change and write as one; clippy refuses `file_lock` elsewhere);
   - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
   - start a program with `external::command` or `stoppable_command`, and wait for it only with

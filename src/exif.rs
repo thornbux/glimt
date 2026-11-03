@@ -408,7 +408,7 @@ pub fn write_orientation(
     // Through a symlink, the file it points to: the new file is renamed over that, not the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let data = crate::decode::read_limited(path).map_err(|e| e.to_string())?;
-    crate::config::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
+    crate::file_io::replace_existing(path, oriented(data, turns, mirrored, rotate)?)
         .map_err(|e| e.to_string())
 }
 

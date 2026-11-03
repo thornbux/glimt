@@ -8,7 +8,7 @@ use crate::file_list::ThumbView;
 use crate::file_ops::Job;
 use crate::lang::tr;
 use crate::threads::{CPU_CHANGED, Took, cores, thumb_threads};
-use crate::{config, lightroom, malloc_trim, remote, tf, thumbs};
+use crate::{lightroom, malloc_trim, remote, tf, thumbs};
 use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,7 +19,7 @@ impl crate::App {
     /// images and thumbnails, the folder listing, saves, remote commands, dropped files, mounts,
     /// notices and the file dialog's answer.
     pub(crate) fn poll_background(&mut self, ctx: &egui::Context) {
-        if let Some(error) = config::take_save_error() {
+        if let Some(error) = crate::file_io::take_save_error() {
             self.notice = Some(error);
         }
         self.receive_desktop(ctx);

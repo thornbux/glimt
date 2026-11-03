@@ -261,7 +261,7 @@ fn save(edit: Edit) {
     // Through the thread that writes Glimt's own files, which Glimt waits for before it ends:
     // a mark set, or moved with its file, just before closing is not lost.
     let writing = crate::threads::Working::new(&WRITING);
-    crate::config::write_later(move || {
+    crate::file_io::write_later(move || {
         let _writing = writing;
         if let Some(file) = file() {
             write(&file, &[edit]);
@@ -282,7 +282,7 @@ fn write(file: &Path, changes: &[Edit]) {
         }
         (to_text(&map), ours)
     };
-    let result = crate::config::edit_shared(file, edit);
+    let result = crate::file_io::edit_shared(file, edit);
     // Ours alone, the window's marks are the file now; else it is read again.
     // shortcut: the file is looked at just after the lock is let go; a window that wrote in that
     // moment goes unseen until the file changes again.
@@ -292,7 +292,7 @@ fn write(file: &Path, changes: &[Edit]) {
         None => drop(known().remove(file)),
     }
     if let Err(e) = result {
-        crate::config::save_failed(format!("Could not save {}: {e}", file.display()));
+        crate::file_io::save_failed(format!("Could not save {}: {e}", file.display()));
     }
 }
 
@@ -421,7 +421,7 @@ mod tests {
         assert_eq!(marks.get(&a), (0, 4));
         // Another window's write just after, maybe in the same tick of the clock: read.
         super::write(&file, &[stars(&a, 4)]);
-        crate::config::edit_shared(&file, |old| {
+        crate::file_io::edit_shared(&file, |old| {
             let mut text = old.to_vec();
             text.extend(format!("0\t2\t{}\n", b.display()).as_bytes());
             (text, ())
@@ -447,7 +447,7 @@ mod tests {
         marks.rate(std::slice::from_ref(&a), 3);
         let stars = super::Edit::Change(vec![a.clone()], super::Change::Stars(3));
         super::write(&file, &[stars]);
-        let _ = crate::config::take_save_error();
+        let _ = crate::file_io::take_save_error();
         marks.refresh();
         assert_eq!(marks.get(&a), (0, 0));
         super::TEST_FILE.with(|f| *f.borrow_mut() = None);

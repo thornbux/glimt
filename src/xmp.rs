@@ -348,7 +348,7 @@ fn update(
     }
     // One that is there but cannot be read (no permission, not UTF-8) is not written over: it
     // may hold another program's edits.
-    let old = match crate::config::read_or_none(&side) {
+    let old = match crate::file_io::read_or_none(&side) {
         Err(e) => return Err(format!("{}: {e}", side.display())),
         Ok(Some(bytes)) => {
             String::from_utf8(bytes).map_err(|e| format!("{}: {e}", side.display()))?
@@ -368,8 +368,8 @@ fn update(
     use std::io::Write;
     #[allow(clippy::disallowed_methods)] // the sidecar replaced on purpose, never through a link
     let land = |tmp: &Path| std::fs::rename(tmp, &side);
-    let tmp = crate::config::tmp_path(&side);
-    crate::config::write_beside(&tmp, &side, |f| f.write_all(text.as_bytes()), land)
+    let tmp = crate::file_io::tmp_path(&side);
+    crate::file_io::write_beside(&tmp, &side, |f| f.write_all(text.as_bytes()), land)
         .map_err(|e| e.to_string())
 }
 

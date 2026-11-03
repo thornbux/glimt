@@ -108,7 +108,7 @@ impl Job {
             done: AtomicUsize::new(0),
             stop: Default::default(),
             started: Instant::now(),
-            _writing: Working::new(&config::WRITING),
+            _writing: Working::new(&crate::file_io::WRITING),
             sidecars,
             touches,
         }
@@ -319,10 +319,10 @@ impl crate::App {
             .any(|p| above.contains(p.as_path()) || p.ancestors().any(|a| held.contains(a)))
     }
 
-    /// Whether files are still being written (`config::WRITING`): file jobs, a turned image, a
+    /// Whether files are still being written (`file_io::WRITING`): file jobs, a turned image, a
     /// print, keywords, the settings. Closing waits for them.
     pub(crate) fn work_left(&self) -> bool {
-        config::WRITING.load(Ordering::Relaxed) > 0
+        crate::file_io::WRITING.load(Ordering::Relaxed) > 0
     }
 
     /// A file operation on `total` files that changes `touches`, shown in the status bar until its
@@ -837,7 +837,7 @@ impl crate::App {
         let ctx = ctx.clone();
         self.work.saving.insert(path.clone());
         let pointer = Working::new(&self.busy);
-        let writing = Working::new(&config::WRITING);
+        let writing = Working::new(&crate::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
             let result = survive(|| match jpeg {
@@ -1118,7 +1118,7 @@ impl crate::App {
         self.work.touching.push(touching.clone());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
-        let writing = Working::new(&config::WRITING);
+        let writing = Working::new(&crate::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = (writing, touching);
             if let Some(text) = work() {
@@ -1133,7 +1133,7 @@ impl crate::App {
     /// Write the sidecars of `paths` in the background, through one thread for this window's
     /// keywords, stars and Lightroom import (`sidecar_writer`), so changes to one file land in the
     /// order they were made and never cross. The status bar counts them; `report` words the end
-    /// from how many failed. A thread of its own, not `config::write_later`'s: settings saved
+    /// from how many failed. A thread of its own, not `file_io::write_later`'s: settings saved
     /// meanwhile must not wait behind 3,000 sidecars.
     pub(crate) fn write_sidecars(
         &mut self,
@@ -1143,7 +1143,7 @@ impl crate::App {
         write: impl Fn(&Path) -> bool + Send + 'static,
         report: impl FnOnce(usize, &Job) -> Option<String> + Send + 'static,
     ) {
-        use config::Work;
+        use crate::file_io::Work;
         let Some(job) = self.start_job_of(doing, paths.len(), true, paths.clone()) else {
             return;
         };
@@ -1431,7 +1431,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     // Next to the file: in a collection the files are in different folders.
     let tmp = |f: &Path, k: usize| {
         // This Glimt's name: Flatpak windows can share a process ID.
-        f.with_file_name(format!(".glimt-rename-{}-{k}", crate::config::own_tag()))
+        f.with_file_name(format!(".glimt-rename-{}-{k}", crate::file_io::own_tag()))
     };
     let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     if swap {
@@ -1511,9 +1511,10 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
 
 /// The thread for this window's sidecar writes: keywords, comments, stars and imports land in
 /// the order they were made.
-fn sidecar_writer() -> &'static mpsc::Sender<config::Work> {
-    static WRITER: std::sync::OnceLock<mpsc::Sender<config::Work>> = std::sync::OnceLock::new();
-    WRITER.get_or_init(config::serial)
+fn sidecar_writer() -> &'static mpsc::Sender<crate::file_io::Work> {
+    static WRITER: std::sync::OnceLock<mpsc::Sender<crate::file_io::Work>> =
+        std::sync::OnceLock::new();
+    WRITER.get_or_init(crate::file_io::serial)
 }
 
 /// `(from, to)` pairs to look up by the old path.

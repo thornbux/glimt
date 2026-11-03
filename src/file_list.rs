@@ -790,7 +790,7 @@ impl crate::App {
             let dirs = config::sort_folders_changed(sort_folders_from(old), add, remove);
             (config::sort_folders_text(&dirs), dirs)
         };
-        match config::edit_shared(&path, change) {
+        match crate::file_io::edit_shared(&path, change) {
             Ok(dirs) => self.folder.sort_folders = dirs,
             Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),
         }

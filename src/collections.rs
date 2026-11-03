@@ -35,7 +35,7 @@ impl crate::App {
             return;
         }
         // shortcut: read and written in the UI thread, small text files; move to
-        // config::write_later if collections of hundreds of thousands are edited.
+        // file_io::write_later if collections of hundreds of thousands are edited.
         match edit(file, false, change) {
             Ok(()) => {}
             // Renamed or moved to the trash in another window since it was opened here: not
@@ -264,7 +264,7 @@ pub fn rename(file: &Path, name: &str) -> Result<PathBuf, String> {
     // Under the collection's lock, as every edit of it: another window's edit lands before or
     // after the rename, never in between, where it would make the old name again.
     #[allow(clippy::disallowed_methods)] // a collection's own lock, as edit
-    let _held = crate::config::file_lock(file);
+    let _held = crate::file_io::file_lock(file);
     let new = file.with_file_name(format!("{name}.gqv"));
     // Never over one of that name, also one another window makes between the look and the
     // rename.
@@ -358,7 +358,7 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
 /// that cannot be read is never written over: what it holds would be lost.
 pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // edit_shared cannot refuse to make one that went
-    let _held = crate::config::file_lock(file);
+    let _held = crate::file_io::file_lock(file);
     let (text, was_new) = match crate::decode::read_limited(file) {
         Err(e) if new && e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), true),
         read => (read?, false),
@@ -374,8 +374,8 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
     let out = to_text(&all, &other_lines(&text));
     match was_new {
-        true => crate::config::create_file(file, out),
-        false => crate::config::replace_file(file, out),
+        true => crate::file_io::create_file(file, out),
+        false => crate::file_io::replace_file(file, out),
     }
 }
 
@@ -614,7 +614,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("trip.gqv");
         std::fs::write(&file, "#GQview collection\n\"/a.jpg\"\n").unwrap();
-        let held = crate::config::file_lock(&file).unwrap();
+        let held = crate::file_io::file_lock(&file).unwrap();
         let renaming = {
             let file = file.clone();
             std::thread::spawn(move || super::rename(&file, "trip 2024"))

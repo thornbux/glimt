@@ -104,7 +104,7 @@ impl<T> Receiving<T> {
 }
 
 /// One piece of background work, for the busy pointer (`busy`) or for closing
-/// (`config::WRITING`): counted while held, and no longer when dropped, also as its thread
+/// (`file_io::WRITING`): counted while held, and no longer when dropped, also as its thread
 /// panics, which a count by hand would leave on for good.
 pub(crate) struct Working(Arc<AtomicUsize>);
 

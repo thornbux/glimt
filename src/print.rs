@@ -9,7 +9,7 @@ use crate::dialogs::Pick;
 use crate::format::count;
 use crate::lang::tr;
 use crate::threads::{Receiving, Took, Working};
-use crate::{config, decode, print, tf};
+use crate::{decode, print, tf};
 use eframe::egui;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -386,7 +386,7 @@ impl crate::App {
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         // A PDF half made would be lost, its temporary file left beside the one chosen.
-        let writing = Working::new(&config::WRITING);
+        let writing = Working::new(&crate::file_io::WRITING);
         std::thread::spawn(move || {
             let _writing = writing;
             let max = print::max_pixels(&job.layout);
@@ -454,7 +454,7 @@ impl crate::App {
                 // image was read (one of them may be the file chosen).
                 PrintTo::File(file) => {
                     // As every file Glimt writes again: beside it, whole, then its name.
-                    crate::config::replace_with(file, false, |f| {
+                    crate::file_io::replace_with(file, false, |f| {
                         let mut out = std::io::BufWriter::new(f);
                         print::pdf(pages, &job.layout, total, &mut out)?;
                         out.flush()

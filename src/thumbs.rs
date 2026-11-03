@@ -119,7 +119,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     // This Glimt and the thread in the name: several workers and windows may write at once.
     let tmp = file.with_extension(format!(
         "{}.{:?}.tmp",
-        crate::config::own_tag(),
+        crate::file_io::own_tag(),
         std::thread::current().id()
     ));
     // Encoded in memory first: the encoder writes its last chunk when it is dropped, where a
@@ -139,7 +139,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
     encoded.map_err(std::io::Error::other)?;
     // As every file Glimt writes: made new beside it, never through a link planted at its name;
     // private, as the shared cache's spec asks.
-    crate::config::write_beside(
+    crate::file_io::write_beside(
         &tmp,
         file,
         |out| {
@@ -383,7 +383,7 @@ mod tests {
         std::fs::write(&victim, "keep").unwrap();
         let tmp = file.with_extension(format!(
             "{}.{:?}.tmp",
-            crate::config::own_tag(),
+            crate::file_io::own_tag(),
             std::thread::current().id()
         ));
         std::os::unix::fs::symlink(&victim, &tmp).unwrap();

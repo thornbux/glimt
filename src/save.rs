@@ -108,7 +108,7 @@ pub fn save_rotated(
     let img = turned(img, turns, mirrored);
     let quarter = (turns % 2 == 1) != stored_quarter;
     let out = encode(path, img, icc, exif, xmp, kind, quarter, webp_quality)?;
-    crate::config::replace_existing(path, out).map_err(|e| e.to_string())
+    crate::file_io::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
 /// The copy of `path` that `how` asks for, encoded, and its format. With its profile, and
@@ -237,11 +237,11 @@ pub(crate) fn land(
     let side = crate::xmp::sidecar(path);
     let source = match strip || crate::xmp::linked(&side) {
         true => None,
-        false => crate::config::read_or_none(&side)?,
+        false => crate::file_io::read_or_none(&side)?,
     };
     match replace {
-        true => crate::config::replace_file(new, out)?,
-        false => crate::config::create_file(new, out)?,
+        true => crate::file_io::replace_file(new, out)?,
+        false => crate::file_io::create_file(new, out)?,
     }
     let side = crate::xmp::sidecar(new);
     // A link goes, not what it points to; `create_file` never follows one.
@@ -250,7 +250,7 @@ pub(crate) fn land(
         _ => Ok(()),
     }
     .and_then(|_| match source {
-        Some(xmp) => crate::config::create_file(&side, xmp),
+        Some(xmp) => crate::file_io::create_file(&side, xmp),
         None => Ok(()),
     })
     .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
@@ -738,12 +738,12 @@ mod tests {
         let file = dir.join("a.png");
         std::fs::write(&file, "old").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
-        crate::config::replace_file(&file, b"new").unwrap();
+        crate::file_io::replace_file(&file, b"new").unwrap();
         assert_eq!(std::fs::read(&file).unwrap(), b"new");
         let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
         // A folder cannot be replaced by a file.
-        assert!(crate::config::replace_file(&dir.join("busy.png"), b"new").is_err());
+        assert!(crate::file_io::replace_file(&dir.join("busy.png"), b"new").is_err());
         let left: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .flatten()
@@ -1161,8 +1161,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (png, webp) = (dir.join("a.png"), dir.join("a.webp"));
         assert_ne!(
-            crate::config::tmp_path(&png),
-            crate::config::tmp_path(&webp)
+            crate::file_io::tmp_path(&png),
+            crate::file_io::tmp_path(&webp)
         );
         image::RgbImage::from_pixel(1200, 800, image::Rgb([255, 0, 0]))
             .save(&png)

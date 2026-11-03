@@ -7,9 +7,10 @@
 use crate::actions::OWN_KEYS;
 use crate::check::Check;
 use crate::cli::Start;
-use crate::config::{Config, WindowState, parse_last_dir, state_path, write_atomic};
+use crate::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::decode::{MAX_ANIMATION, decode};
 use crate::duplicates::Dups;
+use crate::file_io::write_atomic;
 use crate::list::{List, Viewing};
 use crate::pan::Pan;
 use crate::print::PrintDialog;
@@ -455,7 +456,7 @@ impl eframe::App for App {
         // The state above, the settings, and the keywords queued at the first close: waited for,
         // a few seconds at most. Not after a third close, which ends at once whatever runs.
         if self.window.closing < 2 {
-            config::flush();
+            crate::file_io::flush();
         }
         let at = |share| frame_at(&self.decoding.frame_ms, share);
         eprintln!(

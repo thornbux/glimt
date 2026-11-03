@@ -87,7 +87,7 @@ impl Folder {
         // No list kept: one of before goes too, also when the setting was changed in the file.
         let recent = match config::recent_path() {
             Some(file) if !config.keep_recent => {
-                config::write_later(move || config::remove_shared(&file));
+                crate::file_io::write_later(move || crate::file_io::remove_shared(&file));
                 Vec::new()
             }
             Some(file) => crate::decode::read_limited(file)
@@ -351,7 +351,7 @@ impl crate::App {
         }
         self.folder.recent = config::add_recent(&self.folder.recent, path);
         let path = path.to_path_buf();
-        config::write_later(move || {
+        crate::file_io::write_later(move || {
             let Some(file) = config::recent_path() else {
                 return;
             };
@@ -361,8 +361,8 @@ impl crate::App {
                 let all = config::add_recent(&config::parse_recent(old), &path);
                 (config::recent_text(&all), ())
             };
-            if let Err(e) = config::edit_shared(&file, add) {
-                config::save_failed(format!("Could not save {}: {e}", file.display()));
+            if let Err(e) = crate::file_io::edit_shared(&file, add) {
+                crate::file_io::save_failed(format!("Could not save {}: {e}", file.display()));
             }
         });
     }
@@ -371,7 +371,7 @@ impl crate::App {
     pub(crate) fn clear_recent(&mut self) {
         self.folder.recent.clear();
         if let Some(file) = config::recent_path() {
-            config::write_later(move || config::remove_shared(&file));
+            crate::file_io::write_later(move || crate::file_io::remove_shared(&file));
         }
     }
 
