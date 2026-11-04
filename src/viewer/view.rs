@@ -1,5 +1,5 @@
-//! The image area: decoding the shown image and its neighbours, what belongs to the image shown
-//! (`Viewing`), zoom and fit, panes and Compare, painting, the wheel.
+//! The image area. It decodes the shown image and its neighbours, and holds what belongs to the
+//! image shown (`Viewing`), zoom and fit, panes and Compare, painting, and the wheel.
 
 use crate::files::config::Config;
 use crate::files::external::is_video;
@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
-/// View → Layout: the config value, the menu label and the panes as [columns, rows].
+/// View → Layout, as (the config value, the menu label, the panes as [columns, rows]).
 pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
     ("1", "One Image", [1, 1]),
     ("2x1", "Two Side by Side", [2, 1]),
@@ -29,9 +29,10 @@ pub(crate) const LAYOUTS: [(&str, &str, [usize; 2]); 4] = [
 /// A texture shown and its image's size, which a fade goes from.
 pub(crate) type Shown = (egui::TextureHandle, [usize; 2]);
 
-/// The image area of the last frame, which the projector follows: where it was (points), the
-/// screen's pixels per point, the scale (screen pixels per image pixel), the offset of a zoomed
-/// image, whether it was zoomed, and the pointer over it, from the image's centre.
+/// The image area of the last frame, which the projector follows. It holds where the area was
+/// (in points), the screen's pixels per point, the scale (screen pixels per image pixel), the
+/// offset of a zoomed image, whether it was zoomed, and the pointer over it, measured from the
+/// image's centre.
 #[derive(Clone, Copy)]
 pub(crate) struct View {
     area: egui::Rect,
@@ -57,22 +58,22 @@ pub(crate) struct DecodeJob {
     pub(crate) max: [u32; 2],
 }
 
-/// Decoding the shown image and its neighbours: the workers, which images they keep, and the size
-/// they decode to.
+/// The decoding of the shown image and its neighbours. It holds the workers, the images they
+/// keep, and the size they decode to.
 pub(crate) struct Decoding {
-    /// The images to keep decoded, the shown one first: its neighbours in list order.
-    /// Shared with the workers, which skip jobs outside it.
+    /// The images to keep decoded, the shown one first and then its neighbours in list order.
+    /// The workers share it, and they skip jobs outside it.
     keep: Arc<Mutex<Vec<usize>>>,
-    /// How many images at the start of `keep` may be decoded at full resolution: the shown one,
-    /// and the compared one beside it.
+    /// How many images at the start of `keep` may be decoded at full resolution. They are the
+    /// shown one and the compared one beside it.
     full_ok: Arc<AtomicUsize>,
     /// Number of images preloaded on each side (Preferences).
     preload: Arc<AtomicUsize>,
     /// Workers apply EXIF orientation (Preferences, Alt+X).
     rotate: Arc<AtomicBool>,
-    /// The view's box for the shown image, unturned, as `decode_size` works it out each frame
-    /// (per fit mode; in Fill from the image's own shape), and the view's size: what the decoders
-    /// shrink into, through `decode_box` for each job.
+    /// The view's box for the shown image, unturned, as `decode_size` works it out each frame,
+    /// and the view's size. The box depends on the fit mode, and in Fill on the image's own
+    /// shape. The decoders shrink into it, through `decode_box` for each job.
     view_box: [u32; 2],
     view_area: [u32; 2],
     /// The longest side a texture may have.
@@ -81,21 +82,22 @@ pub(crate) struct Decoding {
     jobs: mpsc::Sender<DecodeJob>,
     rx: mpsc::Receiver<Decoded>,
     sent: u64,
-    /// Last drawn image; kept on screen until the next one is decoded, so browsing never shows a
-    /// black screen.
+    /// The last image drawn. It stays on screen until the next one is decoded, so browsing
+    /// never shows a black screen.
     last_drawn: Option<(egui::TextureHandle, [usize; 2])>,
-    /// A slideshow's change of image fading in: when it began, and what each pane (the first,
-    /// then the others) showed before, kept until it has faded out.
+    /// A slideshow's change of image while it fades in. It holds when the fade began, and what
+    /// each pane (the first, then the others) showed before, until that has faded out.
     fade: Option<(Instant, Vec<Option<Shown>>)>,
-    /// When the shown image was opened: the clock of an animation.
+    /// When the shown image was opened. It is the clock of an animation.
     opened: Instant,
-    /// Set at startup; taken when the first image is shown, for the "first image: N ms" line on
-    /// standard error that the release tests read.
+    /// Set at startup and taken when the first image is shown, for the "first image: N ms" line
+    /// on standard error that the release tests read.
     started: Option<Instant>,
     /// How many frames after the first image took each number of milliseconds of the window
-    /// thread's processor time (the last: that many or more), for the "frames:" line at exit
-    /// that the release tests read: work that grows with the list makes every frame slow, while
-    /// the slowest alone varies with one-off work such as Select All.
+    /// thread's processor time. The last entry counts that many or more. It is for the
+    /// "frames:" line at exit that the release tests read. Work that grows with the list makes
+    /// every frame slow, while the slowest frame alone varies with one-off work such as Select
+    /// All.
     frame_ms: [u32; 256],
 }
 
@@ -151,7 +153,7 @@ impl Decoding {
         self.view_box
     }
 
-    /// Another image is shown: the clock of an animation starts again.
+    /// Starts the clock of an animation again, because another image is shown.
     pub(crate) fn image_opened(&mut self) {
         self.opened = Instant::now();
     }
@@ -185,10 +187,11 @@ impl Decoding {
 
 /// The zoom, and where the zoomed image is in the view.
 pub(crate) struct Zoom {
-    /// Physical screen pixels per original pixel; `None` = fit to window.
+    /// Physical screen pixels per original pixel. `None` means fit to window.
     level: Option<f32>,
     offset: egui::Vec2,
-    /// How far the shown image can be panned each way (points); zero where it fits.
+    /// How far the shown image can be panned each way, in points. It is zero where the image
+    /// fits.
     max_pan: egui::Vec2,
     /// Scale from the previous frame (physical pixels per image pixel), for the zoom percentage in
     /// the status bar.
@@ -225,7 +228,8 @@ impl Zoom {
         self.level.is_none()
     }
 
-    /// How far the image can be moved each way, in points: zero along a side where it fits.
+    /// How far the image can be moved each way, in points. It is zero along a side where the
+    /// image fits.
     pub(crate) fn pan_room(&self) -> egui::Vec2 {
         self.max_pan
     }
@@ -241,29 +245,30 @@ impl Zoom {
     }
 }
 
-/// What belongs to the image shown, beside its place in the list (`List.cur`): the page of a
-/// TIFF, the frame of an animation stepped to, the turn not saved yet and the file it belongs
-/// to, the part being cropped. Made anew whole when the image is left (`leave_image`), as
-/// `List` is when the list is read again, so nothing of one image stays for the next, also a
-/// field added later; the zoom, which Keep Zoom carries over, is not here.
+/// What belongs to the image shown, beside its place in the list (`List.cur`). That is the page
+/// of a TIFF, the frame of an animation stepped to, the turn not saved yet and the file it
+/// belongs to, and the part being cropped. It is made anew as a whole when the image is left
+/// (`leave_image`), as `List` is when the list is read again, so nothing of one image stays for
+/// the next, also not a field added later. The zoom, which Keep Zoom carries over, is not here.
 #[derive(Default)]
 pub(crate) struct Viewing {
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
     page: usize,
-    /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
+    /// The frame of an animation stepped to with Ctrl+Page Up/Down. It is `None` while the
+    /// animation plays.
     frame: Option<usize>,
-    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
-    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
+    /// The orientation of the shown image, for viewing only, as quarter turns clockwise. They
+    /// apply after mirroring when the flag is set. It is reset for each image, as in Geeqie.
     orient: (u8, bool),
-    /// The file `orient` belongs to, set when it is turned: saved into that file even when the
-    /// list changed meanwhile and another file is at `cur`.
+    /// The file `orient` belongs to, set when it is turned. The turn is saved into that file
+    /// even when the list changed meanwhile and another file is at `cur`.
     turned: PathBuf,
-    /// Edit → Crop: the part of the shown image being chosen.
+    /// The part of the shown image being chosen with Edit → Crop.
     crop: Option<Crop>,
 }
 
 impl Viewing {
-    /// The turn of the shown image: quarter turns clockwise, after mirroring when the flag is
+    /// The turn of the shown image, as quarter turns clockwise, after mirroring when the flag is
     /// set.
     pub(crate) fn orient(&self) -> (u8, bool) {
         self.orient
@@ -279,7 +284,7 @@ impl Viewing {
         self.orient.0 % 2 == 1
     }
 
-    /// The turn is dropped: the file was written as it is shown, or changed elsewhere.
+    /// Drops the turn, because the file was written as it is shown, or changed elsewhere.
     pub(crate) fn drop_turn(&mut self) {
         self.orient = (0, false);
     }
@@ -299,12 +304,13 @@ impl Viewing {
         self.page
     }
 
-    /// The frame of an animation stepped to; `None` while it plays.
+    /// The frame of an animation stepped to. It is `None` while the animation plays.
     pub(crate) fn frame(&self) -> Option<usize> {
         self.frame
     }
 
-    /// An animation stepped to a frame plays on from there; false when it was playing.
+    /// Lets an animation stepped to a frame play on from there. Returns false when it was
+    /// playing already.
     pub(crate) fn play_on(&mut self) -> bool {
         self.frame.take().is_some()
     }
@@ -385,8 +391,8 @@ impl crate::App {
         }
     }
 
-    /// Drop textures outside the preload window, and full-resolution versions of images other
-    /// than the shown one; request the missing ones.
+    /// Drops textures outside the preload window, and the full-resolution versions of images
+    /// other than the shown one, and asks for the missing ones.
     pub(crate) fn refill(&mut self) {
         if self.list.files.is_empty() {
             return;
@@ -398,7 +404,7 @@ impl crate::App {
             self.decoding.preload.load(Ordering::Relaxed) as isize,
         );
         let mut window = vec![cur];
-        // The compared image second: it may be loaded at full resolution too.
+        // The compared image comes second, because it may be loaded at full resolution too.
         let other = self.compare_other().filter(|&i| i != cur);
         window.extend(other);
         // The other panes, which may be zoomed too, and the images a slideshow shows in them next.
@@ -438,11 +444,13 @@ impl crate::App {
         }
     }
 
-    /// Decoded images into textures, those still wanted; why for those that could not be.
+    /// Makes textures of the decoded images that are still wanted, and keeps why for those that
+    /// could not be decoded.
     pub(crate) fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoding.rx.try_recv() {
-            // Not a job still asked for: asked for again, in another list, page or look. Its
-            // place in the list is the job's now, as the list may have been read again since.
+            // A job no longer asked for was asked for again, in another list, page or look. Its
+            // place in the list is the job's now, because the list may have been read again
+            // since.
             let Some(&(idx, full)) = (self.list.decodes_pending.iter())
                 .find(|(_, j)| j.0 == d.job)
                 .map(|(k, _)| k)
@@ -455,8 +463,8 @@ impl crate::App {
                 && d.rotated == self.config.exif_rotate
                 && d.page == if idx == self.list.cur { self.viewing.page } else { 0 }
                 && self.decoding.keep.lock().unwrap().contains(&idx)
-                // Full resolution for each image on screen: the shown one, the compared one and
-                // the panes of a layout, zoomed together.
+                // Full resolution is kept for each image on screen: the shown one, the compared
+                // one and the panes of a layout, which zoom together.
                 && (!full
                     || idx == self.list.cur
                     || Some(idx) == self.compare_other()
@@ -493,8 +501,8 @@ impl crate::App {
                             decoded_for,
                         },
                     );
-                    // A full-resolution decode keeps fewer frames of a large animation (its
-                    // memory budget): the frame stepped to stays among them.
+                    // A full-resolution decode keeps fewer frames of a large animation, because
+                    // of its memory budget. The frame stepped to stays among them.
                     let frames = self.list.slots.get(&idx).map_or(0, |s| s.anim.len());
                     if idx == self.list.cur
                         && frames > 0
@@ -511,9 +519,10 @@ impl crate::App {
                 Some(Err(e)) if wanted => {
                     self.list.decode_errors.insert(idx, e);
                 }
-                // Skipped by a worker that went by the place the job had when sent; the list
-                // was read again meanwhile and moved the file to `idx`, still wanted there.
-                // Asked for again, else nothing would: the previous image stayed on screen.
+                // A worker skipped the image by the place the job had when it was sent. The list
+                // was read again meanwhile and moved the file to `idx`, where it is still
+                // wanted. It is asked for again, because nothing else would ask, and the
+                // previous image would stay on screen.
                 None if !full
                     && self.is_file(idx, &d.path)
                     && !self.list.slots.contains_key(&idx)
@@ -545,8 +554,9 @@ impl crate::App {
         })
     }
 
-    /// Pane `k` fading from another image to `now`: how far (0 to 1, eased), and the image it
-    /// fades from. Ends the fade when it is done; asks for the next frame while it runs.
+    /// Pane `k` fading from another image to `now`. Returns how far the fade is (0 to 1, eased)
+    /// and the image it fades from. It ends the fade when it is done, and asks for the next
+    /// frame while it runs.
     pub(crate) fn fading(
         &mut self,
         ctx: &egui::Context,
@@ -564,10 +574,10 @@ impl crate::App {
         Some((t * t * (3.0 - 2.0 * t), tex.clone(), *orig))
     }
 
-    /// What to show while the shown image is decoded, and whether it is its thumbnail: that
-    /// thumbnail when there is one, else the image shown before, so browsing does not flash
-    /// black. Not the image before for a video, whose frame takes ffmpeg a while: another photo
-    /// stood under its play button.
+    /// What to show while the shown image is decoded, and whether it is its thumbnail. That is
+    /// the thumbnail when there is one, and otherwise the image shown before, so browsing does
+    /// not flash black. A video does not get the image before, because ffmpeg takes a while for
+    /// its frame, and another photo stood under its play button.
     pub(crate) fn placeholder(&self) -> Option<(egui::TextureHandle, [usize; 2], bool)> {
         let name = self.list.files.get(self.list.cur)?;
         if let Some(t) = self.thumbs.made(name) {
@@ -582,14 +592,14 @@ impl crate::App {
             .map(|(t, orig)| (t.clone(), *orig, false))
     }
 
-    /// The image shown next to the current one when comparing: the other of two selected
-    /// files, else the next image.
+    /// The image shown next to the current one when comparing. It is the other of two selected
+    /// files, and otherwise the next image.
     pub(crate) fn compare_other(&self) -> Option<usize> {
         if !self.compare {
             return None;
         }
-        // Two selected: the other of them. Not collected first: Select All in a large folder
-        // would copy the whole selection every frame.
+        // With two selected, it is the other of them. They are not collected first, because
+        // Select All in a large folder would copy the whole selection every frame.
         let mut two = self.list.selected.iter().copied();
         match (self.list.selected.len(), two.next(), two.next()) {
             (2, Some(a), Some(b)) => Some(if a == self.list.cur { b } else { a }),
@@ -628,7 +638,7 @@ impl crate::App {
         self.refill();
     }
 
-    /// View → Layout: one image, two or four, and how a slideshow changes them.
+    /// View → Layout. It shows one image, two or four, and how a slideshow changes them.
     pub(crate) fn layout_menu(&mut self, ui: &mut egui::Ui, act: &mut Option<Action>) {
         scroll_menu(ui, iconed(ui, theme::icon::LAYOUT, tr("Layout")), |ui| {
             menu_item(ui, act, Action::NextLayout);
@@ -682,10 +692,10 @@ impl crate::App {
             Some((self.zoom.level.unwrap_or(self.zoom.last_scale) * factor).clamp(0.02, 32.0));
     }
 
-    /// Image `i` in `rect`, one of a layout's panes after the first or the compared image: at the
-    /// same zoom and offset as the shown one when zoomed, else fitted. Returns the scale it is
-    /// drawn at, for the status bar; `None` while it is decoded. `k` is the pane's number, for a
-    /// slideshow fading it. Returns `None` for the compared image.
+    /// Paints image `i` in `rect`, as one of a layout's panes after the first or as the compared
+    /// image. When zoomed, it has the same zoom and offset as the shown one, and otherwise it is
+    /// fitted. Returns the scale it is drawn at, for the status bar, and `None` while it is
+    /// decoded or for the compared image. `k` is the pane's number, for a slideshow fading it.
     pub(crate) fn paint_pane(
         &mut self,
         ui: &egui::Ui,
@@ -694,7 +704,8 @@ impl crate::App {
         zoom: Option<f32>,
         k: Option<usize>,
     ) -> Option<f32> {
-        // Zoomed in further than the screen-size version holds: load the full resolution.
+        // When zoomed in further than the screen-size version holds, the full resolution is
+        // loaded.
         let sharper = self.list.slots.get(&i).is_some_and(|s| {
             !s.full
                 && zoom
@@ -727,7 +738,8 @@ impl crate::App {
         Some(scale)
     }
 
-    /// The compared image in `rect`, with its name above; which it is and its scale.
+    /// Paints the compared image in `rect`, with its name above. Returns which image it is and
+    /// its scale.
     pub(crate) fn paint_other(
         &mut self,
         ui: &egui::Ui,
@@ -830,11 +842,12 @@ impl crate::App {
         p.galley(at.min + egui::vec2(10.0, 6.0), galley, egui::Color32::WHITE);
     }
 
-    /// Window → Projector: a second window, for another screen or a projector, with only the
-    /// shown image, as the main window shows it: fitted, or when zoomed the same part of it,
-    /// scaled to this window. Same process, so the textures are shared and nothing is decoded
-    /// twice. Wayland lets no program put a window on a chosen screen: it is dragged there, and
-    /// F or a double-click makes it full screen. Its keys browse the main window.
+    /// Window → Projector. It is a second window, for another screen or a projector, with only
+    /// the shown image as the main window shows it, fitted or, when zoomed, the same part of it
+    /// scaled to this window. It runs in the same process, so the textures are shared and
+    /// nothing is decoded twice. Wayland lets no program put a window on a chosen screen, so
+    /// the user drags it there, and F or a double-click makes it full screen. Its keys browse
+    /// the main window.
     pub(crate) fn projector_window(&mut self, ctx: &egui::Context) {
         let id = egui::ViewportId::from_hash_of("glimt projector");
         let builder = egui::ViewportBuilder::default()
@@ -860,8 +873,8 @@ impl crate::App {
             let frame = egui::Frame::NONE.fill(egui::Color32::from_rgb(r, g, b));
             egui::CentralPanel::default().frame(frame).show(ui, |ui| {
                 let area = ui.max_rect();
-                // A projector larger than the main view (full screen on a big screen): the
-                // images decoded again to its size, which they were too small for.
+                // When the projector is larger than the main view (full screen on a big screen),
+                // the images are decoded again to its size, because they were too small for it.
                 let ppp = pctx.pixels_per_point();
                 let size = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
                 if let Some(old) = self.window.projector_resized(size) {
@@ -870,8 +883,8 @@ impl crate::App {
                         self.decoding.view_box[1].max(old[1]),
                     ];
                     let grown = size[0] > had[0] || size[1] > had[1];
-                    // Only then: a projector smaller than the view shows the images it has, and
-                    // dragging its edge decodes nothing again.
+                    // This happens only then. A projector smaller than the view shows the images
+                    // it has, and dragging its edge decodes nothing again.
                     if grown {
                         self.list.slots.retain(|_, s| s.full);
                         self.list.decodes_pending.retain(|&(_, full), _| full);
@@ -909,7 +922,7 @@ impl crate::App {
         } else {
             fit.min(1.0)
         };
-        // Zoomed: the same part of the image, as large as this window allows.
+        // When zoomed, it shows the same part of the image, as large as this window allows.
         let (scale, pan) = match self.last_view {
             Some(v) if v.zoomed => {
                 let k = (area.width() * ppp / (v.area.width() * v.ppp))
@@ -955,8 +968,8 @@ impl crate::App {
         }
     }
 
-    /// What `slot` shows now, in the main window and on the projector alike: the frame stepped
-    /// to, the frame playing, or the image.
+    /// What `slot` shows now, in the main window and on the projector alike. It is the frame
+    /// stepped to, the frame playing, or the image.
     pub(crate) fn texture<'a>(
         &self,
         slot: &'a Slot,
@@ -969,7 +982,7 @@ impl crate::App {
         }
     }
 
-    /// The frame (or page) shown now: the one stepped to, else the page.
+    /// The frame (or page) shown now. It is the one stepped to, and otherwise the page.
     pub(crate) fn shown_frame(&self) -> usize {
         let animated = self
             .list
@@ -988,13 +1001,13 @@ impl crate::App {
         (self.list.slots.get(&self.list.cur)).is_some_and(|s| s.anim.len() > 1)
     }
 
-    /// Frames, or pages, of the shown file: for the status bar and the File menu's entries.
+    /// The frames, or pages, of the shown file, for the status bar and the File menu's entries.
     pub(crate) fn frame_count(&self) -> usize {
         (self.list.slots.get(&self.list.cur)).map_or(1, |s| s.anim.len().max(s.pages))
     }
 
-    /// The image area: the shown image in one or more panes, compare, zoom and drag, the overlay,
-    /// the film strip in full screen; and what a click there asked for.
+    /// The image area. It shows the shown image in one or more panes, compare, zoom and drag,
+    /// the overlay, and the film strip in full screen. Returns what a click there asked for.
     pub(crate) fn image_area(
         &mut self,
         ctx: &egui::Context,
@@ -1048,16 +1061,16 @@ impl crate::App {
                 if self.viewing.crop.is_some() {
                     self.crop_over(ctx, ui, &response, area, scale, ppp);
                 }
-                // A video: a play button over the preview frame (click or Enter), readable on
-                // any frame, also in the slideshow and full screen.
+                // A video gets a play button over the preview frame (click or Enter). It can be
+                // read on any frame, also in the slideshow and in full screen.
                 #[cfg(feature = "video")]
                 if (self.list.files.get(self.list.cur)).is_some_and(|f| is_video(Path::new(f)))
                     && play_button(ui, area)
                 {
                     later = Some(Action::Play);
                 }
-                // Several panes: the name in each or in none (after the panes are drawn), not the
-                // shown image's details in one.
+                // With several panes, the name is shown in each pane or in none (after the panes
+                // are drawn), rather than the shown image's details in one.
                 if panes.len() == 1 && bare && self.config.osd && !self.list.files.is_empty() {
                     self.overlay(ui, area);
                 }
@@ -1065,8 +1078,8 @@ impl crate::App {
                     self.paint_histogram(ui, area);
                 }
                 clicked_pane = self.paint_panes(ui, &panes, area, right, [cols, rows], bare);
-                // Full screen: a film strip of the images around this one, while the pointer
-                // is near the bottom.
+                // In full screen, a film strip of the images around this one shows while the
+                // pointer is near the bottom.
                 if fullscreen && !self.window.is_kiosk() && !self.list.files.is_empty() {
                     clicked_pane = self.filmstrip(ui, ui.max_rect()).or(clicked_pane);
                 }
@@ -1109,11 +1122,12 @@ impl crate::App {
         }
     }
 
-    /// Not zoomed: decoded again at window size when the box the view decodes into has grown
-    /// past the one the texture was made for (the previous texture is shown meanwhile). By the
-    /// box, not the texture's size: the decoders round, and the same box gives the same
-    /// texture, so never again and again. Zoomed: full resolution, also where the size shown is
-    /// larger than a texture may be (`long`).
+    /// Decodes the image again when it needs it. When it is not zoomed, it is decoded again at
+    /// window size when the box the view decodes into has grown past the one the texture was
+    /// made for, and the previous texture is shown meanwhile. The box decides, not the
+    /// texture's size, because the decoders round. The same box gives the same texture, so the
+    /// image is not decoded again and again. When it is zoomed, it gets full resolution, also
+    /// where the size shown is larger than a texture may be (`long`).
     fn decode_again_if_needed(&mut self, area: egui::Rect, ppp: f32, scale: f32, long: u32) {
         let slot = self.list.slots.get(&self.list.cur);
         let decode_box = self.decode_box(self.list.cur);
@@ -1127,8 +1141,9 @@ impl crate::App {
         };
         let too_small =
             slot.is_some_and(|s| !s.full && too_small(s.tex.size(), s.orig, scale, view));
-        // Not zoomed: decoded again to the size shown, which the decoders' limit now
-        // holds; full resolution only where that is larger than a texture may be.
+        // When not zoomed, the image is decoded again to the size shown, which the decoders'
+        // limit now holds. It gets full resolution only where that is larger than a texture may
+        // be.
         let fits = slot.is_some_and(|s| fits_texture(s.orig, scale, long));
         let fitted = self.zoom.level.is_none() && fits;
         if fitted && grown {
@@ -1139,7 +1154,7 @@ impl crate::App {
         }
     }
 
-    /// Edit → Crop over the shown image in `area` at `scale`: the part chosen by a drag.
+    /// Edit → Crop over the shown image in `area` at `scale`. The part is chosen by a drag.
     fn crop_over(
         &mut self,
         ctx: &egui::Context,
@@ -1165,9 +1180,9 @@ impl crate::App {
         }
     }
 
-    /// The other panes, and the compared half `right`, painted; what each pane shows, for the
-    /// status bar (the one under the pointer, outlined), and the names in each pane. Returns the
-    /// pane clicked, whose image becomes the shown one.
+    /// Paints the other panes and the compared half `right`. It keeps what each pane shows, for
+    /// the status bar (the one under the pointer is outlined), and the names in each pane.
+    /// Returns the pane clicked, whose image becomes the shown one.
     fn paint_panes(
         &mut self,
         ui: &mut egui::Ui,
@@ -1178,7 +1193,7 @@ impl crate::App {
         bare: bool,
     ) -> Option<usize> {
         let mut clicked_pane = None;
-        // What each pane shows, for the status bar: the one under the pointer.
+        // What each pane shows, for the status bar, which tells the one under the pointer.
         let mut shown = vec![(self.list.cur, Some(self.zoom.last_scale))];
         if let Some(right) = right {
             shown.extend(self.paint_other(ui, right, self.zoom.level));
@@ -1226,20 +1241,20 @@ impl crate::App {
         clicked_pane
     }
 
-    /// The view's box the shown image is decoded into (`view_box`), from the fit mode and, in
-    /// Fill, the image's shape; returns the longest side a texture may have.
+    /// Works out the view's box the shown image is decoded into (`view_box`), from the fit mode
+    /// and, in Fill, the image's shape. Returns the longest side a texture may have.
     pub(crate) fn decode_size(&mut self, area: egui::Rect, ppp: f32, max_fit: f32) -> u32 {
-        // The image area, not the whole screen: a small window on a 4K screen needs a fraction
-        // of the memory (3840×2160 is 33 MB per image).
+        // The image area counts, not the whole screen, so a small window on a 4K screen needs a
+        // fraction of the memory (3840×2160 is 33 MB per image).
         let [w, h] = [(area.width() * ppp) as u32, (area.height() * ppp) as u32];
         let quarter = self.viewing.orient.0 % 2 == 1;
         let turned = |[w, h]: [usize; 2]| if quarter { [h, w] } else { [w, h] };
         let mode = self.config.fit_mode;
-        // Decoded to the size shown: the view for a whole image. Fit Width and Fit Height
-        // fill one side and may need up to the screen on the other, whatever the image,
-        // so the neighbours read ahead are sharp too. Fill depends on the image's shape:
-        // its size at its scale once that is known (also while it is decoded again, from
-        // the image drawn), else the longer side.
+        // The image is decoded to the size shown, which is the view for a whole image. Fit
+        // Width and Fit Height fill one side and may need up to the screen on the other,
+        // whatever the image, so the neighbours read ahead are sharp too. Fill depends on the
+        // image's shape. It uses the image's size at its scale once that is known (also while
+        // it is decoded again, from the image drawn), and otherwise the longer side.
         let long = self.decoding.max_side;
         let orig = (self.list.slots.get(&self.list.cur).map(|s| s.orig)).or(self
             .decoding
@@ -1274,8 +1289,9 @@ impl crate::App {
         )
     }
 
-    /// The shown image in `area` at `scale`, turned as the view is, fading from the one before
-    /// in a slideshow; while it is decoded its thumbnail or the image before, else why not.
+    /// Paints the shown image in `area` at `scale`, turned as the view is, fading from the one
+    /// before in a slideshow. While it is decoded, it paints the thumbnail or the image before,
+    /// and otherwise why there is no image.
     pub(crate) fn paint_shown(
         &mut self,
         ctx: &egui::Context,
@@ -1295,7 +1311,7 @@ impl crate::App {
             // Within its pane or half, which zoom makes it overflow.
             let clip = ui.clip_rect();
             ui.set_clip_rect(area.intersect(clip));
-            // A slideshow fading: the image before goes as this one comes.
+            // While a slideshow fades, the image before goes as this one comes.
             let shown = match &fade {
                 Some((t, old, orig)) => {
                     let look = (self.config.enlarge, mode);
@@ -1314,7 +1330,8 @@ impl crate::App {
             paint_turned(ui, tex, rect, self.viewing.orient, alpha(shown));
             ui.set_clip_rect(clip);
             self.decoding.last_drawn = Some((slot.tex.clone(), slot.orig));
-            // For the projector: this view, and the pointer from the image's centre.
+            // The projector follows this view, and the pointer measured from the image's
+            // centre.
             let centre = area.center() + self.zoom.offset;
             let pointer = (ctx.pointer_hover_pos())
                 .filter(|p| area.contains(*p))
@@ -1330,8 +1347,8 @@ impl crate::App {
         } else if let Some((tex, orig, thumb)) = self.placeholder()
             && !self.list.decode_errors.contains_key(&self.list.cur)
         {
-            // A thumbnail fills the area, as the image will; the image before keeps
-            // its size.
+            // A thumbnail fills the area, as the image will, while the image before keeps its
+            // size.
             let size = egui::vec2(orig[0] as f32, orig[1] as f32);
             let fit = (area.width() * ppp / size.x).min(area.height() * ppp / size.y);
             let fit = if thumb { fit } else { fit.min(max_fit) };
@@ -1353,7 +1370,8 @@ impl crate::App {
             } else {
                 String::new()
             };
-            // Broken into lines that fit, as an error can be long: a decoder's message.
+            // The text is broken into lines that fit, because an error, such as a decoder's
+            // message, can be long.
             let (font, grey) = (egui::FontId::proportional(16.0), egui::Color32::GRAY);
             let width = (area.width() - 32.0).max(80.0);
             let galley = ui.painter().layout(text, font, grey, width);
@@ -1377,10 +1395,10 @@ impl crate::App {
         }
     }
 
-    /// The wheel over the image: zoom about the point under the pointer (Ctrl+wheel, or every
-    /// wheel with wheel_zoom), else a notch is the next or previous image, which it returns.
-    /// `fit` is the zoom that fits, `area` the first pane (or compared half), `right` the
-    /// other half when comparing.
+    /// The wheel over the image. It zooms about the point under the pointer (Ctrl+wheel, or
+    /// every wheel with wheel_zoom). Otherwise a notch goes to the next or previous image, which
+    /// it returns. `fit` is the zoom that fits, `area` the first pane (or compared half), and
+    /// `right` the other half when comparing.
     pub(crate) fn wheel_input(
         &mut self,
         ctx: &egui::Context,
@@ -1414,7 +1432,7 @@ impl crate::App {
         if self.config.wheel_zoom {
             factor *= 1.0 + scroll / 400.0;
         } else {
-            // One notch is one image; touchpad deltas add up to a notch.
+            // One notch is one image, and touchpad deltas add up to a notch.
             self.zoom.wheel += notches;
             if self.zoom.wheel.abs() >= 1.0 {
                 let up = self.zoom.wheel > 0.0;
@@ -1428,7 +1446,8 @@ impl crate::App {
             self.zoom.level = Some(new);
             // Keep the point under the pointer in place, as in other viewers.
             if let Some(p) = response.hover_pos() {
-                // From the centre of the pane under the pointer: they share the offset.
+                // The zoom is about the centre of the pane under the pointer, because the panes
+                // share the offset.
                 let under = (right.iter().chain(panes))
                     .find(|r| r.contains(p))
                     .map_or(area, |r| if *r == panes[0] { area } else { *r });
@@ -1439,14 +1458,14 @@ impl crate::App {
         step
     }
 
-    /// Enter: a video plays in the player (an image has nothing to play), and a slideshow waits
-    /// meanwhile; P resumes it.
+    /// Enter. A video plays in the player (an image has nothing to play), and a slideshow waits
+    /// meanwhile until P resumes it.
     #[cfg_attr(not(feature = "video"), allow(unused_variables))]
     pub(crate) fn play_video(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "video")]
         if is_video(&self.location()) {
             self.launch(&self.config.video_player);
-            // The slideshow waits while the video plays; P resumes it.
+            // The slideshow waits while the video plays, until P resumes it.
             if self.slideshow.is_running() {
                 self.slideshow.pause();
                 self.title(ctx);
@@ -1454,8 +1473,8 @@ impl crate::App {
         }
     }
 
-    /// Ctrl+Page Up/Down on an animation: stopped at the frame before or after the one shown,
-    /// which A plays on from.
+    /// Ctrl+Page Up/Down on an animation. It stops at the frame before or after the one shown,
+    /// and A plays on from there.
     pub(crate) fn step_frame(&mut self, action: Action) {
         let n = self
             .list
@@ -1469,7 +1488,7 @@ impl crate::App {
         });
     }
 
-    /// Ctrl+Page Up/Down: the next or previous page of a multi-page image, decoded anew.
+    /// Ctrl+Page Up/Down. It decodes the next or previous page of a multi-page image anew.
     pub(crate) fn step_page(&mut self, action: Action) {
         let pages = self.list.slots.get(&self.list.cur).map_or(1, |s| s.pages);
         let page = match action {
@@ -1486,9 +1505,8 @@ impl crate::App {
         }
     }
 
-    /// Alt+arrow: as a click on that pane, its image becomes the shown one, in the first pane.
-    /// Forward, the panes say which image is there (a slideshow may change them one at a time);
-    /// back, the list does.
+    /// Alt+arrow. As with a click on that pane, its image becomes the shown one, in the first
+    /// pane.
     pub(crate) fn go_to_pane(&mut self, ctx: &egui::Context, action: Action) {
         let cols = layout_grid(&self.config.layout)[0] as isize;
         let step = match action {
@@ -1497,8 +1515,8 @@ impl crate::App {
             Action::PaneUp => -cols,
             _ => cols,
         };
-        // Forward, the panes say which image is there (a slideshow may change them
-        // one at a time); back, the list does.
+        // Forward, the panes say which image is there, because a slideshow may change them one
+        // at a time. Back, the list says it.
         let pane = (step > 0)
             .then(|| self.list.panes.get(step as usize - 1))
             .flatten();
@@ -1507,7 +1525,7 @@ impl crate::App {
         }
     }
 
-    /// E: two images side by side, in one pane.
+    /// E. It shows two images side by side, in one pane.
     pub(crate) fn toggle_compare(&mut self) {
         self.compare = !self.compare;
         if self.compare && self.config.layout != "1" {
@@ -1517,16 +1535,16 @@ impl crate::App {
         self.refill();
     }
 
-    /// Turn or mirror the shown image for viewing, until it is saved. Mirroring or flipping what
-    /// is on screen after a turn: mirror the image first and turn the other way (a flip is a mirror
-    /// and half a turn).
+    /// Turns or mirrors the shown image for viewing, until it is saved. To mirror or flip what
+    /// is on screen after a turn, it mirrors the image first and turns the other way. (A flip
+    /// is a mirror and half a turn.)
     pub(crate) fn turn(&mut self, action: Action) {
-        // Nothing shown: nothing to turn.
+        // When nothing is shown, there is nothing to turn.
         if self.list.files.is_empty() {
             return;
         }
-        // Until it is saved the old picture shows: turned again, it would be saved twice,
-        // into the same temporary file.
+        // Until the image is saved, the old picture shows. Turned again, it would be saved
+        // twice, into the same temporary file.
         if self.work.is_saving(&self.path(self.list.cur)) {
             self.notice = Some(tr("Still saving the last rotation of this file").into());
             return;
@@ -1542,8 +1560,8 @@ impl crate::App {
         };
     }
 
-    /// Fit, Fit Width, Fit Height and Fill: modes that stay for the next images, as ImageGlass's;
-    /// X goes back to the whole.
+    /// Fit, Fit Width, Fit Height and Fill. These modes stay for the next images, as
+    /// ImageGlass's do, and X goes back to the whole image.
     pub(crate) fn set_fit_mode(&mut self, action: Action) {
         self.zoom.fit();
         self.config.fit_mode = match action {
@@ -1556,8 +1574,9 @@ impl crate::App {
     }
 }
 
-/// Where an image of `orig` is drawn in `rect`, and its scale: at the `zoom` and pan given, else
-/// fitted in fit `mode`, centred, and larger than its size only with `enlarge`.
+/// Where an image of `orig` is drawn in `rect`, and its scale. It is drawn at the `zoom` and
+/// pan given, and otherwise fitted in fit `mode`, centred, and larger than its size only with
+/// `enlarge`.
 pub(crate) fn placed(
     rect: egui::Rect,
     orig: [usize; 2],
@@ -1595,8 +1614,8 @@ pub(crate) fn paint_turned(
         .paint_at(ui, rect);
 }
 
-/// A checkerboard under the image at `rect`, turned as the image is, for one that is
-/// transparent: one quad of a repeating 2×2 texture, 8-point squares at any size.
+/// Paints a checkerboard under the image at `rect`, turned as the image is, for an image that is
+/// transparent. It is one quad of a repeating 2×2 texture, with 8-point squares at any size.
 pub(crate) fn paint_checker(p: &egui::Painter, rect: egui::Rect, turns: u8, tint: egui::Color32) {
     let ctx = p.ctx();
     let id = egui::Id::unique("checkerboard");
@@ -1617,14 +1636,15 @@ pub(crate) fn paint_checker(p: &egui::Painter, rect: egui::Rect, turns: u8, tint
     p.image(tex.id(), rect, uv, tint);
 }
 
-/// Faded to `alpha` (0 to 1), as a tint. A fade draws the image before at 1 - t⁴ under the new
-/// one at t: the sum stays near full brightness, where 1 - t would darken the middle.
+/// A tint that fades to `alpha` (0 to 1). A fade draws the image before at 1 - t⁴ under the new
+/// one at t. The sum stays near full brightness, where 1 - t would darken the middle.
 pub(crate) fn alpha(a: f32) -> egui::Color32 {
     egui::Color32::from_white_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
 }
 
 /// The scale (screen pixels per image pixel) at which an image of `size` fits `view`, both in
-/// pixels, in fit `mode`: 0 the whole image, 1 its width, 2 its height, 3 filling the view.
+/// pixels, in fit `mode`. Mode 0 fits the whole image, 1 its width, 2 its height, and 3 fills
+/// the view.
 pub(crate) fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
     let (x, y) = (view.x / size[0], view.y / size[1]);
     match mode {
@@ -1635,14 +1655,16 @@ pub(crate) fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
     }
 }
 
-/// Whether a texture of `tex` is too small to show an image of `orig` at `scale` in a view of
-/// `view` pixels (all unturned), zoomed: then full resolution is loaded, once. The decoders fit an
-/// image into a box of whole pixels: the side that fills the view comes out within a pixel or so of
-/// it, and the other is worked out from it, so one pixel there is `orig` side to side here
-/// (4000×2657 into a box 1328 high is 1998 wide, where 1328.9 high shows it 2000.6 wide). Short by
-/// more than that on any side: decoded again, which then gives a texture within it, so never again
-/// and again. A strip of 10000×5 grown from 1920 to 3840 wide is too small by its width, as its
-/// height fills nothing.
+/// Whether a texture of `tex` is too small to show an image of `orig` zoomed to `scale` in a
+/// view of `view` pixels (all unturned). Then full resolution is loaded, once.
+///
+/// The decoders fit an image into a box of whole pixels. The side that fills the view comes out
+/// within a pixel or so of it, and the other side is worked out from it, so one pixel there is
+/// `orig` side to side here. (4000×2657 into a box 1328 high is 1998 wide, where 1328.9 high
+/// shows it 2000.6 wide.) When it is short by more than that on any side, it is decoded again,
+/// which then gives a texture within the limit, so it is not decoded again and again. A strip of
+/// 10000×5 grown from 1920 to 3840 wide is too small by its width, because its height fills
+/// nothing.
 pub(crate) fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> bool {
     (0..2).any(|i| {
         let j = 1 - i;
@@ -1654,24 +1676,25 @@ pub(crate) fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f3
 }
 
 /// Whether an image decoded into the box `was`, to a texture of `tex`, is decoded again for the
-/// box `now`: when that is larger on a side, unless the texture is the whole image already.
+/// box `now`. That happens when `now` is larger on a side, unless the texture is the whole image
+/// already.
 pub(crate) fn grown(now: [u32; 2], was: [u32; 2], tex: [usize; 2], orig: [usize; 2]) -> bool {
     let larger = (0..2).any(|i| now[i] > was[i]);
     larger && (0..2).any(|i| tex[i] < orig[i])
 }
 
-/// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`:
-/// then it is decoded again at that size, not at full resolution. Not the decoders' limit, whose
-/// free side is `long` itself in Fit Width and Fit Height.
+/// Whether an image of `orig` shown at `scale` fits in a texture whose sides are at most `long`.
+/// Then it is decoded again at that size, not at full resolution. `long` is not the decoders'
+/// limit, whose free side is `long` itself in Fit Width and Fit Height.
 pub(crate) fn fits_texture(orig: [usize; 2], scale: f32, long: u32) -> bool {
     orig.iter().all(|&side| side as f32 * scale < long as f32)
 }
 
-/// The box an image is decoded into: the `view` box for the shown image, turned with it when
-/// it is turned a quarter by hand (`quarter`; Fill's view has the turn in it already); for a
-/// neighbour the same box, unturned, or in Fill the longer side's square, as its shape is not
-/// known before it is decoded (shown larger, it is decoded again); and at least the projector's
-/// size, turned with the shown image too.
+/// The box an image is decoded into. For the shown image it is the `view` box, turned with the
+/// image when the user turned it a quarter (`quarter`). In Fill the view has the turn in it
+/// already. For a neighbour it is the same box unturned, or in Fill the longer side's square,
+/// because its shape is not known before it is decoded. (Shown larger, it is decoded again.)
+/// The box is at least the projector's size, also turned with the shown image.
 pub(crate) fn decode_box(
     view: [u32; 2],
     area: [u32; 2],
@@ -1723,8 +1746,8 @@ pub(crate) fn layout_grid(layout: &str) -> [usize; 2] {
         .map_or([1, 1], |l| l.2)
 }
 
-/// The decode workers: `workers` threads that take jobs and send back what they decoded,
-/// skipping images the list has moved past (`keep`).
+/// Starts the decode workers, `workers` threads that take jobs and send back what they decoded.
+/// They skip images the list has moved past (`keep`).
 pub(crate) fn spawn_decoders(
     ctx: &egui::Context,
     workers: usize,
@@ -1757,7 +1780,7 @@ pub(crate) fn spawn_decoders(
                 else {
                     return;
                 };
-                // Cancellation: skip images the user has already moved past.
+                // This cancels work, skipping images the user has already moved past.
                 let wanted = {
                     let w = keep.lock().unwrap();
                     let n = full_ok.load(Ordering::Relaxed);
@@ -1788,8 +1811,8 @@ pub(crate) fn spawn_decoders(
                     job,
                     result,
                 });
-                // glibc does not return freed memory from the threads' malloc arenas on its own;
-                // decoding leaves several image-sized buffers per thread.
+                // glibc does not return freed memory from the threads' malloc arenas on its own,
+                // and decoding leaves several image-sized buffers in each thread.
                 // SAFETY: malloc_trim has no preconditions beyond a working glibc malloc.
                 unsafe { malloc_trim(0) };
                 ctx.request_repaint();
@@ -1799,8 +1822,8 @@ pub(crate) fn spawn_decoders(
     (jobs, done)
 }
 
-/// A play button over a video's preview frame in `area`, readable on any frame; whether it
-/// was clicked.
+/// Draws a play button over a video's preview frame in `area`, readable on any frame. Returns
+/// whether it was clicked.
 #[cfg(feature = "video")]
 pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
     let shade = egui::Color32::from_black_alpha(150);
@@ -1833,7 +1856,7 @@ pub(crate) fn play_button(ui: &egui::Ui, area: egui::Rect) -> bool {
     play.clicked()
 }
 
-/// The sign of a file Check Images found broken: an orange disc with "!", at `centre`.
+/// Draws the sign of a file Check Images found broken, an orange disc with "!", at `centre`.
 pub(crate) fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32) {
     p.circle_filled(centre, 7.0, egui::Color32::from_rgb(240, 140, 0));
     let bold = egui::FontId::proportional(text_size * 0.85);
@@ -1846,7 +1869,8 @@ pub(crate) fn broken_mark(p: &egui::Painter, centre: egui::Pos2, text_size: f32)
     );
 }
 
-/// The milliseconds that `share` of the frames counted by milliseconds took at most; 0 for none.
+/// The most milliseconds that `share` of the counted frames took. It is 0 when no frame was
+/// counted.
 pub(crate) fn frame_at(frame_ms: &[u32], share: f64) -> usize {
     let total: u32 = frame_ms.iter().sum();
     let mut seen = 0;
@@ -1857,8 +1881,8 @@ pub(crate) fn frame_at(frame_ms: &[u32], share: f64) -> usize {
     .unwrap_or(0)
 }
 
-/// The panes of a layout `[cols, rows]` in `max`, and the area of the shown image in the first;
-/// comparing, the shown image on the left half and the other on the right.
+/// The panes of a layout `[cols, rows]` in `max`, and the area of the shown image in the first.
+/// When comparing, the shown image is on the left half and the other on the right.
 fn pane_rects(
     max: egui::Rect,
     [cols, rows]: [usize; 2],
@@ -1893,9 +1917,9 @@ fn pane_rects(
 mod tests {
     use crate::support::test_support::app_on;
 
-    /// Going to another image leaves nothing of the one before: its turn, page, frame and crop
-    /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets
-    /// (a crop once outlived its image).
+    /// Going to another image leaves nothing of the one before. Its turn, page, frame and crop
+    /// are one `Viewing`, made anew, so a field added later cannot be left out of the resets.
+    /// (A crop once outlived its image.)
     #[test]
     fn another_image_starts_afresh() {
         let dir = std::env::temp_dir().join(format!("glimt-test-viewing-{}", std::process::id()));
@@ -1928,7 +1952,8 @@ mod tests {
         assert_eq!((at(0.5), at(0.9), at(1.0)), (2, 3, 90));
     }
 
-    /// The fit modes: a 4:3 image in a 2:1 view, the whole, the width, the height, filled.
+    /// The fit modes for a 4:3 image in a 2:1 view: the whole, the width, the height, and
+    /// filled.
     #[test]
     fn fits_in_each_mode() {
         let view = eframe::egui::vec2(200.0, 100.0);
@@ -1936,22 +1961,20 @@ mod tests {
         assert_eq!(fits, [1.0 / 3.0, 0.5, 1.0 / 3.0, 0.5]);
     }
 
-    /// Images of a collection moved: each one place, never past another moved one, and to the
-    /// start or the end in their own order.
     /// A photo shown larger after the window grew is decoded again at the size shown, whatever
-    /// the fit mode; only one shown larger than a texture may be needs full resolution.
+    /// the fit mode. Only a photo shown larger than a texture may be needs full resolution.
     #[test]
     fn decodes_again_at_the_size_shown() {
-        // 6000×4000 shown at 0.5 in a texture of at most 16384: 3000×2000 fits.
+        // 6000×4000 shown at 0.5 fits in a texture of at most 16384 as 3000×2000.
         assert!(super::fits_texture([6000, 4000], 0.5, 16384));
         // A panorama shown 20,000 pixels wide does not.
         assert!(!super::fits_texture([40000, 2000], 0.5, 16384));
     }
 
-    /// Fitted, an image is decoded again only for a larger box than its texture was made for:
-    /// the same box gives the same texture, whatever the decoders round (a JPEG of 13484×2499
-    /// in Fit Height came out 6014 wide where 6021 were shown, again and again), and a texture
-    /// of the whole image needs no larger one.
+    /// A fitted image is decoded again only for a larger box than its texture was made for. The
+    /// same box gives the same texture, whatever the decoders round. (A JPEG of 13484×2499 in
+    /// Fit Height came out 6014 wide where 6021 were shown, again and again.) A texture of the
+    /// whole image needs no larger one.
     #[test]
     fn decodes_again_only_for_a_larger_box() {
         assert!(!super::grown(
@@ -1973,7 +1996,7 @@ mod tests {
             [1920, 1],
             [10000, 5]
         ));
-        // Smaller, or a small image whole already: not again.
+        // A smaller box, or a small image that is whole already, is not decoded again.
         assert!(!super::grown(
             [1000, 600],
             [1920, 1080],
@@ -1989,8 +2012,8 @@ mod tests {
     }
 
     /// A photo fitted into a window whose height is not whole pixels is not decoded again and
-    /// again: its width comes out two pixels short of the scale shown, its height within one.
-    /// A grown window, 1:1, and a strip whose window grew only along it are decoded again.
+    /// again. Its width comes out two pixels short of the scale shown, and its height within
+    /// one. A grown window, 1:1, and a strip whose window grew only along it are decoded again.
     #[test]
     fn a_texture_short_on_one_side_is_the_size_shown() {
         let view = [2614.0, 1328.9];
@@ -2004,14 +2027,14 @@ mod tests {
         ));
         assert!(super::too_small([1998, 1328], [4000, 2657], 1.0, view));
         assert!(!super::too_small([4000, 2657], [4000, 2657], 1.0, view));
-        // Fit Width: the width fills, the height is worked out from it.
+        // In Fit Width, the width fills, and the height is worked out from it.
         assert!(!super::too_small(
             [2000, 1328],
             [4000, 2657],
             2000.6 / 4000.0,
             [2000.6, 8192.0]
         ));
-        // A strip of 10000×5: fitted 1920 wide, then the window 3840 wide.
+        // A strip of 10000×5 is fitted 1920 wide, and then the window grows to 3840 wide.
         assert!(!super::too_small(
             [1920, 1],
             [10000, 5],
