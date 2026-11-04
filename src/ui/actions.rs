@@ -700,9 +700,10 @@ impl Action {
 pub type Shortcut = (Action, egui::Modifiers, egui::Key);
 
 /// Own keys in the config: "Next=Ctrl+N;ZoomIn=Plus", by action and egui's key names. The
-/// second field holds the items for actions this build does not know, such as the marks in a
-/// build without them or an action of a newer version. They are written back unchanged, so
-/// saving the keys here does not take them from the build that knows them.
+/// second field holds the items this build cannot use: those for actions it does not know, such
+/// as the marks in a build without them or an action of a newer version, and those with a key
+/// it cannot read. They are written back unchanged, so saving the keys here does not take them
+/// from the build that knows them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Keys(pub Vec<(Action, egui::Modifiers, egui::Key)>, Vec<String>);
 
@@ -729,9 +730,14 @@ impl std::str::FromStr for Keys {
             let Some((name, combo)) = item.split_once('=') else {
                 continue;
             };
-            match SHORTCUTS.iter().find(|s| format!("{:?}", s.0) == name) {
-                Some(&(action, ..)) => keys.0.extend(combo_of(combo).map(|(m, k)| (action, m, k))),
-                None => keys.1.push(item.to_owned()),
+            // An item this build cannot use, for an action it does not know or with a key it
+            // cannot read, is kept as it is for the build that wrote it.
+            match (
+                SHORTCUTS.iter().find(|s| format!("{:?}", s.0) == name),
+                combo_of(combo),
+            ) {
+                (Some(&(action, ..)), Some((m, k))) => keys.0.push((action, m, k)),
+                _ => keys.1.push(item.to_owned()),
             }
         }
         Ok(keys)
@@ -1360,8 +1366,11 @@ mod tests {
         let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
             .parse()
             .unwrap();
-        // An action this build does not know is kept as it was; a key it cannot read is not.
-        assert_eq!(keys.to_string(), "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X");
+        // An action this build does not know, and a key it cannot read, are kept as they were.
+        assert_eq!(
+            keys.to_string(),
+            "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
+        );
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
         *super::OWN_KEYS.write().unwrap() = keys.0.clone();
         let all = super::shortcuts();
