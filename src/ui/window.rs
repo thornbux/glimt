@@ -153,10 +153,12 @@ impl crate::App {
         }
         // Keywords typed and not yet saved, and with Save Orientation on a turn of the image
         // shown, are written now, so closing waits for them. The image is never left on the way
-        // out, which is where a turn is saved otherwise.
+        // out, which is where a turn is saved otherwise. The turn is saved at the first close
+        // only. A save that failed would otherwise start again at the Close sent when it ends,
+        // and count as the user's second close.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_meta(ctx);
-            if self.config.save_orientation {
+            if self.config.save_orientation && self.window.closing == 0 {
                 self.save_orientation(ctx);
             }
         }
@@ -474,6 +476,39 @@ mod tests {
         app.prefs = Default::default();
         app.config.hide_pointer = false;
         assert!(!app.pointer_hides(true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn that cannot be saved is tried once at closing. The Close sent when the save ends
+    /// starts no second save, which would count as a second close and stop the jobs.
+    #[test]
+    fn closing_saves_a_turn_once() {
+        use eframe::egui::{RawInput, ViewportEvent, ViewportId, ViewportInfo};
+        let dir = std::env::temp_dir().join(format!("glimt-test-close-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::files::file_io::create_file(&dir.join("a.png"), b"not a PNG").unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = true;
+        app.viewing.turn((1, false), dir.join("a.png"));
+        let close = |app: &mut crate::App| {
+            let info = ViewportInfo {
+                events: vec![ViewportEvent::Close],
+                ..Default::default()
+            };
+            let input = RawInput {
+                viewports: std::iter::once((ViewportId::ROOT, info)).collect(),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                app.track_window(ui.ctx());
+            });
+        };
+        close(&mut app);
+        let a = dir.join("a.png");
+        assert!(app.work.is_saving(&a));
+        assert!(settle(&mut app, &ctx, |app| !app.work.is_saving(&a)));
+        close(&mut app);
+        assert!(!app.work.is_saving(&a));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
