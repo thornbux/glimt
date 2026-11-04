@@ -273,11 +273,13 @@ pub(crate) fn land(
     }
 }
 
-/// Whether `a` and `b` name one file, also through links, so a copy is never saved over the
-/// image it is made from (Save As, Save This Frame).
+/// Whether `a` and `b` are names of one file, also through a link or a hard link. A copy is
+/// never saved over the image it is made from (Save As, Save This Frame), and Rename Many's
+/// repair tells a step done from one not done by it.
 pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(x), Ok(y)) => (x.dev(), x.ino()) == (y.dev(), y.ino()),
         _ => false,
     }
 }
@@ -1043,8 +1045,11 @@ mod tests {
             .unwrap();
         assert_eq!(dec.dimensions(), (100, 50));
         assert!(dec.exif_metadata().unwrap().is_none());
-        // Never the image itself, also asked for by name.
+        // Never the image itself, also asked for by name, or by another name of it.
         assert!(super::save_as(&file, &how(None, false), &file).is_err());
+        let other = dir.join("other.png");
+        std::fs::hard_link(&file, &other).unwrap();
+        assert!(super::save_as(&file, &how(None, false), &other).is_err());
         assert_eq!(image::image_dimensions(&file).unwrap(), (400, 200));
         std::fs::remove_dir_all(dir).unwrap();
     }

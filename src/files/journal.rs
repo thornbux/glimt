@@ -3,6 +3,7 @@
 //! puts the old names back or finishes. The plan is locked while it runs, so a plan that another
 //! window is still carrying out is left alone.
 
+use crate::images::save::same_file;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -326,15 +327,6 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
 fn linked(file: &File) -> bool {
     use std::os::unix::fs::MetadataExt;
     file.metadata().is_ok_and(|m| m.nlink() > 0)
-}
-
-/// Whether `a` and `b` are names of the same file.
-fn same_file(a: &Path, b: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    match (std::fs::metadata(a), std::fs::metadata(b)) {
-        (Ok(x), Ok(y)) => (x.dev(), x.ino()) == (y.dev(), y.ino()),
-        _ => false,
-    }
 }
 
 #[cfg(test)]
