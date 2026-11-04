@@ -109,6 +109,10 @@ print_pictures() {
 }
 # The file or folder the stand-in file dialog answers with.
 answer() { printf '#!/bin/sh\necho "%s"\n' "$1" >/tmp/stub/zenity; chmod +x /tmp/stub/zenity; }
+# Runs glimt --remote ARGS and ends it after 30 seconds. When no window answers, because X
+# refused it, `open` starts a window of its own and a query waits for an answer, and either one
+# held a whole part for hours.
+remote() { timeout 30 $BIN --remote "$@"; }
 # Start Glimt on ARGS and wait for its window; a second try if X refused the first. Sets GPID
 # (its process) and WIN (its window), which key, quit and the screenshots use.
 start() {
@@ -143,7 +147,7 @@ key() { xdotool windowfocus $WIN 2>/dev/null; xdotool key "$@" 2>/dev/null; slee
 # was drawn, and xdotool clicks there. The last release may lack the hook: a note then.
 menu() {
     for label in "$@"; do
-        at=$($BIN --remote where "$label" 2>/dev/null | tr -d '\0')
+        at=$(remote where "$label" 2>/dev/null | tr -d '\0')
         case $at in
             [0-9]*) xdotool mousemove ${at% *} ${at#* } click 1 2>/dev/null ;;
             *) note "$V: $label is not on the screen (or no hook)" ;;
@@ -153,14 +157,14 @@ menu() {
 }
 # A right click on the text, as menu() clicks.
 rclick() {
-    at=$($BIN --remote where "$1" 2>/dev/null | tr -d '\0')
+    at=$(remote where "$1" 2>/dev/null | tr -d '\0')
     case $at in [0-9]*) xdotool mousemove ${at% *} ${at#* } click 3 2>/dev/null ;; *) note "$V: $1 is not on the screen" ;; esac
 }
 click() { xdotool mousemove $1 $2 click 1 2>/dev/null; sleep ${3:-1}; }
 # Closing waits for what is being written (a turned image, the settings): so does this, up to
 # ten seconds, before the kill that ends a Glimt that does not listen.
 quit() {
-    $BIN --remote-all quit >/dev/null 2>&1
+    timeout 30 $BIN --remote-all quit >/dev/null 2>&1
     for i in $(seq 50); do kill -0 $GPID 2>/dev/null || break; sleep 0.2; done
     kill $GPID 2>/dev/null
     wait $GPID 2>/dev/null
@@ -170,7 +174,7 @@ shot() { import -window root /t/out/$1.png; }
 # outruns: until the command succeeds, up to $2 seconds (10), in steps of 0.1 s; false when
 # the time is up, and the check after it then says what is wrong.
 until_ok() { local n=$(( ${2:-10} * 10 )); until eval "$1" >/dev/null 2>&1; do n=$((n - 1)); [ $n -le 0 ] && return 1; sleep 0.1; done; }
-until_current() { until_ok "[ \"\$($BIN --remote current 2>/dev/null | tr -d '\\0')\" = \"$1\" ]" ${2:-10}; }
+until_current() { until_ok "[ \"\$(remote current 2>/dev/null | tr -d '\\0')\" = \"$1\" ]" ${2:-10}; }
 until_file() { until_ok "[ -e \"$1\" ]" ${2:-10}; }
 until_gone() { until_ok "[ ! -e \"$1\" ]" ${2:-10}; }
 # The colour at X,Y of a screenshot: red, green, blue, yellow, magenta, cyan or other.
@@ -290,7 +294,7 @@ for v in new old; do
     config save_orientation=true
     start $d/one/b.png
     key bracketright
-    $BIN --remote-all open $d/two >/dev/null 2>&1
+    timeout 30 $BIN --remote-all open $d/two >/dev/null 2>&1
     sleep 4
     quit
     got="$(cd $d && identify -format '%wx%h ' one/a.png one/b.png two/c.png two/d.png)"
@@ -420,7 +424,7 @@ convert -size 300x200 xc:yellow sub/d.jpg
 cd /tmp
 config auto_refresh=false
 start $d
-$BIN --remote subfolders on; sleep 2
+remote subfolders on; sleep 2
 answer $d/sub; key ctrl+c; until_file $d/sub/a.jpg; sleep 1
 key space; key space; key space; answer $d; key ctrl+m; until_file $d/c.jpg; sleep 1
 key Home; key space; answer $d/sub/deep; key ctrl+m; until_file $d/sub/deep/b.jpg; sleep 1
@@ -442,10 +446,10 @@ for v in new old; do
     start $d
     sleep 2
     key ctrl+a
-    listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
-    $BIN --remote subfolders off >/dev/null 2>&1; sleep 2
+    listed=$(remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
+    remote subfolders off >/dev/null 2>&1; sleep 2
     key ctrl+a
-    own=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
+    own=$(remote selection 2>/dev/null | tr '\0' '\n' | grep -c .)
     quit
     if [ $v = new ]; then
         expect "on at the start: all five" "$listed" 5
@@ -504,7 +508,7 @@ for v in new old; do
     cd /tmp
     config auto_refresh=false confirm_delete=false
     start $d
-    $BIN --remote subfolders on >/dev/null 2>&1; sleep 2
+    remote subfolders on >/dev/null 2>&1; sleep 2
     key space; key shift+Delete; sleep 3
     shot failed-delete-$v
     # A delete that can succeed, so the check above cannot pass by nothing happening.
@@ -559,9 +563,9 @@ for v in new old; do
     start $d/show.gqv
     sleep 2
     key ctrl+d                       # a.jpg to the trash: out of the list meanwhile
-    $BIN --remote open $d/show.gqv >/dev/null 2>&1
+    remote open $d/show.gqv >/dev/null 2>&1
     sleep 1
-    shown=$($BIN --remote current | tr -d '\0')
+    shown=$(remote current | tr -d '\0')
     during=$(grep -c 'a.jpg' $d/show.gqv)
     sleep 6
     quit
@@ -610,7 +614,7 @@ for v in new old; do
     start $d/one/a.png
     sleep 2
     key equal; key equal; sleep 1
-    $BIN --remote open $d/two/a.png >/dev/null 2>&1; until_current $d/two/a.png
+    remote open $d/two/a.png >/dev/null 2>&1; until_current $d/two/a.png
     shot same-name-$v
     quit
     got=$(colour same-name-$v 400 410)
@@ -671,12 +675,12 @@ break.jpg"
     config auto_refresh=false
     start $d/a.jpg
     sleep 1
-    current=$($BIN --remote current | tr '\0' '|')
+    current=$(remote current | tr '\0' '|')
     click 150 337; xdotool keydown ctrl; click 150 419; xdotool keyup ctrl
-    selection=$($BIN --remote selection | tr '\0' '|')
+    selection=$(remote selection | tr '\0' '|')
     # The name with a line break, shown: its path read whole, the file found by it.
     key End; sleep 1
-    size=$($BIN --remote current | xargs -0 stat -c %s 2>/dev/null)
+    size=$(remote current | xargs -0 stat -c %s 2>/dev/null)
     mode=$(stat -c %a $XDG_RUNTIME_DIR/glimt)
     quit
     if [ $v = new ]; then
@@ -699,7 +703,7 @@ for v in new old; do
     start $d
     sleep 2
     key shift+Delete; sleep 1           # "Permanently delete a.png?"
-    $BIN --remote select $d/a.png $d/b.png $d/c.png >/dev/null 2>&1 &
+    remote select $d/a.png $d/b.png $d/c.png >/dev/null 2>&1 &
     sleep 1
     key Return; sleep 2
     quit
@@ -718,7 +722,7 @@ for v in new old; do
     config
     start $d
     sleep 2
-    $BIN --remote open "$d/x
+    remote open "$d/x
 quit" >/dev/null 2>&1; refused=$?
     sleep 1
     running=$(kill -0 $GPID 2>/dev/null && echo running || echo quit)
@@ -735,12 +739,12 @@ mkdir -p $d
 for f in a b c d e; do convert -size 64x64 xc:red $d/$f.png; done
 config delay=1
 start $d/a.png; sleep 2
-$BIN --remote slideshow on >/dev/null 2>&1; $BIN --remote slideshow on >/dev/null 2>&1; sleep 2.5
-moved=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
-$BIN --remote slideshow off >/dev/null 2>&1; $BIN --remote slideshow off >/dev/null 2>&1; sleep 0.5
-was=$($BIN --remote current 2>/dev/null | tr -d '\0'); sleep 2.5
-still=$($BIN --remote current 2>/dev/null | tr -d '\0')
-$BIN --remote random on >/dev/null 2>&1; $BIN --remote random on >/dev/null 2>&1; sleep 1
+remote slideshow on >/dev/null 2>&1; remote slideshow on >/dev/null 2>&1; sleep 2.5
+moved=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+remote slideshow off >/dev/null 2>&1; remote slideshow off >/dev/null 2>&1; sleep 0.5
+was=$(remote current 2>/dev/null | tr -d '\0'); sleep 2.5
+still=$(remote current 2>/dev/null | tr -d '\0')
+remote random on >/dev/null 2>&1; remote random on >/dev/null 2>&1; sleep 1
 quit
 expect "on twice: running, past a.png" "$([ "$moved" != a.png ] && echo moved)" moved
 expect "off twice: stopped, the image stays" "$([ "$was" = "$still" ] && echo stays)" stays
@@ -756,8 +760,8 @@ for v in new old; do
     config
     start $d
     sleep 2
-    $BIN --remote open "$d/sub " >/dev/null 2>&1; until_current "$d/sub /a.png"
-    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    remote open "$d/sub " >/dev/null 2>&1; until_current "$d/sub /a.png"
+    got=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
     quit
     if [ $v = new ]; then expect "the folder's image shown" "$got" "sub /a.png"
     else note "old: $got"; fi
@@ -775,9 +779,9 @@ for v in new old; do
     sleep 2
     key ctrl+o; sleep 1                    # Preferences
     start_at=$(date +%s)
-    $BIN --remote select $d/b.png >/dev/null 2>&1
+    remote select $d/b.png >/dev/null 2>&1
     took=$(( $(date +%s) - start_at ))
-    got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
+    got=$(remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
     quit
     if [ $v = new ]; then expect "b selected at once" "$got $([ $took -lt 5 ] && echo soon)" "b.png  soon"
     else note "old: '$got', ${took}s"; fi
@@ -795,8 +799,8 @@ for v in new old; do
     config
     start $d/link
     sleep 2
-    missing=$($BIN --remote select $d/link/b.png $d/link/c.png 2>/dev/null | tr '\0' ' ')
-    got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/real/||g")
+    missing=$(remote select $d/link/b.png $d/link/c.png 2>/dev/null | tr '\0' ' ')
+    got=$(remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/real/||g")
     quit
     if [ $v = new ]; then expect "b and the link c selected, none missing" "$got|$missing" "b.png c.png |"
     else note "old: $got|$missing"; fi
@@ -814,11 +818,11 @@ for v in new old; do
     start $d/first
     sleep 1
     # Sent at once after open, while the folder is still being read.
-    $BIN --remote open $d
-    missing=$($BIN --remote select $d/b.jpg "$d/c d.jpg" /nowhere/e.jpg | tr '\0' '|')
+    remote open $d
+    missing=$(remote select $d/b.jpg "$d/c d.jpg" /nowhere/e.jpg | tr '\0' '|')
     sleep 1
-    selection=$($BIN --remote selection | tr '\0' '|')
-    current=$($BIN --remote current | tr '\0' '|')
+    selection=$(remote selection | tr '\0' '|')
+    current=$(remote current | tr '\0' '|')
     quit
     if [ $v = new ]; then
         expect "select: the file not in the list printed" "$missing" "/nowhere/e.jpg|"
@@ -1038,7 +1042,7 @@ for v in new old; do
     config
     start $d
     key ctrl+r
-    $BIN --remote-all next >/dev/null 2>&1
+    timeout 30 $BIN --remote-all next >/dev/null 2>&1
     sleep 1
     key ctrl+a
     xdotool type x
@@ -1099,7 +1103,7 @@ for v in new old; do
     key Return                         # Rename Many as *_###, in the background
     # Closed as soon as the first file has its new name: the window must wait for the rest.
     for i in $(seq 100); do ls $d | grep -q '_[0-9]*\.jpg' && break; sleep 0.1; done
-    $BIN --remote-all quit >/dev/null 2>&1
+    timeout 30 $BIN --remote-all quit >/dev/null 2>&1
     quit
     got="$(ls $d | grep -c '_[0-9]*\.jpg') $(ls $d | grep -vc '_[0-9]*\.jpg') $(ls $XDG_STATE_HOME/glimt/renames 2>/dev/null | wc -l | tr -d ' ')"
     if [ $v = new ]; then expect "10,000 renamed, none left, no plan" "$got" "10000 0 0"
@@ -1140,13 +1144,13 @@ for v in new old; do
     convert -size 100x100 xc:lime $d/sub/b.jpg
     config auto_refresh=false
     start $d
-    $BIN --remote subfolders on >/dev/null 2>&1; sleep 2
+    remote subfolders on >/dev/null 2>&1; sleep 2
     key End                       # sub/b.jpg shown, so it is among the renamed
     key ctrl+a; key ctrl+r; sleep 1; key ctrl+a
     xdotool type --delay 30 'x*'; sleep 0.4
     key Return; sleep 3
     key End; sleep 1              # the folder's own file sorts last, after sub/
-    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    got=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
     quit
     if [ $v = new ]; then expect "the folder's own file still in the list" "$got" "xc.jpg"
     else note "old, last: $got"; fi
@@ -1167,7 +1171,7 @@ for v in new old; do
     start $d
     # D opens Find Duplicates; then Find, and "Check all but the first of each group".
     key d; click 525 82 2; click 147 129
-    $BIN --remote open $d/other/x.jpg; sleep 2
+    remote open $d/other/x.jpg; sleep 2
     click 459 129 3   # "Move 2 checked to trash…"
     shot duplicates-$v
     quit
@@ -1280,7 +1284,7 @@ for v in new old; do
     start $d/v.mp4; sleep 2
     menu File "Open Several Folders…"; sleep 3
     key ctrl+a
-    listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
+    listed=$(remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
     quit
     if [ $v = new ]; then expect "the two images only, no video" "$listed" "one/a.png two/b.png "
     else note "old: $listed"; fi
@@ -1602,7 +1606,7 @@ for v in new old; do
     found() {
         click 120 284; key ctrl+a; xdotool type "$1"; sleep 2
         click 150 337; key ctrl+a; sleep 1
-        $BIN --remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' '
+        remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' '
     }
     and_not=$(found 'sunset -re:png$')
     either=$(found 'beach | re:png$')
@@ -1636,7 +1640,7 @@ for v in new old; do
     # A pattern fuzzy search finds nothing with: a class of two letters at the start.
     click 120 284; key ctrl+a; xdotool type '^[bc]'; sleep 2
     click 150 337; key ctrl+a; sleep 1
-    found=$($BIN --remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
+    found=$(remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
     menu ".*"; sleep 1
     back=$(grep -o '^fuzzy_search=.*' $XDG_CONFIG_HOME/glimt/config)
     quit
@@ -1662,9 +1666,9 @@ for v in new old; do
     config confirm_delete=false
     start $d/show.txt
     sleep 1
-    first=$($BIN --remote current | tr '\0' '\n' | xargs -n1 basename 2>/dev/null)
+    first=$(remote current | tr '\0' '\n' | xargs -n1 basename 2>/dev/null)
     key space; sleep 1
-    second=$($BIN --remote current | tr '\0' '\n' | xargs -n1 basename 2>/dev/null)
+    second=$(remote current | tr '\0' '\n' | xargs -n1 basename 2>/dev/null)
     # Delete in a list: out of the list in the window only.
     key Delete; sleep 1
     quit
@@ -1750,10 +1754,10 @@ for v in new old; do
     config
     start $d/show.gqv
     sleep 2
-    $BIN --remote open $d/y >/dev/null 2>&1; until_current $d/y/b.jpg
+    remote open $d/y >/dev/null 2>&1; until_current $d/y/b.jpg
     click 22 35 2                             # Back, in the toolbar
     key End; sleep 1
-    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    got=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
     quit
     if [ $v = new ]; then expect "the collection's last image" "$got" "y/b.jpg"
     else note "old: $got"; fi
@@ -1822,7 +1826,7 @@ for v in new old; do
     xdotool mousedown 1; for y in 640 600 520 460; do xdotool mousemove 70 $y; sleep 0.1; done
     sleep 0.5; convert -size 64x64 xc:blue $d/a.png; sleep 3
     xdotool mousemove 75 455; sleep 0.3; xdotool mouseup 1; xdotool keyup ctrl; sleep 1
-    got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
+    got=$(remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
     quit
     if [ $v = new ]; then expect "b, c and d still selected, not a" "$got" "b.png c.png d.png "
     else note "old: $got"; fi
@@ -1845,7 +1849,7 @@ for v in new old; do
     # Held near the edge: the grid scrolls on, a little movement keeps frames coming.
     for i in $(seq 30); do xdotool mousemove 61 760; sleep 0.1; xdotool mousemove 60 760; sleep 0.1; done
     xdotool mouseup 1; sleep 1
-    n=$($BIN --remote selection 2>/dev/null | tr -cd '\0' | wc -c)
+    n=$(remote selection 2>/dev/null | tr -cd '\0' | wc -c)
     quit
     if [ $v = new ]; then expect "more than the rows in view selected" "$([ $n -ge 20 ] && echo yes)" yes; fi
     note "$v: $n selected"
@@ -1952,7 +1956,7 @@ for v in new old; do
     menu File "Check Images…" Check; sleep 2
     # The check runs: a's first files, cut, are marked before b opens.
     shot check-switch-a-$v
-    $BIN --remote open $d/b >/dev/null 2>&1
+    remote open $d/b >/dev/null 2>&1
     sleep 15
     shot check-switch-$v
     quit
@@ -1994,7 +1998,7 @@ start $d/a.png
 sleep 2
 key space; key 1; key space; key 1          # mark 1 on b and c
 key ctrl+1; sleep 1                          # Select by Mark 1
-got=$($BIN --remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
+got=$(remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
 quit
 expect "b and c selected" "$got" "b.png c.png "
 
@@ -2075,7 +2079,7 @@ for v in new old; do
     start --kiosk $d
     sleep 2
     key ctrl+equal; key r; key i; sleep 1    # faster, random order, overlay
-    $BIN --remote-all quit >/dev/null 2>&1; sleep 1
+    timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
     got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
     if [ $v = new ]; then expect "the delay as it was" "$got" 1
@@ -2104,7 +2108,7 @@ start --kiosk $d
 sleep 2
 key ctrl+q; sleep 2
 stays=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
-$BIN --remote-all quit >/dev/null 2>&1; sleep 2
+timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 2
 left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 quit
 expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
@@ -2122,7 +2126,7 @@ menu Edit Plugins; sleep 1
 shot plugins-menu
 menu Stamp; sleep 2
 ran=$(cat $d/ran 2>/dev/null)
-answer=$($BIN --remote current 2>/dev/null | tr -d '\0')
+answer=$(remote current 2>/dev/null | tr -d '\0')
 # Still running, it has Stop in the menu, which ends it with its sleep.
 menu Edit Plugins "Stop Stamp"
 until_ok "! pgrep -f /tmp/stub/stamp" 5
@@ -2172,7 +2176,7 @@ convert -size 64x64 xc:blue $d/two/b.png
 config
 start $d/one $d/two; sleep 2
 key ctrl+a
-listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
+listed=$(remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr '\n' ' ')
 quit
 expect "both folders' images in one list" "$listed" "one/a.png two/b.png "
 
@@ -2188,7 +2192,7 @@ config
 start $d/start; sleep 2
 menu File "Open Folder Recursive…"; sleep 3
 key ctrl+a
-listed=$($BIN --remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/tree/||" | sort | tr '\n' ' ')
+listed=$(remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/tree/||" | sort | tr '\n' ' ')
 quit
 expect "the tree's three images" "$listed" "a.png sub/b.png sub/deep/c.png "
 expect "Include Subfolders on in the settings" "$(grep -c '^show_subfolders=true$' $XDG_CONFIG_HOME/glimt/config)" 1
@@ -2212,9 +2216,9 @@ convert -size 64x64 xc:lime $HOME/h.png
 config
 start $d/sub/a.png; sleep 2
 click 99 35 2                                          # Up
-up=$($BIN --remote current 2>/dev/null | tr -d '\0')
+up=$(remote current 2>/dev/null | tr -d '\0')
 click 137 35 2                                         # Home
-home=$($BIN --remote current 2>/dev/null | tr -d '\0')
+home=$(remote current 2>/dev/null | tr -d '\0')
 quit
 rm -f $HOME/h.png
 expect "Up shows the parent's image, Home the home folder's" "$up $home" "$d/b.png $HOME/h.png"
@@ -2313,7 +2317,7 @@ key y; sleep 1; one=$(probe layout-1)
 key u; sleep 1; up=$(probe layout-u)
 key l; key l; sleep 1                                   # 2x2, then back to 2x1
 key alt+Right; sleep 1                                  # the right pane's image shown
-pane=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+pane=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
 quit
 expect "E: a left, b right" "$compare" "red blue red red"
 expect "E again: a alone" "$alone" "red red red red"
@@ -2446,7 +2450,7 @@ for v in new old; do
     other=$(xdotool search --name Glimt 2>/dev/null | grep -vx "$WIN" | tail -1)
     [ $v = new ] && expect "a second window opened" "$([ -n "$other" ] && echo yes)" yes
     xdotool windowfocus $other key ctrl+equal 2>/dev/null; sleep 1
-    $BIN --remote-all quit >/dev/null 2>&1; sleep 1
+    timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
     got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
     if [ $v = new ]; then expect "the delay as it was" "$got" 1
@@ -2525,7 +2529,7 @@ for v in new old; do
     key Tab; key Tab; sleep 0.5         # Go, the second Tab stop
     click 52 11; click 52 11            # Go opened and closed by clicks
     key End; sleep 1
-    got=$($BIN --remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
+    got=$(remote current 2>/dev/null | tr -d '\0' | sed "s|$d/||")
     quit
     if [ $v = new ]; then expect "End shows the last image" "$got" "c.png"
     else note "old: $got"; fi
@@ -2922,13 +2926,13 @@ rm -f $XDG_STATE_HOME/glimt/recent
 config
 start /tmp/recent-1
 sleep 2
-$BIN --remote open /tmp/recent-2 >/dev/null 2>&1; sleep 2
+remote open /tmp/recent-2 >/dev/null 2>&1; sleep 2
 quit
 expect "both kept, the newest first" "$(cat $XDG_STATE_HOME/glimt/recent | tr '\n' ' ')" "/tmp/recent-2 /tmp/recent-1 "
 start /tmp/recent-2
 sleep 2
 menu File "Open Recent" /tmp/recent-1; sleep 2
-shown=$($BIN --remote current | tr -d '\0')
+shown=$(remote current | tr -d '\0')
 shot open-recent
 quit
 expect "the folder from the menu" "$shown" "/tmp/recent-1/a1.jpg"
@@ -2936,7 +2940,7 @@ expect "the folder from the menu" "$shown" "/tmp/recent-1/a1.jpg"
 config keep_recent=false
 start /tmp/recent-2
 sleep 2
-$BIN --remote open /tmp/recent-1 >/dev/null 2>&1; sleep 2
+remote open /tmp/recent-1 >/dev/null 2>&1; sleep 2
 quit
 expect "no list with Keep a list of recent folders off" "$(ls $XDG_STATE_HOME/glimt/recent 2>&1 | grep -c 'No such')" 1
 echo "-- Checkerboard behind transparent images: two greys in turn, off by default"
@@ -3436,7 +3440,7 @@ for v in new old; do
     sleep 2
     answer $pdf; key ctrl+a; key ctrl+p; sleep 1; key Return
     sleep 1
-    $BIN --remote-all quit >/dev/null 2>&1
+    timeout 30 $BIN --remote-all quit >/dev/null 2>&1
     for i in $(seq 300); do kill -0 $GPID 2>/dev/null || break; sleep 1; done
     kill $GPID 2>/dev/null
     pages=$(pdfinfo $pdf 2>/dev/null | awk '/^Pages/ {print $2}')
@@ -3531,9 +3535,9 @@ from_setting=$(xdotool getwindowname $WIN)
 menu Window "Set Window Title…"
 xdotool type 'Left %name%'; key Return
 from_menu=$(xdotool getwindowname $WIN)
-$BIN --remote title 'Right: %folder%'; sleep 1
+remote title 'Right: %folder%'; sleep 1
 from_remote=$(xdotool getwindowname $WIN)
-$BIN --remote title; sleep 1
+remote title; sleep 1
 back=$(xdotool getwindowname $WIN)
 quit
 expect "the template in Preferences" "$from_setting" "Glimt: a.png"
@@ -3636,10 +3640,10 @@ for v in new old; do
         ticks=$(busy); wait $mover
         eval "ticks_$tree=$ticks"
         if [ $tree = true ]; then
-            note "$v: f000002 at $($BIN --remote where f000002 | tr -d '\0')"
+            note "$v: f000002 at $(remote where f000002 | tr -d '\0')"
             menu f000002; sleep 2
             shot tree-$v-clicked
-            opened=$($BIN --remote current | tr -d '\0')
+            opened=$(remote current | tr -d '\0')
         fi
         quit
     done
@@ -3677,7 +3681,7 @@ export FLATPAK_ID=io.github.thornbux.Glimt
 config
 start $d/a.jpg; sleep 2
 key o; sleep 3
-opened=$($BIN --remote current | tr -d '\0')
+opened=$(remote current | tr -d '\0')
 key f; sleep 2
 ticks=$(busy)
 key f; sleep 2
