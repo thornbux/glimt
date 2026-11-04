@@ -10,6 +10,7 @@ use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
 use crate::ui::menus::{iconed, menu_item, scroll_menu};
+use crate::viewer::crop::Crop;
 use crate::{app_id, malloc_trim, ui::theme};
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -248,17 +249,102 @@ impl Zoom {
 #[derive(Default)]
 pub(crate) struct Viewing {
     /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
-    pub(crate) page: usize,
+    page: usize,
     /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
-    pub(crate) frame: Option<usize>,
+    frame: Option<usize>,
     /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
     /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
-    pub(crate) orient: (u8, bool),
+    orient: (u8, bool),
     /// The file `orient` belongs to, set when it is turned: saved into that file even when the
     /// list changed meanwhile and another file is at `cur`.
-    pub(crate) turned: PathBuf,
+    turned: PathBuf,
     /// Edit → Crop: the part of the shown image being chosen.
-    pub(crate) crop: Option<crate::viewer::crop::Crop>,
+    crop: Option<Crop>,
+}
+
+impl Viewing {
+    /// The turn of the shown image: quarter turns clockwise, after mirroring when the flag is
+    /// set.
+    pub(crate) fn orient(&self) -> (u8, bool) {
+        self.orient
+    }
+
+    /// Whether the shown image is turned or mirrored by hand.
+    pub(crate) fn is_turned(&self) -> bool {
+        self.orient != (0, false)
+    }
+
+    /// Whether it is turned a quarter, so its width and height swap.
+    pub(crate) fn is_sideways(&self) -> bool {
+        self.orient.0 % 2 == 1
+    }
+
+    /// The turn is dropped: the file was written as it is shown, or changed elsewhere.
+    pub(crate) fn drop_turn(&mut self) {
+        self.orient = (0, false);
+    }
+
+    /// The file the turn belongs to.
+    pub(crate) fn turned_file(&self) -> &Path {
+        &self.turned
+    }
+
+    /// The file the turn belongs to was moved or renamed to `to`.
+    pub(crate) fn turned_file_moved(&mut self, to: PathBuf) {
+        self.turned = to;
+    }
+
+    /// The page of a multi-page TIFF shown, from 0.
+    pub(crate) fn page(&self) -> usize {
+        self.page
+    }
+
+    /// The frame of an animation stepped to; `None` while it plays.
+    pub(crate) fn frame(&self) -> Option<usize> {
+        self.frame
+    }
+
+    /// An animation stepped to a frame plays on from there; false when it was playing.
+    pub(crate) fn play_on(&mut self) -> bool {
+        self.frame.take().is_some()
+    }
+
+    pub(crate) fn is_cropping(&self) -> bool {
+        self.crop.is_some()
+    }
+
+    /// Edit → Crop begins with `crop`.
+    pub(crate) fn start_crop(&mut self, crop: Crop) {
+        self.crop = Some(crop);
+    }
+
+    /// The crop ends without saving.
+    pub(crate) fn stop_crop(&mut self) {
+        self.crop = None;
+    }
+
+    /// The part being chosen, to change as the pointer drags.
+    pub(crate) fn crop_mut(&mut self) -> Option<&mut Crop> {
+        self.crop.as_mut()
+    }
+
+    pub(crate) fn crop(&self) -> Option<&Crop> {
+        self.crop.as_ref()
+    }
+
+    /// The part chosen, taken to be saved.
+    pub(crate) fn take_crop(&mut self) -> Option<Crop> {
+        self.crop.take()
+    }
+}
+
+/// For tests of other modules, which start from an image turned by hand.
+#[cfg(test)]
+impl Viewing {
+    pub(crate) fn turn(&mut self, orient: (u8, bool), file: PathBuf) {
+        self.orient = orient;
+        self.turned = file;
+    }
 }
 
 impl crate::App {

@@ -1165,9 +1165,9 @@ impl crate::App {
     /// The action of the key pressed this frame, if any; the arrow keys move a zoomed image first.
     pub(crate) fn read_keys(&mut self, ctx: &egui::Context) -> Option<Action> {
         // Choosing a part to crop: Enter saves it, Escape stops; read first, as for the pan view.
-        if self.viewing.crop.is_some() && !self.dialog_open() {
+        if self.viewing.is_cropping() && !self.dialog_open() {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-                self.viewing.crop = None;
+                self.viewing.stop_crop();
             } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
                 self.save_crop(ctx);
             }

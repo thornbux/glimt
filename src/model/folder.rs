@@ -818,7 +818,7 @@ impl crate::App {
         // The shown file's decodes still being made: kept, so it is not decoded twice. Not
         // those of a later page, as the file is shown again from its first.
         let jobs: Vec<_> = ([false, true].into_iter())
-            .filter(|_| self.viewing.page == 0)
+            .filter(|_| self.viewing.page() == 0)
             .filter_map(|full| {
                 Some((
                     full,

@@ -545,8 +545,8 @@ impl crate::App {
         }
         let moved = moves(&pairs);
         // A turn not saved yet goes with its file, saved under the new name.
-        if !copied && let Some(to) = new_place(&self.viewing.turned, &moved) {
-            self.viewing.turned = to;
+        if !copied && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
+            self.viewing.turned_file_moved(to);
         }
         if !copied && self.folder.collection.is_some() {
             let mut any = false;
@@ -813,11 +813,11 @@ impl crate::App {
     /// then. A JPEG keeps its pixels and gets an orientation field; PNG and WebP are turned,
     /// which takes seconds for a large one. Both read and write the whole file, slow on a share.
     pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
-        let (turns, mirrored) = self.viewing.orient;
+        let (turns, mirrored) = self.viewing.orient();
         if self.list.files.is_empty() || (turns, mirrored) == (0, false) {
             return;
         }
-        let path = self.viewing.turned.clone();
+        let path = self.viewing.turned_file().to_path_buf();
         // Removed or renamed by another program meanwhile: nothing to save the turn into.
         if !path.is_file() {
             return;
@@ -865,7 +865,7 @@ impl crate::App {
         }
         for path in paths {
             if self.is_file(self.list.cur, path) {
-                self.viewing.orient = (0, false);
+                self.viewing.drop_turn();
                 self.list
                     .decodes_pending
                     .retain(|p, _| p.0 != self.list.cur);
@@ -2081,8 +2081,7 @@ mod tests {
         let a = dir.join("a.png");
         image::RgbImage::new(4, 4).save(&a).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.viewing.orient = (1, false);
-        app.viewing.turned = a.clone();
+        app.viewing.turn((1, false), a.clone());
         let held = app
             .start_job_of("Moving", 1, false, vec![a.clone()])
             .unwrap();

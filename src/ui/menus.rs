@@ -728,7 +728,7 @@ impl crate::App {
             Action::HistogramLog => &mut c.histogram_log,
             Action::Animate => {
                 // Stepped to a frame: A plays on from there, without turning it off.
-                if self.viewing.frame.take().is_some() {
+                if self.viewing.play_on() {
                     return;
                 }
                 &mut c.animate

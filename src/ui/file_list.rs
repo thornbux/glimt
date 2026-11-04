@@ -1651,11 +1651,11 @@ impl crate::App {
                             let page = if slot.pages > 1 && idx == self.list.cur {
                                 tf!(
                                     " page {n}/{pages}",
-                                    n = self.viewing.page + 1,
+                                    n = self.viewing.page() + 1,
                                     pages = slot.pages
                                 )
                             } else if let Some(k) =
-                                self.viewing.frame.filter(|_| idx == self.list.cur)
+                                self.viewing.frame().filter(|_| idx == self.list.cur)
                             {
                                 tf!(" frame {n}/{frames}", n = k + 1, frames = slot.anim.len())
                             } else {

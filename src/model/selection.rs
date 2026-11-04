@@ -61,7 +61,7 @@ impl crate::App {
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
         self.decoding.stop_fade();
         // Saving the old image's rotation may leave a notice, which must outlive the move.
-        let saved = self.config.save_orientation && self.viewing.orient != (0, false);
+        let saved = self.config.save_orientation && self.viewing.is_turned();
         self.leave_image(ctx);
         let notice = if saved { self.notice.take() } else { None };
         self.list.cur = idx.min(self.list.files.len() - 1);
@@ -89,10 +89,10 @@ impl crate::App {
     pub(crate) fn leave_image(&mut self, ctx: &egui::Context) {
         // A TIFF shown at another page than the first: its decoded page must not stay for when
         // it is shown again from the first page.
-        if self.viewing.page > 0 {
+        if self.viewing.page() > 0 {
             self.list.slots.remove(&self.list.cur);
         }
-        if self.config.save_orientation && self.viewing.orient != (0, false) {
+        if self.config.save_orientation && self.viewing.is_turned() {
             self.save_orientation(ctx);
         }
         // Everything that belonged to it, whole.
