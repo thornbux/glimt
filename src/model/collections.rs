@@ -55,7 +55,7 @@ impl crate::App {
         if self.slideshow.is_shuffled() {
             return;
         }
-        let ours: Vec<PathBuf> = (0..self.list.files.len()).map(|i| self.path(i)).collect();
+        let ours: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
         self.edit_collection(|all| reorder(all, &ours));
     }
 
@@ -75,17 +75,23 @@ impl crate::App {
             return;
         }
         // An empty collection: nothing to move, and no shown image to keep.
-        if self.list.files.is_empty() {
+        if self.list.files().is_empty() {
             return;
         }
         if self.slideshow.is_shuffled() {
             self.notice = Some(tr("Random order is on: R turns it off to move images").into());
             return;
         }
-        let shown = self.list.files.get(self.list.cur).cloned();
-        let names: HashSet<OsString> = picked.iter().map(|&i| self.list.files[i].clone()).collect();
-        let files: Vec<OsString> = order.iter().map(|&i| self.list.files[i].clone()).collect();
-        let selected = !self.list.selected.is_empty();
+        let shown = self.list.files().get(self.list.cur()).cloned();
+        let names: HashSet<OsString> = picked
+            .iter()
+            .map(|&i| self.list.files()[i].clone())
+            .collect();
+        let files: Vec<OsString> = order
+            .iter()
+            .map(|&i| self.list.files()[i].clone())
+            .collect();
+        let selected = !self.list.selected().is_empty();
         self.replace_files(ctx, files, shown);
         if selected {
             self.reselect(ctx, &names);
@@ -114,8 +120,8 @@ impl crate::App {
         }) {
             return;
         }
-        let folder = (!self.list.files.is_empty())
-            .then(|| self.path(self.list.cur))
+        let folder = (!self.list.files().is_empty())
+            .then(|| self.path(self.list.cur()))
             .and_then(|p| p.parent().map(Path::to_path_buf));
         if let Some(folder) = folder.or_else(std::env::home_dir) {
             self.visit(ctx, folder);
@@ -154,7 +160,7 @@ impl crate::App {
                 }
             },
         );
-        if !self.list.files.is_empty() {
+        if !self.list.files().is_empty() {
             scroll_menu(
                 ui,
                 iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),

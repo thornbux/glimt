@@ -65,16 +65,16 @@ pub struct SaveAs {
 impl crate::App {
     /// File → Save As (Ctrl+Shift+S): the dialog for the shown image.
     pub(crate) fn start_save_as(&mut self) {
-        let cur = self.list.cur;
-        if self.list.files.is_empty() {
+        let cur = self.list.cur();
+        if self.list.files().is_empty() {
             return;
         }
         #[cfg(feature = "video")]
-        if (self.list.files.get(cur)).is_some_and(|f| is_video(Path::new(f))) {
+        if (self.list.files().get(cur)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice = Some(tr("A video is not saved as an image").into());
             return;
         }
-        let Some(slot) = self.list.slots.get(&cur) else {
+        let Some(slot) = self.list.slots().get(&cur) else {
             return;
         };
         let [w, h] = slot.orig;

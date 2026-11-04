@@ -347,7 +347,7 @@ impl Work {
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
-        if self.list.files.is_empty() {
+        if self.list.files().is_empty() {
             return;
         }
         if if trash {
@@ -382,7 +382,7 @@ impl crate::App {
         let names = self
             .targets()
             .iter()
-            .map(|&i| self.list.files[i].clone())
+            .map(|&i| self.list.files()[i].clone())
             .collect();
         self.dialogs.asked_about(self.list_place(), names);
     }
@@ -394,7 +394,7 @@ impl crate::App {
         let (place, names) = self.dialogs.take_asked();
         let names: HashSet<OsString> = names.into_iter().collect();
         let found: Vec<usize> = match place == self.list_place() {
-            true => (self.list.files.iter().enumerate())
+            true => (self.list.files().iter().enumerate())
                 .filter(|(_, f)| names.contains(*f))
                 .map(|(i, _)| i)
                 .collect(),
@@ -504,7 +504,7 @@ impl crate::App {
         };
         self.work
             .deleting
-            .extend(targets.iter().map(|&i| self.list.files[i].clone()));
+            .extend(targets.iter().map(|&i| self.list.files()[i].clone()));
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.status.freed_sender(), self.work.deleted_tx.clone());
@@ -696,11 +696,11 @@ impl crate::App {
         }
         if !copied && self.folder.collection().is_some() {
             let mut any = false;
-            for i in 0..self.list.files.len() {
+            for i in 0..self.list.files().len() {
                 if let Some(to) = new_place(&self.path(i), &moved)
                     && let Ok(rel) = to.strip_prefix(self.folder.dir())
                 {
-                    self.list.files[i] = rel.as_os_str().to_owned();
+                    self.list.rename(i, rel.as_os_str().to_owned());
                     any = true;
                 }
             }
@@ -761,8 +761,8 @@ impl crate::App {
             self.work
                 .deleting
                 .extend(names.iter().map(|n| n.to_os_string()));
-            let gone: Vec<usize> = (0..self.list.files.len())
-                .filter(|&i| names.contains(self.list.files[i].as_os_str()))
+            let gone: Vec<usize> = (0..self.list.files().len())
+                .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
                 .collect();
             self.remove_indices(ctx, &gone);
         }
@@ -887,9 +887,9 @@ impl crate::App {
         let Some(steps) = self.start_job(tr("Renaming"), from.len(), touches) else {
             return;
         };
-        let shown = from.iter().position(|f| *f == self.path(self.list.cur));
+        let shown = from.iter().position(|f| *f == self.path(self.list.cur()));
         let job = RenameJob {
-            files_gen: self.list.version,
+            files_gen: self.list.version(),
             from: from.clone(),
             to: to.clone(),
             shown,
@@ -920,7 +920,7 @@ impl crate::App {
         if let Err(e) = result {
             self.notice = Some(e);
         }
-        self.list.selected.clear();
+        self.list.clear_selection();
         self.selection_changed(ctx);
         // The files are found by their old names, because the list may have changed while they
         // were renamed. When nothing was renamed, the names stay.
@@ -944,7 +944,7 @@ impl crate::App {
         }
         // When the list changed meanwhile, its numbers now point at other files, so it is read
         // again.
-        if job.files_gen != self.list.version {
+        if job.files_gen != self.list.version() {
             return self.list(ctx);
         }
         // When the image shown at the start is still shown (the user may have moved on), it
@@ -953,10 +953,11 @@ impl crate::App {
         // subfolders or folders it shows.
         if let Some(k) = job.shown
             && !failed
-            && self.path(self.list.cur) == job.from[k]
+            && self.path(self.list.cur()) == job.from[k]
             && let Ok(rel) = job.to[k].strip_prefix(self.folder.dir())
         {
-            self.list.files[self.list.cur] = rel.as_os_str().to_owned();
+            self.list
+                .rename(self.list.cur(), rel.as_os_str().to_owned());
         }
         self.list(ctx)
     }
@@ -967,7 +968,7 @@ impl crate::App {
     /// is slow on a share.
     pub(crate) fn save_orientation(&mut self, ctx: &egui::Context) {
         let (turns, mirrored) = self.viewing.orient();
-        if self.list.files.is_empty() || (turns, mirrored) == (0, false) {
+        if self.list.files().is_empty() || (turns, mirrored) == (0, false) {
             return;
         }
         let path = self.viewing.turned_file().to_path_buf();
@@ -1020,18 +1021,16 @@ impl crate::App {
             return;
         }
         for path in paths {
-            if self.is_file(self.list.cur, path) {
+            if self.is_file(self.list.cur(), path) {
                 self.viewing.drop_turn();
-                self.list
-                    .decodes_pending
-                    .retain(|p, _| p.0 != self.list.cur);
+                self.list.forget_decodes_of(self.list.cur());
                 self.info.forget_exif();
             }
-            self.list.slots.retain(|_, s| s.path != *path);
+            self.list.keep_slots(|_, s| s.path != *path);
             if let Ok(name) = path.strip_prefix(self.folder.dir()) {
                 let name = name.as_os_str();
                 self.thumbs.forget(name);
-                self.list.details.remove(name);
+                self.list.forget_details_of(name);
                 // Also while the first index is being read, which may have read it before.
                 self.search.read_exif_again([name.to_owned()]);
             }
@@ -1436,7 +1435,7 @@ impl crate::App {
     /// File → Set as Wallpaper. It sets the shown image through the desktop portal, in the
     /// background.
     pub(crate) fn set_wallpaper(&mut self) {
-        let (path, tx) = (self.path(self.list.cur), self.notices_tx.clone());
+        let (path, tx) = (self.path(self.list.cur()), self.notices_tx.clone());
         std::thread::spawn(move || {
             if let Err(e) = external::set_wallpaper(&path) {
                 let _ = tx.send(tf!("Could not set the wallpaper: {e}", e));
@@ -1463,14 +1462,19 @@ impl crate::App {
     pub(crate) fn start_rename(&mut self, ctx: &egui::Context) {
         // The one file selected, as Delete and Move take it (right-clicked in the list,
         // say), not the image shown beside it.
-        if let Some(&i) = self.list.selected.first().filter(|&&i| i != self.list.cur) {
+        if let Some(&i) = self
+            .list
+            .selected()
+            .first()
+            .filter(|&&i| i != self.list.cur())
+        {
             self.go(ctx, i);
         }
         // Only the name, because in the list with subfolders the entry has its folders too.
         if let Some(name) = self
             .list
-            .files
-            .get(self.list.cur)
+            .files()
+            .get(self.list.cur())
             .and_then(|f| Path::new(f).file_name())
         {
             self.dialogs
@@ -1822,7 +1826,7 @@ mod tests {
         }));
         app.delete_now(&ctx, false, vec![0]);
         assert!(a.exists() && app.notice.is_some());
-        assert_eq!(app.list.files.len(), 2);
+        assert_eq!(app.list.files().len(), 2);
         app.work.undo = Some(super::Undo::Move(vec![(a.clone(), dir.join("c.png"))]));
         app.undo(&ctx);
         assert!(app.work.undo.is_some());
@@ -1926,7 +1930,7 @@ mod tests {
             (
                 "rename many",
                 |app, ctx, _| {
-                    app.list.selected = [0, 1].into_iter().collect();
+                    app.list.select([0, 1].into_iter().collect());
                     app.rename_many(ctx, "x#");
                 },
                 |app, d| {
@@ -2177,7 +2181,9 @@ mod tests {
         assert!(c.exists() && d.join("c.png.xmp").exists());
         assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         waits(&mut app, &c, &|app| {
-            let at = (app.list.files.iter()).position(|f| f == "c.png").unwrap();
+            let at = (app.list.files().iter())
+                .position(|f| f == "c.png")
+                .unwrap();
             app.delete_now(&ctx, false, vec![at]);
         });
         assert!(!d.join("c.png.xmp").exists());
@@ -2207,7 +2213,8 @@ mod tests {
         }
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
-        let at = |app: &crate::App, n: &str| (app.list.files.iter()).position(|f| f == n).unwrap();
+        let at =
+            |app: &crate::App, n: &str| (app.list.files().iter()).position(|f| f == n).unwrap();
         let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
         all.extend([at(&app, z), at(&app, y)]);
         let (x, y, z) = (d.join(first[0]), d.join(y), d.join(z));
@@ -2367,7 +2374,7 @@ mod tests {
         assert!(d.join("moved/c.png").exists());
         let b = app
             .list
-            .files
+            .files()
             .iter()
             .position(|f| std::path::Path::new(f).ends_with("b.png"))
             .unwrap();

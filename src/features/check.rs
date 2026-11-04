@@ -49,7 +49,7 @@ impl crate::App {
                         "Opens each of the {} in the list, as the viewer would, and lists those \
                          that cannot be: broken files, files cut off in copying, and files that \
                          are no image. They are marked in the list too.",
-                        count(self.list.files.len(), "image")
+                        count(self.list.files().len(), "image")
                     ));
                     start = noted(&ui.button(tr("Check")), tr("Check")).clicked();
                     return;
@@ -99,15 +99,16 @@ impl crate::App {
             check = Some(self.start_check(ctx));
         }
         if let Some(name) = show
-            && let Some(i) = self.list.files.iter().position(|f| *f == name)
+            && let Some(i) = self.list.files().iter().position(|f| *f == name)
         {
             self.go(ctx, i);
         }
         if select {
-            self.list.selected = (self.list.files.iter().enumerate())
+            let broken = (self.list.files().iter().enumerate())
                 .filter(|(_, f)| self.broken_files.contains(*f))
                 .map(|(i, _)| i)
                 .collect();
+            self.list.select(broken);
             self.selection_changed(ctx);
         }
         if open {
@@ -123,8 +124,8 @@ impl crate::App {
     pub(crate) fn start_check(&mut self, ctx: &egui::Context) -> Check {
         self.broken_files.clear();
         let files: Arc<Vec<(OsString, PathBuf)>> = Arc::new(
-            (0..self.list.files.len())
-                .map(|i| (self.list.files[i].clone(), self.path(i)))
+            (0..self.list.files().len())
+                .map(|i| (self.list.files()[i].clone(), self.path(i)))
                 .collect(),
         );
         let threads = background_threads().min(files.len().max(1));

@@ -512,7 +512,7 @@ impl crate::App {
                 let _ = std::fs::create_dir_all(&dir);
                 open_url(&dir.to_string_lossy());
             }
-            let Some(k) = chosen.filter(|_| !self.list.files.is_empty()) else {
+            let Some(k) = chosen.filter(|_| !self.list.files().is_empty()) else {
                 return;
             };
             let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
@@ -547,13 +547,13 @@ impl crate::App {
     /// "Open With" submenu: the applications registered for the shown file's type; the chosen
     /// one opens the selected files (or the shown one).
     pub(crate) fn open_with_menu(&mut self, ui: &mut egui::Ui) {
-        let Some(name) = self.list.files.get(self.list.cur) else {
+        let Some(name) = self.list.files().get(self.list.cur()) else {
             return;
         };
         let ext = Path::new(name)
             .extension()
             .map_or(String::new(), |e| e.to_string_lossy().to_lowercase());
-        let path = self.path(self.list.cur);
+        let path = self.path(self.list.cur());
         scroll_menu(ui, iconed(ui, theme::icon::APP, tr("Open With")), |ui| {
             // The menu keeps the width of its first frame, "…": names must not wrap to it.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -631,10 +631,10 @@ impl crate::App {
     /// Open the shown file in `player` (a command line), or in the default application when
     /// `player` is empty. Runs in its own thread, which waits for the program to exit.
     pub(crate) fn launch(&self, player: &str) {
-        if self.list.files.is_empty() {
+        if self.list.files().is_empty() {
             return;
         }
-        let (path, tx) = (self.path(self.list.cur), self.notices_tx.clone());
+        let (path, tx) = (self.path(self.list.cur()), self.notices_tx.clone());
         let mut words = plugins::words(player);
         std::thread::spawn(move || {
             let run = |name: &str, mut cmd: std::process::Command| {

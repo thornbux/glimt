@@ -180,7 +180,7 @@ impl crate::App {
 
     /// Ask the EXIF reader for the shown image (once per image) and take what has arrived.
     pub(crate) fn want_exif(&mut self, ctx: &egui::Context) {
-        let path = self.path(self.list.cur);
+        let path = self.path(self.list.cur());
         if self.info.exif_asked.as_ref() != Some(&path) {
             let _ = self.info.exif_jobs.send(path.clone());
             self.info.exif_asked = Some(path);
@@ -224,9 +224,9 @@ impl crate::App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("exif rows").num_columns(2).show(ui, |ui| {
                         ui.weak(tr("File"));
-                        ui.label(self.name(self.list.cur));
+                        ui.label(self.name(self.list.cur()));
                         ui.end_row();
-                        if let Some(s) = self.list.slots.get(&self.list.cur) {
+                        if let Some(s) = self.list.slots().get(&self.list.cur()) {
                             ui.weak(tr("Dimensions"));
                             ui.label(format!("{} × {}", s.orig[0], s.orig[1]));
                             ui.end_row();
@@ -261,7 +261,7 @@ impl crate::App {
     /// Keywords and comment of the shown image, as in Geeqie's info sidebar, with its alt text and
     /// extended description.
     pub(crate) fn meta_fields(&mut self, ui: &mut egui::Ui) {
-        let path = self.path(self.list.cur);
+        let path = self.path(self.list.cur());
         let Some(edit) = self.info.meta.as_mut().filter(|m| m.path == path) else {
             return;
         };
@@ -295,7 +295,7 @@ impl crate::App {
                 .desired_width(f32::INFINITY),
         );
         let add = Meta::parse_keywords(&edit.keywords);
-        let n = self.list.selected.len();
+        let n = self.list.selected().len();
         if n > 1
             && !add.is_empty()
             && ui
@@ -319,7 +319,7 @@ impl crate::App {
     /// The keyword tree as in Geeqie's sidebar: a box for each keyword, ticked when the shown
     /// image has it; a click sets it on the selected images (or the shown one), or takes it off.
     pub(crate) fn keyword_tree(&mut self, ui: &mut egui::Ui) {
-        let path = self.path(self.list.cur);
+        let path = self.path(self.list.cur());
         let Some((have, paths)) = (self.info.meta.as_ref())
             .filter(|m| m.path == path)
             .map(|m| (m.saved.keywords.clone(), m.paths.clone()))
@@ -403,7 +403,7 @@ impl crate::App {
     pub(crate) fn tag_files(&mut self, ctx: &egui::Context, tag: String, on: bool) {
         self.save_meta(ctx);
         let targets = self.targets();
-        if targets.contains(&self.list.cur)
+        if targets.contains(&self.list.cur())
             && let Some(edit) = &mut self.info.meta
         {
             xmp::set_tag(&mut edit.saved.keywords, &mut edit.paths, &tag, on);
@@ -546,10 +546,10 @@ impl crate::App {
 
     /// View → EXIF Window (Ctrl+E): every EXIF field of the shown image.
     pub(crate) fn exif_fields_window(&mut self, ctx: &egui::Context) {
-        if self.info.exif_window && !self.list.files.is_empty() {
+        if self.info.exif_window && !self.list.files().is_empty() {
             self.want_exif(ctx);
             let mut open = true;
-            let title = format!("EXIF: {}", self.name(self.list.cur));
+            let title = format!("EXIF: {}", self.name(self.list.cur()));
             egui::Window::new(title)
                 .id(egui::Id::unique("exif window"))
                 .open(&mut open)

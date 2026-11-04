@@ -298,10 +298,13 @@ impl crate::App {
     /// images. Or this window's own template, else the one in Preferences, unless its fields
     /// are all empty.
     pub(crate) fn title_text(&self) -> String {
-        let (name, path) = match (self.list.files.get(self.list.cur), self.folder.collection()) {
+        let (name, path) = match (
+            self.list.files().get(self.list.cur()),
+            self.folder.collection(),
+        ) {
             (Some(_), _) => (
-                self.name(self.list.cur).into_owned(),
-                self.path(self.list.cur).display().to_string(),
+                self.name(self.list.cur()).into_owned(),
+                self.path(self.list.cur()).display().to_string(),
             ),
             (None, Some(file)) => (file.display().to_string(), file.display().to_string()),
             (None, None) => (
@@ -310,8 +313,8 @@ impl crate::App {
             ),
         };
         // The shown image's own folder: a collection and several folders are listed as "/".
-        let folder = match self.list.files.get(self.list.cur) {
-            Some(_) => self.path(self.list.cur).parent().map(Path::to_path_buf),
+        let folder = match self.list.files().get(self.list.cur()) {
+            Some(_) => self.path(self.list.cur()).parent().map(Path::to_path_buf),
             None => self
                 .folder
                 .collection()
@@ -538,7 +541,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, _ctx) = app_on(&dir);
         app.config.hide_pointer = true;
-        app.list.files = vec!["a.png".into()];
+        app.list.set_files(vec!["a.png".into()]);
         assert!(app.working() && app.pointer_hides(true));
         app.busy.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert!(!app.pointer_hides(true));
@@ -581,7 +584,7 @@ mod tests {
             "{delay:?}"
         );
         // The shown image decoded does not keep the pointer, so it needs no look again either.
-        app.list.files = vec!["a.png".into()];
+        app.list.set_files(vec!["a.png".into()]);
         assert!(app.working());
         let (hidden, delay) = pass(&mut app);
         assert!(

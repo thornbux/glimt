@@ -209,7 +209,7 @@ impl crate::App {
                 ui.horizontal(|ui| {
                     ui.label(tf!(
                         "Among the {count} in the list, compare by",
-                        count = count(self.list.files.len(), "image")
+                        count = count(self.list.files().len(), "image")
                     ));
                     let label = ALL.iter().find(|a| a.0 == dups.by).map_or("", |a| a.1);
                     egui::ComboBox::from_id_salt("compare by")
@@ -225,7 +225,7 @@ impl crate::App {
                         }
                     } else {
                         start = ui
-                            .add_enabled(self.list.files.len() > 1, egui::Button::new(tr("Find")))
+                            .add_enabled(self.list.files().len() > 1, egui::Button::new(tr("Find")))
                             .clicked();
                     }
                 });
@@ -256,7 +256,7 @@ impl crate::App {
             self.start_find(ctx, &mut dups);
         }
         if let Some(path) = show {
-            match (0..self.list.files.len()).find(|&i| self.is_file(i, &path)) {
+            match (0..self.list.files().len()).find(|&i| self.is_file(i, &path)) {
                 Some(i) => self.go(ctx, i),
                 None => self.visit(ctx, path),
             }
@@ -273,7 +273,7 @@ impl crate::App {
 
     /// Find: the images of the list compared by `dups.by` in the background.
     fn start_find(&mut self, ctx: &egui::Context, dups: &mut Dups) {
-        let paths: Vec<PathBuf> = (0..self.list.files.len()).map(|i| self.path(i)).collect();
+        let paths: Vec<PathBuf> = (0..self.list.files().len()).map(|i| self.path(i)).collect();
         let (tx, ctx) = (mpsc::channel(), ctx.clone());
         let (by, progress) = (dups.by, Arc::new(Progress::default()));
         let (rotate, save) = (self.config.exif_rotate, self.config.save_thumbnails);
@@ -290,13 +290,14 @@ impl crate::App {
     /// Move to Trash: the checked files of the list, through the usual delete with its
     /// confirmation.
     fn trash_checked(&mut self, ctx: &egui::Context, dups: &Dups) {
-        self.list.selected = (0..self.list.files.len())
+        let checked = (0..self.list.files().len())
             .filter(|&i| dups.checked.contains(&self.path(i)))
             .collect();
+        self.list.select(checked);
         self.selection_changed(ctx);
         // With none selected the delete takes the shown image: only when the list still has
         // every checked file, else it would be another one, or too few.
-        if self.list.selected.len() == dups.checked.len() {
+        if self.list.selected().len() == dups.checked.len() {
             self.request_delete(ctx, true);
         } else {
             self.notice = Some(tr("The checked files are no longer all in the list").into());

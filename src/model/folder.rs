@@ -535,7 +535,7 @@ impl crate::App {
         // In another folder, a file of the same name is another image. It opens as one, not at
         // the zoom and place of the image before.
         if dir != self.folder.dir {
-            self.list.files.clear();
+            self.list.forget_files();
         }
         self.folder.recursive = self.config.show_subfolders;
         self.folder.dir = dir.clone();
@@ -736,7 +736,7 @@ impl crate::App {
 
     /// The file shown, or the folder when it has no images.
     pub(crate) fn location(&self) -> PathBuf {
-        match self.list.files.get(self.list.cur) {
+        match self.list.files().get(self.list.cur()) {
             Some(name) => self.folder.dir.join(name),
             None => self.folder.dir.clone(),
         }
@@ -783,7 +783,7 @@ impl crate::App {
             .folder
             .collection
             .is_some()
-            .then(|| self.list.files.clone());
+            .then(|| self.list.files().to_vec());
         // Every move writes a collection's file at once, so reading it again gives what moved
         // after the list was copied. A plain list is never written, so the list as shown is
         // used.
@@ -806,7 +806,7 @@ impl crate::App {
             && collection.is_none())
         .then_some(())
         .filter(|_| folders.is_empty() && self.folder.listed_as == same)
-        .map(|_| self.list.files.clone());
+        .map(|_| self.list.files().to_vec());
         // The listing before stops, if it is still reading a tree.
         self.folder.listing_stop.store(true, Ordering::Relaxed);
         self.folder.listing_stop = Arc::default();
@@ -936,7 +936,7 @@ impl crate::App {
         // because a flag left behind would shuffle every later listing.
         let fresh = whole && self.slideshow.take_whole_shuffle();
         let mut files = if whole && self.slideshow.is_shuffled() && !fresh {
-            merge_shuffled(&self.list.files, files)
+            merge_shuffled(self.list.files(), files)
         } else {
             files
         };
@@ -944,35 +944,35 @@ impl crate::App {
         // as R puts it, so a slideshow without Repeat shows all images before it ends.
         if fresh
             && self.slideshow.is_shuffled()
-            && let Some(at) = (self.list.files.get(self.list.cur))
+            && let Some(at) = (self.list.files().get(self.list.cur()))
                 .and_then(|shown| files.iter().position(|f| f == shown))
         {
             files.swap(0, at);
         }
         // When nothing changed (most refreshes, after Glimt's own writes beside the files), the
         // list, the selection and the search stay as they are.
-        if files == self.list.files && !self.folder.sort_collection {
+        if files == self.list.files() && !self.folder.sort_collection {
             // A file may have been saved over under its own name (an editor writes and
             // renames), so its size and date are read again, for the rows on screen only.
-            self.list.details.clear();
+            self.list.forget_details();
             return;
         }
         // Glimt went to an image by itself, in the name order of a tree's first images. The
         // whole list, in the order asked for, starts at its first image instead, unless the
         // user chose another one meanwhile.
-        let mut shown = self.list.files.get(self.list.cur).cloned();
+        let mut shown = self.list.files().get(self.list.cur()).cloned();
         if whole && shown.is_some() && std::mem::take(&mut self.folder.went_to) == shown {
             shown = None;
         }
-        let first = self.list.files.is_empty() && !whole;
+        let first = self.list.files().is_empty() && !whole;
         // A refresh keeps the selection, so Delete or Move after it still acts on what was
         // picked.
-        let picked: HashSet<OsString> = (self.list.selected.iter())
-            .filter_map(|&i| self.list.files.get(i).cloned())
+        let picked: HashSet<OsString> = (self.list.selected().iter())
+            .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
         self.replace_files(ctx, files, shown);
         if first {
-            self.folder.went_to = self.list.files.get(self.list.cur).cloned();
+            self.folder.went_to = self.list.files().get(self.list.cur()).cloned();
         }
         self.reselect(ctx, &picked);
         if whole && std::mem::take(&mut self.folder.sort_collection) {
@@ -986,13 +986,8 @@ impl crate::App {
     /// a collection drag, and the decodes in flight. Those have old places, so they are
     /// rejected by path when they arrive, and refill asks for them again.
     pub(crate) fn list_changed(&mut self, ctx: &egui::Context) {
-        self.list.version += 1;
-        self.list.selected.clear();
+        self.list.places_changed();
         self.selection_changed(ctx);
-        self.list.anchor = None;
-        self.list.rubber_band = None;
-        self.list.dragging = None;
-        self.list.decodes_pending.clear();
     }
 
     /// Selects again by name, after the list was read again or put in another order, so a
@@ -1001,10 +996,11 @@ impl crate::App {
         if names.is_empty() {
             return;
         }
-        self.list.selected = (self.list.files.iter().enumerate())
+        let places = (self.list.files().iter().enumerate())
             .filter(|(_, f)| names.contains(*f))
             .map(|(i, _)| i)
             .collect();
+        self.list.select(places);
         self.selection_changed(ctx);
     }
 
@@ -1026,47 +1022,39 @@ impl crate::App {
         // when another program removed or renamed it, because its turn not saved would
         // otherwise go to the image shown in its place.
         let found = (shown.as_ref()).and_then(|p| files.iter().position(|f| f == p));
-        let still = found.is_some() && self.list.files.get(self.list.cur) == shown.as_ref();
+        let still = found.is_some() && self.list.files().get(self.list.cur()) == shown.as_ref();
         // The shown file's decodes still being made are kept, so it is not decoded twice. Those
         // of a later page are not kept, because the file is shown again from its first page.
         let jobs: Vec<_> = ([false, true].into_iter())
             .filter(|_| self.viewing.page() == 0)
-            .filter_map(|full| {
-                Some((
-                    full,
-                    self.list.decodes_pending.remove(&(self.list.cur, full))?,
-                ))
-            })
+            .filter_map(|full| Some((full, self.list.take_decode((self.list.cur(), full))?)))
             .collect();
         if !still {
             self.leave_image(ctx);
         }
         // The slots are kept by name, so the neighbours read ahead stay, after a refresh as
         // after a delete.
-        let mut slots: HashMap<OsString, Slot> = (self.list.slots.drain())
-            .filter_map(|(i, s)| Some((self.list.files.get(i)?.clone(), s)))
+        let mut slots: HashMap<OsString, Slot> = (self.list.take_slots().into_iter())
+            .filter_map(|(i, s)| Some((self.list.files().get(i)?.clone(), s)))
             .collect();
         // The panes are kept by name too, because their places belong to other files in the
         // new list, but their files do not change.
-        let panes: Vec<OsString> = (self.list.panes.iter())
-            .filter_map(|&i| self.list.files.get(i).cloned())
+        let panes: Vec<OsString> = (self.list.panes().iter())
+            .filter_map(|&i| self.list.files().get(i).cloned())
             .collect();
         // A new List means every place held in the old one goes with it, whatever field holds
         // it. Only what is carried over by name above comes back.
-        self.list = List {
-            files,
-            version: self.list.version + 1,
-            ..Default::default()
-        };
+        self.list = List::after(&self.list, files);
         self.exif_follow_list();
         self.selection_changed(ctx);
-        self.list.panes = (panes.iter())
-            .filter_map(|n| self.list.files.iter().position(|f| f == n))
+        let panes = (panes.iter())
+            .filter_map(|n| self.list.files().iter().position(|f| f == n))
             .collect();
+        self.list.set_panes(panes);
         let cur = found.unwrap_or(0);
         // One pass over the list for a handful of textures.
         let mut kept = Vec::new();
-        for (i, name) in self.list.files.iter().enumerate() {
+        for (i, name) in self.list.files().iter().enumerate() {
             if slots.is_empty() {
                 break;
             }
@@ -1076,17 +1064,17 @@ impl crate::App {
         }
         for (i, slot) in kept {
             if self.is_file(i, &slot.path) {
-                self.list.slots.insert(i, slot);
+                self.list.keep_slot(i, slot);
             }
         }
         for (full, job) in jobs {
             if self.is_file(cur, &job.1) {
-                self.list.decodes_pending.insert((cur, full), job);
+                self.list.ask_decode((cur, full), job);
             }
         }
         self.update_search(ctx);
         if still {
-            self.list.cur = cur;
+            self.list.set_cur(cur);
             self.refill();
             self.title(ctx);
             return;
@@ -1101,38 +1089,32 @@ impl crate::App {
     /// Remove the (sorted) indices from the list in one pass and shift index-based state
     /// accordingly. Neighbours' textures are kept, so the next image shows without decoding again.
     pub(crate) fn remove_indices(&mut self, ctx: &egui::Context, removed: &[usize]) {
-        if removed.binary_search(&self.list.cur).is_ok() {
+        if removed.binary_search(&self.list.cur()).is_ok() {
             // The shown image is gone, and all that belonged to it.
             self.viewing = Viewing::default();
         } else {
             self.leave_image(ctx);
         }
-        let mut idx = 0;
-        self.list.files.retain(|_| {
-            idx += 1;
-            removed.binary_search(&(idx - 1)).is_err()
-        });
-        self.list_changed(ctx);
-        self.list.slots = without_indices(std::mem::take(&mut self.list.slots), removed);
-        self.list.decode_errors =
-            without_indices(std::mem::take(&mut self.list.decode_errors), removed);
         // The panes' places belong to other files now, so they are filled again from the list
         // as it is.
-        self.list.panes.clear();
+        self.list.remove(removed);
+        self.list_changed(ctx);
         self.update_search(ctx);
         // The next remaining file after the shown one (or the last).
-        let cur = self.list.cur - removed.partition_point(|&r| r < self.list.cur);
-        if self.list.files.is_empty() {
-            self.list.cur = 0;
+        let cur = self.list.cur() - removed.partition_point(|&r| r < self.list.cur());
+        if self.list.files().is_empty() {
+            self.list.set_cur(0);
             self.title(ctx);
         } else {
-            self.go(ctx, cur.min(self.list.files.len() - 1));
+            self.go(ctx, cur.min(self.list.files().len() - 1));
         }
     }
 
     pub(crate) fn receive_sizes(&mut self) {
         self.status.receive();
-        self.search.receive_match_size(&mut self.list.match_size);
+        let mut size = self.list.match_size();
+        self.search.receive_match_size(&mut size);
+        self.list.set_match_size(size);
     }
 
     /// Go → Back and Forward. They go to the folder opened before or after this one.
@@ -1168,9 +1150,7 @@ impl crate::App {
         // stayed.
         self.folder.listed_as = None;
         self.tree.read_again();
-        self.list.slots.clear();
-        self.list.decodes_pending.clear();
-        self.list.decode_errors.clear();
+        self.list.forget_decoded();
         // The image is decoded again now, because a folder read again unchanged keeps its list
         // as it is and asks for nothing. The thumbnails and the size of a file edited elsewhere
         // are made again too.
@@ -1179,14 +1159,6 @@ impl crate::App {
         self.status.forget_size();
         self.list(ctx);
     }
-}
-
-/// Drop the entries for `removed` (sorted) and shift the rest down by the number removed
-/// before them.
-pub(crate) fn without_indices<T>(map: HashMap<usize, T>, removed: &[usize]) -> HashMap<usize, T> {
-    map.into_iter()
-        .filter_map(|(i, v)| Some((i - removed.binary_search(&i).err()?, v)))
-        .collect()
 }
 
 /// Sends sizes as partial sums of 10,000 files, so the status bar fills in gradually. It stops
@@ -1246,7 +1218,7 @@ mod tests {
             .is_none()));
         app.paths_moved(vec![(a, c)], false);
         let has_c = |app: &crate::App| {
-            (app.list.files.iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
+            (app.list.files().iter()).any(|f| std::path::Path::new(f).ends_with("c.png"))
         };
         assert!(settle(&mut app, &ctx, |app| app
             .folder
@@ -1288,12 +1260,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         image::RgbImage::new(4, 4).save(dir.join("a.png")).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        let cur = app.list.cur;
-        assert!(settle(&mut app, &ctx, |a| a.list.slots.contains_key(&cur)));
+        let cur = app.list.cur();
+        assert!(settle(&mut app, &ctx, |a| a
+            .list
+            .slots()
+            .contains_key(&cur)));
         app.run(&ctx, crate::ui::actions::Action::Refresh);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
         let asked = |a: &crate::App| {
-            a.list.slots.contains_key(&cur) || a.list.decodes_pending.keys().any(|k| k.0 == cur)
+            a.list.slots().contains_key(&cur) || a.list.decodes_pending().keys().any(|k| k.0 == cur)
         };
         assert!(asked(&app), "the image shown decoded again");
         std::fs::remove_dir_all(dir).unwrap();
@@ -1318,7 +1293,7 @@ mod tests {
         app.folder.sort_collection = true;
         app.list(&ctx);
         assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
-        let names: Vec<String> = (app.list.files.iter())
+        let names: Vec<String> = (app.list.files().iter())
             .map(|f| {
                 std::path::Path::new(f)
                     .file_name()
@@ -1342,14 +1317,7 @@ mod tests {
         let (app, _ctx) = app_on(&dir.join("show.m3u"));
         let here = std::env::current_dir().unwrap().join(&dir);
         assert_eq!(app.folder.collection, Some(here.join("show.m3u")));
-        assert_eq!(app.list.files.len(), 1);
+        assert_eq!(app.list.files().len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn without_indices_shifts_down() {
-        let map = std::collections::HashMap::from([(1, 'a'), (2, 'b'), (4, 'c'), (6, 'd')]);
-        let expected = std::collections::HashMap::from([(1, 'a'), (3, 'd')]);
-        assert_eq!(super::without_indices(map, &[2, 4, 5]), expected);
     }
 }

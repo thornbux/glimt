@@ -15,7 +15,7 @@ impl crate::App {
 
     /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
     pub(crate) fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
-        let name = self.list.files[i].as_os_str();
+        let name = self.list.files()[i].as_os_str();
         // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
         if !self.folder.folders().is_empty() {
             let path = Path::new(name);
@@ -39,13 +39,13 @@ impl crate::App {
 
     /// Full path of image `i`.
     pub(crate) fn path(&self, i: usize) -> PathBuf {
-        self.folder.dir().join(&self.list.files[i])
+        self.folder.dir().join(&self.list.files()[i])
     }
 
     /// Is `path` image number `i` in the list? (Without building the path.)
     pub(crate) fn is_file(&self, i: usize, path: &Path) -> bool {
         // Names are relative to the folder; in a slideshow with subfolders they have folders too.
-        self.list.files.get(i).is_some_and(|name| {
+        self.list.files().get(i).is_some_and(|name| {
             path.strip_prefix(self.folder.dir())
                 .is_ok_and(|rest| rest.as_os_str() == name)
         })
@@ -54,7 +54,7 @@ impl crate::App {
     /// Show file `idx`: the image before is left (its turn saved or dropped), the zoom reset
     /// unless kept, and the images around the new one decoded.
     pub(crate) fn go(&mut self, ctx: &egui::Context, idx: usize) {
-        if self.list.files.is_empty() {
+        if self.list.files().is_empty() {
             return;
         }
         // Browsing by hand shows the image at once; the slideshow sets a fade after this.
@@ -63,11 +63,11 @@ impl crate::App {
         let saved = self.config.save_orientation && self.viewing.is_turned();
         self.leave_image(ctx);
         let notice = if saved { self.notice.take() } else { None };
-        self.list.cur = idx.min(self.list.files.len() - 1);
+        self.list.set_cur(idx.min(self.list.files().len() - 1));
         self.notice = notice;
         // A failure of before (a share away for a moment) is tried again now that the image is
         // shown again, not kept for the rest of the session.
-        self.list.decode_errors.remove(&self.list.cur);
+        self.list.forget_decode_error(self.list.cur());
         // Geeqie's "keep zoom": the next image at the same zoom and place, to compare a series.
         if !self.config.keep_zoom {
             self.zoom.fit();
@@ -87,7 +87,7 @@ impl crate::App {
         // A TIFF shown at another page than the first: its decoded page must not stay for when
         // it is shown again from the first page.
         if self.viewing.page() > 0 {
-            self.list.slots.remove(&self.list.cur);
+            self.list.forget_slot(self.list.cur());
         }
         if self.config.save_orientation && self.viewing.is_turned() {
             self.save_orientation(ctx);
@@ -100,13 +100,13 @@ impl crate::App {
     /// while searching); clamped at the ends, or going round with `wrap`. A file the search
     /// hides counts as being before the first row.
     pub(crate) fn step(&self, delta: isize, wrap: bool) -> Option<usize> {
-        self.step_from(self.list.cur, delta, wrap)
+        self.step_from(self.list.cur(), delta, wrap)
     }
 
     /// As `step`, from file `from`.
     pub(crate) fn step_from(&self, from: usize, delta: isize, wrap: bool) -> Option<usize> {
-        let m = self.list.matches.as_deref();
-        let n = m.map_or(self.list.files.len(), <[usize]>::len);
+        let m = self.list.matches();
+        let n = m.map_or(self.list.files().len(), <[usize]>::len);
         let row = match m {
             Some(m) => self.row_of(m, from),
             None => Some(from),
@@ -118,25 +118,25 @@ impl crate::App {
     /// The row of the shown file among the search matches `m`. Returns `None` if the search hides
     /// it.
     pub(crate) fn cur_row(&self, m: &[usize]) -> Option<usize> {
-        self.row_of(m, self.list.cur)
+        self.row_of(m, self.list.cur())
     }
 
     /// The row of `file` among the search matches `m`, kept for the shown file and one other.
     pub(crate) fn row_of(&self, m: &[usize], file: usize) -> Option<usize> {
-        (self.search).row_of(file, self.list.cur, || m.iter().position(|&i| i == file))
+        (self.search).row_of(file, self.list.cur(), || m.iter().position(|&i| i == file))
     }
 
     /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
     pub(crate) fn place(&self) -> String {
-        match &self.list.matches {
+        match &self.list.matches() {
             Some(m) => match self.cur_row(m) {
                 Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
                 None => format!("[–/{}]", thousands(m.len())),
             },
             None => format!(
                 "[{}/{}]",
-                thousands(self.list.cur + 1),
-                thousands(self.list.files.len())
+                thousands(self.list.cur() + 1),
+                thousands(self.list.files().len())
             ),
         }
     }
@@ -146,10 +146,9 @@ impl crate::App {
     pub(crate) fn place_of(&mut self, idx: usize) -> String {
         let total = self
             .list
-            .matches
-            .as_ref()
-            .map_or(self.list.files.len(), Vec::len);
-        let matches = &self.list.matches;
+            .matches()
+            .map_or(self.list.files().len(), <[usize]>::len);
+        let matches = self.list.matches();
         self.status.place(idx, total, || {
             let row = match matches {
                 Some(m) => m.iter().position(|&x| x == idx),
@@ -162,20 +161,22 @@ impl crate::App {
 
     /// The files the list shows: the search matches, or all.
     pub(crate) fn shown_files(&self) -> Vec<usize> {
-        (self.list.matches.clone()).unwrap_or_else(|| (0..self.list.files.len()).collect())
+        (self.list.matches().map(<[usize]>::to_vec))
+            .unwrap_or_else(|| (0..self.list.files().len()).collect())
     }
 
     /// Select the list rows from file `a` to file `b`, in the order the list shows them (the
     /// search matches while searching).
     pub(crate) fn select_range(&mut self, a: usize, b: usize) {
-        let m = self.list.matches.as_deref();
+        let m = self.list.matches();
         let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
         match (row(a), row(b), m) {
-            (Some(ra), Some(rb), Some(m)) => self.list.selected.extend(&m[ra.min(rb)..=ra.max(rb)]),
-            (Some(ra), Some(rb), None) => self.list.selected.extend(ra.min(rb)..=ra.max(rb)),
-            _ => {
-                self.list.selected.insert(b);
+            (Some(ra), Some(rb), Some(m)) => {
+                let rows = m[ra.min(rb)..=ra.max(rb)].to_vec();
+                self.list.add_to_selection(rows);
             }
+            (Some(ra), Some(rb), None) => self.list.add_to_selection(ra.min(rb)..=ra.max(rb)),
+            _ => self.list.add_to_selection([b]),
         }
     }
 
@@ -183,37 +184,35 @@ impl crate::App {
     /// changed: Shift+↓ held in a selection of 500,000. False when the selection is not that range
     /// (a Ctrl-click, a click or a search since).
     pub(crate) fn move_range_end(&mut self, anchor: usize, from: usize, to: usize) -> bool {
-        if self.list.range_end != Some(from) {
+        if self.list.range_end() != Some(from) {
             return false;
         }
-        let m = self.list.matches.as_deref();
+        let m = self.list.matches();
         let row = |i| m.map_or(Some(i), |m| m.iter().position(|&x| x == i));
         let (Some(a), Some(f), Some(t)) = (row(anchor), row(from), row(to)) else {
             return false;
         };
-        let selected = &mut self.list.selected;
         // Every row that is in one range and not the other lies between the two ends.
         let file = |r: usize| m.map_or(r, |m| m[r]);
-        for r in f.min(t)..=f.max(t) {
-            if (a.min(t)..=a.max(t)).contains(&r) {
-                selected.insert(file(r));
-            } else {
-                selected.remove(&file(r));
-            }
+        let rows: Vec<(usize, bool)> = (f.min(t)..=f.max(t))
+            .map(|r| (file(r), (a.min(t)..=a.max(t)).contains(&r)))
+            .collect();
+        for (i, on) in rows {
+            self.list.set_selected(i, on);
         }
         true
     }
 
     /// Called when the selection changes: update the title and compute the size in the background.
     pub(crate) fn selection_changed(&mut self, ctx: &egui::Context) {
-        self.list.range_end = None;
+        self.list.set_range_end(None);
         self.title(ctx);
         if self.compare {
             self.refill();
         }
         let wait = self
             .status
-            .selection_changed(!self.list.selected.is_empty());
+            .selection_changed(!self.list.selected().is_empty());
         ctx.request_repaint_after(wait);
     }
 
@@ -225,11 +224,11 @@ impl crate::App {
             SizeDue::Later(wait) => return ctx.request_repaint_after(wait),
             SizeDue::Now => {}
         }
-        if self.list.selected.is_empty() {
+        if self.list.selected().is_empty() {
             return;
         }
         // All of them (Select All in a folder of 500,000): the folder's size, summed already.
-        if self.list.selected.len() == self.list.files.len()
+        if self.list.selected().len() == self.list.files().len()
             && let Some(total) = self.status.folder_total()
         {
             return self.status.selection_is(total);
@@ -237,9 +236,9 @@ impl crate::App {
         // The paths made in the thread: only the names are copied here.
         let names: Vec<OsString> = self
             .list
-            .selected
+            .selected()
             .iter()
-            .map(|&i| self.list.files[i].clone())
+            .map(|&i| self.list.files()[i].clone())
             .collect();
         let (dir, (tx, rx), ctx) = (
             self.folder.dir().to_path_buf(),
@@ -258,18 +257,23 @@ impl crate::App {
 
     /// File operations act on the selected files, otherwise on the shown image. Sorted.
     pub(crate) fn targets(&self) -> Vec<usize> {
-        if self.list.selected.is_empty() {
-            vec![self.list.cur]
+        if self.list.selected().is_empty() {
+            vec![self.list.cur()]
         } else {
-            self.list.selected.iter().copied().collect()
+            self.list.selected().iter().copied().collect()
         }
     }
 
     /// How many `targets` there are and the first, without listing them: for a dialog drawn in
     /// every frame, with 500,000 selected.
     pub(crate) fn first_target(&self) -> (usize, usize) {
-        let first = self.list.selected.first().copied().unwrap_or(self.list.cur);
-        (self.list.selected.len().max(1), first)
+        let first = self
+            .list
+            .selected()
+            .first()
+            .copied()
+            .unwrap_or(self.list.cur());
+        (self.list.selected().len().max(1), first)
     }
 
     /// First, Previous, Next and Last, along the list as shown (the search matches while
@@ -291,22 +295,22 @@ impl crate::App {
         // a file manager; moving without Shift clears it.
         let shift = ctx.input(|i| i.modifiers.shift);
         if shift {
-            let anchor = *self.list.anchor.get_or_insert(self.list.cur);
-            if !self.move_range_end(anchor, self.list.cur, to) {
-                self.list.selected.clear();
+            let anchor = self.list.anchor_or_cur();
+            if !self.move_range_end(anchor, self.list.cur(), to) {
+                self.list.clear_selection();
                 self.select_range(anchor, to);
             }
             self.selection_changed(ctx);
         } else {
-            self.list.anchor = None;
-            if !self.list.selected.is_empty() {
-                self.list.selected.clear();
+            self.list.set_anchor(None);
+            if !self.list.selected().is_empty() {
+                self.list.clear_selection();
                 self.selection_changed(ctx);
             }
         }
         self.go(ctx, to);
         if shift {
-            self.list.range_end = Some(to);
+            self.list.set_range_end(Some(to));
         }
     }
 }
@@ -343,26 +347,28 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-range-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (mut app, ctx) = app_on(&dir);
-        app.list.files = (0..10).map(|i| format!("{i}.png").into()).collect();
+        app.list
+            .set_files((0..10).map(|i| format!("{i}.png").into()).collect());
         for matches in [None, Some(vec![1, 3, 4, 6, 8, 9])] {
-            app.list.matches = matches.clone();
+            app.list.set_matches(matches.clone());
             let shown = app.shown_files();
             let (anchor, mut end) = (shown[2], shown[2]);
-            app.list.selected = [anchor].into();
-            app.list.range_end = Some(end);
+            app.list.select([anchor].into());
+            app.list.set_range_end(Some(end));
             for &to in [shown[4], shown[5], shown[0], shown[3], shown[5]].iter() {
                 assert!(app.move_range_end(anchor, end, to));
-                let moved = std::mem::take(&mut app.list.selected);
+                let moved = app.list.selected().clone();
+                app.list.clear_selection();
                 app.select_range(anchor, to);
-                assert_eq!(moved, app.list.selected, "{matches:?} to {to}");
+                assert_eq!(&moved, app.list.selected(), "{matches:?} to {to}");
                 end = to;
-                app.list.range_end = Some(end);
+                app.list.set_range_end(Some(end));
             }
         }
         // Ctrl-clicks since (on 9, then 2, the image shown 0): a selection of three that looks
         // like the range 2..=0 but holds 9; it is made anew, not moved.
-        app.list.matches = None;
-        app.list.selected = [0, 2, 9].into();
+        app.list.set_matches(None);
+        app.list.select([0, 2, 9].into());
         app.selection_changed(&ctx);
         assert!(!app.move_range_end(2, 0, 1));
         std::fs::remove_dir_all(dir).unwrap();

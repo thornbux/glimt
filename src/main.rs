@@ -330,7 +330,7 @@ impl App {
         if !bare && self.config.sort_manager {
             self.sort_manager(ui);
         }
-        if !bare && self.config.exif_panel && !self.list.files.is_empty() {
+        if !bare && self.config.exif_panel && !self.list.files().is_empty() {
             self.exif_panel(ui);
         } else {
             // The panel was hidden while a field had the focus, so the field never lost it.
@@ -535,7 +535,7 @@ mod tests {
             image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
         }
         let (app, _ctx) = app_on(&dir);
-        assert_eq!(app.list.files, ["a.png", "b.png"]);
+        assert_eq!(app.list.files(), ["a.png", "b.png"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

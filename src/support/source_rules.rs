@@ -334,6 +334,7 @@ fn parts_keep_their_fields() {
     const PARTS: &[(&str, &str)] = &[
         ("files/file_ops.rs", "Work"),
         ("model/folder.rs", "Folder"),
+        ("model/list.rs", "List"),
         ("model/search.rs", "Search"),
         ("ui/dialogs.rs", "Dialogs"),
         ("ui/file_list.rs", "Panel"),

@@ -359,7 +359,7 @@ impl crate::App {
             };
             // The first new name, so the pattern can be checked before renaming.
             let i = self.first_target().1;
-            let first = (i < self.list.files.len()).then(|| self.path(i));
+            let first = (i < self.list.files().len()).then(|| self.path(i));
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
                 ui.label(title);
@@ -457,21 +457,21 @@ impl crate::App {
                 return;
             };
             match prompt {
-                Prompt::Rename if found[0] != self.list.cur => self.go(ctx, found[0]),
+                Prompt::Rename if found[0] != self.list.cur() => self.go(ctx, found[0]),
                 Prompt::Rename => {}
-                _ => self.list.selected = found.into_iter().collect(),
+                _ => self.list.select(found.into_iter().collect()),
             }
         }
         if matches!(prompt, Prompt::Rename)
-            && !self.list.files.is_empty()
-            && !self.none_saving(&[self.path(self.list.cur)])
+            && !self.list.files().is_empty()
+            && !self.none_saving(&[self.path(self.list.cur())])
         {
             return;
         }
         // A renamed file stays in its own folder, also a subfolder in the list with subfolders.
         let target = match prompt {
-            Prompt::Rename if !self.list.files.is_empty() => {
-                self.path(self.list.cur).with_file_name(text)
+            Prompt::Rename if !self.list.files().is_empty() => {
+                self.path(self.list.cur()).with_file_name(text)
             }
             _ => self.folder.dir().join(text),
         };
@@ -491,8 +491,8 @@ impl crate::App {
                     None
                 });
             }
-            Prompt::Rename if self.list.files.is_empty() => {}
-            Prompt::Rename if target == self.path(self.list.cur) => {}
+            Prompt::Rename if self.list.files().is_empty() => {}
+            Prompt::Rename if target == self.path(self.list.cur()) => {}
             Prompt::RenameMany => self.rename_many(ctx, text),
             Prompt::NewCollection
             | Prompt::RenameCollection
@@ -502,7 +502,7 @@ impl crate::App {
             // As Rename Many: in its thread, never over a file or another file's sidecar
             // there; `renamed` puts the list right.
             Prompt::Rename => {
-                self.rename_in_background(ctx, vec![self.path(self.list.cur)], vec![target]);
+                self.rename_in_background(ctx, vec![self.path(self.list.cur())], vec![target]);
             }
         }
     }

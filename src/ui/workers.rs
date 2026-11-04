@@ -164,9 +164,9 @@ impl crate::App {
     /// Busy pointer while the folder is read (also sorted anew), a share mounted, work done in
     /// the background, or the shown image still decoded.
     pub(crate) fn working(&self) -> bool {
-        let decoding = !self.list.files.is_empty()
-            && !self.list.slots.contains_key(&self.list.cur)
-            && !self.list.decode_errors.contains_key(&self.list.cur);
+        let decoding = !self.list.files().is_empty()
+            && !self.list.slots().contains_key(&self.list.cur())
+            && !self.list.decode_errors().contains_key(&self.list.cur());
         decoding || self.working_besides_image()
     }
 

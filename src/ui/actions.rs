@@ -807,7 +807,7 @@ impl crate::App {
             Action::OpenFolder => self.pick(ctx, true, Pick::Open),
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
-            Action::NewCollection if !self.list.files.is_empty() => {
+            Action::NewCollection if !self.list.files().is_empty() => {
                 self.dialogs.ask(Prompt::NewCollection, String::new());
             }
             Action::NewCollection => {
@@ -816,7 +816,7 @@ impl crate::App {
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
             Action::RemoveFromCollection
-                if self.folder.collection().is_some() && !self.list.files.is_empty() =>
+                if self.folder.collection().is_some() && !self.list.files().is_empty() =>
             {
                 self.remove_from_collection(ctx)
             }
@@ -833,7 +833,7 @@ impl crate::App {
             Action::TrashCollection => self.trash_collection(ctx),
             Action::MoveEarlier | Action::MoveLater | Action::MoveFirst | Action::MoveLast => {
                 let picked: HashSet<usize> = self.targets().into_iter().collect();
-                let order = collections::moved(self.list.files.len(), &picked, action);
+                let order = collections::moved(self.list.files().len(), &picked, action);
                 self.move_in_collection(ctx, picked, order)
             }
             Action::FindDuplicates => drop(self.dups.get_or_insert_with(Dups::new)),
@@ -842,13 +842,13 @@ impl crate::App {
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
-            Action::Copy | Action::Move if !self.list.files.is_empty() => {
+            Action::Copy | Action::Move if !self.list.files().is_empty() => {
                 self.pick_copy_or_move(ctx, action)
             }
             Action::Copy | Action::Move => {}
             // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.launch(""),
-            Action::SetWallpaper if !self.list.files.is_empty() => self.set_wallpaper(),
+            Action::SetWallpaper if !self.list.files().is_empty() => self.set_wallpaper(),
             Action::SetWallpaper => {}
             // Enter: videos play in a player (images have nothing to play).
             Action::Play => self.play_video(ctx),
@@ -874,27 +874,30 @@ impl crate::App {
             }
             // Select All and Invert act on the files the list shows: the matches while searching.
             Action::SelectAll => {
-                self.list.selected = self.shown_files().into_iter().collect();
+                self.list.select(self.shown_files().into_iter().collect());
                 self.selection_changed(ctx);
             }
             Action::SelectNone => {
-                self.list.selected.clear();
+                self.list.clear_selection();
                 self.selection_changed(ctx);
             }
             Action::InvertSelection => {
                 let shown = self.shown_files().into_iter();
-                self.list.selected = shown.filter(|i| !self.list.selected.contains(i)).collect();
+                let inverted = shown
+                    .filter(|i| !self.list.selected().contains(i))
+                    .collect();
+                self.list.select(inverted);
                 self.selection_changed(ctx);
             }
-            Action::CopyPath | Action::CopyPathUnquoted if !self.list.files.is_empty() => {
+            Action::CopyPath | Action::CopyPathUnquoted if !self.list.files().is_empty() => {
                 self.copy_paths(ctx, action)
             }
             Action::CopyPath | Action::CopyPathUnquoted => {}
             // Decoded at full size in the background; egui hands it to the clipboard.
-            Action::CopyImage if !self.list.files.is_empty() => self.copy_image(ctx),
+            Action::CopyImage if !self.list.files().is_empty() => self.copy_image(ctx),
             Action::CopyImage => {}
             // As a list of files, which a file manager pastes as a copy.
-            Action::CopyFiles if !self.list.files.is_empty() => self.copy_files(),
+            Action::CopyFiles if !self.list.files().is_empty() => self.copy_files(),
             Action::CopyFiles => {}
             Action::Preferences if config::locked() => {
                 self.notice = Some(tr("The settings are locked (--lock-settings)").into());
@@ -978,13 +981,13 @@ impl crate::App {
                     Some(tr("New Folder makes a folder in the folder shown: open one").into());
             }
             Action::NewFolder => self.dialogs.ask(Prompt::NewFolder, String::new()),
-            Action::Print if !self.list.files.is_empty() => self.open_print(ctx),
+            Action::Print if !self.list.files().is_empty() => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
-                self.pick(ctx, false, Pick::SaveFrame(self.path(self.list.cur), k));
+                self.pick(ctx, false, Pick::SaveFrame(self.path(self.list.cur()), k));
             }
             Action::ExportFrames if self.frame_count() > 1 => {
-                self.pick(ctx, true, Pick::ExportFrames(self.path(self.list.cur)));
+                self.pick(ctx, true, Pick::ExportFrames(self.path(self.list.cur())));
             }
             Action::SaveFrame | Action::ExportFrames => {}
             Action::Print => {}
@@ -1056,14 +1059,14 @@ impl crate::App {
             let bit = 1 << (n - 1);
             let names = self.marked_names(|(bits, _)| bits & bit != 0);
             let picked = (self.shown_files().into_iter())
-                .filter(|&i| names.contains(self.list.files[i].as_os_str()))
+                .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
                 .collect();
-            self.list.selected = picked;
-            self.list.anchor = None;
+            self.list.select(picked);
+            self.list.set_anchor(None);
             self.selection_changed(ctx);
             return;
         }
-        if self.list.files.is_empty() {
+        if self.list.files().is_empty() {
             return;
         }
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
@@ -1124,7 +1127,7 @@ impl crate::App {
 
     /// Select → Copy Image: the shown image's pixels to the clipboard, decoded in the background.
     pub(crate) fn copy_image(&mut self, ctx: &egui::Context) {
-        let (path, how) = (self.path(self.list.cur), self.shown_copy());
+        let (path, how) = (self.path(self.list.cur()), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
         self.work.copy_image_from(clip_rx);

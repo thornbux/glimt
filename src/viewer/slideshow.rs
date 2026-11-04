@@ -127,7 +127,7 @@ impl crate::App {
 
     /// Shuffle the file list (current image first) or sort it back, keeping the shown image.
     pub(crate) fn shuffle_list(&mut self, ctx: &egui::Context, on: bool) {
-        if self.list.files.is_empty() {
+        if self.list.files().is_empty() {
             return;
         }
         self.leave_image(ctx);
@@ -146,9 +146,9 @@ impl crate::App {
                 .filter(|_| !self.folder.sorts_collection())
                 && let Ok(saved) = collections::load(file)
             {
-                let shown = self.list.files.get(self.list.cur).cloned();
+                let shown = self.list.files().get(self.list.cur()).cloned();
                 let files: Vec<PathBuf> =
-                    (0..self.list.files.len()).map(|i| self.path(i)).collect();
+                    (0..self.list.files().len()).map(|i| self.path(i)).collect();
                 let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
                     .filter_map(|p| {
                         Some(
@@ -173,13 +173,13 @@ impl crate::App {
         }
         // A copy, not taken: the textures and the shown image's zoom are kept by the names in
         // the list as it is.
-        let mut files = self.list.files.clone();
-        let shown = files[self.list.cur].clone();
-        files.swap(0, self.list.cur);
+        let mut files = self.list.files().to_vec();
+        let shown = files[self.list.cur()].clone();
+        files.swap(0, self.list.cur());
         shuffle(&mut files[1..]);
         // New panes from the new order: kept, a slideshow one image at a time would still stand
         // at the end of the round and shuffle again on every frame.
-        self.list.panes.clear();
+        self.list.clear_panes();
         self.replace_files(ctx, files, Some(shown));
     }
 
@@ -233,16 +233,17 @@ impl crate::App {
             return;
         }
         // Waits while Rename or a delete asks about the shown image.
-        if self.list.files.is_empty() || self.slideshow.paused || self.dialogs.asks_about_files() {
+        if self.list.files().is_empty() || self.slideshow.paused || self.dialogs.asks_about_files()
+        {
             return;
         }
         // Several panes: the next set together, or the next image into one pane at a time.
-        let n = self.list.panes.len() + 1;
+        let n = self.list.panes().len() + 1;
         let turns = n > 1 && self.one_at_a_time();
         let (from, delta) = match n {
-            1 => (self.list.cur, 1),
-            _ if turns => (self.list.last_slide, 1),
-            _ => (self.list.cur, n),
+            1 => (self.list.cur(), 1),
+            _ if turns => (self.list.last_slide(), 1),
+            _ => (self.list.cur(), n),
         };
         let delay = std::time::Duration::from_secs(self.config.delay);
         let left = delay.saturating_sub(last.elapsed());
@@ -254,16 +255,16 @@ impl crate::App {
             return;
         }
         let next = self.step_from(from, delta as isize, true);
-        let m = self.list.matches.as_deref();
+        let m = self.list.matches();
         let row = m.map_or(Some(from), |m| self.row_of(m, from));
-        let shown = m.map_or(self.list.files.len(), <[usize]>::len);
+        let shown = m.map_or(self.list.files().len(), <[usize]>::len);
         let pending =
-            next.is_some_and(|next| self.list.decodes_pending.contains_key(&(next, false)));
+            next.is_some_and(|next| self.list.decodes_pending().contains_key(&(next, false)));
         let at = Place {
             row,
             delta,
             shown,
-            len: self.list.files.len(),
+            len: self.list.files().len(),
         };
         match next_slide(
             at,
@@ -278,15 +279,15 @@ impl crate::App {
             Slide::Step(next) => {
                 let before = self.shown_textures();
                 if turns && self.slideshow.next_pane > 0 {
-                    self.list.panes[self.slideshow.next_pane - 1] = next;
+                    self.list.set_pane(self.slideshow.next_pane - 1, next);
                     self.refill();
                 } else {
                     self.go(ctx, next);
                 }
                 self.decoding.fade_from(before);
                 if turns {
-                    (self.list.last_slide, self.slideshow.next_pane) =
-                        (next, (self.slideshow.next_pane + 1) % n);
+                    self.list.set_last_slide(next);
+                    self.slideshow.next_pane = (self.slideshow.next_pane + 1) % n;
                 }
                 self.slideshow.shown_at = Some(Instant::now());
             }
@@ -379,7 +380,7 @@ mod tests {
                     .unwrap();
             }
             let (mut app, ctx) = app_on(&d);
-            let sorted = app.list.files.clone();
+            let sorted = app.list.files().to_vec();
             app.go(&ctx, 4);
             app.config.slideshow_subfolders = true;
             app.config.random = true;
@@ -399,20 +400,20 @@ mod tests {
             }
             assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
             if stop {
-                assert_eq!(app.list.files, sorted);
+                assert_eq!(app.list.files(), sorted);
             } else {
                 // Shuffled, its round starting at the image shown (the first slide may have
                 // come since).
                 assert_eq!(
-                    (app.list.files.len(), app.list.files[0].to_str()),
+                    (app.list.files().len(), app.list.files()[0].to_str()),
                     (10, Some("4.png"))
                 );
                 // Not the sort order with the shown image put first.
-                let mut sorted = app.list.files.clone();
+                let mut sorted = app.list.files().to_vec();
                 sorted.sort();
                 let at = sorted.iter().position(|f| f == "4.png").unwrap();
                 sorted.swap(0, at);
-                assert_ne!(app.list.files, sorted, "shuffled");
+                assert_ne!(app.list.files(), sorted, "shuffled");
             }
             std::fs::remove_dir_all(&d).unwrap();
         }
@@ -434,16 +435,16 @@ mod tests {
         let file = d.join("c.m3u");
         std::fs::write(&file, m3u).unwrap();
         let (mut app, ctx) = app_on(&file);
-        let order = app.list.files.clone();
+        let order = app.list.files().to_vec();
         app.config.random = true;
         app.start_slideshow(&ctx);
-        assert!(app.slideshow.shuffled && app.list.files != order);
+        assert!(app.slideshow.shuffled && app.list.files() != order);
         // A refresh on its way.
         app.list(&ctx);
         app.set_random_order(&ctx, false);
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
             && a.status.folder_total().is_some()));
-        assert_eq!(app.list.files, order);
+        assert_eq!(app.list.files(), order);
         std::fs::remove_dir_all(&d).unwrap();
     }
 
@@ -467,29 +468,29 @@ mod tests {
             let file = d.join("c.gqv");
             std::fs::write(&file, gqv).unwrap();
             let (mut app, ctx) = app_on(&file);
-            let order = app.list.files.clone();
+            let order = app.list.files().to_vec();
             app.config.slideshow_subfolders = true;
             app.config.random = true;
             if shuffled_first {
                 app.shuffle_list(&ctx, true);
             }
-            let shown = app.list.files[app.list.cur].clone();
+            let shown = app.list.files()[app.list.cur()].clone();
             app.start_slideshow(&ctx);
             assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
             assert!(
-                app.slideshow.shuffled && app.list.files != order,
+                app.slideshow.shuffled && app.list.files() != order,
                 "R first: {shuffled_first}"
             );
             // The round starts at the image shown (the first slide may have come since): without
             // Repeat it shows every image.
-            assert_eq!(app.list.files[0], shown);
+            assert_eq!(app.list.files()[0], shown);
             // Again, and random off before the list comes: the saved order, and its size.
             app.stop_slideshow(&ctx);
             app.start_slideshow(&ctx);
             app.set_random_order(&ctx, false);
             assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
                 && a.status.folder_total().is_some()));
-            assert_eq!(app.list.files, order);
+            assert_eq!(app.list.files(), order);
             assert!(app.status.folder_total() > Some(0), "size");
             std::fs::remove_dir_all(&d).unwrap();
         }

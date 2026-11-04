@@ -263,10 +263,10 @@ impl crate::App {
     pub(crate) fn remote_query(&self, command: &str) -> Vec<u8> {
         use std::os::unix::ffi::OsStringExt;
         let files = match command.trim() {
-            "current" => vec![self.list.cur],
+            "current" => vec![self.list.cur()],
             _ => self.targets(),
         };
-        (files.into_iter().filter(|&i| i < self.list.files.len()))
+        (files.into_iter().filter(|&i| i < self.list.files().len()))
             .flat_map(|i| {
                 let path = self.path(i).into_os_string().into_vec();
                 path.into_iter().chain([0])
@@ -286,13 +286,13 @@ impl crate::App {
         }
         let dir = self.folder.dir().to_path_buf();
         let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
-        let found: std::collections::BTreeSet<usize> = (self.list.files.iter().enumerate())
+        let found: std::collections::BTreeSet<usize> = (self.list.files().iter().enumerate())
             .filter(|(_, f)| names.contains(f.as_os_str()))
             .map(|(i, _)| i)
             .collect();
         let listed: HashSet<&std::ffi::OsStr> = found
             .iter()
-            .map(|&i| self.list.files[i].as_os_str())
+            .map(|&i| self.list.files()[i].as_os_str())
             .collect();
         let missing: Vec<u8> = (paths.iter())
             .filter(|p| !name(&dir, p).is_some_and(|n| listed.contains(n)))
@@ -300,8 +300,8 @@ impl crate::App {
             .collect();
         if let Some(&first) = found.first() {
             self.go(ctx, first);
-            self.list.selected = found;
-            self.list.anchor = None;
+            self.list.select(found);
+            self.list.set_anchor(None);
             self.selection_changed(ctx);
         }
         missing

@@ -216,20 +216,21 @@ impl crate::App {
         let query = query.as_str();
         self.search.match_rows.set(Default::default());
         // The rows are others now, so a Shift range of the keys is no longer the rows it was.
-        self.list.range_end = None;
+        self.list.set_range_end(None);
         // A place "[n/m]" told for another pane is made again, because another search may have
         // as many matches.
         self.status.forget_place();
         self.search.error = None;
-        self.list.matches = self.search_matches(ctx, query);
+        let matches = self.search_matches(ctx, query);
+        self.list.set_matches(matches);
         // The size of the matches is summed in the background. A new search drops the receiver,
         // which stops the old sum.
-        self.list.match_size = 0;
+        self.list.set_match_size(0);
         self.search.match_rx = Receiving::none();
         // It is not summed at each letter typed, because each would copy every match's name,
         // 500,000 for an "a".
         let wait = std::time::Duration::from_millis(200);
-        self.search.match_size_due = self.list.matches.is_some().then(|| Instant::now() + wait);
+        self.search.match_size_due = self.list.matches().is_some().then(|| Instant::now() + wait);
         ctx.request_repaint_after(wait);
     }
 
@@ -244,8 +245,10 @@ impl crate::App {
             return ctx.request_repaint_after(wait);
         }
         self.search.match_size_due = None;
-        let Some(m) = &self.list.matches else { return };
-        let names: Vec<OsString> = m.iter().map(|&i| self.list.files[i].clone()).collect();
+        let Some(m) = &self.list.matches() else {
+            return;
+        };
+        let names: Vec<OsString> = m.iter().map(|&i| self.list.files()[i].clone()).collect();
         let (tx, rx) = mpsc::channel();
         let (dir, ctx) = (self.folder.dir().to_path_buf(), ctx.clone());
         std::thread::spawn(move || {
@@ -284,7 +287,7 @@ impl crate::App {
     /// as it reads edited ones. Before, a name it lacked was found by no `exif:` search at all.
     pub(crate) fn exif_follow_list(&mut self) {
         if let Some(index) = &self.search.exif_index {
-            let missing = self.list.files.iter().filter(|n| !index.contains_key(*n));
+            let missing = self.list.files().iter().filter(|n| !index.contains_key(*n));
             self.search.exif_stale.extend(missing.cloned());
         }
     }
@@ -307,7 +310,7 @@ impl crate::App {
     /// first part that is no "not", and an or keeps the order of its parts one after the other.
     pub(crate) fn query_matches(&mut self, ctx: &egui::Context, query: &Query) -> Vec<usize> {
         use Query;
-        let n = self.list.files.len();
+        let n = self.list.files().len();
         let mask = |hits: &[usize]| {
             let mut mask = vec![false; n];
             hits.iter().for_each(|&i| mask[i] = true);
@@ -365,7 +368,7 @@ impl crate::App {
         // Geeqie's Case checkbox, shown beside the field in its mode.
         let case = self.config.search_case && !self.config.fuzzy_search;
         let regex = |this: &mut Self, pattern: &str| match regex(pattern, case) {
-            Ok(re) => regex_matches(&this.list.files, &re),
+            Ok(re) => regex_matches(this.list.files(), &re),
             Err(e) => {
                 this.search.error = Some(e);
                 Vec::new()
@@ -378,7 +381,7 @@ impl crate::App {
                 self.mark_matches(term)
                     .or_else(|| match self.config.fuzzy_search {
                         true => {
-                            (term.chars().count() >= min).then(|| matches(&self.list.files, term))
+                            (term.chars().count() >= min).then(|| matches(self.list.files(), term))
                         }
                         // As in Geeqie's file filter, it is a regular expression, from the
                         // first letter.
@@ -434,7 +437,7 @@ impl crate::App {
                 let (tx, rx) = mpsc::channel();
                 let (dir, files, ctx) = (
                     self.folder.dir().to_path_buf(),
-                    self.list.files.clone(),
+                    self.list.files().to_vec(),
                     ctx.clone(),
                 );
                 let pointer = Working::new(&self.busy);
@@ -458,12 +461,16 @@ impl crate::App {
             None => words.iter().all(|w| text.contains(w)),
         };
         // This runs in parallel, because it is 500,000 lookups at each letter typed.
-        in_parts(&self.list.files, background_threads().min(8), |part, at| {
-            (part.iter().enumerate())
-                .filter(|(_, f)| index.get(*f).is_some_and(found))
-                .map(|(i, _)| at + i)
-                .collect()
-        })
+        in_parts(
+            self.list.files(),
+            background_threads().min(8),
+            |part, at| {
+                (part.iter().enumerate())
+                    .filter(|(_, f)| index.get(*f).is_some_and(found))
+                    .map(|(i, _)| at + i)
+                    .collect()
+            },
+        )
     }
 
     /// "mark:2" shows the files with mark 2, "stars:3" those with three stars or more.
@@ -489,8 +496,8 @@ impl crate::App {
         };
         let names = self.marked_names(hit);
         Some(
-            (0..self.list.files.len())
-                .filter(|&i| names.contains(self.list.files[i].as_os_str()))
+            (0..self.list.files().len())
+                .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
                 .collect(),
         )
     }

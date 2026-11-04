@@ -131,7 +131,7 @@ impl crate::App {
     pub(crate) fn pan_view(&mut self, ctx: &egui::Context) {
         // The thumbnail workers make the cells drawn last frame (a frame late is soon enough);
         // this frame's are noted as they are drawn.
-        let mut view = std::mem::take(&mut self.list.pan_thumbs);
+        let mut view = self.list.take_pan_thumbs();
         view.sort_unstable();
         view.dedup();
         self.thumbs.pan_view_shows(view);
@@ -144,9 +144,10 @@ impl crate::App {
             .open(&mut open)
             .default_size([900.0, 640.0])
             .show(ctx, |ui| {
-                pan.tabs(ui, self.list.version);
+                pan.tabs(ui, self.list.version());
                 ui.separator();
-                let Some((days, _)) = pan.days.as_ref().filter(|d| d.1 == self.list.version) else {
+                let Some((days, _)) = pan.days.as_ref().filter(|d| d.1 == self.list.version())
+                else {
                     return;
                 };
                 let cell = self.cell();
@@ -178,10 +179,10 @@ impl crate::App {
     fn pan_days(&mut self, ctx: &egui::Context, pan: &mut Pan) {
         // The days again when the list changed, also only its order; only the visible rows are
         // drawn.
-        let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.list.version);
+        let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.list.version());
         // Days still being made for a list that changed: stopped, so the new list's start now
         // instead of after every old file is read.
-        if pan.days_rx.is_some() && pan.days_for != self.list.version {
+        if pan.days_rx.is_some() && pan.days_for != self.list.version() {
             pan.days_stop.store(true, Ordering::Relaxed);
             pan.days_rx.clear();
         }
@@ -189,10 +190,10 @@ impl crate::App {
             let (tx, rx) = mpsc::channel();
             let (dir, files, exif) = (
                 self.folder.dir().to_path_buf(),
-                self.list.files.clone(),
+                self.list.files().to_vec(),
                 pan.exif,
             );
-            let (ctx, made) = (ctx.clone(), self.list.version);
+            let (ctx, made) = (ctx.clone(), self.list.version());
             pan.days_for = made;
             let pointer = Working::new(&self.busy);
             pan.days_stop = Arc::default();
@@ -229,8 +230,8 @@ impl crate::App {
         // The thread broke: what it had found stays, or no days for this list, so they are not
         // made again at once; the user told.
         if gone {
-            if pan.days.as_ref().is_none_or(|d| d.1 != self.list.version) {
-                pan.days = Some((Vec::new(), self.list.version));
+            if pan.days.as_ref().is_none_or(|d| d.1 != self.list.version()) {
+                pan.days = Some((Vec::new(), self.list.version()));
                 pan.months = Vec::new();
             }
             self.stopped(tr("The Pan view's days"));
@@ -288,13 +289,13 @@ impl crate::App {
                         let list = &days[d].1;
                         let end = (start + columns).min(list.len());
                         for (j, &i) in list[start..end].iter().enumerate() {
-                            if i >= self.list.files.len() {
+                            if i >= self.list.files().len() {
                                 continue;
                             }
                             let at = top + egui::vec2(j as f32 * cell.x, y);
                             let rect = egui::Rect::from_min_size(at, cell);
-                            self.list.pan_thumbs.push(i);
-                            let r = self.file_cell(ui, i, rect, i == self.list.cur);
+                            self.list.pan_thumb(i);
+                            let r = self.file_cell(ui, i, rect, i == self.list.cur());
                             if r.clicked() {
                                 show = Some(i);
                             }
@@ -394,7 +395,7 @@ impl crate::App {
             .rect_filled(rect, 3.0, ui.visuals().faint_bg_color);
         let found = (m.images.iter().find(|x| x.0 == day))
             .and_then(|&(_, d)| Some((d, *days.get(d)?.1.first()?)))
-            .filter(|&(_, i)| i < self.list.files.len());
+            .filter(|&(_, i)| i < self.list.files().len());
         let Some((d, first)) = found else {
             ui.painter().text(
                 rect.min + egui::vec2(4.0, 2.0),
@@ -410,7 +411,7 @@ impl crate::App {
             ui.painter()
                 .rect_filled(rect, 3.0, ui.visuals().widgets.hovered.weak_bg_fill);
         }
-        self.list.pan_thumbs.push(first);
+        self.list.pan_thumb(first);
         self.paint_thumb(ui, first, rect.shrink(4.0));
         // The day and the number of images, on dark so they read on any picture.
         let p = ui.painter();

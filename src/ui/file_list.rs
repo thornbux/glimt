@@ -533,12 +533,12 @@ impl crate::App {
         if self.thumbs.textures.len() <= max {
             return;
         }
-        let mut keep = thumbs_to_keep(&self.list.files, self.list.matches.as_deref(), rows, max);
+        let mut keep = thumbs_to_keep(self.list.files(), self.list.matches(), rows, max);
         keep.extend(
             self.list
-                .pan_thumbs
+                .pan_thumbs()
                 .iter()
-                .filter_map(|&i| self.list.files.get(i)),
+                .filter_map(|&i| self.list.files().get(i)),
         );
         self.thumbs.textures.retain(|name, _| keep.contains(name));
     }
@@ -616,7 +616,7 @@ impl crate::App {
             name_rect.max.x = r.left() - 8.0;
         }
         // A file Check Images found broken gets a warning sign at the right.
-        if self.broken_files.contains(&self.list.files[i]) {
+        if self.broken_files.contains(&self.list.files()[i]) {
             let c = egui::pos2(name_rect.max.x - 12.0, rect.center().y);
             broken_mark(ui.painter(), c, font.size);
             name_rect.max.x = c.x - 14.0;
@@ -678,7 +678,7 @@ impl crate::App {
         );
         ui.painter().galley(at, galley, color);
         // A file Check Images found broken gets the warning sign on the thumbnail's top left.
-        if self.broken_files.contains(&self.list.files[i]) {
+        if self.broken_files.contains(&self.list.files()[i]) {
             let size = egui::TextStyle::Body.resolve(ui.style()).size;
             broken_mark(
                 ui.painter(),
@@ -706,7 +706,7 @@ impl crate::App {
 
     /// Thumbnail `i` fitted into `frame`, or a request for it.
     pub(crate) fn paint_thumb(&mut self, ui: &egui::Ui, i: usize, frame: egui::Rect) {
-        let name = &self.list.files[i];
+        let name = &self.list.files()[i];
         match self.thumbs.textures.get(name) {
             Some(Some(tex)) => {
                 // Fit the box, but never enlarge a small image. One the cache cut down to its
@@ -765,9 +765,9 @@ impl crate::App {
             let mut view = shown.clone();
             view.sort_unstable();
             self.thumbs.view.lock().unwrap()[0] = view;
-            let row = match self.list.matches.as_deref() {
+            let row = match self.list.matches() {
                 Some(m) => self.cur_row(m).unwrap_or(0),
-                None => self.list.cur,
+                None => self.list.cur(),
             };
             let k = k as usize;
             self.trim_thumbs(row.saturating_sub(k)..row + k + 1);
@@ -775,14 +775,17 @@ impl crate::App {
         ui.painter()
             .rect_filled(strip, 0.0, egui::Color32::from_black_alpha(190));
         // The shown image in the middle, where it is when there are images on both sides.
-        let at = shown.iter().position(|&i| i == self.list.cur).unwrap_or(0) as f32;
+        let at = shown
+            .iter()
+            .position(|&i| i == self.list.cur())
+            .unwrap_or(0) as f32;
         let x0 = strip.center().x - (at + 0.5) * cell.x;
         let mut clicked = None;
         for (n, &i) in shown.iter().enumerate() {
             let min = egui::pos2(x0 + n as f32 * cell.x, strip.top() + 8.0);
             let frame = egui::Rect::from_min_size(min, cell).shrink(4.0);
             self.paint_thumb(ui, i, frame);
-            if i == self.list.cur {
+            if i == self.list.cur() {
                 let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
                 ui.painter()
                     .rect_stroke(frame.expand(2.0), 3.0, stroke, egui::StrokeKind::Outside);
@@ -799,7 +802,7 @@ impl crate::App {
     /// shortcut: stat in the UI thread, once per visible file; move to a thread if network
     /// folders make scrolling stutter.
     pub(crate) fn file_details(&mut self, i: usize) -> (u64, i64) {
-        if let Some(&d) = self.list.details.get(&self.list.files[i]) {
+        if let Some(&d) = self.list.details().get(&self.list.files()[i]) {
             return d;
         }
         let d = std::fs::metadata(self.path(i)).map_or((0, 0), |m| {
@@ -808,10 +811,10 @@ impl crate::App {
         });
         // The cache is bounded, because scrolling through a folder of 500,000 would keep some
         // 50 MB. Only the rows on screen are read again.
-        if self.list.details.len() >= 20_000 {
-            self.list.details.clear();
+        if self.list.details().len() >= 20_000 {
+            self.list.forget_details();
         }
-        self.list.details.insert(self.list.files[i].clone(), d);
+        self.list.remember_details(self.list.files()[i].clone(), d);
         d
     }
 
@@ -976,7 +979,7 @@ impl crate::App {
                             let name = dir.file_name().unwrap_or(dir.as_os_str());
                             let here = dir == self.folder.dir();
                             let button = ui.add_enabled(
-                                !here && !self.list.files.is_empty(),
+                                !here && !self.list.files().is_empty(),
                                 egui::Button::new(name.to_string_lossy()),
                             );
                             if button.on_hover_text(dir.display().to_string()).clicked() {
@@ -1220,10 +1223,9 @@ impl crate::App {
         // The rows shown are the search matches, or all files.
         let count = self
             .list
-            .matches
-            .as_ref()
-            .map_or(self.list.files.len(), Vec::len);
-        let row_of = |i: usize, m: &Option<Vec<usize>>| match m {
+            .matches()
+            .map_or(self.list.files().len(), <[usize]>::len);
+        let row_of = |i: usize, m: Option<&[usize]>| match m {
             Some(m) => m.iter().position(|&x| x == i),
             None => Some(i),
         };
@@ -1250,7 +1252,7 @@ impl crate::App {
             .id_salt("files")
             .auto_shrink(false);
         if self.panel.scroll_to_cur
-            && let Some(row) = row_of(self.list.cur, &self.list.matches).map(|r| r / cols)
+            && let Some(row) = row_of(self.list.cur(), self.list.matches()).map(|r| r / cols)
         {
             // Scroll only when the current image is out of view, and centre it.
             let (top, view) = (row as f32 * pitch, ui.available_height());
@@ -1263,7 +1265,7 @@ impl crate::App {
         area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
             let first_row = rows.start;
             let rows = rows.start * cols..(rows.end * cols).min(count);
-            let shown: Vec<usize> = match &self.list.matches {
+            let shown: Vec<usize> = match &self.list.matches() {
                 Some(m) => m[rows.clone()].to_vec(),
                 None => rows.clone().collect(),
             };
@@ -1276,7 +1278,7 @@ impl crate::App {
             self.drag_scroll(ctx, ui, row_h, pointer);
             let mut cells = Vec::new();
             for (k, i) in shown.into_iter().enumerate() {
-                let marked = i == self.list.cur || self.list.selected.contains(&i);
+                let marked = i == self.list.cur() || self.list.selected().contains(&i);
                 let row = if icons {
                     if k % cols == 0 {
                         let size = egui::vec2(ui.available_width(), self.cell().y);
@@ -1319,7 +1321,7 @@ impl crate::App {
         // The rows shown and some around them, as files, are kept being made while they are
         // near.
         let near = rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
-        let mut view: Vec<usize> = match &self.list.matches {
+        let mut view: Vec<usize> = match &self.list.matches() {
             Some(m) => m[near].to_vec(),
             None => near.collect(),
         };
@@ -1337,7 +1339,7 @@ impl crate::App {
         row_h: f32,
         pointer: Option<egui::Pos2>,
     ) {
-        if let Some((_, to)) = &mut self.list.dragging {
+        if let Some(to) = self.list.drag_target_mut() {
             *to = None;
             let clip = ui.clip_rect();
             match pointer {
@@ -1357,12 +1359,12 @@ impl crate::App {
     /// Drops the dragged images before the row the line was at. A drag let go elsewhere ends.
     fn drop_dragged(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.pointer.any_released())
-            && let Some((picked, Some(to))) = self.list.dragging.take()
+            && let Some((picked, Some(to))) = self.list.take_drag()
         {
-            let order = collections::dropped(self.list.files.len(), &picked, to);
+            let order = collections::dropped(self.list.files().len(), &picked, to);
             self.move_in_collection(ctx, picked, order);
         } else if !ctx.input(|i| i.pointer.any_down()) {
-            self.list.dragging = None;
+            self.list.take_drag();
         }
     }
 
@@ -1387,9 +1389,8 @@ impl crate::App {
         let cols = self.panel.grid_cols.max(1);
         let count = self
             .list
-            .matches
-            .as_ref()
-            .map_or(self.list.files.len(), Vec::len);
+            .matches()
+            .map_or(self.list.files().len(), <[usize]>::len);
         let clip = ui.clip_rect();
         let (pressed, down, pos, add) = ctx.input(|i| {
             let m = i.modifiers;
@@ -1401,8 +1402,8 @@ impl crate::App {
             )
         });
         if pressed
-            && self.list.rubber_band.is_none()
-            && self.list.dragging.is_none()
+            && self.list.rubber_band().is_none()
+            && self.list.dragging().is_none()
             && !self.dialog_open()
             // Not on the scroll bar, which is dragged too.
             && let Some(p) = pos.filter(|p| clip.contains(*p))
@@ -1410,43 +1411,37 @@ impl crate::App {
             && (self.folder.collection().is_none() || !cells.iter().any(|c| c.1.contains(p)))
         {
             let before = if add {
-                self.list.selected.clone()
+                self.list.selected().clone()
             } else {
                 Default::default()
             };
-            self.list.rubber_band = Some(RubberBand {
+            self.list.start_rubber_band(RubberBand {
                 start: p - origin,
                 before,
                 moved: false,
                 touched: None,
             });
         }
-        let Some(RubberBand {
-            start,
-            before,
-            moved,
-            touched: last,
-        }) = &mut self.list.rubber_band
-        else {
+        // The rectangle is taken while it is worked on, and given back unless it ends.
+        let Some(mut band_now) = self.list.take_rubber_band() else {
             return;
         };
-        let start = origin + *start;
+        let start = origin + band_now.start;
         let Some(p) = pos.filter(|_| down) else {
             // When it is released, the size of what is selected is worked out, once.
-            if std::mem::take(moved) {
+            if band_now.moved {
                 self.selection_changed(&ctx);
             }
-            self.list.rubber_band = None;
             return;
         };
         // When something else is being dragged (the panel's edge, a scroll bar), it is not a
         // rectangle.
-        if !*moved && ctx.dragged_id().is_some() {
-            self.list.rubber_band = None;
+        if !band_now.moved && ctx.dragged_id().is_some() {
             return;
         }
-        *moved |= p.distance(start) > 6.0;
-        if !*moved {
+        band_now.moved |= p.distance(start) > 6.0;
+        if !band_now.moved {
+            self.list.start_rubber_band(band_now);
             return;
         }
         let band = egui::Rect::from_two_pos(start, p);
@@ -1458,19 +1453,20 @@ impl crate::App {
         // selection before it may be large (Ctrl+A in a big folder, then Ctrl and a rectangle),
         // and frames come many times a second.
         let touches = [rows.start, rows.end, columns.start, columns.end];
-        if *last != Some(touches) {
-            *last = Some(touches);
-            let mut selected = before.clone();
+        if band_now.touched != Some(touches) {
+            band_now.touched = Some(touches);
+            let mut selected = band_now.before.clone();
             for r in rows {
                 for c in columns.start..columns.end.min(cols) {
                     let k = r * cols + c;
                     if k < count {
-                        selected.insert(self.list.matches.as_ref().map_or(k, |m| m[k]));
+                        selected.insert(self.list.matches().map_or(k, |m| m[k]));
                     }
                 }
             }
-            self.list.selected = selected;
+            self.list.select(selected);
         }
+        self.list.start_rubber_band(band_now);
         let v = ui.visuals();
         let painter = ui.painter().with_clip_rect(clip);
         painter.rect_filled(band, 2.0, v.selection.bg_fill.gamma_multiply(0.25));
@@ -1497,14 +1493,14 @@ impl crate::App {
     ) {
         let row = row.interact(egui::Sense::drag());
         if row.drag_started() {
-            let picked = if self.list.selected.contains(&i) {
-                self.list.selected.iter().copied().collect()
+            let picked = if self.list.selected().contains(&i) {
+                self.list.selected().iter().copied().collect()
             } else {
                 HashSet::from([i])
             };
-            self.list.dragging = Some((picked, None));
+            self.list.start_drag(picked);
         }
-        let Some((_, to)) = &mut self.list.dragging else {
+        let Some(to) = self.list.drag_target_mut() else {
             return;
         };
         let r = row.rect.expand(ui.spacing().item_spacing.y / 2.0);
@@ -1540,37 +1536,33 @@ impl crate::App {
             let m = row.ctx.input(|i| i.modifiers);
             if m.command {
                 // Ctrl+click toggles the selection (the shown image is included the first time).
-                if self.list.selected.is_empty() {
-                    self.list.selected.insert(self.list.cur);
+                if self.list.selected().is_empty() {
+                    self.list.add_to_selection([self.list.cur()]);
                 }
-                if !self.list.selected.remove(&i) {
-                    self.list.selected.insert(i);
-                }
-                self.list.anchor = Some(i);
+                self.list.toggle_selected(i);
+                self.list.set_anchor(Some(i));
                 self.selection_changed(ctx);
             } else if m.shift {
                 // Shift+click selects the rows from where the selection started.
-                let anchor = *self.list.anchor.get_or_insert(self.list.cur);
-                self.list.selected.clear();
+                let anchor = *self.list.anchor().get_or_insert(self.list.cur());
+                self.list.clear_selection();
                 self.select_range(anchor, i);
                 self.selection_changed(ctx);
             } else {
-                self.list.selected.clear();
+                self.list.clear_selection();
                 self.status.selected_size = None;
                 self.status.selected_rx = Receiving::none();
-                self.list.anchor = None;
+                self.list.set_anchor(None);
                 go_to = Some(i);
             }
         }
         // A right-click on a file outside the selection selects just that file, as in a file
         // manager, and the menu acts on the selection.
         if row.secondary_clicked()
-            && !self.list.selected.contains(&i)
-            && (i != self.list.cur || !self.list.selected.is_empty())
+            && !self.list.selected().contains(&i)
+            && (i != self.list.cur() || !self.list.selected().is_empty())
         {
-            self.list.selected.clear();
-            self.list.selected.insert(i);
-            self.list.anchor = Some(i);
+            self.list.select_one(i);
             self.selection_changed(ctx);
         }
         go_to
@@ -1581,20 +1573,20 @@ impl crate::App {
     pub(crate) fn status_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
-                let n = self.list.files.len();
+                let n = self.list.files().len();
                 let size = size_text(
                     self.status
                         .size_rx
                         .is_none()
                         .then_some(self.status.total_size),
                 );
-                let mut left = match &self.list.matches {
+                let mut left = match &self.list.matches() {
                     _ if self.folder.is_listing() => tr("Reading folder…").to_owned(),
                     // A search shows the matches, with the count and size of what the list
                     // shows.
                     Some(found) => {
                         let size = size_text(
-                            (self.search.match_size_known()).then_some(self.list.match_size),
+                            (self.search.match_size_known()).then_some(self.list.match_size()),
                         );
                         tf!(
                             "{found} of {images} ({size})",
@@ -1605,8 +1597,8 @@ impl crate::App {
                     }
                     None => format!("{count} ({size})", count = count(n, "image")),
                 };
-                if !self.list.selected.is_empty() {
-                    let m = thousands(self.list.selected.len());
+                if !self.list.selected().is_empty() {
+                    let m = thousands(self.list.selected().len());
                     let size = size_text(self.status.selected_size);
                     left += &tf!(", {m} selected ({size})", m, size);
                 }
@@ -1639,7 +1631,7 @@ impl crate::App {
                     // the zoom. With several panes, it tells about the one under the pointer.
                     let (idx, scale) = (self.status.pane_info.get(self.status.pane).copied())
                         .filter(|p| p.0 < n)
-                        .unwrap_or((self.list.cur, Some(self.zoom.scale_shown())));
+                        .unwrap_or((self.list.cur(), Some(self.zoom.scale_shown())));
                     let path = self.path(idx);
                     if self.status.cur_size.as_ref().is_none_or(|c| c.0 != path) {
                         // shortcut: one stat in the UI thread per image change; move it to
@@ -1648,27 +1640,27 @@ impl crate::App {
                         self.status.cur_size = Some((path, bytes));
                     }
                     let bytes = self.status.cur_size.as_ref().map_or(0, |c| c.1);
-                    let place = if idx == self.list.cur {
+                    let place = if idx == self.list.cur() {
                         self.place()
                     } else {
                         self.place_of(idx)
                     };
                     let bytes = tf!("{n} bytes", n = thousands(bytes as usize));
-                    match self.list.slots.get(&idx) {
+                    match self.list.slots().get(&idx) {
                         Some(slot) => {
                             let [w, h] = slot.orig;
                             if let Some(scale) = scale {
                                 ui.label(format!("{} %", (scale * 100.0).round()));
                                 ui.separator();
                             }
-                            let page = if slot.pages > 1 && idx == self.list.cur {
+                            let page = if slot.pages > 1 && idx == self.list.cur() {
                                 tf!(
                                     " page {n}/{pages}",
                                     n = self.viewing.page() + 1,
                                     pages = slot.pages
                                 )
                             } else if let Some(k) =
-                                self.viewing.frame().filter(|_| idx == self.list.cur)
+                                self.viewing.frame().filter(|_| idx == self.list.cur())
                             {
                                 tf!(" frame {n}/{frames}", n = k + 1, frames = slot.anim.len())
                             } else {

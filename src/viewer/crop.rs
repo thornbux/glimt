@@ -26,19 +26,19 @@ impl crate::App {
     /// a copy takes from the view (turns, Auto Rotate, the page …), compared whole so a way
     /// added later cannot be left out of the check, as Auto Rotate first was.
     fn crop_shown(&self, crop: &Crop) -> bool {
-        self.is_file(self.list.cur, &crop.path) && self.shown_copy() == crop.how
+        self.is_file(self.list.cur(), &crop.path) && self.shown_copy() == crop.how
     }
 
     /// Edit → Crop: choose a part of the shown image. Not for a video, nor before the image
     /// is decoded.
     pub(crate) fn start_crop(&mut self) {
-        let cur = self.list.cur;
+        let cur = self.list.cur();
         #[cfg(feature = "video")]
-        if (self.list.files.get(cur)).is_some_and(|f| is_video(Path::new(f))) {
+        if (self.list.files().get(cur)).is_some_and(|f| is_video(Path::new(f))) {
             self.notice = Some(tr("A video is not cropped").into());
             return;
         }
-        if self.list.slots.contains_key(&cur) {
+        if self.list.slots().contains_key(&cur) {
             self.viewing.start_crop(Crop {
                 path: self.path(cur),
                 how: self.shown_copy(),
@@ -141,7 +141,7 @@ impl crate::App {
         let Some(crop) = self.viewing.take_crop().filter(|c| self.crop_shown(c)) else {
             return;
         };
-        let (Some(part), Some(slot)) = (crop.part, self.list.slots.get(&self.list.cur)) else {
+        let (Some(part), Some(slot)) = (crop.part, self.list.slots().get(&self.list.cur())) else {
             return;
         };
         let [w, h] = slot.orig;
