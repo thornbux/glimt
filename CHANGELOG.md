@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-11-04
+
 ### Security
 
 These come from a review on the branch `readability-0.53`, which was never released. Each is
@@ -2356,7 +2358,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.55.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.56.0...HEAD
+[0.56.0]: https://github.com/thornbux/glimt/compare/v0.55.0...v0.56.0
 [0.55.0]: https://github.com/thornbux/glimt/compare/v0.54.0...v0.55.0
 [0.54.0]: https://github.com/thornbux/glimt/compare/v0.53.0...v0.54.0
 [0.53.0]: https://github.com/thornbux/glimt/compare/v0.52.0...v0.53.0
