@@ -1,5 +1,5 @@
 //! Rename Many's steps on disk while they run. A crash or a power cut halfway leaves files under
-//! their new names, their old ones, or hidden temporary ones; the next start finds the plan and
+//! their new names, their old ones, or hidden temporary ones. The next start finds the plan and
 //! puts the old names back or finishes. The plan is locked while it runs, so a plan that another
 //! window is still carrying out is left alone.
 
@@ -12,25 +12,27 @@ use std::path::{Path, PathBuf};
 /// The first part of a plan that counts the renames done.
 const COUNTED: &[u8] = b"counted";
 
-/// Renames in the order they are done: (from, to).
+/// The renames in the order they are done, as (from, to).
 pub type Moves = Vec<(PathBuf, PathBuf)>;
 
-/// A plan left by a Rename Many that was cut short: its file, the renames, and how many of them
-/// were done; `None` for a plan of Glimt 0.34 or older, which did not count them.
+/// A plan left by a Rename Many that was cut short. It holds its file, the renames, and how
+/// many of them were done, which is `None` for a plan of Glimt 0.34 or older, because those did
+/// not count them.
 pub type CutShort = (PathBuf, Moves, Option<usize>);
 
-/// The plan of a Rename Many being carried out; removed when dropped, as the renames are done
-/// or undone. Left on disk only when Glimt stops halfway.
+/// The plan of a Rename Many being carried out. It is removed when dropped, as the renames are
+/// done or undone, and it is left on disk only when Glimt stops halfway.
 pub struct Journal {
     path: PathBuf,
     file: File,
 }
 
 impl Journal {
-    /// One more rename done: a NUL byte after the plan, so that the next start knows which. The
-    /// file names cannot tell, as a swap has the same names before and after.
-    // Not synced, which a crash of Glimt does not need; a power cut may lose the last steps'
-    // bytes, which `settle` finds again by the names (`done_by_names`).
+    /// Counts one more rename done, with a NUL byte after the plan, so that the next start knows
+    /// which were done. The file names cannot tell, because a swap has the same names before
+    /// and after.
+    // It is not synced, because a crash of Glimt does not need that. A power cut may lose the
+    // last steps' bytes, and `settle` finds them again by the names (`done_by_names`).
     pub fn done(&mut self) {
         let _ = self.file.write_all(&[0]);
     }
@@ -42,10 +44,10 @@ impl Journal {
 }
 
 impl Journal {
-    /// Left on disk: the renames could not all be undone, so the next start offers to put the
-    /// files right. Its lock goes with this Glimt.
+    /// Leaves the plan on disk, because the renames could not all be undone, so the next start
+    /// offers to put the files right. Its lock goes with this Glimt.
     pub fn keep(mut self) {
-        // An empty path: the remove in `drop` finds nothing.
+        // With an empty path, the remove in `drop` finds nothing.
         self.path = PathBuf::new();
     }
 }
@@ -61,12 +63,12 @@ pub fn dir() -> Option<PathBuf> {
         .map(|d| d.join("renames"))
 }
 
-/// Write `moves` down in `dir`, locked and on disk, before the first of them is done. `None`
-/// if that fails: the renames then run as they did before, without a plan.
+/// Writes `moves` down in `dir`, locked and on disk, before the first of them is done. Returns
+/// `None` if that fails, and the renames then run as they did before, without a plan.
 pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     std::fs::create_dir_all(dir).ok()?;
-    // A name of its own, never one there: a plan left by a crash, of a Glimt that had the same
-    // process ID before a restart, is not written over and lost.
+    // The plan gets a name of its own, never one that is there, so a plan left by a crash, of a
+    // Glimt that had the same process ID before a restart, is not written over and lost.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
@@ -80,8 +82,9 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
         .create_new(true)
         .open(&path)
         .ok()?;
-    // Removed when dropped, also when what follows fails (a full disk): a plan left half written
-    // would be offered at the next start, and finishing it would undo renames done without it.
+    // The plan is removed when dropped, also when what follows fails (a full disk). A plan left
+    // half written would be offered at the next start, and finishing it would undo renames done
+    // without it.
     let mut plan = Journal { path, file };
     plan.file.try_lock().ok()?;
     let mut bytes = [COUNTED, b"\0"].concat();
@@ -97,8 +100,8 @@ pub fn begin(dir: &Path, moves: &[(PathBuf, PathBuf)]) -> Option<Journal> {
     Some(plan)
 }
 
-/// Whether `file` can be locked: tried for a moment, as a program another thread starts holds a
-/// copy of the descriptor, and its lock, until it runs.
+/// Whether `file` can be locked. It is tried for a moment, because a program that another
+/// thread starts holds a copy of the descriptor, and its lock, until it runs.
 fn free(file: &File) -> bool {
     (0..10).any(|k| {
         if k > 0 {
@@ -108,13 +111,14 @@ fn free(file: &File) -> bool {
     })
 }
 
-/// The plans in `dir` of renames that were cut short: those no running window holds locked.
+/// The plans in `dir` of renames that were cut short, which are those no running window holds
+/// locked.
 pub fn interrupted(dir: &Path) -> Vec<CutShort> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     entries
         .filter_map(|e| {
-            // A pipe or a link planted in the state folder is no plan: opening a pipe would hold
-            // the start for good. Read no more than a decode would.
+            // A pipe or a link planted in the state folder is no plan, and opening a pipe would
+            // hold the start for good. It reads no more than a decode would.
             e.file_type().ok().filter(|t| t.is_file())?;
             let file = crate::images::decode::open(e.path()).ok()?;
             free(&file).then_some(())?;
@@ -147,7 +151,7 @@ fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
         .filter(|p| !p.is_empty())
         .map(|p| PathBuf::from(OsStr::from_bytes(p)))
         .collect();
-    // Made a moment ago and not yet locked or written: not one left by a crash.
+    // A plan made a moment ago and not yet locked or written is not one left by a crash.
     if paths.is_empty() {
         return None;
     }
@@ -157,10 +161,10 @@ fn parse(bytes: &[u8]) -> Option<(Moves, Option<usize>)> {
     Some((moves, done))
 }
 
-/// One step of a plan, `a` to `b`: never over another file (`put_file`). A step cut short
-/// between its link and its unlink, both names the file, is finished by taking the old one
-/// away. The one way a step is done, whether as Rename Many runs, is undone, or is put right
-/// at the next start.
+/// Does one step of a plan, `a` to `b`, never over another file (`put_file`). A step cut short
+/// between its link and its unlink, where both names are the file, is finished by taking the
+/// old name away. This is the one way a step is done, whether as Rename Many runs, as it is
+/// undone, or as it is put right at the next start.
 pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
     if same_file(a, b) {
         return std::fs::remove_file(a);
@@ -168,14 +172,14 @@ pub fn step(a: &Path, b: &Path) -> std::io::Result<()> {
     crate::files::file_io::put_file(a, b, false)
 }
 
-/// The first `done` steps of `moves` undone, last first; (renamed, left). A name no longer
-/// there is nothing of ours to put back, and is left out of both.
+/// Undoes the first `done` steps of `moves`, last first. Returns (renamed, left). A name that is
+/// no longer there is nothing of ours to put back, and it is left out of both.
 pub fn undo(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
     let back = moves[..done.min(moves.len())].iter().rev();
     steps(back.map(|(a, b)| (b.as_path(), a.as_path())))
 }
 
-/// The steps of `moves` after the first `done` done; (renamed, left).
+/// Does the steps of `moves` after the first `done`. Returns (renamed, left).
 pub fn finish(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
     let rest = moves[done.min(moves.len())..].iter();
     steps(rest.map(|(a, b)| (a.as_path(), b.as_path())))
@@ -195,12 +199,12 @@ fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize
     (renamed, left)
 }
 
-/// The files a plan's `moves` take from their old names to their new ones, (from, to): the
-/// hidden steps of a swap (a → .t0, b → a, .t0 → b) followed to their ends, so marks and
+/// The files a plan's `moves` take from their old names to their new ones, as (from, to). The
+/// hidden steps of a swap (a → .t0, b → a, .t0 → b) are followed to their ends, so marks and
 /// collections can follow the files as after a finished Rename Many.
 pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
-    // A file's own name is never the hidden name an earlier step gave another file; its chain
-    // runs forward through the later steps only, as a swap's steps lead round in a ring.
+    // A file's own name is never the hidden name an earlier step gave another file. Its chain
+    // runs forward through the later steps only, because a swap's steps lead round in a ring.
     let starts =
         (moves.iter().enumerate()).filter(|(k, (a, _))| !moves[..*k].iter().any(|(_, b)| b == a));
     starts
@@ -216,28 +220,31 @@ pub fn pairs(moves: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
         .collect()
 }
 
-/// Put the old names back, or finish the renames: the `done` steps undone, or the rest done; for
-/// a plan that did not count them, every step, by the names alone. (renamed, left); the plan
-/// goes when nothing is left, else it is asked about again at the next start. `None` when
-/// another window has it or has put it right already: nothing was done here, and the caller
-/// must not tell marks and collections of moves a second time (a swap's marks swapped back).
+/// Puts the old names back or finishes the renames, by undoing the `done` steps or doing the
+/// rest. For a plan that did not count them, it takes every step, by the names alone. Returns
+/// (renamed, left). The plan goes when nothing is left, and otherwise it is asked about again
+/// at the next start. Returns `None` when another window has the plan or has put it right
+/// already. Then nothing was done here, and the caller must not tell marks and collections of
+/// the moves a second time (a swap's marks would be swapped back).
 pub fn settle(
     plan: &Path,
     moves: &[(PathBuf, PathBuf)],
     done: Option<usize>,
     undo_them: bool,
 ) -> Option<(usize, usize)> {
-    // One window at a time, and only while the plan is there: a second window that asked about
-    // it too would do the same steps again, on files already put right. Also one that opened it
-    // just before the first deleted it, and got the lock once that one let go.
+    // Only one window at a time works on the plan, and only while it is there. A second window
+    // that asked about it too would do the same steps again, on files already put right. That
+    // also holds for one that opened it just before the first deleted it, and got the lock once
+    // that one let go.
     let _held = crate::images::decode::open(plan)
         .ok()
         .filter(free)
         .filter(linked)?;
     let done = done.map(|d| done_by_names(moves, d));
     let mut first = 0;
-    // Put back: the step cut short between its link and its unlink, the first not counted, has
-    // its new name taken away first, so the steps before it can be undone.
+    // When the names are put back, the step cut short between its link and its unlink, the
+    // first one not counted, has its new name taken away first, so the steps before it can be
+    // undone.
     if undo_them
         && let Some((a, b)) = done.and_then(|d| moves.get(d))
         && same_file(a, b)
@@ -248,7 +255,7 @@ pub fn settle(
     let (renamed, left) = match (undo_them, done) {
         (true, Some(done)) => undo(moves, done),
         (false, Some(done)) => finish(moves, done),
-        // Not counted: every step, by the names alone.
+        // When the steps were not counted, every step is undone, by the names alone.
         (true, None) => undo(moves, moves.len()),
         (false, None) => finish(moves, 0),
     };
@@ -258,15 +265,17 @@ pub fn settle(
     Some((renamed + first, left))
 }
 
-/// How many steps were done: `done`, or more where the names on disk show it, as a power cut
-/// may lose the last counts. The names each step leaves are followed from the start, and the
-/// first count from `done` on whose names are all as on disk is taken. Undone from the count
-/// alone, a swap cut short after a → .t0 and b → .t1 but counted at one put a back and left b's
-/// photo under its hidden name for good, the plan deleted. A step cut short between its link
-/// and its unlink has both names, one file: that count, with it the first not done. Where no
-/// count fits (a file changed by hand since), the count stays. One look at each name.
+/// How many steps were done. It is `done`, or more where the names on disk show it, because a
+/// power cut may lose the last counts. The names each step leaves are followed from the start,
+/// and the first count from `done` on whose names are all as on disk is taken. Undone from the
+/// count alone, a swap cut short after a → .t0 and b → .t1 but counted at one put a back and
+/// left b's photo under its hidden name for good, with the plan deleted. A step cut short
+/// between its link and its unlink has both names for one file, and then that count is taken,
+/// with the step as the first not done. Where no count fits (a file changed by hand since), the
+/// count stays. It looks once at each name.
 fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
-    // Each name once, by number; whether it is there after the steps so far, and on disk.
+    // Each name gets a number, once. It records whether the name is there after the steps so
+    // far, and whether it is on disk.
     let mut number: std::collections::HashMap<&Path, usize> = Default::default();
     let steps: Vec<[usize; 2]> = (moves.iter())
         .map(|(a, b)| {
@@ -280,7 +289,7 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     for (p, &n) in &number {
         on_disk[n] = p.exists();
     }
-    // Before the first step: each step's old name that no earlier step made.
+    // Before the first step, each step's old name that no earlier step made is there.
     let (mut there, mut made) = (vec![false; number.len()], vec![false; number.len()]);
     for &[a, b] in &steps {
         there[a] |= !made[a];
@@ -291,8 +300,9 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
         if k >= done && wrong == 0 {
             return k;
         }
-        // Cut short between this step's link and its unlink: the names of the count before it,
-        // and its new name too, the same file as its old one; `settle` takes that name away.
+        // When cut short between this step's link and its unlink, the names are those of the
+        // count before it, and its new name too, the same file as its old one. `settle` takes
+        // that name away.
         let (from, to) = (&moves[k].0, &moves[k].1);
         if k >= done && wrong == 1 && !there[b] && on_disk[b] && same_file(from, to) {
             return k;
@@ -311,7 +321,7 @@ fn done_by_names(moves: &[(PathBuf, PathBuf)], done: usize) -> usize {
     }
 }
 
-/// Whether `file` still has a name: a plan another window put right and deleted has none.
+/// Whether `file` still has a name. A plan that another window put right and deleted has none.
 fn linked(file: &File) -> bool {
     use std::os::unix::fs::MetadataExt;
     file.metadata().is_ok_and(|m| m.nlink() > 0)
@@ -328,8 +338,8 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    /// A power cut lost the count of the last step done: undone by the names too, so no photo
-    /// stays under a hidden name; finished all the same.
+    /// A power cut lost the count of the last step done. The plan is undone by the names too, so
+    /// no photo stays under a hidden name, and it is finished all the same.
     #[test]
     fn puts_back_the_steps_whose_count_was_lost() {
         let dir =
@@ -345,7 +355,7 @@ mod tests {
             (p(".tmp-0"), p("b.jpg")),
             (p(".tmp-1"), p("a.jpg")),
         ];
-        // Three steps done, one counted: b is there again, made by the third.
+        // Three steps are done and one counted, and b is there again, made by the third.
         std::fs::write(p("b.jpg"), "a").unwrap();
         std::fs::write(p(".tmp-1"), "b").unwrap();
         let plan = plans.join("cut");
@@ -359,8 +369,9 @@ mod tests {
         std::fs::remove_file(p("a.jpg")).unwrap();
         std::fs::remove_file(p("b.jpg")).unwrap();
         for undo in [true, false] {
-            // Two steps done and the third linked, one counted: b and .tmp-0 one file. Put
-            // back, the link goes first; finished, the third step is the link's unlink.
+            // Two steps are done and the third linked, with one counted, so b and .tmp-0 are one
+            // file. When put back, the link goes first. When finished, the third step is the
+            // link's unlink.
             std::fs::write(p(".tmp-0"), "a").unwrap();
             std::fs::write(p(".tmp-1"), "b").unwrap();
             std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
@@ -381,7 +392,7 @@ mod tests {
             assert!(!p(".tmp-0").exists() && !p(".tmp-1").exists() && !plan.exists());
             std::fs::remove_file(p("a.jpg")).unwrap();
             std::fs::remove_file(p("b.jpg")).unwrap();
-            // A chain without swaps, a → A … d → D: three done and the fourth linked, one
+            // A chain without swaps, a → A … d → D, with three done, the fourth linked, and one
             // counted.
             let chain: Vec<_> = ["a", "b", "c", "d"]
                 .map(|n| {
@@ -439,9 +450,9 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A swap done to the end with only its first half counted (synced there): finished, the
-    /// files stay swapped. With nothing counted the names alone would take it for not begun, and
-    /// finishing it would swap them back.
+    /// A swap done to the end with only its first half counted (synced there) is finished, and
+    /// the files stay swapped. With nothing counted, the names alone would take it for not
+    /// begun, and finishing it would swap them back.
     #[test]
     fn a_whole_swap_counted_at_half_stays_swapped() {
         let dir = std::env::temp_dir().join(format!("glimt-test-half-swap-{}", std::process::id()));
@@ -470,8 +481,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A pipe in the plans folder is passed over, not opened: opening it would hold Glimt's
-    /// start for good.
+    /// A pipe in the plans folder is passed over, not opened, because opening it would hold
+    /// Glimt's start for good.
     #[test]
     fn passes_over_a_pipe_among_the_plans() {
         let dir = std::env::temp_dir().join(format!("glimt-test-plan-pipe-{}", std::process::id()));
@@ -489,7 +500,7 @@ mod tests {
     }
 
     /// A plan locked by a running rename is not taken for a cut-short one, nor written over by a
-    /// second; one left by a crash is, and its files get their old names back, or their new ones.
+    /// second. One left by a crash is, and its files get their old names back, or their new ones.
     #[test]
     fn puts_cut_short_renames_right() {
         let dir = std::env::temp_dir().join(format!("glimt-test-journal-{}", std::process::id()));
@@ -504,7 +515,7 @@ mod tests {
             (p(".tmp-1"), p("a.jpg")),
         ];
         let running = super::begin(&plans, &moves).unwrap();
-        // A second one has a plan of its own; neither is taken for one cut short.
+        // A second rename has a plan of its own, and neither is taken for one cut short.
         let second = super::begin(&plans, &moves[..1]).unwrap();
         assert_ne!(running.path, second.path);
         assert!(super::interrupted(&plans).is_empty());
@@ -519,7 +530,7 @@ mod tests {
         );
         drop(running);
         assert!(std::fs::read_dir(&plans).unwrap().next().is_none());
-        // Cut short after two steps: both files under hidden names.
+        // Cut short after two steps, both files are under hidden names.
         std::fs::write(p(".tmp-0"), "a").unwrap();
         std::fs::write(p(".tmp-1"), "b").unwrap();
         let mut cut = super::begin(&plans, &moves).unwrap();
@@ -527,7 +538,7 @@ mod tests {
         cut.done();
         let plan = cut.path.clone();
         std::mem::forget(cut);
-        // As after a crash: the lock is gone with the process.
+        // As after a crash, the lock is gone with the process.
         let found = {
             std::fs::copy(&plan, plans.join("crashed")).unwrap();
             super::interrupted(&plans)
@@ -538,8 +549,8 @@ mod tests {
             .unwrap();
         assert_eq!((&read, done), (&moves, Some(2)));
         let text = |n| std::fs::read_to_string(p(n)).unwrap();
-        // Cut short between the link and the unlink of the third step: b.jpg and .tmp-0 are one
-        // file. Finished, the old name goes; nothing is left to ask about again.
+        // Cut short between the link and the unlink of the third step, b.jpg and .tmp-0 are one
+        // file. When finished, the old name goes, and nothing is left to ask about again.
         std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
         std::fs::copy(&path, plans.join("linked")).unwrap();
         assert_eq!(
@@ -550,7 +561,7 @@ mod tests {
         assert!(!p(".tmp-0").exists());
         std::fs::rename(p("a.jpg"), p(".tmp-1")).unwrap();
         std::fs::rename(p("b.jpg"), p(".tmp-0")).unwrap();
-        // The same, put back: the new name of the half-done step goes, then the two before.
+        // The same is put back. The new name of the half-done step goes, then the two before.
         std::fs::hard_link(p(".tmp-0"), p("b.jpg")).unwrap();
         std::fs::copy(&path, plans.join("linked")).unwrap();
         assert_eq!(
@@ -585,8 +596,9 @@ mod tests {
             Some((2, 0))
         );
         assert_eq!((text("a.jpg"), text("b.jpg")), ("b".into(), "a".into()));
-        // Cut short after three steps, where the names alone look like after one: finished, the
-        // swap is whole and the plan gone, so it is not done a second time; or undone.
+        // Cut short after three steps, where the names alone look like after one, the plan is
+        // finished. The swap is whole and the plan gone, so it is not done a second time. It
+        // can also be undone.
         let after_three = || {
             std::fs::write(p(".tmp-1"), "b").unwrap();
             std::fs::write(p("b.jpg"), "a").unwrap();
@@ -609,10 +621,6 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Every place a Rename Many can be cut short, also between the link and the unlink of one
-    /// step, for a swap, a cycle of three, a shift and plain new names: put back gives every
-    /// old name, finished every new one, no hidden name is left, and a second settle does
-    /// nothing.
     /// Damaged plans are read without a panic, and never count more steps done than they have.
     #[test]
     fn survives_broken_plans() {
@@ -638,8 +646,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// The failing path and the recovery share one undo: two steps of a swap done, undone last
-    /// A swap's steps followed to their ends: a goes to b and b to a; a plain rename is itself.
+    /// A swap's steps are followed to their ends. a goes to b and b to a, and a plain rename is
+    /// itself.
     #[test]
     fn pairs_follow_the_steps() {
         let p = |n: &str| std::path::PathBuf::from(n);
@@ -656,7 +664,9 @@ mod tests {
         assert_eq!(super::pairs(&[(p("c"), p("d"))]), vec![(p("c"), p("d"))]);
     }
 
-    /// first; one of them put back by hand already is left out, not counted as stuck.
+    /// The failing path and the recovery share one undo. Two steps of a swap are done and then
+    /// undone, last first. One of them put back by hand already is left out, and not counted as
+    /// stuck.
     #[test]
     fn undoes_the_steps_done() {
         let dir = std::env::temp_dir().join(format!("glimt-test-undo-{}", std::process::id()));
@@ -671,7 +681,7 @@ mod tests {
         assert_eq!(super::undo(&moves, 3), (3, 0));
         assert_eq!(std::fs::read_to_string(p("a")).unwrap(), "a");
         assert_eq!(std::fs::read_to_string(p("b")).unwrap(), "b");
-        // Two done, one of them put back by hand: only the other is undone.
+        // Two are done, and one of them is put back by hand, so only the other is undone.
         std::fs::rename(p("a"), p(".t0")).unwrap();
         std::fs::rename(p("b"), p(".t1")).unwrap();
         std::fs::rename(p(".t1"), p("b")).unwrap();
@@ -680,6 +690,10 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Every place a Rename Many can be cut short is tried, also between the link and the
+    /// unlink of one step, for a swap, a cycle of three, a shift and plain new names. Putting
+    /// back gives every old name, finishing gives every new one, no hidden name is left, and a
+    /// second settle does nothing.
     #[test]
     fn settles_every_cut() {
         let dir = std::env::temp_dir().join(format!("glimt-test-cuts-{}", std::process::id()));
@@ -692,7 +706,8 @@ mod tests {
             (&["a", "b"], &["x", "y"]),
         ];
         for (from, to) in cases {
-            // As rename_many plans it: through hidden names when a new name is an old one.
+            // This is the plan as rename_many makes it, through hidden names when a new name is
+            // an old one.
             let mut moves: super::Moves = Vec::new();
             if to.iter().any(|t| from.contains(t)) {
                 let tmp = |k: usize| p(&format!(".tmp-{k}"));
@@ -720,7 +735,7 @@ mod tests {
                         if half {
                             std::fs::hard_link(&moves[cut].0, &moves[cut].1).unwrap();
                         }
-                        // As after a crash: the plan on disk, no longer locked.
+                        // As after a crash, the plan is on disk and no longer locked.
                         let bytes = std::fs::read(&plan.path).unwrap();
                         drop(plan);
                         std::fs::write(plans.join("crashed"), bytes).unwrap();
