@@ -691,7 +691,7 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
         ok
     };
     let fits_too = fits.clone();
-    let (data, string) = (R::default_data_resolver(), R::default_string_resolver());
+    let (data, data_too) = (R::default_data_resolver(), R::default_data_resolver());
     R {
         resolve_data: Box::new(move |mime, bytes, opts| {
             fits(bytes.as_slice())
@@ -708,10 +708,14 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
                     .join(p),
             };
             let meta = std::fs::metadata(&file).ok().filter(|m| m.is_file())?;
-            if meta.len() > 64 << 20 || !fits_too(&read_limited(&file).ok()?) {
+            if meta.len() > 64 << 20 {
                 return None;
             }
-            string(href, opts)
+            // The bytes checked are the bytes decoded. usvg's own string resolver would open
+            // the file again, and a file swapped in between would get past the limits. As
+            // "text/plain", usvg tells the format by the bytes, as it does for a data URL.
+            let bytes = read_limited(&file).ok().filter(|b| fits_too(b))?;
+            data_too("text/plain", std::sync::Arc::new(bytes), opts)
         }),
     }
 }
