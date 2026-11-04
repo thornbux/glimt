@@ -62,6 +62,9 @@ pub(crate) struct Deleted {
     pub(crate) relist: bool,
     /// What Undo puts back, when this was a move to the trash or a move.
     pub(crate) undo: Option<Undo>,
+    /// Whether `undo` is what an Undo from the trash could not put back. It is kept only when no
+    /// operation that finished meanwhile left an Undo of its own, which is newer.
+    pub(crate) undo_left: bool,
     /// The marks and stars to put back, for files that Undo brought back from the trash.
     pub(crate) restored_marks: Vec<(PathBuf, (u8, u8))>,
     /// The files a plugin changed in place. What is shown of them is read again. (A turn that
@@ -617,6 +620,7 @@ impl crate::App {
             copied,
             relist,
             undo,
+            undo_left,
             restored_marks,
             changed,
             overwritten,
@@ -656,7 +660,7 @@ impl crate::App {
             };
             #[cfg(not(feature = "marks"))]
             drop(restored_marks);
-            if undo.is_some() {
+            if undo.is_some() && !(undo_left && self.work.undo.is_some()) {
                 self.work.undo = undo;
             }
             if let Some(dups) = &mut self.dups {
@@ -1243,6 +1247,7 @@ impl crate::App {
                 let _ = deleted_tx.send(Deleted {
                     relist: true,
                     undo,
+                    undo_left: true,
                     restored_marks: marks,
                     ..Default::default()
                 });
@@ -2178,6 +2183,35 @@ mod tests {
         );
         let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
         assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+    }
+
+    /// The files an Undo from the trash could not put back do not replace the Undo of a delete
+    /// that finished while it ran, because that one is newer and holds its own files' marks.
+    #[test]
+    fn an_undo_sent_back_keeps_a_newer_one() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-newer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.work.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
+            files: vec![a.clone()],
+            sidecars: Vec::new(),
+            since: std::time::SystemTime::now(),
+            marks: Vec::new(),
+            collection: None,
+        }));
+        app.undo(&ctx);
+        app.work.undo = Some(super::Undo::Move(Vec::new()));
+        // The thread reports before it tells, so its report is waiting once it told.
+        let told = app
+            .notices_rx
+            .recv_timeout(std::time::Duration::from_secs(5));
+        assert!(told.is_ok());
+        app.receive_deleted(&ctx);
+        assert!(matches!(app.work.undo, Some(super::Undo::Move(_))));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// An Undo of a move to the trash that is refused, because a new file has taken the first
