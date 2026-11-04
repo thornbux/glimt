@@ -699,19 +699,17 @@ impl Action {
 /// A shortcut: the action, and the modifiers and key that run it.
 pub type Shortcut = (Action, egui::Modifiers, egui::Key);
 
-/// Own keys in the config: "Next=Ctrl+N;ZoomIn=Plus", by action and egui's key names.
+/// Own keys in the config: "Next=Ctrl+N;ZoomIn=Plus", by action and egui's key names. The
+/// second field holds the items for actions this build does not know, such as the marks in a
+/// build without them or an action of a newer version. They are written back unchanged, so
+/// saving the keys here does not take them from the build that knows them.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Keys(pub Vec<(Action, egui::Modifiers, egui::Key)>);
+pub struct Keys(pub Vec<(Action, egui::Modifiers, egui::Key)>, Vec<String>);
 
 impl std::str::FromStr for Keys {
     type Err = ();
     fn from_str(text: &str) -> Result<Self, ()> {
-        let one = |item: &str| {
-            let (name, combo) = item.split_once('=')?;
-            let action = SHORTCUTS
-                .iter()
-                .map(|s| s.0)
-                .find(|a| format!("{a:?}") == name)?;
+        let combo_of = |combo: &str| {
             let mut mods = egui::Modifiers::NONE;
             let mut parts: Vec<&str> = combo.split('+').collect();
             let key = egui::Key::from_name(parts.pop()?)?;
@@ -724,9 +722,19 @@ impl std::str::FromStr for Keys {
                 }
             }
             mods.ctrl = mods.command;
-            Some((action, mods, key))
+            Some((mods, key))
         };
-        Ok(Keys(text.split(';').filter_map(one).collect()))
+        let mut keys = Keys::default();
+        for item in text.split(';') {
+            let Some((name, combo)) = item.split_once('=') else {
+                continue;
+            };
+            match SHORTCUTS.iter().find(|s| format!("{:?}", s.0) == name) {
+                Some(&(action, ..)) => keys.0.extend(combo_of(combo).map(|(m, k)| (action, m, k))),
+                None => keys.1.push(item.to_owned()),
+            }
+        }
+        Ok(keys)
     }
 }
 
@@ -742,6 +750,7 @@ impl std::fmt::Display for Keys {
                 }
                 format!("{a:?}={combo}{}", k.name())
             })
+            .chain(self.1.iter().cloned())
             .collect();
         write!(f, "{}", items.join(";"))
     }
@@ -1351,7 +1360,8 @@ mod tests {
         let keys: Keys = "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X;Prev=Hyper+P"
             .parse()
             .unwrap();
-        assert_eq!(keys.to_string(), "Next=Ctrl+Shift+N;ZoomIn=Plus");
+        // An action this build does not know is kept as it was; a key it cannot read is not.
+        assert_eq!(keys.to_string(), "Next=Ctrl+Shift+N;ZoomIn=Plus;Bogus=X");
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
         *super::OWN_KEYS.write().unwrap() = keys.0.clone();
         let all = super::shortcuts();
