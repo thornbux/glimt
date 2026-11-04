@@ -731,7 +731,6 @@ fn raw(path: &Path) -> Option<Vec<u8>> {
         return exif;
     }
     crate::images::decode::image_reader(path)
-        .and_then(|r| r.with_guessed_format())
         .ok()?
         .into_decoder()
         .ok()?

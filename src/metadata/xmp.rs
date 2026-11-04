@@ -218,10 +218,7 @@ fn embedded(path: &Path) -> Option<String> {
         Some(found) => found?[JPEG.len()..].to_vec(),
         None => {
             use image::ImageDecoder;
-            let reader = crate::images::decode::image_reader(path)
-                .ok()?
-                .with_guessed_format()
-                .ok()?;
+            let reader = crate::images::decode::image_reader(path).ok()?;
             reader.into_decoder().ok()?.xmp_metadata().ok()??
         }
     };

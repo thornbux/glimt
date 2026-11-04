@@ -335,7 +335,6 @@ pub fn colour_source(path: &Path) -> String {
     let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
     let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
     let dec = crate::images::decode::image_reader(path)
-        .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok());
     let own = dec.and_then(|mut d| {

@@ -360,8 +360,6 @@ pub fn find(
                 }
                 crate::images::decode::image_reader(path)
                     .ok()?
-                    .with_guessed_format()
-                    .ok()?
                     .into_dimensions()
                     .ok()
             });

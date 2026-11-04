@@ -303,7 +303,6 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
 /// GIF named a.png is still animated, and a JPEG named so is not.
 fn animated(path: &Path) -> Result<bool, String> {
     let format = crate::images::decode::image_reader(path)
-        .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .format();
     let file = || crate::images::decode::open(path).map(std::io::BufReader::new);
@@ -321,7 +320,6 @@ fn animated(path: &Path) -> Result<bool, String> {
 
 fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
     let (mut exif, mut xmp, stored) = crate::images::decode::image_reader(path)
-        .and_then(|r| r.with_guessed_format())
         .ok()
         .and_then(|r| r.into_decoder().ok())
         .map(|mut d| {

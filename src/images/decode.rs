@@ -504,7 +504,6 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         return Ok((decoder.decode(path)?, None, upright, None));
     }
     let dec = image_reader(path)
-        .and_then(|r| r.with_guessed_format())
         .map_err(|e| e.to_string())?
         .into_decoder()
         .map_err(|e| e.to_string());
@@ -924,29 +923,30 @@ pub(crate) fn open(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
     open_file(path.as_ref()).map(|(file, _)| file)
 }
 
-/// An image crate reader on `path`, opened with `open` (no pipe or device), with its format
-/// guessed from the extension, as `image::ImageReader::open` does. Clippy refuses that one,
-/// because the image crate opens the file itself, where clippy cannot look.
+/// An image crate reader on `path`, opened with `open` (no pipe or device). Its format is
+/// guessed from the file's first bytes, and from the extension when they say nothing, as
+/// `image::ImageReader::open` and `with_guessed_format` do. Clippy refuses `open`, because the
+/// image crate opens the file itself, where clippy cannot look.
 pub(crate) fn image_reader(
     path: impl AsRef<Path>,
 ) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
     let path = path.as_ref();
     let (file, meta) = open_file(path)?;
-    let format = image::ImageFormat::from_path(path).ok();
+    let mut reader = image::ImageReader::new(std::io::BufReader::new(file));
+    if let Ok(format) = image::ImageFormat::from_path(path) {
+        reader.set_format(format);
+    }
+    let reader = reader.with_guessed_format()?;
     // The image crate's JPEG decoder reads the whole file before any of its limits apply, so a
-    // JPEG larger than a decode may take is refused here, as read_limited refuses it. Other
-    // formats are read by seeking, so a large TIFF or PNG still opens. A file whose name says no
-    // format may be a JPEG, so it is refused too.
-    let whole = matches!(format, Some(image::ImageFormat::Jpeg) | None);
+    // JPEG larger than a decode may take is refused here, as read_limited refuses it. The format
+    // counts as the bytes tell it, so a JPEG named .png is refused too. Other formats are read by
+    // seeking, so a large TIFF or PNG still opens. A file of no known format is refused as well.
+    let whole = matches!(reader.format(), Some(image::ImageFormat::Jpeg) | None);
     if whole && meta.len() > MAX_DECODE {
         return Err(std::io::Error::other(format!(
             "file too large ({})",
             human_size(MAX_DECODE)
         )));
-    }
-    let mut reader = image::ImageReader::new(std::io::BufReader::new(file));
-    if let Some(format) = format {
-        reader.set_format(format);
     }
     Ok(reader)
 }
@@ -1698,6 +1698,13 @@ mod tests {
         std::fs::hard_link(&file, &tif).unwrap();
         assert!(super::image_reader(&tif).is_ok());
         std::fs::remove_file(&tif).unwrap();
+        // A JPEG named .png is told by its bytes, and refused as a JPEG.
+        let png = file.with_extension("png");
+        let mut g = std::fs::File::create(&png).unwrap();
+        std::io::Write::write_all(&mut g, &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        g.set_len(8 << 30).unwrap();
+        assert!(super::image_reader(&png).is_err());
+        std::fs::remove_file(&png).unwrap();
         let raf = file.with_extension("raf");
         std::fs::hard_link(&file, &raf).unwrap();
         assert!(crate::images::raw::exif(&raf).is_none());
