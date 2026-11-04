@@ -325,6 +325,50 @@ fn app_stays_small() {
     );
 }
 
+/// A part of App keeps its fields to itself: only its module changes them, and other modules
+/// call methods whose names say what happens (`self.slideshow.toggle_pause()`), so the
+/// compiler, not a convention, keeps a part's rules in one place. A `pub(crate)` field in one of
+/// these structs fails this.
+#[test]
+fn parts_keep_their_fields() {
+    const PARTS: &[(&str, &str)] = &[
+        ("files/file_ops.rs", "Work"),
+        ("model/search.rs", "Search"),
+        ("ui/dialogs.rs", "Dialogs"),
+        ("ui/file_list.rs", "Panel"),
+        ("ui/file_list.rs", "StatusBar"),
+        ("ui/file_list.rs", "Thumbs"),
+        ("ui/file_list.rs", "Tree"),
+        ("ui/info_panel.rs", "Info"),
+        ("ui/preferences.rs", "Prefs"),
+        ("ui/window.rs", "Window"),
+        ("viewer/slideshow.rs", "Slideshow"),
+        ("viewer/view.rs", "Decoding"),
+        ("viewer/view.rs", "Viewing"),
+        ("viewer/view.rs", "Zoom"),
+    ];
+    let mut wrong = Vec::new();
+    for (file, part) in PARTS {
+        let lines = code_lines(&source(file));
+        let head = format!("pub(crate) struct {part} {{");
+        let Some(start) = lines.iter().position(|l| *l == head) else {
+            wrong.push(format!("{file}: no struct {part}"));
+            continue;
+        };
+        let end = block_end(&lines, start).unwrap();
+        for (i, line) in lines.iter().enumerate().take(end).skip(start + 1) {
+            if indent(line) == 4 && line.trim_start().starts_with("pub") {
+                wrong.push(format!("{file}:{}: {part}'s field", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "make these private, and give the part a method that says what happens:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A function a reader takes in whole: at most 120 lines outside the tests. The exceptions are
 /// tables of one arm per action (`table_is_short`), whose arms stay a few lines each: a longer
 /// arm is a method of its own, in the module of what it does.
