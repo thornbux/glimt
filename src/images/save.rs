@@ -1,5 +1,5 @@
-//! Saving a turned image: the pixels turned, the EXIF kept with orientation 1 and the XMP kept,
-//! in the same format (a lossy WebP gets them back in RIFF chunks).
+//! Saving a turned image. The pixels are turned, the EXIF is kept with orientation 1, and the
+//! XMP is kept, all in the same format. (A lossy WebP gets them back in RIFF chunks.)
 
 use crate::images::colour::to_srgb;
 use crate::images::decode::load_icc;
@@ -8,21 +8,23 @@ use crate::model::listing::has_ext;
 use image::ImageDecoder;
 use std::path::Path;
 
-/// How a copy of an image is made (Edit → Crop, File → Save As): as the view shows it (turned
-/// by `turns` and `mirrored`, and by EXIF with `rotate`; the page `page` of a TIFF), a part of
-/// it, smaller, in a format. `App::shown_copy` makes it from the view, for both.
+/// How a copy of an image is made (Edit → Crop, File → Save As). It is made as the view shows
+/// it (turned by `turns` and `mirrored`, by EXIF with `rotate`, and the page `page` of a TIFF),
+/// as a part of it, smaller, and in a format. `App::shown_copy` makes it from the view, for
+/// both.
 #[derive(Clone, PartialEq)]
 pub struct CopyAs {
-    /// The page of a multi-page TIFF shown; 0 for any other image.
+    /// The page of a multi-page TIFF shown. It is 0 for any other image.
     pub page: usize,
     pub rotate: bool,
     pub turns: u8,
     pub mirrored: bool,
     /// The part `[x, y, width, height]` of the image as shown.
     pub crop: Option<[u32; 4]>,
-    /// The longest side at most, in pixels; never enlarged.
+    /// The longest side at most, in pixels. The image is never enlarged.
     pub long_side: Option<u32>,
-    /// `None`: as the original, which is JPEG, PNG or WebP (lossy as it was), else PNG.
+    /// The format. `None` means as the original, which is JPEG, PNG or WebP (lossy as it was),
+    /// and otherwise PNG.
     pub format: Option<Format>,
     pub jpeg_quality: u8,
     pub webp_quality: u8,
@@ -63,7 +65,7 @@ impl Format {
     }
 }
 
-/// How an image is written: as a PNG, a WebP (lossy or not) or a JPEG of a quality.
+/// How an image is written, as a PNG, a WebP (lossy or not) or a JPEG of a quality.
 #[derive(Clone, Copy)]
 enum Kind {
     Png,
@@ -72,17 +74,17 @@ enum Kind {
 }
 
 /// The EXIF block (camera, date, place) and XMP of `path`, for pixels written as the view
-/// showed them: their orientation set upright, also with Auto Rotate off, where the view did
-/// not turn them by it, else other programs would turn them again. And whether the stored
-/// orientation turned the image a quarter, with Auto Rotate.
+/// showed them. Their orientation is set upright, also with Auto Rotate off, where the view did
+/// not turn them by it, because otherwise other programs would turn them again. The flag says
+/// whether the stored orientation turned the image a quarter, with Auto Rotate.
 type Metadata = (Option<Vec<u8>>, Option<Vec<u8>>, bool);
 
-/// Save the view's rotation in a PNG or WebP, which have no orientation field to set: the
-/// pixels are turned and the file written again with its ICC profile, EXIF block and XMP
-/// (keywords, comment, alt text other programs wrote into it). PNG and
-/// lossless WebP lose nothing; a lossy WebP is encoded again by ffmpeg at `webp_quality`, in
-/// sRGB as ffmpeg drops the profile, and gets its EXIF block back afterwards. The new file
-/// replaces the old in one rename.
+/// Saves the view's rotation in a PNG or WebP, which have no orientation field to set. The
+/// pixels are turned, and the file is written again with its ICC profile, EXIF block and XMP
+/// (keywords, comment, and alt text other programs wrote into it). PNG and lossless WebP lose
+/// nothing. A lossy WebP is encoded again by ffmpeg at `webp_quality`, in sRGB because ffmpeg
+/// drops the profile, and it gets its EXIF block back afterwards. The new file replaces the old
+/// in one rename.
 pub fn save_rotated(
     path: &Path,
     rotate: bool,
@@ -90,7 +92,7 @@ pub fn save_rotated(
     mirrored: bool,
     webp_quality: u8,
 ) -> Result<(), String> {
-    // Through a symlink, the file it points to: the new file is renamed over that, not the link.
+    // Through a symlink, the new file is renamed over the file it points to, not over the link.
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
@@ -111,9 +113,9 @@ pub fn save_rotated(
     crate::files::file_io::replace_existing(path, out).map_err(|e| e.to_string())
 }
 
-/// The copy of `path` that `how` asks for, encoded, and its format. With its profile, and
-/// unless stripped its EXIF (upright) and XMP: JPEG and a lossy WebP at their quality (the
-/// WebP through ffmpeg), PNG and lossless WebP without loss.
+/// The copy of `path` that `how` asks for, encoded, and its format. It has its profile, and
+/// unless stripped its EXIF (upright) and XMP. JPEG and a lossy WebP are at their quality (the
+/// WebP through ffmpeg), and PNG and lossless WebP are without loss.
 pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String> {
     if animated(path)? {
         return Err("animated images are not saved as a copy".into());
@@ -130,18 +132,19 @@ pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String
         false => upright_metadata(path, how.rotate)?,
     };
     let (img, icc) = pixels(path, how)?;
-    // A PNG's other chunks hold as they were: a DPI is no different for a part. Not stripped,
-    // its text chunks may say where and by whom.
+    // A PNG's other chunks hold as they were, because a DPI is no different for a part. They
+    // are dropped when stripped, because the text chunks may say where and by whom.
     let from = if how.strip { Path::new("") } else { path };
     let out = encode(from, img, icc, exif, xmp, kind, false, how.webp_quality)?;
     Ok((out, format))
 }
 
-/// The pixels of `path` as `how` asks for them, with its ICC profile: the page shown, turned as
-/// shown, the part, smaller. What every copy of the shown image starts from, saved or put on
-/// the clipboard.
+/// The pixels of `path` as `how` asks for them, with its ICC profile. That is the page shown,
+/// turned as shown, the part, and smaller. Every copy of the shown image starts from these,
+/// whether it is saved or put on the clipboard.
 fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<u8>>), String> {
-    // A later page as the view decodes it: the image crate reads only the first.
+    // A later page is read as the view decodes it, because the image crate reads only the
+    // first.
     let (img, icc) = match how.page {
         0 => load_icc(path, how.rotate)?,
         page => (crate::images::decode::page_of(path, page)?, None),
@@ -159,14 +162,14 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
     Ok((img, icc))
 }
 
-/// The image as `how` shows it, in sRGB: Select → Copy Image, which copied it unturned and its
-/// first page.
+/// The image as `how` shows it, in sRGB, for Select → Copy Image. That copied the image
+/// unturned, and only its first page.
 pub fn shown_image(path: &Path, how: &CopyAs) -> Result<image::DynamicImage, String> {
     let (img, icc) = pixels(path, how)?;
     Ok(crate::images::colour::to_srgb(img, icc.as_deref()))
 }
 
-/// `img` with its longest side `long` at most, by Lanczos3: sharp, for a copy kept.
+/// `img` with its longest side `long` at most, by Lanczos3, which is sharp, for a copy kept.
 fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, String> {
     let (w, h) = (img.width(), img.height());
     if w.max(h) <= long {
@@ -184,16 +187,17 @@ fn smaller(img: image::DynamicImage, long: u32) -> Result<image::DynamicImage, S
     Ok(small)
 }
 
-/// The name of `path` without its extension, as its bytes (a name that is not UTF-8 kept as it
-/// is, not made "caf\u{FFFD}"), with `more` after it: a copy's name beside it.
+/// The name of `path` without its extension, as its bytes, with `more` after it, as a copy's
+/// name beside it. A name that is not UTF-8 is kept as it is, not made "caf\u{FFFD}".
 pub(crate) fn stem_and(path: &Path, more: &str) -> std::ffi::OsString {
     let mut name = path.file_stem().unwrap_or_default().to_owned();
     name.push(more);
     name
 }
 
-/// Save the part `how.crop` of the image as a new file beside it, "NAME-cropped.EXT" or
-/// "NAME-cropped-2.EXT" …, never over another; its sidecar is copied too. Returns the new file.
+/// Saves the part `how.crop` of the image as a new file beside it, "NAME-cropped.EXT" or
+/// "NAME-cropped-2.EXT" …, never over another file. Its sidecar is copied too. Returns the new
+/// file.
 pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, String> {
     let (out, format) = copy_bytes(path, how)?;
     // The original's own spelling (.jpeg, .JPG) where the format is the same.
@@ -219,12 +223,13 @@ pub fn save_cropped(path: &Path, how: &CopyAs) -> Result<std::path::PathBuf, Str
     unreachable!()
 }
 
-/// A copy of `path`, encoded as `out`, saved as `new` (over a file there only when `replace`,
-/// which the file dialog asked about), and given `path`'s sidecar, or none when `strip` or when
-/// `path` has none: a sidecar at `new`'s name is the replaced file's, or one left without its
-/// image, and its keywords and comment are not the copy's: removed, and the copy's made new,
-/// never written through a link there, which a downloaded folder may have pointed at any file of
-/// the user's (~/.bashrc). The one way a copy is saved: Crop, Save As, Save This Frame.
+/// Saves a copy of `path`, encoded as `out`, as `new`. It goes over a file there only when
+/// `replace`, which the file dialog asked about. The copy gets `path`'s sidecar, or none when
+/// `strip` or when `path` has none. A sidecar at `new`'s name belongs to the replaced file, or
+/// was left without its image, and its keywords and comment are not the copy's. So it is
+/// removed and the copy's is made new, never written through a link there, which a downloaded
+/// folder may have pointed at any file of the user's (~/.bashrc). This is the one way a copy is
+/// saved, for Crop, Save As and Save This Frame.
 pub(crate) fn land(
     path: &Path,
     new: &Path,
@@ -232,8 +237,9 @@ pub(crate) fn land(
     replace: bool,
     strip: bool,
 ) -> std::io::Result<()> {
-    // Read before the copy is written: one that cannot be read leaves no copy behind. One that
-    // is a link is none: what it points to (a private key) is not the photo's.
+    // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
+    // behind. A sidecar that is a link counts as none, because what it points to (a private key)
+    // is not the photo's.
     let side = crate::metadata::xmp::sidecar(path);
     let source = match strip || crate::metadata::xmp::linked(&side) {
         true => None,
@@ -244,7 +250,7 @@ pub(crate) fn land(
         false => crate::files::file_io::create_file(new, out)?,
     }
     let side = crate::metadata::xmp::sidecar(new);
-    // A link goes, not what it points to; `create_file` never follows one.
+    // A link goes, not what it points to, and `create_file` never follows one.
     match std::fs::remove_file(&side) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
@@ -256,8 +262,8 @@ pub(crate) fn land(
     .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
 }
 
-/// Whether `a` and `b` name one file, also through links: a copy is never saved over the image
-/// it is made from (Save As, Save This Frame).
+/// Whether `a` and `b` name one file, also through links, so a copy is never saved over the
+/// image it is made from (Save As, Save This Frame).
 pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
@@ -265,9 +271,9 @@ pub(crate) fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// File → Save As: the copy `how` asks for, saved as `to`, which the file dialog let replace
-/// a file there. Its extension made the format's, and then never over a file the dialog did
-/// not ask about; never the image itself. Returns the file saved.
+/// File → Save As. It saves the copy `how` asks for as `to`, which the file dialog let replace
+/// a file there. When the extension is made the format's, it is never saved over a file the
+/// dialog did not ask about, and never over the image itself. Returns the file saved.
 pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBuf, String> {
     let format = how.format.unwrap_or_else(|| Format::of(path));
     let ext = to.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -292,9 +298,9 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
     Ok(to)
 }
 
-/// Whether `path` is animated: only the first frame would be written back. Asked by what the
-/// file is, as it is read by its content: an animated GIF named a.png is still animated, a
-/// JPEG named so is not.
+/// Whether `path` is animated, because only the first frame would be written back. It asks by
+/// what the file is, because it is read by its content. An animated GIF named a.png is still
+/// animated, and a JPEG named so is not.
 fn animated(path: &Path) -> Result<bool, String> {
     let format = crate::images::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())
@@ -334,7 +340,8 @@ fn upright_metadata(path: &Path, rotate: bool) -> Result<Metadata, String> {
     Ok((exif, xmp, quarter))
 }
 
-/// `img` turned as the view: mirrored first, then turned clockwise `turns` quarters.
+/// `img` turned as the view turns it, mirrored first and then turned clockwise `turns`
+/// quarters.
 fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::DynamicImage {
     let img = if mirrored { img.fliph() } else { img };
     match turns % 4 {
@@ -345,10 +352,10 @@ fn turned(img: image::DynamicImage, turns: u8, mirrored: bool) -> image::Dynamic
     }
 }
 
-/// `img` encoded as `kind` with the profile, EXIF and XMP; a PNG keeps the other chunks of
-/// `path` (`quarter`: turned a quarter since). Encoded in memory: an encoder that owns its
-/// file flushes it on drop, where a full disk would go unnoticed and a cut-off file replace
-/// the photo.
+/// `img` encoded as `kind` with the profile, EXIF and XMP. A PNG keeps the other chunks of
+/// `path` (`quarter` says it was turned a quarter since). It is encoded in memory, because an
+/// encoder that owns its file flushes it on drop, where a full disk would go unnoticed and a
+/// cut-off file would replace the photo.
 #[allow(clippy::too_many_arguments)]
 fn encode(
     path: &Path,
@@ -416,8 +423,9 @@ fn encode(
         }
     };
     written.map_err(|e| e.to_string())?;
-    // The rest of what the PNG said of itself: its text (a comment, an AI tool's prompt), its
-    // DPI and its gamma; else a 300 dpi scan prints at 72 after a turn. Only from a PNG.
+    // The rest of what the PNG said of itself is kept: its text (a comment, an AI tool's
+    // prompt), its DPI and its gamma. Otherwise a 300 dpi scan prints at 72 after a turn. It is
+    // only taken from a PNG.
     if let Kind::Png = kind
         && has_ext(path, &["png"])
         && let Ok(old) = crate::images::decode::read_limited(path)
@@ -453,7 +461,8 @@ fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
 /// `png` with `xmp` in an iTXt chunk named as Adobe's XMP spec says, right after the header
 /// (IHDR), where readers that stop at the pixels find it too.
 fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
-    // The 8-byte signature, then IHDR: its length 13, its name, 13 bytes and a CRC.
+    // The 8-byte signature comes first, then IHDR, with its length 13, its name, 13 bytes and a
+    // CRC.
     let end = 33;
     if png.get(12..16) != Some(&b"IHDR"[..]) || png.len() < end {
         return Err("not a PNG file".into());
@@ -470,16 +479,17 @@ fn png_with_xmp(png: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header:
-/// text, physical size, time and colour space. Not the profile, EXIF or XMP, which are written
-/// anew, nor what depends on how the pixels are stored (palette, transparency, bit depth).
+/// The PNG `new` with the chunks of `old` that still hold for its pixels put after its header.
+/// They are text, physical size, time and colour space. The profile, EXIF and XMP are not
+/// taken, because they are written anew, nor what depends on how the pixels are stored
+/// (palette, transparency, bit depth).
 fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
     const KEPT: [&[u8; 4]; 8] = [
         b"tEXt", b"zTXt", b"iTXt", b"pHYs", b"tIME", b"gAMA", b"cHRM", b"sRGB",
     ];
     let (end, mut kept) = (33, Vec::new());
-    // Turned a quarter: pHYs, the pixels per unit across and down, swapped too (a fax-like scan
-    // of 204×98 dpi would print stretched else), also for a square picture.
+    // Turned a quarter, pHYs, the pixels per unit across and down, are swapped too, also for a
+    // square picture. Otherwise a fax-like scan of 204×98 dpi would print stretched.
     let swapped = quarter;
     let mut at = 8;
     while let Some(len) = old.get(at..at + 4) {
@@ -489,8 +499,8 @@ fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
         };
         let name = &chunk[4..8];
         let xmp = name == b"iTXt" && chunk[8..].starts_with(b"XML:com.adobe.xmp\0");
-        // ImageMagick's copies of the EXIF and XMP, with the old orientation, which exiv2
-        // (Geeqie, digiKam) reads: the turned file would be turned again there.
+        // These are ImageMagick's copies of the EXIF and XMP, with the old orientation, which
+        // exiv2 (Geeqie, digiKam) reads, so the turned file would be turned again there.
         let old_profile = [
             &b"Raw profile type exif"[..],
             b"Raw profile type APP1",
@@ -506,7 +516,7 @@ fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
         } else if KEPT.iter().any(|k| *k == name) && !xmp && !old_profile {
             kept.extend_from_slice(chunk);
         }
-        // Text may come after the pixels too: read up to the end.
+        // Text may come after the pixels too, so it reads up to the end.
         if name == b"IEND" {
             break;
         }
@@ -518,7 +528,7 @@ fn png_with_chunks(new: &[u8], old: &[u8], quarter: bool) -> Vec<u8> {
     [&new[..end], &kept, &new[end..]].concat()
 }
 
-/// The CRC that PNG chunks end with (ISO 3309), bit by bit: run once per saved image.
+/// The CRC that PNG chunks end with (ISO 3309), bit by bit. It runs once for each saved image.
 fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for &b in bytes {
@@ -530,7 +540,8 @@ fn crc32(bytes: &[u8]) -> u32 {
     !crc
 }
 
-/// Whether a WebP file is lossless (a VP8L image) or lossy (VP8); `None` if neither is found.
+/// Whether a WebP file is lossless (a VP8L image) or lossy (VP8). Returns `None` if neither is
+/// found.
 pub fn webp_lossless(path: &Path) -> Option<bool> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = crate::images::decode::open(path).ok()?;
@@ -539,7 +550,8 @@ pub fn webp_lossless(path: &Path) -> Option<bool> {
     if &head[..4] != b"RIFF" || &head[8..] != b"WEBP" {
         return None;
     }
-    // The chunks after the header: an extended file has VP8X, ICCP, ALPH … before the image.
+    // The chunks come after the header. An extended file has VP8X, ICCP, ALPH … before the
+    // image.
     let mut chunk = [0; 8];
     while file.read_exact(&mut chunk).is_ok() {
         match &chunk[..4] {
@@ -554,8 +566,9 @@ pub fn webp_lossless(path: &Path) -> Option<bool> {
     None
 }
 
-/// `img` as a lossy WebP of `quality`, encoded by ffmpeg (the `image` crate writes only
-/// lossless ones), in memory: its errors read beside it, and stopped after `external::LIMIT`.
+/// `img` as a lossy WebP of `quality`, encoded by ffmpeg in memory, because the `image` crate
+/// writes only lossless ones. Its errors are read beside it, and it is stopped after
+/// `external::LIMIT`.
 pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, String> {
     use std::io::Write;
     let mut png = Vec::new();
@@ -577,7 +590,8 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
         .stdin(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("a lossy WebP needs ffmpeg to be saved: {e}"))?;
-    // Written in a thread of its own, while its output is read: neither pipe fills and stops it.
+    // The image is written in a thread of its own while its output is read, so neither pipe
+    // fills and stops it.
     let mut stdin = child.stdin.take();
     let feed = std::thread::spawn(move || drop(stdin.as_mut().map(|i| i.write_all(&png))));
     let max = crate::images::decode::MAX_DECODE;
@@ -607,7 +621,7 @@ pub fn webp_with_chunk(
     }
     let mut out = b"RIFF\0\0\0\0WEBP".to_vec();
     let chunks = &webp[12..];
-    // A lossless image tells its alpha in its header (bit 28 after the signature byte); the
+    // A lossless image tells its alpha in its header (bit 28 after the signature byte), and the
     // extended header must say it too, or viewers show it opaque.
     let alpha = chunks.starts_with(b"VP8L") && chunks.get(12).is_some_and(|b| b & 0x10 != 0);
     let flag = if alpha { flag | 0x10 } else { flag };
@@ -635,7 +649,8 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
-    /// A damaged PNG or WebP given a chunk: refused or carried on as far as it goes, no panic.
+    /// A damaged PNG or WebP given a chunk is refused or carried on as far as it goes, with no
+    /// panic.
     #[test]
     fn survives_broken_files_given_a_chunk() {
         let mut png = Vec::new();
@@ -657,8 +672,8 @@ mod tests {
         }
     }
 
-    /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored;
-    /// broken ones are survived.
+    /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored.
+    /// Broken ones are survived.
     #[test]
     fn keeps_png_chunks() {
         use image::ImageEncoder;
@@ -689,7 +704,8 @@ mod tests {
         assert!(!has(b"tRNS") && !has(b"iTXt") && !has(b"zTXt"));
         let dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
         assert_eq!(image::ImageDecoder::dimensions(&dec), (2, 2));
-        // Turned a quarter (a 2×3 picture now): pHYs across and down swapped, its CRC right.
+        // Turned a quarter (a 2×3 picture now), pHYs across and down are swapped, and its CRC
+        // is right.
         let mut tall = Vec::new();
         image::codecs::png::PngEncoder::new(&mut tall)
             .write_image(&[0; 2 * 3 * 3], 2, 3, image::ExtendedColorType::Rgb8)
@@ -710,8 +726,8 @@ mod tests {
         }
     }
 
-    /// WebP files broken in thousands of ways: told lossless, lossy or neither without a panic
-    /// or a loop.
+    /// WebP files broken in thousands of ways are told lossless, lossy or neither without a
+    /// panic or a loop.
     #[test]
     fn survives_broken_webp() {
         use image::ImageEncoder;
@@ -728,8 +744,8 @@ mod tests {
         std::fs::remove_file(file).unwrap();
     }
 
-    /// The new bytes replace the image with its permissions; a failed replace leaves no
-    /// temporary file and the old one as it was.
+    /// The new bytes replace the image with its permissions. A failed replace leaves no
+    /// temporary file, and the old one as it was.
     #[test]
     fn replaces_images_whole() {
         use std::os::unix::fs::PermissionsExt;
@@ -754,7 +770,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// image writes lossless WebP (VP8L); anything else is not taken for one.
+    /// image writes lossless WebP (VP8L), and anything else is not taken for one.
     #[test]
     fn tells_lossless_webp() {
         let file = std::env::temp_dir().join(format!("glimt-{}.webp", std::process::id()));
@@ -824,7 +840,7 @@ mod tests {
         let before = std::fs::read(&gif).unwrap();
         assert!(super::save_rotated(&gif, false, 1, false, 90).is_err());
         assert_eq!(std::fs::read(&gif).unwrap(), before);
-        // Through a symlink: the file it points to is turned, and the link stays a link.
+        // Through a symlink, the file it points to is turned, and the link stays a link.
         let link = dir.join("link.png");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         super::save_rotated(&link, false, 1, false, 90).unwrap();
@@ -833,8 +849,9 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Saved as the view showed it, also with a mirroring orientation: turned by it with Auto
-    /// Rotate on, as it is without, and in both cases with an upright orientation after.
+    /// An image is saved as the view showed it, also with a mirroring orientation. It is turned
+    /// by it with Auto Rotate on, as it is without, and in both cases has an upright
+    /// orientation after.
     #[test]
     fn saves_rotated_as_seen() {
         // The copy's colours go through the colour settings, which another test changes.
@@ -846,7 +863,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
         let (red, blue) = (image::Rgb([255, 0, 0]), image::Rgb([0, 0, 255]));
-        // Orientation 2: mirrored left to right.
+        // Orientation 2 is mirrored left to right.
         let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x02\0\0\0\0\0\0";
         for (auto_rotate, top) in [(false, red), (true, blue)] {
             let mut enc =
@@ -855,7 +872,7 @@ mod tests {
             image::RgbImage::from_fn(2, 1, |x, _| if x == 0 { red } else { blue })
                 .write_with_encoder(enc)
                 .unwrap();
-            // A quarter turn clockwise: the left pixel of what the view shows goes on top.
+            // With a quarter turn clockwise, the left pixel of what the view shows goes on top.
             super::save_rotated(&file, auto_rotate, 1, false, 90).unwrap();
             let mut dec = image::ImageReader::open(&file)
                 .unwrap()
@@ -908,8 +925,8 @@ mod tests {
         assert_eq!(super::crc32(b"IEND"), 0xae42_6082);
     }
 
-    /// A part saved as a new JPEG beside the image, as the view shows it, with its XMP; a
-    /// second never over the first, and the image itself untouched.
+    /// A part is saved as a new JPEG beside the image, as the view shows it, with its XMP. A
+    /// second is never saved over the first, and the image itself is untouched.
     #[test]
     fn saves_a_cropped_copy() {
         // The copy's colours go through the colour settings, which another test changes.
@@ -948,7 +965,7 @@ mod tests {
             webp_quality: 90,
             strip: false,
         };
-        // The right half: blue.
+        // The right half is blue.
         let new = super::save_cropped(&file, &how(0, [8, 0, 8, 8])).unwrap();
         assert_eq!(new, dir.join("a-cropped.jpg"));
         assert_eq!(colour(&new), ((8, 8), false));
@@ -966,8 +983,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Save As: smaller and in another format, its extension made the format's, the metadata
-    /// kept or left out, and never the image itself.
+    /// Save As saves smaller and in another format, with its extension made the format's and
+    /// the metadata kept or left out, and never over the image itself.
     #[test]
     fn saves_as_another_format_and_size() {
         use image::{ImageDecoder, ImageEncoder};
@@ -992,7 +1009,7 @@ mod tests {
             webp_quality: 90,
             strip,
         };
-        // Named without an extension: the format's is added.
+        // When named without an extension, the format's is added.
         let to = super::save_as(
             &file,
             &how(Some(super::Format::Jpeg), false),
@@ -1023,7 +1040,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A crop of a file whose name is not UTF-8 keeps that name's bytes: "caf\xe9.png" became
+    /// A crop of a file whose name is not UTF-8 keeps that name's bytes. "caf\xe9.png" became
     /// "caf\u{FFFD}-cropped.png", a name the user never chose.
     #[test]
     fn a_crop_keeps_a_name_that_is_not_utf8() {
@@ -1054,9 +1071,10 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A copy gets the sidecar of what it was made from, or none: never the one of a file it
-    /// replaced (b's keywords showed on a copy saved over b.png, also on one saved without
-    /// metadata), nor one left at its name. And of a TIFF the page shown, not the first.
+    /// A copy gets the sidecar of what it was made from, or none. It never gets the one of a
+    /// file it replaced (b's keywords showed on a copy saved over b.png, also on one saved
+    /// without metadata), nor one left at its name. A copy of a TIFF has the page shown, not the
+    /// first.
     #[test]
     fn a_copy_has_its_own_sidecar_and_page() {
         use tiff::encoder::{TiffEncoder, colortype};
@@ -1103,8 +1121,8 @@ mod tests {
         };
         assert_eq!(super::save_cropped(&a, &part).unwrap(), cropped);
         assert_eq!(text(&cropped).as_deref(), Some("a's"));
-        // A link left at the next crop's sidecar name, to a file of the user's: the link goes,
-        // the file keeps what it had.
+        // A link left at the next crop's sidecar name, to a file of the user's, goes, and the
+        // file keeps what it had.
         let victim = dir.join("victim");
         std::fs::write(&victim, "keep").unwrap();
         let second = dir.join("a-cropped-2.png");
@@ -1117,13 +1135,13 @@ mod tests {
                 .is_symlink()
         );
         assert_eq!(text(&second).as_deref(), Some("a's"));
-        // A source sidecar that cannot be read (a folder in its place): no copy left behind.
+        // A source sidecar that cannot be read (a folder in its place) leaves no copy behind.
         std::fs::remove_file(side(&a)).unwrap();
         std::fs::create_dir(side(&a)).unwrap();
         assert!(super::save_cropped(&a, &part).is_err());
         assert!(!dir.join("a-cropped-3.png").exists());
         std::fs::remove_dir(side(&a)).unwrap();
-        // Page 2 of a TIFF: blue, 6 by 2, not the red first page.
+        // Page 2 of a TIFF is blue, 6 by 2, not the red first page.
         let tif = dir.join("t.tif");
         let mut enc = TiffEncoder::new(std::fs::File::create(&tif).unwrap()).unwrap();
         enc.write_image::<colortype::RGB8>(8, 8, &[255, 0, 0].repeat(64))
@@ -1137,8 +1155,8 @@ mod tests {
             (img.dimensions(), img.get_pixel(0, 0).0),
             ((6, 2), [0, 0, 255])
         );
-        // Copy Image takes the same: page 2, turned a quarter as shown (it copied page 1,
-        // unturned).
+        // Copy Image takes the same, page 2, turned a quarter as shown. (It copied page 1,
+        // unturned.)
         let turned = super::CopyAs {
             turns: 1,
             ..how(1, false)
@@ -1151,7 +1169,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// "a.png" and "a.webp" saved turned at the same time: each keeps its own pixels and format.
+    /// When "a.png" and "a.webp" are saved turned at the same time, each keeps its own pixels
+    /// and format.
     #[test]
     fn saves_same_names_at_once() {
         // The copy's colours go through the colour settings, which another test changes.
