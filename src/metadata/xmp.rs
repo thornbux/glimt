@@ -1,8 +1,9 @@
-//! Keywords and comment, as Geeqie's info sidebar edits them: dc:subject and dc:description in
-//! XMP; also IPTC's alt text and extended description, and the keywords' tree paths
-//! (lr:hierarchicalSubject). They are written to the sidecar `<file>.xmp`, which darktable and
-//! digiKam read too, and read from it, or else from the XMP inside the image. `update_sidecar`
-//! writes the stars too, and `follow` takes sidecars along when their files move.
+//! Keywords and comment, as Geeqie's info sidebar edits them, which are dc:subject and
+//! dc:description in XMP. It also handles IPTC's alt text and extended description, and the
+//! keywords' tree paths (lr:hierarchicalSubject). They are written to the sidecar
+//! `<file>.xmp`, which darktable and digiKam read too, and read from it, or else from the XMP
+//! inside the image. `update_sidecar` writes the stars too, and `follow` takes sidecars along
+//! when their files move.
 
 use std::path::{Path, PathBuf};
 
@@ -20,7 +21,7 @@ pub struct Meta {
 }
 
 impl Meta {
-    /// The keywords as typed: separated by commas.
+    /// The keywords as typed, separated by commas.
     pub fn keywords_text(&self) -> String {
         self.keywords.join(", ")
     }
@@ -42,16 +43,18 @@ impl Meta {
     }
 }
 
-/// IPTC's fields for accessibility (Photo Metadata 2021), in XMP: a short text for someone who
-/// cannot see the picture, and a longer description of it. Web pages, publishing tools and
-/// screen readers use them; kept apart from the keywords and comment, which Geeqie edits.
+/// IPTC's fields for accessibility (Photo Metadata 2021), in XMP. They are a short text for
+/// someone who cannot see the picture, and a longer description of it. Web pages, publishing
+/// tools and screen readers use them. They are kept apart from the keywords and comment, which
+/// Geeqie edits.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub struct Access {
     pub alt: String,
     pub extended: String,
 }
 
-/// A sidecar's lock while held: the lock file, if it could be made, and the mutex of its slot.
+/// A sidecar's lock while it is held. It holds the lock file, if it could be made, and the
+/// mutex of its slot.
 pub(crate) type Held = (Option<std::fs::File>, std::sync::MutexGuard<'static, ()>);
 
 fn parse_access(xmp: &str) -> Access {
@@ -63,8 +66,9 @@ fn parse_access(xmp: &str) -> Access {
 }
 
 /// `read` and `tree_paths` of `path`, and its alt text and extended description (from its
-/// sidecar if that has them, else from the image), its sidecar and the XMP inside it each read
-/// once, for the panel: on a network share each reading of a large photo costs.
+/// sidecar if that has them, and otherwise from the image), for the panel. Its sidecar and the
+/// XMP inside it are each read once, because on a network share each reading of a large photo
+/// costs.
 pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
     let side = crate::images::decode::read_text(sidecar(path)).ok();
     let inside = std::cell::OnceCell::new();
@@ -81,8 +85,9 @@ pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
     )
 }
 
-/// Write the alt text and extended description of `path` to its sidecar; everything else in it
-/// stays. Ones the image holds itself and that were cleared are written empty, as the comment.
+/// Writes the alt text and extended description of `path` to its sidecar, and everything else
+/// in it stays. Fields the image holds itself and that were cleared are written empty, as the
+/// comment is.
 pub fn write_access(path: &Path, access: &Access) -> Result<(), String> {
     let _held = held(path);
     let own = embedded(path).is_some_and(|x| parse_access(&x) != Access::default());
@@ -112,7 +117,7 @@ fn set_access(xmp: &str, access: &Access, say_empty: bool) -> Option<String> {
     )
 }
 
-/// Whether two keywords are the same one: letter case does not count ("Oslo" and "oslo").
+/// Whether two keywords are the same one. Letter case does not count ("Oslo" and "oslo").
 pub fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
 }
@@ -128,13 +133,14 @@ fn unique(keywords: impl IntoIterator<Item = String>) -> Vec<String> {
     out
 }
 
-/// The keyword of a keyword tree path: its last level.
+/// The keyword of a keyword tree path, which is its last level.
 fn leaf(tag: &str) -> &str {
     tag.rsplit('|').next().unwrap_or(tag)
 }
 
-/// Whether an image with `keywords` and keyword tree `paths` has `tag`: the keyword, and the path
-/// too unless no path ends in that keyword (a program that writes keywords only set it).
+/// Whether an image with `keywords` and keyword tree `paths` has `tag`. It must have the
+/// keyword, and the path too unless no path ends in that keyword (as when a program that
+/// writes keywords only set it).
 pub fn has_tag(keywords: &[String], paths: &[String], tag: &str) -> bool {
     let name = leaf(tag);
     keywords.iter().any(|k| same(k, name))
@@ -159,12 +165,13 @@ pub fn set_tag(keywords: &mut Vec<String>, paths: &mut Vec<String>, tag: &str, o
 
 /// The keyword tree paths (lr:hierarchicalSubject) in the sidecar of `path`.
 pub fn tree_paths(path: &Path) -> Vec<String> {
-    // From where `read` takes the keywords: the sidecar, or else the XMP inside the image.
+    // The paths come from where `read` takes the keywords, the sidecar or else the XMP inside
+    // the image.
     source(path).map_or_else(Vec::new, |x| unique(items(&x, "lr:hierarchicalSubject")))
 }
 
-/// The XMP the keywords and comment of `path` come from: its sidecar if that has them, else the
-/// image's own.
+/// The XMP the keywords and comment of `path` come from. It is the sidecar if that has them,
+/// and otherwise the image's own.
 fn source(path: &Path) -> Option<String> {
     let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
     let side = crate::images::decode::read_text(sidecar(path))
@@ -180,7 +187,8 @@ pub fn sidecar(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
-/// The keywords and comment of `path`: from its sidecar if that has them, else from the image.
+/// The keywords and comment of `path`, from its sidecar if that has them, and otherwise from
+/// the image.
 pub fn read(path: &Path) -> Meta {
     source(path).map_or_else(Meta::default, |x| parse(&x))
 }
@@ -202,10 +210,11 @@ fn embedded(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// Write the fields that were edited (`None`: as it is on disk), read and written as one change,
-/// so keywords set in the background meanwhile stay; everything else in the sidecar stays too.
-/// Keywords or a comment the image holds itself and that were cleared are written as empty
-/// elements: left out, the image's own would be read again. The keywords and comment as written.
+/// Writes the fields that were edited (`None` means as it is on disk). They are read and
+/// written as one change, so keywords set in the background meanwhile stay, and everything else
+/// in the sidecar stays too. Keywords or a comment the image holds itself and that were cleared
+/// are written as empty elements, because if they were left out, the image's own would be read
+/// again. Returns the keywords and comment as written.
 pub fn write_changed(
     path: &Path,
     keywords: Option<Vec<String>>,
@@ -246,15 +255,17 @@ pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     })
 }
 
-/// Held while the sidecar of `path` is read and written again, by this window's threads and by
-/// every other Glimt window: keywords added in the background, stars saved and a comment edited
-/// in another window meanwhile each keep what the others wrote. One of 64 locks chosen by the
-/// sidecar's path: within this Glimt a mutex, and across windows a lock file in Glimt's runtime
-/// folder, not one beside it in the user's folder. The mutex always, so two threads of this
-/// Glimt wait for each other also when the lock file cannot be made for one of them (a full
-/// runtime folder) and can for the other. One of 64, so a sidecar on a share that stopped
-/// answering holds up only the sidecars of its own lock, not every write of the window. Held by
-/// a move too, so a write that waited finds the photo gone, not its old name free for a sidecar.
+/// Holds the lock of the sidecar of `path` while it is read and written again, by this
+/// window's threads and by every other Glimt window. So keywords added in the background, stars
+/// saved and a comment edited in another window meanwhile each keep what the others wrote.
+///
+/// It is one of 64 locks, chosen by the sidecar's path. Within this Glimt it is a mutex, and
+/// across windows a lock file in Glimt's runtime folder, not one beside the sidecar in the
+/// user's folder. The mutex is always taken, so two threads of this Glimt wait for each other
+/// also when the lock file cannot be made for one of them (a full runtime folder) and can for
+/// the other. There are 64 locks, so a sidecar on a share that stopped answering holds up only
+/// the sidecars of its own lock, not every write of the window. A move holds it too, so a write
+/// that waited finds the photo gone, not its old name free for a sidecar.
 pub(crate) fn held(path: &Path) -> Held {
     held_in(locks().as_deref(), path)
 }
@@ -268,8 +279,9 @@ fn held_in(dir: Option<&Path>, path: &Path) -> Held {
 }
 
 /// `held` for many files at once, as Rename Many and a delete move a photo and then its
-/// sidecar: each lock once (two of one would wait for itself), in the order of their numbers,
-/// which every Glimt and every thread takes them in, so two of these never wait for each other.
+/// sidecar. Each lock is taken once, because taking one twice would wait for itself. They are
+/// taken in the order of their numbers, which every Glimt and every thread takes them in, so
+/// two of these never wait for each other.
 pub(crate) fn held_all<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> Vec<Held> {
     held_all_in(locks().as_deref(), paths)
 }
@@ -306,8 +318,8 @@ fn lock_file(dir: &Path, side: &Path) -> Option<std::fs::File> {
     Some(file)
 }
 
-/// Which of the 64 lock files a sidecar has: FNV-1a of its path's bytes, the same in every
-/// Glimt, also one built with another Rust, whose own hasher may differ.
+/// Which of the 64 lock files a sidecar has. It is FNV-1a of its path's bytes, the same in
+/// every Glimt, also one built with another Rust, whose own hasher may differ.
 pub(crate) fn lock_slot(side: &Path) -> u64 {
     use std::os::unix::ffi::OsStrExt;
     let fnv = (side.as_os_str().as_bytes().iter()).fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
@@ -316,9 +328,9 @@ pub(crate) fn lock_slot(side: &Path) -> u64 {
     fnv % 64
 }
 
-/// Change the sidecar of `path` with `change`, or a new, empty one unless `only_if_there`: then a
-/// file without a sidecar keeps having none. Written to a temporary file first, so a crash never
-/// leaves half a sidecar.
+/// Changes the sidecar of `path` with `change`, or a new, empty sidecar unless `only_if_there`,
+/// in which case a file without a sidecar keeps having none. It is written to a temporary file
+/// first, so a crash never leaves half a sidecar.
 #[cfg_attr(not(feature = "marks"), allow(dead_code))]
 pub fn update_sidecar(
     path: &Path,
@@ -334,22 +346,22 @@ fn update(
     only_if_there: bool,
     change: impl FnOnce(&str) -> Option<String>,
 ) -> Result<(), String> {
-    // The image moved, renamed or deleted while this waited: no sidecar of its old name, and
-    // not counted as done.
+    // When the image was moved, renamed or deleted while this waited, no sidecar of its old
+    // name is made, and it does not count as done.
     if std::fs::symlink_metadata(path).is_err() {
         return Err("the image was moved, renamed or deleted meanwhile".into());
     }
     let side = sidecar(path);
-    // A link is not written through: a downloaded folder may point IMG.jpg.xmp at another file
-    // of the user's, which a keyword added here would then change.
+    // A link is not written through, because a downloaded folder may point IMG.jpg.xmp at
+    // another file of the user's, which a keyword added here would then change.
     if linked(&side) {
         return Err(crate::tf!(
             "{name} is a link: not written through",
             name = side.display()
         ));
     }
-    // One that is there but cannot be read (no permission, not UTF-8) is not written over: it
-    // may hold another program's edits.
+    // A sidecar that is there but cannot be read (no permission, not UTF-8) is not written
+    // over, because it may hold another program's edits.
     let old = match crate::files::file_io::read_or_none(&side) {
         Err(e) => return Err(format!("{}: {e}", side.display())),
         Ok(Some(bytes)) => {
@@ -364,9 +376,10 @@ fn update(
             .to_owned(),
     };
     let text = change(&old).ok_or("unreadable XMP sidecar")?;
-    // A temporary file with this Glimt's name: two windows may write the same sidecar. Renamed
-    // onto the name itself, not where it leads (`replace_file` follows a link): a link put
-    // there since the look above is replaced, and the file it points to left alone.
+    // The temporary file has this Glimt's name, because two windows may write the same
+    // sidecar. It is renamed onto the name itself, not where it leads (`replace_file` follows a
+    // link), so a link put there since the look above is replaced, and the file it points to is
+    // left alone.
     use std::io::Write;
     #[allow(clippy::disallowed_methods)] // the sidecar replaced on purpose, never through a link
     let land = |tmp: &Path| std::fs::rename(tmp, &side);
@@ -375,7 +388,7 @@ fn update(
         .map_err(|e| e.to_string())
 }
 
-/// Whether `path` is a link: a sidecar that is one is never read or written through, as a
+/// Whether `path` is a link. A sidecar that is one is never read or written through, because a
 /// downloaded folder may point it at any file of the user's (a private key).
 pub(crate) fn linked(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
@@ -384,7 +397,7 @@ pub(crate) fn linked(path: &Path) -> bool {
 /// Copy or move the sidecar of `from`, if it has one, with the file that went to `to`.
 pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     let (side, to) = (sidecar(from), sidecar(to));
-    // A link is no sidecar to copy; moved, it goes as itself on the same disk, or stays.
+    // A link is no sidecar to copy. Moved, it goes as itself on the same disk, or it stays.
     if linked(&side) {
         return match copy {
             true => Ok(()),
@@ -394,9 +407,10 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
     if !side.exists() {
         return Ok(());
     }
-    // As the file went: on disk before the original goes, never over one there, which belongs
-    // to another file or is a copy kept on purpose. One that cannot be moved (someone else's in
-    // a shared folder) is copied, so the keywords go with the photo.
+    // The sidecar goes as the file went. It is on disk before the original goes, and never
+    // over a sidecar there, which belongs to another file or is a copy kept on purpose. A
+    // sidecar that cannot be moved (someone else's in a shared folder) is copied, so the
+    // keywords go with the photo.
     match crate::files::file_io::put_file(&side, &to, copy) {
         Err(_) if !copy => crate::files::file_io::put_file(&side, &to, true),
         done => done,
@@ -439,11 +453,9 @@ fn items(xmp: &str, tag: &str) -> Vec<String> {
     out
 }
 
-/// `xmp` with its keywords and comment replaced, in its first rdf:Description; `None` if it has
-/// none.
-/// `xmp` with the keywords and comment of `meta`; empty ones as empty elements with `say_empty`.
-/// `set` for a change of keywords only: a comment the sidecar has stays as it is, in all its
-/// languages; one only inside the image is copied into a new sidecar, which would hide it else.
+/// `set` for a change of keywords only. A comment the sidecar has stays as it is, in all its
+/// languages. A comment only inside the image is copied into a new sidecar, which would hide it
+/// otherwise.
 fn set_keywords(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     let Some(original) = element(xmp, "dc:description") else {
         return set(xmp, meta, say_empty);
@@ -477,6 +489,9 @@ fn element(xmp: &str, tag: &str) -> Option<String> {
     Some(xmp[start..end].to_owned())
 }
 
+/// `xmp` with the keywords and comment of `meta`, in its first rdf:Description. Empty ones are
+/// written as empty elements when `say_empty` is set. Returns `None` if `xmp` has no
+/// rdf:Description.
 fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     let xmp = without(&without(xmp, "dc:subject"), "dc:description");
     let mut add = String::new();
@@ -504,14 +519,14 @@ fn set(xmp: &str, meta: &Meta, say_empty: bool) -> Option<String> {
     with_paths(xmp, &paths)
 }
 
-/// The keyword tree paths for `keywords`, as Lightroom writes them: those of `paths` that end in
-/// one of them, and each keyword without one as a path of its own (Immich, which shows tags,
-/// reads only these). A keyword's own path goes when a longer one ends in it.
+/// The keyword tree paths for `keywords`, as Lightroom writes them. They are those of `paths`
+/// that end in one of them, and each keyword without one as a path of its own (Immich, which
+/// shows tags, reads only these). A keyword's own path goes when a longer one ends in it.
 fn tree_paths_for(keywords: &[String], paths: Vec<String>) -> Vec<String> {
     let kept: Vec<String> = (unique(paths).into_iter())
         .filter(|p| keywords.iter().any(|k| same(k, leaf(p))))
         .collect();
-    // Lightroom writes the levels above a keyword as keywords too: Places, Norway, Oslo for
+    // Lightroom writes the levels above a keyword as keywords too, Places, Norway and Oslo for
     // Places|Norway|Oslo. They are in that path, not paths of their own.
     let in_path = |p: &str, name: &str| p.split('|').any(|level| same(level, name));
     let longer = |name: &str| kept.iter().any(|q| q.contains('|') && in_path(q, name));
@@ -546,8 +561,9 @@ fn with_paths(xmp: String, paths: &[String]) -> Option<String> {
 fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
     let start = xmp.find("<rdf:Description")?;
     let end = start + xmp[start..].find('>')?;
-    // Declared on this Description or above it: exiftool gives each namespace a Description of
-    // its own, and a prefix declared on a later one is not in force here.
+    // The prefix must be declared on this Description or above it. exiftool gives each
+    // namespace a Description of its own, and a prefix declared on a later one is not in force
+    // here.
     let ns = if xmp[..end].contains(&format!("xmlns:{prefix}=")) {
         String::new()
     } else {
@@ -563,9 +579,9 @@ fn insert(xmp: String, add: &str, prefix: &str, uri: &str) -> Option<String> {
     })
 }
 
-/// A keyword of the keyword tree, "Places|Norway|Oslo", on `path` or off: its name (Oslo)
-/// among the keywords, and the whole path in lr:hierarchicalSubject, where darktable, digiKam
-/// and Lightroom keep the tree's place of a keyword.
+/// Sets a keyword of the keyword tree, "Places|Norway|Oslo", on `path` or takes it off. Its
+/// name (Oslo) goes among the keywords, and the whole path in lr:hierarchicalSubject, where
+/// darktable, digiKam and Lightroom keep the tree's place of a keyword.
 pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     let _held = held(path);
     let mut meta = read(path);
@@ -577,9 +593,9 @@ pub fn tag_file(path: &Path, tag: &str, on: bool) -> Result<(), String> {
     })
 }
 
-/// Keyword tree paths `tags` set on `path` in one write, as `tag` sets one: each name among its
-/// keywords and each path in lr:hierarchicalSubject, beside what it has, which stays. Nothing is
-/// written when it has them all.
+/// Sets the keyword tree paths `tags` on `path` in one write, as `tag` sets one. Each name goes
+/// among its keywords and each path in lr:hierarchicalSubject, beside what it has, which stays.
+/// Nothing is written when it has them all.
 pub fn add_tags(path: &Path, tags: &[String]) -> Result<(), String> {
     let _held = held(path);
     let mut meta = read(path);
@@ -623,8 +639,8 @@ fn unescape(text: &str) -> String {
     while let Some(i) = rest.find('&') {
         out += &rest[..i];
         rest = &rest[i..];
-        // The longest entity, "&#x10FFFF;", is 10 bytes: a ';' further on ends none, and looking
-        // to the next ';' from each '&' was quadratic (a million '&' and one ';': hours).
+        // The longest entity, "&#x10FFFF;", is 10 bytes, so a ';' further on ends none. Looking
+        // to the next ';' from each '&' was quadratic (a million '&' and one ';' took hours).
         let Some(end) = rest.as_bytes().iter().take(11).position(|&b| b == b';') else {
             out.push('&');
             rest = &rest[1..];
@@ -659,7 +675,8 @@ fn unescape(text: &str) -> String {
     out + rest
 }
 
-/// Keyword tree paths cleaned: trimmed around each level, without empty ones, sorted, each once.
+/// Keyword tree paths cleaned up: trimmed around each level, without empty ones, sorted, and
+/// each once.
 pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
     let mut out: Vec<String> = paths
         .map(|p| {
@@ -671,7 +688,7 @@ pub(crate) fn keyword_paths<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<Str
         })
         .filter(|p| !p.is_empty())
         .collect();
-    // In another letter case it is the same path: the first spelling stays.
+    // A path in another letter case is the same path, and the first spelling stays.
     out.sort_by_key(|p| p.to_lowercase());
     out.dedup_by(|a, b| same(a, b));
     out
@@ -699,7 +716,7 @@ pub(crate) fn keyword_tree_changed(
 #[cfg(test)]
 mod tests {
     /// A keyword written while the photo is moved, which waited for the move, lands on no old
-    /// name: no sidecar is left there without its photo, for a later file of that name.
+    /// name. No sidecar is left there without its photo, for a later file of that name.
     #[test]
     fn a_write_that_waits_for_a_move_leaves_no_sidecar() {
         let dir = std::env::temp_dir().join(format!("glimt-test-meta-move-{}", std::process::id()));
@@ -721,7 +738,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A million '&' and then one ';' (a crafted keyword): read at once, not in hours.
+    /// A million '&' and then one ';' (a crafted keyword) are read at once, not in hours.
     #[test]
     fn unescapes_in_one_pass() {
         let text = "&".repeat(1_000_000) + "; &amp; &#x41; &#66; &ampno;";
@@ -731,7 +748,8 @@ mod tests {
         assert!(out.ends_with("; & A B &ampno;") && out.len() == text.len() - 13);
     }
 
-    /// The lock file of a sidecar is the same in every Glimt: FNV-1a, as known for these.
+    /// The lock file of a sidecar is the same in every Glimt, by FNV-1a, as known for these
+    /// paths.
     #[test]
     fn lock_slots_stay() {
         use std::path::Path;
@@ -740,7 +758,7 @@ mod tests {
     }
 
     /// Within one Glimt, a holder whose lock file could not be made waits for one whose could,
-    /// and the other way round: neither goes by another lock than the other.
+    /// and the other way round, because neither goes by another lock than the other.
     #[test]
     fn a_failed_lock_file_still_waits_in_this_glimt() {
         let dir = std::env::temp_dir().join(format!("glimt-test-slots-{}", std::process::id()));
@@ -784,7 +802,7 @@ mod tests {
     }
 
     /// Read together, the keywords, their tree paths and the alt text are those read one by
-    /// one: the sidecar's where it has them, else the image's own.
+    /// one, the sidecar's where it has them and otherwise the image's own.
     #[test]
     fn reads_all_as_one_by_one() {
         let dir = std::env::temp_dir().join(format!("glimt-test-readall-{}", std::process::id()));
@@ -806,7 +824,8 @@ mod tests {
 
     use super::*;
 
-    /// A JPEG with an empty APP1 segment followed by the XMP name: no keywords, and no panic.
+    /// A JPEG with an empty APP1 segment followed by the XMP name gives no keywords, and no
+    /// panic.
     #[test]
     fn reads_an_empty_xmp_segment() {
         let file = std::env::temp_dir().join(format!("glimt-xmp-{}.jpg", std::process::id()));
@@ -844,7 +863,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A sidecar that is a link, as a downloaded folder may hold, is not written through: the
+    /// A sidecar that is a link, as a downloaded folder may hold, is not written through. The
     /// XMP file it points to, elsewhere among the user's files, keeps what it had.
     #[test]
     fn never_writes_through_a_linked_sidecar() {
@@ -863,8 +882,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An image renamed with its folder while its keywords waited: no folder of the old name
-    /// made again, with a sidecar of nothing in it.
+    /// An image renamed with its folder while its keywords waited does not make a folder of the
+    /// old name again, with a sidecar of nothing in it.
     #[test]
     fn no_sidecar_for_an_image_gone() {
         let dir = std::env::temp_dir().join(format!("glimt-test-gone-{}", std::process::id()));
@@ -873,8 +892,8 @@ mod tests {
         assert!(!dir.exists());
     }
 
-    /// exiftool's layout, a Description for each namespace: "dc" declared on the second one is
-    /// declared again on the first, where the keywords go.
+    /// In exiftool's layout, with a Description for each namespace, "dc" declared on the second
+    /// one is declared again on the first, where the keywords go.
     #[test]
     fn declares_dc_where_it_writes() {
         let exiftool = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF>\
@@ -891,8 +910,8 @@ mod tests {
         assert_eq!(first.matches("xmlns:dc=").count(), 1, "{written}");
     }
 
-    /// A keyword of the tree on and off: its name among the keywords, its path in
-    /// lr:hierarchicalSubject, the other keywords and paths kept.
+    /// A keyword of the tree is set on and off. Its name goes among the keywords and its path in
+    /// lr:hierarchicalSubject, and the other keywords and paths are kept.
     #[test]
     fn tags_with_the_tree_path() {
         let dir = std::env::temp_dir().join(format!("glimt-test-tag-{}", std::process::id()));
@@ -920,12 +939,12 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// One keyword for two paths that end in it, and in another letter case: set once, kept
-    /// while one of the paths is on, and only that path's box ticked.
+    /// One keyword for two paths that end in it, also in another letter case, is set once. It
+    /// is kept while one of the paths is on, and only that path's box is ticked.
     #[test]
     fn keeps_a_keyword_another_path_ends_in() {
         let (mut keywords, mut paths) = (vec!["oslo".to_owned()], Vec::new());
-        // Set by a program that writes keywords only: both boxes ticked.
+        // When a program that writes keywords only set it, both boxes are ticked.
         assert!(has_tag(&keywords, &paths, "Events|Oslo"));
         set_tag(&mut keywords, &mut paths, "Places|Norway|Oslo", true);
         set_tag(&mut keywords, &mut paths, "Events|Oslo", true);
@@ -948,7 +967,7 @@ mod tests {
         );
     }
 
-    /// Keywords typed in the field get paths of their own, which Immich reads; a keyword taken
+    /// Keywords typed in the field get paths of their own, which Immich reads. A keyword taken
     /// away takes its paths along, and a longer path replaces a keyword's own.
     #[test]
     fn writes_a_path_for_every_keyword() {
@@ -967,7 +986,8 @@ mod tests {
         assert_eq!(items(&xmp, "lr:hierarchicalSubject"), ["beach"]);
     }
 
-    /// Keywords inside a JPEG, cleared: they stay cleared, not read from the image again.
+    /// Keywords inside a JPEG that are cleared stay cleared, and are not read from the image
+    /// again.
     #[test]
     fn clears_the_image_own_keywords() {
         let dir = std::env::temp_dir().join(format!("glimt-test-own-xmp-{}", std::process::id()));
@@ -1003,13 +1023,14 @@ mod tests {
             keywords: vec!["beach".into(), "Tom & Ann".into()],
             comment: "Summer <2024>\nsecond line".into(),
         };
-        // A darktable sidecar: an attribute-only Description with a rating, kept as it is.
+        // A darktable sidecar has an attribute-only Description with a rating, which is kept as
+        // it is.
         let dt = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF><rdf:Description rdf:about=\"\" \
                   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"3\"/></rdf:RDF></x:xmpmeta>";
         let written = set(dt, &meta, false).unwrap();
         assert!(written.contains("xmp:Rating=\"3\" xmlns:dc="));
         assert_eq!(parse(&written), meta);
-        // Written again with other values: replaced, not added.
+        // Written again with other values, they are replaced, not added.
         let other = Meta {
             keywords: vec!["snow".into()],
             comment: String::new(),
@@ -1018,7 +1039,7 @@ mod tests {
         assert_eq!(parse(&again), other);
         assert_eq!(again.matches("<dc:subject>").count(), 1);
         assert_eq!(again.matches("xmlns:dc=").count(), 1);
-        // Everything removed: the sidecar is as it was, but for the name space.
+        // With everything removed, the sidecar is as it was, but for the name space.
         let none = set(&again, &Meta::default(), false).unwrap();
         assert_eq!(parse(&none), Meta::default());
         assert!(none.contains("xmp:Rating=\"3\""));
@@ -1029,8 +1050,8 @@ mod tests {
         );
     }
 
-    /// The IPTC alt text and extended description: written, read back, replaced and cleared,
-    /// and the keywords, comment and other fields kept.
+    /// The IPTC alt text and extended description are written, read back, replaced and
+    /// cleared, and the keywords, comment and other fields are kept.
     #[test]
     fn alt_text_round_trip() {
         let meta = Meta {
@@ -1058,7 +1079,8 @@ mod tests {
         let none = set_access(&again, &Access::default(), false).unwrap();
         assert_eq!(parse_access(&none), Access::default());
         assert_eq!(parse(&none), meta);
-        // The image's own cleared: written empty, so it is not read from the image again.
+        // The image's own fields that are cleared are written empty, so they are not read from
+        // the image again.
         assert!(
             set_access(&none, &Access::default(), true)
                 .unwrap()
@@ -1071,8 +1093,9 @@ mod tests {
         );
     }
 
-    /// Keyword tree paths from another program added to an image in one write: its own
-    /// keyword stays, each name and path once, and nothing is written when all are there.
+    /// Keyword tree paths from another program are added to an image in one write. Its own
+    /// keyword stays, each name and path is there once, and nothing is written when all are
+    /// there.
     #[test]
     fn adds_tags_of_another_program() {
         let dir = std::env::temp_dir().join(format!("glimt-test-addtags-{}", std::process::id()));
@@ -1092,7 +1115,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Keywords added from several threads at once: none is lost.
+    /// Keywords added from several threads at once are not lost.
     #[test]
     fn changes_at_once_are_all_kept() {
         let dir = std::env::temp_dir().join(format!("glimt-test-lock-{}", std::process::id()));
@@ -1138,7 +1161,8 @@ mod tests {
   </rdf:Description></rdf:RDF></x:xmpmeta>"#,
         )
         .unwrap();
-        // The person and the flower stay two; a tag and an added keyword leave both comments.
+        // The person and the flower stay two, and a tag and an added keyword leave both
+        // comments.
         assert_eq!(read(&file).keywords, ["Rose", "rose"]);
         tag_file(&file, "Places|Oslo", true).unwrap();
         add_keywords(&file, &k(&["ROSE"])).unwrap();
@@ -1163,7 +1187,7 @@ mod tests {
             (meta.keywords, meta.comment),
             (vec!["a".into(), "b".into()], "c".into())
         );
-        // A JPEG exported with its paths inside: they count until a sidecar has its own.
+        // A JPEG exported with its paths inside has them count until a sidecar has its own.
         let jpeg = dir.join("b.jpg");
         let mut base = Vec::new();
         let mut out = std::io::Cursor::new(&mut base);
@@ -1207,7 +1231,7 @@ mod tests {
         std::fs::copy(&b, &c).unwrap();
         follow(&b, &c, true).unwrap();
         assert_eq!(read(&c), meta);
-        // A sidecar at the target is another file's: it is kept, not replaced.
+        // A sidecar at the target belongs to another file, so it is kept, not replaced.
         std::fs::write(&a, b"").unwrap();
         let other = Meta {
             keywords: vec!["other".into()],
@@ -1225,7 +1249,7 @@ mod tests {
     }
 
     /// A sidecar that is a link (a downloaded folder pointing IMG.jpg.xmp at a private key) is
-    /// not copied through: a copy and a crop get none; moved, the link goes as itself.
+    /// not copied through, so a copy and a crop get none. Moved, the link goes as itself.
     #[test]
     fn a_linked_sidecar_is_not_copied_through() {
         let dir = std::env::temp_dir().join(format!("glimt-test-linked-{}", std::process::id()));
@@ -1257,7 +1281,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// Sidecars broken in thousands of ways: read and written to without a panic.
+    /// Sidecars broken in thousands of ways are read and written to without a panic.
     #[test]
     fn survives_broken_sidecars() {
         let meta = Meta {
@@ -1297,7 +1321,7 @@ mod tests {
         assert_eq!(got, ["Animals", "places|Norway|Oslo", "Places|x"]);
     }
 
-    /// The keyword tree changed by one window keeps what another added; removing a level takes
+    /// The keyword tree changed by one window keeps what another added. Removing a level takes
     /// the levels below it.
     #[test]
     fn changes_the_keyword_tree_alone() {
