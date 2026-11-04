@@ -640,6 +640,10 @@ impl crate::App {
         self.folder.subdirs.clear();
         self.work.forget_deleting();
         self.slideshow.unshuffle();
+        // A sort or a whole shuffle asked of the old list's listing is not asked of the new
+        // one. A sort carried over would put another collection in order and rewrite its file.
+        self.folder.sort_collection = false;
+        self.slideshow.take_whole_shuffle();
         self.thumbs.forget_all();
         self.search.forget_exif_index();
     }
@@ -1308,6 +1312,39 @@ mod tests {
             })
             .collect();
         assert_eq!(names, ["a.png", "b.png"]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A sort asked of one collection whose listing is still on its way is not carried to the
+    /// next collection opened. It sorted that one and rewrote its file in the new order.
+    #[test]
+    fn a_sort_asked_of_one_collection_does_not_reach_the_next() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-col-leak-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let collection = |name: &str, files: &[&str]| {
+            let mut gqv = String::from("#GQview collection\n");
+            for f in files {
+                image::RgbImage::new(2, 2).save(dir.join(f)).unwrap();
+                gqv.push_str(&format!("\"{}\"\n", dir.join(f).display()));
+            }
+            let file = dir.join(name);
+            crate::files::file_io::create_file(&file, gqv).unwrap();
+            file
+        };
+        let first = collection("first.gqv", &["c.png", "a.png"]);
+        let second = collection("second.gqv", &["d.png", "b.png"]);
+        let before = std::fs::read_to_string(&second).unwrap();
+        let (mut app, ctx) = app_on(&first);
+        app.config.sort = crate::model::listing::Sort::Name;
+        app.folder.sort_again();
+        app.list(&ctx);
+        app.open_collection(&ctx, second.clone());
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), before);
+        let names: Vec<&std::ffi::OsStr> = (app.list.files().iter())
+            .map(|f| std::path::Path::new(f).file_name().unwrap())
+            .collect();
+        assert_eq!(names, ["d.png", "b.png"]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
