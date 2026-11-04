@@ -151,9 +151,14 @@ impl crate::App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             }
         }
-        // Keywords typed and not yet saved: written now, so closing waits for them.
+        // Keywords typed and not yet saved, and with Save Orientation on a turn of the image
+        // shown, are written now, so closing waits for them. The image is never left on the way
+        // out, which is where a turn is saved otherwise.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_meta(ctx);
+            if self.config.save_orientation {
+                self.save_orientation(ctx);
+            }
         }
         // Files still being copied, moved, renamed or saved: closed when they are done, not
         // halfway; a second close stops them after the file at hand, a third does not wait.
