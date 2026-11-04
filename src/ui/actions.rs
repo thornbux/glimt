@@ -21,7 +21,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::time::Instant;
 
 pub const NONE: egui::Modifiers = egui::Modifiers::NONE;
 
@@ -1030,12 +1029,11 @@ impl crate::App {
             }
             Action::HideTools => self.panel.toggle_hidden(),
             Action::Refresh => self.refresh(ctx),
-            Action::Slideshow if self.slideshow.shown_at.is_some() => self.stop_slideshow(ctx),
+            Action::Slideshow if self.slideshow.is_running() => self.stop_slideshow(ctx),
             Action::Slideshow => self.start_slideshow(ctx),
             // Resuming gives the shown image the full delay again.
-            Action::Pause if self.slideshow.shown_at.is_some() => {
-                self.slideshow.paused = !self.slideshow.paused;
-                self.slideshow.shown_at = Some(Instant::now());
+            Action::Pause if self.slideshow.is_running() => {
+                self.slideshow.toggle_pause();
                 self.title(ctx);
             }
             Action::Pause => {}

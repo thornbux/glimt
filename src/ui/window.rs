@@ -389,7 +389,7 @@ impl crate::App {
     /// screen.
     pub(crate) fn escape(&mut self, ctx: &egui::Context, fullscreen: bool) {
         self.help = None;
-        if self.slideshow.shown_at.is_some() {
+        if self.slideshow.is_running() {
             self.stop_slideshow(ctx);
         }
         if fullscreen {

@@ -38,18 +38,88 @@ pub(crate) struct Place {
 #[derive(Default)]
 pub(crate) struct Slideshow {
     /// When the image shown last came up; `None`: the slideshow is off.
-    pub(crate) shown_at: Option<Instant>,
+    shown_at: Option<Instant>,
     /// The file list is shuffled for a random slideshow.
-    pub(crate) shuffled: bool,
+    shuffled: bool,
     /// The next listing is shuffled as a whole instead of merged into the current order.
-    pub(crate) whole_shuffle: bool,
+    whole_shuffle: bool,
     /// Slideshow paused (P): stays on the image until resumed.
-    pub(crate) paused: bool,
+    paused: bool,
     /// --slideshow: start it once the folder is read.
-    pub(crate) at_start: bool,
+    at_start: bool,
     /// A slideshow changing one pane at a time: the pane next (0 is the first), and the image
     /// shown last.
-    pub(crate) next_pane: usize,
+    next_pane: usize,
+}
+
+impl Slideshow {
+    /// The slideshow at start: it begins once the folder is read when `at_start` (--slideshow).
+    pub(crate) fn new(at_start: bool) -> Self {
+        Slideshow {
+            at_start,
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn is_running(&self) -> bool {
+        self.shown_at.is_some()
+    }
+
+    pub(crate) fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    /// P: paused or resumed; resuming gives the shown image the full delay again.
+    pub(crate) fn toggle_pause(&mut self) {
+        self.paused = !self.paused;
+        self.shown_at = Some(Instant::now());
+    }
+
+    /// Stays on the image until resumed, as while a video plays.
+    #[cfg(feature = "video")]
+    pub(crate) fn pause(&mut self) {
+        self.paused = true;
+    }
+
+    /// Another image is shown: when the slideshow runs, it gets the full delay.
+    pub(crate) fn restart_delay(&mut self) {
+        if self.shown_at.is_some() {
+            self.shown_at = Some(Instant::now());
+        }
+    }
+
+    /// Whether --slideshow starts it now, once the folder is `listed`: only once.
+    pub(crate) fn starts_now(&mut self, listed: bool) -> bool {
+        let now = self.at_start && listed;
+        self.at_start &= !now;
+        now
+    }
+
+    /// The file list is in a random order for the slideshow.
+    pub(crate) fn is_shuffled(&self) -> bool {
+        self.shuffled
+    }
+
+    /// The order chosen replaces the random one, or another folder opens.
+    pub(crate) fn unshuffle(&mut self) {
+        self.shuffled = false;
+    }
+
+    /// Whether the next listing is shuffled whole in the listing thread.
+    pub(crate) fn shuffles_whole(&self) -> bool {
+        self.shuffled && self.whole_shuffle
+    }
+
+    /// Whether this listing was shuffled whole. The flag is for this listing, taken whether or
+    /// not the order is still random: left, it would shuffle every later listing.
+    pub(crate) fn take_whole_shuffle(&mut self) -> bool {
+        std::mem::take(&mut self.whole_shuffle)
+    }
+
+    /// A slideshow of one pane at a time changes the first pane next.
+    pub(crate) fn first_pane_next(&mut self) {
+        self.next_pane = 0;
+    }
 }
 
 impl crate::App {

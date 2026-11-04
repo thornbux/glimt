@@ -233,10 +233,7 @@ impl App {
             last_view: None,
             image_id: None,
             focus_by_keys: false,
-            slideshow: crate::viewer::slideshow::Slideshow {
-                at_start: start.slideshow,
-                ..Default::default()
-            },
+            slideshow: crate::viewer::slideshow::Slideshow::new(start.slideshow),
             window: crate::ui::window::Window::new(start.kiosk),
             info: crate::ui::info_panel::Info::new(ctx),
             notice: screen_error.or_else(|| config_notice(problems)),

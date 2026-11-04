@@ -35,8 +35,7 @@ impl crate::App {
         self.match_size(ctx);
         self.receive_file_work(ctx);
         // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.slideshow.at_start && self.folder.listing_rx.is_none() {
-            self.slideshow.at_start = false;
+        if self.slideshow.starts_now(self.folder.listing_rx.is_none()) {
             self.start_slideshow(ctx);
         }
         self.receive_focus(ctx);

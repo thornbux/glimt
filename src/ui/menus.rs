@@ -401,14 +401,14 @@ impl crate::App {
         menu_toggle(ui, act, c.histogram_log, Action::HistogramLog);
         menu_item(ui, act, Action::Refresh);
         ui.separator();
-        let (icon, label) = if self.slideshow.shown_at.is_some() {
+        let (icon, label) = if self.slideshow.is_running() {
             (theme::icon::STOP, tr("Stop Slideshow"))
         } else {
             (theme::icon::PLAY, tr("Start Slideshow"))
         };
         let text = iconed(ui, icon, label);
         menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
-        menu_toggle(ui, act, self.slideshow.paused, Action::Pause);
+        menu_toggle(ui, act, self.slideshow.is_paused(), Action::Pause);
         menu_item(ui, act, Action::Faster);
         menu_item(ui, act, Action::Slower);
         menu_toggle(ui, act, self.config.random, Action::RandomOrder);
@@ -697,7 +697,7 @@ impl crate::App {
                     Action::Thumbnails,
                     self.config.thumbnails,
                 );
-                let show = if self.slideshow.shown_at.is_some() {
+                let show = if self.slideshow.is_running() {
                     theme::icon::STOP
                 } else {
                     theme::icon::PLAY
@@ -707,7 +707,7 @@ impl crate::App {
                     act,
                     show,
                     Action::Slideshow,
-                    self.slideshow.shown_at.is_some(),
+                    self.slideshow.is_running(),
                 );
                 tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
             });

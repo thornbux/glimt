@@ -9,7 +9,6 @@ use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::Instant;
 
 impl crate::App {
     // ---- Moving through the list, and the selection ----
@@ -76,9 +75,7 @@ impl crate::App {
         self.decoding.image_opened();
         self.panel.scroll_to_current();
         // Every image gets the full delay, also when the user moves back or forward by hand.
-        if self.slideshow.shown_at.is_some() {
-            self.slideshow.shown_at = Some(Instant::now());
-        }
+        self.slideshow.restart_delay();
         self.refill();
         self.title(ctx);
     }

@@ -608,7 +608,7 @@ impl crate::App {
     pub(crate) fn fill_panes(&mut self) {
         let [c, r] = layout_grid(&self.config.layout);
         let n = c * r;
-        let kept = self.slideshow.shown_at.is_some()
+        let kept = self.slideshow.is_running()
             && self.one_at_a_time()
             && self.list.panes.len() + 1 == n
             && self.list.panes.iter().all(|&i| i < self.list.files.len());
@@ -617,7 +617,7 @@ impl crate::App {
         }
         self.list.panes = (1..n as isize).filter_map(|k| self.step(k, true)).collect();
         self.list.last_slide = self.list.panes.last().copied().unwrap_or(self.list.cur);
-        self.slideshow.next_pane = 0;
+        self.slideshow.first_pane_next();
     }
 
     pub(crate) fn set_layout(&mut self, layout: &str) {
@@ -1447,8 +1447,8 @@ impl crate::App {
         if is_video(&self.location()) {
             self.launch(&self.config.video_player);
             // The slideshow waits while the video plays; P resumes it.
-            if self.slideshow.shown_at.is_some() {
-                self.slideshow.paused = true;
+            if self.slideshow.is_running() {
+                self.slideshow.pause();
                 self.title(ctx);
             }
         }

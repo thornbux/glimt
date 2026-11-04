@@ -1073,7 +1073,7 @@ impl crate::App {
         if changed {
             self.config.save();
             // A chosen order replaces a shuffled one (kept after a random slideshow).
-            self.slideshow.shuffled = false;
+            self.slideshow.unshuffle();
             self.folder.sort_collection = self.folder.collection.is_some();
             self.folder.listed_as = None;
             self.list(ctx);
