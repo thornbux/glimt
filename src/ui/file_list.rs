@@ -1,5 +1,5 @@
-//! The side panel: the folder list, the file list or icon grid with its thumbnails, dragging and
-//! the rubber band, and the status bar under it.
+//! The side panel. It holds the folder list, the file list or icon grid with its thumbnails,
+//! dragging and the rubber band, and the status bar under it.
 
 use crate::files::config::{sort_folders_from, sort_folders_path};
 use crate::files::external::is_video;
@@ -32,11 +32,11 @@ pub(crate) const THUMBS: [egui::Vec2; 3] = [
     egui::vec2(192.0, 144.0),
 ];
 
-/// A cell of the thumbnail grid: the thumbnail with its name below.
+/// What a cell of the thumbnail grid adds to the thumbnail, which has its name below.
 pub(crate) const CELL_EXTRA: egui::Vec2 = egui::vec2(8.0, 26.0);
 
-/// Thumbnails come from the freedesktop "large" cache, for big ones or a scaled screen; read by
-/// the workers.
+/// Whether thumbnails come from the freedesktop "large" cache, for big ones or a scaled
+/// screen. The workers read it.
 pub(crate) static LARGE_THUMBS: AtomicBool = AtomicBool::new(false);
 
 /// Thumbnail jobs further than this from the visible rows are skipped.
@@ -62,27 +62,30 @@ pub(crate) struct RubberBand {
     touched: Option<[usize; 4]>,
 }
 
-/// The files whose thumbnails are on screen, for the thumbnail workers to make first: `[0]` in the
-/// file list, `[1]` in pan view.
+/// The files whose thumbnails are on screen, for the thumbnail workers to make first. `[0]` is
+/// for the file list, and `[1]` for pan view.
 pub(crate) type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
 
-/// Thumbnails for the file list: those made, those being made, and the workers making them.
+/// The thumbnails for the file list. It holds those made, those being made, and the workers
+/// that make them.
 pub(crate) struct Thumbs {
-    /// Thumbnails still being made when a setting changed how they look: their results are
-    /// dropped once, as they come back in the old look.
+    /// The thumbnails still being made when a setting changed how they look. Their results are
+    /// dropped once, because they come back in the old look.
     stale: HashSet<OsString>,
-    /// File list thumbnails by file name; `None` = could not be made.
+    /// The file list's thumbnails by file name. `None` means it could not be made.
     textures: HashMap<OsString, Option<egui::TextureHandle>>,
     pending: HashSet<OsString>,
     /// (image index, file)
     jobs: mpsc::Sender<(usize, PathBuf)>,
-    /// (file, thumbnail); the outer `None` = skipped because it scrolled out of view.
+    /// The answers as (file, thumbnail). The outer `None` means it was skipped because it
+    /// scrolled out of view.
     rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
     /// The files the file list (or film strip) shows, with some rows around them, and those pan
-    /// view shows, both sorted: a thumbnail job for another file is skipped. Files, not a range:
-    /// the matches of a search, or pan view's days, are spread over the whole folder.
+    /// view shows, both sorted. A thumbnail job for another file is skipped. It holds files
+    /// rather than a range, because the matches of a search, or pan view's days, are spread
+    /// over the whole folder.
     view: ThumbView,
-    /// The rows the file list showed last, in the list as shown; thumbnails near them are kept.
+    /// The rows the file list showed last, in the list as shown. Thumbnails near them are kept.
     list_rows: std::ops::Range<usize>,
     /// Workers write new thumbnails to the shared cache (Preferences).
     save: Arc<AtomicBool>,
@@ -90,7 +93,7 @@ pub(crate) struct Thumbs {
 
 impl Thumbs {
     /// Thumbnails with workers of their own, so scrolling the list never delays the shown
-    /// image; `rotate` is the decoders' Auto Rotate.
+    /// image. `rotate` is the decoders' Auto Rotate.
     pub(crate) fn new(
         ctx: &egui::Context,
         workers: usize,
@@ -145,14 +148,15 @@ impl Thumbs {
     }
 }
 
-/// The file list in the side panel: hidden or not, the icon grid's shape, and whether it scrolls to
-/// the shown image.
+/// The file list in the side panel. It knows whether it is hidden, the shape of the icon grid,
+/// and whether it scrolls to the shown image.
 pub(crate) struct Panel {
-    /// View → Hide File List: only the image, as in full screen but in a window.
+    /// View → Hide File List. It shows only the image, as in full screen but in a window.
     hidden: bool,
-    /// Columns of the icon grid in the last frame; 1 when the list is rows or hidden.
+    /// The columns of the icon grid in the last frame. It is 1 when the list is rows or hidden.
     grid_cols: usize,
-    /// How far Previous/Next move this frame: a row of the icon grid for ↑ and ↓, else 1.
+    /// How far Previous and Next move this frame. It is a row of the icon grid for ↑ and ↓, and
+    /// otherwise 1.
     row_step: isize,
     /// Scroll the file list to the current image on the next frame.
     scroll_to_cur: bool,
@@ -199,7 +203,8 @@ impl Panel {
         self.grid_cols = 1;
     }
 
-    /// How far Previous and Next move: a row of the icon grid for ↑ and ↓, else one image.
+    /// Sets how far Previous and Next move, a row of the icon grid for ↑ and ↓, and otherwise
+    /// one image.
     pub(crate) fn set_row_step(&mut self, vertical: bool) {
         self.row_step = if vertical { self.grid_cols as isize } else { 1 };
     }
@@ -209,13 +214,14 @@ impl Panel {
     }
 }
 
-/// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
+/// The folder tree. It holds the subfolders read so far, the folders opened in it and the one
+/// shown.
 pub(crate) struct Tree {
-    /// Subfolders by folder for the folder tree; `None` while being read.
+    /// The subfolders of each folder for the folder tree. It is `None` while they are read.
     children: HashMap<PathBuf, Option<Vec<PathBuf>>>,
     tx: mpsc::Sender<(PathBuf, Vec<PathBuf>)>,
     rx: mpsc::Receiver<(PathBuf, Vec<PathBuf>)>,
-    /// The folder the tree was last opened up to; it opens again when the folder changes.
+    /// The folder the tree was last opened up to. The tree opens again when the folder changes.
     shown: PathBuf,
     /// The folders open in the tree.
     open: HashSet<PathBuf>,
@@ -261,8 +267,8 @@ impl Tree {
     }
 }
 
-/// The status bar's numbers: the shown image's size and place, the folder's total, and the
-/// selection's size.
+/// The status bar's numbers. It holds the shown image's size and place, the folder's total, and
+/// the size of the selection.
 pub(crate) struct StatusBar {
     /// Size in bytes of the shown file, for the status bar.
     cur_size: Option<(PathBuf, u64)>,
@@ -276,15 +282,16 @@ pub(crate) struct StatusBar {
     /// Total size of the images in the folder, summed in the background after listing.
     /// Only sums are sent (no per-file table), so memory use does not grow with the folder.
     total_size: u64,
-    /// Partial sums from the background; `None` once all have arrived.
+    /// The partial sums from the background. It is `None` once all have arrived.
     size_rx: Receiving<u64>,
     /// Bytes freed by deletions in the background.
     freed_tx: mpsc::Sender<u64>,
     freed_rx: mpsc::Receiver<u64>,
-    /// Size of the selected files; computed in the background when the selection changes.
+    /// The size of the selected files. It is worked out in the background when the selection
+    /// changes.
     selected_size: Option<u64>,
     selected_rx: Receiving<u64>,
-    /// When to work out that size: once the selection has stayed the same a moment.
+    /// When to work out that size, once the selection has stayed the same for a moment.
     selected_size_due: Option<Instant>,
 }
 
@@ -310,7 +317,7 @@ impl Default for StatusBar {
 
 /// Whether the selection's size is to be worked out now.
 pub(crate) enum SizeDue {
-    /// Not asked for: nothing is selected, or it is known.
+    /// The size is not asked for, because nothing is selected, or it is known.
     No,
     /// The selection may change again within this time.
     Later(std::time::Duration),
@@ -339,7 +346,8 @@ impl StatusBar {
         self.size_rx.is_none().then_some(self.total_size)
     }
 
-    /// Takes what the background sent: bytes freed, the selection's size and the folder's sums.
+    /// Takes what the background sent: the bytes freed, the selection's size and the folder's
+    /// sums.
     pub(crate) fn receive(&mut self) {
         while let Ok(freed) = self.freed_rx.try_recv() {
             // shortcut: a delete while the sum is still being computed can make it slightly off;
@@ -348,15 +356,16 @@ impl StatusBar {
         }
         match self.selected_rx.take() {
             Took::Answer(size) => self.selected_size = Some(size),
-            // The summing thread broke: no size, instead of "calculating…" for good.
+            // When the summing thread broke, the size is none, instead of "calculating…" for
+            // good.
             Took::Gone => self.selected_size = Some(0),
             Took::Nothing => {}
         }
         drain(&mut self.size_rx, &mut self.total_size);
     }
 
-    /// The place "[n/m]" of image `idx` among `total`: made by `make` only when another image or
-    /// another total asks, so the search matches are looked through once per image.
+    /// The place "[n/m]" of image `idx` among `total`. `make` makes it only when another image
+    /// or another total asks, so the search matches are looked through once for each image.
     pub(crate) fn place(
         &mut self,
         idx: usize,
@@ -373,14 +382,16 @@ impl StatusBar {
         text
     }
 
-    /// The place told for another pane is made again: another search may have as many matches.
+    /// Makes the place told for another pane again, because another search may have as many
+    /// matches.
     pub(crate) fn forget_place(&mut self) {
         self.place = None;
     }
 
-    /// The selection changed: its size is unknown, and worked out once it has stayed the same
-    /// a moment, which this returns. Not at once: Shift+↓ held in a selection of 500,000
-    /// changes it every frame, and each time a path for every file would be made.
+    /// Marks the selection's size as unknown, because the selection changed. It is worked out
+    /// once the selection has stayed the same for a moment, which this returns. It is not
+    /// worked out at once, because Shift+↓ held in a selection of 500,000 changes it every
+    /// frame, and each time a path for every file would be made.
     pub(crate) fn selection_changed(&mut self, any: bool) -> std::time::Duration {
         let wait = std::time::Duration::from_millis(200);
         self.selected_size = None;
@@ -389,7 +400,7 @@ impl StatusBar {
         wait
     }
 
-    /// Whether the selection's size is due; once it is, it is no longer asked for.
+    /// Whether the selection's size is due. Once it is, it is no longer asked for.
     pub(crate) fn size_due(&mut self) -> SizeDue {
         let Some(due) = self.selected_size_due else {
             return SizeDue::No;
@@ -412,7 +423,7 @@ impl StatusBar {
         self.selected_rx = Receiving::of(sum);
     }
 
-    /// What the image area showed: the pane the status bar tells about, the panes as
+    /// Keeps what the image area showed: the pane the status bar tells about, the panes as
     /// [columns, rows], and each pane's image and scale.
     pub(crate) fn panes_shown(
         &mut self,
@@ -434,9 +445,9 @@ impl crate::App {
         THUMBS[self.config.thumb_size.min(2) as usize]
     }
 
-    /// Thumbnails from the freedesktop "large" cache when the box is wider than a "normal" one
-    /// on the screen: at 150 % scaling even the smallest box is 144 pixels wide. Read again when
-    /// the scale or the size changes.
+    /// Takes thumbnails from the freedesktop "large" cache when the box is wider than a
+    /// "normal" one on the screen. At 150 % scaling even the smallest box is 144 pixels wide.
+    /// It is read again when the scale or the size changes.
     pub(crate) fn sync_thumb_source(&mut self, ppp: f32) {
         let large = self.thumb().x * ppp > 128.0;
         if LARGE_THUMBS.swap(large, Ordering::Relaxed) != large {
@@ -444,14 +455,15 @@ impl crate::App {
         }
     }
 
-    /// The thumbnails look otherwise now (their size, source or colours): the made ones go, and
-    /// those being made are marked stale, so the results are made again.
+    /// Lets go of the thumbnails, because they look otherwise now (their size, source or
+    /// colours). The made ones go, and those being made are marked stale, so the results are
+    /// made again.
     pub(crate) fn thumbs_changed(&mut self) {
         self.thumbs.textures.clear();
         self.thumbs.stale.extend(self.thumbs.pending.drain());
     }
 
-    /// A cell of the icon grid: the thumbnail with its name below.
+    /// The size of a cell of the icon grid, the thumbnail with its name below.
     pub(crate) fn cell(&self) -> egui::Vec2 {
         self.thumb() + CELL_EXTRA
     }
@@ -485,12 +497,14 @@ impl crate::App {
 
     pub(crate) fn receive_thumbs(&mut self, ctx: &egui::Context) {
         while let Ok((path, result)) = self.thumbs.rx.try_recv() {
-            // The name as the list has it: with its folders in a slideshow with subfolders.
+            // The name is the one the list has, with its folders in a slideshow with
+            // subfolders.
             let Ok(name) = path.strip_prefix(&self.folder.dir).map(Path::as_os_str) else {
                 continue;
             };
             self.thumbs.pending.remove(name);
-            // Made before a setting changed its look: asked for again, in the new one.
+            // A thumbnail made before a setting changed its look is asked for again, in the new
+            // look.
             if self.thumbs.stale.remove(name) {
                 continue;
             }
@@ -511,7 +525,7 @@ impl crate::App {
     /// Over the budget, drop the thumbnails of all but the rows `rows` of the list as shown (the
     /// search matches, or all files) and those near them.
     pub(crate) fn trim_thumbs(&mut self, rows: std::ops::Range<usize>) {
-        // Big thumbnails take four times the memory: keep a quarter as many.
+        // Big thumbnails take four times the memory, so a quarter as many are kept.
         let max = if LARGE_THUMBS.load(Ordering::Relaxed) {
             MAX_THUMBS / 4
         } else {
@@ -570,7 +584,8 @@ impl crate::App {
         let gap = if thumbs { 8.0 } else { 2.0 };
         let mut name_rect = rect.with_min_x(frame.right() + gap);
         if self.config.file_details {
-            // Size and date columns at the right, as in Geeqie; the name is cut off before them.
+            // The size and date columns are at the right, as in Geeqie, and the name is cut off
+            // before them.
             name_rect.max.x -= DETAILS_WIDTH;
             let (bytes, mtime) = self.file_details(i);
             let y = rect.center().y;
@@ -601,7 +616,7 @@ impl crate::App {
                 .text(at, egui::Align2::RIGHT_CENTER, marks, font.clone(), gold);
             name_rect.max.x = r.left() - 8.0;
         }
-        // Found broken by Check Images: a warning sign at the right.
+        // A file Check Images found broken gets a warning sign at the right.
         if self.broken_files.contains(&self.list.files[i]) {
             let c = egui::pos2(name_rect.max.x - 12.0, rect.center().y);
             broken_mark(ui.painter(), c, font.size);
@@ -627,7 +642,8 @@ impl crate::App {
         response
     }
 
-    /// A cell of the thumbnail grid: the thumbnail with the name below, cut off to fit.
+    /// A cell of the thumbnail grid. It shows the thumbnail with the name below, cut off to
+    /// fit.
     pub(crate) fn file_cell(
         &mut self,
         ui: &mut egui::Ui,
@@ -662,7 +678,7 @@ impl crate::App {
             frame.bottom() + 4.0,
         );
         ui.painter().galley(at, galley, color);
-        // Found broken by Check Images: the warning sign on the thumbnail's top left.
+        // A file Check Images found broken gets the warning sign on the thumbnail's top left.
         if self.broken_files.contains(&self.list.files[i]) {
             let size = egui::TextStyle::Body.resolve(ui.style()).size;
             broken_mark(
@@ -698,7 +714,8 @@ impl crate::App {
                 // size (256 pixels) does fill a box larger on a scaled screen.
                 let px = tex.size_vec2() / ui.ctx().pixels_per_point();
                 let cut = tex.size().into_iter().max() >= Some(256);
-                // Fit the frame given: a narrow calendar day has less room than a list row.
+                // The thumbnail fits the frame given, because a narrow calendar day has less
+                // room than a list row.
                 let fit = (frame.width() / px.x).min(frame.height() / px.y);
                 let scale = if cut { fit } else { fit.min(1.0) };
                 let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
@@ -731,8 +748,8 @@ impl crate::App {
     }
 
     /// The film strip along the bottom of `area` in full screen, shown while the pointer is
-    /// near the bottom: thumbnails of the images before and after the shown one, which is
-    /// outlined. Returns the image clicked.
+    /// near the bottom. It has thumbnails of the images before and after the shown one, which
+    /// is outlined. Returns the image clicked.
     pub(crate) fn filmstrip(&mut self, ui: &egui::Ui, area: egui::Rect) -> Option<usize> {
         let cell = self.thumb() + egui::vec2(8.0, 8.0);
         let height = cell.y + 16.0;
@@ -790,8 +807,8 @@ impl crate::App {
             use std::os::unix::fs::MetadataExt;
             (m.len(), m.mtime())
         });
-        // Bounded: scrolling through a folder of 500,000 would keep some 50 MB. Only the rows on
-        // screen are read again.
+        // The cache is bounded, because scrolling through a folder of 500,000 would keep some
+        // 50 MB. Only the rows on screen are read again.
         if self.list.details.len() >= 20_000 {
             self.list.details.clear();
         }
@@ -812,8 +829,8 @@ impl crate::App {
                 .open
                 .extend(self.folder.dir.ancestors().map(Path::to_path_buf));
         }
-        // The open folders as rows, so only those on screen are drawn: a folder of 100,000
-        // folders opened. An empty path is a folder still being read.
+        // The open folders are rows, so only those on screen are drawn, also when a folder of
+        // 100,000 folders is opened. An empty path is a folder still being read.
         // shortcut: the rows are made again each frame, a lookup for each; keep them until the
         // tree changes if trees of millions of folders are opened.
         let tree = std::mem::take(&mut self.tree.children);
@@ -900,7 +917,8 @@ impl crate::App {
         }
     }
 
-    /// Right-click on a folder in the list or the tree: rename it, or move it to the trash.
+    /// The menu of a right-click on a folder in the list or the tree. It renames the folder, or
+    /// moves it to the trash.
     pub(crate) fn folder_menu(&mut self, response: &egui::Response, dir: &Path) {
         response.context_menu(|ui| {
             // Its images in the list together with those shown now.
@@ -925,8 +943,8 @@ impl crate::App {
         });
     }
 
-    /// The sort manager (Shift+S), as in Geeqie: a click on a folder copies or moves the selected
-    /// files, or the shown one, there.
+    /// The sort manager (Shift+S), as in Geeqie. A click on a folder copies or moves the
+    /// selected files, or the shown one, there.
     pub(crate) fn sort_manager(&mut self, ui: &mut egui::Ui) {
         let mut remove = None;
         egui::Panel::right("sort manager")
@@ -989,8 +1007,8 @@ impl crate::App {
         }
     }
 
-    /// Add a folder to the sort manager or take one out: the change goes to the file as it is
-    /// now, so another window's folders stay, and is written whole or not at all.
+    /// Adds a folder to the sort manager or takes one out. The change goes to the file as it is
+    /// now, so another window's folders stay, and it is written whole or not at all.
     pub(crate) fn change_sort_folders(&mut self, add: Option<&Path>, remove: Option<&Path>) {
         if config::locked() {
             return self.notice = Some(tr("The settings are locked (--lock-settings)").into());
@@ -999,8 +1017,8 @@ impl crate::App {
             return self.notice =
                 Some(tr("Could not save the sort manager's folders: no home folder").into());
         };
-        // This change on the file as it is now, so another window's folders stay; one that
-        // cannot be read is not written over.
+        // The change is made on the file as it is now, so another window's folders stay. A file
+        // that cannot be read is not written over.
         let change = |old: &[u8]| {
             let dirs = config::sort_folders_changed(sort_folders_from(old), add, remove);
             (config::sort_folders_text(&dirs), dirs)
@@ -1023,7 +1041,8 @@ impl crate::App {
         }
     }
 
-    /// The file types to list, as the file classes of Geeqie's file filter; beside the sort menu.
+    /// The file types to list, as the file classes of Geeqie's file filter, beside the sort
+    /// menu.
     pub(crate) fn types_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let c = &mut self.config;
         let mut all = vec![(tr("Images"), &mut c.list_images), ("RAW", &mut c.list_raw)];
@@ -1080,7 +1099,7 @@ impl crate::App {
         }
     }
 
-    /// The folder path above the folder list, as in Geeqie; Enter opens what was typed.
+    /// The folder path above the folder list, as in Geeqie. Enter opens what was typed.
     pub(crate) fn path_field(&mut self, ui: &mut egui::Ui) {
         let edit =
             egui::TextEdit::singleline(&mut self.folder.path_text).desired_width(f32::INFINITY);
@@ -1105,7 +1124,7 @@ impl crate::App {
             let shown = self.folder.collection.as_ref().unwrap_or(&self.folder.dir);
             self.folder.path_text = match self.folder.folders.is_empty() {
                 true => shown.display().to_string(),
-                // Several folders: each of them.
+                // With several folders, it is each of them.
                 false => (self.folder.folders.iter())
                     .map(|f| f.display().to_string())
                     .collect::<Vec<_>>()
@@ -1114,8 +1133,8 @@ impl crate::App {
         }
     }
 
-    /// The left side as in Geeqie: the path, the folders at the top, the search and the files
-    /// below; then what a click there asked for.
+    /// The left side, as in Geeqie, with the path, the folders at the top, the search, and the
+    /// files below. Returns what a click there asked for.
     pub(crate) fn side_panel(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let (mut open_dir, mut go_to, mut list_act) = (None, None, None);
         // Room for a name next to the size and date columns, and the thumbnail before it.
@@ -1163,7 +1182,7 @@ impl crate::App {
         }
     }
 
-    /// The folder list: ⬆ .. for the parent folder, then the subfolders.
+    /// The folder list, with ⬆ .. for the parent folder and then the subfolders.
     pub(crate) fn folder_list(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
         // Row 0 is ⬆ .. (when there is a parent folder), the rest are subfolders.
         let up = self.folder.dir.parent().map(Path::to_path_buf);
@@ -1206,7 +1225,7 @@ impl crate::App {
         go_to: &mut Option<usize>,
         list_act: &mut Option<Action>,
     ) {
-        // The rows shown: the search matches, or all files.
+        // The rows shown are the search matches, or all files.
         let count = self
             .list
             .matches
@@ -1302,10 +1321,11 @@ impl crate::App {
         });
     }
 
-    /// The thumbnails of the list's `rows` shown and some around them, as files, kept being
-    /// made while near; the others let go.
+    /// Keeps the thumbnails of the list's `rows` shown, and some around them, being made while
+    /// they are near, and lets the others go.
     fn keep_thumbs_near(&mut self, rows: std::ops::Range<usize>, count: usize) {
-        // The rows shown and some around them, as files: kept being made while near.
+        // The rows shown and some around them, as files, are kept being made while they are
+        // near.
         let near = rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
         let mut view: Vec<usize> = match &self.list.matches {
             Some(m) => m[near].to_vec(),
@@ -1317,7 +1337,7 @@ impl crate::App {
         self.trim_thumbs(rows);
     }
 
-    /// While rows are dragged in a collection: near the top or bottom edge, the list scrolls on.
+    /// Scrolls the list on while rows are dragged in a collection near its top or bottom edge.
     fn drag_scroll(
         &mut self,
         ctx: &egui::Context,
@@ -1342,7 +1362,7 @@ impl crate::App {
         }
     }
 
-    /// Dropped: the dragged images before the row the line was at; a drag let go elsewhere ends.
+    /// Drops the dragged images before the row the line was at. A drag let go elsewhere ends.
     fn drop_dragged(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.pointer.any_released())
             && let Some((picked, Some(to))) = self.list.dragging.take()
@@ -1354,10 +1374,11 @@ impl crate::App {
         }
     }
 
-    /// Selecting in the icon grid by dragging a rectangle, as in a file manager: every image
-    /// it touches, added to the selection with Ctrl or Shift. It starts anywhere but in a
-    /// collection, where dragging an image moves it, from the space between them; it counts once
-    /// the pointer has moved a little, so a click stays a click. `cells` are the shown ones.
+    /// Selects in the icon grid by dragging a rectangle, as in a file manager. Every image it
+    /// touches is selected, and added to the selection with Ctrl or Shift. It starts anywhere,
+    /// but in a collection, where dragging an image moves it, it starts from the space between
+    /// the images. It counts once the pointer has moved a little, so a click stays a click.
+    /// `cells` are the cells shown.
     pub(crate) fn drag_rubber_band(
         &mut self,
         ui: &egui::Ui,
@@ -1366,8 +1387,8 @@ impl crate::App {
         first_row: usize,
     ) {
         let ctx = ui.ctx().clone();
-        // The grid's top, above the rows drawn: the rectangle is kept in the grid, so it moves
-        // with the images as they scroll.
+        // The rectangle is kept from the grid's top, above the rows drawn, so it moves with the
+        // images as they scroll.
         let pitch = row_h + ui.spacing().item_spacing.y;
         let origin = ui.max_rect().min - egui::vec2(0.0, first_row as f32 * pitch);
         let (cell, gap) = (self.cell(), ui.spacing().item_spacing.x);
@@ -1419,14 +1440,15 @@ impl crate::App {
         };
         let start = origin + *start;
         let Some(p) = pos.filter(|_| down) else {
-            // Released: the size of what is selected, once.
+            // When it is released, the size of what is selected is worked out, once.
             if std::mem::take(moved) {
                 self.selection_changed(&ctx);
             }
             self.list.rubber_band = None;
             return;
         };
-        // Something else is being dragged (the panel's edge, a scroll bar): not a rectangle.
+        // When something else is being dragged (the panel's edge, a scroll bar), it is not a
+        // rectangle.
         if !*moved && ctx.dragged_id().is_some() {
             self.list.rubber_band = None;
             return;
@@ -1440,8 +1462,9 @@ impl crate::App {
         let rel = band.translate(-origin.to_vec2());
         let rows = touched(rel.top(), rel.bottom(), pitch, row_h);
         let columns = touched(rel.left(), rel.right(), cell.x + gap, cell.x);
-        // Made again only when it touches other cells: the selection before it may be large
-        // (Ctrl+A in a big folder, then Ctrl and a rectangle), and frames come many a second.
+        // The selection is made again only when the rectangle touches other cells, because the
+        // selection before it may be large (Ctrl+A in a big folder, then Ctrl and a rectangle),
+        // and frames come many times a second.
         let touches = [rows.start, rows.end, columns.start, columns.end];
         if *last != Some(touches) {
             *last = Some(touches);
@@ -1470,8 +1493,8 @@ impl crate::App {
         ctx.request_repaint();
     }
 
-    /// Row `i` of a collection dragged to another place: the selection when it is in it, else
-    /// the row; a line in the accent colour shows where the images go.
+    /// Row `i` of a collection, dragged to another place. It drags the selection when the row is
+    /// in it, and otherwise the row. A line in the accent colour shows where the images go.
     pub(crate) fn drag_row(
         &mut self,
         ui: &egui::Ui,
@@ -1512,8 +1535,8 @@ impl crate::App {
         };
     }
 
-    /// A click on row `i`: Ctrl and Shift change the selection, a plain click gives the image to
-    /// show; a right-click outside the selection selects just that row.
+    /// A click on row `i`. Ctrl and Shift change the selection, and a plain click gives the
+    /// image to show. A right-click outside the selection selects just that row.
     pub(crate) fn row_clicked(
         &mut self,
         ctx: &egui::Context,
@@ -1524,7 +1547,7 @@ impl crate::App {
         if row.clicked() {
             let m = row.ctx.input(|i| i.modifiers);
             if m.command {
-                // Ctrl+click: toggle selection (the shown image is included the first time).
+                // Ctrl+click toggles the selection (the shown image is included the first time).
                 if self.list.selected.is_empty() {
                     self.list.selected.insert(self.list.cur);
                 }
@@ -1534,7 +1557,7 @@ impl crate::App {
                 self.list.anchor = Some(i);
                 self.selection_changed(ctx);
             } else if m.shift {
-                // Shift+click: select the rows from where the selection started.
+                // Shift+click selects the rows from where the selection started.
                 let anchor = *self.list.anchor.get_or_insert(self.list.cur);
                 self.list.selected.clear();
                 self.select_range(anchor, i);
@@ -1547,8 +1570,8 @@ impl crate::App {
                 go_to = Some(i);
             }
         }
-        // Right-click on a file outside the selection selects just it, as in
-        // a file manager; the menu acts on the selection.
+        // A right-click on a file outside the selection selects just that file, as in a file
+        // manager, and the menu acts on the selection.
         if row.secondary_clicked()
             && !self.list.selected.contains(&i)
             && (i != self.list.cur || !self.list.selected.is_empty())
@@ -1561,8 +1584,8 @@ impl crate::App {
         go_to
     }
 
-    /// The status bar as in Geeqie: the counts and sizes on the left, the shown image (or the pane
-    /// under the pointer) on the right.
+    /// The status bar, as in Geeqie. The counts and sizes are on the left, and the shown image
+    /// (or the pane under the pointer) on the right.
     pub(crate) fn status_bar(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1575,7 +1598,8 @@ impl crate::App {
                 );
                 let mut left = match &self.list.matches {
                     _ if self.folder.listing_rx.is_some() => tr("Reading folder…").to_owned(),
-                    // A search shows the matches: count and size of what the list shows.
+                    // A search shows the matches, with the count and size of what the list
+                    // shows.
                     Some(found) => {
                         let size = size_text(
                             (self.search.match_size_known()).then_some(self.list.match_size),
@@ -1619,8 +1643,8 @@ impl crate::App {
                     if n == 0 {
                         return;
                     }
-                    // As in Geeqie: "( 4000 x 3000 ) 2,345,678 bytes [3/16]", then the zoom;
-                    // with several panes, of the one under the pointer.
+                    // As in Geeqie, "( 4000 x 3000 ) 2,345,678 bytes [3/16]" comes first, then
+                    // the zoom. With several panes, it tells about the one under the pointer.
                     let (idx, scale) = (self.status.pane_info.get(self.status.pane).copied())
                         .filter(|p| p.0 < n)
                         .unwrap_or((self.list.cur, Some(self.zoom.scale_shown())));
@@ -1673,9 +1697,10 @@ impl crate::App {
     }
 }
 
-/// The names whose thumbnails stay: rows `rows` of the list as shown (`matches`, or all of
-/// `files`) and a third of `max` rows on each side. Rows, not file indices: search matches are
-/// spread over the whole folder, so a range of indices would keep almost every file.
+/// The names whose thumbnails stay, for rows `rows` of the list as shown (`matches`, or all of
+/// `files`) and a third of `max` rows on each side. It goes by rows rather than file indices,
+/// because search matches are spread over the whole folder, and a range of indices would keep
+/// almost every file.
 pub(crate) fn thumbs_to_keep<'a>(
     files: &'a [OsString],
     matches: Option<&[usize]>,
@@ -1699,8 +1724,8 @@ pub(crate) fn touched(lo: f32, hi: f32, step: f32, size: f32) -> std::ops::Range
 #[cfg(test)]
 mod tests {
 
-    /// Cells 100 high every 110: a band from 50 to 230 touches rows 0, 1 and 2; one in the gap
-    /// from 101 to 109 none; one above the grid none.
+    /// With cells 100 high every 110, a band from 50 to 230 touches rows 0, 1 and 2. One in the
+    /// gap from 101 to 109 touches none, and one above the grid none.
     #[test]
     fn finds_the_cells_a_rectangle_touches() {
         use super::touched;
@@ -1709,8 +1734,8 @@ mod tests {
         assert_eq!(touched(-80.0, -10.0, 110.0, 100.0), 0..0);
     }
 
-    /// Thumbnails are kept by rows of the list as shown: with search matches spread over a large
-    /// folder, a few hundred names, not the whole folder.
+    /// Thumbnails are kept by rows of the list as shown. With search matches spread over a
+    /// large folder, that is a few hundred names, not the whole folder.
     #[test]
     fn keeps_thumbnails_near_the_rows() {
         use std::ffi::OsString;
