@@ -1,7 +1,7 @@
-//! Fuzzy file name search in the style of fzf: the letters of the query must appear in the
+//! Fuzzy file name search in the style of fzf. The letters of the query must appear in the
 //! name in order, but not next to each other, and case is ignored. Names where they come
-//! together, at the start of a word or early in the name rank first. Also the EXIF index that
-//! `exif:` terms search: each file's fields and keywords as one line.
+//! together, at the start of a word or early in the name, rank first. Here is also the EXIF
+//! index that `exif:` terms search, with each file's fields and keywords as one line.
 
 use crate::model::folder::{drain, send_sizes};
 use crate::model::list::FileRow;
@@ -22,7 +22,7 @@ use std::time::Instant;
 
 const PREFIXES: [&str; 4] = ["exif:", "re:", "mark:", "stars:"];
 
-/// A search as a tree: terms (`exif:canon`, `re:png$`, a fuzzy name) combined with and (one
+/// A search as a tree. Terms (`exif:canon`, `re:png$`, a fuzzy name) are combined with and (one
 /// after the other), or (`|`) and not (`-` before a prefixed term, or `-(` before a group).
 #[derive(Debug, PartialEq)]
 pub enum Query {
@@ -32,31 +32,32 @@ pub enum Query {
     Or(Vec<Query>),
 }
 
-/// The search field: its query, the matches, and the EXIF index that exif: terms look in.
+/// The search field. It holds the query, the matches, and the EXIF index that exif: terms look
+/// in.
 #[derive(Default)]
 pub(crate) struct Search {
     /// File name search above the file list, and the matching files best first while it has
     /// at least three letters.
     query: String,
-    /// Why a re: search pattern is not one, shown under the search field.
+    /// Why a re: search pattern is not a valid pattern, shown under the search field.
     error: Option<String>,
     /// The search field takes the focus when it is next drawn (/).
     focus: bool,
-    /// The rows among the matches of the shown file and of the one a slideshow of several panes
-    /// steps from, as (file, row): found once per image and search, not in every frame, as the
-    /// matches can be 300,000 long.
+    /// The rows among the matches of the shown file and of the file a slideshow of several
+    /// panes steps from, as (file, row). They are found once for each image and search, not in
+    /// every frame, because the matches can be 300,000 long.
     match_rows: std::cell::Cell<[Option<FileRow>; 2]>,
     match_rx: Receiving<u64>,
-    /// When to sum the matches' size: once the search has stayed the same a moment.
+    /// When to sum the matches' size, once the search has stayed the same for a moment.
     match_size_due: Option<Instant>,
-    /// EXIF text of each file in the folder, lowercase, for "exif:" searches; built on the
-    /// first one, dropped with the folder.
+    /// The EXIF text of each file in the folder, in lowercase, for "exif:" searches. It is
+    /// built at the first such search and dropped with the folder.
     exif_index: Option<HashMap<OsString, String>>,
-    /// Files whose keywords or comment changed since they were indexed: read again, alone,
-    /// at the next "exif:" search.
+    /// The files whose keywords or comment changed after they were indexed. The next "exif:"
+    /// search reads only these files again, not the whole folder.
     exif_stale: HashSet<OsString>,
     exif_index_rx: Receiving<HashMap<OsString, String>>,
-    /// Set when the index being read is no longer wanted (another folder): the thread stops.
+    /// Set when the index being read is no longer wanted (another folder), so the thread stops.
     exif_index_stop: Arc<AtomicBool>,
 }
 
@@ -83,12 +84,12 @@ impl Search {
         !self.exif_stale.is_empty() && self.query.contains("exif:")
     }
 
-    /// The EXIF index of the folder dropped, and its reading stopped: another folder opens.
+    /// Drops the EXIF index of the folder and stops its reading, because another folder opens.
     pub(crate) fn forget_exif_index(&mut self) {
         self.exif_index = None;
         self.exif_stale.clear();
         self.exif_index_rx = Receiving::none();
-        // Its reading of every file ends: no one waits for it now.
+        // Its reading of every file ends, because no one waits for it now.
         self.exif_index_stop.store(true, Ordering::Relaxed);
     }
 
@@ -102,8 +103,8 @@ impl Search {
         self.match_rx.is_none() && self.match_size_due.is_none()
     }
 
-    /// The row of `file` among the matches, found by `find` only for a file other than the two
-    /// kept: the shown file `cur` and one other.
+    /// The row of `file` among the matches. `find` looks it up only for a file other than the
+    /// two kept, the shown file `cur` and one other.
     pub(crate) fn row_of(
         &self,
         file: usize,
@@ -161,8 +162,8 @@ impl crate::App {
                 self.update_search(ui.ctx());
                 self.panel.scroll_to_current();
             }
-            // A fixed ID: the X button appearing in front of it must not make it a new
-            // widget, which would lose the focus after the first letter.
+            // The field has a fixed ID, so the X button appearing in front of it does not make
+            // it a new widget, which would lose the focus after the first letter.
             let hint = match self.config.fuzzy_search {
                 true => tr("Search file names (3+ letters), re: pattern, or exif: camera, date …"),
                 false => tr("Filter file names by pattern, or exif: camera, date …"),
@@ -170,9 +171,10 @@ impl crate::App {
             let edit = egui::TextEdit::singleline(&mut self.search.query)
                 .id(egui::Id::unique("file search"))
                 .hint_text(hint);
-            // Geeqie's file filter has its Case checkbox to the right; before it, the switch
-            // between fuzzy and regular expression search. Laid out from the right, so the
-            // field takes what is left: a row wider than the panel would widen it every frame.
+            // Geeqie's file filter has its Case checkbox to the right, and before it the switch
+            // between fuzzy and regular expression search. The row is laid out from the right,
+            // so the field takes what is left, because a row wider than the panel would widen it
+            // every frame.
             let geeqie = !self.config.fuzzy_search;
             let mut changed = false;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -208,22 +210,24 @@ impl crate::App {
         }
     }
 
-    /// Run the search again; file indices change when the list does.
+    /// Runs the search again, because file indices change when the list does.
     pub(crate) fn update_search(&mut self, ctx: &egui::Context) {
         let query = self.search.query.trim().to_owned();
         let query = query.as_str();
         self.search.match_rows.set(Default::default());
-        // Other rows: a Shift range of the keys is no longer the rows it was.
+        // The rows are others now, so a Shift range of the keys is no longer the rows it was.
         self.list.range_end = None;
-        // A place "[n/m]" told for another pane: another search may have as many matches.
+        // A place "[n/m]" told for another pane is made again, because another search may have
+        // as many matches.
         self.status.forget_place();
         self.search.error = None;
         self.list.matches = self.search_matches(ctx, query);
-        // Size of the matches in the background; a new search drops the receiver, which
-        // stops the old sum.
+        // The size of the matches is summed in the background. A new search drops the receiver,
+        // which stops the old sum.
         self.list.match_size = 0;
         self.search.match_rx = Receiving::none();
-        // Not at each letter typed: each would copy every match's name, 500,000 for an "a".
+        // It is not summed at each letter typed, because each would copy every match's name,
+        // 500,000 for an "a".
         let wait = std::time::Duration::from_millis(200);
         self.search.match_size_due = self.list.matches.is_some().then(|| Instant::now() + wait);
         ctx.request_repaint_after(wait);
@@ -234,7 +238,8 @@ impl crate::App {
         let Some(due) = self.search.match_size_due else {
             return;
         };
-        // Asked again each frame: a frame drawn before it is due drops the earlier request.
+        // This is asked again each frame, because a frame drawn before it is due drops the
+        // earlier request.
         if let Some(wait) = due.checked_duration_since(Instant::now()) {
             return ctx.request_repaint_after(wait);
         }
@@ -252,31 +257,31 @@ impl crate::App {
         self.search.match_rx = Receiving::of(rx);
     }
 
-    /// The exif: search index once it is read, and the search again with it.
+    /// Takes the exif: search index once it is read, and runs the search again with it.
     pub(crate) fn receive_exif_index(&mut self, ctx: &egui::Context) {
         let index = match self.search.exif_index_rx.take() {
             Took::Nothing => return,
             Took::Answer(index) => index,
-            // Without any index the search would start reading again at once: an empty one,
-            // and the user told.
+            // Without any index, the search would start reading again at once, so it gets an
+            // empty one, and the user is told.
             Took::Gone => {
                 self.stopped(tr("The EXIF index"));
                 HashMap::new()
             }
         };
-        // The files read again go into the index there is; else this is the whole index.
+        // The files read again go into the index there is. Otherwise this is the whole index.
         match &mut self.search.exif_index {
             Some(old) => old.extend(index),
             None => self.search.exif_index = Some(index),
         }
-        // Read from the list as it was: names that came since are read too.
+        // The index was read from the list as it was, so names that came since are read too.
         self.exif_follow_list();
         self.update_search(ctx);
     }
 
-    /// Names in the list the `exif:` index has not read (renamed, moved or copied in, new in a
-    /// folder read again, from subfolders turned on) are read with the next search, as edited
-    /// ones are: a name it lacked was found by no `exif:` search at all.
+    /// Makes the next search read the names in the list that the `exif:` index has not read
+    /// (renamed, moved or copied in, new in a folder read again, or from subfolders turned on),
+    /// as it reads edited ones. Before, a name it lacked was found by no `exif:` search at all.
     pub(crate) fn exif_follow_list(&mut self) {
         if let Some(index) = &self.search.exif_index {
             let missing = self.list.files.iter().filter(|n| !index.contains_key(*n));
@@ -284,9 +289,9 @@ impl crate::App {
         }
     }
 
-    /// The files a search finds: one term as it always was (fuzzy names best first), or terms
-    /// combined (`sunset ( exif:canon | exif:nikon ) -re:png$`, see `parse`) in list order. Returns
-    /// `None` for no search.
+    /// The files a search finds. One term finds them as it always did (fuzzy names best first),
+    /// and terms combined (`sunset ( exif:canon | exif:nikon ) -re:png$`, see `parse`) find
+    /// them in list order. Returns `None` for no search.
     pub(crate) fn search_matches(
         &mut self,
         ctx: &egui::Context,
@@ -298,8 +303,8 @@ impl crate::App {
         }
     }
 
-    /// The files a part of a combined search finds, in order: an and keeps the order of its
-    /// first part that is no "not", an or the order of its parts one after the other.
+    /// The files a part of a combined search finds, in order. An and keeps the order of its
+    /// first part that is no "not", and an or keeps the order of its parts one after the other.
     pub(crate) fn query_matches(&mut self, ctx: &egui::Context, query: &Query) -> Vec<usize> {
         use Query;
         let n = self.list.files.len();
@@ -336,7 +341,7 @@ impl crate::App {
                     if Some(at) == lead {
                         continue;
                     }
-                    // A "not" left out directly; the others kept where both find.
+                    // A "not" is left out directly, and the other parts keep what both find.
                     let (inner, keep) = match part {
                         Query::Not(inner) => (inner.as_ref(), false),
                         part => (part, true),
@@ -375,7 +380,8 @@ impl crate::App {
                         true => {
                             (term.chars().count() >= min).then(|| matches(&self.list.files, term))
                         }
-                        // As Geeqie's file filter: a regular expression, from the first letter.
+                        // As in Geeqie's file filter, it is a regular expression, from the
+                        // first letter.
                         false => (!term.is_empty()).then(|| regex(self, term)),
                     })
             }
@@ -396,10 +402,10 @@ impl crate::App {
             Some(Ok(re)) => Some(re),
             None => None,
         };
-        // Files edited since: read again alone, while the search goes on with the index there is.
-        // Not while keywords are still being written: the marks stay until they are, so files
-        // read before their sidecar landed are read again after (the frame that sees the job
-        // end searches again).
+        // Files edited since are read again alone, while the search goes on with the index
+        // there is. That waits while keywords are still being written, and the marks stay until
+        // they are, so files read before their sidecar landed are read again after. (The frame
+        // that sees the job end searches again.)
         let writing = self.work.writes_keywords();
         if !writing
             && self.search.exif_index.is_some()
@@ -443,14 +449,15 @@ impl crate::App {
             }
             return Vec::new();
         };
-        // The index is lowercase, as the words are made; a regular expression ignores case.
+        // The index is lowercase, and the words are made so too, while a regular expression
+        // ignores case.
         let words = words.to_lowercase();
         let words: Vec<&str> = words.split_whitespace().collect();
         let found = |text: &String| match &re {
             Some(re) => re.is_match(text.as_bytes()),
             None => words.iter().all(|w| text.contains(w)),
         };
-        // In parallel: 500,000 lookups at each letter typed.
+        // This runs in parallel, because it is 500,000 lookups at each letter typed.
         in_parts(&self.list.files, background_threads().min(8), |part, at| {
             (part.iter().enumerate())
                 .filter(|(_, f)| index.get(*f).is_some_and(found))
@@ -488,8 +495,9 @@ impl crate::App {
         )
     }
 
-    /// The names in the list of the files whose (marks, stars) `hit` takes: from the marked
-    /// files, a few thousand at most, not a path made for each of 500,000 at every key press.
+    /// The names in the list of the files whose (marks, stars) `hit` takes. They come from the
+    /// marked files, a few thousand at most, rather than a path made for each of 500,000 at
+    /// every key press.
     #[cfg(feature = "marks")]
     pub(crate) fn marked_names(&self, hit: impl Fn((u8, u8)) -> bool) -> HashSet<&std::ffi::OsStr> {
         (self.marks.marked())
@@ -503,8 +511,8 @@ impl crate::App {
         None
     }
 
-    /// /: the search field, shown with the file list (out of full screen) if it was hidden, and
-    /// the / itself not typed into it.
+    /// /. It focuses the search field, and shows it with the file list (out of full screen) if
+    /// it was hidden. The / itself is not typed into it.
     pub(crate) fn focus_search_field(&mut self, ctx: &egui::Context, fullscreen: bool) {
         // The field shows if it was hidden, with the file list (out of full screen),
         // and the / itself is not typed into it.
@@ -517,15 +525,17 @@ impl crate::App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
         }
         ctx.input_mut(|i| (i.events).retain(|e| *e != egui::Event::Text("/".into())));
-        // Given when the field is drawn: egui drops focus on a widget not drawn yet.
+        // The focus is given when the field is drawn, because egui drops the focus on a widget
+        // not drawn yet.
         self.search.focus = true;
     }
 }
 
-/// Score of the lowercase `name` for the lowercase `query`, higher is better; `None` if it
-/// does not match. Generic over bytes (ASCII names, no allocation) and chars (the rest).
+/// The score of the lowercase `name` for the lowercase `query`, higher is better. Returns
+/// `None` if it does not match. It is generic over bytes (ASCII names, no allocation) and chars
+/// (the rest).
 fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool) -> Option<i32> {
-    // A plain substring is what people usually type; it always beats a scattered match.
+    // A plain substring is what people usually type, so it always beats a scattered match.
     if let Some(start) = name.windows(query.len()).position(|w| w == query) {
         let at_word = start == 0 || !word(name[start - 1]);
         return Some(1000 + 50 * at_word as i32 - start.min(100) as i32);
@@ -552,16 +562,17 @@ fn score<T: Copy + PartialEq>(name: &[T], query: &[T], word: impl Fn(T) -> bool)
     (q == query.len()).then_some(score)
 }
 
-/// The tree of a search; `None` for an empty one. A term starts at a prefix (`exif:`, `re:`,
-/// `mark:`, `stars:`) and the words after it belong to it, so `exif:canon 2024:05` stays one
-/// term; words before the first prefix of a group search the names. `|` binds loosest, and
-/// `(`, `-(` and `)` group, all as words of their own, so a regular expression keeps its own
-/// parentheses and bars (`re:^(IMG|DSC)`). A `)` too many is left out, a missing one assumed.
+/// The tree of a search. Returns `None` for an empty one. A term starts at a prefix (`exif:`,
+/// `re:`, `mark:`, `stars:`), and the words after it belong to it, so `exif:canon 2024:05`
+/// stays one term. Words before the first prefix of a group search the names. `|` binds
+/// loosest, and `(`, `-(` and `)` group, all as words of their own, so a regular expression
+/// keeps its own parentheses and bars (`re:^(IMG|DSC)`). A `)` too many is left out, and a
+/// missing one is assumed.
 pub fn parse(query: &str) -> Option<Query> {
     let tokens: Vec<&str> = query.split_whitespace().collect();
     let mut at = 0;
     let parsed = or(&tokens, &mut at);
-    // A stray ")" ends a group that was not opened: the rest is read on.
+    // A stray ")" ends a group that was not opened, and the rest is read on.
     let mut parts: Vec<Query> = parsed.into_iter().collect();
     while at < tokens.len() {
         at += 1;
@@ -598,7 +609,7 @@ fn or(tokens: &[&str], at: &mut usize) -> Option<Query> {
 /// Terms and groups one after the other, up to a `|`, a `)` or the end.
 fn and(tokens: &[&str], at: &mut usize) -> Option<Query> {
     let mut parts: Vec<Query> = Vec::new();
-    // Words after a term belong to it; after a group they start a search of the names.
+    // Words after a term belong to it, and after a group they start a search of the names.
     let mut open_term = false;
     while let Some(&token) = tokens.get(*at) {
         match token {
@@ -650,14 +661,14 @@ fn and(tokens: &[&str], at: &mut usize) -> Option<Query> {
     }
 }
 
-/// A `re:` search, ignoring case unless `case`; for a pattern that is not one, why, to show
-/// while typing.
+/// A `re:` search, which ignores case unless `case`. For a pattern that is not valid, it
+/// returns why, to show while typing.
 pub fn regex(pattern: &str, case: bool) -> Result<regex::bytes::Regex, String> {
     regex::bytes::RegexBuilder::new(pattern)
         .case_insensitive(!case)
         .build()
         .map_err(|e| {
-            // The last line says what is wrong; the ones before point at where.
+            // The last line says what is wrong, and the ones before point at where.
             let text = e.to_string();
             let last = text.lines().last().unwrap_or_default();
             last.trim_start_matches("error: ").to_owned()
@@ -672,8 +683,8 @@ pub fn regex_matches(names: &[std::ffi::OsString], re: &regex::bytes::Regex) -> 
     hits.into_iter().map(|h| h.1).collect()
 }
 
-/// Indices of the matching names, best first, then in list order. Split over the cores:
-/// 300,000 names take a few milliseconds.
+/// The indices of the matching names, best first, then in list order. The work is split over
+/// the cores, and 300,000 names take a few milliseconds.
 pub fn matches(names: &[std::ffi::OsString], query: &str) -> Vec<usize> {
     let query_chars: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
     let query_bytes = query
@@ -702,7 +713,7 @@ pub fn matches(names: &[std::ffi::OsString], query: &str) -> Vec<usize> {
     hits.into_iter().map(|h| h.1).collect()
 }
 
-/// (score, index) of the names `score_one` matches, in list order, split over the cores; each
+/// (score, index) of the names `score_one` matches, in list order, split over the cores. Each
 /// thread lends it a buffer of its own.
 fn in_parallel(
     names: &[std::ffi::OsString],
@@ -729,12 +740,12 @@ pub fn exif_index(
     let index = crate::support::threads::in_parts(files, small_alloc_threads(), |part, _| {
         let mut out = Vec::with_capacity(part.len());
         for name in part {
-            // Left: the folder is gone from the window, and no one waits for this.
+            // When the folder is gone from the window, no one waits for this.
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
             let path = dir.join(name);
-            // A file that breaks its reader has no text; a whole part lost would leave 1/N of
+            // A file that breaks its reader has no text. A whole part lost would leave 1/N of
             // the folder out of every exif: search, in silence.
             let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let rows = exif::read(&path);
@@ -764,8 +775,8 @@ mod tests {
         .iter()
         .map(Into::into)
         .collect();
-        // Case is ignored; a word-start substring ranks above one inside a word, and a
-        // scattered match comes last.
+        // Case is ignored. A substring at the start of a word ranks above one inside a word,
+        // and a scattered match comes last.
         assert_eq!(super::matches(&names, "beach"), [2, 1, 3]);
         assert_eq!(super::matches(&names, "shot"), [0]);
         assert_eq!(super::matches(&names, "sfr"), [0]);
@@ -778,9 +789,9 @@ mod tests {
         assert_eq!(super::matches(&names, "BÆR"), [0, 1]);
     }
 
-    /// A search read as a tree: prefixes start terms and words after one belong to it, `-`
-    /// negates a prefixed term or a group, `|` binds loosest, `(` `)` group as words of their
-    /// own, and a regular expression keeps its parentheses and bars.
+    /// A search is read as a tree. Prefixes start terms, and the words after one belong to it.
+    /// `-` negates a prefixed term or a group, `|` binds loosest, `(` and `)` group as words of
+    /// their own, and a regular expression keeps its parentheses and bars.
     #[test]
     fn parses_searches() {
         use super::Query::{And, Not, Or, Term};
@@ -808,7 +819,7 @@ mod tests {
         assert_eq!(p("a b | c"), Some(Or(vec![t("a b"), t("c")])));
         // Its own parentheses and bars stay in a regular expression.
         assert_eq!(p("re:^(IMG|DSC)_"), Some(t("re:^(IMG|DSC)_")));
-        // A name with a dash is a name; a missing ")" is assumed, one too many left out.
+        // A name with a dash is a name. A missing ")" is assumed, and one too many is left out.
         assert_eq!(p("-draft"), Some(t("-draft")));
         assert_eq!(p("( mark:2"), Some(t("mark:2")));
         assert_eq!(
@@ -819,7 +830,7 @@ mod tests {
         assert_eq!(p("  "), None);
     }
 
-    /// Searches broken in thousands of ways: read without a panic or an endless loop.
+    /// Searches broken in thousands of ways are read without a panic or an endless loop.
     #[test]
     fn survives_broken_searches() {
         let seed = b"sunset ( exif:canon | -exif:nikon 2024 ) -( re:^(a|b) | stars:1 ) mark:2";
@@ -828,8 +839,8 @@ mod tests {
         }
     }
 
-    /// re: finds names by a regular expression, ignoring case, in list order; a broken one
-    /// says why in one line.
+    /// re: finds names by a regular expression, ignoring case, in list order. A broken one says
+    /// why in one line.
     #[test]
     fn finds_by_regex() {
         let names: Vec<std::ffi::OsString> =
