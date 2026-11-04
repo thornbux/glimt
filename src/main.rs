@@ -1,8 +1,8 @@
-//! Glimt: a fast, memory-frugal image viewer.
+//! Glimt is a fast image viewer that uses little memory.
 //!
-//! Images are decoded in background threads to the size of the image area; full resolution
-//! is decoded only when the user zooms past what that covers. Only a small window around
-//! the current image is kept in memory.
+//! Images are decoded in background threads to the size of the image area. Full resolution
+//! is decoded only when the user zooms in further than that size covers. Only a small window
+//! of images around the current one is kept in memory.
 
 // Tests make and read their files directly. The rules in clippy.toml are for Glimt's own code,
 // which `cargo clippy --release` checks without the tests.
@@ -41,16 +41,17 @@ mod viewer;
 /// glibc's M_ARENA_MAX.
 const M_ARENA_MAX: i32 = -8;
 
-/// Glimt's logo, 256 pixels square: the window's icon, and on the About page.
+/// Glimt's logo, 256 pixels square. It is the window's icon and appears on the About page.
 const LOGO: &[u8] = include_bytes!("../assets/glimt-256.png");
 
-/// The window's state. Each part is a struct in the module whose code uses it; a new part's
+/// The window's state. Each part is a struct in the module whose code uses it. A new part's
 /// state goes there too, not in a field of its own here (`source_rules::app_stays_small`).
 struct App {
-    /// The window's context, for the one caller that gets none: on_exit.
+    /// The window's context. It is kept for on_exit, the one caller that is not given one.
     ctx: egui::Context,
     config: Config,
-    /// What the desktop says: its dark style and accent, and its screen profile.
+    /// What the desktop says. It holds the desktop's dark style, its accent colour and its
+    /// screen profile.
     desktop: crate::ui::theme::FromDesktop,
 
     // ---- What is open and its files ----
@@ -59,25 +60,29 @@ struct App {
     folder: crate::model::folder::Folder,
     /// The file list with everything indexed into it.
     list: List,
-    /// File operations in the background: the jobs, the files they touch, what they report,
-    /// and Undo.
+    /// File operations in the background. It holds the jobs, the files they touch, what they
+    /// report, and Undo.
     work: crate::files::file_ops::Work,
-    /// Work still running in the background, for the busy pointer: deletes, copies and moves,
-    /// printing, Check Images, Rename Many, the Lightroom import, plugins and every `background`.
+    /// The count of work still running in the background, for the busy pointer. Deletes,
+    /// copies and moves, printing, Check Images, Rename Many, the Lightroom import, plugins and
+    /// every `background` count.
     busy: Arc<AtomicUsize>,
 
     // ---- The side panel ----
-    /// The file list in the side panel: hidden or not, the icon grid's shape, and whether it
-    /// scrolls to the shown image.
+    /// The file list in the side panel. It knows whether it is hidden, the shape of the icon
+    /// grid, and whether it scrolls to the shown image.
     panel: crate::ui::file_list::Panel,
-    /// The folder tree: the subfolders read so far, the folders opened in it and the one shown.
+    /// The folder tree. It holds the subfolders read so far, the folders opened in it and the
+    /// one shown.
     tree: crate::ui::file_list::Tree,
-    /// Thumbnails for the file list: those made, those being made, and the workers making them.
+    /// The thumbnails for the file list. It holds those made, those being made, and the
+    /// workers that make them.
     thumbs: crate::ui::file_list::Thumbs,
-    /// The search field: its query, the matches, and the EXIF index that exif: terms look in.
+    /// The search field. It holds the query, the matches, and the EXIF index that exif: terms
+    /// look in.
     search: crate::model::search::Search,
-    /// The status bar's numbers: the shown image's size and place, the folder's total, and the
-    /// selection's size.
+    /// The status bar's numbers. It holds the shown image's size and place, the folder's total,
+    /// and the size of the selection.
     status: crate::ui::file_list::StatusBar,
     /// Files Check Images found broken, marked in the list until another list is shown.
     broken_files: HashSet<OsString>,
@@ -85,29 +90,30 @@ struct App {
     marks: crate::metadata::marks::Marks,
 
     // ---- The image and the window ----
-    /// Decoding the shown image and its neighbours: the workers, which images they keep, and
-    /// the size they decode to.
+    /// The decoding of the shown image and its neighbours. It holds the workers, the images
+    /// they keep, and the size they decode to.
     decoding: crate::viewer::view::Decoding,
     /// What belongs to the image shown, made anew when it is left.
     viewing: crate::viewer::view::Viewing,
     /// The zoom, and where the zoomed image is in the view.
     zoom: crate::viewer::view::Zoom,
-    /// Two images side by side (E): the shown one and `compare_other`.
+    /// Whether two images are shown side by side (E), the shown one and `compare_other`.
     compare: bool,
     /// What the image area showed in the last frame, for the projector to show the same.
     last_view: Option<View>,
-    /// The image area, which keeps the keyboard focus for a screen reader: not a widget that
-    /// takes the keys from the shortcuts.
+    /// The image area. It keeps the keyboard focus for a screen reader, because a widget with
+    /// the focus would take the keys from the shortcuts.
     image_id: Option<egui::Id>,
-    /// The focus last moved by Tab, not by the mouse: its ring shows, as in GNOME.
+    /// Whether the focus was last moved by Tab rather than by the mouse. Its ring shows only
+    /// then, as in GNOME.
     focus_by_keys: bool,
-    /// The slideshow: whether it runs, its order and the pane it changes next.
+    /// The slideshow. It knows whether it runs, its order, and the pane it changes next.
     slideshow: crate::viewer::slideshow::Slideshow,
-    /// The window: its state remembered, the kiosk, the projector, the screen saver, the
-    /// pointer and the title.
+    /// The window. It holds the remembered window state, the kiosk, the projector, the screen
+    /// saver, the pointer and the title.
     window: crate::ui::window::Window,
-    /// The info panel and the EXIF window: what is read of the shown image, and what is being
-    /// edited.
+    /// The info panel and the EXIF window. They hold what was read of the shown image and
+    /// what is being edited.
     info: crate::ui::info_panel::Info,
     /// The message shown over the image, until the next image.
     notice: Option<String>,
@@ -116,11 +122,11 @@ struct App {
     notices_rx: mpsc::Receiver<String>,
 
     // ---- Menus, dialogs and windows ----
-    /// The small dialogs: a name asked for, a delete or a folder's trashing confirmed, and the
-    /// file chooser.
+    /// The small dialogs. They ask for a name, confirm a delete or the trashing of a folder,
+    /// and open the file chooser.
     dialogs: crate::ui::dialogs::Dialogs,
-    /// The Preferences window: open or not, its search, and the action whose key is being
-    /// chosen.
+    /// The Preferences window. It knows whether it is open, its search, and the action whose
+    /// key is being chosen.
     prefs: crate::ui::preferences::Prefs,
     /// Open With's programs for each file type, read in the background.
     open_with: crate::ui::menus::OpenWith,
@@ -138,12 +144,13 @@ struct App {
     lightroom: Option<crate::metadata::lightroom::Import>,
     /// The pan view's window (Ctrl+J), while it is open.
     pan_window: Option<Pan>,
-    /// File → Save As: the dialog while open, and what it asked last.
+    /// File → Save As. It holds the dialog while it is open, and the answers given last.
     save_as: Option<crate::viewer::save_as::SaveAs>,
     save_as_last: crate::viewer::save_as::Choice,
     /// The Find Duplicates window, while open.
     dups: Option<Dups>,
-    /// The Check Images window: `None` closed, `Some(None)` open and not started.
+    /// The Check Images window. `None` means it is closed, and `Some(None)` means it is open
+    /// but not started.
     check: Option<Option<Check>>,
     /// Commands from --remote, and selects held back until the list is read.
     remote: crate::features::remote::Listener,
@@ -195,7 +202,7 @@ impl App {
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
         crate::ui::theme::apply(ctx, &crate::ui::theme::load(&config.theme), None, None);
-        // The size comes from Preferences and the desktop; egui's own Ctrl+0 would undo it.
+        // The size comes from Preferences and the desktop, so egui's own Ctrl+0 would undo it.
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(config.ui_scale as f32 / 100.0);
         let workers = cores().min(config.decode_threads);
@@ -206,8 +213,8 @@ impl App {
             decoding.rotation(),
             config.save_thumbnails,
         );
-        // A name is only of use with remote control, so it listens anyway; a kiosk too, as
-        // --remote quit is its way out.
+        // A name is only of use with remote control, so a named Glimt listens in any case. A
+        // kiosk listens too, because --remote quit is the only way to end it.
         let listen =
             config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
         let (notices_tx, notices_rx) = mpsc::channel();
@@ -256,7 +263,8 @@ impl App {
             remote: crate::features::remote::Listener::new(ctx, listen),
             config,
         };
-        // A URI on the command line: start where Glimt would otherwise, then go there once mounted.
+        // When a URI is on the command line, Glimt starts where it would otherwise and goes to
+        // the URI once it is mounted.
         match path.to_str().filter(|p| p.contains("://")) {
             Some(uri) => {
                 app.open(ctx, ".".into());
@@ -268,8 +276,8 @@ impl App {
             }
             None => app.open(ctx, path),
         }
-        // Small folders are listed before the first frame; large ones hold startup back at most 50
-        // ms.
+        // Small folders are listed before the first frame. A large one holds startup back for
+        // at most 50 ms.
         app.receive_listing(ctx, std::time::Duration::from_millis(50));
         app
     }
@@ -281,7 +289,8 @@ impl App {
         self.sync_thumb_source(ctx.pixels_per_point());
         self.poll_background(ctx);
         let mut act = self.read_keys(ctx);
-        // Full screen and Hide File List as in Geeqie: only the image, no menu or panels.
+        // Full screen and Hide File List work as in Geeqie, showing only the image without the
+        // menu or the panels.
         let fullscreen = self.track_window(ctx);
         self.hide_still_pointer(ctx, fullscreen);
         let bare = fullscreen || self.panel.is_hidden() || self.window.is_kiosk();
@@ -291,7 +300,8 @@ impl App {
         if let Some(action) = act {
             self.run(ctx, action);
         }
-        // The icon grid sets it again in the file list; the next frame's ↑ and ↓ read it.
+        // The icon grid sets the row step again in the file list, and the next frame's ↑ and ↓
+        // read it.
         self.panel.start_frame();
         self.preferences_window(ctx);
         self.prompt_dialog(ctx);
@@ -323,7 +333,7 @@ impl App {
         if !bare && self.config.exif_panel && !self.list.files.is_empty() {
             self.exif_panel(ui);
         } else {
-            // Hidden while a field had the focus: it never lost it.
+            // The panel was hidden while a field had the focus, so the field never lost it.
             self.save_meta(ui.ctx());
         }
         self.image_area(ctx, ui, fullscreen, bare);
@@ -333,13 +343,14 @@ impl App {
     }
 }
 
-// The parts of a frame, in the order `ui` draws them, and what reaches it from the threads in the
-// background. The windows of one feature (pan view, Find Duplicates, Check Images, Preferences,
-// the projector) are with that feature: above, or in its own module.
+// The parts of a frame, in the order `ui` draws them, and what reaches the frame from the
+// threads in the background. The windows of one feature (pan view, Find Duplicates, Check
+// Images, Preferences, the projector) are kept with that feature, above or in its own module.
 impl eframe::App for App {
     /// The last folder is written once on exit, not on every folder change.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // No new client first: one coming after the answers would have none.
+        // The listener closes to new clients first, because a client coming after the answers
+        // would get none.
         crate::features::remote::close();
         self.answer_held_selects();
         crate::features::remote::stop(|| self.answer_held_selects());
@@ -355,15 +366,17 @@ impl eframe::App for App {
         if self.config.remember_window {
             state += &self.window.state_text();
         }
-        // Nothing to keep: the folder and window of before go too, not left for a later start.
+        // When there is nothing to keep, the old folder and window go too, so a later start
+        // does not use them.
         match state_path() {
             Some(p) if state.is_empty() => drop(std::fs::remove_file(p)),
             Some(p) => write_atomic(&p, &state),
             None => {}
         }
         self.inhibit(false);
-        // The state above, the settings, and the keywords queued at the first close: waited for,
-        // a few seconds at most. Not after a third close, which ends at once whatever runs.
+        // This waits a few seconds at most for the state above, the settings, and the keywords
+        // queued at the first close. After a third close it does not wait, and Glimt ends at
+        // once whatever still runs.
         if self.window.closes_asked() < 2 {
             crate::files::file_io::flush();
         }
@@ -386,22 +399,23 @@ impl eframe::App for App {
     }
 }
 
-/// The windows' app ID, the desktop file's name, so the desktop shows its icon for them:
-/// glimt.desktop, or in a Flatpak io.github.thornbux.Glimt.desktop (FLATPAK_ID).
+/// The windows' app ID, which is the desktop file's name, so the desktop shows Glimt's icon for
+/// them. It is glimt.desktop, or io.github.thornbux.Glimt.desktop (FLATPAK_ID) in a Flatpak.
 fn app_id() -> String {
     std::env::var("FLATPAK_ID").unwrap_or_else(|_| "glimt".into())
 }
 
 unsafe extern "C" {
-    /// glibc: return freed heap memory to the operating system.
+    /// Returns freed heap memory to the operating system (glibc).
     fn malloc_trim(pad: usize) -> i32;
-    /// glibc: set a malloc parameter.
+    /// Sets a malloc parameter (glibc).
     fn mallopt(param: i32, value: i32) -> i32;
 }
 
-/// The program New Window starts: from an AppImage the AppImage, as the binary is in its mount,
-/// which goes when this window closes; else the binary. Every program started from an AppImage
-/// inherits its APPIMAGE, so it counts only when the binary is inside APPDIR.
+/// The program that New Window starts. From an AppImage it is the AppImage, because the binary
+/// is in the AppImage's mount, which goes away when this window closes. Otherwise it is the
+/// binary. Every program started from an AppImage inherits its APPIMAGE variable, so the
+/// variable counts only when the binary is inside APPDIR.
 fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString>) -> PathBuf {
     match (appdir, appimage) {
         (Some(dir), Some(image)) if exe.starts_with(&dir) => PathBuf::from(image),
@@ -409,9 +423,10 @@ fn own_program(exe: PathBuf, appdir: Option<OsString>, appimage: Option<OsString
     }
 }
 
-/// What is wrong in the settings file, for the window: the first, and where to see all. Not a
-/// setting this Glimt does not know: a newer one beside it (a Flatpak and a .deb) wrote it, and
-/// this one keeps it there, so the notice would come at every start.
+/// What is wrong in the settings file, as the window tells it. It gives the first problem and
+/// where to see them all. A setting this Glimt does not know is left out, because a newer Glimt
+/// beside it (a Flatpak and a .deb) wrote it. This Glimt keeps the setting, so the notice would
+/// otherwise come at every start.
 fn config_notice(problems: &[String]) -> Option<String> {
     let problems: Vec<&String> = (problems.iter())
         .filter(|p| !p.contains(": there is no setting "))
@@ -425,11 +440,11 @@ fn config_notice(problems: &[String]) -> Option<String> {
 }
 
 fn main() -> eframe::Result {
-    // One malloc arena for all threads. With one per thread, freed image buffers stayed in
-    // each decode thread's arena: 91 instead of 29 MB of own memory in a folder of
-    // screenshots, while decoding is at most a few percent slower.
+    // There is one malloc arena for all threads. With one arena per thread, freed image
+    // buffers stayed in each decode thread's arena, and a folder of screenshots used 91 MB of
+    // own memory instead of 29 MB. Decoding is at most a few percent slower.
     if Config::load().low_memory {
-        // SAFETY: called before any other thread exists.
+        // SAFETY: This is called before any other thread exists.
         unsafe { mallopt(M_ARENA_MAX, 1) };
         ONE_ARENA.store(true, Ordering::Relaxed);
     }
@@ -448,7 +463,7 @@ fn main() -> eframe::Result {
         .collect();
     let mut arg = args_os.first().map(PathBuf::from);
     let mut start = start;
-    // glimt DIR DIR …: the images of every folder in one list.
+    // With glimt DIR DIR …, the images of every folder are shown in one list.
     if !args.first().is_some_and(|a| a.starts_with("--remote")) {
         start.more = args_os.iter().skip(1).map(PathBuf::from).collect();
     }
@@ -472,7 +487,8 @@ fn main() -> eframe::Result {
             rgba: icon.into_raw(),
         });
     }
-    // A kiosk changes no settings either: a visitor's keys would last until the next boot.
+    // A kiosk changes no settings either, because a visitor's changes would last until the
+    // next boot.
     if start.lock_settings || start.kiosk || Path::new(crate::files::config::LOCK_FILE).exists() {
         crate::files::config::lock();
     }
@@ -523,7 +539,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A setting this Glimt does not know is no notice at start; a wrong value is.
+    /// A setting this Glimt does not know gives no notice at start, but a wrong value does.
     #[test]
     fn tells_settings_problems_but_unknown_ones() {
         let unknown = "line 3: there is no setting projector_screen".to_string();
