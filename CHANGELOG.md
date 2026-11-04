@@ -5,6 +5,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Every part of the window keeps its state to itself now; Glimt itself works as before. What
+  is open (`Folder`: the folder or collection, its listing, the way back, the login to a
+  share) and the list with everything that holds a place in it (`List`: the selection, the
+  decoded images, the panes, a drag, the search matches) have private fields, as do the
+  desktop's look, Open With and the remote control listener. The rest of the program changes
+  them through methods named for what happens, such as `list.select_one(i)`,
+  `list.places_changed()` or `folder.relist_later()`. The test that keeps a part's fields
+  private covers all of them.
+
 ## [0.54.0] - 2026-11-04
 
 ### Changed
