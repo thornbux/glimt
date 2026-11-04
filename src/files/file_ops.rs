@@ -658,6 +658,7 @@ impl crate::App {
             self.paths_moved(moved, copied);
             self.files_changed(&changed);
             self.files_changed(&overwritten);
+            self.forget_names(&gone);
             // Deleted files lose their marks, so that a new file with the same name does not
             // get them. The marks are kept with the undo of a move to the trash, and it puts
             // them back.
@@ -712,6 +713,13 @@ impl crate::App {
         if pairs.is_empty() {
             return;
         }
+        // Both names hold another file now, or none, so a moved file's caches would show under
+        // the new name what an old file of that name had.
+        let names: Vec<PathBuf> = (pairs.iter())
+            .flat_map(|(from, to)| [(!copied).then(|| from.clone()), Some(to.clone())])
+            .flatten()
+            .collect();
+        self.forget_names(&names);
         let moved = moves(&pairs);
         // A turn not saved yet goes with its file, saved under the new name.
         if !copied && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
@@ -1051,18 +1059,29 @@ impl crate::App {
                 self.list.forget_decodes_of(self.list.cur());
                 self.info.forget_exif();
             }
+        }
+        self.forget_names(paths);
+        // Their size changed, so the status bar and the list read it again.
+        self.status.forget_size();
+        self.refill();
+    }
+
+    /// Forgets what Glimt keeps of `paths` by their names: their decoded images, thumbnails, size
+    /// and date, Check Images' mark and their part of the `exif:` index. A file of the same name
+    /// later, renamed or moved there, or written anew, is then read for itself. Every operation
+    /// that changes what a name holds calls this: a change in place, a move, a rename, a delete.
+    pub(crate) fn forget_names(&mut self, paths: &[PathBuf]) {
+        for path in paths {
             self.list.keep_slots(|_, s| s.path != *path);
             if let Ok(name) = path.strip_prefix(self.folder.dir()) {
                 let name = name.as_os_str();
                 self.thumbs.forget(name);
                 self.list.forget_details_of(name);
+                self.broken_files.remove(name);
                 // Also while the first index is being read, which may have read it before.
                 self.search.read_exif_again([name.to_owned()]);
             }
         }
-        // Their size changed, so the status bar and the list read it again.
-        self.status.forget_size();
-        self.refill();
     }
 
     /// Renames `folder_target` within its parent, never over another folder. The open folder,
@@ -2375,6 +2394,28 @@ mod tests {
                 && !crate::metadata::xmp::sidecar(&y).exists()
         );
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A file moved, renamed or deleted takes what Glimt keeps of it by name along, so a file of
+    /// that name later is read for itself, not shown with the old one's size or Check Images'
+    /// mark.
+    #[test]
+    fn a_name_moved_or_gone_forgets_what_was_kept_of_it() {
+        let dir = contract_folder("forget");
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        for name in ["a.png", "b.png", "c.png"] {
+            app.list.remember_details(name.into(), (1, 1));
+            app.broken_files.insert(name.into());
+        }
+        app.paths_moved(vec![(dir.join("a.png"), dir.join("c.png"))], false);
+        app.forget_names(&[dir.join("b.png")]);
+        for name in ["a.png", "b.png", "c.png"] {
+            let name = std::ffi::OsStr::new(name);
+            assert!(!app.list.details().contains_key(name), "{name:?}");
+            assert!(!app.broken_files.contains(name), "{name:?}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A sidecar that cannot be removed with its photo is told, not left without a word, because
