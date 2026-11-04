@@ -266,6 +266,17 @@ pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result
     replace(path, bytes, true)
 }
 
+/// Replaces the file named `path` with `bytes`, written whole beside it first. Unlike
+/// `replace_file`, a link at `path` is itself replaced, and the file it points to is left alone.
+/// A downloaded folder may hold a link to any file of the user's under a photo's name, so a copy
+/// saved over a file there (Save As) and a sidecar are written this way.
+pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    use std::io::Write;
+    #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
+    let land = |tmp: &Path| std::fs::rename(tmp, path);
+    write_beside(&tmp_path(path), path, |f| f.write_all(bytes.as_ref()), land)
+}
+
 fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
     use std::io::Write;
     replace_with(path, existing, |f| f.write_all(bytes.as_ref()))

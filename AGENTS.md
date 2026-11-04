@@ -114,7 +114,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/files/config.rs` | `Config` (the `config!` macro) with the settings' defaults and ranges, the window state, XDG paths, and `--lock-settings` |
 | `src/files/backup.rs` | The backup (File → Back Up, `--back-up`): Glimt's own folders (`own_folders`) copied into a new folder (`copy_tree`, `back_up_to`) |
 | `src/files/file_ops.rs` | `Job` (a file operation in the background, with its progress and Stop) and `Work`; delete, copy and move, `Deleted` (what a file operation did, for `receive_deleted`) and `Undo`, Rename and Rename Many, saving the orientation, as jobs with progress and Stop (`start_job`, `background`, `write_sidecars`); `rename_files`; Undo |
-| `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
+| `src/files/file_io.rs` | The one way each change on disk is made: `replace_file`/`create_file`/`write_atomic` (whole or not at all), `replace_name` (a link at the name replaced, not followed), `edit_shared` for the files the windows share, `rename_never_over` (the one way to rename) and `put_file` (a move or copy, never over a file); the writer thread (`write_later`, `flush`) |
 | `src/files/trash.rs` | The trash: `trash` (gio, or by hand as the trash spec says when the Flatpak's portal refuses a file), `Thrown` (what a move to the trash did) and `restore`, which puts it back for Undo by reading the trash folders |
 | `src/files/external.rs` | External programs: `command()`, `stoppable_command`, `run_limited`/`limited`, `output_of`, `Watchdog`, `trash`; ffmpeg (HEIC, AVIF, video), gio mounting, open with |
 | `src/files/portal.rs` | The desktop portals that need more than gdbus, through zbus (feature `portals`): printing, Open With and keeping the screen on in the Flatpak (`in_flatpak`, `print`, `open_with`, `inhibit_idle`) |
@@ -242,8 +242,10 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   bypass:
   - read a file whole with `decode::read_limited` / `read_text` (a size cap, no pipe or device);
   - write with `file_io::replace_file`, `create_file` or `write_atomic` (whole or not at all,
-    never through a link), and a file the windows share with `file_io::edit_shared` (lock,
-    read, change and write as one; clippy refuses `file_lock` elsewhere);
+    never through a link), a file of the user's that may be a link from a download (a copy
+    saved over one, a sidecar) with `replace_name`, which replaces the link itself, and a file
+    the windows share with `file_io::edit_shared` (lock, read, change and write as one; clippy
+    refuses `file_lock` elsewhere);
   - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
   - start a program with `external::command` or `stoppable_command`, and wait for it only with
     `run_limited`, `limited`, `output_of` or a `Watchdog` (never `.output()`/`.status()`);

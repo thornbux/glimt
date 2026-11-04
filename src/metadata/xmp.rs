@@ -394,16 +394,9 @@ fn update(
             .to_owned(),
     };
     let text = change(&old).ok_or("unreadable XMP sidecar")?;
-    // The temporary file has this Glimt's name, because two windows may write the same
-    // sidecar. It is renamed onto the name itself, not where it leads (`replace_file` follows a
-    // link), so a link put there since the look above is replaced, and the file it points to is
-    // left alone.
-    use std::io::Write;
-    #[allow(clippy::disallowed_methods)] // the sidecar replaced on purpose, never through a link
-    let land = |tmp: &Path| std::fs::rename(tmp, &side);
-    let tmp = crate::files::file_io::tmp_path(&side);
-    crate::files::file_io::write_beside(&tmp, &side, |f| f.write_all(text.as_bytes()), land)
-        .map_err(|e| e.to_string())
+    // A link put there since the look above is replaced, and the file it points to is left
+    // alone.
+    crate::files::file_io::replace_name(&side, text).map_err(|e| e.to_string())
 }
 
 /// Whether `path` is a link. A sidecar that is one is never read or written through, because a

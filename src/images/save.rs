@@ -245,7 +245,8 @@ pub(crate) fn land(
         false => crate::metadata::xmp::own_sidecar(path)?,
     };
     match replace {
-        true => crate::files::file_io::replace_file(new, out)?,
+        // A link there is replaced, not the file it points to.
+        true => crate::files::file_io::replace_name(new, out)?,
         false => crate::files::file_io::create_file(new, out)?,
     }
     let side = crate::metadata::xmp::sidecar(new);
@@ -1134,6 +1135,12 @@ mod tests {
                 .is_symlink()
         );
         assert_eq!(text(&second).as_deref(), Some("a's"));
+        // A copy saved over a link replaces the link, not the file it points to.
+        let linked = dir.join("linked.png");
+        std::os::unix::fs::symlink(&victim, &linked).unwrap();
+        super::save_as(&a, &how(0, true), &linked).unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert!(!std::fs::symlink_metadata(&linked).unwrap().is_symlink());
         // A source sidecar that cannot be read (a folder in its place) leaves no copy behind.
         std::fs::remove_file(side(&a)).unwrap();
         std::fs::create_dir(side(&a)).unwrap();
