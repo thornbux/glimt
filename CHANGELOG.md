@@ -5,6 +5,21 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The window's parts keep their state to themselves; Glimt itself works as before. Each of
+  the 14 parts of `App` (the slideshow, the zoom, the file operations, the search, the
+  dialogs …) has private fields, and the rest of the program calls methods named for what
+  happens, such as `slideshow.toggle_pause()` or `zoom.fit()`. A rule that belongs to a part,
+  such as when the selection's size is worked out or what the kiosk allows, is now in that
+  part. What belongs to the image shown (`Viewing`) moved to `viewer/view.rs`, beside the code
+  that uses it. A new test fails when a part's field is made public again.
+- The comments of the fourteen files with the most in the older clipped style are rewritten
+  in plain sentences, with "because", "when" and "so" written out. Five doc comments that stood
+  above the wrong item are back above their own. AGENTS.md lists where the older style is
+  left.
+- The layout test of imports no longer counts a commented-out `#[macro_export]`.
+
 ## [0.53.0] - 2026-11-03
 
 ### Changed
