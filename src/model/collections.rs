@@ -719,6 +719,8 @@ mod tests {
         }
     }
 
+    /// Images of a collection that are moved go one place each, never past another moved one,
+    /// and to the start or the end in their own order.
     #[test]
     fn moves_in_a_collection() {
         use super::{Action, moved};

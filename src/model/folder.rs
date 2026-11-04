@@ -269,7 +269,7 @@ impl Listing {
             ),
             false => list_folder(&self.dir, self.types),
         };
-        // When stopped, another folder is listed now.
+        // It stops when another folder is listed.
         if self.stop.load(Ordering::Relaxed) {
             return;
         }

@@ -1,5 +1,6 @@
 //! The image area. It decodes the shown image and its neighbours, and holds what belongs to the
-//! image shown (`Viewing`), zoom and fit, panes and Compare, painting, and the wheel.
+//! image shown (`Viewing`). It also does zoom and fit, panes and Compare, the painting, and the
+//! wheel.
 
 use crate::files::config::Config;
 use crate::files::external::is_video;
@@ -448,9 +449,9 @@ impl crate::App {
     /// could not be decoded.
     pub(crate) fn receive_decoded(&mut self, ctx: &egui::Context) {
         while let Ok(d) = self.decoding.rx.try_recv() {
-            // A job no longer asked for was asked for again, in another list, page or look. Its
-            // place in the list is the job's now, because the list may have been read again
-            // since.
+            // A result whose job is no longer pending was asked for again, in another list,
+            // page or look, and is skipped. Its place in the list is the job's now, because the
+            // list may have been read again since.
             let Some(&(idx, full)) = (self.list.decodes_pending.iter())
                 .find(|(_, j)| j.0 == d.job)
                 .map(|(k, _)| k)
@@ -1662,9 +1663,9 @@ pub(crate) fn fit_scale(view: egui::Vec2, size: [f32; 2], mode: u8) -> f32 {
 /// within a pixel or so of it, and the other side is worked out from it, so one pixel there is
 /// `orig` side to side here. (4000×2657 into a box 1328 high is 1998 wide, where 1328.9 high
 /// shows it 2000.6 wide.) When it is short by more than that on any side, it is decoded again,
-/// which then gives a texture within the limit, so it is not decoded again and again. A strip of
-/// 10000×5 grown from 1920 to 3840 wide is too small by its width, because its height fills
-/// nothing.
+/// which then gives a texture within that pixel or so, so it is not decoded again and again. A
+/// strip of 10000×5 grown from 1920 to 3840 wide is too small by its width, because its height
+/// fills nothing.
 pub(crate) fn too_small(tex: [usize; 2], orig: [usize; 2], scale: f32, view: [f32; 2]) -> bool {
     (0..2).any(|i| {
         let j = 1 - i;

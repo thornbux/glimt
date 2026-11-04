@@ -216,10 +216,11 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   until it is there, or listed with the reason it is not.
 - **State for a feature:** a field in the struct of the part it belongs to (`self.slideshow`,
   `self.folder`, `self.work`, …), or a struct of its own in the feature's module held by one
-  field in `App`; never loose fields in `App` (`source_rules::app_stays_small`). A part's
-  fields are private: other modules call its methods, named for what they do
-  (`self.slideshow.toggle_pause()`, `self.panel.is_hidden()`), never write its fields
-  (`source_rules::parts_keep_their_fields`).
+  field in `App`; never loose fields in `App` (`source_rules::app_stays_small`). The fields of
+  the parts that `source_rules::parts_keep_their_fields` lists are private: other modules call
+  their methods, named for what they do (`self.slideshow.toggle_pause()`,
+  `self.panel.is_hidden()`), never write their fields. `Folder` and `List`, the shared model of
+  what is open, and a few small parts still have open fields; a new part joins that list.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and

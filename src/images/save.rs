@@ -298,9 +298,9 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
     Ok(to)
 }
 
-/// Whether `path` is animated, because only the first frame would be written back. It asks by
-/// what the file is, because it is read by its content. An animated GIF named a.png is still
-/// animated, and a JPEG named so is not.
+/// Whether `path` is animated. An animation is refused, because only the first frame would be
+/// written back. It asks by what the file is, because it is read by its content. An animated
+/// GIF named a.png is still animated, and a JPEG named so is not.
 fn animated(path: &Path) -> Result<bool, String> {
     let format = crate::images::decode::image_reader(path)
         .and_then(|r| r.with_guessed_format())

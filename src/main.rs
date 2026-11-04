@@ -214,7 +214,7 @@ impl App {
             config.save_thumbnails,
         );
         // A name is only of use with remote control, so a named Glimt listens in any case. A
-        // kiosk listens too, because --remote quit is the only way to end it.
+        // kiosk listens too, because --remote quit is its way out.
         let listen =
             config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
         let (notices_tx, notices_rx) = mpsc::channel();

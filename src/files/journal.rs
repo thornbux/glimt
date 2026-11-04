@@ -255,7 +255,8 @@ pub fn settle(
     let (renamed, left) = match (undo_them, done) {
         (true, Some(done)) => undo(moves, done),
         (false, Some(done)) => finish(moves, done),
-        // When the steps were not counted, every step is undone, by the names alone.
+        // When the steps were not counted, every step is undone or finished, by the names
+        // alone.
         (true, None) => undo(moves, moves.len()),
         (false, None) => finish(moves, 0),
     };

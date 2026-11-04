@@ -1436,7 +1436,8 @@ impl crate::App {
         });
     }
 
-    /// Copy or Move. It moves the targets to a folder that the file chooser asks for.
+    /// Copy or Move. It copies or moves the targets to a folder that the file chooser asks
+    /// for.
     pub(crate) fn pick_copy_or_move(&mut self, ctx: &egui::Context, action: Action) {
         let paths = self.targets().iter().map(|&i| self.path(i)).collect();
         let purpose = match action {
@@ -2021,7 +2022,8 @@ mod tests {
             (
                 "keywords",
                 |app, ctx, d| {
-                    // The fixture's sidecar only says whose it is, so Glimt writes over no XMP.
+                    // The fixture's sidecar only says whose it is. It is not XMP that Glimt
+                    // could write over, so it is removed first.
                     let _ = std::fs::remove_file(crate::metadata::xmp::sidecar(&d.join("a.png")));
                     app.write_sidecars(
                         ctx,

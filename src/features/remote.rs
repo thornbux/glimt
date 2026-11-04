@@ -497,7 +497,7 @@ pub fn client(
         std::process::exit(2);
     }
     let mut command = words.join(" ");
-    // select sends whole paths after a NUL each, because names may hold spaces, and a line ends
+    // select sends whole paths after a NUL each, because names may hold spaces. A line ends
     // the command.
     if words.first().is_some_and(|w| w == "select") {
         if paths.len() > MAX_SELECT {
