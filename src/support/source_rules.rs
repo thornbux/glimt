@@ -532,7 +532,11 @@ fn imports_name_where_defined() {
         .map(|l| qualifiers_off(l.trim_start()))
         .collect();
     // An item main.rs defines there, a macro exported to the crate root, or main.rs's tests
-    // module. A macro that is not exported, such as config!, is no name at the root.
+    // module. A macro that is not exported, such as config!, is no name at the root. The code
+    // without its comments is searched, so an attribute that is commented out does not count.
+    let code: Vec<String> = (files.iter())
+        .map(|(_, t)| code_lines(t).join("\n"))
+        .collect();
     let defined = |name: &str| {
         let defines = |l: &&str| {
             words.iter().any(|w| {
@@ -541,9 +545,7 @@ fn imports_name_where_defined() {
             })
         };
         let macro_rule = format!("#[macro_export]\nmacro_rules! {name} ");
-        top.iter().any(defines)
-            || files.iter().any(|(_, t)| t.contains(&macro_rule))
-            || name == "tests"
+        top.iter().any(defines) || code.iter().any(|c| c.contains(&macro_rule)) || name == "tests"
     };
     let mut wrong = Vec::new();
     for (file, text) in &files {
