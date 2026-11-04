@@ -866,7 +866,7 @@ impl crate::App {
             let key = Self::shortcut(
                 &pctx,
                 self.config.delete_key,
-                self.folder.collection.is_some(),
+                self.folder.collection().is_some(),
             )
             .filter(|a| KIOSK_ACTIONS.contains(a));
             act = key;
@@ -1357,7 +1357,7 @@ impl crate::App {
             egui::Image::new(&tex).paint_at(ui, rect);
         } else {
             let text = if self.list.files.is_empty() {
-                if self.folder.listing_rx.is_some() {
+                if self.folder.is_listing() {
                     tr("Reading folder…")
                 } else {
                     tr("No images in folder")

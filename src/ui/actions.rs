@@ -816,7 +816,7 @@ impl crate::App {
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
             Action::RemoveFromCollection
-                if self.folder.collection.is_some() && !self.list.files.is_empty() =>
+                if self.folder.collection().is_some() && !self.list.files.is_empty() =>
             {
                 self.remove_from_collection(ctx)
             }
@@ -825,7 +825,7 @@ impl crate::App {
                 self.notice = Some(tr("A plain list is not renamed or trashed by Glimt").into());
             }
             Action::RenameCollection => {
-                if let Some(name) = self.folder.collection.as_ref().and_then(|f| f.file_stem()) {
+                if let Some(name) = self.folder.collection().and_then(|f| f.file_stem()) {
                     let name = name.to_string_lossy().into_owned();
                     self.dialogs.ask(Prompt::RenameCollection, name);
                 }
@@ -868,7 +868,7 @@ impl crate::App {
                 }
             }
             Action::Up => {
-                if let Some(parent) = self.folder.dir.parent() {
+                if let Some(parent) = self.folder.dir().parent() {
                     self.visit(ctx, parent.to_path_buf());
                 }
             }
@@ -972,7 +972,7 @@ impl crate::App {
             // A collection, or several folders shown together, is no folder to make one in: it
             // would be made in /.
             Action::NewFolder
-                if self.folder.collection.is_some() || !self.folder.folders.is_empty() =>
+                if self.folder.collection().is_some() || !self.folder.folders().is_empty() =>
             {
                 self.notice =
                     Some(tr("New Folder makes a folder in the folder shown: open one").into());
@@ -1210,7 +1210,7 @@ impl crate::App {
                 Self::shortcut(
                     ctx,
                     self.config.delete_key,
-                    self.folder.collection.is_some(),
+                    self.folder.collection().is_some(),
                 )
             })
             .flatten()

@@ -187,7 +187,11 @@ impl crate::App {
         }
         if stale && pan.days_rx.is_none() {
             let (tx, rx) = mpsc::channel();
-            let (dir, files, exif) = (self.folder.dir.clone(), self.list.files.clone(), pan.exif);
+            let (dir, files, exif) = (
+                self.folder.dir().to_path_buf(),
+                self.list.files.clone(),
+                pan.exif,
+            );
             let (ctx, made) = (ctx.clone(), self.list.version);
             pan.days_for = made;
             let pointer = Working::new(&self.busy);

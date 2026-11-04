@@ -490,8 +490,7 @@ impl crate::App {
     pub(crate) fn set_subfolders(&mut self, ctx: &egui::Context, on: bool) {
         self.config.show_subfolders = on;
         self.config.save();
-        self.folder.recursive = on;
-        self.folder.list_parts = on;
+        self.folder.show_subfolders(on);
         self.list(ctx);
     }
 
@@ -499,7 +498,7 @@ impl crate::App {
         while let Ok((path, result)) = self.thumbs.rx.try_recv() {
             // The name is the one the list has, with its folders in a slideshow with
             // subfolders.
-            let Ok(name) = path.strip_prefix(&self.folder.dir).map(Path::as_os_str) else {
+            let Ok(name) = path.strip_prefix(self.folder.dir()).map(Path::as_os_str) else {
                 continue;
             };
             self.thumbs.pending.remove(name);
@@ -699,7 +698,7 @@ impl crate::App {
             p.rect_filled(at.expand(2.0), 3.0, egui::Color32::from_black_alpha(170));
             p.galley(at.min, galley, gold);
         }
-        response.on_hover_text_at_pointer(match self.folder.collection {
+        response.on_hover_text_at_pointer(match self.folder.collection() {
             Some(_) => self.path(i).display().to_string(),
             None => self.name(i).into_owned(),
         })
@@ -823,11 +822,11 @@ impl crate::App {
             self.tree.children.insert(dir, Some(subdirs));
         }
         // Opened up to the folder shown when that changes.
-        let follow = self.tree.shown != self.folder.dir;
+        let follow = self.tree.shown != self.folder.dir();
         if follow {
             self.tree
                 .open
-                .extend(self.folder.dir.ancestors().map(Path::to_path_buf));
+                .extend(self.folder.dir().ancestors().map(Path::to_path_buf));
         }
         // The open folders are rows, so only those on screen are drawn, also when a folder of
         // 100,000 folders is opened. An empty path is a folder still being read.
@@ -853,12 +852,12 @@ impl crate::App {
         let row_h = ui.spacing().interact_size.y;
         let mut area = egui::ScrollArea::both().id_salt("tree").auto_shrink(false);
         // Shown once the folders above it are read.
-        if follow && let Some(i) = rows.iter().position(|r| r.1 == self.folder.dir) {
+        if follow && let Some(i) = rows.iter().position(|r| r.1 == self.folder.dir()) {
             // A row and the space below it, as show_rows lays them out.
             let step = row_h + ui.spacing().item_spacing.y;
             let top = i as f32 * step - ui.available_height() / 2.0;
             area = area.vertical_scroll_offset(top.max(0.0));
-            self.tree.shown = self.folder.dir.clone();
+            self.tree.shown = self.folder.dir().to_path_buf();
         }
         let mut toggled = None;
         area.show_rows(ui, row_h, rows.len(), |ui, range| {
@@ -884,7 +883,7 @@ impl crate::App {
                     if toggle.clicked() {
                         toggled = Some(path.to_path_buf());
                     }
-                    let label = ui.selectable_label(path == self.folder.dir, name.as_ref());
+                    let label = ui.selectable_label(path == self.folder.dir(), name.as_ref());
                     let label = noted(&label, &name);
                     if label.clicked() {
                         *open_dir = Some(path.to_path_buf());
@@ -922,17 +921,18 @@ impl crate::App {
     pub(crate) fn folder_menu(&mut self, response: &egui::Response, dir: &Path) {
         response.context_menu(|ui| {
             // Its images in the list together with those shown now.
-            let shown = self.folder.folders.contains(&dir.to_path_buf()) || dir == self.folder.dir;
+            let shown =
+                self.folder.folders().contains(&dir.to_path_buf()) || dir == self.folder.dir();
             if !shown
-                && self.folder.collection.is_none()
+                && self.folder.collection().is_none()
                 && ui.button(tr("Show Together with These Images")).clicked()
             {
-                let mut all = match self.folder.folders.is_empty() {
-                    true => vec![self.folder.dir.clone()],
-                    false => self.folder.folders.clone(),
+                let mut all = match self.folder.folders().is_empty() {
+                    true => vec![self.folder.dir().to_path_buf()],
+                    false => self.folder.folders().to_vec(),
                 };
                 all.push(dir.to_path_buf());
-                self.folder.together = Some(all);
+                self.folder.show_together(all);
             }
             if ui.button(tr("Rename Folder…")).clicked() {
                 self.dialogs.ask_rename_folder(dir);
@@ -964,7 +964,7 @@ impl crate::App {
                 });
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (k, dir) in self.folder.sort_folders.clone().into_iter().enumerate() {
+                    for (k, dir) in self.folder.sort_folders().to_vec().into_iter().enumerate() {
                         ui.horizontal(|ui| {
                             if ui
                                 .small_button(theme::icon::CLOSE)
@@ -974,7 +974,7 @@ impl crate::App {
                                 remove = Some(k);
                             }
                             let name = dir.file_name().unwrap_or(dir.as_os_str());
-                            let here = dir == self.folder.dir;
+                            let here = dir == self.folder.dir();
                             let button = ui.add_enabled(
                                 !here && !self.list.files.is_empty(),
                                 egui::Button::new(name.to_string_lossy()),
@@ -987,7 +987,7 @@ impl crate::App {
                     }
                     ui.horizontal(|ui| {
                         if ui.button(tr("Add This Folder")).clicked() {
-                            self.add_sort_folder(self.folder.dir.clone());
+                            self.add_sort_folder(self.folder.dir().to_path_buf());
                         }
                         if ui.button(tr("Add…")).clicked() {
                             self.pick(ui.ctx(), true, Pick::SortFolder);
@@ -996,13 +996,13 @@ impl crate::App {
                 });
             });
         if let Some(k) = remove {
-            let dir = self.folder.sort_folders[k].clone();
+            let dir = self.folder.sort_folders()[k].clone();
             self.change_sort_folders(None, Some(&dir));
         }
     }
 
     pub(crate) fn add_sort_folder(&mut self, dir: PathBuf) {
-        if !self.folder.sort_folders.contains(&dir) {
+        if !self.folder.sort_folders().contains(&dir) {
             self.change_sort_folders(Some(&dir), None);
         }
     }
@@ -1024,7 +1024,7 @@ impl crate::App {
             (config::sort_folders_text(&dirs), dirs)
         };
         match crate::files::file_io::edit_shared(&path, change) {
-            Ok(dirs) => self.folder.sort_folders = dirs,
+            Ok(dirs) => self.folder.set_sort_folders(dirs),
             Err(e) => self.notice = Some(tf!("Could not save the sort manager's folders: {e}", e)),
         }
     }
@@ -1032,7 +1032,7 @@ impl crate::App {
     /// The file types the list shows, from the Types menu.
     /// The type of a file opened directly is listed too, in its folder.
     pub(crate) fn types(&self) -> Types {
-        let o = self.folder.opened_type;
+        let o = self.folder.opened_type();
         Types {
             images: self.config.list_images || o.images,
             raw: self.config.list_raw || o.raw,
@@ -1093,8 +1093,7 @@ impl crate::App {
             self.config.save();
             // A chosen order replaces a shuffled one (kept after a random slideshow).
             self.slideshow.unshuffle();
-            self.folder.sort_collection = self.folder.collection.is_some();
-            self.folder.listed_as = None;
+            self.folder.sort_again();
             self.list(ctx);
         }
     }
@@ -1102,10 +1101,11 @@ impl crate::App {
     /// The folder path above the folder list, as in Geeqie. Enter opens what was typed.
     pub(crate) fn path_field(&mut self, ui: &mut egui::Ui) {
         let edit =
-            egui::TextEdit::singleline(&mut self.folder.path_text).desired_width(f32::INFINITY);
+            egui::TextEdit::singleline(self.folder.path_text_mut()).desired_width(f32::INFINITY);
         let response = ui.add(edit);
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let text = self.folder.path_text.trim();
+            let text = self.folder.path_text_mut().trim().to_owned();
+            let text = text.as_str();
             let path = match (text.strip_prefix('~'), std::env::var_os("HOME")) {
                 (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
                     PathBuf::from(home).join(rest.trim_start_matches('/'))
@@ -1121,15 +1121,7 @@ impl crate::App {
             }
         }
         if !response.has_focus() {
-            let shown = self.folder.collection.as_ref().unwrap_or(&self.folder.dir);
-            self.folder.path_text = match self.folder.folders.is_empty() {
-                true => shown.display().to_string(),
-                // With several folders, it is each of them.
-                false => (self.folder.folders.iter())
-                    .map(|f| f.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" + "),
-            };
+            self.folder.show_path();
         }
     }
 
@@ -1185,8 +1177,8 @@ impl crate::App {
     /// The folder list, with ⬆ .. for the parent folder and then the subfolders.
     pub(crate) fn folder_list(&mut self, ui: &mut egui::Ui, open_dir: &mut Option<PathBuf>) {
         // Row 0 is ⬆ .. (when there is a parent folder), the rest are subfolders.
-        let up = self.folder.dir.parent().map(Path::to_path_buf);
-        let rows = up.is_some() as usize + self.folder.subdirs.len();
+        let up = self.folder.dir().parent().map(Path::to_path_buf);
+        let rows = up.is_some() as usize + self.folder.subdirs().len();
         let row_h = ui.spacing().interact_size.y;
         egui::ScrollArea::vertical()
             .id_salt("folders")
@@ -1197,7 +1189,7 @@ impl crate::App {
                     let (label, target) = match (row, &up) {
                         (0, Some(parent)) => (format!("{}  ..", theme::icon::UP), parent),
                         _ => {
-                            let d = &self.folder.subdirs[row - up.is_some() as usize];
+                            let d = &self.folder.subdirs()[row - up.is_some() as usize];
                             let name = d.file_name().unwrap_or_default();
                             (
                                 format!("{}  {}", theme::icon::FOLDER, name.to_string_lossy()),
@@ -1310,7 +1302,7 @@ impl crate::App {
                     *go_to = Some(i);
                 }
                 row.context_menu(|ui| self.file_menu(ui, list_act));
-                if self.folder.collection.is_some() {
+                if self.folder.collection().is_some() {
                     self.drag_row(ui, &row, i, icons, pointer);
                 }
             }
@@ -1415,7 +1407,7 @@ impl crate::App {
             // Not on the scroll bar, which is dragged too.
             && let Some(p) = pos.filter(|p| clip.contains(*p))
             && p.x < clip.right() - ui.spacing().scroll.allocated_width()
-            && (self.folder.collection.is_none() || !cells.iter().any(|c| c.1.contains(p)))
+            && (self.folder.collection().is_none() || !cells.iter().any(|c| c.1.contains(p)))
         {
             let before = if add {
                 self.list.selected.clone()
@@ -1597,7 +1589,7 @@ impl crate::App {
                         .then_some(self.status.total_size),
                 );
                 let mut left = match &self.list.matches {
-                    _ if self.folder.listing_rx.is_some() => tr("Reading folder…").to_owned(),
+                    _ if self.folder.is_listing() => tr("Reading folder…").to_owned(),
                     // A search shows the matches, with the count and size of what the list
                     // shows.
                     Some(found) => {

@@ -145,7 +145,7 @@ impl crate::App {
         // After `open`, the folder is still being read, so its files are not all listed. A
         // dialog asking about the selection (Delete, Rename) is answered for the files it asked
         // about, not for a selection a script put in its place meanwhile.
-        let busy = |app: &Self| app.folder.listing_rx.is_some() || app.asking_about_selection();
+        let busy = |app: &Self| app.folder.is_listing() || app.asking_about_selection();
         // Those held back are done in the order they came, until one (an `open`) makes the
         // window busy again. Each gets its own answer, from the list as it was when it was sent.
         while !self.remote.waiting_select.is_empty() && !busy(self) {
@@ -284,7 +284,7 @@ impl crate::App {
         fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
             Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
         }
-        let dir = self.folder.dir.clone();
+        let dir = self.folder.dir().to_path_buf();
         let names: HashSet<&std::ffi::OsStr> = paths.iter().filter_map(|p| name(&dir, p)).collect();
         let found: std::collections::BTreeSet<usize> = (self.list.files.iter().enumerate())
             .filter(|(_, f)| names.contains(f.as_os_str()))
@@ -923,7 +923,7 @@ mod tests {
         app.remote.rx = rx;
         // A folder still being read.
         let (_reading, listing) = std::sync::mpsc::channel();
-        app.folder.listing_rx = crate::support::threads::Receiving::of(listing);
+        app.folder.hold_listing(listing);
         let mut answers = Vec::new();
         for name in ["a.png", "none.png"] {
             let (reply, answer) = std::sync::mpsc::channel();
@@ -932,7 +932,7 @@ mod tests {
             answers.push(answer);
         }
         app.receive_remote(&ctx);
-        app.folder.listing_rx = crate::support::threads::Receiving::none();
+        app.folder.drop_listing();
         app.receive_remote(&ctx);
         let got: Vec<Vec<u8>> = answers.iter().map(|a| a.try_recv().unwrap()).collect();
         assert!(got[0].is_empty(), "a.png is there");
@@ -956,7 +956,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         app.remote.rx = rx;
         let (_reading, listing) = std::sync::mpsc::channel();
-        app.folder.listing_rx = crate::support::threads::Receiving::of(listing);
+        app.folder.hold_listing(listing);
         let (reply, answer) = std::sync::mpsc::channel();
         let select = format!("select {}\0", dir.join("a.png").display());
         tx.send((select.clone(), Some(reply))).unwrap();
@@ -974,18 +974,18 @@ mod tests {
         tx.send(("current".to_owned(), Some(reply))).unwrap();
         app.receive_remote(&ctx);
         assert!(current.try_recv().is_ok(), "current answered at once");
-        assert_eq!(app.folder.dir, dir, "open waits behind the select");
+        assert_eq!(app.folder.dir(), dir, "open waits behind the select");
         assert!(matches!(
             more[62].try_recv(),
             Err(std::sync::mpsc::TryRecvError::Disconnected)
         ));
-        app.folder.listing_rx = crate::support::threads::Receiving::none();
+        app.folder.drop_listing();
         app.receive_remote(&ctx);
         assert!(
             answer.try_recv().unwrap().is_empty(),
             "a.png found in its own folder"
         );
-        assert_eq!(app.folder.dir, other);
+        assert_eq!(app.folder.dir(), other);
         // Closing with selects still held, and one sent just before, tells each that none of
         // its paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();

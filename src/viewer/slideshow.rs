@@ -134,7 +134,7 @@ impl crate::App {
         self.slideshow.shuffled = on;
         // Back on while a random slideshow still reads its list, which random off asked for in
         // sort order: read again, shuffled whole.
-        if on && self.slideshow.whole_shuffle && self.folder.listing_rx.is_some() {
+        if on && self.slideshow.whole_shuffle && self.folder.is_listing() {
             return self.list(ctx);
         }
         if !on {
@@ -142,9 +142,8 @@ impl crate::App {
             // shortcut: the file read in the UI thread; collections are small text files.
             if let Some(file) = self
                 .folder
-                .collection
-                .as_ref()
-                .filter(|_| !self.folder.sort_collection)
+                .collection()
+                .filter(|_| !self.folder.sorts_collection())
                 && let Ok(saved) = collections::load(file)
             {
                 let shown = self.list.files.get(self.list.cur).cloned();
@@ -153,7 +152,7 @@ impl crate::App {
                 let files: Vec<OsString> = (collections::in_saved_order(&saved, files).iter())
                     .filter_map(|p| {
                         Some(
-                            p.strip_prefix(&self.folder.dir)
+                            p.strip_prefix(self.folder.dir())
                                 .ok()?
                                 .as_os_str()
                                 .to_owned(),
@@ -163,7 +162,7 @@ impl crate::App {
                 self.replace_files(ctx, files, shown);
                 // A listing on its way (a random slideshow's, a refresh's) would bring the order
                 // it was asked for: read again, in the saved order now shown.
-                if self.folder.listing_rx.is_some() {
+                if self.folder.is_listing() {
                     self.list(ctx);
                 }
                 return;
@@ -189,7 +188,7 @@ impl crate::App {
         if self.config.slideshow_subfolders {
             // The images of the subfolders too, listed in the background; random order
             // shuffles them all together.
-            self.folder.recursive = true;
+            self.folder.set_recursive(true);
             self.slideshow.shuffled = self.config.random;
             self.slideshow.whole_shuffle = self.slideshow.shuffled;
             self.list(ctx);
@@ -212,8 +211,8 @@ impl crate::App {
     pub(crate) fn stop_slideshow(&mut self, ctx: &egui::Context) {
         self.slideshow.shown_at = None;
         self.slideshow.paused = false;
-        if self.folder.recursive != self.config.show_subfolders {
-            self.folder.recursive = self.config.show_subfolders;
+        if self.folder.recursive() != self.config.show_subfolders {
+            self.folder.set_recursive(self.config.show_subfolders);
             self.slideshow.shuffled = false;
             self.list(ctx);
         } else if self.slideshow.shuffled {
@@ -230,7 +229,7 @@ impl crate::App {
         };
         // The list to show (with the subfolders, shuffled) is still being read: a step in the
         // list before it would end a round without Repeat at once on the last image.
-        if self.slideshow.whole_shuffle && self.folder.listing_rx.is_some() {
+        if self.slideshow.whole_shuffle && self.folder.is_listing() {
             return;
         }
         // Waits while Rename or a delete asks about the shown image.
@@ -398,7 +397,7 @@ mod tests {
                 app.set_random_order(&ctx, false);
                 app.set_random_order(&ctx, true);
             }
-            assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
+            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
             if stop {
                 assert_eq!(app.list.files, sorted);
             } else {
@@ -442,7 +441,7 @@ mod tests {
         // A refresh on its way.
         app.list(&ctx);
         app.set_random_order(&ctx, false);
-        assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
             && a.status.folder_total().is_some()));
         assert_eq!(app.list.files, order);
         std::fs::remove_dir_all(&d).unwrap();
@@ -476,7 +475,7 @@ mod tests {
             }
             let shown = app.list.files[app.list.cur].clone();
             app.start_slideshow(&ctx);
-            assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
+            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
             assert!(
                 app.slideshow.shuffled && app.list.files != order,
                 "R first: {shuffled_first}"
@@ -488,7 +487,7 @@ mod tests {
             app.stop_slideshow(&ctx);
             app.start_slideshow(&ctx);
             app.set_random_order(&ctx, false);
-            assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()
+            assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
                 && a.status.folder_total().is_some()));
             assert_eq!(app.list.files, order);
             assert!(app.status.folder_total() > Some(0), "size");

@@ -29,64 +29,64 @@ use std::time::Instant;
 /// What is open (a folder, a collection or several folders), its listing in the background, the way
 /// back and forward, and the folders sorted into.
 pub(crate) struct Folder {
-    pub(crate) dir: PathBuf,
-    pub(crate) subdirs: Vec<PathBuf>,
+    dir: PathBuf,
+    subdirs: Vec<PathBuf>,
     /// The folder path in the toolbar, as typed.
-    pub(crate) path_text: String,
+    path_text: String,
     /// The type of the file opened directly (not the folder), listed even when the Types menu
     /// leaves it out.
-    pub(crate) opened_type: Types,
+    opened_type: Types,
     /// The list holds the images of the subfolders too (slideshow with subfolders).
-    pub(crate) recursive: bool,
+    recursive: bool,
     /// The open collection's file. The list is then its images, with `dir` "/" and the paths
     /// without their leading "/" as names, so `path()` works unchanged.
-    pub(crate) collection: Option<PathBuf>,
+    collection: Option<PathBuf>,
     /// The collection's next listing is sorted (Sort menu), and saved in that order.
-    pub(crate) sort_collection: bool,
+    sort_collection: bool,
     /// Several folders shown as one list (glimt DIR DIR …, File → Open Folders…). The names
     /// are relative to /, as in a collection, and the folders are read again on refresh.
-    pub(crate) folders: Vec<PathBuf>,
+    folders: Vec<PathBuf>,
     /// The folders to show together, chosen in a folder's menu. They are opened after the
     /// frame.
-    pub(crate) together: Option<Vec<PathBuf>>,
+    together: Option<Vec<PathBuf>>,
     /// The folder listing in the background, as (subfolders, images).
-    pub(crate) listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
+    listing_rx: Receiving<(Vec<PathBuf>, Vec<OsString>)>,
     /// The subfolders of a folder listed with its tree. They are sent at once, because the
     /// tree may take long.
-    pub(crate) subdirs_rx: Receiving<Vec<PathBuf>>,
+    subdirs_rx: Receiving<Vec<PathBuf>>,
     /// The images of the tree found so far, as it is read, a folder of it at a time.
-    pub(crate) part_rx: Receiving<Vec<OsString>>,
+    part_rx: Receiving<Vec<OsString>>,
     /// The next listing shows a tree's images as they are found (a folder opened).
-    pub(crate) list_parts: bool,
+    list_parts: bool,
     /// What the list shown was read and sorted as: the folder, the order, ascending, case and
     /// subfolders.
-    pub(crate) listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
+    listed_as: Option<(PathBuf, listing::Sort, bool, bool, bool)>,
     /// The image that the first part of a tree went to by itself. The whole list goes to its
     /// first image instead.
-    pub(crate) went_to: Option<OsString>,
+    went_to: Option<OsString>,
     /// Set to stop the listing of the tree before, when another one starts.
-    pub(crate) listing_stop: Arc<AtomicBool>,
+    listing_stop: Arc<AtomicBool>,
     /// Whether the folder changed while a listing was running. It is listed again when the
     /// listing is done.
-    pub(crate) relist: bool,
+    relist: bool,
     /// The generation of the folder watcher. Opening another folder ends the old thread.
-    pub(crate) watching: Arc<AtomicUsize>,
+    watching: Arc<AtomicUsize>,
     /// The watcher saw the folder change.
-    pub(crate) changed_tx: mpsc::Sender<()>,
-    pub(crate) changed_rx: mpsc::Receiver<()>,
+    changed_tx: mpsc::Sender<()>,
+    changed_rx: mpsc::Receiver<()>,
     /// File → Open Recent's folders and collections, those opened last, newest first.
-    pub(crate) recent: Vec<PathBuf>,
+    recent: Vec<PathBuf>,
     /// Go → Back / Forward's earlier locations. Each is the file shown, or the folder if it had
     /// no images.
-    pub(crate) back: Vec<PathBuf>,
-    pub(crate) forward: Vec<PathBuf>,
+    back: Vec<PathBuf>,
+    forward: Vec<PathBuf>,
     /// A network location (smb:// …) being mounted. It answers with its local path, or with
     /// why it failed.
-    pub(crate) mounting_rx: Receiving<(Mounted, Login)>,
+    mounting_rx: Receiving<(Mounted, Login)>,
     /// The login dialog for a network share that needs one.
-    pub(crate) login: Option<Login>,
+    login: Option<Login>,
     /// The sort manager's folders, kept in `$XDG_CONFIG_HOME/glimt/sort-folders`.
-    pub(crate) sort_folders: Vec<PathBuf>,
+    sort_folders: Vec<PathBuf>,
 }
 
 impl Folder {
@@ -137,6 +137,195 @@ impl Folder {
                 .and_then(|p| crate::images::decode::read_limited(p).ok()))
             .map_or_else(Vec::new, |t| sort_folders_from(&t)),
         }
+    }
+
+    /// The folder open, or "/" for a collection or several folders, whose names are relative
+    /// to it.
+    pub(crate) fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// The open collection's file, or `None` when no collection is open.
+    pub(crate) fn collection(&self) -> Option<&Path> {
+        self.collection.as_deref()
+    }
+
+    /// Follows the collection to its new file, after Rename Collection.
+    pub(crate) fn collection_renamed(&mut self, new: PathBuf) {
+        self.collection = Some(new);
+    }
+
+    /// Whether the list holds the images of the subfolders too.
+    pub(crate) fn recursive(&self) -> bool {
+        self.recursive
+    }
+
+    /// Lists the subfolders' images too, or not, from the next listing on.
+    pub(crate) fn set_recursive(&mut self, on: bool) {
+        self.recursive = on;
+    }
+
+    /// Turns View → Subfolders on or off. The next listing shows a tree's images as they are
+    /// found, when it is on.
+    pub(crate) fn show_subfolders(&mut self, on: bool) {
+        self.recursive = on;
+        self.list_parts = on;
+    }
+
+    /// The folders shown together as one list. It is empty when one folder or a collection is
+    /// open.
+    pub(crate) fn folders(&self) -> &[PathBuf] {
+        &self.folders
+    }
+
+    /// The subfolders of the open folder, for the folder list.
+    pub(crate) fn subdirs(&self) -> &[PathBuf] {
+        &self.subdirs
+    }
+
+    /// Takes `dir` out of the folder list, because it was moved to the trash.
+    pub(crate) fn forget_subdir(&mut self, dir: &Path) {
+        self.subdirs.retain(|d| d != dir);
+    }
+
+    /// Makes the folders shown together, and the collection's own file, follow the folder
+    /// `old`, which was renamed to `new`.
+    pub(crate) fn follow_rename(&mut self, old: &Path, new: &Path) {
+        for folder in &mut self.folders {
+            if let Ok(rest) = folder.strip_prefix(old) {
+                *folder = new.join(rest);
+            }
+        }
+        if let Some(file) = &mut self.collection
+            && let Ok(rest) = file.strip_prefix(old)
+        {
+            *file = new.join(rest);
+        }
+    }
+
+    /// Makes the open folder follow the folder `old`, which was renamed to `new`. Returns the
+    /// open folder's new place when it was `old` or inside it, and `None` otherwise.
+    pub(crate) fn dir_renamed(&mut self, old: &Path, new: &Path) -> Option<PathBuf> {
+        let rest = self.dir.strip_prefix(old).ok()?;
+        self.dir = new.join(rest);
+        Some(self.dir.clone())
+    }
+
+    /// Whether the folder is being read in the background.
+    pub(crate) fn is_listing(&self) -> bool {
+        self.listing_rx.is_some()
+    }
+
+    /// Whether a network location is being mounted.
+    pub(crate) fn is_mounting(&self) -> bool {
+        self.mounting_rx.is_some()
+    }
+
+    /// Takes the answer of the mount, when it has come.
+    pub(crate) fn take_mounted(&mut self) -> Took<(Mounted, Login)> {
+        self.mounting_rx.take()
+    }
+
+    /// Has the folder read again once the listing that runs is done, or at once when none
+    /// runs.
+    pub(crate) fn relist_later(&mut self) {
+        self.relist = true;
+    }
+
+    /// Whether the folder is to be read again.
+    pub(crate) fn wants_relist(&self) -> bool {
+        self.relist
+    }
+
+    /// Whether the folder watcher saw the folder change since this was last asked.
+    pub(crate) fn changed(&self) -> bool {
+        self.changed_rx.try_iter().count() > 0
+    }
+
+    /// Opens `all` as folders shown together, after the frame.
+    pub(crate) fn show_together(&mut self, all: Vec<PathBuf>) {
+        self.together = Some(all);
+    }
+
+    /// Takes the folders to show together, when some were chosen.
+    pub(crate) fn take_together(&mut self) -> Option<Vec<PathBuf>> {
+        self.together.take()
+    }
+
+    /// The sort manager's folders.
+    pub(crate) fn sort_folders(&self) -> &[PathBuf] {
+        &self.sort_folders
+    }
+
+    /// Takes the sort manager's folders as its file has them now.
+    pub(crate) fn set_sort_folders(&mut self, dirs: Vec<PathBuf>) {
+        self.sort_folders = dirs;
+    }
+
+    /// The type of the file opened directly, which is listed even when the Types menu leaves
+    /// it out.
+    pub(crate) fn opened_type(&self) -> Types {
+        self.opened_type
+    }
+
+    /// Whether the collection's next listing is sorted, and saved in that order.
+    pub(crate) fn sorts_collection(&self) -> bool {
+        self.sort_collection
+    }
+
+    /// Has the next listing sorted anew, because the sort order changed. A collection is then
+    /// saved in the new order.
+    pub(crate) fn sort_again(&mut self) {
+        self.sort_collection = self.collection.is_some();
+        self.listed_as = None;
+    }
+
+    /// The folder path in the toolbar, as it is being typed.
+    pub(crate) fn path_text_mut(&mut self) -> &mut String {
+        &mut self.path_text
+    }
+
+    /// Puts what is open into the folder path in the toolbar, while it is not being typed in.
+    pub(crate) fn show_path(&mut self) {
+        let shown = self.collection.as_ref().unwrap_or(&self.dir);
+        self.path_text = match self.folders.is_empty() {
+            true => shown.display().to_string(),
+            // With several folders, it is each of them.
+            false => (self.folders.iter())
+                .map(|f| f.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" + "),
+        };
+    }
+
+    /// Opens the login dialog for a network share, with `login` filled in.
+    pub(crate) fn ask_login(&mut self, login: Login) {
+        self.login = Some(login);
+    }
+
+    /// Takes the login dialog's fields while it is drawn. It stays open only when they are
+    /// given back with `ask_login`.
+    pub(crate) fn take_login(&mut self) -> Option<Login> {
+        self.login.take()
+    }
+
+    /// Whether the login dialog is open.
+    pub(crate) fn asks_login(&self) -> bool {
+        self.login.is_some()
+    }
+}
+
+/// For tests of other modules, which hold a listing back to see what waits for it.
+#[cfg(test)]
+impl Folder {
+    /// Makes `listing` the listing in the background.
+    pub(crate) fn hold_listing(&mut self, listing: mpsc::Receiver<(Vec<PathBuf>, Vec<OsString>)>) {
+        self.listing_rx = Receiving::of(listing);
+    }
+
+    /// Drops the listing in the background, as when it is done.
+    pub(crate) fn drop_listing(&mut self) {
+        self.listing_rx = Receiving::none();
     }
 }
 

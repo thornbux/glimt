@@ -34,7 +34,7 @@ impl crate::App {
         self.match_size(ctx);
         self.receive_file_work(ctx);
         // --slideshow: once the folder is read, so random order shuffles all of it.
-        if self.slideshow.starts_now(self.folder.listing_rx.is_none()) {
+        if self.slideshow.starts_now(!self.folder.is_listing()) {
             self.start_slideshow(ctx);
         }
         self.receive_focus(ctx);
@@ -47,10 +47,10 @@ impl crate::App {
         if self.working() {
             ctx.set_cursor_icon(egui::CursorIcon::Progress);
         }
-        if self.folder.changed_rx.try_iter().count() > 0 && self.config.auto_refresh {
-            self.folder.relist = true;
+        if self.folder.changed() && self.config.auto_refresh {
+            self.folder.relist_later();
         }
-        if self.folder.relist && self.folder.listing_rx.is_none() {
+        if self.folder.wants_relist() && !self.folder.is_listing() {
             self.list(ctx);
         }
         self.receive_lightroom();
@@ -60,7 +60,7 @@ impl crate::App {
             ctx.request_repaint();
         }
         self.slideshow_tick(ctx);
-        if let Some(all) = self.folder.together.take() {
+        if let Some(all) = self.folder.take_together() {
             self.open_folders(ctx, all);
         }
         self.receive_picked(ctx);
@@ -173,8 +173,8 @@ impl crate::App {
     /// `working` but for the shown image's decode, which a full-screen slideshow waits on at
     /// every image not preloaded.
     pub(crate) fn working_besides_image(&self) -> bool {
-        self.folder.listing_rx.is_some()
-            || self.folder.mounting_rx.is_some()
+        self.folder.is_listing()
+            || self.folder.is_mounting()
             || self.busy.load(Ordering::Relaxed) > 0
     }
 }

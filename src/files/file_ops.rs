@@ -368,9 +368,9 @@ impl crate::App {
         use std::hash::{Hash, Hasher};
         let mut place = std::collections::hash_map::DefaultHasher::new();
         (
-            &self.folder.dir,
-            &self.folder.folders,
-            &self.folder.collection,
+            self.folder.dir(),
+            self.folder.folders(),
+            self.folder.collection(),
         )
             .hash(&mut place);
         place.finish()
@@ -508,7 +508,7 @@ impl crate::App {
         self.remove_indices(ctx, &targets);
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (freed_tx, deleted_tx) = (self.status.freed_sender(), self.work.deleted_tx.clone());
-        let collection = self.folder.collection.clone();
+        let collection = self.folder.collection().map(Path::to_path_buf);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             let since = std::time::SystemTime::now();
@@ -625,7 +625,7 @@ impl crate::App {
             }
             if let Some(made) = folder_made {
                 self.tree.forget(&made);
-                self.folder.relist = true;
+                self.folder.relist_later();
             }
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
@@ -665,17 +665,17 @@ impl crate::App {
             // gone now.
             let mut unknown = false;
             for p in &paths {
-                let Ok(rel) = p.strip_prefix(&self.folder.dir) else {
+                let Ok(rel) = p.strip_prefix(self.folder.dir()) else {
                     continue;
                 };
                 unknown |= !self.work.deleting.remove(rel.as_os_str());
             }
-            self.folder.relist |= unknown;
             // The files that are still there come back into the list, from its folder or from
             // the collection's file. A listing that started before the files went still has
             // them, so the folder is read again after it.
-            self.folder.relist |=
-                failed || relist || (!paths.is_empty() && self.folder.listing_rx.is_some());
+            if unknown || failed || relist || (!paths.is_empty() && self.folder.is_listing()) {
+                self.folder.relist_later();
+            }
         }
     }
 
@@ -694,11 +694,11 @@ impl crate::App {
         if !copied && let Some(to) = new_place(self.viewing.turned_file(), &moved) {
             self.viewing.turned_file_moved(to);
         }
-        if !copied && self.folder.collection.is_some() {
+        if !copied && self.folder.collection().is_some() {
             let mut any = false;
             for i in 0..self.list.files.len() {
                 if let Some(to) = new_place(&self.path(i), &moved)
-                    && let Ok(rel) = to.strip_prefix(&self.folder.dir)
+                    && let Ok(rel) = to.strip_prefix(self.folder.dir())
                 {
                     self.list.files[i] = rel.as_os_str().to_owned();
                     any = true;
@@ -715,8 +715,7 @@ impl crate::App {
                 self.edit_collection(follow);
             } else if let Some(file) = self
                 .folder
-                .collection
-                .as_ref()
+                .collection()
                 .filter(|f| !collections::is_list(f))
             {
                 // None of them are in the list, because a refresh that started before they
@@ -726,7 +725,7 @@ impl crate::App {
             }
             // The list is read again from the file, because a refresh that started before they
             // moved brings the old names.
-            self.folder.relist = true;
+            self.folder.relist_later();
         }
         self.exif_follow_list();
         #[cfg(feature = "marks")]
@@ -749,13 +748,13 @@ impl crate::App {
             return;
         };
         // In a collection, the entries follow the files that got there, in `receive_deleted`.
-        if !keep && self.folder.collection.is_none() {
+        if !keep && self.folder.collection().is_none() {
             // A file moved out of its folder leaves the list at once, as when deleting. The
             // names in the list are relative to the folder, also those in subfolders.
             let names: HashSet<&std::ffi::OsStr> = paths
                 .iter()
                 .filter(|p| p.parent() != Some(dest.as_path()))
-                .filter_map(|p| p.strip_prefix(&self.folder.dir).ok())
+                .filter_map(|p| p.strip_prefix(self.folder.dir()).ok())
                 .map(Path::as_os_str)
                 .collect();
             // Kept out of a listing that is running, as files being deleted are.
@@ -773,11 +772,11 @@ impl crate::App {
             ctx.clone(),
         );
         let deleted_tx = self.work.deleted_tx.clone();
-        let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir.as_path());
+        let same_dir = paths.first().and_then(|p| p.parent()) == Some(self.folder.dir());
         // When the files go into the folder, or into one below it in the list with subfolders,
         // they join the list.
-        let listed = dest == self.folder.dir
-            || (self.folder.recursive && dest.starts_with(&self.folder.dir));
+        let listed = dest == self.folder.dir()
+            || (self.folder.recursive() && dest.starts_with(self.folder.dir()));
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             if !keep && same_dir {
@@ -940,7 +939,7 @@ impl crate::App {
                 false,
             );
         }
-        if self.folder.collection.is_some() {
+        if self.folder.collection().is_some() {
             return self.list(ctx);
         }
         // When the list changed meanwhile, its numbers now point at other files, so it is read
@@ -955,7 +954,7 @@ impl crate::App {
         if let Some(k) = job.shown
             && !failed
             && self.path(self.list.cur) == job.from[k]
-            && let Ok(rel) = job.to[k].strip_prefix(&self.folder.dir)
+            && let Ok(rel) = job.to[k].strip_prefix(self.folder.dir())
         {
             self.list.files[self.list.cur] = rel.as_os_str().to_owned();
         }
@@ -1029,7 +1028,7 @@ impl crate::App {
                 self.info.forget_exif();
             }
             self.list.slots.retain(|_, s| s.path != *path);
-            if let Ok(name) = path.strip_prefix(&self.folder.dir) {
+            if let Ok(name) = path.strip_prefix(self.folder.dir()) {
                 let name = name.as_os_str();
                 self.thumbs.forget(name);
                 self.list.details.remove(name);
@@ -1073,27 +1072,14 @@ impl crate::App {
     fn folder_renamed(&mut self, ctx: &egui::Context, old: PathBuf, new: PathBuf) {
         self.tree.forget(&old);
         // When several folders are shown together, the renamed one is read under its new
-        // name.
-        for folder in &mut self.folder.folders {
-            if let Ok(rest) = folder.strip_prefix(&old) {
-                *folder = new.join(rest);
-            }
-        }
-        // In a collection, its own file follows the folder it is in, and its images in the
-        // folder follow it to the new name, in its file too.
-        if let Some(file) = &mut self.folder.collection
-            && let Ok(rest) = file.strip_prefix(&old)
-        {
-            *file = new.join(rest);
-        }
+        // name. In a collection, its own file follows the folder it is in, and its images in
+        // the folder follow it to the new name, in its file too.
+        self.folder.follow_rename(&old, &new);
         self.paths_moved(vec![(old.clone(), new.clone())], false);
-        match self.folder.dir.strip_prefix(&old) {
-            Ok(rest) => {
-                // The shown file is under the new name now, also for a turn not saved yet.
-                self.folder.dir = new.join(rest);
-                self.visit(ctx, self.folder.dir.clone())
-            }
-            Err(_) => self.list(ctx),
+        match self.folder.dir_renamed(&old, &new) {
+            // The shown file is under the new name now, also for a turn not saved yet.
+            Some(dir) => self.visit(ctx, dir),
+            None => self.list(ctx),
         }
     }
 
@@ -1107,14 +1093,14 @@ impl crate::App {
             return;
         }
         self.tree.forget(&dir);
-        self.folder.subdirs.retain(|d| *d != dir);
-        if self.folder.dir.starts_with(&dir)
+        self.folder.forget_subdir(&dir);
+        if self.folder.dir().starts_with(&dir)
             && let Some(parent) = dir.parent()
         {
             self.visit(ctx, parent.to_path_buf());
         }
         let deleted_tx = self.work.deleted_tx.clone();
-        let collection = self.folder.collection.clone();
+        let collection = self.folder.collection().map(Path::to_path_buf);
         self.background(ctx, vec![dir.clone()], move || {
             let since = std::time::SystemTime::now();
             let error = crate::files::trash::trash(std::slice::from_ref(&dir)).err();
@@ -1306,7 +1292,7 @@ impl crate::App {
         // read them before this write.
         let names = paths
             .iter()
-            .filter_map(|p| p.strip_prefix(&self.folder.dir).ok());
+            .filter_map(|p| p.strip_prefix(self.folder.dir()).ok());
         (self.search).read_exif_again(names.map(|n| n.as_os_str().to_owned()));
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
@@ -2189,10 +2175,7 @@ mod tests {
             app.rename_in_background(&ctx, vec![b.clone()], vec![c.clone()])
         });
         assert!(c.exists() && d.join("c.png.xmp").exists());
-        assert!(settle(&mut app, &ctx, |app| app
-            .folder
-            .listing_rx
-            .is_none()));
+        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         waits(&mut app, &c, &|app| {
             let at = (app.list.files.iter()).position(|f| f == "c.png").unwrap();
             app.delete_now(&ctx, false, vec![at]);
@@ -2223,10 +2206,7 @@ mod tests {
             std::fs::write(crate::metadata::xmp::sidecar(&d.join(n)), n).unwrap();
         }
         app.list(&ctx);
-        assert!(settle(&mut app, &ctx, |app| app
-            .folder
-            .listing_rx
-            .is_none()));
+        assert!(settle(&mut app, &ctx, |app| !app.folder.is_listing()));
         let at = |app: &crate::App, n: &str| (app.list.files.iter()).position(|f| f == n).unwrap();
         let mut all: Vec<usize> = first.iter().map(|n| at(&app, n)).collect();
         all.extend([at(&app, z), at(&app, y)]);
@@ -2280,10 +2260,10 @@ mod tests {
     fn makes_a_new_folder_in_the_background() {
         let d = contract_folder("new-folder");
         let (mut app, ctx) = app_on(&d);
-        assert!(settle(&mut app, &ctx, |a| a.folder.listing_rx.is_none()));
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
         app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         assert!(settle(&mut app, &ctx, |a| {
-            a.folder.listing_rx.is_none() && a.folder.subdirs.iter().any(|s| s.ends_with("trip"))
+            !a.folder.is_listing() && a.folder.subdirs().iter().any(|s| s.ends_with("trip"))
         }));
         assert!(d.join("trip").is_dir());
         // When the folder is there already, a notice says so, and nothing else is made.

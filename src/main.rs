@@ -360,7 +360,7 @@ impl eframe::App for App {
         // if a folder name that is not UTF-8 must be remembered.
         let mut state = String::new();
         if self.config.remember_dir {
-            let last = self.folder.collection.as_ref().unwrap_or(&self.folder.dir);
+            let last = self.folder.collection().unwrap_or(self.folder.dir());
             state += &format!("last_dir={}\n", last.display());
         }
         if self.config.remember_window {

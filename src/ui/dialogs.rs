@@ -150,7 +150,7 @@ impl crate::App {
         let (tx, rx) = mpsc::channel();
         let start = match &purpose {
             // A name for the file to save: the first image's, as a PDF.
-            Pick::SavePdf(job) => self.folder.dir.join(
+            Pick::SavePdf(job) => self.folder.dir().join(
                 (job.paths.first())
                     .map_or("print".into(), |p| p.with_extension("pdf"))
                     .file_name()
@@ -158,7 +158,7 @@ impl crate::App {
             ),
             // "name-frame-3.png" beside the file.
             Pick::SaveFrame(path, k) => {
-                (self.folder.dir).join(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
+                (self.folder.dir()).join(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
             }
             Pick::SaveAs(_, _, start) => start.clone(),
             // Made first: the file dialog cannot start in a folder that is not there.
@@ -173,7 +173,7 @@ impl crate::App {
                     .unwrap_or_else(|| "/usr/share/color/icc".into())
                     .join("")
             }
-            _ => self.folder.dir.join(""),
+            _ => self.folder.dir().join(""),
         };
         let save = matches!(
             purpose,
@@ -309,7 +309,7 @@ impl crate::App {
 
     /// A share mounted, or why not: its folder opens, or the error or a login is asked for.
     pub(crate) fn receive_mount(&mut self, ctx: &egui::Context) {
-        let done = match self.folder.mounting_rx.take() {
+        let done = match self.folder.take_mounted() {
             Took::Nothing => return,
             Took::Gone => return self.stopped(tr("Connecting")),
             Took::Answer(done) => done,
@@ -323,7 +323,7 @@ impl crate::App {
                 // Ask for the login; the user name defaults to this one, as gio's does.
                 (Err(None), login) => {
                     let user = std::env::var("USER").unwrap_or_default();
-                    self.folder.login = Some(Login {
+                    self.folder.ask_login(Login {
                         user,
                         domain: "WORKGROUP".into(),
                         ..login
@@ -402,12 +402,12 @@ impl crate::App {
             };
         }
         if let Prompt::RenameCollection = prompt {
-            let Some(old) = self.folder.collection.clone() else {
+            let Some(old) = self.folder.collection().map(Path::to_path_buf) else {
                 return;
             };
             match collections::rename(&old, text) {
                 Ok(new) => {
-                    self.folder.collection = Some(new);
+                    self.folder.collection_renamed(new);
                     self.title(ctx);
                 }
                 Err(e) => self.notice = Some(e),
@@ -473,7 +473,7 @@ impl crate::App {
             Prompt::Rename if !self.list.files.is_empty() => {
                 self.path(self.list.cur).with_file_name(text)
             }
-            _ => self.folder.dir.join(text),
+            _ => self.folder.dir().join(text),
         };
         match prompt {
             // In the background, as a share that stopped answering would hold the window until
@@ -599,7 +599,7 @@ impl crate::App {
 
     /// The user name, domain and password for a network folder that asks for them.
     pub(crate) fn login_dialog(&mut self, ctx: &egui::Context) {
-        if let Some(mut login) = self.folder.login.take() {
+        if let Some(mut login) = self.folder.take_login() {
             let mut connect = false;
             let modal = egui::Modal::new(egui::Id::unique("login")).show(ctx, |ui| {
                 ui.label(tf!("Log in to {uri}", uri = login.uri));
@@ -633,7 +633,7 @@ impl crate::App {
             if connect {
                 self.mount_as(ctx, login, true);
             } else if !modal.should_close() {
-                self.folder.login = Some(login);
+                self.folder.ask_login(login);
             }
         }
     }
@@ -709,7 +709,7 @@ impl crate::App {
             || self.dialogs.confirm_delete.is_some()
             || self.dialogs.confirm_folder
             || self.dialogs.prompt.is_some()
-            || self.folder.login.is_some()
+            || self.folder.asks_login()
             || self.print_window.is_some()
             || self.lightroom.is_some()
             || self.save_as.is_some()
