@@ -161,8 +161,15 @@ impl crate::App {
                 crate::images::decode::survive(|| crate::images::save::save_cropped(&path, &how));
             Some(match saved {
                 Ok(new) => {
+                    // The copy gets the marks and stars of the original, as it got its
+                    // sidecar, unless it was stripped.
                     let _ = deleted.send(Deleted {
                         relist: true,
+                        moved: (!how.strip)
+                            .then(|| (path.clone(), new.clone()))
+                            .into_iter()
+                            .collect(),
+                        copied: true,
                         ..Default::default()
                     });
                     tf!("Saved {file}", file = new.display())

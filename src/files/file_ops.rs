@@ -644,13 +644,13 @@ impl crate::App {
                 self.tree.forget(&made);
                 self.folder.relist_later();
             }
+            // A file written over holds another image, so its marks are not this one's, just as
+            // its sidecar was not. They go before a copy's marks are put on it.
+            #[cfg(feature = "marks")]
+            self.marks.forget(&overwritten);
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
             self.paths_moved(moved, copied);
-            // A file written over holds another image, so its marks are not this one's, just as
-            // its sidecar was not.
-            #[cfg(feature = "marks")]
-            self.marks.forget(&overwritten);
             self.files_changed(&changed);
             self.files_changed(&overwritten);
             // Deleted files lose their marks, so that a new file with the same name does not
@@ -2001,7 +2001,7 @@ mod tests {
                 },
                 |app, d| {
                     side(&d.join("b.png")) == "a"
-                        && (!cfg!(feature = "marks") || stars(app, &d.join("b.png")) == 0)
+                        && (!cfg!(feature = "marks") || stars(app, &d.join("b.png")) == 3)
                 },
             ),
             (
