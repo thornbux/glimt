@@ -40,7 +40,8 @@ struct Trashed {
 /// before only when there is none. Each trash folder is read once, into a map by name. Read from
 /// the trash's own folders (files/ and info/*.trashinfo, as freedesktop.org has it): `gio trash
 /// --restore` needs gvfs, which KDE and containers often lack. Never over a file that has taken the
-/// name since. The files put back, and the first error.
+/// name since. A file that cannot come back holds none of the others back.
+/// Returns the files put back, and the first error.
 pub(crate) fn restore(
     thrown: &Thrown,
     dirs_of: impl Fn(&Path) -> Vec<(PathBuf, PathBuf)>,
@@ -78,19 +79,17 @@ pub(crate) fn restore(
         }
         first
     };
-    let mut found = Vec::new();
+    // A file that cannot come back is told, and left to be undone again with its sidecar.
+    let (mut found, mut error): (Vec<Trashed>, Option<String>) = (Vec::new(), None);
     for path in &thrown.files {
         if path.exists() {
-            return (
-                Vec::new(),
-                Some(tf!("{name} exists already", name = path.display())),
-            );
+            error.get_or_insert(tf!("{name} exists already", name = path.display()));
+            continue;
         }
         match find(path) {
             Some(t) => found.push(t),
             None => {
-                let e = tf!("{name} is not in the trash", name = path.display());
-                return (Vec::new(), Some(e));
+                error.get_or_insert(tf!("{name} is not in the trash", name = path.display()));
             }
         }
     }
@@ -101,17 +100,15 @@ pub(crate) fn restore(
     let mut back = Vec::new();
     for (k, t) in found.into_iter().enumerate() {
         if let Err(e) = rename_never_over(&t.file, &t.from) {
-            return (
-                back,
-                Some(format!("{display}: {e}", display = t.from.display())),
-            );
+            let e = format!("{display}: {e}", display = t.from.display());
+            return (back, error.or(Some(e)));
         }
         let _ = std::fs::remove_file(&t.info);
         if k < files {
             back.push(t.from);
         }
     }
-    (back, None)
+    (back, error)
 }
 
 /// Of each name in a trash folder, the one put there first, by `rank`.
@@ -512,6 +509,11 @@ mod tests {
         let got = std::fs::read_to_string(photos.join("IMG_0006.jpg")).unwrap();
         assert_eq!(got, "mine");
         std::fs::remove_file(photos.join("IMG_0006.jpg")).unwrap();
+        // One file emptied from the trash meanwhile: the others still come back.
+        trashed("IMG_0007.jpg", "IMG_0007.jpg", now);
+        let (back, error) = super::restore(&thrown(&["IMG_0099.jpg", "IMG_0007.jpg"], &[]), dirs);
+        assert_eq!(back, [photos.join("IMG_0007.jpg")]);
+        assert!(error.is_some_and(|e| e.contains("IMG_0099.jpg")));
         let (back, error) = super::restore(&thrown6, both);
         assert_eq!((back, error), (vec![photos.join("IMG_0006.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0006.jpg")).unwrap();
