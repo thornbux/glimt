@@ -159,10 +159,14 @@ main.rs's own imports (`crate::Config`); main.rs names its modules as `crate::ui
 
 Comments say why, or what a reader cannot see from the code. They are written for someone new
 to the code, in plain English prose: whole sentences with a subject and a verb, with the
-articles kept, and one thought to a sentence. The older comments use a clipped style, where a
+articles kept, and one thought to a sentence. Older comments use a clipped style, where a
 semicolon or colon joins a fragment (`…; None for no search.`) and punctuation stands in for
-"because", "when" and "so". New and changed comments do not. An older comment is rewritten in
-the new style when the code it describes changes, not on its own.
+"because", "when" and "so". New and changed comments do not. The fourteen files with the most
+were rewritten in 0.54.0. The clipped style is left mostly in `exif.rs`, `file_io.rs`,
+`collections.rs`, `actions.rs`, `marks.rs`, `slideshow.rs`, `window.rs`, `preferences.rs`,
+`lightroom.rs`, `colour.rs`, `duplicates.rs`, `pan.rs`, `trash.rs` and `listing.rs`, and in
+smaller amounts in most other files. An older comment is rewritten in the new style when the
+code it describes changes, not on its own.
 
 For example, not this:
 
