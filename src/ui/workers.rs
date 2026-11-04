@@ -68,15 +68,12 @@ impl crate::App {
 
     /// The desktop's look and screen profile, once read.
     fn receive_desktop(&mut self, ctx: &egui::Context) {
-        if let Took::Answer(look) = self.desktop.look_rx.take() {
-            self.desktop.look = look;
+        let (look, screen) = self.desktop.receive();
+        if look {
             self.apply_theme(ctx);
         }
-        if let Took::Answer(path) = self.desktop.screen_rx.take() {
-            self.desktop.screen = path;
-            if self.desktop.screen.is_some() {
-                self.use_screen();
-            }
+        if screen {
+            self.use_screen();
         }
     }
 

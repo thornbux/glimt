@@ -219,8 +219,8 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   field in `App`; never loose fields in `App` (`source_rules::app_stays_small`). The fields of
   the parts that `source_rules::parts_keep_their_fields` lists are private: other modules call
   their methods, named for what they do (`self.slideshow.toggle_pause()`,
-  `self.panel.is_hidden()`), never write their fields. `Folder` and `List`, the shared model of
-  what is open, and a few small parts still have open fields; a new part joins that list.
+  `self.panel.is_hidden()`), never write their fields. Every part of `App`, `self.folder` and
+  `self.list` among them, is in that list, and a new part joins it.
 - **Background work:** spawn a thread, send the result over a channel stored in `App` as a
   `Receiving<T>` (never a bare `Option<Receiver>`), and take it in `update` with `take`, `next`,
   `latest` or `wait`, which tell once when the thread is gone. egui only takes clipboard and

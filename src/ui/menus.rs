@@ -5,12 +5,10 @@ use crate::files::config::xdg_dir;
 use crate::files::external::{apps_for, command, open_url};
 use crate::files::file_ops::Deleted;
 use crate::images::colour::{
-    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, read_desktop_screen, set_colour, set_input, set_intent,
-    set_screen,
+    COLOR_MANAGEMENT, FILTERS, VIEW_FILTER, set_colour, set_input, set_intent, set_screen,
 };
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
-use crate::support::threads::Receiving;
 use crate::ui::actions::{Action, shortcut_text};
 use crate::ui::dialogs::Prompt;
 use crate::{features::plugins, files::config, files::external, model::collections, tf, ui::theme};
@@ -28,9 +26,9 @@ pub(crate) const BAR_MENUS: &str = "menu bar menus";
 pub(crate) struct OpenWith {
     /// "Open With" applications by file extension, found once per extension.
     /// `None` while `apps_for` runs in the background.
-    pub(crate) apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
-    pub(crate) tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
-    pub(crate) rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
+    apps: HashMap<String, Option<Vec<(String, PathBuf)>>>,
+    tx: mpsc::Sender<(String, Vec<(String, PathBuf)>)>,
+    rx: mpsc::Receiver<(String, Vec<(String, PathBuf)>)>,
 }
 
 impl Default for OpenWith {
@@ -50,7 +48,7 @@ impl crate::App {
     /// The chosen theme, read from its file again, with the desktop's look where it sets none;
     /// High Contrast while the desktop asks for it, unless that is turned off.
     pub(crate) fn apply_theme(&self, ctx: &egui::Context) {
-        let look = self.desktop.look;
+        let look = self.desktop.look();
         let name = match look.high_contrast && self.config.follow_contrast {
             true => theme::HIGH_CONTRAST,
             false => &self.config.theme,
@@ -150,8 +148,8 @@ impl crate::App {
     pub(crate) fn set_desktop_profile(&mut self, on: bool, ctx: &egui::Context) {
         self.config.desktop_profile = on;
         self.config.save();
-        if on && self.desktop.screen.is_none() {
-            self.desktop.screen_rx = Receiving::of(read_desktop_screen(ctx));
+        if on {
+            self.desktop.ask_screen(ctx);
         }
         self.use_screen();
     }
@@ -159,8 +157,8 @@ impl crate::App {
     /// Show through the desktop's screen profile when it counts and colord has one, else through
     /// the chosen one.
     pub(crate) fn use_screen(&mut self) {
-        let path = match &self.desktop.screen {
-            Some(p) if self.config.desktop_profile => p.clone(),
+        let path = match self.desktop.screen() {
+            Some(p) if self.config.desktop_profile => p.to_owned(),
             _ => self.config.screen_profile.clone(),
         };
         match set_screen(&path) {

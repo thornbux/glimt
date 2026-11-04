@@ -707,7 +707,7 @@ impl crate::App {
                 self.set_desktop_profile(desktop, ui.ctx());
             }
             let from_desktop =
-                (self.desktop.screen.clone()).filter(|_| self.config.desktop_profile);
+                (self.desktop.screen().map(str::to_owned)).filter(|_| self.config.desktop_profile);
             ui.horizontal(|ui| {
                 ui.label(tr("Screen profile:"));
                 if let Some(path) = from_desktop {

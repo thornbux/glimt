@@ -1,7 +1,7 @@
 //! Glimt's look: Inter for text, Phosphor icons, rounder widgets with more room, and the
 //! desktop's light or dark style and accent colour, from the XDG desktop portal (GNOME, KDE).
 
-use crate::support::threads::Receiving;
+use crate::support::threads::{Receiving, Took};
 use eframe::egui;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -182,14 +182,50 @@ pub struct Desktop {
 /// What the desktop says: its dark style and accent, and its screen profile.
 pub(crate) struct FromDesktop {
     /// The desktop's dark style and accent colour, once read from the portal.
-    pub(crate) look: Desktop,
-    pub(crate) look_rx: Receiving<Desktop>,
+    look: Desktop,
+    look_rx: Receiving<Desktop>,
     /// The desktop's screen profile file, once read from colord.
-    pub(crate) screen: Option<String>,
-    pub(crate) screen_rx: Receiving<Option<String>>,
+    screen: Option<String>,
+    screen_rx: Receiving<Option<String>>,
 }
 
 impl FromDesktop {
+    /// The desktop's dark style, accent colour, contrast and text size.
+    pub(crate) fn look(&self) -> Desktop {
+        self.look
+    }
+
+    /// The desktop's screen profile file. Returns `None` until colord has told it, or when it
+    /// has none.
+    pub(crate) fn screen(&self) -> Option<&str> {
+        self.screen.as_deref()
+    }
+
+    /// Asks colord for the desktop's screen profile in the background, unless it is known.
+    pub(crate) fn ask_screen(&mut self, ctx: &egui::Context) {
+        if self.screen.is_none() {
+            self.screen_rx = Receiving::of(crate::images::colour::read_desktop_screen(ctx));
+        }
+    }
+
+    /// Takes what the desktop answered. Returns whether its look came, and whether a screen
+    /// profile came.
+    pub(crate) fn receive(&mut self) -> (bool, bool) {
+        let look = match self.look_rx.take() {
+            Took::Answer(look) => Some(look),
+            _ => None,
+        };
+        if let Some(look) = look {
+            self.look = look;
+        }
+        let mut screen = false;
+        if let Took::Answer(path) = self.screen_rx.take() {
+            self.screen = path;
+            screen = self.screen.is_some();
+        }
+        (look.is_some(), screen)
+    }
+
     /// The desktop asked in the background: gdbus takes a moment, and the window shows
     /// meanwhile and takes the desktop's look after. Its screen profile only if `profile`.
     pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {

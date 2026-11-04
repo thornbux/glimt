@@ -336,6 +336,10 @@ fn parts_keep_their_fields() {
         ("model/folder.rs", "Folder"),
         ("model/list.rs", "List"),
         ("model/search.rs", "Search"),
+        ("features/remote.rs", "Listener"),
+        ("metadata/marks.rs", "Marks"),
+        ("ui/menus.rs", "OpenWith"),
+        ("ui/theme.rs", "FromDesktop"),
         ("ui/dialogs.rs", "Dialogs"),
         ("ui/file_list.rs", "Panel"),
         ("ui/file_list.rs", "StatusBar"),
@@ -352,8 +356,11 @@ fn parts_keep_their_fields() {
     let mut wrong = Vec::new();
     for (file, part) in PARTS {
         let lines = code_lines(&source(file));
-        let head = format!("pub(crate) struct {part} {{");
-        let Some(start) = lines.iter().position(|l| *l == head) else {
+        let heads = [
+            format!("pub(crate) struct {part} {{"),
+            format!("pub struct {part} {{"),
+        ];
+        let Some(start) = lines.iter().position(|l| heads.contains(l)) else {
             wrong.push(format!("{file}: no struct {part}"));
             continue;
         };

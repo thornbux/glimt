@@ -115,11 +115,11 @@ impl Drop for Answering {
 /// Commands from --remote, and selects held back until the list is read.
 pub(crate) struct Listener {
     /// Commands from `glimt --remote`.
-    pub(crate) rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
+    rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
     /// A `--remote select` that came while the folder was being read or while Delete or Rename
     /// asked, and every command after it. They are done in the order they came, once neither
     /// is the case.
-    pub(crate) waiting_select: Vec<(String, Option<remote::Reply>)>,
+    waiting_select: Vec<(String, Option<remote::Reply>)>,
 }
 
 impl Listener {
