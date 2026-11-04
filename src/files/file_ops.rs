@@ -896,7 +896,7 @@ impl crate::App {
         let Some(steps) = self.start_job(tr("Renaming"), from.len(), touches) else {
             return;
         };
-        let shown = from.iter().position(|f| *f == self.path(self.list.cur()));
+        let shown = from.iter().position(|f| self.is_file(self.list.cur(), f));
         let job = RenameJob {
             files_gen: self.list.version(),
             from: from.clone(),
@@ -962,7 +962,7 @@ impl crate::App {
         // subfolders or folders it shows.
         if let Some(k) = job.shown
             && !failed
-            && self.path(self.list.cur()) == job.from[k]
+            && self.is_file(self.list.cur(), &job.from[k])
             && let Ok(rel) = job.to[k].strip_prefix(self.folder.dir())
         {
             self.list
@@ -2183,6 +2183,27 @@ mod tests {
         );
         let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
         assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+    }
+
+    /// Undo of a rename after an empty folder was opened does not crash. The shown file is looked
+    /// up by its name, and an empty list has none, where making its path took a place that is not
+    /// there.
+    #[test]
+    fn undo_of_a_rename_in_an_empty_folder() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-empty-{}", std::process::id()));
+        let empty = dir.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.work.undo = Some(super::Undo::Rename(
+            vec![dir.join("b.png")],
+            vec![dir.join("a.png")],
+        ));
+        app.open(&ctx, empty.clone());
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |a| !a.working()));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// The files an Undo from the trash could not put back do not replace the Undo of a delete
