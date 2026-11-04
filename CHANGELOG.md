@@ -36,6 +36,8 @@ ported to the layout of 0.55.
 
 - A delete no longer takes a link whose target is gone for a file it deleted, which removed the
   link's own sidecar and its entry in the collection when the delete had failed (issue #35).
+- A permanent delete takes the photo's sidecar along also when the sidecar is a link that points
+  nowhere, instead of leaving it behind under the name.
 
 ## [0.55.0] - 2026-11-04
 

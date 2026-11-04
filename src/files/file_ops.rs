@@ -2243,6 +2243,23 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// A permanent delete takes the photo's sidecar along also when the sidecar is a link that
+    /// points nowhere, so no stray link is left under the name for a later file.
+    #[test]
+    fn a_delete_takes_a_dangling_sidecar_link_along() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-dangling-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        let side = crate::metadata::xmp::sidecar(&a);
+        std::os::unix::fs::symlink(dir.join("nowhere"), &side).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.delete_now(&ctx, false, vec![0]);
+        let gone = |p: &std::path::Path| std::fs::symlink_metadata(p).is_err();
+        assert!(settle(&mut app, &ctx, |_| gone(&a) && gone(&side)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A turn is not saved while other work changes the file (Rename Many, a move), because it
     /// could be saved over the photo that takes its name.
     #[test]
