@@ -272,17 +272,21 @@ pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result
 /// saved over a file there (Save As) and a sidecar are written this way.
 pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
-    replace_name_with(path, |f| f.write_all(bytes.as_ref()))
+    replace_name_with(path, |f| f.write_all(bytes.as_ref()), || Ok(()))
 }
 
 /// Replaces the file named `path` as `replace_name` does, with the contents written by `write`
-/// (a PDF streamed page by page).
+/// (a PDF streamed page by page). The step `before` runs after the new file is written whole and
+/// before it takes the name. Save As removes the replaced file's sidecar there, so a write that
+/// fails (a full disk) leaves the file and its sidecar as they were, and a sidecar that cannot be
+/// removed leaves the file.
 pub fn replace_name_with(
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land = |tmp: &Path| std::fs::rename(tmp, path);
+    let land = |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path));
     write_beside(&tmp_path(path), path, write, land)
 }
 
@@ -408,6 +412,30 @@ pub fn save_failed(error: String) {
 
 #[cfg(test)]
 mod tests {
+    /// A replace whose write fails never runs the step before the rename, so Save As over a file
+    /// keeps that file's sidecar when the disk is full. A step that fails leaves the file as it
+    /// was, with no temporary file beside it.
+    #[test]
+    fn replace_name_runs_its_step_only_after_a_whole_write() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-name-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("b.png");
+        super::create_file(&file, "old").unwrap();
+        let full = || Err(std::io::Error::other("no space left"));
+        let mut ran = false;
+        let step = || {
+            ran = true;
+            Ok(())
+        };
+        assert!(super::replace_name_with(&file, |_| full(), step).is_err());
+        assert!(!ran);
+        use std::io::Write;
+        assert!(super::replace_name_with(&file, |f| f.write_all(b"new"), full).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "old");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Copying and moving never replace a file at the destination, and move or copy otherwise;
     /// a copy leaves no half file behind.
     /// One step: the new name taken by nothing else, or refused; a source that is not there

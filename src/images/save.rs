@@ -244,22 +244,33 @@ pub(crate) fn land(
         true => None,
         false => crate::metadata::xmp::own_sidecar(path)?,
     };
-    match replace {
-        // A link there is replaced, not the file it points to.
-        true => crate::files::file_io::replace_name(new, out)?,
-        false => crate::files::file_io::create_file(new, out)?,
-    }
     let side = crate::metadata::xmp::sidecar(new);
+    let named =
+        |e: std::io::Error| std::io::Error::new(e.kind(), format!("{}: {e}", side.display()));
     // A link goes, not what it points to, and `create_file` never follows one.
-    match std::fs::remove_file(&side) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+    let remove_side = || match std::fs::remove_file(&side) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(named(e)),
         _ => Ok(()),
+    };
+    match replace {
+        // The replaced file's sidecar goes after the image is written beside it and before the
+        // image takes the name. A failed write then leaves the file and its sidecar, and a
+        // sidecar that cannot be removed leaves the file, never with the copy's pixels under its
+        // own keywords and stars. A link there is replaced, not the file it points to.
+        true => {
+            use std::io::Write;
+            crate::files::file_io::replace_name_with(new, |f| f.write_all(out), remove_side)?;
+        }
+        // A file of that name is not touched, nor its sidecar, because the copy is refused first.
+        false => {
+            crate::files::file_io::create_file(new, out)?;
+            remove_side()?;
+        }
     }
-    .and_then(|_| match source {
-        Some(xmp) => crate::files::file_io::create_file(&side, xmp),
+    match source {
+        Some(xmp) => crate::files::file_io::create_file(&side, xmp).map_err(named),
         None => Ok(()),
-    })
-    .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", side.display())))
+    }
 }
 
 /// Whether `a` and `b` name one file, also through links, so a copy is never saved over the
@@ -1110,6 +1121,12 @@ mod tests {
         std::fs::write(side(&b), "b's").unwrap();
         super::save_as(&a, &how(0, true), &b).unwrap();
         assert_eq!(text(&b), None);
+        // A sidecar that cannot be removed (a folder in its place) leaves b as it was.
+        std::fs::create_dir(side(&b)).unwrap();
+        let before = std::fs::read(&b).unwrap();
+        assert!(super::save_as(&a, &how(0, false), &b).is_err());
+        assert_eq!(std::fs::read(&b).unwrap(), before);
+        std::fs::remove_dir(side(&b)).unwrap();
         // A sidecar left at the crop's name is not the crop's.
         let cropped = dir.join("a-cropped.png");
         std::fs::write(side(&cropped), "left").unwrap();
