@@ -5,6 +5,55 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+These come from the review on the unreleased branch `readability-0.53`, each ported to the
+layout of 0.56: the fixes where a file, a sidecar, a mark or a setting could be lost or end up
+on the wrong file.
+
+- Save As over a file no longer loses that file's sidecar when the image cannot be written, for
+  example on a full disk.
+- Save As or Save This Frame over a file whose sidecar cannot be removed leaves that file as it
+  was, no longer with the copy's pixels under its old keywords and stars.
+- Save As and Crop give the copy the marks and stars of the original, matching the sidecar it
+  gets, as Copy does.
+- Save As refuses to save over another name (a hard link) of the image itself, as it refuses the
+  image's own name.
+- Save As to JPEG of an image with more than 64 KB of embedded XMP (a long Photoshop or darktable
+  history) makes the copy without that XMP instead of failing.
+- Undo of a delete puts back every file it can when one of them is no longer in the trash or its
+  name was taken, instead of none, and says how many came back.
+- An Undo of a move to the trash that was refused (a new file had taken a name) or stopped partway
+  no longer throws away the stars, marks and collection places of the files not put back; Ctrl+Z
+  tries them again. Those never replace the Undo of a delete made while it ran.
+- Undo of a move to the trash no longer leaves a restored photo's sidecar in the trash when a
+  later file cannot be put back, and undoing a delete of tens of thousands of photos with
+  sidecars no longer takes minutes.
+- Undo of a move to the trash finds a file whose name is not UTF-8, such as one from an old
+  Latin-1 archive.
+- Undo of a rename no longer crashes Glimt when an empty folder was opened after the rename.
+- With Save Orientation on, a turn of the image shown when Glimt closes is saved, also one made
+  after the first close while Glimt waits for file operations.
+- An own key that this build cannot read, written by a newer Glimt, is no longer lost when keys
+  are changed in Preferences, nor one for an action this build does not have.
+- Renaming a file to the same name in other letter case (IMG_0001.JPG to img_0001.jpg) works on a
+  camera card (FAT, exFAT), where Glimt said the name existed already. A rename onto another name
+  of the same file (a hard link) is refused, so that name stays.
+- A delete tells of a sidecar it could not remove with its photo, instead of leaving it behind
+  without a word.
+- A sidecar that is a link pointing nowhere goes with its photo when it is renamed or moved, as it
+  does when the photo is deleted.
+- A file renamed, moved or deleted in Glimt takes its thumbnail, size, date, Check Images' mark and
+  exif: index entry with it: a file given its name afterwards (Rename Many swapping two names, a
+  rename to the name of one deleted) showed the old file's thumbnail and matched searches by the
+  old file's EXIF.
+- A copy waits while Rename Many, a move or a delete is still working on its files: it could copy
+  one photo with another photo's sidecar while Rename Many swapped their names.
+- A collection opened while another one's sort was still being read keeps its own order: the sort
+  reached it and rewrote its file in that order.
+- The describe example plugin keeps the keywords and description an image holds in its own XMP: a
+  new sidecar starts with them.
+
 ## [0.56.0] - 2026-11-04
 
 ### Security
