@@ -285,7 +285,7 @@ fn own_dir(dir: &Path, uid: Option<u32>, sticky: bool) -> bool {
 
 /// What the trash folder `dir` holds, its relative paths read from `top`.
 fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
-    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let entries = std::fs::read_dir(dir.join("info"))
         .into_iter()
         .flatten()
@@ -293,11 +293,10 @@ fn read_trash(dir: &Path, top: &Path) -> Vec<Trashed> {
     (entries)
         .filter_map(|e| {
             let info = e.path();
-            let name = info
-                .file_name()?
-                .to_str()?
-                .strip_suffix(".trashinfo")?
-                .to_owned();
+            // The name as bytes, since gio names the entry with the file's own name, which need
+            // not be UTF-8.
+            let name = info.file_name()?.as_bytes().strip_suffix(b".trashinfo")?;
+            let name = std::ffi::OsStr::from_bytes(name);
             let text = crate::images::decode::read_text(&info).ok()?;
             let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key));
             let from = collections::percent_decoded(value("Path=")?.as_bytes());
@@ -404,6 +403,25 @@ mod tests {
         assert!(!super::own_dir(&shared, None, true));
         std::fs::set_permissions(&shared, mode(0o1777)).unwrap();
         assert!(super::own_dir(&shared, None, true));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A trash entry whose name is not UTF-8, as gio makes for such a file, is read with the
+    /// name's own bytes.
+    #[test]
+    fn reads_a_name_that_is_not_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = std::env::temp_dir().join(format!("glimt-test-latin1-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("info")).unwrap();
+        let name = std::ffi::OsStr::from_bytes(b"caf\xe9.jpg");
+        let mut info = name.to_owned();
+        info.push(".trashinfo");
+        let text = "[Trash Info]\nPath=/photos/caf%E9.jpg\nDeletionDate=2026-11-03T12:00:00\n";
+        std::fs::write(dir.join("info").join(info), text).unwrap();
+        let read = super::read_trash(&dir, std::path::Path::new("/"));
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].file, dir.join("files").join(name));
+        assert_eq!(read[0].from, std::path::Path::new("/photos").join(name));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
