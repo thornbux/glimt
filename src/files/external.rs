@@ -1,33 +1,34 @@
-//! External programs: ffmpeg for HEIC, AVIF and video frames, gio for mounting and the programs
-//! that open a file, xdg-open; inside a Flatpak they run on the host (`command`). `output_of`
-//! reads a program's output with a limit of time and size, also for decoder plugins, and
-//! `stoppable_command` starts one that can be stopped with everything it started.
+//! External programs: ffmpeg for HEIC, AVIF and video frames, gio for mounting and for the
+//! programs that open a file, and xdg-open. Inside a Flatpak they run on the host (`command`).
+//! `output_of` reads a program's output with a limit of time and size, also for decoder
+//! plugins, and `stoppable_command` starts a program that can be stopped with everything it
+//! started.
 
 use crate::model::listing::{AVIF_EXTS, HEIC_EXTS, has_ext};
 use std::path::{Path, PathBuf};
 
-/// ffmpeg's input options for files that come from anywhere: only local files (no network),
-/// and only the formats of photos and videos Glimt lists. ffmpeg tells the format by the
-/// content, so a "video.mp4" that is a playlist (HLS, concat) would else open the files or URLs
-/// it names, for a preview made without the file even being opened.
+/// ffmpeg's input options for files that come from anywhere. They allow only local files (no
+/// network), and only the formats of photos and videos that Glimt lists. ffmpeg tells the
+/// format by the content, so a "video.mp4" that is a playlist (HLS, concat) would otherwise
+/// open the files or URLs it names, for a preview made without the file even being opened.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 const FILES_ONLY: [&str; 4] = [
     "-protocol_whitelist",
     "file",
     "-format_whitelist",
-    // HEIC, AVIF, MP4, MOV, 3GP; MKV, WebM; AVI; MPEG; TS, MTS, M2TS; WMV; FLV.
+    // HEIC, AVIF, MP4, MOV and 3GP, then MKV and WebM, AVI, MPEG, TS, MTS and M2TS, WMV, FLV.
     "mov,matroska,avi,mpeg,mpegts,asf,flv",
 ];
 
-/// How long a program may take over one file: a crafted file, or a share that stops answering,
+/// How long a program may take over one file. A crafted file, or a share that stops answering,
 /// can keep it busy for good, and the decoder thread with it.
 pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Ends the process group of `pid` once it has gone `limit` without progress, unless dropped
-/// first (the program ended): for a program fed on its input or read line by line (gio mount,
-/// lp), which `output_of` cannot run. `feed` tells it of progress (a page taken), so a long
-/// print is not ended while the printer takes it. `gave_up` tells, after the wait, whether it
-/// was the dog that ended it.
+/// Ends the process group of `pid` once it has gone `limit` without progress, unless it is
+/// dropped first because the program ended. It is for a program fed on its input or read line
+/// by line (gio mount, lp), which `output_of` cannot run. `feed` tells it of progress (a page
+/// taken), so a long print is not ended while the printer takes it. After the wait, `gave_up`
+/// tells whether it was the dog that ended the program.
 pub struct Watchdog {
     state: std::sync::Arc<Dog>,
 }
@@ -58,7 +59,7 @@ impl Watchdog {
         Watchdog { state }
     }
 
-    /// The program made progress: its `limit` starts again.
+    /// Tells the dog that the program made progress, so its `limit` starts again.
     pub fn feed(&self) {
         *self.state.fed.lock().unwrap() = std::time::Instant::now();
     }
@@ -82,7 +83,8 @@ struct Dog {
     fed: std::sync::Mutex<std::time::Instant>,
 }
 
-/// A mounted share's local path; `Err(None)` = a login is needed, `Err(Some)` = why it failed.
+/// A mounted share's local path. `Err(None)` means a login is needed, and `Err(Some)` says why
+/// the mount failed.
 pub type Mounted = Result<PathBuf, Option<String>>;
 
 /// User name, domain and password for a network share.
@@ -94,12 +96,13 @@ pub struct Login {
     pub password: String,
 }
 
-/// HEIC and AVIF: both HEIF files, decoded the same way.
+/// Whether `path` is HEIC or AVIF. Both are HEIF files and are decoded the same way.
 pub fn is_heif(path: &Path) -> bool {
     has_ext(path, HEIC_EXTS) || has_ext(path, AVIF_EXTS)
 }
 
-/// A frame `at` seconds in, decoded by the `ffmpeg` program; no larger than `max` if given.
+/// A frame `at` seconds in, decoded by the `ffmpeg` program, no larger than `max` if it is
+/// given.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn ffmpeg_frame(
     path: &Path,
@@ -112,7 +115,7 @@ pub fn ffmpeg_frame(
     }
 }
 
-/// An ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges: a
+/// An ffmpeg filter that shrinks to fit `max`, keeping the shape, and never enlarges. A
 /// thumbnail of a 48 MP phone photo or an 8K video frame needs no 150 MB picture first.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
 fn fit(max: Option<[u32; 2]>) -> Option<String> {
@@ -122,10 +125,10 @@ fn fit(max: Option<[u32; 2]>) -> Option<String> {
     ))
 }
 
-/// A HEIC or AVIF photo, no larger than `max` if given, and then its real size, upright, from
-/// the probe. Phones store it as a grid of tiles, which ffmpeg reads as separate streams with
-/// their places in a "Tile Grid" group: they are put together with xstack, cut to the image
-/// size and turned by the stored rotation.
+/// A HEIC or AVIF photo, no larger than `max` if it is given, and then its real size, upright,
+/// from the probe. Phones store it as a grid of tiles, which ffmpeg reads as separate streams
+/// with their places in a "Tile Grid" group. The tiles are put together with xstack, cut to the
+/// image size and turned by the stored rotation.
 #[cfg(any(feature = "heic", feature = "avif"))]
 pub fn heif(
     path: &Path,
@@ -156,7 +159,7 @@ pub fn heif(
     }
 }
 
-/// The size of a tiled HEIF, upright: its "Tile Grid" line's width, height and rotation.
+/// The size of a tiled HEIF, upright, from its "Tile Grid" line's width, height and rotation.
 #[cfg(any(feature = "heic", feature = "avif", test))]
 fn heif_size(probe: &str) -> Option<[usize; 2]> {
     let grid = probe.lines().find(|l| l.contains("type=Tile Grid"))?;
@@ -172,8 +175,8 @@ fn heif_size(probe: &str) -> Option<[usize; 2]> {
     )
 }
 
-/// The size of the picture in `path`, upright, asked of ffprobe: for a frame decoded no larger
-/// than the view, which still shows and zooms it at its real size.
+/// The size of the picture in `path`, upright, asked of ffprobe. It is for a frame decoded no
+/// larger than the view, which still shows and zooms it at its real size.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn probe_size(path: &Path) -> Option<[usize; 2]> {
     let mut child = stoppable_command("ffprobe")
@@ -188,7 +191,7 @@ pub fn probe_size(path: &Path) -> Option<[usize; 2]> {
     size_in(&String::from_utf8_lossy(&out?))
 }
 
-/// The width=, height= and rotation= lines of ffprobe's default output: the size, upright.
+/// The size, upright, from the width=, height= and rotation= lines of ffprobe's default output.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
 fn size_in(text: &str) -> Option<[usize; 2]> {
     let value = |key: &str| {
@@ -200,7 +203,8 @@ fn size_in(text: &str) -> Option<[usize; 2]> {
     upright(value("width")?, value("height")?, value("rotation"))
 }
 
-/// `w` × `h` as shown: swapped for a quarter turn, none for a size that is no size.
+/// `w` × `h` as shown. They are swapped for a quarter turn, and there is none for a size that
+/// is no size.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif", test))]
 fn upright(w: i64, h: i64, rotation: Option<i64>) -> Option<[usize; 2]> {
     if w <= 0 || h <= 0 {
@@ -213,17 +217,18 @@ fn upright(w: i64, h: i64, rotation: Option<i64>) -> Option<[usize; 2]> {
     }
 }
 
-/// Whether ffmpeg decodes `path` (HEIC, AVIF, a video): to the box, with its size probed.
+/// Whether ffmpeg decodes `path` (HEIC, AVIF, a video), to the box and with its size probed.
 pub fn ffmpeg_decodes(path: &Path) -> bool {
     is_video(path) || is_heif(path)
 }
 
-/// The ffmpeg filter that puts the tiles of the "Tile Grid" in ffprobe's compact output
-/// together; `None` for an image that is not split into tiles.
+/// The ffmpeg filter that puts together the tiles of the "Tile Grid" in ffprobe's compact
+/// output. Returns `None` for an image that is not split into tiles.
 #[cfg(any(feature = "heic", feature = "avif", test))]
 pub fn heif_filter(probe: &str) -> Option<String> {
     let grid = probe.lines().find(|l| l.contains("type=Tile Grid"))?;
-    // Numbers only: the values go into ffmpeg's filter text, where other text could add filters.
+    // Only numbers are taken, because the values go into ffmpeg's filter text, where other
+    // text could add filters.
     let fields: Vec<(&str, &str)> = (grid.split('|'))
         .filter_map(|f| f.split_once('='))
         .filter(|f| f.1.parse::<i64>().is_ok())
@@ -266,9 +271,9 @@ pub fn heif_filter(probe: &str) -> Option<String> {
     ))
 }
 
-/// `program`'s output on `args`, at most `max` bytes, within `LIMIT`: `None` when it could not
-/// run, failed, gave too much or did not end in time. For a question whose answer is all there
-/// is (gio info, lpstat, gdbus).
+/// `program`'s output on `args`, at most `max` bytes, within `LIMIT`. Returns `None` when it
+/// could not run, failed, gave too much or did not end in time. It is for a question whose
+/// answer is all there is (gio info, lpstat, gdbus).
 pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -> Option<String> {
     let mut command = stoppable_command(program);
     command.args(args);
@@ -276,10 +281,10 @@ pub fn limited<S: AsRef<std::ffi::OsStr>>(program: &str, args: &[S], max: u64) -
     Some(String::from_utf8_lossy(&out).into_owned())
 }
 
-/// `command` (from `stoppable_command`) run to its end within `limit`, `max` bytes of output at
-/// most: its output, or why not (its last error line, or what stopped it). The one way Glimt
-/// runs a program for what it says or does and waits for it; clippy refuses `.output()` and
-/// `.status()`, which wait for good.
+/// Runs `command` (from `stoppable_command`) to its end within `limit`, with at most `max`
+/// bytes of output. Returns its output, or why not (its last error line, or what stopped it).
+/// This is the one way Glimt runs a program for what it says or does and waits for it. Clippy
+/// refuses `.output()` and `.status()`, because they wait for good.
 pub fn run_limited(
     mut command: std::process::Command,
     max: u64,
@@ -298,48 +303,50 @@ pub fn run_limited(
     }
 }
 
-/// Move `paths` to the trash with gio, within two minutes: a share that stopped answering left
-/// the delete running for good, with no Stop. One call for many files, so thousands do not
-/// become thousands of processes.
+/// Moves `paths` to the trash with gio, within two minutes, because a share that stopped
+/// answering left the delete running for good, with no Stop. It makes one call for many files,
+/// so thousands of files do not become thousands of processes.
 pub fn trash<S: AsRef<std::ffi::OsStr>>(paths: &[S]) -> Result<(), String> {
     let mut gio = stoppable_command("gio");
     gio.args(["trash", "--"]).args(paths);
     run_limited(gio, 64 << 10, LIMIT * 4).map(drop)
 }
 
-/// End the process group `group` (a negative process ID): TERM first, as in a Flatpak
-/// flatpak-spawn passes it on to the program on the host, which a KILL of the group cannot
-/// reach; then, unless `ended` says within a second that it is over, KILL what is left. The one
-/// way Glimt stops a program: the `Watchdog`, which `output_of` runs too, and a program that
-/// gave too much.
+/// Ends the process group `group` (a negative process ID). It sends TERM first, because in a
+/// Flatpak flatpak-spawn passes it on to the program on the host, which a KILL of the group
+/// cannot reach. Then, unless `ended` says within a second that the group is over, it sends
+/// KILL to what is left. This is the one way Glimt stops a program, used by the `Watchdog`
+/// (which `output_of` runs too) and for a program that gave too much.
 fn stop_group(group: i32, ended: impl Fn() -> bool) {
-    // SAFETY: kill has no preconditions; the group is ours, and not yet waited for.
+    // SAFETY: kill has no preconditions, and the group is ours and not yet waited for.
     unsafe { libc_kill(group, 15) };
     let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
     while !ended() && std::time::Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     if !ended() {
-        // SAFETY: as above.
+        // SAFETY: The same holds as above.
         unsafe { libc_kill(group, 9) };
     }
 }
 
-/// End the program `pid`, started in a process group of its own and not yet waited for, with what
-/// it started: Stop for a plugin. Once its group is gone (waited for by its own thread), no KILL
-/// follows, which could reach a group that took its number since. In a Flatpak the group is
-/// flatpak-spawn's, which passes INT on to the program's group on the host; a KILL is not.
+/// Ends the program `pid`, started in a process group of its own and not yet waited for, with
+/// what it started. It is Stop for a plugin. Once its group is gone (waited for by its own
+/// thread), no KILL follows, because it could reach a group that took the number since. In a
+/// Flatpak the group is flatpak-spawn's, which passes INT on to the program's group on the
+/// host, but not a KILL.
 /// shortcut: there a child the plugin started in the background (`cmd &` in a script) ignores
 /// INT and goes on; start plugins with --watch-bus in their own session if that matters.
 pub fn stop(pid: u32) {
     let group = -(pid as i32);
-    // In a Flatpak flatpak-spawn passes INT on to the program's whole group on the host, TERM
-    // only to the program: what it started (an ffmpeg, a speech) would go on.
+    // In a Flatpak, flatpak-spawn passes INT on to the program's whole group on the host, but
+    // TERM only to the program, so what it started (an ffmpeg, a speech) would go on.
     if std::env::var_os("FLATPAK_ID").is_some() {
-        // SAFETY: a signal to a group of ours, as in stop_group.
+        // SAFETY: This is a signal to a group of ours, as in stop_group.
         unsafe { libc_kill(group, 2) };
     }
-    // SAFETY: as in stop_group; signal 0 only asks whether the group is there.
+    // SAFETY: The same holds as in stop_group, and signal 0 only asks whether the group is
+    // there.
     stop_group(group, || unsafe { libc_kill(group, 0) } != 0);
 }
 
@@ -348,10 +355,10 @@ unsafe extern "C" {
     fn libc_kill(pid: i32, signal: i32) -> i32;
 }
 
-/// What `child` writes, `max` bytes at most (more: `None`, and it is stopped), its errors, and
-/// whether it ended well. Its errors are read beside its output, so neither pipe can fill and
-/// stop both. `child` was started with `stoppable_command`; a `Watchdog` stops its group after
-/// `limit`.
+/// What `child` writes, at most `max` bytes, its errors, and whether it ended well. When it
+/// writes more, it is stopped and the output is `None`. Its errors are read beside its output,
+/// so neither pipe can fill and stop both. `child` was started with `stoppable_command`, and a
+/// `Watchdog` stops its group after `limit`.
 pub fn output_of(
     child: &mut std::process::Child,
     max: u64,
@@ -375,15 +382,17 @@ pub fn output_of(
     }
     #[allow(clippy::disallowed_methods)] // under the Watchdog above
     let ok = child.wait().is_ok_and(|s| s.success());
-    // Only once its errors are read to their end: a helper it left behind may hold them open.
+    // This waits only once its errors are read to their end, because a helper it left behind
+    // may hold them open.
     let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
     drop(dog);
     ((!large).then_some(out), err, ok)
 }
 
-/// The last `keep` bytes or so that `from` writes, read to its end so the program never waits on
-/// a full pipe, as text even where it is not UTF-8 (a file name in another encoding): a damaged
-/// video can make ffmpeg write an error for every packet, and the last line is what is told.
+/// The last `keep` bytes or so that `from` writes, as text even where it is not UTF-8 (a file
+/// name in another encoding). It is read to its end so the program never waits on a full pipe.
+/// A damaged video can make ffmpeg write an error for every packet, and the last line is what
+/// is told.
 fn last_text(mut from: impl std::io::Read, keep: usize) -> String {
     let (mut text, mut chunk) = (Vec::new(), [0u8; 8192]);
     while let Ok(n @ 1..) = from.read(&mut chunk) {
@@ -402,8 +411,8 @@ pub fn ffmpeg_ppm(
     before: &[&str],
     after: &[&str],
 ) -> Result<image::DynamicImage, String> {
-    // A frame no larger than Glimt decodes, in `LIMIT`: a crafted file could otherwise keep
-    // ffmpeg busy for good, or hand over gigabytes.
+    // The frame is no larger than Glimt decodes and comes within `LIMIT`, because a crafted
+    // file could otherwise keep ffmpeg busy for good, or hand over gigabytes.
     let mut child = stoppable_command("ffmpeg")
         .args(["-v", "error"])
         .args(before)
@@ -438,21 +447,21 @@ pub fn is_video(_: &Path) -> bool {
     false
 }
 
-/// The local path of a URI (smb://, sftp:// …), mounting it with gio first if needed: GVfs
+/// The local path of a URI (smb://, sftp:// …), mounting it with gio first if needed. GVfs
 /// puts mounted shares under /run/user/<uid>/gvfs. gio asks for what the share needs (user,
-/// domain, password) one prompt at a time; they are answered from `login`, or, without one,
-/// `Err(None)` says that a login is needed. A password saved in the keyring (from Files) is
-/// used without asking.
+/// domain, password) one prompt at a time, and the answers come from `login`. Without a login,
+/// `Err(None)` says that one is needed. A password saved in the keyring (from Files) is used
+/// without asking.
 #[allow(clippy::disallowed_methods)] // waits for gio under its Watchdog, answering its prompts
 pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     use std::io::{Read, Write};
-    // An option, not a place: -u or -e would unmount or eject. Not given to gio at all, rather
-    // than after a --, which `gio info` reads as a file of its own as well.
+    // An option is not a place, and -u or -e would unmount or eject. It is not given to gio at
+    // all, rather than after a --, because `gio info` reads that as a file of its own as well.
     if uri.starts_with('-') {
         return Err(Some(format!("Could not mount {uri}: not an address")));
     }
-    // With the usual limit: asked before the mount, this would otherwise wait on a server
-    // that never answers, with no watchdog yet.
+    // This has the usual limit, because asked before the mount, it would otherwise wait on a
+    // server that never answers, with no watchdog yet.
     let local = || {
         let mut info = stoppable_host_command("gio");
         info.args(["info", "-a", "standard::name", "--", uri]);
@@ -469,13 +478,14 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .stdin(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| Some(format!("Could not run gio: {e}")))?;
-    // A server that never answers (a NAS asleep, a VPN down): gio is ended after a minute and
-    // the mount told as failed, instead of "Connecting…" and the busy pointer for ever.
+    // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
+    // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
     let dog = Watchdog::new(child.id(), LIMIT * 2);
     let (mut out, mut input) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
-    // Prompts end in ": " without a newline, the next one printed after the answer.
+    // Prompts end in ": " without a newline, and the next one is printed after the answer.
     let (mut text, mut answered, mut buf) = (String::new(), 0, [0; 512]);
-    // gio asks again after a wrong password; answering again and again could lock the account.
+    // gio asks again after a wrong password, and answering again and again could lock the
+    // account.
     let mut passwords = 0;
     while let Ok(n @ 1..) = out.read(&mut buf) {
         text.push_str(&String::from_utf8_lossy(&buf[..n]));
@@ -504,7 +514,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         } else if prompt.contains("user") {
             &login.user
         } else {
-            // "Login anonymously?" and anything else: the default.
+            // "Login anonymously?" and anything else get the default.
             ""
         };
         let _ = writeln!(input, "{answer}");
@@ -518,7 +528,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     }
     local().ok_or_else(|| {
         let err = String::from_utf8_lossy(&out.stderr);
-        // "gio: smb://server/share/: Failed to mount …": the reason only.
+        // Of "gio: smb://server/share/: Failed to mount …", only the reason is kept.
         let err = err.lines().last().map_or("", str::trim);
         let err = err
             .strip_prefix("gio: ")
@@ -528,9 +538,9 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     })
 }
 
-/// A hint when the server's name in `uri` is not found by the system's name lookup: a NAS
-/// is often known only as name.local (mDNS) or by its address, and Samba then fails with
-/// "Invalid argument" after the login rather than saying so.
+/// A hint for when the system's name lookup does not find the server's name in `uri`. A NAS is
+/// often known only as name.local (mDNS) or by its address, and Samba then fails with "Invalid
+/// argument" after the login rather than saying so.
 fn unknown_host(uri: &str) -> String {
     use std::net::ToSocketAddrs;
     let host = uri_host(uri);
@@ -548,8 +558,9 @@ fn unknown_host(uri: &str) -> String {
 }
 
 /// `uri` without a password written into it (smb://user:secret@nas/share), and that password,
-/// percent-decoded: given to gio as a URI, it would be on gio's command line, which every user
-/// of the computer can read in the process list, and on the screen in "Connecting to …".
+/// percent-decoded. Given to gio as a URI, the password would be on gio's command line, which
+/// every user of the computer can read in the process list, and on the screen in "Connecting
+/// to …".
 pub fn without_password(uri: &str) -> (String, Option<String>) {
     let Some((scheme, rest)) = uri.split_once("://") else {
         return (uri.to_owned(), None);
@@ -568,13 +579,14 @@ pub fn without_password(uri: &str) -> (String, Option<String>) {
         true => String::new(),
         false => format!("{user}@"),
     };
-    // An empty one (smb://me:@nas) is none: the login dialog asks for it, as without it.
+    // An empty password (smb://me:@nas) counts as none, so the login dialog asks for it, as
+    // without it.
     let password = (!password.is_empty()).then_some(password);
     (format!("{scheme}://{user}{host}{path}"), password)
 }
 
-/// The server's name in `uri`: after the user and password (which may hold a colon), before the
-/// port; empty for an IPv6 address in brackets, which is no name to look up.
+/// The server's name in `uri`, after the user and password (which may hold a colon) and before
+/// the port. It is empty for an IPv6 address in brackets, which is no name to look up.
 fn uri_host(uri: &str) -> &str {
     let rest = uri.split_once("://").map_or("", |r| r.1);
     let authority = rest.split('/').next().unwrap_or_default();
@@ -588,8 +600,8 @@ fn uri_host(uri: &str) -> &str {
 /// Applications registered for the type of `path` (gio mime), as (name, desktop file), Glimt
 /// itself left out.
 pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
-    // With the usual limit: a file on a share that went away would else hold the menu at "…".
-    // On the host, which has the applications.
+    // This has the usual limit, because a file on a share that went away would otherwise hold
+    // the menu at "…". It runs on the host, which has the applications.
     let gio = |args: &[&std::ffi::OsStr]| {
         let mut gio = stoppable_host_command("gio");
         gio.args(args);
@@ -620,11 +632,13 @@ pub fn apps_for(path: &Path) -> Vec<(String, PathBuf)> {
     named(stoppable_host_command("sh"), &ids.collect::<Vec<_>>())
 }
 
-/// The names and desktop files of the applications `ids`, found by `sh`: on the host in a
-/// Flatpak, where the desktop files are and where `gio launch` runs, not in the sandbox.
+/// The names and desktop files of the applications `ids`, found by `sh`. In a Flatpak, `sh`
+/// runs on the host, where the desktop files are and where `gio launch` runs, not in the
+/// sandbox.
 fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> {
-    // The "applications" folder of each XDG data folder, the first one with the file.
-    // Split at the colons as a variable's value: dash does not split at one written between two.
+    // This looks in the "applications" folder of each XDG data folder, and takes the first one
+    // with the file. The value is split at the colons as a variable's value, because dash does
+    // not split at a colon written between two.
     const FIND: &str = r#"dirs="${XDG_DATA_HOME:-$HOME/.local/share}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
     for id in "$@"; do
         IFS=:
@@ -651,7 +665,7 @@ pub fn open_url(url: &str) {
     let url = url.to_owned();
     std::thread::spawn(move || {
         #[allow(clippy::disallowed_methods)]
-        // the browser may stay open: waited for in its own thread
+        // The browser may stay open, so it is waited for in its own thread.
         let run = |cmd: &str, args: &[&str]| command(cmd).args(args).arg(&url).status();
         if !run("gio", &["open"]).is_ok_and(|s| s.success()) {
             let _ = run("xdg-open", &[]);
@@ -659,11 +673,11 @@ pub fn open_url(url: &str) {
     });
 }
 
-/// File → Set as Wallpaper: `path` as the desktop's background, through the desktop portal,
-/// which GNOME and KDE have, also for a Flatpak. GNOME shows it and asks first; both keep a copy
-/// of their own, so the photo may be moved or deleted later. gdbus comes with gio.
+/// File → Set as Wallpaper. It sets `path` as the desktop's background, through the desktop
+/// portal, which GNOME and KDE have, also for a Flatpak. GNOME shows it and asks first. Both
+/// keep a copy of their own, so the photo may be moved or deleted later. gdbus comes with gio.
 pub fn set_wallpaper(path: &Path) -> Result<(), String> {
-    // A GVariant string: uri_path leaves no " or \ in it.
+    // This is a GVariant string, and uri_path leaves no " or \ in it.
     let uri = format!("\"file://{}\"", crate::images::thumbs::uri_path(path));
     let mut gdbus = stoppable_command("gdbus");
     gdbus
@@ -687,8 +701,9 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
     run_limited(gdbus, 1 << 16, LIMIT).map(drop)
 }
 
-/// A program for Glimt's own work: ffmpeg, gio, zenity, gdbus, sqlite3. In a Flatpak it runs in
-/// the sandbox, whose runtime has them, and GTK and gio go through the desktop portals there.
+/// A program for Glimt's own work, such as ffmpeg, gio, zenity, gdbus or sqlite3. In a Flatpak it
+/// runs in the sandbox, whose runtime has them, and GTK and gio go through the desktop portals
+/// there.
 #[allow(clippy::disallowed_methods)] // one of the two places a program is named to run
 pub fn command(program: &str) -> std::process::Command {
     std::process::Command::new(program)
@@ -697,17 +712,17 @@ pub fn command(program: &str) -> std::process::Command {
 /// The user's own program, or one only the host has: a plugin, a decoder, a player, an
 /// application of Open With, gio mount, an idle inhibitor. In a Flatpak it runs on the host
 /// through `flatpak-spawn --host`, which needs a permission the Flatpak does not ask for (Flathub
-/// allows none); without it, a command that fails saying how to give it, so each caller's error
-/// tells the user.
+/// allows none). Without the permission, it is a command that fails saying how to give it, so
+/// each caller's error tells the user.
 pub fn host_command(program: &str) -> std::process::Command {
     host(program, &[])
 }
 
-/// As `command`, for a program Glimt may have to stop, with what every such program needs: a
-/// process group of its own, so its children are stopped with it; no terminal for its input, as
-/// one started from a shell would stop itself (SIGTTOU) touching the terminal from the
-/// background; and its output and errors piped, for `output_of`. One fed on its input sets
-/// `.stdin(Stdio::piped())` after.
+/// As `command`, for a program Glimt may have to stop, with what every such program needs. It
+/// gets a process group of its own, so its children are stopped with it. It gets no terminal
+/// for its input, because a program started from a shell would stop itself (SIGTTOU) when it
+/// touched the terminal from the background. Its output and errors are piped, for `output_of`.
+/// A program fed on its input sets `.stdin(Stdio::piped())` after.
 pub fn stoppable_command(program: &str) -> std::process::Command {
     stoppable(command(program))
 }
@@ -730,16 +745,17 @@ fn stoppable(mut command: std::process::Command) -> std::process::Command {
     command
 }
 
-/// Whether `program` is there for `command`. Asked of the shell and remembered once it is
-/// there; one that is not is asked for again, so a program installed while Glimt runs is found
-/// without a restart. The one way every fallback decides: zenity or kdialog, gio or xdg-open,
-/// sqlite3.
+/// Whether `program` is there for `command`. The shell is asked, and the answer is remembered
+/// once the program is there. A program that is not there is asked for again, so a program
+/// installed while Glimt runs is found without a restart. This is the one way every fallback
+/// decides: zenity or kdialog, gio or xdg-open, sqlite3.
 pub fn has(program: &str) -> bool {
     knows(false, program)
 }
 
-/// Whether `program` is there for `host_command`: on the host in a Flatpak, where flatpak-spawn
-/// starts even for one the host lacks and fails only afterwards. Which idle inhibitor.
+/// Whether `program` is there for `host_command`. In a Flatpak that means on the host, where
+/// flatpak-spawn starts even for a program the host lacks and fails only afterwards. It decides
+/// which idle inhibitor is used.
 pub fn host_has(program: &str) -> bool {
     knows(true, program)
 }
@@ -764,9 +780,9 @@ fn knows(on_host: bool, program: &str) -> bool {
     has
 }
 
-/// Whether the Flatpak may run programs on the host: `flatpak override --user
-/// --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`, which counts from the next
-/// start. Asked once.
+/// Whether the Flatpak may run programs on the host. The permission is given with `flatpak
+/// override --user --talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt`, and it counts
+/// from the next start. It is asked once.
 fn host_allowed() -> bool {
     static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ALLOWED.get_or_init(|| {
@@ -780,7 +796,7 @@ fn host(program: &str, flags: &[&str]) -> std::process::Command {
     host_for(std::env::var_os("FLATPAK_ID"), host_allowed, program, flags)
 }
 
-/// `host` for the Flatpak `id` (none: not in one), with `allowed` asked only in one.
+/// `host` for the Flatpak `id` (none when not in one), with `allowed` asked only in a Flatpak.
 fn host_for(
     id: Option<std::ffi::OsString>,
     allowed: impl FnOnce() -> bool,
@@ -811,9 +827,9 @@ fn host_for(
     cmd
 }
 
-/// flatpak-spawn passes the sandbox's variables on to the host: its data folder, /app/share.
-/// The host's own data folders instead, with those Flatpak exports installed programs to, so
-/// that gio lists them for Open With and `named` finds their desktop files.
+/// The host's own data folders, with those that Flatpak exports installed programs to, so that
+/// gio lists them for Open With and `named` finds their desktop files. flatpak-spawn would pass
+/// the sandbox's variables on to the host instead, with its data folder, /app/share.
 fn host_data_dirs(home: &str) -> [String; 2] {
     [
         format!("--env=XDG_DATA_HOME={home}/.local/share"),
@@ -825,8 +841,8 @@ fn host_data_dirs(home: &str) -> [String; 2] {
 
 #[cfg(test)]
 mod tests {
-    /// In a Flatpak a host program goes through flatpak-spawn, and without the permission
-    /// fails saying how to give it; outside one it is just the program.
+    /// In a Flatpak, a host program goes through flatpak-spawn, and without the permission it
+    /// fails saying how to give it. Outside a Flatpak it is just the program.
     #[test]
     fn host_programs_need_the_permission_in_a_flatpak() {
         let args = |c: &std::process::Command| {
@@ -848,8 +864,8 @@ mod tests {
         assert!(why.ends_with("--talk-name=org.freedesktop.Flatpak io.github.thornbux.Glimt"));
     }
 
-    /// A program that is there is remembered; one that is not is asked for again, so it is
-    /// found once installed.
+    /// A program that is there is remembered. One that is not is asked for again, so it is
+    /// found once it is installed.
     #[test]
     fn host_has_remembers_only_what_is_there() {
         assert!(super::host_has("sh") && super::host_has("sh"));
@@ -857,7 +873,7 @@ mod tests {
         assert!(!super::host_has("glimt-no-such-program-xyz"));
     }
 
-    /// The dog ends a program that does not: sleep 30 is over in a tenth of a second.
+    /// The dog ends a program that does not end, so sleep 30 is over in a tenth of a second.
     #[test]
     fn the_watchdog_ends_a_program_in_time() {
         use std::os::unix::process::CommandExt;
@@ -879,8 +895,9 @@ mod tests {
         assert!(quick.wait().unwrap().success() && !dog.gave_up());
     }
 
-    /// One that keeps making progress is not ended at the limit: a print to lp longer than two
-    /// minutes, the PDF made while lp takes it, was ended halfway. Unfed, it is ended.
+    /// A program that keeps making progress is not ended at the limit. A print to lp longer
+    /// than two minutes, with the PDF made while lp takes it, was ended halfway. Unfed, the
+    /// program is ended.
     #[test]
     fn the_watchdog_waits_while_fed() {
         use std::os::unix::process::CommandExt;
@@ -902,7 +919,7 @@ mod tests {
     }
 
     /// Every program Glimt may stop has a process group of its own and no terminal for its
-    /// input: ffmpeg, handed the terminal Glimt was started from, stopped itself (SIGTTOU) and
+    /// input. Handed the terminal Glimt was started from, ffmpeg stopped itself (SIGTTOU), and
     /// every HEIC, AVIF and video frame waited 30 seconds for nothing.
     #[test]
     fn a_stoppable_program_has_its_own_group_and_no_terminal() {
@@ -916,8 +933,9 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.unwrap()), "/dev/null\nown\n");
     }
 
-    /// A program run for its answer is ended at its limit and says why: `gio trash` on a share
-    /// that stopped answering held a delete for good, gdbus and the shell's lookups as well.
+    /// A program run for its answer is ended at its limit and says why. `gio trash` on a share
+    /// that stopped answering held a delete for good, and gdbus and the shell's lookups did as
+    /// well.
     #[test]
     fn run_limited_ends_at_its_limit() {
         let mut sleep = super::stoppable_command("sleep");
@@ -983,7 +1001,7 @@ mod tests {
         assert!(dirs.ends_with(":/home/me/.local/share/flatpak/exports/share"));
     }
 
-    /// A program's errors: kept to their last part, however much it writes, and told even in
+    /// A program's errors are kept to their last part, however much it writes, and told even in
     /// another encoding.
     #[test]
     fn keeps_the_last_errors() {
@@ -994,8 +1012,8 @@ mod tests {
         assert!(text.ends_with(".mp4: no frame"));
     }
 
-    /// A server name the system finds needs no hint; one it does not gets name.local or the IP.
-    /// The name is the one after a user and password and before a port.
+    /// A server name the system finds needs no hint, and one it does not gets name.local or the
+    /// IP. The name is the one after a user and password and before a port.
     #[test]
     fn hints_at_an_unknown_host() {
         assert_eq!(super::unknown_host("smb://localhost/share"), "");
@@ -1007,22 +1025,22 @@ mod tests {
         assert!(hint.contains("no-such-glimt-host.local"), "{hint}");
     }
 
-    /// An address that begins with - is no address: refused before gio sees it, also where no
-    /// gio is installed (issue #7).
+    /// An address that begins with - is no address. It is refused before gio sees it, also where
+    /// no gio is installed (issue #7).
     #[test]
     fn refuses_an_address_that_is_an_option() {
         let refused = super::gio_mount("-u", None).unwrap_err().unwrap();
         assert!(refused.ends_with("not an address"), "{refused}");
     }
 
-    /// A password in a URI is taken out of it, decoded, and the user name kept; a URI without
-    /// one is as it was.
+    /// A password in a URI is taken out of it and decoded, and the user name is kept. A URI
+    /// without one stays as it was.
     #[test]
     fn takes_the_password_out_of_a_uri() {
         let (uri, password) = super::without_password("smb://me:p%40ss:w@nas:445/share/a@b");
         assert_eq!(uri, "smb://me@nas:445/share/a@b");
         assert_eq!(password.as_deref(), Some("p@ss:w"));
-        // An empty one is none: asked for in the login dialog, as without it.
+        // An empty password counts as none, so the login dialog asks for it, as without it.
         assert_eq!(super::without_password("smb://me:@nas/share").1, None);
         let (uri, password) = super::without_password("sftp://:secret@host/home");
         assert_eq!(
@@ -1039,7 +1057,8 @@ mod tests {
         }
     }
 
-    /// A thumbnail's size as ffmpeg's filter: shrunk to fit, never enlarged; none for the view.
+    /// A thumbnail's size as ffmpeg's filter is shrunk to fit and never enlarged. The view gets
+    /// none.
     #[test]
     fn fits_ffmpeg_frames() {
         assert_eq!(
@@ -1049,7 +1068,7 @@ mod tests {
         assert_eq!(super::fit(None), None);
     }
 
-    /// Two tiles side by side, cut to 1000×500 and turned a quarter: the keys as the parser
+    /// Two tiles side by side, cut to 1000×500 and turned a quarter, with the keys as the parser
     /// reads them from ffprobe's compact output.
     #[test]
     fn heif_grid_filter() {
@@ -1071,8 +1090,8 @@ mod tests {
         assert!(!super::heif_filter(&hostile).unwrap().contains("movie"));
     }
 
-    /// The real size of a frame decoded to the box: a tiled HEIF's from its grid line, a
-    /// video's from the stream, both turned upright by the stored rotation.
+    /// The real size of a frame decoded to the box comes from a tiled HEIF's grid line or from a
+    /// video's stream, and both are turned upright by the stored rotation.
     #[test]
     fn sizes_from_the_probe() {
         let grid = "stream_group|index=0|type=Tile Grid|c:tile_grid:width=1000|\
@@ -1091,7 +1110,8 @@ mod tests {
         assert_eq!(super::size_in("height=1080\n"), None);
     }
 
-    /// ffprobe output broken in thousands of ways: no panic, and only numbers in the filter.
+    /// ffprobe output broken in thousands of ways gives no panic, and only numbers go into the
+    /// filter.
     #[test]
     fn survives_broken_probes() {
         let probe = "stream_group|index=0|type=Tile Grid|c:tile_grid:width=1000|\
