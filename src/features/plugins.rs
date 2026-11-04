@@ -96,7 +96,7 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
     let dirs = std::env::var("XDG_DATA_DIRS").unwrap_or("/usr/local/share:/usr/share".into());
     let mut seen = std::collections::HashSet::new();
     (home.into_iter())
-        .chain(dirs.split(':').map(|d| Path::new(d).join("glimt")))
+        .chain(absolute_dirs(&dirs).map(|d| d.join("glimt")))
         .map(|d| d.join(kind))
         .flat_map(|dir| std::fs::read_dir(&dir).into_iter().flatten().flatten())
         .map(|e| e.path())
@@ -104,6 +104,13 @@ pub fn desktop_files(kind: &str) -> Vec<(std::path::PathBuf, String)> {
         .filter(|p| seen.insert(p.file_name().map(|n| n.to_owned())))
         .filter_map(|p| Some((p.clone(), crate::images::decode::read_text(&p).ok()?)))
         .collect()
+}
+
+/// Returns the folders of a list such as $XDG_DATA_DIRS that are absolute paths. The XDG spec
+/// says to ignore a relative one. An empty entry ("/usr/share:") would otherwise be the current
+/// folder, and a downloaded folder there could hold a decoder that runs by itself.
+fn absolute_dirs(list: &str) -> impl Iterator<Item = &Path> {
+    list.split(':').map(Path::new).filter(|d| d.is_absolute())
 }
 
 /// The values of a desktop file's first group (its [Desktop Entry] or [Glimt Decoder], not its
@@ -202,6 +209,13 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn reads_only_absolute_data_dirs() {
+        let dirs: Vec<&Path> = absolute_dirs("/usr/share::glimt:/opt/x/").collect();
+        assert_eq!(dirs, [Path::new("/usr/share"), Path::new("/opt/x/")]);
+        assert_eq!(absolute_dirs("").count(), 0);
+    }
 
     #[test]
     fn reads_and_runs_a_plugin() {

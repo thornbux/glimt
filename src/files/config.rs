@@ -679,9 +679,12 @@ pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
         Some(test_home().join(home_fallback).join(app))
     };
     #[cfg(not(test))]
-    let base = std::env::var_os(var)
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))?;
+    // A relative folder is ignored, as the XDG spec says. An empty $XDG_DATA_HOME would otherwise
+    // be the current folder, where a downloaded folder could hold plugins and decoders.
+    let base = (std::env::var_os(var).map(PathBuf::from))
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))
+        .filter(|p| p.is_absolute())?;
     #[cfg(not(test))]
     Some(base.join(app))
 }
