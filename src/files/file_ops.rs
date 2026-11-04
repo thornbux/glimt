@@ -542,8 +542,10 @@ impl crate::App {
                     }
                 }
                 // Their sidecars go the same way, so that a new file with the same name does
-                // not get their keywords.
-                let went: Vec<PathBuf> = chunk.iter().filter(|p| !p.exists()).cloned().collect();
+                // not get their keywords. A file is gone when its name is, so a link whose target
+                // went is not taken for gone (`exists` follows the link).
+                let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
+                let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
                 let side: Vec<PathBuf> = (went.iter())
                     .map(|p| xmp::sidecar(p))
                     .filter(|s| s.exists())
@@ -581,7 +583,9 @@ impl crate::App {
                     files: gone.clone(),
                     // Only the sidecars that are gone count, because a sidecar gio could not
                     // move is still there.
-                    sidecars: sides.into_iter().filter(|s| !s.exists()).collect(),
+                    sidecars: (sides.into_iter())
+                        .filter(|s| std::fs::symlink_metadata(s).is_err())
+                        .collect(),
                     since,
                     marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
