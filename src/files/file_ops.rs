@@ -347,6 +347,15 @@ impl Work {
     }
 }
 
+/// For tests of other modules, which wait until every job has let go of its files.
+#[cfg(test)]
+impl Work {
+    /// Whether no job or background work holds a file any more.
+    pub(crate) fn holds_nothing(&self) -> bool {
+        (self.touching.iter()).all(|t| Arc::strong_count(t) == 1)
+    }
+}
+
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {

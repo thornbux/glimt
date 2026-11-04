@@ -47,6 +47,9 @@ pub(crate) struct Window {
     /// Close asked for while files were being written (`work_left`): 1, it waits for them; 2,
     /// they are stopped after the file at hand and it waits for that; a third close ends at once.
     closing: u8,
+    /// The image and turn that a close last tried to save. A close saves a turn only when it
+    /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
+    close_saved: Option<(std::path::PathBuf, (u8, bool))>,
 }
 
 impl Window {
@@ -65,6 +68,7 @@ impl Window {
             pointer_moved: Instant::now(),
             title: String::new(),
             closing: 0,
+            close_saved: None,
         }
     }
 
@@ -153,12 +157,17 @@ impl crate::App {
         }
         // Keywords typed and not yet saved, and with Save Orientation on a turn of the image
         // shown, are written now, so closing waits for them. The image is never left on the way
-        // out, which is where a turn is saved otherwise. The turn is saved at the first close
-        // only. A save that failed would otherwise start again at the Close sent when it ends,
-        // and count as the user's second close.
+        // out, which is where a turn is saved otherwise. A turn is tried once. A save that
+        // failed would otherwise start again at the Close sent when it ends, and count as the
+        // user's second close.
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_meta(ctx);
-            if self.config.save_orientation && self.window.closing == 0 {
+            let shown = Some((
+                self.viewing.turned_file().to_path_buf(),
+                self.viewing.orient(),
+            ));
+            if self.config.save_orientation && self.window.close_saved != shown {
+                self.window.close_saved = shown;
                 self.save_orientation(ctx);
             }
         }
@@ -506,9 +515,16 @@ mod tests {
         close(&mut app);
         let a = dir.join("a.png");
         assert!(app.work.is_saving(&a));
-        assert!(settle(&mut app, &ctx, |app| !app.work.is_saving(&a)));
+        // The save's thread lets go of the file just after it tells the result.
+        let over = |app: &crate::App| !app.work.is_saving(&a) && app.work.holds_nothing();
+        assert!(settle(&mut app, &ctx, over));
         close(&mut app);
         assert!(!app.work.is_saving(&a));
+        // A turn made after that, while the window waits for other work, is saved.
+        app.viewing.turn((2, false), a.clone());
+        close(&mut app);
+        assert!(app.work.is_saving(&a));
+        assert!(settle(&mut app, &ctx, over));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
