@@ -1,5 +1,6 @@
-//! Decoding: an image file to pixels at the size it is shown (JPEG scaled while decoding, SVG
-//! drawn to size), with its EXIF turn, colours and histogram; animations frame by frame.
+//! Decoding turns an image file into pixels at the size it is shown (a JPEG scaled while it is
+//! decoded, an SVG drawn to size), with its EXIF turn, its colours and its histogram.
+//! Animations are decoded frame by frame.
 
 use crate::images::colour::{ADOBE_RGB, to_display, to_srgb};
 use crate::model::listing::has_ext;
@@ -11,7 +12,8 @@ use image::metadata::Orientation;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Decoded frames kept of one animation (bytes); longer ones loop the first part.
+/// How many bytes of decoded frames are kept of one animation. A longer one loops its first
+/// part.
 pub static MAX_ANIMATION: AtomicUsize = AtomicUsize::new(128 << 20);
 
 /// Frames of an animation kept at most, whatever their size.
@@ -21,11 +23,12 @@ const MAX_FRAMES: usize = 1000;
 pub const MAX_DECODE: u64 = 512 << 20;
 
 pub struct Decoded {
-    /// The file the job was for; rejects results from a folder that has since been replaced.
+    /// The file the job was for. It rejects results from a folder that has since been replaced.
     pub path: PathBuf,
-    /// Decoded with EXIF rotation; rejected if the setting changed meanwhile.
+    /// Whether it was decoded with the EXIF rotation. It is rejected if the setting changed
+    /// meanwhile.
     pub rotated: bool,
-    /// The page of a multi-page TIFF; 0 for everything else.
+    /// The page of a multi-page TIFF. It is 0 for everything else.
     pub page: usize,
     /// The job's number, as in `App::pending`.
     pub job: u64,
@@ -39,7 +42,7 @@ pub type DecodedImage = (Frames, [usize; 2], Box<Hist>, usize);
 /// Pixel counts per level of red, green, blue, brightness and alpha.
 pub type Hist = [[u32; 256]; 5];
 
-/// The decoded frames with their delays in ms; one frame for a still image.
+/// The decoded frames with their delays in ms. A still image has one frame.
 pub type Frames = Vec<(egui::ColorImage, u32)>;
 
 /// An image, its ICC profile if it has one, and its size upright before any shrinking.
@@ -68,14 +71,14 @@ pub fn histogram(img: &egui::ColorImage) -> Box<Hist> {
     h
 }
 
-/// Whether `path` is a file (also through a link): a pipe would block a reader for good, and
-/// a device such as /dev/zero would fill memory.
+/// Whether `path` is a file (also through a link). A pipe would block a reader for good, and a
+/// device such as /dev/zero would fill memory.
 pub fn is_file(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
-/// Image `path` scaled to fit `max`, its original size and its number of pages; `page` picks a
-/// page of a multi-page TIFF.
+/// Decodes image `path` scaled to fit `max`. Returns it with its original size and its number
+/// of pages. `page` picks a page of a multi-page TIFF.
 pub fn decode(
     path: &Path,
     max: [u32; 2],
@@ -94,15 +97,15 @@ pub fn decode(
         Some(scaled) => scaled,
         None => {
             // HEIC, AVIF and video frames come from ffmpeg no larger than the box, with their
-            // real size from the probe; the others whole, and shrunk here.
+            // real size from the probe. The other formats come whole and are shrunk here.
             let to_box = crate::files::external::ffmpeg_decodes(path).then_some(max);
             let (img, icc, turn, size) = if page > 0 {
                 (page_of(path, page)?, None, Orientation::NoTransforms, None)
             } else {
                 load_unturned(path, rotate, to_box)?
             };
-            // Shrunk first, then turned: a 100 MP photo with orientation 6 turned whole would
-            // need a second 400 MB buffer for a moment.
+            // The image is shrunk first and then turned, because a 100 MP photo with
+            // orientation 6 turned whole would need a second 400 MB buffer for a moment.
             let quarter = quarter_turn(turn);
             let [w, h] = [img.width() as usize, img.height() as usize];
             let orig = size.unwrap_or(if quarter { [h, w] } else { [w, h] });
@@ -115,7 +118,7 @@ pub fn decode(
     Ok((vec![(color_image(img), 0)], orig, pages))
 }
 
-/// The number of pages of a multi-page TIFF, or of sizes in an ICO; 1 for other files.
+/// The number of pages of a multi-page TIFF, or of sizes in an ICO. It is 1 for other files.
 pub fn pages(path: &Path) -> usize {
     if has_ext(path, &["tif", "tiff"]) {
         tiff_pages(path)
@@ -134,11 +137,12 @@ pub fn page_of(path: &Path, page: usize) -> Result<image::DynamicImage, String> 
     }
 }
 
-/// An ICO's images, as their directory entries, in the order they are shown: the one the image
-/// crate shows first (most bits per pixel, then largest; the last of equals), then the others
-/// the same way. Reads only the directory.
+/// An ICO's images, as their directory entries, in the order they are shown. The first is the
+/// one the image crate shows first (most bits per pixel, then the largest, and the last of
+/// equals), and the others follow in the same way. It reads only the directory.
 fn ico_sizes(path: &Path) -> Result<Vec<[u8; 16]>, String> {
-    // As many entries as the count can say (1 MB at most): the image crate picks among all.
+    // It reads as many entries as the count can say (1 MB at most), because the image crate
+    // picks among all of them.
     let head = read_head(path, 6 + 16 * u64::from(u16::MAX)).map_err(|e| e.to_string())?;
     let le16 = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
     if head.len() < 6 || le16(&head, 0) != 0 || le16(&head, 2) != 1 {
@@ -169,8 +173,8 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
     let mut one = vec![0, 0, 1, 0, 1, 0];
     entry[12..].copy_from_slice(&22u32.to_le_bytes());
     one.extend_from_slice(&entry);
-    // The length is the file's word: no more than is there, and no more than 64 MB, which a
-    // 256×256 image is far from.
+    // The length is the file's word, so it reads no more than is there, and no more than
+    // 64 MB, which a 256×256 image is far from.
     #[allow(clippy::disallowed_methods)] // bounded by take
     file.take(u64::from(len).min(1 << 26))
         .read_to_end(&mut one)
@@ -178,7 +182,7 @@ fn ico_size(path: &Path, k: usize) -> Result<image::DynamicImage, String> {
     image::load_from_memory_with_format(&one, image::ImageFormat::Ico).map_err(|e| e.to_string())
 }
 
-/// The number of pages (images) in a TIFF file; reads only their directories.
+/// The number of pages (images) in a TIFF file. It reads only their directories.
 pub fn tiff_pages(path: &Path) -> usize {
     let Ok(file) = open(path) else {
         return 1;
@@ -186,8 +190,8 @@ pub fn tiff_pages(path: &Path) -> usize {
     let Ok(mut dec) = tiff::decoder::Decoder::new(std::io::BufReader::new(file)) else {
         return 1;
     };
-    // Each page's header can point at one shared table the tiff crate reads again for every
-    // page: 100,000 pages would be minutes of work on each decode.
+    // Each page's header can point at one shared table, which the tiff crate reads again for
+    // every page, so 100,000 pages would be minutes of work on each decode.
     // shortcut: pages after the 1,000th are not shown; count them lazily if such TIFFs turn up.
     let mut pages = 1;
     while pages < 1000 && dec.more_images() && dec.next_image().is_ok() {
@@ -196,10 +200,10 @@ pub fn tiff_pages(path: &Path) -> usize {
     pages
 }
 
-/// Page `page` of a TIFF. The image crate reads only the first, so the tiff crate (which it
-/// uses) decodes the others; 8- and 16-bit grey and colour, which covers scanned documents, and
-/// grey of other kinds as science writes it (32-bit floats of a height model or a microscope,
-/// signed or 32-bit integers), stretched from its lowest value to its highest.
+/// Page `page` of a TIFF. The image crate reads only the first page, so the tiff crate (which
+/// it uses) decodes the others. It takes 8- and 16-bit grey and colour, which covers scanned
+/// documents, and grey of other kinds as science writes it (32-bit floats of a height model or
+/// a microscope, signed or 32-bit integers), stretched from its lowest value to its highest.
 pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String> {
     use image::DynamicImage as D;
     use tiff::ColorType as C;
@@ -226,8 +230,8 @@ pub fn tiff_page(path: &Path, page: usize) -> Result<image::DynamicImage, String
     img.ok_or_else(|| format!("page {} is in a colour format Glimt cannot show", page + 1))
 }
 
-/// Grey values of any kind as 0 to 255, from the lowest finite value to the highest; `None` for
-/// the kinds the arms above take.
+/// Grey values of any kind as 0 to 255, from the lowest finite value to the highest. Returns
+/// `None` for the kinds the arms above take.
 // shortcut: lowest to highest, so one stray value can leave the rest dark; stretch between
 // percentiles if such files turn up.
 fn stretched(values: tiff::decoder::DecodingResult) -> Option<Vec<u8>> {
@@ -265,8 +269,9 @@ fn stretched(values: tiff::decoder::DecodingResult) -> Option<Vec<u8>> {
     })
 }
 
-/// Linear light of any brightness as an sRGB image: Reinhard's global operator, the average
-/// brightness made middle grey and the highlights rolled off instead of cut.
+/// Linear light of any brightness as an sRGB image. It uses Reinhard's global operator, which
+/// makes the average brightness middle grey and rolls the highlights off instead of cutting
+/// them.
 fn tone_mapped(img: image::Rgb32FImage) -> image::DynamicImage {
     let luminance = |p: &image::Rgb<f32>| 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
     let n = (img.pixels().len().max(1)) as f32;
@@ -303,8 +308,9 @@ fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> 
     use image::{AnimationDecoder, ImageDecoder};
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let file = std::io::BufReader::new(open(path).ok()?);
-    // The decoders' own limit on what they allocate (512 MB, as `MAX_DECODE`): a damaged frame
-    // header claiming gigabytes is an error, not a failed allocation that ends Glimt.
+    // The decoders get their own limit on what they allocate (512 MB, as `MAX_DECODE`), so a
+    // damaged frame header that claims gigabytes is an error, not a failed allocation that ends
+    // Glimt.
     let limits = image::Limits::default();
     Some(match ext.as_str() {
         "gif" => {
@@ -331,8 +337,9 @@ fn animated_frames(path: &Path) -> Option<(image::Frames<'static>, (u32, u32))> 
     })
 }
 
-/// Every frame is a whole canvas, made without image's limit, and the decoder keeps the last one
-/// while it makes the next: two of them must fit.
+/// Whether an animation of this size is too large. Every frame is a whole canvas, made without
+/// image's limit, and the decoder keeps the last one while it makes the next, so two of them
+/// must fit.
 fn too_large_animation((w, h): (u32, u32)) -> bool {
     u64::from(w) * u64::from(h) * 8 > MAX_DECODE
 }
@@ -349,7 +356,7 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     for frame in frames {
         let frame = frame.ok()?;
         let (n, d) = frame.delay().numer_denom_ms();
-        // Browsers show delays under 20 ms as 100 ms; many GIFs rely on it.
+        // Browsers show delays under 20 ms as 100 ms, and many GIFs rely on it.
         let ms = Some(n / d.max(1)).filter(|&ms| ms >= 20).unwrap_or(100);
         let img = frame.into_buffer();
         orig = [img.width() as usize, img.height() as usize];
@@ -357,7 +364,7 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
         bytes += img.pixels.len() * 4;
         out.push((img, ms));
         // Tiny frames pass the memory budget in their thousands, and each becomes a texture
-        // when shown: 1,000 at most.
+        // when shown, so there are 1,000 at most.
         if bytes > MAX_ANIMATION.load(Ordering::Relaxed) || out.len() >= MAX_FRAMES {
             break;
         }
@@ -365,10 +372,10 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     (!out.is_empty()).then_some((out, orig))
 }
 
-/// Every frame of an animation, or page of a TIFF, at full size and in sRGB, one at a time to
-/// `each` (its number from 0 and the image), or only frame `only`; how many were given. The
-/// first page turned upright by EXIF if `rotate`, as the view shows it. For File → Save This
-/// Frame and Export Frames.
+/// Gives every frame of an animation, or every page of a TIFF, at full size and in sRGB, one at
+/// a time to `each` (its number from 0 and the image), or only frame `only`. Returns how many
+/// were given. The first page is turned upright by EXIF if `rotate`, as the view shows it. It
+/// is for File → Save This Frame and Export Frames.
 pub fn each_frame(
     path: &Path,
     only: Option<usize>,
@@ -377,8 +384,9 @@ pub fn each_frame(
 ) -> Result<usize, String> {
     let wanted = |k: usize| only.is_none_or(|o| o == k);
     let mut done = 0;
-    // Each frame decoded once, as it is given: not all first to learn that it is animated. One
-    // too large for its frames may still have its first read alone, as a still image by `load`.
+    // Each frame is decoded once, as it is given, rather than all first to learn that the
+    // image is animated. An animation too large for its frames may still have its first frame
+    // read alone, as a still image by `load`.
     let animated = animated_frames(path);
     if let Some((_, size)) = &animated
         && too_large_animation(*size)
@@ -412,10 +420,10 @@ pub fn each_frame(
     Ok(done)
 }
 
-/// An image no larger than `max`, with its ICC profile and its size upright before it was
-/// shrunk: a JPEG at a fraction while decoding, else the whole image (HEIC, AVIF and video
-/// frames at `max` from ffmpeg) shrunk after. The one way for thumbnails, the print and its
-/// preview; the view (`decode`) has its own, shrinking before it turns.
+/// An image no larger than `max`, with its ICC profile and its upright size before it was
+/// shrunk. A JPEG is decoded at a fraction, and other images whole (HEIC, AVIF and video frames
+/// at `max` from ffmpeg) and shrunk after. This is the one way for thumbnails, the print and its
+/// preview. The view (`decode`) has its own, which shrinks before it turns.
 pub fn small(path: &Path, max: [u32; 2], rotate: bool) -> Result<Small, String> {
     let (img, icc, size) = match scaled_jpeg(path, max, rotate) {
         Some(found) => found,
@@ -437,8 +445,9 @@ pub fn load_icc(
     Ok((img, icc))
 }
 
-/// As `load_icc`, for a thumbnail no larger than `max`: HEIC, AVIF and video frames come so
-/// from ffmpeg, where other formats are shrunk after; and the image's real size, upright.
+/// As `load_icc`, for a thumbnail no larger than `max`, with the image's real size, upright.
+/// HEIC, AVIF and video frames come at that size from ffmpeg, while other formats are shrunk
+/// after.
 pub fn load_for(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Small, String> {
     let (mut img, icc, turn, size) = load_unturned(path, rotate, max)?;
     img.apply_orientation(turn);
@@ -446,13 +455,13 @@ pub fn load_for(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Smal
     Ok((img, icc, size))
 }
 
-/// As `load_for`, but the EXIF turn the image crate reads is returned, not done: the view
-/// shrinks first and turns the small image, not a copy of the whole one. Other formats come
-/// upright already (their turn is `NoTransforms`). The size is given only where the image
-/// came smaller than it is (ffmpeg's formats at `max`).
+/// As `load_for`, but the EXIF turn the image crate reads is returned rather than done, so the
+/// view shrinks first and turns the small image, not a copy of the whole one. Other formats come
+/// upright already (their turn is `NoTransforms`). The size is given only where the image came
+/// smaller than it is (ffmpeg's formats at `max`).
 fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unturned, String> {
     let upright = Orientation::NoTransforms;
-    // Only ffmpeg's formats and SVG take it; without them it has no use.
+    // Only ffmpeg's formats and SVG take `max`, so without them it has no use.
     #[cfg(not(any(feature = "video", feature = "heic", feature = "avif", feature = "svg")))]
     let _ = max;
     #[cfg(feature = "video")]
@@ -491,7 +500,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         .map_err(|e| e.to_string())?
         .into_decoder()
         .map_err(|e| e.to_string());
-    // Grey TIFFs the image crate does not take (floats, signed): through the tiff crate.
+    // Grey TIFFs that the image crate does not take (floats, signed) go through the tiff crate.
     let mut dec = match dec {
         Err(e) if has_ext(path, crate::model::listing::TIFF_LIKE) => {
             return tiff_page(path, 0)
@@ -512,7 +521,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     });
     let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
     let turn = if rotate { orientation } else { upright };
-    // Radiance HDR holds light as it was, far brighter than a screen: brought into its range.
+    // Radiance HDR holds light as it was, far brighter than a screen, so it is brought into the
+    // screen's range.
     if has_ext(path, &["hdr"]) {
         img = tone_mapped(img.into_rgb32f());
     }
@@ -520,9 +530,10 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
 }
 
 /// A JPEG, or the preview in a RAW file, decoded at 1/2, 1/4 or 1/8 of its size when that still
-/// covers `max`, turned upright by EXIF if `rotate`, with its ICC profile (or Adobe RGB from EXIF)
-/// and its full size upright. `None` where the whole image is needed or jpeg-decoder cannot help
-/// (CMYK, an error): then it is decoded whole, as other images.
+/// covers `max`. It is turned upright by EXIF if `rotate`, and comes with its ICC profile (or
+/// Adobe RGB from EXIF) and its full upright size. Returns `None` where the whole image is
+/// needed or jpeg-decoder cannot help (CMYK, an error), and then it is decoded whole, as other
+/// images are.
 pub fn scaled_jpeg(
     path: &Path,
     max: [u32; 2],
@@ -532,29 +543,31 @@ pub fn scaled_jpeg(
         return scaled(&read_limited(path).ok()?, max, rotate, None);
     }
     if has_ext(path, raw::EXTS) {
-        // As raw::load: the orientation from a TIFF-based RAW's own header, and no profile.
+        // As in raw::load, the orientation comes from a TIFF-based RAW's own header, and there
+        // is no profile.
         let from = |data: &[u8]| {
             let (img, _, orig) = scaled(raw::preview(data)?, max, rotate, exif::orientation(data))?;
             Some((img, None, orig))
         };
-        // The first 8 MB first: cameras put the preview before the sensor data, so a folder of
-        // 50 MB RAW files on a share is not read whole for its thumbnails.
+        // The first 8 MB are read first. Cameras put the preview before the sensor data, so a
+        // folder of 50 MB RAW files on a share is not read whole for its thumbnails.
         let head = read_head(path, 8 << 20).ok()?;
         let covers = |p: &[u8]| raw::jpeg_size(p).is_some_and(|(w, h)| w >= max[0] || h >= max[1]);
         if raw::preview(&head).is_some_and(|p| covers(p) && raw::whole_jpeg(p)) {
             if let Some(shown) = from(&head) {
                 return Some(shown);
             }
-            // Not at a fraction (shown larger than half the preview): decoded whole from the
-            // head, which holds all of it, not from the whole file read after all.
+            // When it cannot be decoded at a fraction (shown larger than half the preview), it
+            // is decoded whole from the head, which holds all of it, rather than from the whole
+            // file read after all.
             if let Ok(img) = raw::load_data(&head, rotate) {
                 let orig = [img.width() as usize, img.height() as usize];
                 return Some((img, None, orig));
             }
         }
         let data = read_limited(path).ok()?;
-        // Not at a fraction (shown larger than half the preview): decoded whole from what was
-        // read, not read a second time.
+        // When it cannot be decoded at a fraction (shown larger than half the preview), it is
+        // decoded whole from what was read, rather than read a second time.
         return from(&data).or_else(|| {
             let img = raw::load_data(&data, rotate).ok()?;
             let orig = [img.width() as usize, img.height() as usize];
@@ -573,7 +586,7 @@ pub(crate) fn read_head(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
     Ok(head)
 }
 
-/// `scaled_jpeg` of the JPEG in `data`; `orientation` overrides the one in its EXIF.
+/// `scaled_jpeg` of the JPEG in `data`. `orientation` overrides the one in its EXIF.
 pub fn scaled(
     data: &[u8],
     max: [u32; 2],
@@ -588,8 +601,9 @@ pub fn scaled(
         return None;
     }
     // A progressive JPEG keeps a coefficient (2 bytes) of every pixel and channel at full size
-    // while it decodes, and jpeg-decoder does not limit that: a file of a few KB that claims
-    // 65535×65535 would ask for 25 GB. image's decoder, which has the limit, takes it instead.
+    // while it decodes, and jpeg-decoder does not limit that. A file of a few KB that claims
+    // 65535×65535 would ask for 25 GB, so image's decoder, which has the limit, takes it
+    // instead.
     let coefficients = u64::from(info.width) * u64::from(info.height) * 2;
     if info.coding_process == jpeg_decoder::CodingProcess::DctProgressive
         && coefficients * info.pixel_format.pixel_bytes() as u64 > MAX_DECODE
@@ -627,8 +641,8 @@ pub fn scaled(
     Some((img, icc, [uw as usize, uh as usize]))
 }
 
-/// The size limit `ImageReader` applies, for decoders made directly: a header that claims a
-/// huge image must not make Glimt allocate gigabytes (which aborts the process).
+/// The size limit `ImageReader` applies, for decoders made directly. A header that claims a
+/// huge image must not make Glimt allocate gigabytes, because that aborts the process.
 pub fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
     match dec.total_bytes() {
         n if n > MAX_DECODE => Err(format!("image too large ({})", human_size(n))),
@@ -636,23 +650,23 @@ pub fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
     }
 }
 
-/// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first: a linked one
-/// only if it is a file under 64 MB (not /dev/zero or a pipe), and none whose header claims
-/// more pixels than an image Glimt decodes may have.
+/// usvg's own ways to fetch the pictures an SVG shows, with Glimt's limits first. A linked
+/// picture is taken only if it is a file under 64 MB (not /dev/zero or a pipe), and no picture
+/// whose header claims more pixels than an image Glimt decodes may have.
 #[cfg(feature = "svg")]
 fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     use resvg::usvg::ImageHrefResolver as R;
-    // At most 1 GB of decoded pictures for one SVG, and 256 MB of them read: a small one may
-    // name the same picture a thousand times, and resvg keeps each copy read and decodes each
-    // again; a plain one of 8000×8000 is 250 KB on disk but 256 MB decoded. One that is
-    // refused counts for nothing.
+    // One SVG may have at most 1 GB of decoded pictures, and 256 MB of them read. A small SVG
+    // may name the same picture a thousand times, and resvg keeps each copy read and decodes
+    // each again. A plain picture of 8000×8000 is 250 KB on disk but 256 MB decoded. A picture
+    // that is refused counts for nothing.
     let spent = std::sync::Arc::new(std::sync::Mutex::new((0u64, 0u64)));
     let fits = move |data: &[u8]| {
         let reader = image::ImageReader::new(std::io::Cursor::new(data)).with_guessed_format();
         let decoded = match reader.ok().and_then(|r| r.into_dimensions().ok()) {
             Some((w, h)) => u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4),
-            // Not a picture image reads, such as an SVG: usvg reads it with these limits, but
-            // unpacks one that is gzipped (svgz) without a limit.
+            // Data that image does not read as a picture, such as an SVG, goes to usvg, which
+            // reads it with these limits. But usvg unpacks a gzipped one (svgz) without a limit.
             None if data.starts_with(&[0x1f, 0x8b]) => return false,
             None if entities_too_large(data) => return false,
             None => data.len() as u64,
@@ -694,14 +708,16 @@ fn svg_images() -> resvg::usvg::ImageHrefResolver<'static> {
     }
 }
 
-/// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them:
+/// Whether the entities an SVG defines may grow its text past 64 MB once usvg expands them.
 /// 100 KB of a long entity used through a short one is gigabytes, which aborts the process.
-/// The bound: every & a reference to the longest entity, which may hold up to 256 of them.
-/// An SVG with a few short ones (Illustrator's namespaces) passes. The DTD's structure is not
-/// read, as a reader that differs from roxmltree's can be led past an entity (a `]` or a quote
-/// in another declaration, a DOCTYPE in a comment): each `<!ENTITY` anywhere is measured, its
-/// value the first quoted text after it, before any `<`, as a name cannot hold a quote. One in
-/// a comment counts too, which only overestimates.
+/// The bound assumes every & is a reference to the longest entity, which may hold up to 256 of
+/// them. An SVG with a few short ones (Illustrator's namespaces) passes.
+///
+/// The DTD's structure is not read, because a reader that differs from roxmltree's can be led
+/// past an entity (by a `]` or a quote in another declaration, or a DOCTYPE in a comment).
+/// Instead each `<!ENTITY` anywhere is measured. Its value is the first quoted text after it,
+/// before any `<`, because a name cannot hold a quote. An entity in a comment counts too, which
+/// only overestimates.
 #[cfg(feature = "svg")]
 fn entities_too_large(data: &[u8]) -> bool {
     let (mut longest, mut nested) = (0u64, false);
@@ -738,13 +754,13 @@ fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     }
 }
 
-/// An SVG drawn by resvg, at its own size but at least 2048 pixels on the longer side, so it
-/// stays sharp when fitted to the window; for a thumbnail, fitted in `max`.
+/// An SVG drawn by resvg at its own size, but at least 2048 pixels on the longer side, so it
+/// stays sharp when fitted to the window. For a thumbnail it is fitted in `max`.
 #[cfg(feature = "svg")]
 pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
     use resvg::{tiny_skia, usvg};
     use std::sync::Arc;
-    // The system fonts, for text in SVGs, are read once: it takes tens of milliseconds.
+    // The system fonts, for text in SVGs, are read once, because it takes tens of milliseconds.
     static FONTS: std::sync::OnceLock<Arc<usvg::fontdb::Database>> = std::sync::OnceLock::new();
     let fonts = FONTS.get_or_init(|| {
         let mut db = usvg::fontdb::Database::new();
@@ -758,10 +774,11 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
         ..usvg::Options::default()
     };
     let mut data = read_limited(path).map_err(|e| e.to_string())?;
-    // usvg unpacks a .svgz without a limit: 10 MB of zeros would be 10 GB.
+    // usvg unpacks a .svgz without a limit, and 10 MB of zeros would be 10 GB.
     if data.starts_with(&[0x1f, 0x8b]) {
         data = gunzip(&data, 64 << 20)?;
-        // Gzipped twice: usvg would unpack the inner one, without a limit.
+        // A file gzipped twice is refused, because usvg would unpack the inner one without a
+        // limit.
         if data.starts_with(&[0x1f, 0x8b]) {
             return Err("SVG gzipped twice".into());
         }
@@ -771,11 +788,11 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
     }
     let tree = usvg::Tree::from_data(&data, &options).map_err(|e| e.to_string())?;
     let size = tree.size();
-    // At most 8192 pixels on the longer side: an SVG may claim any size, and the pixmap is
-    // 4 bytes per pixel (60000×60000 would be 14 GB).
+    // The longer side has at most 8192 pixels, because an SVG may claim any size, and the
+    // pixmap is 4 bytes per pixel (60000×60000 would be 14 GB).
     let longer = size.width().max(size.height());
     let scale = match max {
-        // A thumbnail: drawn at its size, not at 2048 and shrunk.
+        // A thumbnail is drawn at its size, not at 2048 and then shrunk.
         Some([w, h]) => (w as f32 / size.width()).min(h as f32 / size.height()),
         None => (2048.0 / longer).max(1.0),
     }
@@ -790,7 +807,7 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
         tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
-    // tiny-skia keeps premultiplied alpha; image wants it straight.
+    // tiny-skia keeps premultiplied alpha, but image wants it straight.
     let rgba: Vec<u8> = (pixmap.pixels().iter())
         .flat_map(|p| {
             let c = p.demultiply();
@@ -802,9 +819,9 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
         .ok_or_else(|| "SVG size mismatch".into())
 }
 
-/// Whether Glimt can show `path`, for Check Images: decoded small, as for the list's thumbnails,
-/// and a JPEG also looked at for its end marker, which a file cut off in copying lacks though
-/// it may still decode, grey at the bottom. Why not, if it cannot.
+/// Whether Glimt can show `path`, for Check Images. The file is decoded small, as for the list's
+/// thumbnails. A JPEG is also looked at for its end marker, which a file cut off in copying
+/// lacks, though it may still decode with grey at the bottom. Returns why not, if it cannot.
 pub fn check(path: &Path) -> Result<(), String> {
     survive(|| decode(path, [64, 64], false, 0).map(drop))?;
     if crate::model::listing::is_jpeg(path) && !jpeg_ends(path)? {
@@ -814,8 +831,9 @@ pub fn check(path: &Path) -> Result<(), String> {
 }
 
 /// Whether a JPEG's image data reaches its end marker (FF D9), which the data itself never
-/// holds (an FF in it is followed by 00 or a restart marker). Looked for from the image data
-/// on, not in the last bytes: phones put a video of megabytes after it in a motion photo.
+/// holds (an FF in it is followed by 00 or a restart marker). The marker is looked for from the
+/// image data on, not in the last bytes, because phones put a video of megabytes after it in a
+/// motion photo.
 // shortcut: reads the whole file, as Check Images does each JPEG once; read from the image
 // data's start in blocks if motion photos of hundreds of MB make it slow.
 fn jpeg_ends(path: &Path) -> Result<bool, String> {
@@ -823,15 +841,16 @@ fn jpeg_ends(path: &Path) -> Result<bool, String> {
     Ok(crate::images::raw::whole_jpeg(&data))
 }
 
-/// Whether the EXIF orientation turns the image a quarter, so its width and height swap: the
-/// one list of those orientations, for the view, the JPEG scaling and the save.
+/// Whether the EXIF orientation turns the image a quarter, so its width and height swap. It is
+/// the one list of those orientations, for the view, the JPEG scaling and the save.
 pub fn quarter_turn(o: Orientation) -> bool {
     use Orientation::{Rotate90, Rotate90FlipH, Rotate270, Rotate270FlipH};
     matches!(o, Rotate90 | Rotate270 | Rotate90FlipH | Rotate270FlipH)
 }
 
-/// `work`, or an error if it panics: a decoder crashing on a broken file must not end the
-/// worker thread, which would leave every later image or thumbnail waiting forever.
+/// Runs `work`, and returns an error if it panics. A decoder crashing on a broken file must not
+/// end the worker thread, because that would leave every later image or thumbnail waiting for
+/// ever.
 pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
         .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
@@ -843,17 +862,18 @@ pub fn read_text(path: impl AsRef<Path>) -> std::io::Result<String> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
-/// The whole of `path`, read only up to `MAX_DECODE` bytes: a larger file (a sparse one, or
-/// one unpacked from a small zip) is refused before it fills memory, not read whole first; so
-/// is what is no file (a pipe would block for good, /dev/zero fill memory), also through a
-/// link. The one way Glimt reads a file whole, whoever wrote it: clippy (clippy.toml) refuses
-/// every other read.
+/// The whole of `path`, read only up to `MAX_DECODE` bytes. A larger file (a sparse one, or one
+/// unpacked from a small zip) is refused before it fills memory, rather than read whole first.
+/// So is what is not a file (a pipe would block for good, and /dev/zero would fill memory), also
+/// through a link. This is the one way Glimt reads a file whole, whoever wrote it, and clippy
+/// (clippy.toml) refuses every other read.
 pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
     let too_large =
         || std::io::Error::other(format!("file too large ({})", human_size(MAX_DECODE)));
     let (file, meta) = open_file(path.as_ref())?;
-    // Its size first, so a large one is not read at all; `take` for one that grows meanwhile.
+    // The size is looked at first, so a large file is not read at all. `take` is for a file
+    // that grows meanwhile.
     if meta.len() > MAX_DECODE {
         return Err(too_large());
     }
@@ -866,9 +886,9 @@ pub fn read_limited(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     Ok(data)
 }
 
-/// `path` opened to be read, if it is a file, with what it is: opened without waiting
-/// (O_NONBLOCK, which a file does not heed), and what is open looked at, not the name, as a
-/// pipe put there between a look and an open would block that open.
+/// `path` opened to be read, if it is a file, with what it is. It is opened without waiting
+/// (O_NONBLOCK, which a file does not heed), and what is open is looked at rather than the
+/// name, because a pipe put there between a look and an open would block that open.
 pub(crate) fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::os::unix::fs::OpenOptionsExt;
     const O_NONBLOCK: i32 = 0o4000;
@@ -886,15 +906,15 @@ pub(crate) fn open_file(path: &Path) -> std::io::Result<(std::fs::File, std::fs:
     Ok((file, meta))
 }
 
-/// `path` opened to be read, if it is a file (`open_file`): the one way Glimt opens a file,
-/// so a pipe or device in its place is refused, not waited on for good.
+/// `path` opened to be read, if it is a file (`open_file`). This is the one way Glimt opens a
+/// file, so a pipe or device in its place is refused, not waited on for good.
 pub(crate) fn open(path: impl AsRef<Path>) -> std::io::Result<std::fs::File> {
     open_file(path.as_ref()).map(|(file, _)| file)
 }
 
-/// An image crate reader on `path`, opened with `open` (no pipe or device) and its format
-/// guessed from the extension, as `image::ImageReader::open` does, which clippy refuses: the
-/// image crate opens the file itself, where clippy cannot look.
+/// An image crate reader on `path`, opened with `open` (no pipe or device), with its format
+/// guessed from the extension, as `image::ImageReader::open` does. Clippy refuses that one,
+/// because the image crate opens the file itself, where clippy cannot look.
 pub(crate) fn image_reader(
     path: impl AsRef<Path>,
 ) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
@@ -913,7 +933,7 @@ pub fn shrink(img: image::DynamicImage, max: [u32; 2]) -> Result<image::DynamicI
         let w = ((img.width() as f64 * scale).round() as u32).max(1);
         let h = ((img.height() as f64 * scale).round() as u32).max(1);
         let mut small = image::DynamicImage::new(w, h, img.color());
-        // SIMD downscaling; image's thumbnail took ~150–330 ms on 12 MP.
+        // This uses SIMD downscaling, because image's thumbnail took about 150–330 ms on 12 MP.
         let opts = fast_image_resize::ResizeOptions::new().resize_alg(
             fast_image_resize::ResizeAlg::Convolution(fast_image_resize::FilterType::Bilinear),
         );
@@ -950,7 +970,8 @@ mod tests {
         );
         let refused = super::read_limited(&fifo).unwrap_err();
         assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
-        // Nor through the image crate: a collection naming a pipe x.png held Find Duplicates.
+        // Not through the image crate either, because a collection naming a pipe x.png held
+        // Find Duplicates.
         let fifo_png = fifo.with_extension("png");
         std::fs::rename(&fifo, &fifo_png).unwrap();
         assert!(super::image_reader(&fifo_png).is_err());
@@ -1025,7 +1046,8 @@ mod tests {
         out
     }
 
-    /// An ICO of more than 256 sizes, the best one last: shown first, and each size a page.
+    /// An ICO of more than 256 sizes, with the best one last, shows it first, and each size is
+    /// a page.
     #[test]
     fn reads_every_size_of_a_large_ico() {
         use image::codecs::ico::{IcoEncoder, IcoFrame};
@@ -1068,8 +1090,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// One small decode for thumbnails and prints: within the box, the profile along, and the
-    /// size as the image stands upright, before it was shrunk.
+    /// There is one small decode for thumbnails and prints. It fits within the box, brings the
+    /// profile along, and gives the size as the image stands upright, before it was shrunk.
     #[test]
     fn small_decodes_within_the_box() {
         let dir = std::env::temp_dir().join(format!("glimt-test-small-{}", std::process::id()));
@@ -1088,10 +1110,11 @@ mod tests {
     }
 
     /// A photo turned by EXIF is shown turned, at its turned size, when it is shrunk before the
-    /// turn: the left of the stored pixels at the top for orientation 6.
+    /// turn. For orientation 6, the left of the stored pixels is at the top.
     #[test]
     fn shows_turned_photos_shrunk_first() {
-        // Pixel values: no other test may change the colour settings meanwhile.
+        // The test reads pixel values, so no other test may change the colour settings
+        // meanwhile.
         let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -1099,7 +1122,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-turned-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.png");
-        // 400×200: red on the left, blue on the right; EXIF orientation 6.
+        // 400×200, red on the left and blue on the right, with EXIF orientation 6.
         let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
         let img = image::RgbImage::from_fn(400, 200, |x, _| match x < 200 {
             true => image::Rgb([255, 0, 0]),
@@ -1165,7 +1188,8 @@ mod tests {
             Ok(())
         });
         assert_eq!((n, pages), (Ok(2), vec![(0, 0), (1, 200)]));
-        // An ICO of two sizes: the largest first, as the image crate shows it, then the other.
+        // An ICO of two sizes shows the largest first, as the image crate shows it, and then
+        // the other.
         let ico = dir.join("b.ico");
         std::fs::write(&ico, two_sizes_ico()).unwrap();
         assert_eq!(super::pages(&ico), 2);
@@ -1183,7 +1207,8 @@ mod tests {
         );
         let (_, orig, pages) = super::decode(&ico, [100, 100], true, 1).unwrap();
         assert_eq!((orig, pages), ([16, 16], 2));
-        // A picture with EXIF orientation 6: turned upright with Auto Rotate on, as it is off.
+        // A picture with EXIF orientation 6 is turned upright with Auto Rotate on, and stays as
+        // it is with it off.
         use image::ImageEncoder;
         let exif = b"MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
         let turned = dir.join("c.png");
@@ -1216,7 +1241,7 @@ mod tests {
     }
 
     /// A JPEG far larger than the window is decoded scaled, turned upright by its EXIF, with
-    /// its full upright size; one that needs more than half its pixels is left to image.
+    /// its full upright size. One that needs more than half its pixels is left to image.
     #[test]
     fn decodes_jpeg_scaled_and_upright() {
         let dir = std::env::temp_dir().join(format!("glimt-scaled-{}", std::process::id()));
@@ -1228,7 +1253,7 @@ mod tests {
             false => image::Rgb([0, 0, 255]),
         });
         img.save(&file).unwrap();
-        // A quarter turn clockwise (EXIF orientation 6): the left half ends up on top.
+        // With a quarter turn clockwise (EXIF orientation 6), the left half ends up on top.
         crate::metadata::exif::write_orientation(&file, 1, false, true).unwrap();
         let (img, _, orig) = super::scaled_jpeg(&file, [60, 100], true).unwrap();
         assert_eq!(orig, [200, 400]);
@@ -1237,7 +1262,7 @@ mod tests {
         let (top, bottom) = (rgb.get_pixel(25, 10), rgb.get_pixel(25, 90));
         assert!(top[0] > 200 && top[2] < 60, "{top:?}");
         assert!(bottom[2] > 200 && bottom[0] < 60, "{bottom:?}");
-        // Not turned: the stored size; and no gain at more than half: None.
+        // Not turned, it has the stored size, and at more than half there is no gain, so None.
         let (_, _, orig) = super::scaled_jpeg(&file, [100, 60], false).unwrap();
         assert_eq!(orig, [400, 200]);
         assert!(super::scaled_jpeg(&file, [300, 300], true).is_none());
@@ -1252,11 +1277,12 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Grey TIFFs of floats, as science writes them, shown stretched from the lowest value to
-    /// the highest; a float RGB one as the image crate reads it.
+    /// Grey TIFFs of floats, as science writes them, are shown stretched from the lowest value
+    /// to the highest, and a float RGB one as the image crate reads it.
     #[test]
     fn shows_float_tiff() {
-        // Pixel values: no other test may change the colour settings meanwhile.
+        // The test reads pixel values, so no other test may change the colour settings
+        // meanwhile.
         let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -1282,11 +1308,12 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A Radiance HDR far brighter than a screen: shown with its shadows dark, its highlights
-    /// rolled off, nothing cut to white but the brightest.
+    /// A Radiance HDR far brighter than a screen is shown with its shadows dark and its
+    /// highlights rolled off, and nothing but the brightest is cut to white.
     #[test]
     fn tone_maps_radiance_hdr() {
-        // Pixel values: no other test may change the colour settings meanwhile.
+        // The test reads pixel values, so no other test may change the colour settings
+        // meanwhile.
         let _held = crate::images::colour::COLOUR_TEST
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -1311,8 +1338,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// TIFFs under other names, as microscopes (Zeiss .lsm) and gel scanners (.gel) write them:
-    /// listed and shown, also grey floats.
+    /// TIFFs under other names, as microscopes (Zeiss .lsm) and gel scanners (.gel) write them,
+    /// are listed and shown, also grey floats.
     #[test]
     fn shows_lsm_and_gel() {
         use tiff::encoder::{TiffEncoder, colortype};
@@ -1343,8 +1370,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Check Images: a whole photo passes; one cut off in copying, a picture that is no
-    /// picture and an empty file are named broken.
+    /// Check Images passes a whole photo. One cut off in copying, a picture that is no picture
+    /// and an empty file are named broken.
     #[test]
     fn checks_images() {
         let dir = std::env::temp_dir().join(format!("glimt-test-check-{}", std::process::id()));
@@ -1358,7 +1385,7 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("whole.jpg"), &jpeg).unwrap();
         std::fs::write(dir.join("cut.jpg"), &jpeg[..jpeg.len() * 2 / 3]).unwrap();
-        // A motion photo: a video after the JPEG's end, longer than 64 KB and without FF D9.
+        // A motion photo has a video after the JPEG's end, longer than 64 KB and without FF D9.
         let motion = [&jpeg[..], &vec![0x42; 200_000]].concat();
         std::fs::write(dir.join("motion.jpg"), motion).unwrap();
         assert_eq!(super::check(&dir.join("motion.jpg")), Ok(()));
@@ -1444,8 +1471,8 @@ mod tests {
         let (frames, orig, _) = super::decode(&dir.join("b.gif"), [100, 100], true, 0).unwrap();
         let delays: Vec<u32> = frames.iter().map(|f| f.1).collect();
         assert_eq!((delays, orig), (vec![50, 100], [40, 20]));
-        // A GIF whose canvas claims 65535×65535 is refused before a frame is made: each frame
-        // would be a canvas of 17 GB.
+        // A GIF whose canvas claims 65535×65535 is refused before a frame is made, because each
+        // frame would be a canvas of 17 GB.
         let huge = dir.join("huge.gif");
         let mut gif = b"GIF89a\xff\xff\xff\xff\0\0\0".to_vec();
         gif.extend(b",\0\0\0\0\x01\0\x01\0\0\x02\x02\x44\x01\0;");
@@ -1453,7 +1480,7 @@ mod tests {
         assert!(super::animation(&huge, [100, 100]).is_none());
         assert!(super::decode(&huge, [100, 100], true, 0).is_err());
         std::fs::remove_file(huge).unwrap();
-        // The tree: a folder reached again through a link is read once.
+        // In the tree, a folder reached again through a link is read once.
         std::fs::copy(dir.join("a.png"), dir.join("sub/c.png")).unwrap();
         std::os::unix::fs::symlink(&dir, dir.join("sub/back")).unwrap();
         assert_eq!(
@@ -1477,7 +1504,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A .svgz is unpacked only up to the limit: a few KB of gzipped zeros cannot take
+    /// A .svgz is unpacked only up to the limit, so a few KB of gzipped zeros cannot take
     /// gigabytes.
     #[cfg(feature = "svg")]
     #[test]
@@ -1489,7 +1516,7 @@ mod tests {
         assert_eq!(super::gunzip(&packed, 5000).map(|d| d.len()), Ok(5000));
         assert!(super::gunzip(&packed, 4999).is_err());
         assert!(super::gunzip(&packed[..10], 5000).is_err());
-        // Gzipped twice: refused, not handed to usvg's own unpacking.
+        // A file gzipped twice is refused, not handed to usvg's own unpacking.
         let mut twice = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
         twice.write_all(&packed).unwrap();
         let file = std::env::temp_dir().join(format!("glimt-twice-{}.svgz", std::process::id()));
@@ -1508,7 +1535,7 @@ mod tests {
     fn svg_pictures_have_limits() {
         let dir = std::env::temp_dir().join(format!("glimt-test-svg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        // A PNG header claiming 100,000 × 100,000; its CRC is right, so readers believe it.
+        // A PNG header claims 100,000 × 100,000. Its CRC is right, so readers believe it.
         let mut ihdr = b"IHDR".to_vec();
         ihdr.extend(100_000u32.to_be_bytes());
         ihdr.extend(100_000u32.to_be_bytes());
@@ -1530,7 +1557,8 @@ mod tests {
         // For a thumbnail, at the thumbnail's size.
         let thumb = super::svg(&svg, Some([128, 128])).unwrap();
         assert_eq!((thumb.width(), thumb.height()), (128, 128));
-        // One picture of 4 MB decoded named again and again: taken until a budget is spent.
+        // One picture of 4 MB decoded is named again and again, and it is taken until a budget
+        // is spent.
         let noise: Vec<u8> = (0..1024 * 1024 * 4u32)
             .map(|i| (i.wrapping_mul(2654435761) >> 24) as u8)
             .collect();
@@ -1546,14 +1574,14 @@ mod tests {
         let taken = (0..300)
             .filter(|_| (resolver.resolve_string)("big.png", &opts).is_some())
             .count();
-        // As many as fit in both: 1 GB decoded, 256 MB read.
+        // As many are taken as fit in both budgets, 1 GB decoded and 256 MB read.
         let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
         let both = ((1u64 << 30) / (1024 * 1024 * 4)).min((256 << 20) / size);
         assert_eq!(taken as u64, both);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// An SVG whose entities would grow to gigabytes is refused before usvg expands them; one
+    /// An SVG whose entities would grow to gigabytes is refused before usvg expands them. One
     /// with a few short entities, as Illustrator writes, is drawn.
     #[cfg(feature = "svg")]
     #[test]
@@ -1569,8 +1597,8 @@ mod tests {
         );
         let file = dir.join("bomb.svg");
         std::fs::write(&file, &bomb).unwrap();
-        // Refused by the check, before usvg: not by usvg after expanding it, nor by a timing
-        // that a busy machine running every test at once can miss.
+        // The check refuses it, before usvg does. It is not refused by usvg after expanding it,
+        // nor by a timing that a busy machine running every test at once can miss.
         let why = super::svg(&file, None).err().unwrap();
         assert_eq!(why, "SVG whose entities would grow too large");
         let fine = "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY ns \"http://www.w3.org/2000/svg\">]>\
@@ -1579,7 +1607,7 @@ mod tests {
         std::fs::write(&file, fine).unwrap();
         assert!(super::svg(&file, None).is_ok());
         // A quote hidden in a comment, a processing instruction or an attribute default before
-        // the long entity: still measured.
+        // the long entity does not stop it from being measured.
         let hides = [
             "<!-- <!ENTITY z ' -->",
             "<?x <!ENTITY z ' ?>",
@@ -1589,8 +1617,9 @@ mod tests {
             let hidden = bomb.replacen("<!ENTITY b \"", &format!("{hide}<!ENTITY b \"'"), 1);
             assert!(super::entities_too_large(hidden.as_bytes()), "{hide}");
         }
-        // Read otherwise than roxmltree reads the DTD: a DOCTYPE in a comment before it, a >
-        // in its SYSTEM literal, a ] or a quote in another declaration around the entities.
+        // These are read otherwise than roxmltree reads the DTD: a DOCTYPE in a comment before
+        // it, a > in its SYSTEM literal, and a ] or a quote in another declaration around the
+        // entities.
         let around = [
             (
                 "<?xml version=\"1.0\"?>",
@@ -1627,7 +1656,7 @@ mod tests {
         !crc
     }
 
-    /// A file larger than Glimt decodes is refused before it is read whole: a sparse one of
+    /// A file larger than Glimt decodes is refused before it is read whole, so a sparse one of
     /// 8 GB takes no memory.
     #[test]
     fn refuses_huge_files() {
