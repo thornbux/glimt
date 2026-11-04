@@ -70,6 +70,15 @@ def describe(path):
 FIELDS = ["XMP-dc:Description", "XMP-iptcCore:AltTextAccessibility"]
 
 
+def seed(path, sidecar):
+    """Starts a sidecar that is not there yet with the image's own XMP. Glimt reads the keywords
+    and the comment from the sidecar once it has a description, so the image's own must be in it,
+    and a description the image has already is then kept. An image without XMP gets no sidecar
+    here, and exiftool's complaint about it is left unsaid."""
+    if not os.path.exists(sidecar):
+        subprocess.run(["exiftool", "-q", "-tagsfromfile", path, "-xmp:all", sidecar], capture_output=True)
+
+
 def empty_fields(sidecar):
     """The fields of FIELDS the sidecar has no text in."""
     if not os.path.exists(sidecar):
@@ -97,6 +106,7 @@ def main(paths):
         if os.path.islink(sidecar):
             print(f"{sidecar}: is a link: left alone", file=sys.stderr)
             continue
+        seed(path, sidecar)
         fields = empty_fields(sidecar)
         if not fields:
             print(f"{path}: has a comment and an alt text already: kept", file=sys.stderr)
