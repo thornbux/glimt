@@ -272,23 +272,28 @@ pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result
 /// saved over a file there (Save As) and a sidecar are written this way.
 pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
-    #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land = |tmp: &Path| std::fs::rename(tmp, path);
-    write_beside(&tmp_path(path), path, |f| f.write_all(bytes.as_ref()), land)
+    replace_name_with(path, |f| f.write_all(bytes.as_ref()), || Ok(()))
 }
 
+/// Replaces the file named `path` as `replace_name` does, with the contents written by `write`
+/// (a PDF streamed page by page). The step `before` runs after the new file is written whole and
+/// before it takes the name.
+pub fn replace_name_with(
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+    before: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
+    let land = |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path));
+    write_beside(&tmp_path(path), path, write, land)
+}
+
+/// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
+/// Only Glimt's own files and a turned image are written so. A name the user chose goes through
+/// `replace_name`, which never follows a link.
 fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
     use std::io::Write;
-    replace_with(path, existing, |f| f.write_all(bytes.as_ref()))
-}
-
-/// `replace`, with the new contents written by `write` (a PDF streamed page by page): the one
-/// way a file is written again, for every writer that cannot hand over its bytes at once.
-pub fn replace_with(
-    path: &Path,
-    existing: bool,
-    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
-) -> std::io::Result<()> {
+    let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());
     // Through a link (dotfiles kept in a repository), the file it points to: the link stays.
     let path = &std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let there = || match !existing || std::fs::symlink_metadata(path).is_ok() {

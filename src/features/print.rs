@@ -465,14 +465,15 @@ impl crate::App {
                 // a whole PDF, after every image was read, because one of them may be the file
                 // chosen.
                 PrintTo::File(file) => {
-                    // As every file Glimt writes again, it is written beside the file, whole,
-                    // and then given its name.
-                    crate::files::file_io::replace_with(file, false, |f| {
+                    // A link at the name is replaced, not the file it points to, because a
+                    // downloaded folder may hold IMG_0001.pdf pointing at any file of the user's.
+                    let write = |f: &mut std::fs::File| {
                         let mut out = std::io::BufWriter::new(f);
                         print::pdf(pages, &job.layout, total, &mut out)?;
                         out.flush()
-                    })
-                    .map_err(|e| e.to_string())
+                    };
+                    crate::files::file_io::replace_name_with(file, write, || Ok(()))
+                        .map_err(|e| e.to_string())
                 }
             };
             let to = chosen.map_or(to, PrintTo::Printer);
@@ -1322,6 +1323,37 @@ mod tests {
             let at: usize = line[..10].parse().unwrap();
             assert!(pdf[at..].starts_with(format!("{} 0 obj", i + 1).as_bytes()));
         }
+    }
+
+    /// Print to File over a link writes the PDF under the name chosen and leaves the file the
+    /// link points to as it was.
+    #[test]
+    fn prints_to_a_link_without_following_it() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-print-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&png).unwrap();
+        let (secret, link) = (dir.join("secret"), dir.join("a.pdf"));
+        std::fs::write(&secret, "keep").unwrap();
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        let job = super::PrintJob {
+            paths: vec![png],
+            layout: super::Layout::new(super::PAPERS[0].1, 1),
+            caption: None,
+            two_sided: false,
+            rotate: false,
+            copies: 1,
+        };
+        app.print(&ctx, job, super::PrintTo::File(link.clone()));
+        let told = app
+            .notices_rx
+            .recv_timeout(std::time::Duration::from_secs(5));
+        assert!(told.is_ok());
+        assert_eq!(std::fs::read_to_string(&secret).unwrap(), "keep");
+        let pdf = std::fs::symlink_metadata(&link).unwrap();
+        assert!(pdf.is_file());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Five images four to a page make two pages with five images, each with its name, and
