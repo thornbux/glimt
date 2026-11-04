@@ -1,6 +1,7 @@
-//! Glimt's own files: the settings (the config! macro, one line per setting, with their defaults
-//! and ranges), the window state and the XDG paths they live in, and `--lock-settings`. How the
-//! files are written is in file_io.rs, and the backup of Glimt's folders in backup.rs.
+//! Glimt's own files. These are the settings (the config! macro, with one line per setting and
+//! its default and range), the window state, the XDG paths they live in, and `--lock-settings`.
+//! How the files are written is in file_io.rs, and the backup of Glimt's folders is in
+//! backup.rs.
 
 use crate::features::print;
 use crate::files::file_io::{edit_shared, save_failed, write_later};
@@ -9,8 +10,8 @@ use crate::ui::actions::Keys;
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
-/// The config struct, its defaults, and reading and writing it, from one list; the field
-/// name is the key in the file.
+/// Makes the config struct, its defaults, and the code that reads and writes it, from one list.
+/// The field name is the key in the file.
 macro_rules! config {
     ($($(#[$doc:meta])* $name:ident: $ty:ty = $default:expr,)*) => {
         /// Preferences, stored as `key=value` lines. Unknown or invalid lines are ignored.
@@ -26,8 +27,8 @@ macro_rules! config {
         }
 
         impl Config {
-            /// Set `key` to `value`: None for a key that is no setting, false for a value that
-            /// cannot be read, which keeps the one before.
+            /// Sets `key` to `value`. Returns `None` for a key that is no setting, and false for
+            /// a value that cannot be read, which keeps the value from before.
             // String's parse cannot fail, so its `if let` is irrefutable.
             #[allow(irrefutable_let_patterns)]
             pub fn set(&mut self, key: &str, value: &str) -> Option<bool> {
@@ -68,15 +69,16 @@ pub(crate) const DEFAULT_DELAY: u64 = 3;
 
 pub(crate) const MAX_DELAY: u64 = 60;
 
-/// The full screen info as Geeqie writes its overlay template: fields in percent signs, `|`
-/// between parts of a line (a part whose fields are all empty is left out) and `\n` for a new
-/// line. The default shows what Glimt always showed.
+/// The full screen info, as Geeqie writes its overlay template. Fields are in percent signs,
+/// `|` stands between the parts of a line, and `\n` starts a new line. A part whose fields are
+/// all empty is left out. The default shows what Glimt always showed.
 pub(crate) const OSD_TEMPLATE: &str = "%name%  %position%\\n%dimensions%|%File size%|%Taken%|%Exposure%|%Aperture%|ISO %ISO%|\
      %Focal length%|%marks%";
 
-/// Preferences → CPU use: (name, hover text). Power saving makes thumbnails one at a time and
-/// runs searches, the EXIF index, Find Duplicates and pan view on two cores; Balanced makes
-/// two thumbnails at once and runs those on every core; Full makes thumbnails on every core.
+/// Preferences → CPU use, as (name, hover text). Power saving makes thumbnails one at a time,
+/// and runs searches, the EXIF index, Find Duplicates and pan view on two cores. Balanced makes
+/// two thumbnails at once and runs the others on every core. Full makes thumbnails on every
+/// core.
 pub(crate) const CPU_LEVELS: [(&str, &str); 3] = [
     (
         "Power saving",
@@ -93,7 +95,7 @@ pub(crate) const CPU_LEVELS: [(&str, &str); 3] = [
     ),
 ];
 
-/// Slideshow → Fade: (name for the config and --fade, menu label, milliseconds).
+/// Slideshow → Fade, as (the name for the config and --fade, the menu label, milliseconds).
 pub(crate) const FADES: [(&str, &str, u64); 3] = [
     ("off", "Off", 0),
     ("short", "Short", 400),
@@ -132,9 +134,9 @@ pub(crate) const MEMORY_LEVELS: [MemoryLevel; 3] = [
 /// How many Open Recent keeps.
 pub const RECENT: usize = 10;
 
-/// Settings that are one of a few: written by name since 1.0 (fit_mode=width), read by name
-/// or by the number of before (fit_mode=1). A list grows at its end only, so the numbers keep
-/// their meaning.
+/// The settings that take one of a few values. Since 1.0 they are written by name
+/// (fit_mode=width), and they are read by name or by the number used before (fit_mode=1). A
+/// list grows only at its end, so the numbers keep their meaning.
 const NAMED: [(&str, &[&str]); 7] = [
     ("fade", &["off", "short", "long"]),
     ("fit_mode", &["whole", "width", "height", "fill"]),
@@ -148,17 +150,18 @@ const NAMED: [(&str, &[&str]); 7] = [
     ("cpu_use", &["saving", "balanced", "full"]),
 ];
 
-/// The administrator's lock: while this file is there, every Glimt starts with --lock-settings.
+/// The administrator's lock. While this file is there, every Glimt starts with --lock-settings.
 pub const LOCK_FILE: &str = "/etc/glimt/lock-settings";
 
-/// --lock-settings: no Preferences, and nothing written to the settings files.
+/// Whether --lock-settings is on. Then there are no Preferences, and nothing is written to the
+/// settings files.
 static LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The settings as this window last read or wrote them.
 static SAVED: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-/// A memory use level in Preferences. The config holds the values; the level shown is the one
-/// they match, or Custom.
+/// A memory use level in Preferences. The config holds the values, and the level shown is the
+/// one they match, or Custom.
 #[derive(Clone, Copy)]
 pub(crate) struct MemoryLevel {
     pub(crate) name: &'static str,
@@ -172,8 +175,9 @@ pub(crate) struct MemoryLevel {
     pub(crate) hover: &'static str,
 }
 
-/// Window geometry saved at exit (points): size, position (not on Wayland, where apps cannot
-/// see or set it) and maximized.
+/// The window geometry saved at exit, in points. It holds the size, the position and whether
+/// the window is maximized. The position is not kept on Wayland, where apps cannot see or set
+/// it.
 #[derive(Debug, Default, PartialEq)]
 pub struct WindowState {
     pub size: Option<egui::Vec2>,
@@ -234,9 +238,10 @@ config! {
     delay: u64 = DEFAULT_DELAY,
     /// Start in the last used folder when no folder is given on the command line.
     remember_dir: bool = false,
-    /// Keep File → Open Recent's list; off, none is written and the one kept is deleted.
+    /// Keep File → Open Recent's list. When this is off, no list is written and the one kept
+    /// is deleted.
     keep_recent: bool = true,
-    /// Deleting moves to the trash (default); otherwise the file is deleted permanently.
+    /// Deleting moves files to the trash (the default). Otherwise a file is deleted for good.
     trash: bool = true,
     /// Ask before deleting permanently.
     confirm_delete: bool = true,
@@ -248,35 +253,40 @@ config! {
     random: bool = false,
     /// Zoom to fit also enlarges images smaller than the window (Geeqie: "Allow enlargement").
     enlarge: bool = true,
-    /// A slideshow starts again from the first image after the last; off, it stops there.
+    /// A slideshow starts again from the first image after the last. When this is off, it stops
+    /// there.
     slideshow_repeat: bool = true,
-    /// The slideshow fades from one image to the next: off, short or long (FADES; an index here).
+    /// The slideshow fades from one image to the next. It is off, short or long, as an index
+    /// into FADES.
     fade: usize = 1,
-    /// Several images at once (View → Layout): "1", "2x1", "1x2" or "2x2" (columns × rows).
+    /// How many images are shown at once (View → Layout): "1", "2x1", "1x2" or "2x2" (columns ×
+    /// rows).
     layout: String = String::from("1"),
     /// The layouts whose slideshow changes one image at a time, round the panes, separated by
-    /// commas; the others change them all together.
+    /// commas. The other layouts change all their images together.
     layout_turns: String = String::new(),
     /// Layouts with several panes show each image's file name in its pane.
     layout_names: bool = false,
-    /// Animated GIF and WebP play (A); off, the first frame is shown.
+    /// Animated GIF and WebP files play (A). When this is off, the first frame is shown.
     animate: bool = true,
     /// Embedded ICC profiles are converted to sRGB, or to the screen profile.
     color_management: bool = true,
-    /// The screen's ICC profile file, chosen in Preferences; empty: the screen is taken to be sRGB.
+    /// The screen's ICC profile file, chosen in Preferences. When it is empty, the screen is
+    /// taken to be sRGB.
     screen_profile: String = String::new(),
     /// The desktop's screen profile, from colord, goes before `screen_profile` when there is one
     /// (Geeqie's "Use system screen profile if available").
     desktop_profile: bool = true,
-    /// The profile of images without one: srgb, adobe, p3 or an ICC file.
+    /// The profile of images that have none: srgb, adobe, p3 or an ICC file.
     input_profile: String = "srgb".to_owned(),
-    /// An image's own ICC profile (or Adobe RGB from its EXIF) counts; off, the input profile
-    /// is used for every image.
+    /// An image's own ICC profile (or Adobe RGB from its EXIF) counts. When this is off, the
+    /// input profile is used for every image.
     own_profile: bool = true,
     /// How colours outside the target are brought in: perceptual, relative, saturation or
     /// absolute. Only profiles with tables for it (LUT profiles) tell them apart.
     rendering_intent: String = "perceptual".to_owned(),
-    /// The interface's language: a translation's code (no_nb) or "en"; empty, the system's.
+    /// The interface's language, as a translation's code (no_nb) or "en". When it is empty,
+    /// the system's language is used.
     language: String = String::new(),
     /// Marks and stars shown in the file list and overlay (marks feature).
     show_marks: bool = true,
@@ -287,8 +297,8 @@ config! {
     /// Stars are also written as xmp:Rating to `<file>.xmp` sidecars, for darktable and digiKam.
     xmp_stars: bool = false,
     /// The file list holds the images of all subfolders too, with their folders in the name.
-    /// Kept across starts like the other View toggles: the top folders show while the tree is
-    /// read.
+    /// It is kept across starts like the other View toggles, and the top folders show while
+    /// the tree is read.
     show_subfolders: bool = false,
     /// A slideshow also shows the images in the subfolders.
     slideshow_subfolders: bool = false,
@@ -300,31 +310,34 @@ config! {
     jpeg_quality: u8 = 92,
     /// Keep zoom and position when going to another image, instead of fitting it.
     keep_zoom: bool = false,
-    /// How an image that is not zoomed fills the view: whole, width, height or fill (the whole
-    /// view, cut at the sides); an index here, FITS.
+    /// How an image that is not zoomed fills the view: whole, width, height or fill. Fill
+    /// covers the whole view and cuts the image at the sides. It is an index into FITS.
     fit_mode: u8 = 0,
-    /// The mouse wheel zooms; off, it goes to the next or previous image as in Geeqie.
+    /// The mouse wheel zooms. When this is off, it goes to the next or previous image, as in
+    /// Geeqie.
     wheel_zoom: bool = true,
     /// Thumbnails in the file list (T).
     thumbnails: bool = true,
     /// Write new thumbnails to the shared cache (~/.cache/thumbnails), as file managers do.
     save_thumbnails: bool = true,
-    /// EXIF panel on the right (Ctrl+K); off by default, as reading EXIF costs a little per image.
+    /// The EXIF panel on the right (Ctrl+K). It is off by default, because reading EXIF costs a
+    /// little for each image.
     exif_panel: bool = false,
-    /// Sort manager on the right (Shift+S): folders to copy or move the selected files to.
+    /// The sort manager on the right (Shift+S), with folders to copy or move the selected files
+    /// to.
     sort_manager: bool = false,
-    /// The sort manager moves the files; off, it copies them.
+    /// The sort manager moves the files. When this is off, it copies them.
     sort_move: bool = false,
     /// Folders as a tree from / (Ctrl+T) instead of the subfolders of the current one.
     folder_tree: bool = false,
     /// Toolbar under the menu, as in Geeqie.
     toolbar: bool = true,
-    /// One malloc arena for all threads: much less memory, decoding up to ~8 % slower.
-    /// Read at startup only, since glibc must be set before threads start.
+    /// One malloc arena for all threads. It uses much less memory, and decoding is up to about
+    /// 8 % slower. It is read only at startup, because glibc must be set before threads start.
     low_memory: bool = true,
-    /// Images decoded at once, at most the number of cores; read at startup.
+    /// How many images are decoded at once, at most the number of cores. It is read at startup.
     decode_threads: usize = 4,
-    /// CPU use: saving, balanced or full (CPU_LEVELS; an index here).
+    /// CPU use: saving, balanced or full, as an index into CPU_LEVELS.
     cpu_use: usize = 1,
     /// Frames of an animation kept, in MB.
     animation_mb: usize = 128,
@@ -338,23 +351,23 @@ config! {
     // followed (GNOME's Large Text and text scaling).
     ui_scale: u32 = 100,
     follow_text_scale: bool = true,
-    // Import Lightroom Catalog: each image's keywords into its XMP sidecar.
+    // Import Lightroom Catalog writes each image's keywords into its XMP sidecar.
     lightroom_keywords: bool = true,
     /// Keep the screen saver off while in full screen.
     inhibit_screensaver: bool = true,
     /// Window title "Glimt - image name" instead of "image name - Glimt".
     app_name_first: bool = false,
-    /// The window title from a template of %name%, %path%, %folder% and %app%; empty: the
-    /// order above.
+    /// The window title, from a template of %name%, %path%, %folder% and %app%. When it is
+    /// empty, the title has the order above.
     window_title: String = String::new(),
     /// File list with size and date columns, as in Geeqie.
     file_details: bool = false,
     sort: Sort = Sort::Name,
     sort_ascending: bool = true,
     sort_case: bool = true,
-    /// Toolbar icon size: small, medium or large (an index here).
+    /// The toolbar's icon size, small, medium or large, as an index.
     toolbar_icons: usize = 0,
-    /// View → Filter: none, greyscale, inverted or contrast (an index into colour::FILTERS).
+    /// View → Filter: none, greyscale, inverted or contrast, as an index into colour::FILTERS.
     view_filter: usize = 0,
     /// File name search above the file list.
     search_bar: bool = true,
@@ -363,12 +376,12 @@ config! {
     osd: bool = true,
     /// What the full screen info shows (OSD_TEMPLATE).
     osd_template: String = OSD_TEMPLATE.to_owned(),
-    /// Histogram in the corner of the image (K): off, rgb or brightness (an index here).
+    /// The histogram in the corner of the image (K): off, rgb or brightness, as an index.
     histogram: u8 = 0,
     /// Logarithmic histogram (J), which shows the small counts better.
     histogram_log: bool = false,
-    /// Thumbnail size: small (96×72), medium (128×96) or large (192×144, from the freedesktop
-    /// "large" cache); an index here.
+    /// The thumbnail size: small (96×72), medium (128×96) or large (192×144, from the
+    /// freedesktop "large" cache), as an index.
     thumb_size: u8 = 0,
     /// The file list as a grid of thumbnails (Ctrl+I) instead of rows.
     icons: bool = false,
@@ -376,17 +389,18 @@ config! {
     background: Rgb = Rgb([0, 0, 0]),
     /// A checkerboard behind transparent images, where the background shows otherwise.
     checkerboard: bool = false,
-    /// Window → Projector: a ring on the projector where the pointer is over the image.
+    /// Window → Projector shows a ring on the projector where the pointer is over the image.
     projector_pointer: bool = true,
     /// In full screen the pointer is hidden while the mouse is still, unless work goes on.
     hide_pointer: bool = true,
-    /// The theme's name: built in ("Dark", the default for an image viewer; "Desktop" follows
-    /// the desktop's light or dark style), or a file in `$XDG_CONFIG_HOME/glimt/themes`.
+    /// The theme's name. It is a built-in theme, or a file in `$XDG_CONFIG_HOME/glimt/themes`.
+    /// "Dark" is the default for an image viewer, and "Desktop" follows the desktop's light or
+    /// dark style.
     theme: String = String::from("Dark"),
-    /// The search field finds names fuzzily (like fzf); off, by regular expression, as Geeqie's
-    /// file filter.
+    /// The search field finds names fuzzily, like fzf. When this is off, it finds them by
+    /// regular expression, as Geeqie's file filter does.
     fuzzy_search: bool = true,
-    /// Without fuzzy search: the regular expression tells upper and lower case apart.
+    /// Without fuzzy search, the regular expression tells upper and lower case apart.
     search_case: bool = false,
     /// Re-read the folder when files are added, removed or renamed.
     auto_refresh: bool = true,
@@ -399,29 +413,32 @@ config! {
     list_raw: bool = true,
     /// List files and folders whose names start with a dot.
     show_hidden: bool = false,
-    /// Video feature: list video files.
+    /// The video feature lists video files.
     videos: bool = true,
-    /// Video feature: command line that plays a video; empty = the default application.
+    /// The video feature's command line that plays a video. When it is empty, the default
+    /// application plays it.
     video_player: String = String::new(),
-    /// Print dialog: the printer chosen last (empty: a PDF file), the paper and file names.
+    /// The print dialog's choices: the printer chosen last (empty for a PDF file), the paper
+    /// and the file names.
     print_printer: String = String::new(),
     print_paper: String = String::from("A4"),
-    /// Which way the paper is turned: "auto" (a wide image alone on its page goes landscape),
-    /// "portrait" or "landscape".
+    /// Which way the paper is turned: "auto", "portrait" or "landscape". With "auto", a wide
+    /// image alone on its page goes landscape.
     print_orientation: String = String::from("auto"),
     print_caption: bool = true,
     /// The text under each printed image, as the full screen info's template (%name%, EXIF
     /// fields, %keywords% …).
     print_template: String = String::from("%name%"),
-    /// Images on each page: 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
+    /// The images on each page. It is 1, or a contact sheet of 2 to 20 (print::PER_PAGE).
     print_per_page: usize = 1,
     /// Around the printed page, in millimetres (0 to 50).
     print_margin: u32 = 10,
-    /// One image a page: its size in per cent of the room it has (10 to 100).
+    /// With one image on a page, its size in per cent of the room it has (10 to 100).
     print_scale: u32 = 100,
     /// Each image fills its box, cut to it, instead of fitting in it.
     print_fill: bool = false,
-    /// Text at the top and the bottom of every printed page; %page% and %pages% number it.
+    /// The text at the top and the bottom of every printed page. %page% and %pages% number the
+    /// pages.
     print_header: String = String::new(),
     print_footer: String = String::new(),
     /// On both sides of the paper, turned on the long edge, where the printer can.
@@ -456,9 +473,9 @@ impl Config {
         c
     }
 
-    /// The settings in `text`, and what is wrong in it, line by line: a line that is not
-    /// key=value, a setting that does not exist or is set twice, a value that cannot be read or
-    /// is out of range. Empty lines and lines starting with # are left alone.
+    /// The settings in `text`, and what is wrong in it, line by line. A problem is a line that
+    /// is not key=value, a setting that does not exist or is set twice, or a value that cannot
+    /// be read or is out of range. Empty lines and lines starting with # are left alone.
     pub fn check(text: &str) -> (Self, Vec<String>) {
         let config = Config::parse(text);
         let used = config.to_text();
@@ -488,7 +505,7 @@ impl Config {
                 Some(true) if again => {
                     problems.push(format!("line {n}: {key} is set again; the last is used"));
                 }
-                // Set again later: that one is checked.
+                // When the setting is set again later, that later line is the one checked.
                 Some(true) if later => {}
                 Some(true) => {
                     let wanted = value_in(&alone.to_text(), key);
@@ -508,7 +525,8 @@ impl Config {
         Self::load_checked().0
     }
 
-    /// The settings, and what is wrong in their file: its lines, or that it cannot be read.
+    /// The settings, and what is wrong in their file. That is its lines, or that it cannot be
+    /// read.
     pub fn load_checked() -> (Self, Vec<String>) {
         let read = config_path().map(|p| read_lossy(&p));
         let (config, problems) = match read {
@@ -524,8 +542,8 @@ impl Config {
         (config, problems)
     }
 
-    /// Only the settings this window changed go over the file; the others keep what other
-    /// windows wrote meanwhile. Locked settings are never written.
+    /// Saves the settings. Only the settings this window changed go over the file, and the
+    /// others keep what other windows wrote meanwhile. Locked settings are never written.
     pub fn save(&self) {
         if locked() {
             return;
@@ -536,14 +554,15 @@ impl Config {
                 &mut *SAVED.lock().unwrap_or_else(|e| e.into_inner()),
                 ours.clone(),
             );
-            // Read, merged and written in the background, as each toggle in a menu saves: the
-            // file's sync must not hold the window.
+            // The file is read, merged and written in the background, because each toggle in a
+            // menu saves, and the file's sync must not hold the window.
             write_later(move || {
                 let merge = |on_disk: &[u8]| {
                     let on_disk = String::from_utf8_lossy(on_disk);
                     (merged(&ours, &before, &on_disk).into_bytes(), ())
                 };
-                // One that cannot be read is not written over: every setting would be lost.
+                // A file that cannot be read is not written over, because every setting would
+                // be lost.
                 if let Err(e) = edit_shared(&p, merge) {
                     save_failed(format!("Could not save {}: {e}", p.display()));
                 }
@@ -557,18 +576,19 @@ pub fn config_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "config")
 }
 
-/// `$XDG_CONFIG_HOME/glimt/keywords`: the keyword tree, a path such as "Places|Norway|Oslo"
+/// `$XDG_CONFIG_HOME/glimt/keywords`, the keyword tree, with a path such as "Places|Norway|Oslo"
 /// on each line.
 pub fn keyword_tree_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "keywords")
 }
 
-/// `$XDG_CONFIG_HOME/glimt/sort-folders`: the sort manager's folders, one on each line.
+/// `$XDG_CONFIG_HOME/glimt/sort-folders`, the sort manager's folders, one on each line.
 pub fn sort_folders_path() -> Option<PathBuf> {
     xdg_file("XDG_CONFIG_HOME", ".config", "sort-folders")
 }
 
-/// The folders of the sort-folders file, as bytes: one that is not UTF-8 is kept.
+/// The folders of the sort-folders file, read as bytes, so a folder name that is not UTF-8 is
+/// kept.
 pub fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     (text.split(|&b| b == b'\n'))
@@ -577,7 +597,7 @@ pub fn sort_folders_from(text: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The sort-folders file's text for `dirs`; a name with a line break cannot be kept in it.
+/// The sort-folders file's text for `dirs`. A name with a line break cannot be kept in it.
 pub fn sort_folders_text(dirs: &[PathBuf]) -> Vec<u8> {
     let mut text = Vec::new();
     for d in dirs {
@@ -590,8 +610,8 @@ pub fn sort_folders_text(dirs: &[PathBuf]) -> Vec<u8> {
     text
 }
 
-/// `on_disk` with `add` added and `remove` taken out: a change, applied to the file as it is
-/// now, so folders another window added meanwhile stay.
+/// `on_disk` with `add` added and `remove` taken out. The change is applied to the file as it is
+/// now, so folders that another window added meanwhile stay.
 pub fn sort_folders_changed(
     mut on_disk: Vec<PathBuf>,
     add: Option<&Path>,
@@ -610,13 +630,13 @@ pub fn state_path() -> Option<PathBuf> {
     xdg_file("XDG_STATE_HOME", ".local/state", "state")
 }
 
-/// `$XDG_STATE_HOME/glimt/recent`: File → Open Recent's folders and collections, newest first,
-/// one on each line, shared by the windows.
+/// `$XDG_STATE_HOME/glimt/recent`, File → Open Recent's folders and collections, newest first,
+/// one on each line. The windows share it.
 pub fn recent_path() -> Option<PathBuf> {
     xdg_file("XDG_STATE_HOME", ".local/state", "recent")
 }
 
-/// The paths of a recent file's text, as bytes: a name need not be UTF-8.
+/// The paths of a recent file's text, read as bytes, because a name need not be UTF-8.
 pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     (text.split(|&b| b == b'\n'))
@@ -626,8 +646,8 @@ pub fn parse_recent(text: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `path` first in `recent`, once, and no more than RECENT; a name with a line break in it
-/// cannot be kept on a line, and is left out.
+/// `recent` with `path` first, once, and no more than RECENT paths. A name with a line break in
+/// it cannot be kept on a line, so it is left out.
 pub fn add_recent(recent: &[PathBuf], path: &Path) -> Vec<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     let fits = !path.as_os_str().as_bytes().contains(&b'\n');
@@ -651,7 +671,8 @@ pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
 }
 
 pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
-    // Tests have a home of their own: an App made in a test removed the user's recent list.
+    // Tests have a home of their own, because an App made in a test removed the user's recent
+    // list.
     #[cfg(test)]
     return {
         let _ = var;
@@ -665,9 +686,9 @@ pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
     Some(base.join(app))
 }
 
-/// The home folder of the tests, under the temporary folder, for every XDG folder: one for
-/// every run, so what a test leaves there (Rename Many's empty plans folder) is never more
-/// than one tree; files in it have names of their own (plans by instance and time).
+/// The home folder of the tests, under the temporary folder, for every XDG folder. There is one
+/// for every run, so what a test leaves there (Rename Many's empty plans folder) is never more
+/// than one tree. The files in it have names of their own (plans by instance and time).
 #[cfg(test)]
 pub fn test_home() -> PathBuf {
     std::env::temp_dir().join("glimt-test-home")
@@ -685,14 +706,15 @@ pub fn state_value<'a>(state: &'a str, key: &str) -> Option<&'a str> {
     })
 }
 
-/// `value` of `key` as the code holds it: a name's place in its list, else as given.
+/// The `value` of `key` as the code holds it. A name becomes its place in its list, and other
+/// values stay as given.
 fn by_number(key: &str, value: &str) -> String {
     let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
     let place = names.and_then(|names| names.iter().position(|n| n.eq_ignore_ascii_case(value)));
     place.map_or_else(|| value.to_owned(), |k| k.to_string())
 }
 
-/// `value` of `key` as the file holds it: the name of a numbered choice.
+/// The `value` of `key` as the file holds it, which is the name of a numbered choice.
 fn by_name(key: &str, value: String) -> String {
     let names = NAMED.iter().find(|n| n.0 == key).map(|n| n.1);
     match names.zip(value.parse::<usize>().ok()) {
@@ -701,8 +723,9 @@ fn by_name(key: &str, value: String) -> String {
     }
 }
 
-/// A settings file's text, a byte that is not UTF-8 (a path in another encoding) made the
-/// replacement character: read so when loaded, and when saved again, which merges into it.
+/// A settings file's text. A byte that is not UTF-8 (a path in another encoding) becomes the
+/// replacement character. The file is read this way when loaded, and when saved again, because
+/// the save merges into it.
 fn read_lossy(path: &Path) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&crate::images::decode::read_limited(path)?).into_owned())
 }
@@ -723,10 +746,10 @@ pub fn locked() -> bool {
     LOCKED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// `ours` (key=value lines), but where a value is as this window `saved` it, the one
-/// `on_disk`: another window may have changed that setting since. In the file's own order, with
-/// its comments and blank lines, and the settings it lacks after them; settings this Glimt does
-/// not know, from a newer one (a Flatpak beside a .deb), stay.
+/// `ours` (key=value lines), except that where a value is as this window `saved` it, the one
+/// `on_disk` is kept, because another window may have changed that setting since. The result
+/// keeps the file's own order, its comments and blank lines, with the settings it lacks after
+/// them. Settings this Glimt does not know, from a newer one (a Flatpak beside a .deb), stay.
 fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
     let pairs = |text: &str| -> std::collections::HashMap<String, String> {
         (text.lines().filter_map(|l| l.split_once('=')))
@@ -772,7 +795,7 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// The file Glimt writes has nothing wrong; each kind of mistake is told with its line.
+    /// The file Glimt writes has nothing wrong, and each kind of mistake is told with its line.
     #[test]
     fn checks_the_settings_file() {
         let (_, none) = super::Config::check(&super::Config::default().to_text());
@@ -810,7 +833,8 @@ mod tests {
         assert_eq!(super::sort_folders_from(&text), [p("/x")]);
     }
 
-    /// This window changed the sort order, another turned thumbnails off: both stay.
+    /// When this window changed the sort order and another turned thumbnails off, both changes
+    /// stay.
     #[test]
     fn keeps_what_other_windows_changed() {
         let saved = "thumbnails=true\nsort=name\n";
@@ -944,7 +968,7 @@ mod tests {
                 .into_iter()
                 .any(|e| e.file_name().to_string_lossy().ends_with(".glimt-tmp"))
         );
-        // A name near the limit of 255 bytes is written again, and its sidecar too: the
+        // A name near the limit of 255 bytes is written again, and its sidecar too, because the
         // temporary name made from it was too long.
         let long = dir.join(format!("{}.jpg", "a".repeat(240)));
         crate::files::file_io::create_file(&long, "x").unwrap();
@@ -955,7 +979,8 @@ mod tests {
         std::fs::write(&file, b"delay=5\nvideo_player=mpv \xff\n").unwrap();
         let text = super::read_lossy(&file).unwrap();
         assert_eq!(Config::parse(&text).delay, 5);
-        // Not there: none; there but unreadable (a folder): an error, never written over.
+        // A file that is not there gives none. One that is there but cannot be read (a folder)
+        // gives an error and is never written over.
         assert_eq!(
             crate::files::file_io::read_or_none(&dir.join("none")).unwrap(),
             None
@@ -968,7 +993,7 @@ mod tests {
         );
         assert!(text.contains('\u{fffd}'));
         std::fs::remove_dir_all(&dir).unwrap();
-        // The choices by name, or by the number of before 1.0; written by name.
+        // The choices are read by name, or by the number used before 1.0, and written by name.
         let c = Config::parse("fit_mode=width\nfade=2\nview_filter=Inverted\ncpu_use=9");
         assert_eq!((c.fit_mode, c.fade, c.view_filter, c.cpu_use), (1, 2, 2, 2));
         let text = c.to_text();
@@ -987,8 +1012,8 @@ mod tests {
         }
     }
 
-    /// Open Recent: the newest first, each once, at most RECENT, and back from its file as it
-    /// was written, also a name that is not UTF-8.
+    /// Open Recent has the newest first, each once and at most RECENT, and it comes back from
+    /// its file as it was written, also a name that is not UTF-8.
     #[test]
     fn keeps_recent_folders() {
         use std::os::unix::ffi::OsStrExt;
@@ -1010,7 +1035,7 @@ mod tests {
         assert_eq!(recent[0], p("/19"));
     }
 
-    /// Config and window state files broken in thousands of ways: read without a panic.
+    /// Config and window state files broken in thousands of ways are read without a panic.
     #[test]
     fn survives_broken_files() {
         let seed = super::Config::default().to_text();
