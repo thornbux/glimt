@@ -1225,12 +1225,15 @@ impl crate::App {
                     restored_marks: marks,
                     ..Default::default()
                 });
+                let done = tf!(
+                    "{count} back from the trash",
+                    count = count(back.len(), "file")
+                );
+                // The files that came back are told too when others did not.
                 Some(match error {
-                    None => tf!(
-                        "{count} back from the trash",
-                        count = count(back.len(), "file")
-                    ),
-                    Some(e) => tf!("Undo failed: {e}", e),
+                    None => done,
+                    Some(e) if back.is_empty() => tf!("Undo failed: {e}", e),
+                    Some(e) => format!("{done}; {}", tf!("Undo failed: {e}", e)),
                 })
             })),
         }
