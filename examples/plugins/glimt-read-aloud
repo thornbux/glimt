@@ -22,6 +22,10 @@ def text_of(path):
     for source in (sidecar, path):
         if not os.path.exists(source):
             continue
+        # A sidecar that is a link is not the image's own: a downloaded folder could point it at
+        # any file of the user's, which would then be read aloud. Glimt does not read one either.
+        if source == sidecar and os.path.islink(source):
+            continue
         for field in FIELDS:
             out = subprocess.run(["exiftool", "-s3", f"-{field}", source], capture_output=True, text=True)
             text = " ".join(out.stdout.split())

@@ -92,6 +92,11 @@ def main(paths):
             print(f"{path}: not a file, or larger than {MAX_BYTES >> 20} MB: left out", file=sys.stderr)
             continue
         sidecar = path + ".xmp"
+        # A sidecar that is a link is not the image's own: a downloaded folder could point it at
+        # any file of the user's, which would then be read and written. Glimt leaves one alone too.
+        if os.path.islink(sidecar):
+            print(f"{sidecar}: is a link: left alone", file=sys.stderr)
+            continue
         fields = empty_fields(sidecar)
         if not fields:
             print(f"{path}: has a comment and an alt text already: kept", file=sys.stderr)
