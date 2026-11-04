@@ -4,7 +4,7 @@
 
 use crate::files::file_io::rename_never_over;
 use crate::{files::config, model::collections, tf};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -93,18 +93,36 @@ pub(crate) fn restore(
             }
         }
     }
-    // A sidecar no longer there (the trash emptied of it) does not hold its file back; the
-    // sidecars put back are not among the files told and counted.
-    let files = found.len();
-    found.extend(thrown.sidecars.iter().filter_map(|s| find(s)));
+    // Each file is put back with its sidecar right after it, so a failure at a later file
+    // never leaves a restored file's sidecar in the trash. A sidecar that is no longer there
+    // (the trash was emptied of it) does not hold its file back. The sidecars put back are not
+    // among the files told and counted.
+    // Sets, not searches: a delete of 50,000 photos with sidecars is undone in one pass.
+    let sides: HashSet<&PathBuf> = thrown.sidecars.iter().collect();
+    let paired: HashSet<PathBuf> = thrown
+        .files
+        .iter()
+        .map(|f| crate::metadata::xmp::sidecar(f))
+        .collect();
+    let mut steps: Vec<(Trashed, bool)> = Vec::new();
+    for t in found {
+        let side = Some(crate::metadata::xmp::sidecar(&t.from)).filter(|s| sides.contains(s));
+        let side = side.and_then(|s| find(&s));
+        steps.push((t, true));
+        steps.extend(side.map(|s| (s, false)));
+    }
+    let rest = (thrown.sidecars.iter())
+        .filter(|s| !paired.contains(*s))
+        .filter_map(|s| find(s));
+    steps.extend(rest.map(|s| (s, false)));
     let mut back = Vec::new();
-    for (k, t) in found.into_iter().enumerate() {
+    for (t, is_file) in steps {
         if let Err(e) = rename_never_over(&t.file, &t.from) {
             let e = format!("{display}: {e}", display = t.from.display());
             return (back, error.or(Some(e)));
         }
         let _ = std::fs::remove_file(&t.info);
-        if k < files {
+        if is_file {
             back.push(t.from);
         }
     }
@@ -518,6 +536,47 @@ mod tests {
         assert_eq!((back, error), (vec![photos.join("IMG_0006.jpg")], None));
         let got = std::fs::read_to_string(photos.join("IMG_0006.jpg")).unwrap();
         assert_eq!(got, "other");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo from the trash puts each file back with its sidecar, so a file that cannot come back
+    /// never leaves a restored file's sidecar in the trash.
+    #[test]
+    fn a_failed_restore_never_splits_a_file_from_its_sidecar() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-pairs-{}", std::process::id()));
+        let (trash, x, y) = (dir.join("trash"), dir.join("x"), dir.join("y"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        for (from, kept) in [
+            (x.join("a.jpg"), "a.jpg"),
+            (y.join("b.jpg"), "b.jpg"),
+            (x.join("a.jpg.xmp"), "a.jpg.xmp"),
+        ] {
+            crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                from.display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        // The folder y is gone, so b.jpg cannot come back, but a.jpg comes back with its sidecar.
+        let thrown = super::Thrown {
+            files: vec![x.join("a.jpg"), y.join("b.jpg")],
+            sidecars: vec![x.join("a.jpg.xmp")],
+            since: now - std::time::Duration::from_secs(1),
+            marks: Vec::new(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let (back, error) = super::restore(&thrown, dirs);
+        assert_eq!(back, [x.join("a.jpg")]);
+        assert!(error.is_some());
+        assert!(x.join("a.jpg.xmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
