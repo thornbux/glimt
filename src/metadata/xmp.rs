@@ -70,7 +70,7 @@ fn parse_access(xmp: &str) -> Access {
 /// XMP inside it are each read once, because on a network share each reading of a large photo
 /// costs.
 pub fn read_all(path: &Path) -> (Meta, Vec<String>, Access) {
-    let side = crate::images::decode::read_text(sidecar(path)).ok();
+    let side = own_sidecar_text(path);
     let inside = std::cell::OnceCell::new();
     let inside = || inside.get_or_init(|| embedded(path)).clone();
     let has_meta = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
@@ -174,10 +174,28 @@ pub fn tree_paths(path: &Path) -> Vec<String> {
 /// and otherwise the image's own.
 fn source(path: &Path) -> Option<String> {
     let has = |x: &String| x.contains("<dc:subject") || x.contains("<dc:description");
-    let side = crate::images::decode::read_text(sidecar(path))
-        .ok()
-        .filter(has);
-    side.or_else(|| embedded(path))
+    own_sidecar_text(path)
+        .filter(has)
+        .or_else(|| embedded(path))
+}
+
+/// Reads the sidecar of `path` as text for the panel and the search. Returns `None` when there
+/// is none, when it cannot be read or is not UTF-8, and when it is a link (`own_sidecar`).
+fn own_sidecar_text(path: &Path) -> Option<String> {
+    String::from_utf8(own_sidecar(path).ok()??).ok()
+}
+
+/// Reads the sidecar of `path`, the one way a sidecar is read. Returns `None` when there is
+/// none or when it is a link, and an error when one is there that cannot be read (no
+/// permission, a folder), which a writer must not write over. A sidecar that is a link is not
+/// the photo's own, because a downloaded folder could point it at another file of the user's,
+/// whose contents would then show for this photo or be copied with it.
+pub(crate) fn own_sidecar(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let side = sidecar(path);
+    match linked(&side) {
+        true => Ok(None),
+        false => crate::files::file_io::read_or_none(&side),
+    }
 }
 
 /// `<file>.xmp`, next to the file.
@@ -1245,6 +1263,26 @@ mod tests {
         .unwrap();
         assert!(follow(&b, &a, true).is_err());
         assert_eq!(read(&a), other);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A sidecar that is a link is not read, because a downloaded folder could point it at
+    /// another file of the user's. Neither the search nor the panel reads through it.
+    #[test]
+    fn a_linked_sidecar_is_not_read() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-linked-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (other, a) = (dir.join("other.png"), dir.join("a.png"));
+        image::RgbaImage::new(2, 2).save(&other).unwrap();
+        image::RgbaImage::new(2, 2).save(&a).unwrap();
+        write_changed(&other, Some(vec!["secret".into()]), None).unwrap();
+        std::os::unix::fs::symlink(sidecar(&other), sidecar(&a)).unwrap();
+        assert!(read(&a).keywords.is_empty(), "read through the link");
+        assert!(
+            read_all(&a).0.keywords.is_empty(),
+            "the panel read through the link"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

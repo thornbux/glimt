@@ -240,10 +240,9 @@ pub(crate) fn land(
     // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
     // behind. A sidecar that is a link counts as none, because what it points to (a private key)
     // is not the photo's.
-    let side = crate::metadata::xmp::sidecar(path);
-    let source = match strip || crate::metadata::xmp::linked(&side) {
+    let source = match strip {
         true => None,
-        false => crate::files::file_io::read_or_none(&side)?,
+        false => crate::metadata::xmp::own_sidecar(path)?,
     };
     match replace {
         true => crate::files::file_io::replace_file(new, out)?,
