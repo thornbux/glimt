@@ -559,10 +559,18 @@ impl crate::App {
                 let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
                 let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
                 let side: Vec<PathBuf> = went.iter().filter_map(|p| xmp::sidecar_of(p)).collect();
+                // A sidecar that stays is told, as the photo's own errors are, because the next
+                // file of that name would show its keywords.
                 if trash && !side.is_empty() {
-                    let _ = crate::files::trash::trash(&side);
+                    if let Err(e) = crate::files::trash::trash(&side) {
+                        errors.push(e);
+                    }
                 } else {
-                    side.iter().for_each(|s| drop(std::fs::remove_file(s)));
+                    for s in &side {
+                        if let Err(e) = std::fs::remove_file(s) {
+                            errors.push(format!("{display}: {e}", display = s.display()));
+                        }
+                    }
                 }
                 gone.extend(went);
                 sides.extend(side);
@@ -2365,6 +2373,27 @@ mod tests {
                 && !crate::metadata::xmp::sidecar(&y).exists()
         );
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// A sidecar that cannot be removed with its photo is told, not left without a word, because
+    /// the next file of that name would show its keywords.
+    #[test]
+    fn a_sidecar_left_by_a_delete_is_told() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-side-left-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(4, 4).save(&a).unwrap();
+        // A folder by the sidecar's name cannot be removed as a file.
+        std::fs::create_dir(crate::metadata::xmp::sidecar(&a)).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        app.notice = None;
+        app.delete_now(&ctx, false, vec![0]);
+        let told =
+            |app: &crate::App| (app.notice.as_deref()).is_some_and(|n| n.contains("a.png.xmp"));
+        assert!(settle(&mut app, &ctx, told));
+        assert!(!a.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A permanent delete takes the photo's sidecar along also when the sidecar is a link that
