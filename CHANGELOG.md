@@ -40,6 +40,9 @@ ported to the layout of 0.55.
   link's own sidecar and its entry in the collection when the delete had failed (issue #35).
 - A permanent delete takes the photo's sidecar along also when the sidecar is a link that points
   nowhere, instead of leaving it behind under the name.
+- The release tests no longer stop for hours when a window cannot start: every `--remote` call
+  ends after 30 seconds, and Xvfb runs with `-noreset`, so a window started just as the last one
+  closed is not refused. A check shows a lossy 24 MP JPEG XL within its new memory limit.
 
 ## [0.55.0] - 2026-11-04
 
