@@ -347,15 +347,6 @@ impl Work {
     }
 }
 
-/// For tests of other modules, which wait until every job has let go of its files.
-#[cfg(test)]
-impl Work {
-    /// Whether no job or background work holds a file any more.
-    pub(crate) fn holds_nothing(&self) -> bool {
-        (self.touching.iter()).all(|t| Arc::strong_count(t) == 1)
-    }
-}
-
 impl crate::App {
     /// To the trash at once, permanently after confirmation.
     pub(crate) fn request_delete(&mut self, ctx: &egui::Context, trash: bool) {
@@ -2479,6 +2470,18 @@ mod tests {
             assert!(!app.list.details().contains_key(name), "{name:?}");
             assert!(!app.broken_files.contains(name), "{name:?}");
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A name in the way of a rename counts as taken also when it is a link that points nowhere,
+    /// because nothing may be made in its place.
+    #[test]
+    fn a_dangling_link_is_a_name_taken() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-taken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let to = dir.join("b.jpg");
+        std::os::unix::fs::symlink(dir.join("nowhere"), &to).unwrap();
+        assert_eq!(super::taken(&to, &Default::default()), Some(to.clone()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

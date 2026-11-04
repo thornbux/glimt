@@ -97,7 +97,8 @@ pub(crate) fn restore(
     // never leaves a restored file's sidecar in the trash. A sidecar that is no longer there
     // (the trash was emptied of it) does not hold its file back. The sidecars put back are not
     // among the files told and counted.
-    // Sets, not searches: a delete of 50,000 photos with sidecars is undone in one pass.
+    // Sets are used rather than searches, so a delete of 50,000 photos with sidecars is undone
+    // in one pass.
     let sides: HashSet<&PathBuf> = thrown.sidecars.iter().collect();
     let paired: HashSet<PathBuf> = thrown
         .files

@@ -27,8 +27,7 @@ on the wrong file.
   no longer throws away the stars, marks and collection places of the files not put back; Ctrl+Z
   tries them again. Those never replace the Undo of a delete made while it ran.
 - Undo of a move to the trash no longer leaves a restored photo's sidecar in the trash when a
-  later file cannot be put back, and undoing a delete of tens of thousands of photos with
-  sidecars no longer takes minutes.
+  later file cannot be put back.
 - Undo of a move to the trash finds a file whose name is not UTF-8, such as one from an old
   Latin-1 archive.
 - Undo of a rename no longer crashes Glimt when an empty folder was opened after the rename.
@@ -38,17 +37,20 @@ on the wrong file.
   are changed in Preferences, nor one for an action this build does not have.
 - Renaming a file to the same name in other letter case (IMG_0001.JPG to img_0001.jpg) works on a
   camera card (FAT, exFAT), where Glimt said the name existed already. A rename onto another name
-  of the same file (a hard link) is refused, so that name stays.
+  of the same file (a hard link) that differs by more than letter case is refused, so that name
+  stays.
 - A delete tells of a sidecar it could not remove with its photo, instead of leaving it behind
   without a word.
-- A sidecar that is a link pointing nowhere goes with its photo when it is renamed or moved, as it
-  does when the photo is deleted.
+- A sidecar that is a link pointing nowhere goes with its photo when it is renamed, as it does when
+  the photo is moved or deleted, and such a link at a new name counts as taken.
 - A file renamed, moved or deleted in Glimt takes its thumbnail, size, date, Check Images' mark and
   exif: index entry with it: a file given its name afterwards (Rename Many swapping two names, a
   rename to the name of one deleted) showed the old file's thumbnail and matched searches by the
   old file's EXIF.
-- A copy waits while Rename Many, a move or a delete is still working on its files: it could copy
-  one photo with another photo's sidecar while Rename Many swapped their names.
+- A copy is held back while Rename Many, a move or a delete is still working on its files, and
+  says to try again: it could copy one photo with another photo's sidecar while Rename Many
+  swapped their names. A copy now holds its own files too while it runs, so a turn of one of them
+  is not saved, and a rename or a delete of them waits, until the copy is done.
 - A collection opened while another one's sort was still being read keeps its own order: the sort
   reached it and rewrote its file in that order.
 - The describe example plugin keeps the keywords and description an image holds in its own XMP: a

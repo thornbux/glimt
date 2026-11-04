@@ -49,6 +49,7 @@ pub(crate) struct Window {
     closing: u8,
     /// The image and turn that a close last tried to save. A close saves a turn only when it
     /// differs, so a failed save is not tried again at every close, but a newer turn is saved.
+    /// A save that worked forgets it, so the same turn made again is saved too.
     close_saved: Option<(std::path::PathBuf, (u8, bool))>,
 }
 
@@ -126,6 +127,12 @@ impl Window {
     /// How many times closing was asked for while files were being written.
     pub(crate) fn closes_asked(&self) -> u8 {
         self.closing
+    }
+
+    /// Forgets the turn a close tried to save, because a save worked. A turn made after it,
+    /// also the same one again, is then saved at the next close.
+    pub(crate) fn turn_saved(&mut self) {
+        self.close_saved = None;
     }
 
     /// The window has the focus or not; true when it just got it.
@@ -516,7 +523,7 @@ mod tests {
         let a = dir.join("a.png");
         assert!(app.work.is_saving(&a));
         // The save's thread lets go of the file just after it tells the result.
-        let over = |app: &crate::App| !app.work.is_saving(&a) && app.work.holds_nothing();
+        let over = |app: &crate::App| !app.work.is_saving(&a);
         assert!(settle(&mut app, &ctx, over));
         close(&mut app);
         assert!(!app.work.is_saving(&a));

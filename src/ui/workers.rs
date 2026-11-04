@@ -91,7 +91,10 @@ impl crate::App {
         }
         while let Some((path, result)) = self.work.take_saved() {
             match result {
-                Ok(()) => self.files_changed(&[path]),
+                Ok(()) => {
+                    self.window.turn_saved();
+                    self.files_changed(&[path]);
+                }
                 Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
             }
         }
