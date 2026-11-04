@@ -1,10 +1,11 @@
-//! Remote control, as `geeqie --remote`: `glimt --remote next` sends a command to the Glimt
-//! window used last, `glimt --remote-all quit` to every one. Each Glimt listens on its own Unix
-//! socket in `$XDG_RUNTIME_DIR/glimt`, which only the user can reach, and the one that gets
-//! the focus writes its process ID to `focused` there. One started with `--name left` listens
-//! as `left` instead, and `glimt --name left --remote next` reaches only it. In a Flatpak the
-//! folder is in the app's own runtime folder, the part of `$XDG_RUNTIME_DIR` its instances
-//! share. Both ends are here: `client` sends, `listen` receives.
+//! Remote control, as with `geeqie --remote`. `glimt --remote next` sends a command to the
+//! Glimt window used last, and `glimt --remote-all quit` sends one to every window. Each Glimt
+//! listens on its own Unix socket in `$XDG_RUNTIME_DIR/glimt`, which only the user can reach,
+//! and the one that gets the focus writes its process ID to `focused` there. A Glimt started
+//! with `--name left` listens as `left` instead, and `glimt --name left --remote next` reaches
+//! only it. In a Flatpak the folder is in the app's own runtime folder, the part of
+//! `$XDG_RUNTIME_DIR` its instances share. Both ends are here: `client` sends, and `listen`
+//! receives.
 
 use crate::features::remote;
 #[cfg(feature = "test-hooks")]
@@ -69,10 +70,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
 ];
 
-/// At most this many files for `select`: the window finds them in its own thread.
+/// The most files `select` takes, because the window finds them in its own thread.
 pub const MAX_SELECT: usize = 100_000;
 
-/// How long a command and its answer may take: a client that sends nothing, or a window that
+/// How long a command and its answer may take. A client that sends nothing, or a window that
 /// does not answer, holds up the others no longer than this.
 const WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -91,8 +92,8 @@ static LISTENER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::ne
 /// Clients connected, and queries sent to the window whose answers are not written yet.
 static ANSWERING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Where the window sends a query's answer: paths, each ending in a NUL byte, as `find -print0`
-/// writes them, since a file name can hold a line break.
+/// Where the window sends a query's answer. It is paths, each ending in a NUL byte, as
+/// `find -print0` writes them, because a file name can hold a line break.
 pub type Reply = mpsc::Sender<Vec<u8>>;
 
 /// One of `ANSWERING` while it lives.
@@ -115,8 +116,9 @@ impl Drop for Answering {
 pub(crate) struct Listener {
     /// Commands from `glimt --remote`.
     pub(crate) rx: mpsc::Receiver<(String, Option<remote::Reply>)>,
-    /// A `--remote select` that came while the folder was being read or Delete or Rename asked,
-    /// and every command after it: done in the order they came once neither is.
+    /// A `--remote select` that came while the folder was being read or while Delete or Rename
+    /// asked, and every command after it. They are done in the order they came, once neither
+    /// is the case.
     pub(crate) waiting_select: Vec<(String, Option<remote::Reply>)>,
 }
 
@@ -137,15 +139,15 @@ impl Listener {
 impl crate::App {
     // ---- Remote control ----
 
-    /// `glimt --remote` commands and queries; a `select` waits while the folder is read or a
-    /// dialog asks about the selection.
+    /// Receives `glimt --remote` commands and queries. A `select` waits while the folder is
+    /// read or a dialog asks about the selection.
     pub(crate) fn receive_remote(&mut self, ctx: &egui::Context) {
-        // After `open`, the folder is still being read: its files are not all listed. A dialog
-        // asking about the selection (Delete, Rename) is answered for the one it asked about, not
-        // one a script put in its place meanwhile.
+        // After `open`, the folder is still being read, so its files are not all listed. A
+        // dialog asking about the selection (Delete, Rename) is answered for the files it asked
+        // about, not for a selection a script put in its place meanwhile.
         let busy = |app: &Self| app.folder.listing_rx.is_some() || app.asking_about_selection();
-        // Those held back, in the order they came, until one (an `open`) makes the window busy
-        // again: each gets its own answer, from the list as it was when it was sent.
+        // Those held back are done in the order they came, until one (an `open`) makes the
+        // window busy again. Each gets its own answer, from the list as it was when it was sent.
         while !self.remote.waiting_select.is_empty() && !busy(self) {
             let (command, reply) = self.remote.waiting_select.remove(0);
             self.remote_one(ctx, &command, reply);
@@ -153,8 +155,8 @@ impl crate::App {
         while let Ok((command, reply)) = self.remote.rx.try_recv() {
             let select = reply.is_some() && command.starts_with("select ");
             // Behind a select held back, what can change the list it is answered for waits its
-            // turn: another script's `open`, subfolders, a slideshow with its subfolders. Other
-            // queries and commands are done at once, as without it.
+            // turn: another script's `open`, subfolders, or a slideshow with its subfolders.
+            // Other queries and commands are done at once, as without it.
             let lists = ["open ", "subfolders", "slideshow"];
             let relists = lists.iter().any(|c| command.starts_with(c));
             let wait =
@@ -164,15 +166,15 @@ impl crate::App {
             } else if self.remote.waiting_select.len() < 64 {
                 self.remote.waiting_select.push((command, reply));
             }
-            // More than that waiting: the answer dropped, which the client is told as "no
-            // answer" (serve), so the script tries again.
+            // When more than that are waiting, the answer is dropped, and the client is told
+            // "no answer" (serve), so the script tries again.
         }
     }
 
-    /// At closing: each select still held back is answered with all its paths, none of them
-    /// selected. Left without an answer, the closed socket would read as "all found".
-    /// Also those sent just before, not yet taken from the channel: a query is answered as
-    /// usual (current, selection).
+    /// Answers each select still held back at closing, with all its paths and none of them
+    /// selected. Left without an answer, the closed socket would read as "all found". It also
+    /// answers those sent just before and not yet taken from the channel, and a query is
+    /// answered as usual (current, selection).
     pub(crate) fn answer_held_selects(&mut self) {
         let sent: Vec<_> = self.remote.rx.try_iter().collect();
         let held = std::mem::take(&mut self.remote.waiting_select);
@@ -205,9 +207,10 @@ impl crate::App {
         }
     }
 
-    /// A command from `glimt --remote`: next, prev, first, last, slideshow, random and
-    /// fullscreen (each with on or off, or without to go to the other), subfolders on|off, quit,
-    /// open PATH, or title with this window's own title, or without to have the one in Preferences.
+    /// Runs a command from `glimt --remote`. The commands are next, prev, first, last,
+    /// slideshow, random and fullscreen (each with on or off, or without to go to the other),
+    /// subfolders on|off, quit, open PATH, and title with this window's own title, or without
+    /// one to have the title in Preferences.
     pub(crate) fn remote_command(&mut self, ctx: &egui::Context, command: &str) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         let action = match command.trim() {
@@ -215,7 +218,8 @@ impl crate::App {
             "prev" => Some(Action::Prev),
             "first" => Some(Action::First),
             "last" => Some(Action::Last),
-            // With on or off, a state a script can count on: nothing when it is so already.
+            // With on or off, a script can count on the state, and nothing happens when it is so
+            // already.
             "slideshow on" if self.slideshow.is_running() => None,
             "slideshow off" if !self.slideshow.is_running() => None,
             "slideshow" | "slideshow on" | "slideshow off" => Some(Action::Slideshow),
@@ -237,7 +241,8 @@ impl crate::App {
                 return self.set_window_title(ctx, other["title ".len()..].trim());
             }
             other if other.starts_with("open ") => {
-                // The path as it was sent, not trimmed: a folder's name may end in a space.
+                // The path is taken as it was sent, not trimmed, because a folder's name may end
+                // in a space.
                 if let Some(path) = command.trim_start().strip_prefix("open ") {
                     self.visit(ctx, PathBuf::from(path));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -251,7 +256,7 @@ impl crate::App {
         }
     }
 
-    /// The answer to `glimt --remote current` or `selection`: the paths, each ending in a NUL
+    /// The answer to `glimt --remote current` or `selection`, the paths, each ending in a NUL
     /// byte. Nothing else is told, and nothing changes.
     // shortcut: the paths of a selection made in the window's thread, some 50 ms for 500,000
     // selected; in a thread of its own if scripts ask for large selections often.
@@ -269,13 +274,13 @@ impl crate::App {
             .collect()
     }
 
-    /// `--remote select PATH…` (the paths after a NUL each): select those of the list and show
-    /// the first. The answer: the paths that are not in the list, each ending in a NUL byte.
-    /// Only the selection changes; deleting or moving it is left to the user.
+    /// `--remote select PATH…` (the paths after a NUL each). It selects those of the list and
+    /// shows the first. The answer is the paths that are not in the list, each ending in a NUL
+    /// byte. Only the selection changes, and deleting or moving it is left to the user.
     pub(crate) fn remote_select(&mut self, ctx: &egui::Context, command: &str) -> Vec<u8> {
         let paths = command.strip_prefix("select ").unwrap_or_default();
         let paths: Vec<&str> = paths.split('\0').filter(|p| !p.is_empty()).collect();
-        // The list's name of `p`: relative to the folder shown.
+        // The list's name of `p`, relative to the folder shown.
         fn name<'a>(dir: &Path, p: &'a str) -> Option<&'a std::ffi::OsStr> {
             Some(Path::new(p).strip_prefix(dir).ok()?.as_os_str())
         }
@@ -303,23 +308,24 @@ impl crate::App {
     }
 }
 
-/// Commands that answer. None of them changes a file: `select` only selects, and what is done
-/// with the selection is the user's to do in the window.
+/// Whether `command` is a command that answers. None of them changes a file. `select` only
+/// selects, and what is done with the selection is the user's to do in the window.
 fn is_query(command: &str) -> bool {
     matches!(command.trim(), "current" | "selection")
         || command.starts_with("select ")
         || command.starts_with("where ")
 }
 
-/// Glimt's runtime folder, which only the user can reach: sockets, and the sidecar locks.
+/// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
+/// locks.
 pub(crate) fn dir() -> Option<PathBuf> {
     let mut dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
     if let Some(id) = std::env::var_os("FLATPAK_ID") {
         dir = dir.join("app").join(id);
     }
     let dir = dir.join("glimt");
-    // Another user's folder of this name, where $XDG_RUNTIME_DIR is not private as it should be
-    // (/tmp): its sockets would be theirs to answer and its locks theirs to hold.
+    // A folder of this name may be another user's, where $XDG_RUNTIME_DIR is not private as it
+    // should be (/tmp). Its sockets would be theirs to answer, and its locks theirs to hold.
     let uid = std::fs::metadata("/proc/self").ok()?.uid();
     own_or_none(&dir, uid).then_some(dir)
 }
@@ -332,9 +338,9 @@ fn own_or_none(dir: &std::path::Path, uid: u32) -> bool {
     }
 }
 
-/// This Glimt's name: its process ID, and in a Flatpak, where every instance can have the same
-/// process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the instance).
-/// Found once, as every new thumbnail asks.
+/// This Glimt's name. It is its process ID, and in a Flatpak, where every instance can have
+/// the same process ID, the Flatpak instance ID too (a new window from Ctrl+N shares the
+/// instance). It is found once, because every new thumbnail asks.
 pub fn instance_id() -> &'static str {
     static ME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ME.get_or_init(|| {
@@ -358,22 +364,22 @@ pub fn given_name() -> Option<&'static str> {
     NAME.get().map(String::as_str)
 }
 
-/// A name that cannot be taken for a process ID or a path: letters, digits, - and _, short
-/// enough for the socket's path (at most 108 bytes).
+/// Whether `name` cannot be taken for a process ID or a path. It holds letters, digits, - and
+/// _, and is short enough for the socket's path (at most 108 bytes).
 pub fn valid_name(name: &str) -> bool {
     let ok = |c: char| c.is_alphanumeric() || c == '-' || c == '_';
     name.chars().all(ok) && !name.chars().all(|c| c.is_ascii_digit()) && name.len() <= 64
 }
 
-/// Whether the socket of `--name name` fits in the 107 bytes a socket's path may have here: in
+/// Whether the socket of `--name name` fits in the 107 bytes a socket's path may have here. In
 /// a Flatpak its folder alone takes some 60.
 pub fn name_fits(name: &str) -> bool {
     socket(name).is_none_or(|p| p.as_os_str().len() <= 107)
 }
 
-/// One of `COMMANDS`, with a path where it takes one and none where it does not: `open` takes
-/// one path, `select` any number of files, and a choice in brackets ([on|off]) may be left out,
-/// as may `title`'s words.
+/// Whether `words` is one of `COMMANDS`, with a path where it takes one and none where it does
+/// not. `open` takes one path, and `select` any number of files. A choice in brackets
+/// ([on|off]) may be left out, as may `title`'s words.
 pub fn known(words: &[String]) -> bool {
     (COMMANDS.iter()).any(|(c, _)| {
         let mut parts = c.split(' ');
@@ -381,7 +387,8 @@ pub fn known(words: &[String]) -> bool {
             return false;
         }
         match parts.next() {
-            // A choice of words ("on|off") takes one of them, alone; in brackets, or none.
+            // A choice of words ("on|off") takes one of them, alone. In brackets, it may take
+            // none.
             Some(choices) if choices.contains('|') => {
                 let optional = choices.starts_with('[');
                 let choices = choices.trim_matches(|c| c == '[' || c == ']');
@@ -402,7 +409,7 @@ pub fn unanswered() -> bool {
     UNANSWERED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// The socket's name: the --name, or the process ID.
+/// The socket's name, which is the --name, or the process ID.
 fn socket_id() -> &'static str {
     given_name().unwrap_or_else(instance_id)
 }
@@ -420,7 +427,7 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
     if writeln!(s, "{command}").is_err() {
         return false;
     }
-    // Done sending: the window answers, then closes.
+    // Sending is done, so the window answers and then closes.
     let _ = s.shutdown(std::net::Shutdown::Write);
     let _ = s.set_read_timeout(Some(WAIT));
     let mut answer = Vec::new();
@@ -434,7 +441,7 @@ fn deliver(path: &std::path::Path, command: &str) -> bool {
     true
 }
 
-/// The sockets of the running Glimts; those left by one that crashed are removed.
+/// The sockets of the running Glimts. Those left by a Glimt that crashed are removed.
 fn live() -> Vec<PathBuf> {
     let entries = dir().and_then(|d| std::fs::read_dir(d).ok());
     entries
@@ -453,7 +460,7 @@ fn live() -> Vec<PathBuf> {
         .collect()
 }
 
-/// Send `command` to the Glimt used last, or else to another one; false if none runs.
+/// Sends `command` to the Glimt used last, or else to another one. Returns false if none runs.
 pub fn send(command: &str) -> bool {
     let last = dir()
         .and_then(|d| crate::images::decode::read_text(d.join("focused")).ok())
@@ -464,7 +471,7 @@ pub fn send(command: &str) -> bool {
     live().iter().any(|p| deliver(p, command))
 }
 
-/// Send `command` to the Glimt started with `--name name`; false if none runs.
+/// Sends `command` to the Glimt started with `--name name`. Returns false if none runs.
 pub fn send_to(name: &str, command: &str) -> bool {
     socket(name).is_some_and(|p| deliver(&p, command))
 }
@@ -474,10 +481,11 @@ pub fn send_all(command: &str) -> usize {
     live().iter().filter(|p| deliver(p, command)).count()
 }
 
-/// `glimt --remote` and `--remote-all`: `words` (the command and its arguments) sent to the
-/// Glimt used last, to the one of `name`, or to every one; `paths` are `select`'s files, whole.
-/// `None` once sent, its answer printed; the path to open when `open` finds no Glimt running.
-/// Exits with 2 for a command that cannot be sent, and with 1 when no Glimt takes it.
+/// `glimt --remote` and `--remote-all`. It sends `words` (the command and its arguments) to the
+/// Glimt used last, to the one of `name`, or to every one, and `paths` are `select`'s files,
+/// whole. Returns `None` once the command is sent and its answer printed, or the path to open
+/// when `open` finds no Glimt running. It exits with 2 for a command that cannot be sent, and
+/// with 1 when no Glimt takes it.
 pub fn client(
     words: &[String],
     paths: &[std::ffi::OsString],
@@ -489,7 +497,8 @@ pub fn client(
         std::process::exit(2);
     }
     let mut command = words.join(" ");
-    // select: whole paths after a NUL each, as names may hold spaces; a line ends the command.
+    // select sends whole paths after a NUL each, because names may hold spaces, and a line ends
+    // the command.
     if words.first().is_some_and(|w| w == "select") {
         if paths.len() > MAX_SELECT {
             eprintln!("glimt: select takes at most {} files", MAX_SELECT);
@@ -497,8 +506,9 @@ pub fn client(
         }
         let mut sent = Vec::new();
         for p in paths {
-            // As the window has its folder: with links followed, as ~/Pictures may be one;
-            // not the file's own, which the list shows under its own name.
+            // The path is made as the window has its folder, with links followed, because
+            // ~/Pictures may be one. The file's own link is not followed, because the list shows
+            // it under its own name.
             let p = std::path::Path::new(p);
             let folder = (p.parent()).filter(|f| !f.as_os_str().is_empty());
             let real = std::fs::canonicalize(folder.unwrap_or(std::path::Path::new("."))).ok();
@@ -517,8 +527,8 @@ pub fn client(
         }
         command = format!("select {}", sent.join("\0"));
     }
-    // A name that is not UTF-8 cannot go in the text sent; made lossy, it would name no file.
-    // With no Glimt to send it to, this one opens it, by its own name.
+    // A name that is not UTF-8 cannot go in the text sent, and made lossy it would name no
+    // file. With no Glimt to send it to, this one opens it, by its own name.
     if words.first().is_some_and(|w| w == "open")
         && let Some(path) = paths.iter().find(|p| p.to_str().is_none())
     {
@@ -532,13 +542,13 @@ pub fn client(
         eprintln!("glimt: cannot send {path:?}: not UTF-8");
         std::process::exit(2);
     }
-    // The running Glimt has another working folder: send the full path.
+    // The running Glimt has another working folder, so the full path is sent.
     if let Some(path) = command.strip_prefix("open ") {
         let path = std::path::absolute(path).unwrap_or_else(|_| path.into());
         command = format!("open {}", path.display());
     }
-    // A line ends a command at the window: one in a file name would be read as a command
-    // of its own, such as quit.
+    // A line ends a command at the window, so a line break in a file name would be read as a
+    // command of its own, such as quit.
     if command.contains('\n') {
         eprintln!("glimt: cannot send a line break in a command or file name");
         std::process::exit(2);
@@ -584,7 +594,8 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
             .mode(0o700)
             .create(dir);
         let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-        // Made by another user meanwhile, between the look in `dir` and here: not used.
+        // A folder made by another user meanwhile, between the look in `dir` and here, is not
+        // used.
         if dir_of_another(dir) {
             return eprintln!("No remote control: its folder there is not this user's own");
         }
@@ -608,14 +619,14 @@ pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Cont
     mark_focused();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            // Each client in a thread of its own: one waiting for the window (a folder of
-            // 500,000 files still being read, a dialog open) holds up no other. The window's
-            // answer is waited for as long as it takes; the client has the one time limit, so
-            // there is one outcome when it runs out: "no answer", exit 1, never an empty
+            // Each client gets a thread of its own, so a client waiting for the window (a folder
+            // of 500,000 files still being read, a dialog open) holds up no other. The window's
+            // answer is waited for as long as it takes. The client has the one time limit, so
+            // there is one outcome when it runs out: "no answer" and exit 1, never an empty
             // answer taken for "all found".
             let (tx, ctx) = (tx.clone(), ctx.clone());
-            // Counted from here, before its query is read: a client that came just before the
-            // socket went is waited for at closing too.
+            // The client is counted from here, before its query is read, so a client that came
+            // just before the socket went is waited for at closing too.
             let client = Answering::new();
             std::thread::spawn(move || {
                 serve(stream, &tx, &ctx);
@@ -633,8 +644,8 @@ fn serve(
 ) {
     let _ = stream.set_read_timeout(Some(WAIT));
     let mut out = stream.try_clone().ok();
-    // As much as `select` may send, no more: a client that sends without end does not fill the
-    // memory.
+    // A client may send as much as `select` may, and no more, so a client that sends without
+    // end does not fill the memory.
     let most = MAX_SELECT as u64 * 4096 + 64;
     for line in std::io::BufReader::new(std::io::Read::take(stream, most))
         .lines()
@@ -647,7 +658,8 @@ fn serve(
             }
             false => (None, None),
         };
-        // Counted until its answer is written: `stop` waits for that at closing.
+        // The client is counted until its answer is written, because `stop` waits for that at
+        // closing.
         let answering = answer.is_some().then(Answering::new);
         if tx.send((line, reply)).is_err() {
             return;
@@ -656,8 +668,9 @@ fn serve(
         if let (Some(answer), Some(out)) = (answer, out.as_mut()) {
             match answer.recv() {
                 Ok(bytes) => drop(out.write_all(&bytes)),
-                // Dropped by the window (too many waiting, or closing): closed now, the client
-                // would read nothing, "all found"; held open, its time limit says "no answer".
+                // When the window dropped the answer (too many waiting, or closing), closing the
+                // connection now would make the client read nothing, "all found". Held open,
+                // its time limit says "no answer".
                 Err(_) => {
                     drop(answering);
                     return std::thread::sleep(WAIT + std::time::Duration::from_secs(1));
@@ -679,12 +692,12 @@ pub fn listening() -> bool {
     LISTENING.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// The socket at `path` for this Glimt: one left by a Glimt that did not close is replaced, but
-/// not one that a running Glimt (of the same `--name`) answers on.
-/// `Err(None)` when a running Glimt answers on it; `Err(Some(why))` when it cannot be made.
+/// The socket at `path` for this Glimt. A socket left by a Glimt that did not close is replaced,
+/// but not one that a running Glimt (of the same `--name`) answers on. Returns `Err(None)` when
+/// a running Glimt answers on it, and `Err(Some(why))` when it cannot be made.
 fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>> {
-    // Bound first, which fails if the socket is there: two Glimt of one name started at once
-    // cannot both find it free and then remove each other's.
+    // The socket is bound first, which fails if it is there, so two Glimts of one name started
+    // at once cannot both find it free and then remove each other's.
     let first = match UnixListener::bind(path) {
         Ok(listener) => return Ok(listener),
         Err(e) => e,
@@ -692,8 +705,8 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
     if first.kind() != std::io::ErrorKind::AddrInUse {
         return Err(Some(first));
     }
-    // One at a time from here: another Glimt of this name could take the left socket over
-    // between our check and our remove, and lose its new one to us.
+    // From here only one at a time, because another Glimt of this name could take the left
+    // socket over between our check and our remove, and lose its new one to us.
     #[allow(clippy::disallowed_methods)] // an empty lock file in the private runtime folder
     let lock = std::fs::File::create(path.with_extension("lock")).map_err(Some)?;
     lock.lock().map_err(Some)?;
@@ -704,28 +717,30 @@ fn claim(path: &std::path::Path) -> Result<UnixListener, Option<std::io::Error>>
     UnixListener::bind(path).map_err(Some)
 }
 
-/// This Glimt got the focus: `--remote` goes to it from now on.
+/// Marks that this Glimt got the focus, so `--remote` goes to it from now on.
 pub fn mark_focused() {
     if let Some(d) = dir() {
-        // Whole, never truncated first: a `--remote` reading it meanwhile got an empty name.
+        // The file is written whole and never truncated first, because a `--remote` reading it
+        // meanwhile got an empty name.
         let _ = crate::files::file_io::replace_file(&d.join("focused"), socket_id());
     }
 }
 
-/// Glimt is closing, its socket removed by `close` before the last answers: the clients still
-/// connected waited for, with `answer` answering the queries they send meanwhile. Not removed
-/// again here: a new Glimt of the same name may have it by now.
+/// Waits, as Glimt closes, for the clients still connected, while `answer` answers the queries
+/// they send meanwhile. `close` removed the socket before the last answers. It is not removed
+/// again here, because a new Glimt of the same name may have it by now.
 pub fn stop(answer: impl FnMut()) {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed) {
         wait_answered(answer, std::time::Duration::from_secs(1));
     }
 }
 
-/// Until no client is left or `limit` has passed, `answer` called again and again: a query that
-/// came after the window last looked is answered too, and an answer is written whole before the
-/// process ends. A client left without one would read an empty answer, for select "all found".
-/// Also a client still queued for accept: it connected before `close` removed the socket.
-/// Quiet twice, 10 ms apart, so one the accept thread has just taken from the queue is counted.
+/// Calls `answer` again and again until no client is left or `limit` has passed. So a query
+/// that came after the window last looked is answered too, and an answer is written whole
+/// before the process ends. A client left without one would read an empty answer, which for
+/// select means "all found". That holds also for a client still queued for accept, because it
+/// connected before `close` removed the socket. It must be quiet twice, 10 ms apart, so a client
+/// the accept thread has just taken from the queue is counted.
 fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
     let until = std::time::Instant::now() + limit;
     let busy = || {
@@ -740,7 +755,7 @@ fn wait_answered(mut answer: impl FnMut(), limit: std::time::Duration) {
     }
 }
 
-/// Whether a client waits to be accepted on the listening socket `fd` (-1: none).
+/// Whether a client waits to be accepted on the listening socket `fd` (-1 for none).
 fn queued(fd: i32) -> bool {
     #[repr(C)]
     struct PollFd {
@@ -757,11 +772,12 @@ fn queued(fd: i32) -> bool {
         events: POLLIN,
         revents: 0,
     };
-    // SAFETY: one pollfd, and no wait; a closed or negative fd is only reported, not used.
+    // SAFETY: There is one pollfd and no wait, and a closed or negative fd is only reported,
+    // not used.
     fd >= 0 && unsafe { poll(&mut p, 1, 0) } == 1 && p.revents & POLLIN != 0
 }
 
-/// No new client: this Glimt's socket removed, as it closes.
+/// Takes no new clients, by removing this Glimt's socket as it closes.
 pub fn close() {
     if LISTENING.load(std::sync::atomic::Ordering::Relaxed)
         && let Some(path) = socket(socket_id())
@@ -780,7 +796,7 @@ mod tests {
         let words = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
         assert!(super::known(&words("next")));
         assert!(super::known(&["open".into(), "/a b.jpg".into()]));
-        // Two words are two paths, not one with a space: the shell joins no words.
+        // Two words are two paths, not one with a space, because the shell joins no words.
         assert!(!super::known(&words("open /a.jpg /b.jpg")));
         assert!(super::known(&words("select /a.jpg /b.jpg")));
         assert!(!super::known(&words("nxet")));
@@ -799,8 +815,8 @@ mod tests {
         assert!(!super::known(&[]));
     }
 
-    /// The runtime folder is used when it is the user's own folder or not there yet; not when
-    /// it is another user's, a link, or a file.
+    /// The runtime folder is used when it is the user's own folder or not there yet. It is not
+    /// used when it is another user's, a link, or a file.
     #[test]
     fn uses_only_its_own_runtime_folder() {
         use std::os::unix::fs::MetadataExt;
@@ -819,7 +835,7 @@ mod tests {
     }
 
     /// At closing, a client that sends its query after the window last answered is answered
-    /// too: the window is asked again until no client is left, not only waited for.
+    /// too. The window is asked again until no client is left, not only waited for.
     #[test]
     fn answers_a_query_that_comes_while_closing() {
         let mut client = Some(super::Answering::new());
@@ -840,8 +856,8 @@ mod tests {
         assert!(client.is_none());
     }
 
-    /// A client that connected before the socket went, but that the accept thread has not
-    /// taken yet, is seen as waiting: closing waits for it too.
+    /// A client that connected before the socket went, but that the accept thread has not taken
+    /// yet, is seen as waiting, so closing waits for it too.
     #[test]
     fn sees_a_client_queued_for_accept() {
         let path = std::env::temp_dir().join(format!("glimt-queued-{}.sock", std::process::id()));
@@ -857,8 +873,8 @@ mod tests {
         let _ = std::fs::remove_file(path.with_extension("lock"));
     }
 
-    /// A query whose answer the window drops (too many waiting) is not closed at once, which the
-    /// client would read as an empty answer, "all found": it is left to time out, "no answer".
+    /// A query whose answer the window drops (too many waiting) is not closed at once, because
+    /// the client would read an empty answer, "all found". It is left to time out, "no answer".
     #[test]
     fn a_dropped_answer_is_no_answer() {
         use std::io::{Read, Write};
@@ -876,7 +892,7 @@ mod tests {
         assert!(read.is_err() && got.is_empty(), "{read:?} {got:?}");
     }
 
-    /// A socket that a Glimt answers on is kept; one it left behind is taken over.
+    /// A socket that a Glimt answers on is kept, and one it left behind is taken over.
     #[test]
     fn claims_only_a_left_socket() {
         let path = std::env::temp_dir().join(format!("glimt-claim-{}.sock", std::process::id()));
@@ -894,7 +910,7 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
-    /// Two `--remote select` held back while the folder is read each get their answer: the
+    /// Two `--remote select` held back while the folder is read each get their answer. The
     /// second took the first one's place, and the first script got no answer, which it read as
     /// every file found.
     #[test]
@@ -924,9 +940,9 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A command after a select held back waits its turn: another script's `open` does not run
-    /// first and leave the select answered for the other folder. More than 64 waiting: told to
-    /// try again.
+    /// A command after a select held back waits its turn, so another script's `open` does not
+    /// run first and leave the select answered for the other folder. When more than 64 are
+    /// waiting, the client is told to try again.
     #[test]
     fn commands_behind_a_held_select_wait_their_turn() {
         let dir = std::env::temp_dir().join(format!("glimt-test-turn-{}", std::process::id()));
@@ -946,7 +962,7 @@ mod tests {
         tx.send((select.clone(), Some(reply))).unwrap();
         tx.send((format!("open {}", other.display()), None))
             .unwrap();
-        // 64 waiting at most: one more is dropped.
+        // At most 64 wait, so one more is dropped.
         let mut more = Vec::new();
         for _ in 0..63 {
             let (reply, answer) = std::sync::mpsc::channel();
@@ -970,8 +986,8 @@ mod tests {
             "a.png found in its own folder"
         );
         assert_eq!(app.folder.dir, other);
-        // Closing with selects still held, and one sent just before: each told that none of its
-        // paths was selected.
+        // Closing with selects still held, and one sent just before, tells each that none of
+        // its paths was selected.
         let (reply, closing) = std::sync::mpsc::channel();
         app.remote
             .waiting_select
