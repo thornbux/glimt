@@ -764,8 +764,10 @@ impl crate::App {
         dest: PathBuf,
         keep: bool,
     ) {
-        // A copy changes none of the files it reads.
-        let touches = if keep { Vec::new() } else { paths.clone() };
+        // A copy changes none of the files it reads, but it holds them: a Rename Many that ran
+        // meanwhile could hand it one photo with another photo's sidecar, and a move or delete
+        // could take a file away halfway.
+        let touches = paths.clone();
         let doing = tr(if keep { "Copying" } else { "Moving" });
         let Some(job) = self.start_job(doing, paths.len(), touches) else {
             return;
@@ -2109,7 +2111,7 @@ mod tests {
                 let _ = wait.recv();
                 None
             }));
-            if !["copy", "keywords"].contains(&name) {
+            if name != "keywords" {
                 app.notice = None;
                 op(&mut app, &ctx, &d);
                 std::thread::sleep(std::time::Duration::from_millis(100));
