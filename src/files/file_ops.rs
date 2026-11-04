@@ -1989,7 +1989,9 @@ mod tests {
         assert!(app.none_saving(&asked));
         assert!(!app.none_saving(&[dir.join("busy")]));
         assert!(!app.none_saving(&[dir.join("busy/7.jpg")]));
-        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        // Path against path would take minutes. Five seconds leaves room for a machine busy
+        // with other builds, and for a debug build, where one second failed.
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
         drop(held);
         std::fs::remove_dir_all(dir).unwrap();
     }
