@@ -28,6 +28,10 @@ const UNDEFINED: u16 = 7;
 
 const SLONG: u16 = 9;
 
+/// The longest text read from one field. A description or a comment is far shorter; without a
+/// cap, a crafted block of 1,500 fields all naming the same megabyte would take gigabytes.
+const MAX_TEXT: usize = 4096;
+
 const SRATIONAL: u16 = 10;
 
 /// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
@@ -100,7 +104,9 @@ impl Tiff<'_> {
     }
 
     fn text(&self, e: Entry) -> Option<String> {
-        let bytes = self.data.get(e.at..e.at + e.count as usize)?;
+        let bytes = self
+            .data
+            .get(e.at..e.at + (e.count as usize).min(MAX_TEXT))?;
         let text = String::from_utf8_lossy(bytes);
         let text = text.trim_end_matches('\0').trim();
         (!text.is_empty()).then(|| text.to_owned())
@@ -1256,6 +1262,23 @@ mod tests {
     /// read without a panic, and turned upright without writing past the block.
     #[test]
     fn survives_broken_blocks() {
+        // Many text fields that all name the same large part of the block: each is read only up
+        // to MAX_TEXT, so they come to little, not to their count times the part's size.
+        let n = 200u16;
+        let blob = vec![b'a'; 100_000];
+        let at = 8 + 2 + 12 * n as u32 + 4;
+        let mut big = b"Exif\0\0MM\0*\0\0\0\x08".to_vec();
+        big.extend(n.to_be_bytes());
+        for tag in 0..n {
+            big.extend((0x1000 + tag).to_be_bytes());
+            big.extend(super::ASCII.to_be_bytes());
+            big.extend((blob.len() as u32).to_be_bytes());
+            big.extend(at.to_be_bytes());
+        }
+        big.extend([0; 4]);
+        big.extend(&blob);
+        let read: usize = super::fields(&big).iter().map(|f| f.2.len()).sum();
+        assert!(read > 0 && read <= n as usize * super::MAX_TEXT, "{read}");
         let mm = b"Exif\0\0MM\0*\0\0\0\x08\0\x02\x01\x0f\0\x02\0\0\0\x06\0\0\0\x26\
                    \x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0Canon\0";
         for seed in [sample(), mm.to_vec()] {
