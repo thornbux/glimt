@@ -487,6 +487,14 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;
         check_size(&dec)?;
+        // jxl-oxide starts with no limit on what it allocates. A lossy JPEG XL needs some 24
+        // bytes a pixel while it renders, so a camera photo of 24 MP takes about 600 MB. Four
+        // times a decode's limit lets such photos through and stops a render of some 90 MP or
+        // more. A header that claims a larger picture than a decode may hold is refused before
+        // that, by `check_size`.
+        let mut limits = image::Limits::default();
+        limits.max_alloc = Some(4 * MAX_DECODE);
+        dec.set_limits(limits).map_err(|e| e.to_string())?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
         let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
@@ -919,8 +927,21 @@ pub(crate) fn image_reader(
     path: impl AsRef<Path>,
 ) -> std::io::Result<image::ImageReader<std::io::BufReader<std::fs::File>>> {
     let path = path.as_ref();
-    let mut reader = image::ImageReader::new(std::io::BufReader::new(open(path)?));
-    if let Ok(format) = image::ImageFormat::from_path(path) {
+    let (file, meta) = open_file(path)?;
+    let format = image::ImageFormat::from_path(path).ok();
+    // The image crate's JPEG decoder reads the whole file before any of its limits apply, so a
+    // JPEG larger than a decode may take is refused here, as read_limited refuses it. Other
+    // formats are read by seeking, so a large TIFF or PNG still opens. A file whose name says no
+    // format may be a JPEG, so it is refused too.
+    let whole = matches!(format, Some(image::ImageFormat::Jpeg) | None);
+    if whole && meta.len() > MAX_DECODE {
+        return Err(std::io::Error::other(format!(
+            "file too large ({})",
+            human_size(MAX_DECODE)
+        )));
+    }
+    let mut reader = image::ImageReader::new(std::io::BufReader::new(file));
+    if let Some(format) = format {
         reader.set_format(format);
     }
     Ok(reader)
@@ -1666,6 +1687,13 @@ mod tests {
         assert!(super::read_limited(&file).is_err());
         // Check Images and the EXIF of a RAW read through it too, never the whole 8 GB.
         assert!(super::jpeg_ends(&file).is_err());
+        // And every decode through the image crate, whose JPEG decoder reads the file whole.
+        assert!(super::image_reader(&file).is_err());
+        // A TIFF is read by seeking, so a large one still opens.
+        let tif = file.with_extension("tif");
+        std::fs::hard_link(&file, &tif).unwrap();
+        assert!(super::image_reader(&tif).is_ok());
+        std::fs::remove_file(&tif).unwrap();
         let raf = file.with_extension("raf");
         std::fs::hard_link(&file, &raf).unwrap();
         assert!(crate::images::raw::exif(&raf).is_none());

@@ -2978,6 +2978,22 @@ differ "the next square another grey" "$a" "$b"
 expect "black without the setting" "$(checked checker-off-new 760 412)" black
 expect "an opaque image as before" "$(colour checker-red 760 412)" red
 note "old: $(checked checker-on-old 760 412) with the setting, as it has none"
+echo "-- a lossy JPEG XL of 6000x4000, as a camera makes one: shown within its memory limit"
+for v in new old; do
+    as_version $v
+    d=/tmp/jxl-$v
+    mkdir -p $d
+    ffmpeg -v error -f lavfi -i color=c=red:s=6000x4000 -frames:v 1 -c:v libjxl $d/big.jxl
+    config
+    start $d/big.jxl
+    for i in $(seq 120); do grep -q "first image" /tmp/glimt.err && break; sleep 0.5; done
+    shot jxl-24mp-$v
+    shown=$(grep -q "first image" /tmp/glimt.err && echo yes)
+    quit
+    if [ $v = new ]; then expect "the 24 MP JPEG XL shown" "$shown" yes
+    else note "old: shown '$shown'"; fi
+done
+as_version new
 echo "-- Shift+C crops: a part dragged over the image, saved beside it with Enter; Esc saves none"
 for v in new old; do
     as_version $v
