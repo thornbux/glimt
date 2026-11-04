@@ -558,10 +558,7 @@ impl crate::App {
                 // went is not taken for gone (`exists` follows the link).
                 let is_gone = |p: &&PathBuf| std::fs::symlink_metadata(p).is_err();
                 let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
-                let side: Vec<PathBuf> = (went.iter())
-                    .map(|p| xmp::sidecar(p))
-                    .filter(|s| std::fs::symlink_metadata(s).is_ok())
-                    .collect();
+                let side: Vec<PathBuf> = went.iter().filter_map(|p| xmp::sidecar_of(p)).collect();
                 if trash && !side.is_empty() {
                     let _ = crate::files::trash::trash(&side);
                 } else {
@@ -1592,9 +1589,12 @@ fn forget_in_collection(
 /// operation's own names, which a swap reuses. This is the one rule for Copy, Move, Rename and
 /// Rename Many.
 pub(crate) fn taken(to: &Path, ours: &HashSet<&PathBuf>) -> Option<PathBuf> {
+    // A name counts as taken also when it is a link that points nowhere, because nothing may be
+    // made in its place.
+    let there = |p: &PathBuf| std::fs::symlink_metadata(p).is_ok();
     [to.to_path_buf(), xmp::sidecar(to)]
         .into_iter()
-        .find(|p| p.exists() && !ours.contains(p))
+        .find(|p| there(p) && !ours.contains(p))
 }
 
 /// Renames `from` to `to` with their sidecars, all or none. It is refused when a new name is
@@ -1608,8 +1608,7 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     // Sidecars go with their files, through the same steps.
     let (mut from, mut to) = (from, to);
     let sides: Vec<(PathBuf, PathBuf)> = (from.iter().zip(&to))
-        .map(|(f, t)| (xmp::sidecar(f), xmp::sidecar(t)))
-        .filter(|(f, _)| f.exists())
+        .filter_map(|(f, t)| Some((xmp::sidecar_of(f)?, xmp::sidecar(t))))
         .collect();
     for (f, t) in sides {
         from.push(f);
@@ -1799,6 +1798,13 @@ mod tests {
         // keywords.
         std::fs::write(p("d.jpg"), "d").unwrap();
         assert!(super::rename_files(vec![p("d.jpg")], vec![p("c.jpg")], &job).is_err());
+        // A sidecar that is a link pointing nowhere goes with its file too, not left behind for
+        // the next file of the old name.
+        crate::files::file_io::create_file(&p("f.jpg"), "f").unwrap();
+        std::os::unix::fs::symlink(p("nowhere"), p("f.jpg.xmp")).unwrap();
+        super::rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
+        assert!(std::fs::symlink_metadata(p("f.jpg.xmp")).is_err());
+        assert!(crate::metadata::xmp::linked(&p("g.jpg.xmp")));
         // Stopped before the first step, nothing is renamed, and the error says it stopped.
         job.stop.store(true, std::sync::atomic::Ordering::Relaxed);
         let stopped = super::rename_files(vec![p("d.jpg")], vec![p("e.jpg")], &job);

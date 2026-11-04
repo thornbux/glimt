@@ -396,6 +396,15 @@ fn update(
     crate::files::file_io::replace_name(&side, text).map_err(|e| e.to_string())
 }
 
+/// Returns the sidecar of `path` when there is one, as a name in the folder. A link counts, also
+/// one that points nowhere, so that it goes with its file rather than stay behind under the old
+/// name for the next file of that name. Whether it may be read or copied is for `linked` to say.
+/// Every operation that moves, renames or deletes a file asks this.
+pub(crate) fn sidecar_of(path: &Path) -> Option<PathBuf> {
+    let side = sidecar(path);
+    std::fs::symlink_metadata(&side).is_ok().then_some(side)
+}
+
 /// Whether `path` is a link. A sidecar that is one is never read or written through, because a
 /// downloaded folder may point it at any file of the user's (a private key).
 pub(crate) fn linked(path: &Path) -> bool {
@@ -412,7 +421,7 @@ pub fn follow(from: &Path, to: &Path, copy: bool) -> std::io::Result<()> {
             false => crate::files::file_io::rename_never_over(&side, &to).or(Ok(())),
         };
     }
-    if !side.exists() {
+    if sidecar_of(from).is_none() {
         return Ok(());
     }
     // The sidecar goes as the file went. It is on disk before the original goes, and never
