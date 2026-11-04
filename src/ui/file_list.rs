@@ -1107,7 +1107,7 @@ impl crate::App {
             egui::TextEdit::singleline(self.folder.path_text_mut()).desired_width(f32::INFINITY);
         let response = ui.add(edit);
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let text = self.folder.path_text_mut().trim().to_owned();
+            let text = self.folder.path_text().trim().to_owned();
             let text = text.as_str();
             let path = match (text.strip_prefix('~'), std::env::var_os("HOME")) {
                 (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => {
@@ -1265,7 +1265,7 @@ impl crate::App {
         area.show_rows(ui, row_h, count.div_ceil(cols), |ui, rows| {
             let first_row = rows.start;
             let rows = rows.start * cols..(rows.end * cols).min(count);
-            let shown: Vec<usize> = match &self.list.matches() {
+            let shown: Vec<usize> = match self.list.matches() {
                 Some(m) => m[rows.clone()].to_vec(),
                 None => rows.clone().collect(),
             };
@@ -1321,7 +1321,7 @@ impl crate::App {
         // The rows shown and some around them, as files, are kept being made while they are
         // near.
         let near = rows.start.saturating_sub(THUMB_MARGIN)..(rows.end + THUMB_MARGIN).min(count);
-        let mut view: Vec<usize> = match &self.list.matches() {
+        let mut view: Vec<usize> = match self.list.matches() {
             Some(m) => m[near].to_vec(),
             None => near.collect(),
         };
@@ -1544,7 +1544,7 @@ impl crate::App {
                 self.selection_changed(ctx);
             } else if m.shift {
                 // Shift+click selects the rows from where the selection started.
-                let anchor = *self.list.anchor().get_or_insert(self.list.cur());
+                let anchor = self.list.anchor_or_cur();
                 self.list.clear_selection();
                 self.select_range(anchor, i);
                 self.selection_changed(ctx);
@@ -1580,7 +1580,7 @@ impl crate::App {
                         .is_none()
                         .then_some(self.status.total_size),
                 );
-                let mut left = match &self.list.matches() {
+                let mut left = match self.list.matches() {
                     _ if self.folder.is_listing() => tr("Reading folder…").to_owned(),
                     // A search shows the matches, with the count and size of what the list
                     // shows.

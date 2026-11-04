@@ -190,6 +190,25 @@ pub(crate) struct FromDesktop {
 }
 
 impl FromDesktop {
+    /// The desktop asked in the background: gdbus takes a moment, and the window shows
+    /// meanwhile and takes the desktop's look after. Its screen profile only if `profile`.
+    pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let repaint = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(desktop());
+            repaint.request_repaint();
+        });
+        FromDesktop {
+            look: Default::default(),
+            look_rx: Receiving::of(rx),
+            screen: None,
+            screen_rx: profile
+                .then(|| crate::images::colour::read_desktop_screen(ctx))
+                .map_or_else(Receiving::none, Receiving::of),
+        }
+    }
+
     /// The desktop's dark style, accent colour, contrast and text size.
     pub(crate) fn look(&self) -> Desktop {
         self.look
@@ -224,25 +243,6 @@ impl FromDesktop {
             screen = self.screen.is_some();
         }
         (look.is_some(), screen)
-    }
-
-    /// The desktop asked in the background: gdbus takes a moment, and the window shows
-    /// meanwhile and takes the desktop's look after. Its screen profile only if `profile`.
-    pub(crate) fn new(ctx: &egui::Context, profile: bool) -> Self {
-        let (tx, rx) = mpsc::channel();
-        let repaint = ctx.clone();
-        std::thread::spawn(move || {
-            let _ = tx.send(desktop());
-            repaint.request_repaint();
-        });
-        FromDesktop {
-            look: Default::default(),
-            look_rx: Receiving::of(rx),
-            screen: None,
-            screen_rx: profile
-                .then(|| crate::images::colour::read_desktop_screen(ctx))
-                .map_or_else(Receiving::none, Receiving::of),
-        }
     }
 }
 

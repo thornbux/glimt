@@ -17,11 +17,18 @@ pub(crate) struct Check {
     /// Files checked, and the threads still at work.
     done: Arc<AtomicUsize>,
     working: Arc<AtomicUsize>,
-    pub(crate) stop: Arc<std::sync::atomic::AtomicBool>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
     total: usize,
     found_rx: mpsc::Receiver<(OsString, String)>,
     /// The broken ones found: (name in the list, why).
     broken: Vec<(OsString, String)>,
+}
+
+impl Check {
+    /// Stops the check, because its window closed or the list it checks is gone.
+    pub(crate) fn stop(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 impl crate::App {

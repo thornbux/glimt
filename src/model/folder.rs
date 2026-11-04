@@ -280,6 +280,11 @@ impl Folder {
         self.listed_as = None;
     }
 
+    /// The folder path in the toolbar, as typed.
+    pub(crate) fn path_text(&self) -> &str {
+        &self.path_text
+    }
+
     /// The folder path in the toolbar, as it is being typed.
     pub(crate) fn path_text_mut(&mut self) -> &mut String {
         &mut self.path_text
@@ -626,7 +631,7 @@ impl crate::App {
         // A check still running would find names of the old list, so it is stopped and its
         // window closed.
         if let Some(Some(check)) = self.check.take() {
-            check.stop.store(true, Ordering::Relaxed);
+            check.stop();
         }
         self.folder.opened_type = Types::NONE;
         // The old folder's watcher ends. A folder opened next starts its own (watch()).

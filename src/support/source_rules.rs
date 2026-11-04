@@ -327,27 +327,34 @@ fn app_stays_small() {
 
 /// A part of App keeps its fields to itself: only its module changes them, and other modules
 /// call methods whose names say what happens (`self.slideshow.toggle_pause()`), so the
-/// compiler, not a convention, keeps a part's rules in one place. A `pub(crate)` field in one of
-/// these structs fails this.
+/// compiler, not a convention, keeps a part's rules in one place. A public field in one of these
+/// structs fails this.
 #[test]
 fn parts_keep_their_fields() {
     const PARTS: &[(&str, &str)] = &[
+        ("features/check.rs", "Check"),
+        ("features/duplicates.rs", "Dups"),
+        ("features/print.rs", "PrintDialog"),
+        ("features/remote.rs", "Listener"),
         ("files/file_ops.rs", "Work"),
+        ("metadata/lightroom.rs", "Import"),
+        ("metadata/marks.rs", "Marks"),
         ("model/folder.rs", "Folder"),
         ("model/list.rs", "List"),
         ("model/search.rs", "Search"),
-        ("features/remote.rs", "Listener"),
-        ("metadata/marks.rs", "Marks"),
-        ("ui/menus.rs", "OpenWith"),
-        ("ui/theme.rs", "FromDesktop"),
         ("ui/dialogs.rs", "Dialogs"),
         ("ui/file_list.rs", "Panel"),
         ("ui/file_list.rs", "StatusBar"),
         ("ui/file_list.rs", "Thumbs"),
         ("ui/file_list.rs", "Tree"),
         ("ui/info_panel.rs", "Info"),
+        ("ui/menus.rs", "OpenWith"),
         ("ui/preferences.rs", "Prefs"),
+        ("ui/theme.rs", "FromDesktop"),
         ("ui/window.rs", "Window"),
+        ("viewer/pan.rs", "Pan"),
+        ("viewer/save_as.rs", "Choice"),
+        ("viewer/save_as.rs", "SaveAs"),
         ("viewer/slideshow.rs", "Slideshow"),
         ("viewer/view.rs", "Decoding"),
         ("viewer/view.rs", "Viewing"),

@@ -19,7 +19,6 @@ use crate::{
 use eframe::egui;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 
 pub const NONE: egui::Modifiers = egui::Modifiers::NONE;
@@ -1178,7 +1177,7 @@ impl crate::App {
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
             && let Some(Some(check)) = self.check.take()
         {
-            check.stop.store(true, Ordering::Relaxed);
+            check.stop();
         }
         // Shortcuts go to the dialogs while one is open.
         // ... and to the text field while one has focus (the toolbar's folder path).

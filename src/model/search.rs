@@ -245,7 +245,7 @@ impl crate::App {
             return ctx.request_repaint_after(wait);
         }
         self.search.match_size_due = None;
-        let Some(m) = &self.list.matches() else {
+        let Some(m) = self.list.matches() else {
             return;
         };
         let names: Vec<OsString> = m.iter().map(|&i| self.list.files()[i].clone()).collect();

@@ -120,11 +120,6 @@ impl List {
         &self.selected
     }
 
-    /// Where a Shift selection started.
-    pub(crate) fn anchor(&self) -> Option<usize> {
-        self.anchor
-    }
-
     /// Where the Shift selection made by the keys last ended.
     pub(crate) fn range_end(&self) -> Option<usize> {
         self.range_end
@@ -220,7 +215,7 @@ impl List {
 
     /// Takes the files at the sorted places `removed` out of the list in one pass. The decoded
     /// images and the decode errors of the others move to their new places, and the panes are
-    /// filled again from the list as it is.
+    /// cleared, so `refill` fills them again from the list as it is.
     pub(crate) fn remove(&mut self, removed: &[usize]) {
         let mut idx = 0;
         self.files.retain(|_| {
@@ -263,7 +258,8 @@ impl List {
         }
     }
 
-    /// Selects the file at `i` too, or takes it out of the selection.
+    /// Selects the file at `i` too when `on` is true, and takes it out of the selection
+    /// otherwise.
     pub(crate) fn set_selected(&mut self, i: usize, on: bool) {
         match on {
             true => self.selected.insert(i),
@@ -333,8 +329,8 @@ impl List {
     }
 
     /// Keeps only the decoded images for which `keep` says so.
-    pub(crate) fn keep_slots(&mut self, keep: impl FnMut(&usize, &mut Slot) -> bool) {
-        self.slots.retain(keep);
+    pub(crate) fn keep_slots(&mut self, mut keep: impl FnMut(&usize, &Slot) -> bool) {
+        self.slots.retain(|i, s| keep(i, s));
     }
 
     /// Keeps only the images decoded at full resolution, and the decodes at full resolution
@@ -410,7 +406,8 @@ impl List {
         self.dragging.as_mut().map(|(_, to)| to)
     }
 
-    /// Ends the drag, and returns the images dragged and where they would go.
+    /// Ends the drag, and returns the images dragged and where they would go. Returns `None`
+    /// when nothing is dragged.
     pub(crate) fn take_drag(&mut self) -> Option<(HashSet<usize>, Option<usize>)> {
         self.dragging.take()
     }

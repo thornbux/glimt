@@ -128,7 +128,7 @@ impl crate::App {
 
     /// The shown image's place in the list as shown: "[3/16]", "[–/12]" if a search hides it.
     pub(crate) fn place(&self) -> String {
-        match &self.list.matches() {
+        match self.list.matches() {
             Some(m) => match self.cur_row(m) {
                 Some(row) => format!("[{}/{}]", thousands(row + 1), thousands(m.len())),
                 None => format!("[–/{}]", thousands(m.len())),

@@ -129,12 +129,7 @@ impl crate::App {
             Took::Nothing => {}
             Took::Gone => self.stopped(tr("Reading the Lightroom catalog")),
             Took::Answer(Ok(catalog)) => {
-                let now = lightroom::roots_now(&catalog);
-                self.lightroom = Some(lightroom::Import {
-                    catalog,
-                    now,
-                    plan: None,
-                });
+                self.lightroom = Some(lightroom::Import::new(catalog));
             }
             Took::Answer(Err(e)) => self.notice = Some(e),
         }

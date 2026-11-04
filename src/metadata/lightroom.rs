@@ -206,9 +206,22 @@ impl Catalog {
 /// A Lightroom catalog read, the folders where its root folders are now, and once Next is
 /// clicked what importing it will do.
 pub(crate) struct Import {
-    pub(crate) catalog: Catalog,
-    pub(crate) now: Vec<String>,
-    pub(crate) plan: Option<Plan>,
+    catalog: Catalog,
+    now: Vec<String>,
+    plan: Option<Plan>,
+}
+
+impl Import {
+    /// The import dialog for `catalog`, with the folders where its photos are now worked out
+    /// and nothing planned yet.
+    pub(crate) fn new(catalog: Catalog) -> Self {
+        let now = roots_now(&catalog);
+        Import {
+            catalog,
+            now,
+            plan: None,
+        }
+    }
 }
 
 pub(crate) struct Plan {
