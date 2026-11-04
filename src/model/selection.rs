@@ -1,10 +1,10 @@
 //! Moving through the list (next, previous, first, last, a page, random) and the selection.
 
 use crate::model::folder::total_size;
-use crate::model::list::Viewing;
 use crate::support::format::thousands;
 use crate::ui::actions::Action;
 use crate::ui::file_list::SizeDue;
+use crate::viewer::view::Viewing;
 use eframe::egui;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

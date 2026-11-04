@@ -1,5 +1,5 @@
-//! The image area: decoding the shown image and its neighbours, zoom and fit, panes and Compare,
-//! painting, the wheel.
+//! The image area: decoding the shown image and its neighbours, what belongs to the image shown
+//! (`Viewing`), zoom and fit, panes and Compare, painting, the wheel.
 
 use crate::files::config::Config;
 use crate::files::external::is_video;
@@ -238,6 +238,27 @@ impl Zoom {
     pub(crate) fn scale_shown(&self) -> f32 {
         self.last_scale
     }
+}
+
+/// What belongs to the image shown, beside its place in the list (`List.cur`): the page of a
+/// TIFF, the frame of an animation stepped to, the turn not saved yet and the file it belongs
+/// to, the part being cropped. Made anew whole when the image is left (`leave_image`), as
+/// `List` is when the list is read again, so nothing of one image stays for the next, also a
+/// field added later; the zoom, which Keep Zoom carries over, is not here.
+#[derive(Default)]
+pub(crate) struct Viewing {
+    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
+    pub(crate) page: usize,
+    /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
+    pub(crate) frame: Option<usize>,
+    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
+    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
+    pub(crate) orient: (u8, bool),
+    /// The file `orient` belongs to, set when it is turned: saved into that file even when the
+    /// list changed meanwhile and another file is at `cur`.
+    pub(crate) turned: PathBuf,
+    /// Edit → Crop: the part of the shown image being chosen.
+    pub(crate) crop: Option<crate::viewer::crop::Crop>,
 }
 
 impl crate::App {

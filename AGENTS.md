@@ -67,7 +67,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/main.rs` | The app: `App` and its parts (each a struct in the module whose code uses it, such as `slideshow::Slideshow` or `file_ops::Work`), starting up, the frame (`eframe::App`) and `main()`. The window's parts are each in a module of their own below, as `impl crate::App` blocks |
 | `src/cli.rs` | The command line: the start options (`Start`, `START_OPTIONS`) and the commands that answer without a window (`answered`: --help, --version, --check-config, --back-up) |
 | `src/model.rs` | **The model/ folder:** what is open: the file list, listing and opening folders and collections, the search and the selection |
-| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, `Slot`, an image decoded for the view, and `Viewing`, what belongs to the image shown |
+| `src/model/list.rs` | The model of what is open: `List`, the file list with everything that holds a place in it, and `Slot`, an image decoded for the view |
 | `src/model/folder.rs` | Opening a folder, a collection or several folders, listing them, following changes, the sizes summed for the status bar (`send_sizes`, `receive_sizes`) |
 | `src/model/selection.rs` | Moving through the list (next, previous, a page, random) and the selection |
 | `src/model/listing.rs` | Image extensions, reading a folder or tree, sorting (`Sort`, `natural_cmp`), the Types menu, `pattern_name` for Rename Many |
@@ -75,7 +75,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/model/search.rs` | The search: fuzzy names and `exif:`, `re:`, `mark:` and `stars:` terms with `|`, `-` and `( )`, in parallel; the EXIF index (`exif_index`) |
 | `src/viewer.rs` | **The viewer/ folder:** the image area and what is done to the image shown: the view, the slideshow, pan view, crop and Save As |
 | `src/viewer/slideshow.rs` | The slideshow: its timer, order, fade and the next slide's rule (`next_slide`) |
-| `src/viewer/view.rs` | The image area: decoding the shown image and its neighbours, zoom and fit, panes (`LAYOUTS`) and Compare, painting, the wheel |
+| `src/viewer/view.rs` | The image area: decoding the shown image and its neighbours, what belongs to the image shown (`Viewing`), zoom and fit, panes (`LAYOUTS`) and Compare, painting, the wheel |
 | `src/viewer/crop.rs` | Edit → Crop: the part dragged over the shown image, held by its path and the copy as shown |
 | `src/viewer/save_as.rs` | File → Save As: its dialog, and `App::shown_copy`, the copy of the image as shown that Crop and Save As start from |
 | `src/viewer/pan.rs` | Pan view: the list by day, its rows, the timeline and the calendar |

@@ -5,7 +5,7 @@ use crate::files::config::sort_folders_from;
 use crate::files::config::sort_folders_path;
 use crate::files::external::Mounted;
 use crate::files::external::{Login, gio_mount};
-use crate::model::list::{List, Slot, Viewing};
+use crate::model::list::{List, Slot};
 use crate::model::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
@@ -14,6 +14,7 @@ use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::menus::{iconed, scroll_menu};
+use crate::viewer::view::Viewing;
 use crate::{files::config, files::external, model::collections, model::listing, tf, ui::theme};
 use eframe::egui;
 use std::collections::{HashMap, HashSet};

@@ -1,34 +1,12 @@
 //! The model of what is open: the file list with everything that holds a place in it
-//! (`List`), the decoded images (`Slot`), and what belongs to the image shown (`Viewing`).
+//! (`List`), and the decoded images (`Slot`).
 
 use crate::images::decode::Hist;
 use crate::ui::file_list::RubberBand;
-use crate::viewer::crop;
 use eframe::egui;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::PathBuf;
-
-/// What belongs to the image shown, beside its place in the list (`List.cur`): the page of a
-/// TIFF, the frame of an animation stepped to, the turn not saved yet and the file it belongs
-/// to, the part being cropped. Made anew whole when the image is left (`leave_image`), as
-/// `List` is when the list is read again, so nothing of one image stays for the next, also a
-/// field added later; the zoom, which Keep Zoom carries over, is not here.
-#[derive(Default)]
-pub(crate) struct Viewing {
-    /// The page of a multi-page TIFF shown (Ctrl+Page Down/Up), from 0.
-    pub(crate) page: usize,
-    /// The frame of an animation stepped to with Ctrl+Page Up/Down; `None` while it plays.
-    pub(crate) frame: Option<usize>,
-    /// Orientation of the shown image, for viewing only: quarter turns clockwise, applied
-    /// after mirroring when the flag is set. Reset for each image, as in Geeqie.
-    pub(crate) orient: (u8, bool),
-    /// The file `orient` belongs to, set when it is turned: saved into that file even when the
-    /// list changed meanwhile and another file is at `cur`.
-    pub(crate) turned: PathBuf,
-    /// Edit → Crop: the part of the shown image being chosen.
-    pub(crate) crop: Option<crop::Crop>,
-}
 
 /// An image decoded for the view: the shown one or a neighbour read ahead, at the size shown or
 /// (`full`) at full resolution.

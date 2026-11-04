@@ -15,7 +15,7 @@ use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
 use crate::images::decode::MAX_ANIMATION;
-use crate::model::list::{List, Viewing};
+use crate::model::list::List;
 use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
 use crate::ui::actions::OWN_KEYS;
 use crate::viewer::pan::Pan;
@@ -89,7 +89,7 @@ struct App {
     /// the size they decode to.
     decoding: crate::viewer::view::Decoding,
     /// What belongs to the image shown, made anew when it is left.
-    viewing: Viewing,
+    viewing: crate::viewer::view::Viewing,
     /// The zoom, and where the zoomed image is in the view.
     zoom: crate::viewer::view::Zoom,
     /// Two images side by side (E): the shown one and `compare_other`.
@@ -227,7 +227,7 @@ impl App {
             #[cfg(feature = "marks")]
             marks: crate::metadata::marks::Marks::load(),
             decoding,
-            viewing: Viewing::default(),
+            viewing: crate::viewer::view::Viewing::default(),
             zoom: crate::viewer::view::Zoom::default(),
             compare: false,
             last_view: None,
