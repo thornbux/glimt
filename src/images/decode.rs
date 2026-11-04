@@ -1603,6 +1603,26 @@ mod tests {
         let size = std::fs::metadata(dir.join("big.png")).unwrap().len();
         let both = ((1u64 << 30) / (1024 * 1024 * 4)).min((256 << 20) / size);
         assert_eq!(taken as u64, both);
+        // A JPEG and an SVG linked by file are still drawn, told by their bytes from what was
+        // read and checked, whatever their names say.
+        let fresh = super::svg_images();
+        image::RgbImage::new(4, 4).save(dir.join("p.jpg")).unwrap();
+        std::fs::copy(dir.join("p.jpg"), dir.join("p.dat")).unwrap();
+        let sub = "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'/>";
+        crate::files::file_io::create_file(&dir.join("sub.svg"), sub).unwrap();
+        let kind = |href| (fresh.resolve_string)(href, &opts);
+        assert!(matches!(
+            kind("p.jpg"),
+            Some(resvg::usvg::ImageKind::JPEG(_))
+        ));
+        assert!(matches!(
+            kind("p.dat"),
+            Some(resvg::usvg::ImageKind::JPEG(_))
+        ));
+        assert!(matches!(
+            kind("sub.svg"),
+            Some(resvg::usvg::ImageKind::SVG(_))
+        ));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

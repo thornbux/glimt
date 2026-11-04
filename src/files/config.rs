@@ -679,14 +679,27 @@ pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
         Some(test_home().join(home_fallback).join(app))
     };
     #[cfg(not(test))]
-    // A relative folder is ignored, as the XDG spec says. An empty $XDG_DATA_HOME would otherwise
-    // be the current folder, where a downloaded folder could hold plugins and decoders.
-    let base = (std::env::var_os(var).map(PathBuf::from))
+    return xdg_base(
+        std::env::var_os(var),
+        std::env::var_os("HOME"),
+        home_fallback,
+    )
+    .map(|base| base.join(app));
+}
+
+/// The base folder from an XDG variable's value `set`, or else `home` joined with
+/// `home_fallback`. A relative folder is ignored, as the XDG spec says. An empty
+/// $XDG_DATA_HOME would otherwise be the current folder, where a downloaded folder could hold
+/// plugins and decoders. Returns `None` when neither gives an absolute folder.
+fn xdg_base(
+    set: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+    home_fallback: &str,
+) -> Option<PathBuf> {
+    (set.map(PathBuf::from))
         .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_fallback)))
-        .filter(|p| p.is_absolute())?;
-    #[cfg(not(test))]
-    Some(base.join(app))
+        .or_else(|| home.map(|h| PathBuf::from(h).join(home_fallback)))
+        .filter(|p| p.is_absolute())
 }
 
 /// The home folder of the tests, under the temporary folder, for every XDG folder. There is one
@@ -798,6 +811,22 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// An XDG variable that holds a relative folder, or is empty, is passed over for the home
+    /// folder's default, as the XDG spec says. With no absolute folder at all there is none.
+    #[test]
+    fn xdg_folders_are_absolute() {
+        let base = |set: Option<&str>, home: Option<&str>| {
+            super::xdg_base(set.map(Into::into), home.map(Into::into), ".local/share")
+        };
+        let home = Some("/home/u");
+        let default = Some(std::path::PathBuf::from("/home/u/.local/share"));
+        assert_eq!(base(Some("/data"), home), Some("/data".into()));
+        assert_eq!(base(Some(""), home), default);
+        assert_eq!(base(Some("share"), home), default);
+        assert_eq!(base(None, home), default);
+        assert_eq!(base(Some(""), Some("relative")), None);
+    }
+
     /// The file Glimt writes has nothing wrong, and each kind of mistake is told with its line.
     #[test]
     fn checks_the_settings_file() {

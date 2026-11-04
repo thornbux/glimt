@@ -12,14 +12,14 @@ ported to the layout of 0.55.
 
 - A sidecar that is a link is no longer read: a downloaded photo.jpg.xmp pointing at another XMP
   file of yours showed that file's keywords, comment and alt text for the photo in the info
-  panel and the search, and Crop and Save As copied them.
+  panel and found the photo by them in the search.
 - Save As and Save This Frame over a file that is a link replace the link, no longer the file it
   points to.
 - Print to File over a link, such as one in a downloaded folder, replaces the link and no longer
   writes the PDF over the file it points to.
-- A file named as a JPEG but larger than 512 MB (a sparse file in a download) is refused, not read
-  whole into memory by the decoder until Glimt is stopped. A large TIFF or PNG, which is read by
-  seeking, still opens (issue #48).
+- A JPEG larger than 512 MB (a sparse file in a download), whatever its name says, is refused,
+  not read whole into memory by the decoder until Glimt is stopped. A large TIFF or PNG, which is
+  read by seeking, still opens (issue #48).
 - A JPEG XL file is decoded within a memory limit of 2 GB, enough for a camera's photo, where
   jxl-oxide had none.
 - A crafted image whose EXIF names one large part from many text fields can no longer make the

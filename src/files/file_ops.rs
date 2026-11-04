@@ -548,7 +548,7 @@ impl crate::App {
                 let went: Vec<PathBuf> = chunk.iter().filter(is_gone).cloned().collect();
                 let side: Vec<PathBuf> = (went.iter())
                     .map(|p| xmp::sidecar(p))
-                    .filter(|s| s.exists())
+                    .filter(|s| std::fs::symlink_metadata(s).is_ok())
                     .collect();
                 if trash && !side.is_empty() {
                     let _ = crate::files::trash::trash(&side);

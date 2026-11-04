@@ -28,11 +28,11 @@ const UNDEFINED: u16 = 7;
 
 const SLONG: u16 = 9;
 
-/// The longest text read from one field. A description or a comment is far shorter; without a
+const SRATIONAL: u16 = 10;
+
+/// The longest text read from one field. A description or a comment is far shorter. Without a
 /// cap, a crafted block of 1,500 fields all naming the same megabyte would take gigabytes.
 const MAX_TEXT: usize = 4096;
-
-const SRATIONAL: u16 = 10;
 
 /// EXIF orientations 1–8 as 2×2 matrices on (x, y) with y down: what to do with the stored
 /// pixels to show them upright.

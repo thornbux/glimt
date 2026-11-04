@@ -272,25 +272,23 @@ pub fn replace_existing(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result
 /// saved over a file there (Save As) and a sidecar are written this way.
 pub fn replace_name(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     use std::io::Write;
-    replace_name_with(path, |f| f.write_all(bytes.as_ref()), || Ok(()))
+    replace_name_with(path, |f| f.write_all(bytes.as_ref()))
 }
 
 /// Replaces the file named `path` as `replace_name` does, with the contents written by `write`
-/// (a PDF streamed page by page). The step `before` runs after the new file is written whole and
-/// before it takes the name.
+/// (a PDF streamed page by page).
 pub fn replace_name_with(
     path: &Path,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
-    before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land = |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path));
+    let land = |tmp: &Path| std::fs::rename(tmp, path);
     write_beside(&tmp_path(path), path, write, land)
 }
 
 /// Writes `bytes` to `path` beside it and renames it, through a link to the file it points to.
-/// Only Glimt's own files and a turned image are written so. A name the user chose goes through
-/// `replace_name`, which never follows a link.
+/// Glimt's own files, a turned image and a collection's file are written so. A name the user
+/// chose for a new file goes through `replace_name`, which never follows a link.
 fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Result<()> {
     use std::io::Write;
     let write = |f: &mut std::fs::File| f.write_all(bytes.as_ref());

@@ -472,8 +472,7 @@ impl crate::App {
                         print::pdf(pages, &job.layout, total, &mut out)?;
                         out.flush()
                     };
-                    crate::files::file_io::replace_name_with(file, write, || Ok(()))
-                        .map_err(|e| e.to_string())
+                    crate::files::file_io::replace_name_with(file, write).map_err(|e| e.to_string())
                 }
             };
             let to = chosen.map_or(to, PrintTo::Printer);
