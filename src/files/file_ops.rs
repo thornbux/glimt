@@ -647,8 +647,9 @@ impl crate::App {
             let undo = {
                 let mut undo = undo;
                 let forgotten = self.marks.forget(&gone);
+                // Added to, not replaced: an Undo that put nothing back sends its marks back.
                 if let Some(Undo::Trash(thrown)) = &mut undo {
-                    thrown.marks = forgotten;
+                    thrown.marks.extend(forgotten);
                 }
                 self.marks.restore(restored_marks);
                 undo
@@ -1145,6 +1146,8 @@ impl crate::App {
     /// name meanwhile.
     pub(crate) fn undo(&mut self, ctx: &egui::Context) {
         // This asks before the undo is taken, so one that is refused stays to be done again.
+        // So do the files of a move to the trash that did not come back, which its thread
+        // sends back.
         let touches: Vec<PathBuf> = match &self.work.undo {
             Some(Undo::Move(pairs)) => (pairs.iter())
                 .flat_map(|(from, to)| [from.clone(), to.clone()])
@@ -1217,11 +1220,29 @@ impl crate::App {
                         error.get_or_insert(tf!("Could not save the collection: {e}", e));
                     }
                 }
-                let marks = (thrown.marks.into_iter())
-                    .filter(|(p, _)| returned(p))
+                // Those not put back (a name taken, a rename that failed) stay to be undone
+                // again, with their marks and places, which would be lost with this Undo.
+                let (marks, kept) = (thrown.marks.into_iter()).partition(|(p, _)| returned(p));
+                let left: Vec<PathBuf> = (thrown.files.into_iter())
+                    .filter(|p| !returned(p))
                     .collect();
+                let undo = (!left.is_empty()).then(|| {
+                    Undo::Trash(Thrown {
+                        files: left,
+                        sidecars: thrown.sidecars,
+                        since: thrown.since,
+                        marks: kept,
+                        collection: (thrown.collection).map(|(file, removed)| {
+                            (
+                                file,
+                                removed.into_iter().filter(|(_, p)| !returned(p)).collect(),
+                            )
+                        }),
+                    })
+                });
                 let _ = deleted_tx.send(Deleted {
                     relist: true,
+                    undo,
                     restored_marks: marks,
                     ..Default::default()
                 });
@@ -2157,6 +2178,36 @@ mod tests {
         );
         let gone: Vec<&&str> = known.iter().filter(|k| !found.contains(**k)).collect();
         assert!(gone.is_empty(), "named here but no longer there: {gone:?}");
+    }
+
+    /// An Undo of a move to the trash that is refused, because a new file has taken the first
+    /// name, stays to be done again with the marks and collection places it holds.
+    #[test]
+    fn a_refused_undo_from_the_trash_keeps_its_marks() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-taken-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbImage::new(2, 2).save(dir.join("a.png")).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        let (mut app, ctx) = app_on(&dir);
+        let gqv = dir.join("c.gqv");
+        app.work.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
+            files: vec![a.clone(), b.clone()],
+            sidecars: Vec::new(),
+            since: std::time::SystemTime::now(),
+            marks: vec![(a.clone(), (1, 3))],
+            collection: Some((gqv.clone(), vec![(0, a.clone())])),
+        }));
+        app.undo(&ctx);
+        assert!(app.work.undo.is_none());
+        assert!(settle(&mut app, &ctx, |a| a.work.undo.is_some()));
+        let Some(super::Undo::Trash(thrown)) = &app.work.undo else {
+            panic!("the Undo was lost");
+        };
+        assert_eq!(thrown.files, [a.clone(), b]);
+        assert_eq!(thrown.marks, [(a.clone(), (1, 3))]);
+        assert_eq!(thrown.collection, Some((gqv, vec![(0, a)])));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A move, a rename and a delete wait for a sidecar write of their files that holds the
