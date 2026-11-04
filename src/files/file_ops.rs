@@ -1644,13 +1644,12 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
         to.push(t);
     }
     let sources: HashSet<&PathBuf> = from.iter().collect();
-    if let Some(at) = to.iter().find_map(|t| taken(t, &sources)) {
-        return Err(tf!(
-            "{name} exists already; nothing renamed",
-            name = at.display()
-        ));
+    let mut in_the_way = to.iter().filter_map(|t| taken(t, &sources)).peekable();
+    let case_only = in_the_way.peek().is_some();
+    if case_only {
+        ours_but_case(&from, in_the_way)?;
     }
-    let swap = to.iter().any(|t| sources.contains(t));
+    let swap = case_only || to.iter().any(|t| sources.contains(t));
     // The temporary name is next to the file, because in a collection the files are in
     // different folders.
     let tmp = |f: &Path, k: usize| {
@@ -1733,6 +1732,39 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
         };
         if landed.is_some_and(|n| n < job.total) {
             job.did(1);
+        }
+    }
+    Ok(())
+}
+
+/// Checks that every name in the way of a rename is one of the files being renamed, under a
+/// name that differs only in case. On a file system that ignores case (FAT and exFAT on a camera
+/// card), IMG.JPG is also found as img.jpg. Such a name is freed by the step through hidden
+/// names. A hard link under another name is the same file too, but a name of its own, which a
+/// rename must not take away. Returns the error to tell for the first other name. `from` holds
+/// the sidecars being renamed too, so their names count as ours.
+fn ours_but_case(
+    from: &[PathBuf],
+    in_the_way: impl Iterator<Item = PathBuf>,
+) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let id = |p: &Path| {
+        std::fs::symlink_metadata(p)
+            .map(|m| (m.dev(), m.ino()))
+            .ok()
+    };
+    let folded = |p: &Path| p.to_string_lossy().to_lowercase();
+    // It is built once, so a rename of 20,000 files on a card does not compare every pair.
+    let ours: HashSet<(String, (u64, u64))> = from
+        .iter()
+        .filter_map(|f| Some((folded(f), id(f)?)))
+        .collect();
+    for at in in_the_way {
+        if !id(&at).is_some_and(|i| ours.contains(&(folded(&at), i))) {
+            return Err(tf!(
+                "{name} exists already; nothing renamed",
+                name = at.display()
+            ));
         }
     }
     Ok(())
@@ -1834,6 +1866,20 @@ mod tests {
         super::rename_files(vec![p("f.jpg")], vec![p("g.jpg")], &job).unwrap();
         assert!(std::fs::symlink_metadata(p("f.jpg.xmp")).is_err());
         assert!(crate::metadata::xmp::linked(&p("g.jpg.xmp")));
+        // A new name that is the file itself, as G.JPG is g.jpg on a camera card, is not taken:
+        // the rename goes through hidden names. A hard link of that name stands in for the card
+        // here, and the file ends with one name and its sidecar.
+        std::fs::hard_link(p("g.jpg"), p("G.JPG")).unwrap();
+        super::rename_files(vec![p("g.jpg")], vec![p("G.JPG")], &job).unwrap();
+        assert!(!p("g.jpg").exists() && read("G.JPG") == "f");
+        assert!(crate::metadata::xmp::linked(&p("G.JPG.xmp")));
+        super::rename_files(vec![p("G.JPG")], vec![p("g.jpg")], &job).unwrap();
+        // A hard link under another name is a name of its own: renaming onto it is refused,
+        // and both names stay.
+        std::fs::hard_link(p("g.jpg"), p("h.jpg")).unwrap();
+        assert!(super::rename_files(vec![p("g.jpg")], vec![p("h.jpg")], &job).is_err());
+        assert!(p("g.jpg").exists() && p("h.jpg").exists());
+        std::fs::remove_file(p("h.jpg")).unwrap();
         // Stopped before the first step, nothing is renamed, and the error says it stopped.
         job.stop.store(true, std::sync::atomic::Ordering::Relaxed);
         let stopped = super::rename_files(vec![p("d.jpg")], vec![p("e.jpg")], &job);
