@@ -1527,7 +1527,7 @@ impl crate::App {
         }
         // Until it is saved the old picture shows: turned again, it would be saved twice,
         // into the same temporary file.
-        if self.work.saving.contains(&self.path(self.list.cur)) {
+        if self.work.is_saving(&self.path(self.list.cur)) {
             self.notice = Some(tr("Still saving the last rotation of this file").into());
             return;
         }

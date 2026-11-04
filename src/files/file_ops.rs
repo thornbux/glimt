@@ -11,7 +11,7 @@ use crate::model::folder::total_size;
 use crate::model::listing::pattern_name;
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Working};
+use crate::support::threads::{Receiving, Took, Working};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
 use crate::ui::dialogs::Prompt;
@@ -151,34 +151,34 @@ impl Job {
 /// File operations in the background: the jobs, the files they touch, what they report, and Undo.
 pub(crate) struct Work {
     /// File operations running, for the status bar; one is over when its thread let go of it.
-    pub(crate) jobs: Vec<Arc<Job>>,
+    jobs: Vec<Arc<Job>>,
     /// What `background` work changes, held by its thread as long as it runs.
-    pub(crate) touching: Vec<Arc<Vec<PathBuf>>>,
+    touching: Vec<Arc<Vec<PathBuf>>>,
     /// A Rename Many running in the background.
-    pub(crate) renaming: Option<RenameJob>,
-    pub(crate) renaming_rx: Receiving<Result<(), String>>,
+    renaming: Option<RenameJob>,
+    renaming_rx: Receiving<Result<(), String>>,
     /// Names being deleted in the background; kept out of refreshed listings until done.
-    pub(crate) deleting: HashSet<OsString>,
+    deleting: HashSet<OsString>,
     /// What deletes, moves and copies report (`Deleted`). A plugin and Move Folder to Trash
     /// send it too, only for the list to be read again.
-    pub(crate) deleted_tx: mpsc::Sender<Deleted>,
-    pub(crate) deleted_rx: mpsc::Receiver<Deleted>,
+    deleted_tx: mpsc::Sender<Deleted>,
+    deleted_rx: mpsc::Receiver<Deleted>,
     /// Those still being saved.
-    pub(crate) saving: HashSet<PathBuf>,
+    saving: HashSet<PathBuf>,
     /// PNG and WebP files saved turned in the background; a plugin sends its files too, as it may
     /// have changed them, so they are decoded again.
-    pub(crate) saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
-    pub(crate) saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
+    saved_tx: mpsc::Sender<(PathBuf, Result<(), String>)>,
+    saved_rx: mpsc::Receiver<(PathBuf, Result<(), String>)>,
     /// What Edit → Undo puts back: the last move to the trash, move or rename.
-    pub(crate) undo: Option<Undo>,
-    pub(crate) cut_short: Vec<journal::CutShort>,
+    undo: Option<Undo>,
+    cut_short: Vec<journal::CutShort>,
     /// Renames found cut short at the start (a crash or a power cut during Rename Many), to put
     /// right; read in the background.
-    pub(crate) cut_short_rx: Receiving<Vec<journal::CutShort>>,
+    cut_short_rx: Receiving<Vec<journal::CutShort>>,
     /// Our own clipboard for file lists, kept so it can serve them (X11).
-    pub(crate) clipboard: Option<arboard::Clipboard>,
+    clipboard: Option<arboard::Clipboard>,
     /// An image decoded for the clipboard; egui takes it only during a frame.
-    pub(crate) clip_rx: Receiving<egui::ColorImage>,
+    clip_rx: Receiving<egui::ColorImage>,
 }
 
 impl Work {
@@ -208,6 +208,126 @@ impl Work {
             clipboard: None,
             clip_rx: Receiving::none(),
         }
+    }
+
+    /// Where deletes, moves and copies report what they did.
+    pub(crate) fn deleted_sender(&self) -> mpsc::Sender<Deleted> {
+        self.deleted_tx.clone()
+    }
+
+    /// Lets go of the jobs and the `background` work that ended. True when the last job
+    /// writing keywords ended now.
+    pub(crate) fn let_go_of_ended(&mut self) -> bool {
+        let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
+        let were_writing = sidecars(&self.jobs);
+        self.jobs.retain(|job| Arc::strong_count(job) > 1);
+        self.touching.retain(|t| Arc::strong_count(t) > 1);
+        were_writing && !sidecars(&self.jobs)
+    }
+
+    /// Whether a job writing keywords runs.
+    pub(crate) fn writes_keywords(&self) -> bool {
+        (self.jobs.iter()).any(|j| j.sidecars && Arc::strong_count(j) > 1)
+    }
+
+    /// The first job running, for the status bar, and how many run.
+    pub(crate) fn jobs_shown(&self) -> Option<(&Job, usize)> {
+        Some((self.jobs.first()?, self.jobs.len()))
+    }
+
+    /// Every job stops after the file at hand.
+    pub(crate) fn stop_jobs(&self) {
+        (self.jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
+    }
+
+    /// A turned image saved in the background, or a plugin's file, with how it went.
+    pub(crate) fn take_saved(&mut self) -> Option<(PathBuf, Result<(), String>)> {
+        let (path, result) = self.saved_rx.try_recv().ok()?;
+        self.saving.remove(&path);
+        Some((path, result))
+    }
+
+    /// Whether the turn of `path` is still being saved.
+    pub(crate) fn is_saving(&self, path: &Path) -> bool {
+        self.saving.contains(path)
+    }
+
+    /// Rename Many's answer: the job it was, with how it went, when it came.
+    pub(crate) fn take_renamed(&mut self) -> Took<(Option<RenameJob>, Result<(), String>)> {
+        match self.renaming_rx.take() {
+            Took::Answer(result) => Took::Answer((self.renaming.take(), result)),
+            // Gone without a word: not waited for at closing, Rename Many not refused for ever.
+            Took::Gone => {
+                self.renaming = None;
+                Took::Gone
+            }
+            Took::Nothing => Took::Nothing,
+        }
+    }
+
+    /// Takes the renames found cut short at start; false when looking for them stopped without
+    /// an answer.
+    pub(crate) fn receive_cut_short(&mut self) -> bool {
+        match self.cut_short_rx.take() {
+            Took::Answer(found) => self.cut_short = found,
+            Took::Gone => return false,
+            Took::Nothing => {}
+        }
+        true
+    }
+
+    /// The renames cut short, to put right.
+    pub(crate) fn cut_short(&self) -> &[journal::CutShort] {
+        &self.cut_short
+    }
+
+    /// The renames cut short, taken to be put right, or (Later) left for the next start.
+    pub(crate) fn take_cut_short(&mut self) -> Vec<journal::CutShort> {
+        std::mem::take(&mut self.cut_short)
+    }
+
+    /// Leaves out of `files` those still being deleted, so a refresh does not bring them back.
+    pub(crate) fn leave_out_deleting(&self, files: &mut Vec<OsString>) {
+        if !self.deleting.is_empty() {
+            files.retain(|f| !self.deleting.contains(f));
+        }
+    }
+
+    /// The names being deleted, taken to keep across another list of the same collection.
+    pub(crate) fn take_deleting(&mut self) -> HashSet<OsString> {
+        std::mem::take(&mut self.deleting)
+    }
+
+    /// The names being deleted, kept again.
+    pub(crate) fn keep_deleting(&mut self, names: HashSet<OsString>) {
+        self.deleting = names;
+    }
+
+    /// The names being deleted are forgotten: another folder opens.
+    pub(crate) fn forget_deleting(&mut self) {
+        self.deleting.clear();
+    }
+
+    /// The image for the clipboard, decoded in the background from `rx`.
+    pub(crate) fn copy_image_from(&mut self, rx: mpsc::Receiver<egui::ColorImage>) {
+        self.clip_rx = Receiving::of(rx);
+    }
+
+    /// The image decoded for the clipboard, once it came.
+    pub(crate) fn take_image(&mut self) -> Option<egui::ColorImage> {
+        match self.clip_rx.take() {
+            Took::Answer(img) => Some(img),
+            _ => None,
+        }
+    }
+
+    /// Our own clipboard, made the first time. On X11 the clipboard is served from it, so it is
+    /// kept.
+    pub(crate) fn clipboard(&mut self) -> Result<&mut arboard::Clipboard, arboard::Error> {
+        if self.clipboard.is_none() {
+            self.clipboard = Some(arboard::Clipboard::new()?);
+        }
+        Ok(self.clipboard.as_mut().unwrap())
     }
 }
 

@@ -1598,9 +1598,9 @@ impl crate::App {
                 self.types_menu(ctx, ui);
                 ui.separator();
                 ui.label(left);
-                if let Some(job) = self.work.jobs.first() {
+                if let Some((job, jobs)) = self.work.jobs_shown() {
                     ui.separator();
-                    let more = match self.work.jobs.len() - 1 {
+                    let more = match jobs - 1 {
                         0 => String::new(),
                         n => tf!(", and {n} more", n),
                     };
@@ -1612,10 +1612,7 @@ impl crate::App {
                         more
                     ));
                     if ui.small_button(tr("Stop")).clicked() {
-                        self.work
-                            .jobs
-                            .iter()
-                            .for_each(|j| j.stop.store(true, Ordering::Relaxed));
+                        self.work.stop_jobs();
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

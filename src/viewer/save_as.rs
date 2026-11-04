@@ -183,7 +183,7 @@ impl crate::App {
         how: CopyAs,
         to: PathBuf,
     ) {
-        let deleted = self.work.deleted_tx.clone();
+        let deleted = self.work.deleted_sender();
         self.background(ctx, vec![path.clone(), to.clone()], move || {
             Some(match decode::survive(|| save::save_as(&path, &how, &to)) {
                 Ok(new) => {

@@ -8,7 +8,6 @@ use eframe::egui;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 /// How long the mouse is still in full screen before the pointer hides.
@@ -165,7 +164,7 @@ impl crate::App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window.closing += 1;
             if self.window.closing == 2 {
-                (self.work.jobs.iter()).for_each(|job| job.stop.store(true, Ordering::Relaxed));
+                self.work.stop_jobs();
             }
             self.notice = Some(
                 match self.window.closing {

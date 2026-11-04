@@ -431,7 +431,7 @@ impl crate::App {
         self.folder.watching.fetch_add(1, Ordering::Relaxed);
         self.broken_files.clear();
         self.folder.subdirs.clear();
-        self.work.deleting.clear();
+        self.work.forget_deleting();
         self.slideshow.unshuffle();
         self.thumbs.forget_all();
         self.search.forget_exif_index();
@@ -456,12 +456,12 @@ impl crate::App {
         // The same collection read again (F5): a delete still running keeps its names, so a
         // failed one brings its images back.
         let deleting = if self.folder.collection.as_ref() == Some(&file) {
-            std::mem::take(&mut self.work.deleting)
+            self.work.take_deleting()
         } else {
             HashSet::new()
         };
         self.forget_old_list();
-        self.work.deleting = deleting;
+        self.work.keep_deleting(deleting);
         self.folder.recursive = false;
         self.folder.dir = root.to_path_buf();
         self.remember_recent(&file);
@@ -718,9 +718,7 @@ impl crate::App {
     pub(crate) fn take_files(&mut self, ctx: &egui::Context, files: Vec<OsString>, whole: bool) {
         // Files still being deleted in the background must not come back with a refresh.
         let mut files = files;
-        if !self.work.deleting.is_empty() {
-            files.retain(|f| !self.work.deleting.contains(f));
-        }
+        self.work.leave_out_deleting(&mut files);
         // A refresh during random order keeps the order, so Previous still goes back
         // through the images that were shown; a list shuffled whole in the thread stays as it is.
         // The flag is for this listing, taken whether or not the order is still random: left,

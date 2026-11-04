@@ -9,7 +9,7 @@ use crate::metadata::marks;
 #[cfg(feature = "marks")]
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::threads::{Receiving, Working};
+use crate::support::threads::Working;
 use crate::ui::dialogs::{Pick, Prompt};
 use crate::viewer::pan::Pan;
 use crate::viewer::view::LAYOUTS;
@@ -1127,7 +1127,7 @@ impl crate::App {
         let (path, how) = (self.path(self.list.cur), self.shown_copy());
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let (clip_tx, clip_rx) = mpsc::channel();
-        self.work.clip_rx = Receiving::of(clip_rx);
+        self.work.copy_image_from(clip_rx);
         let pointer = Working::new(&self.busy);
         std::thread::spawn(move || {
             // A decoder that panics on a broken file must not end the thread: the busy pointer
@@ -1145,16 +1145,7 @@ impl crate::App {
     /// manager copies them.
     pub(crate) fn copy_files(&mut self) {
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let clipboard = match self.work.clipboard.take() {
-            Some(c) => Ok(c),
-            None => arboard::Clipboard::new(),
-        };
-        let result = clipboard.and_then(|mut c| {
-            let set = c.set().file_list(&paths);
-            // On X11 the clipboard is served from this object: keep it.
-            self.work.clipboard = Some(c);
-            set
-        });
+        let result = (self.work.clipboard()).and_then(|c| c.set().file_list(&paths));
         if let Err(e) = result {
             self.notice = Some(tf!("Could not copy to the clipboard: {e}", e));
         }

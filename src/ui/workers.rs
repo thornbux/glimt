@@ -1,7 +1,6 @@
 //! The background workers: decoding thumbnails, and what the window collects from every background
 //! job each frame.
 
-use crate::files::file_ops::Job;
 use crate::images::colour::srgb_to_display;
 use crate::images::decode::color_image;
 use crate::support::lang::tr;
@@ -40,7 +39,7 @@ impl crate::App {
         }
         self.receive_focus(ctx);
         self.receive_remote(ctx);
-        if let Took::Answer(img) = self.work.clip_rx.take() {
+        if let Some(img) = self.work.take_image() {
             ctx.copy_image(img);
         }
         self.receive_dropped(ctx);
@@ -84,22 +83,16 @@ impl crate::App {
     /// File operations: the jobs and the files they touch let go when done (an `exif:` search
     /// reads what it held back for keywords written), closing once they are, and saved turns.
     fn receive_file_work(&mut self, ctx: &egui::Context) {
-        let sidecars = |jobs: &[Arc<Job>]| jobs.iter().any(|j| j.sidecars);
-        let were_writing = sidecars(&self.work.jobs);
-        self.work.jobs.retain(|job| Arc::strong_count(job) > 1);
         // Keywords written: an `exif:` search reads what it held back for them.
-        let held = self.search.holds_exif_reads();
-        if were_writing && !sidecars(&self.work.jobs) && held {
+        if self.work.let_go_of_ended() && self.search.holds_exif_reads() {
             self.update_search(ctx);
         }
-        self.work.touching.retain(|t| Arc::strong_count(t) > 1);
         if self.work_left() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         } else if self.window.closes_asked() > 0 {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        while let Ok((path, result)) = self.work.saved_rx.try_recv() {
-            self.work.saving.remove(&path);
+        while let Some((path, result)) = self.work.take_saved() {
             match result {
                 Ok(()) => self.files_changed(&[path]),
                 Err(e) => self.notice = Some(tf!("Could not save the orientation: {e}", e)),
@@ -152,23 +145,13 @@ impl crate::App {
 
     /// Rename Many done, and the renames a crash cut short, found at start.
     fn receive_renames(&mut self, ctx: &egui::Context) {
-        match self.work.renaming_rx.take() {
-            Took::Answer(result) => {
-                if let Some(job) = self.work.renaming.take() {
-                    self.renamed(ctx, job, result);
-                }
-            }
-            // Gone without a word: not waited for at closing, Rename Many not refused for ever.
-            Took::Gone => {
-                self.work.renaming = None;
-                self.stopped(tr("Rename Many"));
-            }
-            Took::Nothing => {}
+        match self.work.take_renamed() {
+            Took::Answer((Some(job), result)) => self.renamed(ctx, job, result),
+            Took::Answer((None, _)) | Took::Nothing => {}
+            Took::Gone => self.stopped(tr("Rename Many")),
         }
-        match self.work.cut_short_rx.take() {
-            Took::Answer(found) => self.work.cut_short = found,
-            Took::Gone => self.stopped(tr("Looking for renames cut short")),
-            Took::Nothing => {}
+        if !self.work.receive_cut_short() {
+            self.stopped(tr("Looking for renames cut short"));
         }
     }
 
