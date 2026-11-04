@@ -453,12 +453,19 @@ fn encode(
     Ok(out)
 }
 
-/// `jpeg` with `xmp` in an APP1 segment of Adobe's name, right after the start (SOI).
+/// Puts `xmp` into `jpeg` in an APP1 segment of Adobe's name, right after the start (SOI).
+/// An XMP packet too long for one segment is left out, so a copy from a PNG or TIFF with a long
+/// editing history is still made.
 fn jpeg_with_xmp(jpeg: &[u8], xmp: &[u8]) -> Result<Vec<u8>, String> {
     const NAME: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
     let len = 2 + NAME.len() + xmp.len();
-    if !jpeg.starts_with(&[0xFF, 0xD8]) || len > 0xFFFF {
-        return Err("not a JPEG file, or its XMP too long".into());
+    if !jpeg.starts_with(&[0xFF, 0xD8]) {
+        return Err("not a JPEG file".into());
+    }
+    // shortcut: Extended XMP over several segments is not written; write it if a copy that
+    // keeps such a packet is ever asked for.
+    if len > 0xFFFF {
+        return Ok(jpeg.to_vec());
     }
     let mut out = jpeg[..2].to_vec();
     out.extend([0xFF, 0xE1]);
@@ -660,6 +667,16 @@ pub fn webp_with_chunk(
 
 #[cfg(test)]
 mod tests {
+    /// An XMP packet too long for one APP1 segment is left out of a JPEG, not a failed save.
+    #[test]
+    fn a_jpeg_without_an_xmp_too_long() {
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xD9];
+        let with = super::jpeg_with_xmp(&jpeg, b"<x/>").unwrap();
+        assert!(with.len() > jpeg.len() && with.ends_with(&jpeg[2..]));
+        assert_eq!(super::jpeg_with_xmp(&jpeg, &[b' '; 70_000]).unwrap(), jpeg);
+        assert!(super::jpeg_with_xmp(b"GIF89a", b"<x/>").is_err());
+    }
+
     /// A damaged PNG or WebP given a chunk is refused or carried on as far as it goes, with no
     /// panic.
     #[test]
