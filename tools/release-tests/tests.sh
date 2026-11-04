@@ -56,7 +56,10 @@ if [ "$(id -u)" = 0 ]; then
   if [ "$STEP" != audit ]; then
     useradd -m tester
     chmod 777 /t/out
-    su tester -c "Xvfb :98 -screen 0 1600x1000x24 >/tmp/xvfb.log 2>&1 &"
+    # -noreset: an X server starts over when its last client closes, and refuses every client
+    # that comes in that moment. Each check starts and quits Glimt, so a window now and then got
+    # XOpenDisplayFailed.
+    su tester -c "Xvfb :98 -screen 0 1600x1000x24 -noreset >/tmp/xvfb.log 2>&1 &"
     sleep 2
     su tester -c "QUICK=$QUICK SHOTS=$SHOTS bash ${SCRIPT:-/t/tests.sh}"
     status=$?
