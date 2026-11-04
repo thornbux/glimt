@@ -2396,6 +2396,22 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
+    /// The shown image renamed in place is decoded again under its new name, also when the list
+    /// keeps its order, because forget_names dropped its decoded copy.
+    #[test]
+    fn a_renamed_shown_image_is_decoded_again() {
+        let dir = contract_folder("decode-again");
+        let (mut app, ctx) = app_on(&dir);
+        let shown = |a: &crate::App| a.list.slots().contains_key(&a.list.cur());
+        assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
+        let path = app.path(app.list.cur());
+        app.forget_names(std::slice::from_ref(&path));
+        assert!(!shown(&app));
+        app.list(&ctx);
+        assert!(settle(&mut app, &ctx, |a| !a.working() && shown(a)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A file moved, renamed or deleted takes what Glimt keeps of it by name along, so a file of
     /// that name later is read for itself, not shown with the old one's size or Check Images'
     /// mark.

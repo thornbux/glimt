@@ -964,6 +964,9 @@ impl crate::App {
             // A file may have been saved over under its own name (an editor writes and
             // renames), so its size and date are read again, for the rows on screen only.
             self.list.forget_details();
+            // A rename keeps the list as it is but forgot the file's decoded image, which is
+            // asked for again here.
+            self.refill();
             return;
         }
         // Glimt went to an image by itself, in the name order of a tree's first images. The
