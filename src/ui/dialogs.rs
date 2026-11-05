@@ -451,7 +451,7 @@ impl crate::App {
             let Some(found) = self.asked_targets() else {
                 return;
             };
-            self.list.select(found.into_iter().collect());
+            self.set_selection(ctx, found.into_iter().collect());
             return match collections::new_file(text) {
                 Ok(file) => self.add_to_collection(ctx, &file),
                 Err(e) => self.notice = Some(e),
