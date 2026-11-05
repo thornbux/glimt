@@ -354,7 +354,8 @@ pub fn animation(path: &Path, max: [u32; 2]) -> Option<(Frames, [usize; 2])> {
     }
     let (mut out, mut orig, mut bytes) = (Vec::new(), [0, 0], 0);
     for frame in frames {
-        let frame = frame.ok()?;
+        // A GIF cut short in a download keeps the frames that came, as browsers show them.
+        let Ok(frame) = frame else { break };
         let (n, d) = frame.delay().numer_denom_ms();
         // Browsers show delays under 20 ms as 100 ms, and many GIFs rely on it.
         let ms = Some(n / d.max(1)).filter(|&ms| ms >= 20).unwrap_or(100);
@@ -1112,6 +1113,21 @@ mod tests {
             std::fs::write(&file, &bytes).unwrap();
             let _ = super::animation(&file, [8, 8]);
         }
+        // One cut off inside its last frame keeps the frames before it.
+        let mut cut = Vec::new();
+        {
+            let mut enc = image::codecs::gif::GifEncoder::new(&mut cut);
+            for k in 0..3u32 {
+                let noise =
+                    (0..32 * 32 * 4).map(|i: u32| (i.wrapping_mul(2654435761 + k) >> 24) as u8);
+                let frame = image::RgbaImage::from_raw(32, 32, noise.collect()).unwrap();
+                enc.encode_frame(image::Frame::new(frame)).unwrap();
+            }
+        }
+        cut.truncate(cut.len() - 100);
+        std::fs::write(&file, &cut).unwrap();
+        let (frames, _) = super::animation(&file, [32, 32]).unwrap();
+        assert_eq!(frames.len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

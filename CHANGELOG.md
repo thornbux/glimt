@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- An animated GIF cut short in a download shows the frames that came, not only its first frame as a
+  still.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
