@@ -296,10 +296,10 @@ pub fn run_limited(
     let out = out.ok_or_else(|| format!("{program}: too much output"))?;
     match ok {
         true => Ok(out),
-        false => Err(match err.lines().last().map(str::trim) {
-            Some(last) if !last.is_empty() => last.to_owned(),
-            _ => format!("{program} failed or did not end in time"),
-        }),
+        false => Err(last_line(
+            &err,
+            &format!("{program} failed or did not end in time"),
+        )),
     }
 }
 
@@ -404,6 +404,16 @@ fn last_text(mut from: impl std::io::Read, keep: usize) -> String {
     String::from_utf8_lossy(&text).into_owned()
 }
 
+/// Returns the last line of a program's errors that is not empty, trimmed, or `fallback` when
+/// there is none. A damaged video makes ffmpeg write an error for every packet, and only the
+/// last one is told.
+pub(crate) fn last_line(err: &str, fallback: &str) -> String {
+    (err.lines().map(str::trim))
+        .rfind(|l| !l.is_empty())
+        .unwrap_or(fallback)
+        .to_owned()
+}
+
 /// One frame of `path` as decoded by ffmpeg, with options before and after the input.
 #[cfg(any(feature = "video", feature = "heic", feature = "avif"))]
 pub fn ffmpeg_ppm(
@@ -427,12 +437,7 @@ pub fn ffmpeg_ppm(
     let (frame, err, ok) = output_of(&mut child, limit, LIMIT);
     let frame = frame.ok_or("image too large")?;
     if !ok || frame.is_empty() {
-        let err = err.trim();
-        return Err(if err.is_empty() {
-            "no frame".into()
-        } else {
-            err.to_owned()
-        });
+        return Err(last_line(&err, "no frame"));
     }
     image::load_from_memory_with_format(&frame, image::ImageFormat::Pnm).map_err(|e| e.to_string())
 }
@@ -1010,6 +1015,9 @@ mod tests {
         let text = super::last_text(&out[..], 1000);
         assert!(text.len() <= 2000);
         assert!(text.ends_with(".mp4: no frame"));
+        let told = super::last_line(&(text + "\n  \n"), "failed");
+        assert!(told.starts_with("ferie_") && told.ends_with(".mp4: no frame"));
+        assert_eq!(super::last_line(" \n", "failed"), "failed");
     }
 
     /// A server name the system finds needs no hint, and one it does not gets name.local or the

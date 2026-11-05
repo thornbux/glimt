@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A damaged video or HEIC shows ffmpeg's last error line, not up to 64 KB of its errors over the
+  image and in Check Images.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

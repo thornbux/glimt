@@ -65,7 +65,7 @@ impl Decoder {
         let (image, err, ok) = crate::files::external::output_of(&mut child, max, limit);
         let image = image.ok_or_else(|| format!("{}: image too large", self.name))?;
         if !ok || image.is_empty() {
-            let last = err.lines().last().unwrap_or("no image").trim().to_owned();
+            let last = crate::files::external::last_line(&err, "no image");
             return Err(format!("{}: {last}", self.name));
         }
         image::load_from_memory(&image).map_err(|e| format!("{}: {e}", self.name))
