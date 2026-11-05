@@ -664,7 +664,7 @@ for v in new old; do
     config confirm_delete=false
     start $d
     # a and b selected, then a file comes from elsewhere and auto refresh reads the folder.
-    click 150 337; xdotool keydown ctrl; click 150 419; xdotool keyup ctrl
+    menu a.jpg; xdotool keydown ctrl; menu b.jpg; xdotool keyup ctrl
     cp $d/c.jpg $d/new.jpg; sleep 3
     shot refresh-selection-$v
     key shift+Delete; until_gone $d/a.jpg; until_gone $d/b.jpg; sleep 1
@@ -687,7 +687,7 @@ break.jpg"
     start $d/a.jpg
     sleep 1
     current=$(remote current | tr '\0' '|')
-    click 150 337; xdotool keydown ctrl; click 150 419; xdotool keyup ctrl
+    menu a.jpg; xdotool keydown ctrl; menu b.jpg; xdotool keyup ctrl
     selection=$(remote selection | tr '\0' '|')
     # The name with a line break, shown: its path read whole, the file found by it.
     key End; sleep 1
@@ -1031,7 +1031,7 @@ for v in new old; do
     config
     start $d/a.png
     sleep 2
-    xdotool mousemove 120 419 click 3; sleep 1   # b.png's row: selected, its menu opens
+    rclick b.png; sleep 1                        # b.png's row: selected, its menu opens
     key Escape
     key ctrl+r; sleep 1
     key ctrl+a
@@ -1616,15 +1616,16 @@ for v in new old; do
     config
     start $d
     sleep 2
-    # The matches of a search, read back: all of them selected, then asked for.
+    # The matches of a search, read back: all of them selected, then asked for. FIRST is the
+    # first match's name, clicked to put the keys in the list, where Ctrl+A selects every match.
     found() {
         click 120 284; key ctrl+a; xdotool type "$1"; sleep 2
-        click 150 337; key ctrl+a; sleep 1
+        menu "$2"; key ctrl+a; sleep 1
         remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' '
     }
-    and_not=$(found 'sunset -re:png$')
-    either=$(found 'beach | re:png$')
-    grouped=$(found '( sunset | beach ) -( re:png$ )')
+    and_not=$(found 'sunset -re:png$' a_sunset.jpg)
+    either=$(found 'beach | re:png$' b_sunset.png)
+    grouped=$(found '( sunset | beach ) -( re:png$ )' a_sunset.jpg)
     quit
     if [ $v = new ]; then
         expect "sunset and not .png" "$and_not" "a_sunset.jpg "
@@ -1653,7 +1654,7 @@ for v in new old; do
     mode=$(grep -o '^fuzzy_search=.*' $XDG_CONFIG_HOME/glimt/config)
     # A pattern fuzzy search finds nothing with: a class of two letters at the start.
     click 120 284; key ctrl+a; xdotool type '^[bc]'; sleep 2
-    click 150 337; key ctrl+a; sleep 1
+    menu b.jpg; key ctrl+a; sleep 1
     found=$(remote selection | tr '\0' '\n' | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
     menu ".*"; sleep 1
     back=$(grep -o '^fuzzy_search=.*' $XDG_CONFIG_HOME/glimt/config)
@@ -2491,7 +2492,7 @@ for v in new old; do
     sleep 2
     key Tab; key Tab; sleep 1
     shot focus-tab-$v
-    click 99 36; sleep 1    # a click on a button: the ring goes
+    menu Up; sleep 1        # a click on a button: the ring goes
     shot focus-click-$v
     quit
 done
@@ -3469,7 +3470,7 @@ for v in new old; do
     config
     start $d
     answer $pdf; key ctrl+p; sleep 2
-    click 600 495 0.5                # Top of each page
+    menu "Top of each page:"
     xdotool type Summer; key Return; sleep 3
     typed=$([ -s $pdf ] && echo printed || echo kept)
     # The dialog still prints: Enter again, with no field being typed in.

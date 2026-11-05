@@ -143,6 +143,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Move Collection to Trash asks before the collection's file goes to the trash, as Move Folder to
   Trash does.
+### Changed
+
+- The release tests click file rows, the print dialog's page text and the toolbar by their text
+  instead of at fixed places.
 
 ## [0.57.0] - 2026-11-05
 
