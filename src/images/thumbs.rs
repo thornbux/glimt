@@ -165,9 +165,21 @@ pub fn clean() -> (usize, usize) {
     cache_dir().map_or((0, 0), |cache| clean_in(&cache))
 }
 
-/// `clean` in the thumbnail cache `cache`.
+/// `clean` in the thumbnail cache `cache`. Older Glimts' folders of failure markers are of no
+/// use to this one, so each of them goes whole and counts as one removed.
 fn clean_in(cache: &Path) -> (usize, usize) {
     let (mut removed, mut seen) = (0, 0);
+    let own = Path::new(FAILED).file_name();
+    for entry in (std::fs::read_dir(cache.join("fail")).into_iter().flatten()).flatten() {
+        let name = entry.file_name();
+        // remove_dir_all removes a link there, never what it points to.
+        if name.as_encoded_bytes().starts_with(b"glimt-")
+            && Some(name.as_os_str()) != own
+            && std::fs::remove_dir_all(entry.path()).is_ok()
+        {
+            (seen, removed) = (seen + 1, removed + 1);
+        }
+    }
     for folder in SIZES.map(|s| s.1).into_iter().chain([FAILED]) {
         for entry in std::fs::read_dir(cache.join(folder))
             .into_iter()
@@ -315,7 +327,18 @@ mod tests {
         thumb("kept.png", &photos.join("kept.png"));
         thumb("gone.png", &photos.join("gone.png"));
         thumb("unplugged.png", &dir.join("not-plugged-in/x.png"));
-        assert_eq!(super::clean_in(&cache), (1, 3));
+        // An older Glimt's failure markers go whole, and this one's and other programs' stay.
+        let fail = cache.join("fail");
+        for folder in ["glimt-0.1.0", "gnome-thumbnail-factory"] {
+            std::fs::create_dir_all(fail.join(folder)).unwrap();
+            std::fs::write(fail.join(folder).join("x.png"), "x").unwrap();
+        }
+        std::fs::create_dir_all(cache.join(super::FAILED)).unwrap();
+        assert_eq!(super::clean_in(&cache), (2, 4));
+        assert!(
+            !fail.join("glimt-0.1.0").exists() && fail.join("gnome-thumbnail-factory").exists()
+        );
+        assert!(cache.join(super::FAILED).exists());
         let left: Vec<_> = (std::fs::read_dir(cache.join("normal")).unwrap())
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
