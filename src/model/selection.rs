@@ -55,12 +55,19 @@ impl crate::App {
         })
     }
 
-    /// Shows file `idx`. When it is the image shown already, nothing changes, so its zoom, turn
-    /// and page stay. This holds for every caller: a click, a pane, a slide or a remote command.
+    /// Shows file `idx`. When it is the image shown already, its zoom, turn and page stay. This
+    /// holds for every caller: a click, a pane, a slide or a remote command. Only a decode that
+    /// failed (a share away for a moment) is tried again, as when it is shown anew.
     pub(crate) fn go(&mut self, ctx: &egui::Context, idx: usize) {
-        let last = self.list.files().len().saturating_sub(1);
-        if !self.list.files().is_empty() && idx.min(last) != self.list.cur() {
+        if self.list.files().is_empty() {
+            return;
+        }
+        let idx = idx.min(self.list.files().len() - 1);
+        if idx != self.list.cur() {
             self.show(ctx, idx);
+        } else if self.list.decode_errors().contains_key(&idx) {
+            self.list.forget_decode_error(idx);
+            self.refill();
         }
     }
 
@@ -374,6 +381,11 @@ mod tests {
         app.go_to_pane(&ctx, crate::ui::actions::Action::PaneLeft);
         assert_eq!((app.list.cur(), app.viewing.orient()), (0, (1, false)));
         app.shuffle_list(&ctx, true);
+        assert_eq!(app.viewing.orient(), (1, false));
+        // A decode of the shown image that failed is tried again when it is gone to again.
+        app.list.decode_failed(0, "the share is away".into());
+        app.go(&ctx, 0);
+        assert!(!app.list.decode_errors().contains_key(&0));
         assert_eq!(app.viewing.orient(), (1, false));
         std::fs::remove_dir_all(dir).unwrap();
     }
