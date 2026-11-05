@@ -89,6 +89,14 @@ pub(crate) enum Undo {
     Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
+/// Files held for work that is not a job (`App::hold`). Other operations on them wait while it
+/// lives. The work moves it into its thread, so the hold ends when the work does, also when the
+/// thread panics.
+pub(crate) struct Hold {
+    /// The files, counted by `touched` while this lives. It is never read, only held.
+    _paths: Arc<Vec<PathBuf>>,
+}
+
 /// A file operation running in the background (copy, move, delete, keywords, a Lightroom
 /// import). The status bar shows how far it is, and its Stop takes effect between files.
 pub(crate) struct Job {
@@ -1295,6 +1303,19 @@ impl crate::App {
 
     // ---- Work in the background: sidecars, frames, the backup and other jobs ----
 
+    /// Holds `paths` for work that is not a job, once they are free to change. Other operations
+    /// on them wait while the returned `Hold` lives, so the work moves it into its thread.
+    /// Returns `None`, with a notice, while something else works on them. Work on none of the
+    /// user's files (an empty `paths`) is never held back and holds nothing.
+    pub(crate) fn hold(&mut self, paths: Vec<PathBuf>) -> Option<Hold> {
+        if !paths.is_empty() && !self.none_saving(&paths) {
+            return None;
+        }
+        let held = Arc::new(paths);
+        self.work.touching.push(held.clone());
+        Some(Hold { _paths: held })
+    }
+
     /// Runs `work`, which writes files and changes `touches`, in a thread of its own. The busy
     /// pointer shows meanwhile, closing waits for it, and what it returns is told in the window.
     /// It is not started, and a notice says so, while something else works on `touches`
@@ -1309,16 +1330,14 @@ impl crate::App {
         // Work that changes none of the user's files (within a job that holds them, or on
         // Glimt's own collections) waits for nothing. A Lightroom import's collections were
         // refused while its own keywords were being written.
-        if !touches.is_empty() && !self.none_saving(&touches) {
+        let Some(hold) = self.hold(touches) else {
             return false;
-        }
-        let touching = Arc::new(touches);
-        self.work.touching.push(touching.clone());
+        };
         let (tx, ctx) = (self.notices_tx.clone(), ctx.clone());
         let pointer = Working::new(&self.busy);
         let writing = Working::new(&crate::files::file_io::WRITING);
         std::thread::spawn(move || {
-            let _writing = (writing, touching);
+            let _writing = (writing, hold);
             if let Some(text) = work() {
                 let _ = tx.send(text);
             }
@@ -2207,6 +2226,11 @@ mod tests {
         ];
         const OUTSIDE: &[(&str, &str)] = &[
             ("start_job", "the start itself"),
+            ("background", "the start itself"),
+            (
+                "plugins_menu",
+                "a program of the user's that holds its files; a_hold_holds_its_files_back",
+            ),
             (
                 "save_crop",
                 "a new file beside the image: save::land's tests; it needs a decoded image",
@@ -2240,7 +2264,12 @@ mod tests {
                         function = rest[..end].to_owned();
                     }
                 }
-                let starts = ["self.start_job(", "self.start_job_of(", "self.background("];
+                let starts = [
+                    "self.start_job(",
+                    "self.start_job_of(",
+                    "self.background(",
+                    "self.hold(",
+                ];
                 if starts.iter().any(|s| line.contains(s)) && !line.trim_start().starts_with("//") {
                     found.insert(function.clone());
                 }
@@ -2660,5 +2689,22 @@ mod tests {
         app.delete_now(&ctx, false, vec![b]);
         assert!(settle(&mut app, &ctx, |_| !entries(&gqv).contains("b.png")));
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Files held by `hold`, as a plugin running on them holds them, hold back every other
+    /// operation on them until the hold ends.
+    #[test]
+    fn a_hold_holds_its_files_back() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-hold-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, _ctx) = crate::support::test_support::app_on(&dir);
+        let hold = app.hold(vec![a.clone()]).unwrap();
+        assert!(!app.none_saving(std::slice::from_ref(&a)));
+        assert!(app.hold(vec![a.clone()]).is_none());
+        drop(hold);
+        assert!(app.none_saving(std::slice::from_ref(&a)));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

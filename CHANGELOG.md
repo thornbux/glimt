@@ -35,6 +35,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - After a plugin changes the shown photo (describing it, say), the info panel shows its new
   keywords, comment and alt text, and the screen reader reads them, not only after another
   photo and back. Before, an edit in the panel could save the old ones over the plugin's.
+- A delete, move or rename of files a plugin is still working on waits until the plugin ends,
+  as for every other file operation.
 
 ## [0.57.0] - 2026-11-05
 
