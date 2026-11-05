@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Three release checks (a collection moved to the trash, a copy closed twice, a long error) passed
+  when their action never ran; each now needs to see the action happen.
 - run.sh and the screenshots' run.sh take tests.sh, samples.txt and shots.sh from the commit they
   test, not from the working tree.
 - The release tests' kiosk, --lock-settings, Crop and printing checks that expect nothing to happen

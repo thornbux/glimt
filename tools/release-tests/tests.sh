@@ -895,7 +895,7 @@ for v in new old; do
     rm -rf $d    # 6 GB
     if [ $v = new ]; then
         expect "no hidden half copy, every copy whole" "$parts $([ $copied = $whole ] && echo whole)" "0 whole"
-        expect "stopped before all 240" "$([ $copied -lt 240 ] && echo yes)" yes
+        expect "copied some, stopped before all 240" "$([ $copied -ge 1 ] && [ $copied -lt 240 ] && echo yes)" yes
     else note "old: $parts hidden, $copied copied, $whole whole"; fi
 done
 as_version new
@@ -1592,9 +1592,12 @@ for v in new old; do
     sleep 3
     shot long-error-$v
     quit
-    # The image area starts at x=240: no text in its first 10 pixels.
+    # The image area starts at x=240. Its first 10 pixels have no text, while the place where
+    # the error's lines start has some, so the error was drawn.
     edge=$(convert /t/out/long-error-$v.png -crop 10x400+241+200 -format "%[fx:int(255*maxima.r)]" info:)
-    if [ $v = new ]; then expect "nothing at the image area's edge" "$([ $edge -lt 40 ] && echo none)" none
+    lines=$(convert /t/out/long-error-$v.png -crop 100x100+270+370 -format "%[fx:int(255*maxima.r)]" info:)
+    if [ $v = new ]; then expect "the error drawn where its lines start" "$([ $lines -ge 100 ] && echo text)" text
+        expect "nothing at the image area's edge" "$([ $edge -lt 40 ] && echo none)" none
     else note "old, at the edge: $edge"; fi
 done
 as_version new
@@ -2877,7 +2880,7 @@ menu File "Move Collection to Trash"; sleep 2
 shot collection-trashed
 quit
 expect "renamed in its folder" "$renamed" "New.gqv "
-expect "the collection in the trash" "$(ls $c; ls $H/.local/share/Trash/files)" "New.gqv"
+expect "the collection in the trash" "$(ls $c | wc -l) $(ls $H/.local/share/Trash/files)" "0 New.gqv"
 expect "its image stays" "$(ls $d)" "a.jpg"
 echo "-- Ctrl+Z: a file back from the trash, a renamed one back to its old name"
 for v in new old; do
