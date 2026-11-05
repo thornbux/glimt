@@ -24,6 +24,10 @@ const FILES_ONLY: [&str; 4] = [
 /// can keep it busy for good, and the decoder thread with it.
 pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// The line `output_of` adds to a program's errors when the time limit ended it. A thumbnail is
+/// not marked as failed over it, because a share that wakes slowly may answer the next time.
+pub(crate) const TIMED_OUT: &str = "did not end in time";
+
 /// Ends the process group of `pid` once it has gone `limit` without progress, unless it is
 /// dropped first because the program ended. It is for a program fed on its input or read line
 /// by line (gio mount, lp), which `output_of` cannot run. `feed` tells it of progress (a page
@@ -384,7 +388,10 @@ pub fn output_of(
     let ok = child.wait().is_ok_and(|s| s.success());
     // This waits only once its errors are read to their end, because a helper it left behind
     // may hold them open.
-    let err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
+    let mut err = errors.and_then(|t| t.join().ok()).unwrap_or_default();
+    if dog.gave_up() {
+        err = format!("{err}\n{TIMED_OUT}");
+    }
     drop(dog);
     ((!large).then_some(out), err, ok)
 }

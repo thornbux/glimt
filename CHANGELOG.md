@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A video or plugin-decoded file whose thumbnail timed out on a slow share, or failed with an
+  I/O error, is tried again later instead of keeping the no-thumbnail icon for good.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

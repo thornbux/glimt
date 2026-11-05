@@ -17,6 +17,10 @@ pub fn preview(
     max: Option<[u32; 2]>,
 ) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
     use crate::files::external::{ffmpeg_frame, probe_size};
-    let img = ffmpeg_frame(path, "1", max).or_else(|_| ffmpeg_frame(path, "0", max))?;
+    // A frame that took too long is not asked for again at 0, which would wait as long.
+    let img = match ffmpeg_frame(path, "1", max) {
+        Err(e) if !e.contains(crate::files::external::TIMED_OUT) => ffmpeg_frame(path, "0", max)?,
+        frame => frame?,
+    };
     Ok((img, max.and_then(|_| probe_size(path))))
 }

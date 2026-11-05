@@ -160,7 +160,11 @@ mod tests {
         let slow = "Name=Slow\nExtensions=xyz\nExec=sh -c \"sleep 30\" %f";
         let slow = super::parse(slow, &dir).unwrap();
         let start = std::time::Instant::now();
-        assert!(slow.run(&file, Duration::from_millis(300)).is_err());
+        let error = slow.run(&file, Duration::from_millis(300)).unwrap_err();
+        assert_eq!(
+            error,
+            format!("Slow: {}", crate::files::external::TIMED_OUT)
+        );
         assert!(start.elapsed() < Duration::from_secs(5));
         // One that ignores TERM: killed a second later.
         let stubborn = "Name=Stubborn\nExtensions=xyz\nExec=sh -c \"trap '' TERM; sleep 30\" %f";
