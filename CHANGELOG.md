@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Actions that need a file are refused once, at the top of App::run, and a test runs every action in
+  an empty folder.
 - A decoder made directly is decoded only through decode::from_decoder, after the size limit, and
   clippy refuses the image crate's own from_decoder.
 - A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
