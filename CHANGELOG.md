@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- With a screen reader, an image a search hides is read as not among the matches, not as a dash
+  of the number of matches. Its place is read in the chosen language.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

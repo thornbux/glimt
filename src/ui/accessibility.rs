@@ -18,7 +18,7 @@ impl App {
             // Read in the background, as for the EXIF panel: here once for each image.
             self.want_exif(ui.ctx());
             let path = self.path(self.list.cur());
-            let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
+            let place = self.spoken_place();
             // The name the list shows, not the whole path a collection's entry holds.
             let mut text = format!("{}, {place}", self.name(self.list.cur()));
             if let Some(e) = self.list.decode_errors().get(&self.list.cur()) {
@@ -64,5 +64,46 @@ impl App {
             };
             ui.memory_mut(|m| m.set_focus_lock_filter(response.id, keys));
         }
+    }
+
+    /// The shown image's place in the list as a screen reader says it, such as "3 of 16". A
+    /// search can hide the shown image, which then has no row, so the reader hears that it is
+    /// not among the matches instead of the dash the status bar shows.
+    pub(crate) fn spoken_place(&self) -> String {
+        use crate::support::format::thousands;
+        let (row, total) = match self.list.matches() {
+            Some(m) => (self.cur_row(m), m.len()),
+            None => (Some(self.list.cur()), self.list.files().len()),
+        };
+        match row {
+            Some(row) => crate::tf!(
+                "{done} of {total}",
+                done = thousands(row + 1),
+                total = thousands(total)
+            ),
+            None => crate::support::lang::tr("not among the matches").to_owned(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::support::test_support::app_on;
+
+    /// The place read out is the row among the matches, and a shown image the search hides is
+    /// said to be outside them, not "– of 3".
+    #[test]
+    fn a_hidden_image_is_not_among_the_matches() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-speak-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, _ctx) = app_on(&dir);
+        app.list
+            .set_files((0..5).map(|i| format!("{i}.png").into()).collect());
+        assert_eq!(app.spoken_place(), "1 of 5");
+        app.list.set_matches(Some(vec![1, 2, 3]));
+        assert_eq!(app.spoken_place(), "not among the matches");
+        app.list.set_cur(2);
+        assert_eq!(app.spoken_place(), "2 of 3");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

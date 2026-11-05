@@ -2367,3 +2367,11 @@ msgstr "Drukowanie anulowane"
 
 msgid "Choose Application…"
 msgstr "Wybierz aplikację…"
+
+#: src/ui/accessibility.rs
+msgid "{done} of {total}"
+msgstr "{done} z {total}"
+
+#: src/ui/accessibility.rs
+msgid "not among the matches"
+msgstr "nie ma wśród wyników"
