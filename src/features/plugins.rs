@@ -49,28 +49,39 @@ impl Plugin {
             // `stoppable_command`: its --watch-bus would end an editor
             // on the host when the Flatpak's Glimt closes, with its unsaved work.
             use std::os::unix::process::CommandExt;
-            let child = crate::files::external::host_command(program.to_string_lossy().as_ref())
-                .process_group(0)
-                .args(&args[1..])
-                .current_dir(folder)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            let mut child =
+                crate::files::external::host_command(program.to_string_lossy().as_ref())
+                    .process_group(0)
+                    .args(&args[1..])
+                    .current_dir(folder)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
             let pid = child.id();
             running.lock().unwrap().push((self.name.clone(), pid));
+            // Its errors are read in a thread of their own, and only the last of them are kept.
+            // A program the plugin started in the background (an editor, `xdg-open`) may hold
+            // them open for hours, so the plugin is waited for, not the end of its errors.
+            let errors = child.stderr.take().map(|e| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || tx.send(crate::files::external::last_text(e, 64 << 10)));
+                rx
+            });
             #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
-            let out = child.wait_with_output();
+            let status = child.wait();
             let mut now = running.lock().unwrap();
             match now.iter().position(|r| r.1 == pid) {
                 Some(at) => drop(now.remove(at)),
                 None => return Err(crate::support::lang::tr("stopped").into()),
             }
             drop(now);
-            let out = out.map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
-            if !out.status.success() {
-                let err = String::from_utf8_lossy(&out.stderr);
+            let status = status.map_err(|e| format!("{}: {e}", program.to_string_lossy()))?;
+            if !status.success() {
+                let wait = std::time::Duration::from_millis(500);
+                let err = errors.and_then(|rx| rx.recv_timeout(wait).ok());
+                let err = err.unwrap_or_default();
                 return Err(err.lines().last().unwrap_or("failed").to_owned());
             }
         }
@@ -249,6 +260,15 @@ mod tests {
             failing.unwrap().run(&files, &dir, &Running::default()),
             Err("no".into())
         );
+        // One that leaves a program running in the background with its errors open: done once
+        // the plugin itself has ended.
+        let helper = "[Desktop Entry]\nName=Helper\nExec=sh -c \"sleep 5 & exit 0\"\n";
+        let start = std::time::Instant::now();
+        let ran = parse(helper, &dir)
+            .unwrap()
+            .run(&files, &dir, &Running::default());
+        assert_eq!(ran, Ok(()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(3));
         // One that does not end, stopped from the menu: ended with what it started, and told.
         let endless = "[Desktop Entry]\nName=Endless\nExec=sh -c \"sleep 30; sleep 30\"\n";
         let endless = parse(endless, &dir).unwrap();

@@ -400,7 +400,7 @@ pub fn output_of(
 /// name in another encoding). It is read to its end so the program never waits on a full pipe.
 /// A damaged video can make ffmpeg write an error for every packet, and the last line is what
 /// is told.
-fn last_text(mut from: impl std::io::Read, keep: usize) -> String {
+pub(crate) fn last_text(mut from: impl std::io::Read, keep: usize) -> String {
     let (mut text, mut chunk) = (Vec::new(), [0u8; 8192]);
     while let Ok(n @ 1..) = from.read(&mut chunk) {
         text.extend_from_slice(&chunk[..n]);
