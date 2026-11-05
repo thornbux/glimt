@@ -69,6 +69,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A source test checks that each name in a row of AGENTS.md's code layout is defined in that row's
   file, so a function moved to another module takes its name to that module's row.
 - Enter in a text field, such as the toolbar's folder path, no longer saves a crop being chosen.
+- Open With and the video player no longer keep a thread and everything the opened application
+  prints on its errors for as long as it stays open.
 - A video player or Open With program that fails without printing why now shows its exit status,
   where it showed an empty notice.
 

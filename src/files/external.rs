@@ -667,13 +667,46 @@ fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> 
         .collect()
 }
 
-/// Returns how the program `name` that failed with `out` is told: by what it printed on its
-/// errors, or by its exit status when it printed nothing, so the notice is never empty.
-pub(crate) fn failure(name: &str, out: &std::process::Output) -> String {
-    match String::from_utf8_lossy(&out.stderr).trim() {
-        "" => format!("{name}: {}", out.status),
-        err => err.to_owned(),
+/// Returns how the program `name` that failed with `errors` and `status` is told: by the last
+/// line it printed on its errors, or by its exit status when it printed nothing, so the notice
+/// is never empty.
+fn failure(name: &str, errors: &str, status: std::process::ExitStatus) -> String {
+    match (errors.lines().map(str::trim)).rfind(|l| !l.is_empty()) {
+        Some(line) => line.to_owned(),
+        None => format!("{name}: {status}"),
     }
+}
+
+/// Waits for `child`, the user's program `name`, started with its errors piped, to end. Its
+/// errors are read in a thread of their own, and only their last part is kept. A program it
+/// started in the background (an editor, the application `gio launch` opened) may hold them
+/// open for hours, so `child` is waited for, not the end of its errors. Returns how it failed,
+/// when it did (`failure`).
+pub(crate) fn wait_telling(mut child: std::process::Child, name: &str) -> Result<(), String> {
+    let errors = child.stderr.take().map(|e| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(last_text(e, 64 << 10)));
+        rx
+    });
+    #[allow(clippy::disallowed_methods)] // the user's own program, which may take long
+    let status = child.wait().map_err(|e| format!("{name}: {e}"))?;
+    if status.success() {
+        return Ok(());
+    }
+    let wait = std::time::Duration::from_millis(500);
+    let err = errors.and_then(|rx| rx.recv_timeout(wait).ok());
+    Err(failure(name, &err.unwrap_or_default(), status))
+}
+
+/// Runs `cmd`, the user's program `name`, and waits for it in this thread, which the caller
+/// starts for it, as it may stay open for hours. Its output is not read, so a program that
+/// prints for hours is not kept. Returns how it failed, when it did.
+pub(crate) fn run_telling(name: &str, mut cmd: std::process::Command) -> Result<(), String> {
+    let child = (cmd.stdout(std::process::Stdio::null()))
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{name}: {e}"))?;
+    wait_telling(child, name)
 }
 
 /// Open `url` in the default browser, in the background.
@@ -857,22 +890,22 @@ fn host_data_dirs(home: &str) -> [String; 2] {
 
 #[cfg(test)]
 mod tests {
-    /// A program that fails is told by what it printed on its errors, or by its exit status
-    /// when it printed nothing.
+    /// A program that failed is told by its last error line, or by its exit status when it
+    /// printed nothing, and as soon as it ends, also when a program it left behind (an
+    /// application `gio launch` started) holds its errors open.
     #[test]
-    fn a_failed_program_is_told() {
+    fn tells_a_failure_without_waiting_for_what_it_started() {
         let run = |script: &str| {
-            #[allow(clippy::disallowed_methods)] // a test's own short script
-            super::command("sh").args(["-c", script]).output().unwrap()
+            let mut sh = super::command("sh");
+            sh.args(["-c", script]);
+            super::run_telling("sh", sh)
         };
-        assert_eq!(
-            super::failure("sh", &run("echo fine; echo oops >&2; exit 1")),
-            "oops"
-        );
-        assert_eq!(
-            super::failure("silent", &run("exit 3")),
-            "silent: exit status: 3"
-        );
+        assert_eq!(run("echo one >&2; echo two >&2; exit 1"), Err("two".into()));
+        assert_eq!(run("exit 0"), Ok(()));
+        assert_eq!(run("exit 3"), Err("sh: exit status: 3".into()));
+        let start = std::time::Instant::now();
+        assert_eq!(run("sleep 8 & exit 3"), Err("sh: exit status: 3".into()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
     }
 
     /// In a Flatpak, a host program goes through flatpak-spawn, and without the permission it
