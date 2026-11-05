@@ -26,12 +26,11 @@ pub fn load_data(data: &[u8], rotate: bool) -> Result<image::DynamicImage, Strin
     let jpeg = preview(data).ok_or("no preview image in the RAW file")?;
     let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(jpeg))
         .map_err(|e| e.to_string())?;
-    crate::images::decode::check_size(&dec)?;
     // TIFF-based RAW files carry the orientation in their own header; others in the JPEG.
     let orientation = crate::metadata::exif::orientation(data)
         .or_else(|| dec.orientation().ok())
         .unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
+    let mut img = crate::images::decode::from_decoder(dec)?;
     if rotate {
         img.apply_orientation(orientation);
     }
