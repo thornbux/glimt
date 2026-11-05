@@ -180,8 +180,7 @@ impl crate::App {
             let mut changed = false;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if geeqie
-                    && ui
-                        .checkbox(&mut self.config.search_case, tr("Case"))
+                    && crate::ui::menus::checkbox(ui, &mut self.config.search_case, tr("Case"))
                         .on_hover_text(tr("Tell upper and lower case apart"))
                         .changed()
                 {

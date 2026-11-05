@@ -10,7 +10,7 @@ use crate::support::format::fill_template;
 use crate::support::lang::tr;
 use crate::support::test_hooks::noted;
 use crate::ui::actions::{Action, KIOSK_ACTIONS};
-use crate::ui::menus::{iconed, menu_item, scroll_menu};
+use crate::ui::menus::{checkbox, iconed, menu_item, scroll_menu};
 use crate::viewer::crop::Crop;
 use crate::{app_id, malloc_trim, ui::theme};
 use eframe::egui;
@@ -663,10 +663,7 @@ impl crate::App {
                 return;
             }
             ui.separator();
-            if ui
-                .checkbox(&mut self.config.layout_names, tr("Show File Names"))
-                .changed()
-            {
+            if checkbox(ui, &mut self.config.layout_names, tr("Show File Names")).changed() {
                 self.config.save();
             }
             ui.weak(tr("Slideshow in this layout:"));

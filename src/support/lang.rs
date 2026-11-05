@@ -580,6 +580,7 @@ msgstr[1] "bilder"
             "button(",
             "selectable(",
             "choice(",
+            "checkbox(",
             "radio(",
             "radio_choice(",
             "RichText::new(",

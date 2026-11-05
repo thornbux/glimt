@@ -884,6 +884,12 @@ pub(crate) fn radio_choice<T: PartialEq>(
     response
 }
 
+/// Draws a checkbox of `text` that turns `on` over when clicked, noted as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place that draws egui's own checkbox.
+pub(crate) fn checkbox(ui: &mut egui::Ui, on: &mut bool, text: &str) -> egui::Response {
+    noted(&ui.checkbox(on, text), text)
+}
+
 /// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
 /// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
 /// its colours. Phosphor's glyphs are all one em wide, so the texts line up.

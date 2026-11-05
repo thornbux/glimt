@@ -132,7 +132,8 @@ impl crate::App {
                     .to_string_lossy(),
             );
             save_as_fields(ui, &mut dialog);
-            ui.checkbox(
+            crate::ui::menus::checkbox(
+                ui,
                 &mut dialog.choice.strip,
                 tr("Remove EXIF and GPS (camera, date, place), XMP and the sidecar"),
             );

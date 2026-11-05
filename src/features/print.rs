@@ -1047,7 +1047,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
             ui.add(egui::DragValue::new(&mut dialog.copies).range(1..=99));
             ui.end_row();
             ui.label("");
-            ui.checkbox(&mut c.print_two_sided, tr("Both sides of the paper"));
+            crate::ui::menus::checkbox(ui, &mut c.print_two_sided, tr("Both sides of the paper"));
             ui.end_row();
         }
     });
@@ -1056,7 +1056,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
 /// The print dialog's texts: under each image, the fill, and the top and bottom of each page.
 fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
     ui.horizontal(|ui| {
-        ui.checkbox(&mut c.print_caption, tr("Text under each image:"));
+        crate::ui::menus::checkbox(ui, &mut c.print_caption, tr("Text under each image:"));
         ui.add_enabled(
             c.print_caption,
             egui::TextEdit::singleline(&mut c.print_template)
@@ -1065,7 +1065,8 @@ fn print_texts(ui: &mut egui::Ui, c: &mut Config) {
         )
         .on_hover_text(tr("As the full screen info: %name%, %path%, %position%, %dimensions%, %File size%, %Taken%, %Camera%, %keywords%, %comment% …"));
     });
-    ui.checkbox(
+    crate::ui::menus::checkbox(
+        ui,
         &mut c.print_fill,
         tr("Fill each box, cutting the image to it"),
     );

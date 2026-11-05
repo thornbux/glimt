@@ -30,5 +30,11 @@ disallowed-methods = [
     { path = "egui::Ui::radio_value", reason = "menus::radio_choice: noted by its text, which the release tests click" },
     { path = "egui::Button::selectable", reason = "menus::selectable: noted by its text, which the release tests click" },
     { path = "egui::Button::new", reason = "menus::button_enabled, or a menus helper: noted by its text, which the release tests click" },
+    { path = "egui::Ui::checkbox", reason = "menus::checkbox: noted by its text, which the release tests click" },
+    { path = "egui::Checkbox::new", reason = "menus::checkbox: noted by its text, which the release tests click" },
+    { path = "egui::RadioButton::new", reason = "menus::radio: noted by its text, which the release tests click" },
+    { path = "egui::Ui::toggle_value", reason = "menus::selectable: noted by its text, which the release tests click" },
+    { path = "egui::Button::image_and_text", reason = "menus::icon_button: noted by its text, which the release tests click" },
+    { path = "egui::Button::opt_image_and_text", reason = "menus::icon_button: noted by its text, which the release tests click" },
     { path = "glimt::files::file_io::file_lock", reason = "file_io::edit_shared: lock, read, change and write a shared file as one" },
 ]
