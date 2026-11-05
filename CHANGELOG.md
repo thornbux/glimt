@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- CONTRIBUTING.md and the pull request template point at AGENTS.md's checks instead of an incomplete
+  copy.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
