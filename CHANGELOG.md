@@ -132,6 +132,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - The toolbar's Refresh and Show Thumbnails buttons show the same icons as their menu items.
+### Changed
+
+- Temporary files left by a crash are hidden (.glimt-tmp-*), so a file manager no longer shows them.
 
 ## [0.57.0] - 2026-11-05
 
