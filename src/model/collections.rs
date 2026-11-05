@@ -30,23 +30,10 @@ impl crate::App {
         let Some(file) = self.folder.collection() else {
             return;
         };
-        // A plain list is the user's own: shown, never written.
-        if is_list(file) {
-            return;
-        }
         // shortcut: read and written in the UI thread, small text files; move to
         // file_io::write_later if collections of hundreds of thousands are edited.
-        match edit(file, false, change) {
-            Ok(()) => {}
-            // Renamed or moved to the trash in another window since it was opened here: not
-            // made again under its old name.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                self.notice = Some(tf!(
-                    "The collection {file} is gone (renamed or removed in another window): not saved",
-                    file = file.display()
-                ))
-            }
-            Err(e) => self.notice = Some(tf!("Could not save the collection: {e}", e)),
+        if let Err(e) = edit_told(file, change) {
+            self.notice = Some(e);
         }
     }
 
@@ -358,6 +345,23 @@ pub fn percent_decoded(uri: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Makes `change` to the open collection in `file`, and words what went wrong for the user. A
+/// plain list (.m3u, .txt) is the user's own and is never written, so nothing happens. A file
+/// renamed or moved to the trash in another window since it was opened is not made again under
+/// its old name. This is the one way an operation edits the open collection.
+pub(crate) fn edit_told(file: &Path, change: impl FnOnce(&mut Vec<PathBuf>)) -> Result<(), String> {
+    if is_list(file) {
+        return Ok(());
+    }
+    edit(file, false, change).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => tf!(
+            "The collection {file} is gone (renamed or removed in another window): not saved",
+            file = file.display()
+        ),
+        _ => tf!("Could not save the collection: {e}", e),
+    })
 }
 
 /// Make `change` to the collection in `file` as it is on disk now, under its lock: each window

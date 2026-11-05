@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- An operation edits the open collection only through collections::edit_told, which keeps the plain-
+  list rule and the message for a collection gone.
 - Every sidecar is read through xmp::own_sidecar, which skips a link.
 - The user's own keys and the animation limit have one setter each, and a source test keeps every
   process-wide copy of a setting written only by its setter.

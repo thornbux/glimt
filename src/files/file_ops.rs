@@ -735,15 +735,11 @@ impl crate::App {
             };
             if any {
                 self.edit_collection(follow);
-            } else if let Some(file) = self
-                .folder
-                .collection()
-                .filter(|f| !collections::is_list(f))
-            {
+            } else if let Some(file) = self.folder.collection() {
                 // None of them are in the list, because a refresh that started before they
                 // moved left them out. The file still follows, quietly, as it may hold none of
                 // them.
-                let _ = collections::edit(file, false, follow);
+                let _ = collections::edit_told(file, follow);
             }
             // The list is read again from the file, because a refresh that started before they
             // moved brings the old names.
@@ -1245,9 +1241,8 @@ impl crate::App {
                         .filter(|(_, p)| returned(p))
                         .cloned()
                         .collect();
-                    let edit = collections::edit(file, false, |all| put_back(all, &removed));
-                    if let Err(e) = edit {
-                        error.get_or_insert(tf!("Could not save the collection: {e}", e));
+                    if let Err(e) = collections::edit_told(file, |all| put_back(all, &removed)) {
+                        error.get_or_insert(e);
                     }
                 }
                 // Those not put back (a name taken, a rename that failed) stay to be undone
@@ -1572,15 +1567,12 @@ fn forget_in_collection(
     let Some(file) = collection.filter(|_| !gone.is_empty()) else {
         return Ok(Vec::new());
     };
-    if collections::is_list(file) {
-        return Ok(Vec::new());
-    }
     // Each entry and the folders above it are looked up, rather than every gone file for each
     // entry, because 10,000 deleted from a collection of 50,000 were half a billion
     // comparisons.
     let gone: HashSet<&Path> = gone.iter().map(PathBuf::as_path).collect();
     let mut removed = Vec::new();
-    let edit = collections::edit(file, false, |all| {
+    let edit = collections::edit_told(file, |all| {
         let mut at = 0;
         all.retain(|p| {
             let out = p.ancestors().any(|a| gone.contains(a));
@@ -1591,16 +1583,7 @@ fn forget_in_collection(
             !out
         });
     });
-    match edit {
-        Ok(()) => Ok(removed),
-        // When the file was renamed or moved to the trash in another window since it was
-        // opened, it is not made again under its old name.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(tf!(
-            "The collection {file} is gone (renamed or removed in another window): not saved",
-            file = file.display()
-        )),
-        Err(e) => Err(tf!("Could not save the collection: {e}", e)),
-    }
+    edit.map(|()| removed)
 }
 
 /// The name in the way of a file going to `to`, if any. It is `to` itself, or a sidecar at the
