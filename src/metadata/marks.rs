@@ -108,29 +108,39 @@ impl Marks {
         }
     }
 
-    /// Files or folders copied (`keep`) or moved and renamed `(from, to)`: the new ones get the
-    /// marks, also the files in a folder.
+    /// Files copied (`keep`) or moved and renamed `(from, to)`: the new ones get the marks. A
+    /// folder renamed goes through `put_folder`, so a report of files never stats them on the UI
+    /// thread to find a folder among them.
     pub fn put(&mut self, pairs: Vec<(PathBuf, PathBuf)>, keep: bool) {
         // From the file as it is: stars set in another window since this one last read it were
         // left behind on the old names, as this window did not know them.
         self.refresh();
-        // The files in a folder that went: every mark looked at, so only for a folder (Rename
-        // Folder), not for each rename of a file with 500,000 marked.
-        let folder = pairs.len() == 1 && pairs[0].1.is_dir();
-        let inside: Vec<(PathBuf, PathBuf)> = if !folder {
-            Vec::new()
-        } else {
-            let moved = crate::files::file_ops::moves(&pairs);
-            (self.map.keys())
-                .filter_map(|k| {
-                    Some((
-                        k.clone(),
-                        crate::files::file_ops::new_place(k.parent()?, &moved)?
-                            .join(k.file_name()?),
-                    ))
-                })
-                .collect()
-        };
+        self.put_known(pairs, Vec::new(), keep);
+    }
+
+    /// The folder `from` renamed to `to` (Rename Folder): the files in it keep their marks under
+    /// the new name. Every mark is looked at, so this is only for a folder, not for each rename
+    /// of a file with 500,000 marked.
+    pub fn put_folder(&mut self, from: PathBuf, to: PathBuf) {
+        self.refresh();
+        let pairs = vec![(from, to)];
+        let moved = crate::files::file_ops::moves(&pairs);
+        let inside: Vec<(PathBuf, PathBuf)> = (self.map.keys())
+            .filter_map(|k| {
+                let dir = crate::files::file_ops::new_place(k.parent()?, &moved)?;
+                Some((k.clone(), dir.join(k.file_name()?)))
+            })
+            .collect();
+        self.put_known(pairs, inside, false);
+    }
+
+    /// Moves or copies the marks of `pairs` and of `inside`, the files in a folder renamed.
+    fn put_known(
+        &mut self,
+        pairs: Vec<(PathBuf, PathBuf)>,
+        inside: Vec<(PathBuf, PathBuf)>,
+        keep: bool,
+    ) {
         let pairs: Vec<(PathBuf, PathBuf)> = (pairs.into_iter())
             .filter(|(from, to)| self.map.contains_key(from) || self.map.contains_key(to))
             .chain(inside)
@@ -560,16 +570,13 @@ mod tests {
         );
         m.forget(&[p("/b.jpg")]);
         assert_eq!(m.get(&p("/b.jpg")), (0, 0));
-        // A folder renamed: its files' marks go along; trashed: they go.
-        // A folder there under its new name, as Rename Folder leaves it.
-        let trip = std::env::temp_dir().join(format!("glimt-test-trip-{}", std::process::id()));
-        std::fs::create_dir_all(trip.join("2024")).unwrap();
-        m.rate(&[trip.join("old/a.jpg")], 5);
-        m.put(vec![(trip.join("old"), trip.join("2024"))], false);
-        assert_eq!(m.get(&trip.join("2024/a.jpg")), (0, 5));
-        m.forget(&[trip.join("2024")]);
-        assert_eq!(m.get(&trip.join("2024/a.jpg")), (0, 0));
-        std::fs::remove_dir_all(&trip).unwrap();
+        // A folder renamed: its files' marks go along; trashed: they go. The folders are only
+        // names, as nothing on the disk is looked at to tell a folder.
+        m.rate(&[p("/trip/old/a.jpg")], 5);
+        m.put_folder(p("/trip/old"), p("/trip/2024"));
+        assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 5));
+        m.forget(&[p("/trip/2024")]);
+        assert_eq!(m.get(&p("/trip/2024/a.jpg")), (0, 0));
         // An old entry where an unmarked file lands is cleared.
         m.put(vec![(p("/c.jpg"), p("/b copy.jpg"))], false);
         assert_eq!(m.get(&p("/b copy.jpg")), (0, 0));

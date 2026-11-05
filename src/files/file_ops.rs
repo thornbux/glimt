@@ -1114,6 +1114,8 @@ impl crate::App {
         // the folder follow it to the new name, in its file too.
         self.folder.follow_rename(&old, &new);
         self.paths_moved(vec![(old.clone(), new.clone())], false);
+        #[cfg(feature = "marks")]
+        self.marks.put_folder(old.clone(), new.clone());
         match self.folder.dir_renamed(&old, &new) {
             // The shown file is under the new name now, also for a turn not saved yet.
             Some(dir) => self.visit(ctx, dir),
