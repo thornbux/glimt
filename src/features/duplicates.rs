@@ -625,6 +625,9 @@ fn similar(
 /// from their matches found on `threads` at once, and adds the groups to `found`. Returns how
 /// many matches were held at once. A part's matches count even when its first picture went to
 /// a group before it, as they were held all the same, and the next block is chosen by them.
+/// A picture that `in_block` left out, as one before it in its part found it, needs its own
+/// matches when another group took that picture. It is then found again on all cores, with
+/// the pictures left out after it, rather than on this thread while the others wait.
 fn group_block(
     ks: &[usize],
     threads: usize,
@@ -633,19 +636,28 @@ fn group_block(
     matches: impl Fn(usize, &[bool]) -> Vec<usize> + Sync,
 ) -> usize {
     let now: &[bool] = grouped;
-    let each = in_block(ks, threads, |k| matches(k, now));
+    let mut each = in_block(ks, threads, |k| matches(k, now));
     let mut held: usize = each.iter().flatten().map(Vec::len).sum();
-    for (&k, alike) in ks.iter().zip(each) {
+    for i in 0..ks.len() {
+        let k = ks[i];
         // Taken by a picture before it in the block: not a group of its own.
         if grouped[k] {
             continue;
         }
-        // Left out as found by a picture before it, which another group took after all.
-        let alike = alike.unwrap_or_else(|| {
-            let alike = matches(k, grouped);
-            held += alike.len();
-            alike
-        });
+        if each[i].is_none() {
+            let left: Vec<usize> = (i..ks.len())
+                .filter(|&j| each[j].is_none() && !grouped[ks[j]])
+                .collect();
+            let again: Vec<usize> = left.iter().map(|&j| ks[j]).collect();
+            let now: &[bool] = grouped;
+            let found_again = in_block(&again, threads, |k| matches(k, now));
+            held += found_again.iter().flatten().map(Vec::len).sum::<usize>();
+            for (j, alike) in left.into_iter().zip(found_again) {
+                each[j] = alike;
+            }
+        }
+        // The first of those found again is never left out, as nothing before it is in its part.
+        let alike = each[i].take().unwrap_or_default();
         let mut group = vec![k];
         for n in alike {
             if !grouped[n] {
@@ -797,6 +809,31 @@ mod tests {
         });
         assert_eq!(found, [[0, 4]]);
         assert_eq!(held, 1001);
+    }
+
+    /// Pictures left out of a part, as its first picture found them, are found again on all
+    /// cores when another group takes that first picture, not one at a time on this thread.
+    #[test]
+    fn matches_left_out_are_found_again_in_parallel() {
+        let ks: Vec<usize> = (0..8).collect();
+        let mut grouped = vec![false; 8];
+        let mut found = Vec::new();
+        let on = std::sync::Mutex::new(Vec::new());
+        let here = std::thread::current().id();
+        group_block(&ks, 2, &mut grouped, &mut found, |k, _| {
+            if k > 4 {
+                on.lock().unwrap().push(std::thread::current().id());
+            }
+            match k {
+                0 => vec![4],
+                4 => vec![5, 6, 7],
+                5 => vec![6],
+                _ => Vec::new(),
+            }
+        });
+        assert_eq!(found, [[0, 4], [5, 6]]);
+        let on = on.into_inner().unwrap();
+        assert!(!on.is_empty() && !on.contains(&here), "{on:?}");
     }
 
     /// Groups made on all cores are those one thread makes comparing every pair, also with
