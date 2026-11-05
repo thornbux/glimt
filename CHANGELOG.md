@@ -147,6 +147,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
   way.
 - SVG has a module of its own (svg.rs), with its limits and their tests.
+- The release tests start each section clean (section()): no stubs or homes left by a section
+  before, whichever part run.sh starts it in.
 
 ## [0.57.0] - 2026-11-05
 

@@ -56,12 +56,12 @@ import re, sys
 work, parts = sys.argv[1], int(sys.argv[2])
 s = open(f"{work}/tests.sh").read()
 user = s.index('\n# ----------------------------------------------------------------')
-first = s.index('\necho "-- ', user)
+first = s.index('\nsection "', user)
 end = s.index('\necho "-- not tested here')
 head, body = s[:first], s[first:end]
-sections = [x for x in re.split(r'\n(?=echo "-- )', body) if x.strip()]
-timings = [x for x in sections if x.startswith('echo "-- timings')]
-checks = [x for x in sections if not x.startswith('echo "-- timings')]
+sections = [x for x in re.split(r'\n(?=section ")', body) if x.strip()]
+timings = [x for x in sections if x.startswith('section "timings')]
+checks = [x for x in sections if not x.startswith('section "timings')]
 # Runs of sections of about the same work: a start of Glimt is most of a check's time.
 weight = [1 + x.count("start ") * (2 if "for v in new old" in x else 1) for x in checks]
 total, runs, run, done = sum(weight), [], [], 0
@@ -74,7 +74,7 @@ for x, w in zip(checks, weight):
 runs.append(run)
 summary = '\nif [ $FAILED -gt 0 ]; then echo "$FAILED checks failed"; exit 1; fi\n'
 for k, run in enumerate(runs + [timings]):
-    open(f"{work}/part-{k}.sh", "w").write(head + "\nas_version new\n" + "\n".join(run) + summary)
+    open(f"{work}/part-{k}.sh", "w").write(head + "\n".join(run) + summary)
 PY
 image=glimt-release-tests:$$
 status=0

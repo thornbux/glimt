@@ -99,6 +99,13 @@ as_version() {
     export PATH=/tmp/stub:/usr/local/bin:/usr/bin:/bin
 }
 config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
+# The start of a section: its title, and NEW with nothing left by a section before, neither in
+# the homes nor in /tmp/stub, as run.sh may start a part at any section.
+section() {
+    echo "-- $1"
+    rm -rf /tmp/stub/* /tmp/home-new /tmp/home-old
+    as_version new
+}
 # Set here, not in a section: run.sh may start a part at any section, so none may count on
 # what one before it made. A section's own files are made by the section, or by a function
 # here that makes them once (print_pictures).
@@ -249,8 +256,7 @@ if [ -n "$SHOTS" ]; then
     exit $FAILED
 fi
 
-echo "-- saving turned: PNG, lossless WebP and lossy WebP with EXIF orientation 6"
-as_version new
+section "saving turned: PNG, lossless WebP and lossy WebP with EXIF orientation 6"
 for rotate in true false; do
     d=/tmp/turned-$rotate
     mkdir -p $d && cd $d
@@ -276,7 +282,7 @@ for rotate in true false; do
     done
 done
 
-echo "-- saves at once: a.png and a.webp of 6000x4000, turned one after the other"
+section "saves at once: a.png and a.webp of 6000x4000, turned one after the other"
 d=/tmp/at-once
 mkdir -p $d && cd $d
 convert -size 3000x4000 xc:red -size 3000x4000 xc:blue +append a.png
@@ -295,7 +301,7 @@ for f in a.png a.webp; do
 done
 expect "no temporary files left" "$(ls -A $d | tr '\n' ' ')" "a.png a.webp "
 
-echo "-- a turn saved when another folder opens: to the turned image, not the new folder's"
+section "a turn saved when another folder opens: to the turned image, not the new folder's"
 for v in new old; do
     as_version $v
     d=/tmp/turn-open-$v
@@ -313,9 +319,8 @@ for v in new old; do
         expect "one/b.png turned, the rest as they were" "$got" "400x200 200x400 400x200 400x200 "
     else note "old: one/a one/b two/c two/d: $got"; fi
 done
-as_version new
 
-echo "-- a JPEG turned and left: its orientation field saved, in the background"
+section "a JPEG turned and left: its orientation field saved, in the background"
 d=/tmp/turn-jpeg
 mkdir -p $d
 convert -size 200x100 xc:red $d/a.jpg
@@ -327,7 +332,7 @@ quit
 got="$(exiftool -s3 -n -Orientation $d/a.jpg) $(exiftool -s3 -n -Orientation $d/b.jpg)"
 expect "a.jpg has orientation 6, b.jpg none" "$got" "6 "
 
-echo "-- Copy to Folder, then Move to Folder while its dialog is open: the copy is done, not a move"
+section "Copy to Folder, then Move to Folder while its dialog is open: the copy is done, not a move"
 for v in new old; do
     as_version $v
     d=/tmp/two-dialogs-$v
@@ -342,9 +347,8 @@ for v in new old; do
     if [ $v = new ]; then expect "a.jpg copied, still in its folder" "$got" "a.jpg sub a.jpg "
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a turned image renamed before its turn is saved: the turn saved under the new name"
+section "a turned image renamed before its turn is saved: the turn saved under the new name"
 for v in new old; do
     as_version $v
     d=/tmp/turn-rename-$v
@@ -361,9 +365,8 @@ for v in new old; do
     if [ $v = new ]; then expect "b.png turned" "$got" "200x400"
     else note "old: b.png ${got:-missing}"; fi
 done
-as_version new
 
-echo "-- an empty folder: the turn keys leave Glimt running"
+section "an empty folder: the turn keys leave Glimt running"
 for v in new old; do
     as_version $v
     d=/tmp/turn-empty-$v
@@ -379,9 +382,8 @@ for v in new old; do
         expect "Glimt still runs" "$alive" runs
     else note "old: $alive"; fi
 done
-as_version new
 
-echo "-- an image that could not be read, put right by another program: read again when shown again"
+section "an image that could not be read, put right by another program: read again when shown again"
 d=/tmp/retry
 mkdir -p $d
 echo "not a picture" >$d/a.png
@@ -398,9 +400,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the image read again, not the old failure kept" "$(colour retry-$v 760 400)" green
     else note "old: $(colour retry-$v 760 400)"; fi
 done
-as_version new
 
-echo "-- a turned image removed by another program: its turn goes to no other image"
+section "a turned image removed by another program: its turn goes to no other image"
 for v in new old; do
     as_version $v
     d=/tmp/turn-gone-$v
@@ -423,9 +424,8 @@ for v in new old; do
         expect "b.png shown unturned" "$shown" green
     else note "old: b.png $got, shown $shown"; fi
 done
-as_version new
 
-echo "-- subfolders, auto refresh off: copy and move to the folder and a subfolder"
+section "subfolders, auto refresh off: copy and move to the folder and a subfolder"
 d=/tmp/subfolders
 mkdir -p $d/sub/deep && cd $d
 convert -size 300x200 xc:red a.jpg
@@ -446,7 +446,7 @@ expect "files on disk" "$(cd $d && find . -name '*.jpg' | sort | tr '\n' ' ')" \
 # a.jpg, c.jpg, sub/a.jpg, sub/d.jpg, sub/deep/b.jpg
 expect "the list follows" "$(rows subfolders 5)" "red blue red yellow green"
 
-echo "-- Include Subfolders saved on: on at the next start, off again by --remote subfolders off"
+section "Include Subfolders saved on: on at the next start, off again by --remote subfolders off"
 for v in new old; do
     as_version $v
     d=/tmp/subfolders-start-$v
@@ -467,9 +467,8 @@ for v in new old; do
         expect "off by --remote: the folder's own two" "$own" 2
     else note "old: $listed, then $own"; fi
 done
-as_version new
 
-echo "-- no busy loop: zoomed panes, a random slideshow behind a search or in panes one at a time"
+section "no busy loop: zoomed panes, a random slideshow behind a search or in panes one at a time"
 # The slideshow changes its image every second, which costs some; the old loop costs thousands.
 d=/tmp/busy
 mkdir -p $d/panes $d/show
@@ -505,9 +504,8 @@ for v in new old; do
     fi
     note "$v: ticks in 3 s: zoomed panes $panes, slideshow $slideshow, panes one at a time $turns (moved: $moved)"
 done
-as_version new
 
-echo "-- a delete that fails in a subfolder: the file comes back"
+section "a delete that fails in a subfolder: the file comes back"
 for v in new old; do
     as_version $v
     d=/tmp/failed-delete-$v
@@ -532,9 +530,8 @@ for v in new old; do
         expect "a file that can go is deleted" "$(ls $d)" "sub"
     else note "old: $(rows failed-delete-old 3)"; fi
 done
-as_version new
 
-echo "-- a delete that fails in a collection: the image stays in the collection"
+section "a delete that fails in a collection: the image stays in the collection"
 for v in new old; do
     as_version $v
     d=/tmp/failed-collection-delete-$v
@@ -557,9 +554,8 @@ for v in new old; do
         expect "a.jpg deleted" "$([ -e $d/a.jpg ] || echo gone)" gone
     else note "old: b.jpg lines in the collection: $got"; fi
 done
-as_version new
 
-echo "-- a delete that fails while the same collection is opened again: the image comes back"
+section "a delete that fails while the same collection is opened again: the image comes back"
 for v in new old; do
     as_version $v
     d=/tmp/reopen-delete-$v
@@ -590,9 +586,8 @@ for v in new old; do
         expect "a.jpg in the collection after the delete failed" "$got" 1
     else note "old: shown $shown, a.jpg lines during $during, after $got"; fi
 done
-as_version new
 
-echo "-- a slideshow one pane at a time, the folder read again: the second pane keeps its file"
+section "a slideshow one pane at a time, the folder read again: the second pane keeps its file"
 for v in new old; do
     as_version $v
     d=/tmp/panes-refresh-$v
@@ -612,9 +607,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the second pane still shows b.png" "$got" blue
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a file of the same name opened in another folder: not at the zoom of the one before"
+section "a file of the same name opened in another folder: not at the zoom of the one before"
 for v in new old; do
     as_version $v
     d=/tmp/same-name-$v
@@ -632,9 +626,8 @@ for v in new old; do
     if [ $v = new ]; then expect "fitted, not zoomed" "$got" blue
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- the folder read again while zoomed in: the zoom stays"
+section "the folder read again while zoomed in: the zoom stays"
 for v in new old; do
     as_version $v
     d=/tmp/refresh-zoom-$v
@@ -653,9 +646,8 @@ for v in new old; do
     if [ $v = new ]; then expect "still zoomed in" "$got" red
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a refresh keeps the selection: a delete after it takes what was selected"
+section "a refresh keeps the selection: a delete after it takes what was selected"
 for v in new old; do
     as_version $v
     d=/tmp/refresh-selection-$v
@@ -673,9 +665,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the selected files deleted" "$left" "c.jpg new.jpg "
     else note "old, left: $left"; fi
 done
-as_version new
 
-echo "-- --remote current and selection: the paths, each ending in NUL, also with a line break"
+section "--remote current and selection: the paths, each ending in NUL, also with a line break"
 for v in new old; do
     as_version $v
     d=/tmp/remote-query-$v
@@ -702,9 +693,8 @@ break.jpg")"
         expect "the sockets' folder only for the user" "$mode" 700
     else note "old: current '$current', folder $mode"; fi
 done
-as_version new
 
-echo "-- --remote select while Delete asks: the answer deletes the file it asked about only"
+section "--remote select while Delete asks: the answer deletes the file it asked about only"
 for v in new old; do
     as_version $v
     d=/tmp/select-dialog-$v
@@ -722,9 +712,8 @@ for v in new old; do
     if [ $v = new ]; then expect "only a deleted" "$got" "b.png c.png "
     else note "old, left: $got"; fi
 done
-as_version new
 
-echo "-- --remote open with a line break in the name: refused, not read as a second command"
+section "--remote open with a line break in the name: refused, not read as a second command"
 for v in new old; do
     as_version $v
     d=/tmp/remote-newline-$v
@@ -741,9 +730,8 @@ quit" >/dev/null 2>&1; refused=$?
     if [ $v = new ]; then expect "refused, Glimt still running" "$refused $running" "2 running"
     else note "old: $refused $running"; fi
 done
-as_version new
 
-echo "-- --remote slideshow on twice keeps it running, off twice keeps it stopped: a state, not a toggle"
+section "--remote slideshow on twice keeps it running, off twice keeps it stopped: a state, not a toggle"
 d=/tmp/remote-on-off
 mkdir -p $d
 # Five images: the first slide comes at once, then one a second, so 2.5 s in it is on c or d.
@@ -761,7 +749,7 @@ expect "on twice: running, past a.png" "$([ "$moved" != a.png ] && echo moved)" 
 expect "off twice: stopped, the image stays" "$([ "$was" = "$still" ] && echo stays)" stays
 expect "random on twice: on" "$(grep -c '^random=true$' $XDG_CONFIG_HOME/glimt/config)" 1
 
-echo "-- --remote open of a folder whose name ends in a space: opened as named"
+section "--remote open of a folder whose name ends in a space: opened as named"
 for v in new old; do
     as_version $v
     d=/tmp/remote-space-$v
@@ -777,9 +765,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the folder's image shown" "$got" "sub /a.png"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- --remote select while Preferences is open: answered at once"
+section "--remote select while Preferences is open: answered at once"
 for v in new old; do
     as_version $v
     d=/tmp/select-prefs-$v
@@ -797,9 +784,8 @@ for v in new old; do
     if [ $v = new ]; then expect "b selected at once" "$got $([ $took -lt 5 ] && echo soon)" "b.png  soon"
     else note "old: '$got', ${took}s"; fi
 done
-as_version new
 
-echo "-- --remote select through a linked folder: the files are found"
+section "--remote select through a linked folder: the files are found"
 for v in new old; do
     as_version $v
     d=/tmp/select-link-$v
@@ -816,9 +802,8 @@ for v in new old; do
     if [ $v = new ]; then expect "b and the link c selected, none missing" "$got|$missing" "b.png c.png |"
     else note "old: $got|$missing"; fi
 done
-as_version new
 
-echo "-- --remote select: right after open, files of the list selected, the others printed"
+section "--remote select: right after open, files of the list selected, the others printed"
 for v in new old; do
     as_version $v
     d=/tmp/remote-select-$v
@@ -841,9 +826,8 @@ for v in new old; do
         expect "select: the first shown" "$current" "$d/b.jpg|"
     else note "old: '$missing' '$selection'"; fi
 done
-as_version new
 
-echo "-- copying 240 files of 25 MB, closed halfway: counted in the status bar, every copy whole"
+section "copying 240 files of 25 MB, closed halfway: counted in the status bar, every copy whole"
 for v in new old; do
     as_version $v
     d=/tmp/progress-$v
@@ -872,9 +856,8 @@ for v in new old; do
         expect "all 240 copies whole, no hidden ones left" "$whole $parts" "240 0"
     else note "old: $waited, $whole whole, $parts hidden"; fi
 done
-as_version new
 
-echo "-- copying, closed twice: stopped after the file at hand, no hidden half copy left"
+section "copying, closed twice: stopped after the file at hand, no hidden half copy left"
 for v in new old; do
     as_version $v
     d=/tmp/close-twice-$v
@@ -901,9 +884,8 @@ for v in new old; do
         expect "copied some, stopped before all 240" "$([ $copied -ge 1 ] && [ $copied -lt 240 ] && echo yes)" yes
     else note "old: $parts hidden, $copied copied, $whole whole"; fi
 done
-as_version new
 
-echo "-- thumbnails with Auto Rotate off"
+section "thumbnails with Auto Rotate off"
 # Its own pictures: run.sh may run this section in a part without the ones before it.
 d=/tmp/thumbs
 mkdir -p $d
@@ -923,7 +905,7 @@ quit
 n=$(find $XDG_CACHE_HOME/thumbnails -type f 2>/dev/null | wc -l)
 [ $n -gt 0 ] && pass "with Auto Rotate on, $n saved" || fail "with Auto Rotate on, none saved"
 
-echo "-- stars follow a renamed file, and go with a deleted one"
+section "stars follow a renamed file, and go with a deleted one"
 for v in new old; do
     as_version $v
     d=/tmp/stars-follow-$v
@@ -943,9 +925,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the four stars on x, none left for b" "$got" "0 4 $d/x "
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- stars that cannot be saved (a folder that cannot be written): told, not lost silently"
+section "stars that cannot be saved (a folder that cannot be written): told, not lost silently"
 for v in new old; do
     as_version $v
     d=/tmp/marks-error-$v
@@ -962,9 +943,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the failed save told" "$told" 1
     else note "old: $told"; fi
 done
-as_version new
 
-echo "-- a mark set by another window meanwhile: a mark's key here goes from it"
+section "a mark set by another window meanwhile: a mark's key here goes from it"
 for v in new old; do
     as_version $v
     d=/tmp/marks-windows-$v
@@ -982,9 +962,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the mark taken off" "$got" 0
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- stars to XMP for two files, the first one's sidecar not writable: the second still gets them"
+section "stars to XMP for two files, the first one's sidecar not writable: the second still gets them"
 for v in new old; do
     as_version $v
     d=/tmp/stars-xmp-$v
@@ -999,9 +978,8 @@ for v in new old; do
     if [ $v = new ]; then expect "b's sidecar has three stars" "$got" 1
     else note "old: ${got:-none}"; fi
 done
-as_version new
 
-echo "-- Rename answered after the folder was read again: the same file renamed"
+section "Rename answered after the folder was read again: the same file renamed"
 for v in new old; do
     as_version $v
     d=/tmp/rename-refresh-$v
@@ -1020,9 +998,8 @@ for v in new old; do
     if [ $v = new ]; then expect "a.png renamed to x" "$got" "b.png x z.png "
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- Rename with one file selected by a right-click: that file renamed, not the one shown"
+section "Rename with one file selected by a right-click: that file renamed, not the one shown"
 for v in new old; do
     as_version $v
     d=/tmp/rename-selected-$v
@@ -1042,9 +1019,8 @@ for v in new old; do
     if [ $v = new ]; then expect "b.png renamed to x" "$got" "a.png x "
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- Rename answered after --remote next: the file asked about renamed, not the next image"
+section "Rename answered after --remote next: the file asked about renamed, not the next image"
 for v in new old; do
     as_version $v
     d=/tmp/rename-next-$v
@@ -1076,7 +1052,7 @@ key Return
 quit
 expect "a.png renamed to x" "$(ls $d | tr '\n' ' ')" "b.png c.png x "
 
-echo "-- Rename Many of 20,000 in a collection, an image taken out while it runs: the others stay"
+section "Rename Many of 20,000 in a collection, an image taken out while it runs: the others stay"
 for v in new old; do
     as_version $v
     d=/tmp/rename-collection-$v
@@ -1098,9 +1074,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the renamed images in the collection" "$([ $kept -ge 19998 ] && echo yes)" yes; fi
     note "$v: $kept renamed in the collection"
 done
-as_version new
 
-echo "-- Rename Many, closed at once: the window waits, every file renamed, no plan left"
+section "Rename Many, closed at once: the window waits, every file renamed, no plan left"
 for v in new old; do
     as_version $v
     d=/tmp/rename-close-$v
@@ -1120,9 +1095,8 @@ for v in new old; do
     if [ $v = new ]; then expect "10,000 renamed, none left, no plan" "$got" "10000 0 0"
     else note "old: renamed, not renamed, plans: $got"; fi
 done
-as_version new
 
-echo "-- Rename Many failing halfway: names that swap, and one too long"
+section "Rename Many failing halfway: names that swap, and one too long"
 d=/tmp/rename-many
 long=$(printf 'b%.0s' $(seq 251))
 mkdir -p $d && cd $d
@@ -1145,7 +1119,7 @@ key Return; sleep 2
 quit
 expect "renamed with the names swapped" "$(ls -A $d | tr '\n' ' ')" "11.jpg a2.jpg a23.jpg "
 
-echo "-- Rename Many with Include Subfolders: the view stays on the folder and its subfolders"
+section "Rename Many with Include Subfolders: the view stays on the folder and its subfolders"
 for v in new old; do
     as_version $v
     d=/tmp/rename-subfolders-$v
@@ -1166,9 +1140,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the folder's own file still in the list" "$got" "xc.jpg"
     else note "old, last: $got"; fi
 done
-as_version new
 
-echo "-- Find Duplicates: trash the checked files"
+section "Find Duplicates: trash the checked files"
 for v in new old; do
     as_version $v
     d=/tmp/duplicates-$v
@@ -1198,7 +1171,7 @@ quit
 expect "the list as it was: the checked in the trash" \
     "$(ls $H/.local/share/Trash/files 2>/dev/null | tr '\n' ' ')" "b.jpg c.jpg "
 
-echo "-- pan view: another sort order keeps each date's image"
+section "pan view: another sort order keeps each date's image"
 for v in new old; do
     as_version $v
     d=/tmp/pan-$v
@@ -1220,7 +1193,7 @@ for v in new old; do
     else note "old: $got"; fi
 done
 
-echo "-- pan view far from the file list's rows: its cells get thumbnails"
+section "pan view far from the file list's rows: its cells get thumbnails"
 convert -size 300x200 xc:gray /tmp/gray.jpg
 for v in new old; do
     as_version $v
@@ -1242,9 +1215,8 @@ for v in new old; do
     if [ $v = new ]; then expect "n59 and n58 shown in pan view" "$got" "red green"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- Escape closes the pan view"
+section "Escape closes the pan view"
 d=/tmp/pan-escape
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -1258,7 +1230,7 @@ same() { md5sum </t/out/$1.png; }
 differ "the pan view opened" "$(same pan-esc-before)" "$(same pan-esc-open)"
 expect "closed by Escape" "$(same pan-esc-after)" "$(same pan-esc-before)"
 
-echo "-- a video that is a playlist: ffmpeg opens no file it names"
+section "a video that is a playlist: ffmpeg opens no file it names"
 for v in new old; do
     as_version $v
     d=/tmp/playlist-$v
@@ -1279,9 +1251,8 @@ for v in new old; do
     if [ $v = new ]; then expect "a real video shown, the playlist not followed" "$got" "blue other"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a video opened with videos off, then Open Several Folders: the folders list no videos"
+section "a video opened with videos off, then Open Several Folders: the folders list no videos"
 for v in new old; do
     as_version $v
     d=/tmp/opened-type-$v
@@ -1300,9 +1271,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the two images only, no video" "$listed" "one/a.png two/b.png "
     else note "old: $listed"; fi
 done
-as_version new
 
-echo "-- decoder plugins: the examples show a .jp2 through ffmpeg and a .fits through astropy"
+section "decoder plugins: the examples show a .jp2 through ffmpeg and a .fits through astropy"
 for v in new old; do
     as_version $v
     d=/tmp/decoders-$v
@@ -1332,9 +1302,8 @@ fits.CompImageHDU(numpy.fromfunction(lambda y, x: y, (400, 600), dtype=numpy.flo
         expect "a compressed .fits.fz, its top at the top" "$([ $top -gt 190 ] && [ $bottom -lt 60 ] && echo yes)" yes
     else note "old: $(colour decoder-jp2-old 640 400), fits $(red decoder-fits-old 640 700)"; fi
 done
-as_version new
 
-echo "-- the ImageMagick fallbacks: a .fits and a .dcm without astropy or pydicom's decoders"
+section "the ImageMagick fallbacks: a .fits and a .dcm without astropy or pydicom's decoders"
 for v in new old; do
     as_version $v
     d=/tmp/decoders-imagemagick-$v
@@ -1369,16 +1338,14 @@ PY
     key space; sleep 3
     shot decoder-im-dcm-$v
     quit
-    rm -rf $XDG_DATA_HOME/glimt/decoders
     dark_light() { [ $(red $1 760 120) -lt 60 ] && [ $(red $1 760 700) -gt 190 ] && echo yes; }
     if [ $v = new ]; then
         expect "a .fits through ImageMagick" "$(dark_light decoder-im-fits-new)" yes
         expect "a .dcm through ImageMagick" "$(dark_light decoder-im-dcm-new)" yes
     else note "old: fits $(dark_light decoder-im-fits-old), dcm $(dark_light decoder-im-dcm-old)"; fi
 done
-as_version new
 
-echo "-- science decoders: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
+section "science decoders: a NIfTI volume, an HDF5 dataset and a pathology slide shown"
 for v in new old; do
     as_version $v
     d=/tmp/science-$v
@@ -1414,9 +1381,8 @@ PY
         expect "a pathology slide through OpenSlide" "$(colour science-slide-new 760 412)" red
     else note "old: $(red science-nifti-old 760 120) $(red science-hdf5-old 760 620) $(colour science-slide-old 760 412)"; fi
 done
-as_version new
 
-echo "-- a NIfTI series in FSL's orientation (LAS, 4D): its first volume, the front at the top"
+section "a NIfTI series in FSL's orientation (LAS, 4D): its first volume, the front at the top"
 d=/tmp/nifti-series
 mkdir -p $d $XDG_DATA_HOME/glimt/decoders
 cp /t/new/examples/decoders/* $XDG_DATA_HOME/glimt/decoders/
@@ -1434,7 +1400,7 @@ quit
 expect "the front at the top" \
     "$([ $(red nifti-series 760 120) -gt 200 ] && [ $(red nifti-series 760 700) -lt 60 ] && echo yes)" yes
 
-echo "-- the Bio-Formats decoder: a microscope file (ICS) shown through bftools"
+section "the Bio-Formats decoder: a microscope file (ICS) shown through bftools"
 for v in new old; do
     as_version $v
     d=/tmp/bioformats-$v
@@ -1457,9 +1423,8 @@ for v in new old; do
             "$([ $(red bioformats-new 760 120) -lt 60 ] && [ $(red bioformats-new 760 700) -gt 190 ] && echo yes)" yes
     else note "old: $(red bioformats-old 760 700)"; fi
 done
-as_version new
 
-echo "-- the MRC decoder: a cryo-EM map's middle section, its top at the top"
+section "the MRC decoder: a cryo-EM map's middle section, its top at the top"
 for v in new old; do
     as_version $v
     d=/tmp/mrc-$v
@@ -1481,9 +1446,8 @@ PY
             "$([ $(red mrc-new 760 120) -gt 190 ] && [ $(red mrc-new 760 700) -lt 60 ] && echo yes)" yes
     else note "old: $(red mrc-old 760 120)"; fi
 done
-as_version new
 
-echo "-- the DICOM decoder: an X-ray in the window it names, MONOCHROME1 the right way"
+section "the DICOM decoder: an X-ray in the window it names, MONOCHROME1 the right way"
 for v in new old; do
     as_version $v
     d=/tmp/dicom-$v
@@ -1528,9 +1492,8 @@ PY
             "$([ $(red dicom-j2k-new 760 120) -gt 190 ] && [ $(red dicom-j2k-new 760 700) -lt 60 ] && echo yes)" yes
     else note "old: $(red dicom-old 760 120)"; fi
 done
-as_version new
 
-echo "-- the ImageMagick decoders: a Photoshop file and a TGA shown, a PNG named .tga not"
+section "the ImageMagick decoders: a Photoshop file and a TGA shown, a PNG named .tga not"
 for v in new old; do
     as_version $v
     d=/tmp/graphics-$v
@@ -1556,9 +1519,8 @@ for v in new old; do
         differ "a PNG named .tga not read as PNG" "$(colour graphics-disguised-new 760 412)" red
     else note "old: $(colour graphics-psd-old 760 412) $(colour graphics-tga-old 760 412) $(colour graphics-disguised-old 760 412)"; fi
 done
-as_version new
 
-echo "-- real files of each format (samples.txt): RAW of eight makes, science and graphics files"
+section "real files of each format (samples.txt): RAW of eight makes, science and graphics files"
 for v in new old; do
     as_version $v
     mkdir -p $XDG_DATA_HOME/glimt/decoders
@@ -1580,9 +1542,8 @@ for v in new old; do
     if [ $v = new ]; then expect "each one shown" "${missing:- none}" " none"
     else note "old, not shown:${missing:- none}"; fi
 done
-as_version new
 
-echo "-- a long error under the image: broken into lines inside the image area"
+section "a long error under the image: broken into lines inside the image area"
 for v in new old; do
     as_version $v
     d=/tmp/long-error-$v
@@ -1603,9 +1564,8 @@ for v in new old; do
         expect "nothing at the image area's edge" "$([ $edge -lt 40 ] && echo none)" none
     else note "old, at the edge: $edge"; fi
 done
-as_version new
 
-echo "-- search terms combined: and, not (-), or (|) and groups ( )"
+section "search terms combined: and, not (-), or (|) and groups ( )"
 for v in new old; do
     as_version $v
     d=/tmp/search-terms-$v
@@ -1633,9 +1593,8 @@ for v in new old; do
         expect "a group, and not a group" "$grouped" "a_sunset.jpg c_beach.jpg "
     else note "old: '$and_not' '$either' '$grouped'"; fi
 done
-as_version new
 
-echo "-- the .* button beside the search: regular expressions, saved, and the panel stays put"
+section "the .* button beside the search: regular expressions, saved, and the panel stays put"
 for v in new old; do
     as_version $v
     d=/tmp/search-mode-$v
@@ -1666,9 +1625,8 @@ for v in new old; do
         expect "pressed again: fuzzy search" "$back" fuzzy_search=true
     else note "old: '$mode' '$found' '$same' '$back'"; fi
 done
-as_version new
 
-echo "-- a slideshow from a plain list: its order, relative paths, and the list never written"
+section "a slideshow from a plain list: its order, relative paths, and the list never written"
 for v in new old; do
     as_version $v
     d=/tmp/plain-list-$v
@@ -1693,9 +1651,8 @@ for v in new old; do
         expect "the images and the list untouched" "$left" "a.jpg b.jpg c.jpg same"
     else note "old: '$first' '$second' '$left'"; fi
 done
-as_version new
 
-echo "-- the desktop asks for high contrast: Glimt takes its High Contrast theme, unless turned off"
+section "the desktop asks for high contrast: Glimt takes its High Contrast theme, unless turned off"
 d=/tmp/contrast
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -1718,14 +1675,13 @@ for v in new old; do
         quit
     done
 done
-rm /tmp/stub/gdbus
 as_version new
 # The empty part of the file list: black in High Contrast, grey in the Dark theme.
 expect "High Contrast while the desktop asks for it" "$(red contrast-new-true 120 700)" 0
 differ "the chosen theme when that is turned off" "$(red contrast-new-false 120 700)" 0
 note "old: $(red contrast-old-true 120 700)"
 
-echo "-- the size of menus and lists: a setting, and GNOME's text scaling followed"
+section "the size of menus and lists: a setting, and GNOME's text scaling followed"
 d=/tmp/ui-scale
 mkdir -p $d
 convert -size 3000x2000 xc:red $d/a.jpg
@@ -1751,14 +1707,13 @@ for v in new old; do
         quit
     done
 done
-rm /tmp/stub/gsettings /tmp/stub/gdbus
 as_version new
 differ "at 200 %, the list where the image began" "$(colour scale-new-ui_scale=200-false 400 400)" red
 differ "GNOME's text scaling followed" "$(colour scale-new-ui_scale=100-true 300 400)" red
 expect "not followed when turned off" "$(colour scale-new-ui_scale=100-false 300 400)" red
 note "old at 200 %: $(colour scale-old-ui_scale=200-false 400 400)"
 
-echo "-- Back from a folder opened in a collection: the collection again"
+section "Back from a folder opened in a collection: the collection again"
 for v in new old; do
     as_version $v
     d=/tmp/back-collection-$v
@@ -1777,9 +1732,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the collection's last image" "$got" "y/b.jpg"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a collection put in order with keys: one place earlier, then to the end"
+section "a collection put in order with keys: one place earlier, then to the end"
 for v in new old; do
     as_version $v
     d=/tmp/reorder-$v
@@ -1796,9 +1750,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the collection's new order, saved" "$order" "a.jpg c.jpg b.jpg "
     else note "old: $order"; fi
 done
-as_version new
 
-echo "-- a collection put in order by dragging: a, the first row, dropped below c"
+section "a collection put in order by dragging: a, the first row, dropped below c"
 for v in new old; do
     as_version $v
     d=/tmp/drag-$v
@@ -1821,9 +1774,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the collection's new order, saved" "$order" "b.jpg c.jpg a.jpg "
     else note "old: $order"; fi
 done
-as_version new
 
-echo "-- a rectangle dragged while the folder changes: the selection keeps its files"
+section "a rectangle dragged while the folder changes: the selection keeps its files"
 for v in new old; do
     as_version $v
     d=/tmp/band-refresh-$v
@@ -1846,9 +1798,8 @@ for v in new old; do
     if [ $v = new ]; then expect "b, c and d still selected, not a" "$got" "b.png c.png d.png "
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a rectangle held at the grid's bottom edge: the grid scrolls, the rows passed stay selected"
+section "a rectangle held at the grid's bottom edge: the grid scrolls, the rows passed stay selected"
 for v in new old; do
     as_version $v
     d=/tmp/band-scroll-$v
@@ -1869,9 +1820,8 @@ for v in new old; do
     if [ $v = new ]; then expect "more than the rows in view selected" "$([ $n -ge 20 ] && echo yes)" yes; fi
     note "$v: $n selected"
 done
-as_version new
 
-echo "-- an empty collection: the keys that move images in it leave Glimt running"
+section "an empty collection: the keys that move images in it leave Glimt running"
 for v in new old; do
     as_version $v
     d=/tmp/empty-collection-$v
@@ -1889,9 +1839,8 @@ for v in new old; do
         expect "Glimt still runs" "$running" running
     else note "old: $running"; fi
 done
-as_version new
 
-echo "-- a collection played in random order: an image taken out of it keeps the others' order"
+section "a collection played in random order: an image taken out of it keeps the others' order"
 for v in new old; do
     as_version $v
     d=/tmp/shuffled-$v
@@ -1912,9 +1861,8 @@ for v in new old; do
     if [ $v = new ]; then expect "saved in its own order" "$kept" 7
     else note "old: $order"; fi
 done
-as_version new
 
-echo "-- Check Images: a photo cut off in copying and a file that is no picture found and marked"
+section "Check Images: a photo cut off in copying and a file that is no picture found and marked"
 for v in new old; do
     as_version $v
     d=/tmp/check-images-$v
@@ -1953,9 +1901,8 @@ for v in new old; do
         expect "the same marks in the grid" "$(cell 19 322) $(cell 131 322) $(cell 19 426)" "- marked marked"
     fi
 done
-as_version new
 
-echo "-- Check Images still running when another folder opens: nothing marked there"
+section "Check Images still running when another folder opens: nothing marked there"
 for v in new old; do
     as_version $v
     d=/tmp/check-switch-$v
@@ -1983,9 +1930,8 @@ for v in new old; do
         expect "the new folder's files not marked" "$got" "- - -"
     else note "old: $before, then $got"; fi
 done
-as_version new
 
-echo "-- a settings file with a byte that is not UTF-8: a menu toggle saves, and leaves the rest as it was"
+section "a settings file with a byte that is not UTF-8: a menu toggle saves, and leaves the rest as it was"
 d=/tmp/config-latin1
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -2002,9 +1948,8 @@ for v in new old; do
     if [ $v = new ]; then expect "saved, the own delay kept" "$got" "1 1"
     else note "old: delay=7 lines, thumbnails lines: $got"; fi
 done
-as_version new
 
-echo "-- Select by mark: the files with mark 1 selected"
+section "Select by mark: the files with mark 1 selected"
 d=/tmp/select-mark
 mkdir -p $d
 for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
@@ -2017,7 +1962,7 @@ got=$(remote selection 2>/dev/null | tr '\0' ' ' | sed "s|$d/||g")
 quit
 expect "b and c selected" "$got" "b.png c.png "
 
-echo "-- Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
+section "Back Up Glimt's Data: settings, marks and collections copied to a dated folder"
 for v in new old; do
     as_version $v
     d=/tmp/backup-$v
@@ -2036,9 +1981,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the settings, the collection and the stars in the backup" "$got" "1 Mine.gqv 4"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- glimt --back-up FOLDER: the same backup without a window, a second one beside the first"
+section "glimt --back-up FOLDER: the same backup without a window, a second one beside the first"
 for v in new old; do
     as_version $v
     d=/tmp/backup-cli-$v
@@ -2051,9 +1995,8 @@ for v in new old; do
     if [ $v = new ]; then expect "two backups, the collection in them" "$got" "0 2 Mine.gqv"
     else note "old: $got $(head -c 60 $d/out)"; fi
 done
-as_version new
 
-echo "-- glimt --back-up: a folder that is not there is refused, a running rename's plan left out"
+section "glimt --back-up: a folder that is not there is refused, a running rename's plan left out"
 for v in new old; do
     as_version $v
     d=/tmp/backup-checks-$v
@@ -2065,15 +2008,12 @@ for v in new old; do
     [ -d $XDG_DATA_HOME/glimt/glimt-backup-* ] && inside="$inside, made"
     $BIN --back-up $d/to >/dev/null 2>&1
     got="$missing $(ls -d $d/typo 2>/dev/null | wc -l) $(ls $d/to/glimt-backup-*/state 2>/dev/null | grep -c renames)"
-    # Gone again: every later start would find it and ask about a rename cut short.
-    rm -rf $XDG_STATE_HOME/glimt/renames
     if [ $v = new ]; then expect "refused, nothing made; no plan in the backup" "$got" "1 0 0"
         expect "a backup into Glimt's own folder refused" "$inside" 1
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- Faster without a lock: the delay saved (so the two checks below test something)"
+section "Faster without a lock: the delay saved (so the two checks below test something)"
 d=/tmp/faster-saved
 mkdir -p $d
 for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
@@ -2084,7 +2024,7 @@ key ctrl+equal; sleep 1
 quit
 expect "the delay changed" "$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)" 0
 
-echo "-- a kiosk: a visitor's keys change no saved setting"
+section "a kiosk: a visitor's keys change no saved setting"
 for v in new old; do
     as_version $v
     d=/tmp/kiosk-keys-$v
@@ -2104,9 +2044,8 @@ for v in new old; do
         expect "the delay as it was" "$got" 1
     else note "old: $(grep -E '^(delay|random|overlay)=' $XDG_CONFIG_HOME/glimt/config | tr '\n' ' ')"; fi
 done
-as_version new
 
-echo "-- a kiosk without a runtime folder: told, and Ctrl+Q is its way out; with one, Ctrl+Q is refused"
+section "a kiosk without a runtime folder: told, and Ctrl+Q is its way out; with one, Ctrl+Q is refused"
 d=/tmp/kiosk-way-out
 mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
@@ -2132,7 +2071,7 @@ left=$(kill -0 $GPID 2>/dev/null && echo running || echo ended)
 quit
 expect "Ctrl+Q refused, --remote quit taken (the control)" "$stays $left" "running ended"
 
-echo "-- Edit → Plugins from the menu: the plugin runs on the shown file, Glimt answering meanwhile"
+section "Edit → Plugins from the menu: the plugin runs on the shown file, Glimt answering meanwhile"
 d=/tmp/plugin-menu
 mkdir -p $d $XDG_DATA_HOME/glimt/plugins
 convert -size 64x64 xc:red $d/a.png
@@ -2151,11 +2090,10 @@ menu Edit Plugins "Stop Stamp"
 until_ok "! pgrep -f /tmp/stub/stamp" 5
 left=$(pgrep -f /tmp/stub/stamp >/dev/null && echo running || echo ended)
 quit
-rm -f /tmp/stub/stamp $XDG_DATA_HOME/glimt/plugins/stamp.desktop
 expect "the plugin ran on a.png, and --remote current answered meanwhile" "$ran $answer" "$d/a.png $d/a.png"
 expect "Stop Stamp in Edit → Plugins ended the plugin" "$left" "ended"
 
-echo "-- zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -"
+section "zoom and fit keys, the wheel and a drag: 1:1 (z), fit (x), the width (h), the height (w), + and -"
 d=/tmp/zoom-keys
 mkdir -p $d
 convert -size 400x300 xc:blue -fill red -draw 'rectangle 100,75 300,225' $d/a.png
@@ -2187,7 +2125,7 @@ expect "- twice: fitted again" "$out" "other blue red"
 expect "dragged to the right: blue where red was" "$drag" "blue blue red"
 expect "the wheel zooms in" "$wheel" "blue red red"
 
-echo "-- several folders on the command line: one list, each image with its folder"
+section "several folders on the command line: one list, each image with its folder"
 d=/tmp/two-folders
 mkdir -p $d/one $d/two
 convert -size 64x64 xc:red $d/one/a.png
@@ -2199,7 +2137,7 @@ listed=$(remote selection 2>/dev/null | tr '\0' '\n' | sed "s|$d/||" | sort | tr
 quit
 expect "both folders' images in one list" "$listed" "one/a.png two/b.png "
 
-echo "-- Open Folder Recursive: the folder with its subfolders, and Include Subfolders on"
+section "Open Folder Recursive: the folder with its subfolders, and Include Subfolders on"
 d=/tmp/open-recursive
 mkdir -p $d/tree/sub/deep $d/start
 convert -size 64x64 xc:red $d/tree/a.png
@@ -2216,7 +2154,7 @@ quit
 expect "the tree's three images" "$listed" "a.png sub/b.png sub/deep/c.png "
 expect "Include Subfolders on in the settings" "$(grep -c '^show_subfolders=true$' $XDG_CONFIG_HOME/glimt/config)" 1
 
-echo "-- New Folder (Ctrl+F): made in the folder shown"
+section "New Folder (Ctrl+F): made in the folder shown"
 d=/tmp/new-folder
 mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
@@ -2226,7 +2164,7 @@ key ctrl+f; sleep 1; xdotool type holiday; key Return; sleep 1
 quit
 expect "the folder is there" "$([ -d $d/holiday ] && echo yes)" yes
 
-echo "-- Up and Home in the toolbar: the parent folder, then the home folder"
+section "Up and Home in the toolbar: the parent folder, then the home folder"
 d=/tmp/up-home
 mkdir -p $d/sub
 convert -size 64x64 xc:red $d/sub/a.png
@@ -2239,10 +2177,9 @@ up=$(remote current 2>/dev/null | tr -d '\0')
 click 137 35 2                                         # Home
 home=$(remote current 2>/dev/null | tr -d '\0')
 quit
-rm -f $HOME/h.png
 expect "Up shows the parent's image, Home the home folder's" "$up $home" "$d/b.png $HOME/h.png"
 
-echo "-- Mirror, Flip and Rotate 180 as shown: the quarters of the image change places"
+section "Mirror, Flip and Rotate 180 as shown: the quarters of the image change places"
 d=/tmp/turns-shown
 mkdir -p $d
 convert -size 200x150 xc:red -size 200x150 xc:blue +append \
@@ -2261,7 +2198,7 @@ expect "Mirror: blue top left, green bottom right" "$mirrored" "blue green"
 expect "Flip: green top left, blue bottom right" "$flipped" "green blue"
 expect "Rotate 180: yellow top left, red bottom right" "$turned" "yellow red"
 
-echo "-- Play Video (Enter) runs the player set in Preferences with the file"
+section "Play Video (Enter) runs the player set in Preferences with the file"
 d=/tmp/play-video
 mkdir -p $d
 ffmpeg -v error -f lavfi -i color=c=blue:s=320x240:d=0.2 -pix_fmt yuv420p $d/v.mp4
@@ -2270,10 +2207,9 @@ config video_player=/tmp/stub/player
 start $d/v.mp4; sleep 2
 key Return; sleep 2
 quit
-rm -f /tmp/stub/player
 expect "the player got the video" "$(cat $d/ran 2>/dev/null)" "$d/v.mp4"
 
-echo "-- Save This Frame and Export Frames of an animation, from the File menu"
+section "Save This Frame and Export Frames of an animation, from the File menu"
 d=/tmp/frames
 mkdir -p $d/out
 convert -size 400x300 xc:red $d/a.png
@@ -2289,7 +2225,7 @@ quit
 expect "the frame saved as PNG, 400x300" "$(identify -format '%wx%h' $d/frame.png 2>/dev/null)" 400x300
 expect "both frames exported into a new folder" "$(find $d/out -name '*.png' | wc -l | tr -d ' ')" 2
 
-echo "-- the histogram (K, J) draws over the image, and goes away again"
+section "the histogram (K, J) draws over the image, and goes away again"
 d=/tmp/histogram-keys
 mkdir -p $d
 convert -size 400x300 gradient:red-blue $d/a.png
@@ -2304,7 +2240,7 @@ differ "J: the logarithmic one differs" "$rgb" "$log"
 differ "K: brightness differs from RGB" "$log" "$bright"
 expect "K: off again, the image as before" "$off" "$base"
 
-echo "-- full screen info (I): shown in full screen, and hidden by I"
+section "full screen info (I): shown in full screen, and hidden by I"
 d=/tmp/overlay-key
 mkdir -p $d
 convert -size 400x300 xc:blue $d/a.png
@@ -2318,7 +2254,7 @@ quit
 differ "I hides the info" "$on" "$off"
 expect "I shows it again" "$again" "$on"
 
-echo "-- Compare (E) and the layouts (L, U, Y, Alt+arrow): the next image beside, below, in a pane"
+section "Compare (E) and the layouts (L, U, Y, Alt+arrow): the next image beside, below, in a pane"
 d=/tmp/layout-keys
 mkdir -p $d
 convert -size 400x300 xc:red $d/a.png
@@ -2347,7 +2283,7 @@ expect "Y: one image" "$one" "red red red red"
 expect "U: two above each other" "$up" "other other red blue"
 expect "Alt+Right shows the right pane's image" "$pane" "b.png"
 
-echo "-- Preferences → Keyboard shortcuts: Change gives the action the next key"
+section "Preferences → Keyboard shortcuts: Change gives the action the next key"
 d=/tmp/key-capture
 mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
@@ -2362,7 +2298,7 @@ key Escape; sleep 1
 quit
 expect "the own key in the settings" "$(grep -c 'ExifRotate=F9' $XDG_CONFIG_HOME/glimt/config)" 1
 
-echo "-- the Help windows: Help Manual (F1), Keyboard Shortcuts, Keyboard Map and About open"
+section "the Help windows: Help Manual (F1), Keyboard Shortcuts, Keyboard Map and About open"
 d=/tmp/help-windows
 mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
@@ -2381,7 +2317,7 @@ differ "Keyboard Map opens" "$base" "$map"
 differ "About opens" "$base" "$about"
 differ "the four are different windows" "$manual$keys" "$map$about"
 
-echo "-- Open With: the default application and one from the Open With list, both through gio"
+section "Open With: the default application and one from the Open With list, both through gio"
 d=/tmp/open-with
 mkdir -p $d $XDG_DATA_HOME/applications
 convert -size 64x64 xc:red $d/a.png
@@ -2403,11 +2339,10 @@ menu File "Open With"; sleep 3                         # the list, from gio
 shot open-with
 menu Stamp; sleep 2
 quit
-rm -f /tmp/stub/gio $XDG_DATA_HOME/applications/stamp.desktop
 expect "gio open, then gio launch of the chosen application" "$(cat $d/ran 2>/dev/null | tr '\n' ' ')" \
     "open $d/a.png launch $XDG_DATA_HOME/applications/stamp.desktop $d/a.png "
 
-echo "-- Copy Image copies the image as shown: turned by hand"
+section "Copy Image copies the image as shown: turned by hand"
 for v in new old; do
     as_version $v
     d=/tmp/clipboard-turned-$v
@@ -2422,9 +2357,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the turned image, 48x64" "$size" 48x64
     else note "old: $size"; fi
 done
-as_version new
 
-echo "-- the clipboard: Copy Path, Copy Image and Copy Files from the Select menu, read back with xclip"
+section "the clipboard: Copy Path, Copy Image and Copy Files from the Select menu, read back with xclip"
 d=/tmp/clipboard
 mkdir -p $d
 convert -size 64x48 xc:red $d/a.png
@@ -2441,7 +2375,7 @@ expect "the path, quoted" "$path" "\"$d/a.png\""
 expect "the image, 64x48 as PNG" "$size" 64x48
 expect "the file as a URI" "$files" 1
 
-echo "-- the interface in Norwegian in a real window: LANG changes the menu bar, the language setting rules"
+section "the interface in Norwegian in a real window: LANG changes the menu bar, the language setting rules"
 d=/tmp/norsk
 mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
@@ -2456,7 +2390,7 @@ unset LANG
 differ "LANG=nb_NO: another menu bar" "$(bar lang-en)" "$(bar lang-nb)"
 expect "language=en: the English menu bar again" "$(bar lang-en-set)" "$(bar lang-en)"
 
-echo "-- --lock-settings, then New Window: the new window is locked too"
+section "--lock-settings, then New Window: the new window is locked too"
 for v in new old; do
     as_version $v
     d=/tmp/lock-new-window-$v
@@ -2479,9 +2413,8 @@ for v in new old; do
         expect "the delay as it was" "$got" 1
     else note "old: $(grep '^delay=' $XDG_CONFIG_HOME/glimt/config)"; fi
 done
-as_version new
 
-echo "-- the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
+section "the keyboard focus shown: Tab to a toolbar button, a ring in the accent colour"
 d=/tmp/focus
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -2511,7 +2444,7 @@ expect "Tab shows where the focus is" "$(ring focus-tab-new)" ring
 expect "a click takes the ring away" "$(ring focus-click-new)" -
 note "old: $(ring focus-tab-old)"
 
-echo "-- view filters: Shift+G shows a red image grey, then inverted, and the filter is kept"
+section "view filters: Shift+G shows a red image grey, then inverted, and the filter is kept"
 d=/tmp/filters
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -2540,7 +2473,7 @@ expect "inverted" "$(filtered filter-invert-new)" cyan
 expect "the filter kept in the settings" "$kept" 1
 note "old: $(filtered filter-grey-old)"
 
-echo "-- Tab to a menu, then a click on that same menu: the shortcuts work again"
+section "Tab to a menu, then a click on that same menu: the shortcuts work again"
 for v in new old; do
     as_version $v
     d=/tmp/focus-click-$v
@@ -2557,9 +2490,8 @@ for v in new old; do
     if [ $v = new ]; then expect "End shows the last image" "$got" "c.png"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- the projector shows the frame of an animation stepped to"
+section "the projector shows the frame of an animation stepped to"
 for v in new old; do
     as_version $v
     d=/tmp/projector-frame-$v
@@ -2577,9 +2509,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the blue frame on the projector" "$(colour projector-frame-new 480 300)" blue
     else note "old: $(colour projector-frame-old 480 300 2>/dev/null)"; fi
 done
-as_version new
 
-echo "-- a projector larger than the main view: the image sharp there"
+section "a projector larger than the main view: the image sharp there"
 d=/tmp/projector-sharp
 mkdir -p $d
 # Stripes 4 pixels wide: kept at the projector's scale, grey at the main view's.
@@ -2607,7 +2538,7 @@ as_version new
 expect "the stripes as they are on the projector" "$([ ${off_new:-999} -le 50 ] && echo yes)" yes
 note "off by (tenths of a percent): new $off_new, old $off_old"
 
-echo "-- the keyword tree: a box sets the keyword, with its place in the tree"
+section "the keyword tree: a box sets the keyword, with its place in the tree"
 d=/tmp/keywords
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -2630,7 +2561,7 @@ quit
 expect "a box sets the keyword and its tree path" "$on" 2
 expect "a box clears them again" "$off" 0
 
-echo "-- two windows writing one sidecar at once: each waits for the other, both changes kept"
+section "two windows writing one sidecar at once: each waits for the other, both changes kept"
 for v in new old; do
     as_version $v
     d=/tmp/sidecar-two-$v
@@ -2672,9 +2603,8 @@ time.sleep(20)" &
         expect "the stars and the keyword both in the sidecar" "$stars $animals" "1 2"
     else note "old: $during bytes written meanwhile; stars ${stars:-0}, keyword ${animals:-0}"; fi
 done
-as_version new
 
-echo "-- the keyword tree: removing an inner level takes the levels below it"
+section "the keyword tree: removing an inner level takes the levels below it"
 d=/tmp/keywords-remove
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -2696,9 +2626,8 @@ for v in new old; do
     if [ $v = new ]; then expect "removing Places takes Norway and Oslo with it" "$left" Animals
     else note "old, left in the tree: $left"; fi
 done
-as_version new
 
-echo "-- the keyword tree under --lock-settings: removed for the session, the file left as it was"
+section "the keyword tree under --lock-settings: removed for the session, the file left as it was"
 d=/tmp/keywords-locked
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -2717,9 +2646,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the tree file as it was" "$left" "Animals Places|Norway|Oslo"
     else note "old, left in the tree: $left"; fi
 done
-as_version new
 
-echo "-- a Lightroom catalog: its collection, keyword tree, stars and image keywords imported"
+section "a Lightroom catalog: its collection, keyword tree, stars and image keywords imported"
 d=/tmp/lr
 mkdir -p $d/photos/2024
 convert -size 300x200 xc:red $d/photos/2024/a.jpg
@@ -2770,7 +2698,7 @@ expect "the new stars in XMP too" "$(grep -c 'xmp:Rating="3"' $d/photos/2024/b.j
 expect "the image's keyword in its sidecar, with its place in the tree" \
     "$(grep -c '<rdf:li>Oslo</rdf:li>\|<rdf:li>Places|Oslo</rdf:li>' $d/photos/2024/b.jpg.xmp)" 2
 
-echo "-- a plain list (.m3u) is never renamed or trashed from the menu"
+section "a plain list (.m3u) is never renamed or trashed from the menu"
 # Rename and Move Collection to Trash have no key, and Preferences offers none for them (they are
 # not in SHORTCUTS): the menu is the only way to them.
 for v in new old; do
@@ -2795,9 +2723,8 @@ for v in new old; do
         expect "the list as it was" "$got" "#EXTM3U a.jpg "
     else note "old: '$got'"; fi
 done
-as_version new
 
-echo "-- an image of a collection moved to another folder: the collection follows it"
+section "an image of a collection moved to another folder: the collection follows it"
 for v in new old; do
     as_version $v
     d=/tmp/collection-move-$v
@@ -2814,9 +2741,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the collection names a where it went" "$got" "to/a.jpg b.jpg  a.jpg"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a move refused where the sidecar's name is another file's, and undone where the source stays"
+section "a move refused where the sidecar's name is another file's, and undone where the source stays"
 for v in new old; do
     as_version $v
     d=/tmp/move-safe-$v
@@ -2848,9 +2774,8 @@ for v in new old; do
         expect "the file still in its read-only folder, no second name in the other" "$kept" "b.jpg 0"
     else note "old: $side; $kept"; fi
 done
-as_version new
 
-echo "-- a collection renamed by another program while shown: not made again under its old name"
+section "a collection renamed by another program while shown: not made again under its old name"
 for v in new old; do
     as_version $v
     d=/tmp/coll-gone-$v
@@ -2867,17 +2792,13 @@ for v in new old; do
     if [ $v = new ]; then expect "only Holiday.gqv" "$got" "Holiday.gqv "
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- a collection renamed, then moved to the trash: its images stay"
+section "a collection renamed, then moved to the trash: its images stay"
 d=/tmp/coll
 mkdir -p $d $XDG_DATA_HOME/glimt/collections
 convert -size 300x200 xc:red $d/a.jpg
 c=$XDG_DATA_HOME/glimt/collections
-# Without the collections of the sections before.
-rm -rf $c && mkdir -p $c
 printf '#GQview collection\n"%s"\n' $d/a.jpg >$c/Old.gqv
-rm -rf $H/.local/share/Trash
 config
 start $c/Old.gqv
 sleep 2
@@ -2893,7 +2814,7 @@ expect "renamed in its folder" "$renamed" "New.gqv "
 expect "kept while it asks" "$asked" "New.gqv "
 expect "the collection in the trash" "$(ls $c | wc -l) $(ls $H/.local/share/Trash/files)" "0 New.gqv"
 expect "its image stays" "$(ls $d)" "a.jpg"
-echo "-- Ctrl+Z: a file back from the trash, a renamed one back to its old name"
+section "Ctrl+Z: a file back from the trash, a renamed one back to its old name"
 for v in new old; do
     as_version $v
     # In the home folder, where gio has a trash.
@@ -2932,9 +2853,8 @@ for v in new old; do
         expect "Ctrl+Z gives the old name back, and once only" "$(ls $d | tr '\n' ' ')" "a.jpg b.jpg "
     else note "old: trashed $trashed, after Ctrl+Z $back, stars $stars; renamed $renamed, after $unrenamed"; fi
 done
-as_version new
 
-echo "-- File → Set as Wallpaper asks the desktop portal, with the file's URI"
+section "File → Set as Wallpaper asks the desktop portal, with the file's URI"
 d="/tmp/wall paper"
 mkdir -p "$d"
 convert -size 300x200 xc:red "$d/a'b.jpg"
@@ -2947,10 +2867,9 @@ start "$d/a'b.jpg"
 sleep 2
 menu File "Set as Wallpaper"; sleep 2
 quit
-rm /tmp/stub/gdbus
 expect "the portal's method" "$(grep -c '^org.freedesktop.portal.Wallpaper.SetWallpaperURI$' /tmp/gdbus-args)" 1
 expect "the file as a quoted URI" "$(grep '^"file' /tmp/gdbus-args)" "\"file:///tmp/wall%20paper/a'b.jpg\""
-echo "-- File → Open Recent opens a folder of before, also after a restart"
+section "File → Open Recent opens a folder of before, also after a restart"
 for k in 1 2; do mkdir -p /tmp/recent-$k && convert -size 300x200 xc:red /tmp/recent-$k/a$k.jpg; done
 rm -f $XDG_STATE_HOME/glimt/recent
 config
@@ -2973,7 +2892,7 @@ sleep 2
 remote open /tmp/recent-1 >/dev/null 2>&1; sleep 2
 quit
 expect "no list with Keep a list of recent folders off" "$(ls $XDG_STATE_HOME/glimt/recent 2>&1 | grep -c 'No such')" 1
-echo "-- Checkerboard behind transparent images: two greys in turn, off by default"
+section "Checkerboard behind transparent images: two greys in turn, off by default"
 d=/tmp/checker
 mkdir -p $d/clear $d/red
 convert -size 300x200 xc:none $d/clear/a.png
@@ -3008,7 +2927,7 @@ differ "the next square another grey" "$a" "$b"
 expect "black without the setting" "$(checked checker-off-new 760 412)" black
 expect "an opaque image as before" "$(colour checker-red 760 412)" red
 note "old: $(checked checker-on-old 760 412) with the setting, as it has none"
-echo "-- a lossy JPEG XL of 6000x4000, as a camera makes one: shown within its memory limit"
+section "a lossy JPEG XL of 6000x4000, as a camera makes one: shown within its memory limit"
 for v in new old; do
     as_version $v
     d=/tmp/jxl-$v
@@ -3023,8 +2942,7 @@ for v in new old; do
     if [ $v = new ]; then expect "the 24 MP JPEG XL shown" "$shown" yes
     else note "old: shown '$shown'"; fi
 done
-as_version new
-echo "-- Shift+C crops: a part dragged over the image, saved beside it with Enter; Esc saves none"
+section "Shift+C crops: a part dragged over the image, saved beside it with Enter; Esc saves none"
 for v in new old; do
     as_version $v
     d=/tmp/crop-$v
@@ -3059,7 +2977,7 @@ set -- ${size:-0 0}
 expect "about 115 x 115 pixels" "$([ $1 -ge 105 ] && [ $1 -le 125 ] && [ $2 -ge 105 ] && [ $2 -le 125 ] && echo yes)" yes
 expect "the right half: blue" "$([ -e $d/a-cropped.png ] && side $d/a-cropped.png 10,10)" blue
 
-echo "-- a crop whose image is deleted meanwhile saves nothing, not the next image's part"
+section "a crop whose image is deleted meanwhile saves nothing, not the next image's part"
 for v in new old; do
     as_version $v
     d=/tmp/crop-gone-$v
@@ -3084,9 +3002,8 @@ for v in new old; do
         expect "a crop chosen on b.png saved (the control)" "$(ls $d | grep -c cropped)" 1
     else note "old: $files"; fi
 done
-as_version new
 
-echo "-- Auto Rotate switched during a crop ends it: the part was chosen on another view"
+section "Auto Rotate switched during a crop ends it: the part was chosen on another view"
 for v in new old; do
     as_version $v
     d=/tmp/crop-rotate-$v
@@ -3107,9 +3024,8 @@ for v in new old; do
         expect "a crop chosen after it saved (the control)" "$(ls $d | grep -c cropped)" 1
     else note "old: $files"; fi
 done
-as_version new
 
-echo "-- a playlist opened by its name in its own folder shows its images"
+section "a playlist opened by its name in its own folder shows its images"
 for v in new old; do
     as_version $v
     d=/tmp/list-relative-$v
@@ -3123,9 +3039,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the list's image shown" "$shown" yes
     else note "old: ${shown:-nothing shown}"; fi
 done
-as_version new
 
-echo "-- Ctrl+Shift+S saves as: JPEG at half the size, the extension added, the image kept"
+section "Ctrl+Shift+S saves as: JPEG at half the size, the extension added, the image kept"
 for v in new old; do
     as_version $v
     d=/tmp/save-as-$v
@@ -3152,7 +3067,7 @@ expect "saved as b.jpg" "$files" "b.jpg "
 expect "a JPEG of 200 x 100" "$size" "JPEG 200 100"
 expect "the image itself unchanged" "$same" yes
 
-echo "-- / puts the cursor in the search field, without typing itself there"
+section "/ puts the cursor in the search field, without typing itself there"
 d=/tmp/slash
 mkdir -p $d
 convert -size 300x200 xc:red $d/apple_red.jpg
@@ -3180,7 +3095,7 @@ shot slash-full
 quit
 expect "from full screen, the search shows sky_blue.jpg" "$(colour slash-full 57 337)" blue
 
-echo "-- a folder named like an image, a pipe and a link to /dev/zero: listed as they are"
+section "a folder named like an image, a pipe and a link to /dev/zero: listed as they are"
 # Only the new version: the old one reads /dev/zero until memory runs out.
 d=/tmp/kinds
 mkdir -p $d/2019.jpg
@@ -3199,7 +3114,7 @@ expect "the keys reach the window (the control)" "$arrived" yes
 expect "Glimt still runs" "$alive" yes
 if [ "${mb:-9999}" -lt 400 ]; then pass "memory stays small: $mb MB"; else fail "memory: ${mb:-?} MB"; fi
 
-echo "-- printing to a PDF named as one of the images printed: that image is read first"
+section "printing to a PDF named as one of the images printed: that image is read first"
 d=/tmp/printself
 for v in new old; do
     as_version $v
@@ -3217,9 +3132,8 @@ for v in new old; do
     if [ $v = new ]; then expect "both images in the PDF" "$pages" 2
     else note "old, pages: ${pages:-none}"; fi
 done
-as_version new
 
-echo "-- printing to a PDF when no image can be read: the file chosen is left as it was"
+section "printing to a PDF when no image can be read: the file chosen is left as it was"
 d=/tmp/print-none
 for v in new old; do
     as_version $v
@@ -3240,9 +3154,8 @@ for v in new old; do
         expect "b.jpg printed (the control)" "$(pdfinfo $d/b.pdf 2>/dev/null | awk '/^Pages:/ {print $2}')" 1
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- browsing past images writes nothing: a keyword with a comma, a comment with a newline"
+section "browsing past images writes nothing: a keyword with a comma, a comment with a newline"
 d=/tmp/browse
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -3271,9 +3184,8 @@ for v in new old; do
     if [ $v = new ]; then expect "the sidecar kept, no new one" "$got" "same 0"
     else note "old: $got"; fi
 done
-as_version new
 
-echo "-- an exif: search after a keyword was set finds it, without indexing all again"
+section "an exif: search after a keyword was set finds it, without indexing all again"
 d=/tmp/exifsearch
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -3293,7 +3205,7 @@ shot exif-search-1
 quit
 expect "nothing before, b.jpg after" "$before $(colour exif-search-1 57 337)" "other blue"
 
-echo "-- Rename Many cut short by a crash: the old names put back at the next start"
+section "Rename Many cut short by a crash: the old names put back at the next start"
 d=/tmp/cutshort
 mkdir -p $d $XDG_STATE_HOME/glimt/renames
 convert -size 300x200 xc:red jpg:$d/.glimt-rename-x-0
@@ -3311,10 +3223,8 @@ quit
 r=$(convert $d/a.jpg -format "%[fx:p{150,100}.r>0.5]" info: 2>/dev/null)
 got="$(ls -A $d | tr '\n' ' ')$r $(ls -A $XDG_STATE_HOME/glimt/renames | wc -l)"
 expect "a.jpg (red) and b.jpg back, the plan gone" "$got" "a.jpg b.jpg 1 0"
-# A plan left by a failure here would be put back at every later start.
-rm -rf $XDG_STATE_HOME/glimt/renames
 
-echo "-- Rename Many cut short, finished at the next start: the marks follow the files"
+section "Rename Many cut short, finished at the next start: the marks follow the files"
 d=/tmp/cutshort-finish
 mkdir -p $d $XDG_STATE_HOME/glimt/renames
 convert -size 300x200 xc:red $d/a.jpg
@@ -3328,9 +3238,8 @@ menu "Finish the renaming"; sleep 3
 quit
 got="$(ls -A $d | tr '\n' ' ')$(grep -c 'c\.jpg' $XDG_STATE_HOME/glimt/marks) $(grep -c 'a\.jpg' $XDG_STATE_HOME/glimt/marks)"
 expect "c.jpg there, its mark on c.jpg, none on a.jpg" "$got" "c.jpg 1 0"
-rm -rf $XDG_STATE_HOME/glimt/renames $XDG_STATE_HOME/glimt/marks
 
-echo "-- size and date columns with thumbnails: the list wide enough for the names"
+section "size and date columns with thumbnails: the list wide enough for the names"
 d=/tmp/columns
 mkdir -p $d
 convert -size 300x200 xc:red $d/a_rather_long_name_of_a_red_picture.jpg
@@ -3345,9 +3254,8 @@ for v in new old; do
     if [ $v = new ]; then differ "the list has room for the name" "$(colour columns-new 465 400)" red
     else note "old, at x=465: $(colour columns-old 465 400)"; fi
 done
-as_version new
 
-echo "-- thumbnails without columns: the list is never dragged narrower than a thumbnail"
+section "thumbnails without columns: the list is never dragged narrower than a thumbnail"
 d=/tmp/narrow
 mkdir -p $d
 # As wide as the window: red from one edge of the view to the other.
@@ -3371,9 +3279,8 @@ for v in new old; do
     if [ $v = new ]; then differ "the list keeps a thumbnail's width" "$(colour narrow-new 150 400)" red
     else note "old, at x=150: $(colour narrow-old 150 400)"; fi
 done
-as_version new
 
-echo "-- the Pan view's calendar: a day with images shows its first one"
+section "the Pan view's calendar: a day with images shows its first one"
 d=/tmp/calendar
 mkdir -p $d
 convert -size 300x200 xc:red $d/a.jpg
@@ -3391,7 +3298,7 @@ quit
 # July 2025 starts on a Tuesday: the 16th is the third Wednesday, with the blue picture.
 expect "the calendar shows the day's first picture" "$(colour calendar-new 290 407)" blue
 
-echo "-- the image info template: one whose fields are all empty shows no box"
+section "the image info template: one whose fields are all empty shows no box"
 d=/tmp/osd
 mkdir -p $d
 convert -size 1600x1000 xc:red $d/a.jpg
@@ -3412,7 +3319,7 @@ for v in empty name; do
     else fail "the $v template: red $r"; fi
 done
 
-echo "-- printing 80 images of 3000x2000 to a PDF"
+section "printing 80 images of 3000x2000 to a PDF"
 print_pictures
 for v in new old; do
     as_version $v
@@ -3442,7 +3349,7 @@ for v in new old; do
     rm -f $pdf
 done
 
-echo "-- printing a contact sheet on landscape paper, with image and page text from templates"
+section "printing a contact sheet on landscape paper, with image and page text from templates"
 d=/tmp/print-sheet
 mkdir -p $d
 for c in red lime blue yellow cyan; do convert -size 600x400 xc:$c $d/$c.jpg; done
@@ -3460,7 +3367,7 @@ text=$(pdftotext $pdf - 2>/dev/null | tr '\n' ' ')
 expect "page numbers, header and image text" \
     "$(echo "$text" | grep -c 'Page 2 of 2').$(echo "$text" | grep -c 'Summer').$(echo "$text" | grep -c 'yellow.jpg (5/5)')" "1.1.1"
 
-echo "-- Enter in the print dialog's page text ends the typing, not the dialog"
+section "Enter in the print dialog's page text ends the typing, not the dialog"
 for v in new old; do
     as_version $v
     d=/tmp/print-enter-$v
@@ -3482,9 +3389,8 @@ for v in new old; do
         expect "Enter again: printed" "$then" printed
     else note "old: $typed, then $then"; fi
 done
-as_version new
 
-echo "-- closed while printing to a file: Glimt ends once the PDF is whole"
+section "closed while printing to a file: Glimt ends once the PDF is whole"
 print_pictures
 for v in new old; do
     as_version $v
@@ -3505,10 +3411,8 @@ for v in new old; do
     else note "old: pages '$pages', temporary files $left"; fi
     rm -f /tmp/*.glimt-tmp /tmp/.glimt-tmp-* $pdf
 done
-as_version new
 
-echo "-- screen profile: Adobe RGB, so sRGB red is shown less red"
-as_version new
+section "screen profile: Adobe RGB, so sRGB red is shown less red"
 d=/tmp/screen
 mkdir -p $d
 convert -size 600x400 xc:red $d/red.png
@@ -3525,7 +3429,7 @@ r=$(red screen-AdobeRGB1998 760 400)
 [ "$r" -lt 240 ] && pass "Adobe RGB screen: red shown as $r" || fail "Adobe RGB screen: red shown as $r"
 expect "a file that is no profile: red as it is" "$(red screen-junk 760 400)" "255"
 
-echo "-- the desktop's screen profile: a stand-in gdbus answers for colord with Adobe RGB"
+section "the desktop's screen profile: a stand-in gdbus answers for colord with Adobe RGB"
 d=/tmp/desktop-profile
 mkdir -p $d
 convert -size 600x400 xc:red $d/red.png
@@ -3546,13 +3450,12 @@ for on in true false; do
     shot desktop-$on
     quit
 done
-rm /tmp/stub/gdbus
 r=$(red desktop-true 760 400)
 [ "$r" -lt 240 ] && pass "the desktop's Adobe RGB: red shown as $r" ||
     fail "the desktop's Adobe RGB: red shown as $r"
 expect "the desktop's profile left out: red as it is" "$(red desktop-false 760 400)" "255"
 
-echo "-- images without a profile, Adobe RGB from EXIF, and the image's own profile left out"
+section "images without a profile, Adobe RGB from EXIF, and the image's own profile left out"
 d=/tmp/input
 mkdir -p $d
 convert -size 600x400 'xc:rgb(60,160,60)' $d/plain.png
@@ -3579,7 +3482,7 @@ expect "EXIF says Adobe RGB (R03): shown as Adobe RGB" "$(show exif.png)" "$as_a
 expect "its own Adobe RGB profile: shown as Adobe RGB" "$(show icc.png)" "$as_adobe"
 expect "its own profile left out: as sRGB" "$(show icc.png own_profile=false)" "$plain"
 
-echo "-- the window title: the template in Preferences, this window's own, and back"
+section "the window title: the template in Preferences, this window's own, and back"
 d=/tmp/title
 mkdir -p $d
 convert -size 64x64 xc:red $d/a.png
@@ -3599,7 +3502,7 @@ expect "Window → Set Window Title…" "$from_menu" "Left a.png"
 expect "glimt --remote title" "$from_remote" "Right: $d"
 expect "glimt --remote title without text: Preferences' again" "$back" "Glimt: a.png"
 
-echo "-- timings: the large folder and EXIF dates, with nothing else running"
+section "timings: the large folder and EXIF dates, with nothing else running"
 if [ -n "$QUICK" ]; then
     echo "-- QUICK: large folder and EXIF timings left out"
 else
@@ -3676,7 +3579,7 @@ for s in range(10):
     rm -rf $e   # 3 GB
 fi
 
-echo "-- the folder tree: 100,000 folders, opened at the folder shown, one opened by a click"
+section "the folder tree: 100,000 folders, opened at the folder shown, one opened by a click"
 d=/tmp/tree
 mkdir -p $d/many
 (cd $d/many && seq -f 'f%06.0f' 100000 | xargs mkdir -p)
@@ -3707,9 +3610,8 @@ for v in new old; do
     fi
 done
 rm -rf $d
-as_version new
 
-echo "-- as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host"
+section "as a Flatpak: the host's programs asked of flatpak-spawn, the fallbacks taken on the host"
 # A stand-in flatpak-spawn runs the host command here, as the real one does on the host, its
 # flags (--host, --env=…) dropped; Glimt takes itself for a Flatpak from FLATPAK_ID. So the
 # one place that asks what the host has (host_has) and every fallback it decides run here.
@@ -3742,7 +3644,6 @@ key f; sleep 2
 ended=$(kill -0 "$(cat $d/inhibited 2>/dev/null)" 2>/dev/null || echo yes)
 quit
 unset FLATPAK_ID
-rm -f /tmp/stub/kdialog /tmp/stub/gnome-session-inhibit /tmp/stub/flatpak-spawn
 expect "no zenity on the host: kdialog's answer opened" "$opened" "$d/kde/k.jpg"
 expect "the host's inhibitor started, and full screen at rest" "$([ -e $d/inhibited ] && [ $ticks -lt 60 ] && echo yes)" yes
 expect "the inhibitor ended with full screen" "$ended" yes
