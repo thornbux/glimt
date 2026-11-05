@@ -66,6 +66,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The release workflow built the Flatpak in a folder inside the source the manifest copies.
 - The weekly run with five million broken inputs skipped two tests that fed them, as their names
   lacked survives_broken; a source test now keeps every such test named so.
+- A source test checks that each name in a row of AGENTS.md's code layout is defined in that row's
+  file, so a function moved to another module takes its name to that module's row.
 
 ## [0.57.0] - 2026-11-05
 

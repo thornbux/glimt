@@ -645,6 +645,58 @@ fn agents_md_lists_every_module() {
     );
 }
 
+/// Each plain name in backticks in a row of AGENTS.md's code layout is defined in that row's
+/// file, is in one of its string literals (a program's name), or is a feature in Cargo.toml.
+/// So a function moved to another module takes its name to that module's row too, even when
+/// the old module still calls it. Paths, macros and options in backticks are left out.
+#[test]
+fn agents_md_names_what_each_module_has() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    let cargo = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+    let feature = |n: &str| cargo.contains(&format!("\n{n} = ["));
+    let plain = |t: &&str| {
+        t.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let words = |t: &str| -> Vec<String> {
+        (t.split(|c: char| !c.is_ascii_alphanumeric() && c != '_'))
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let kinds = [
+        "fn", "struct", "enum", "type", "const", "static", "trait", "mod",
+    ];
+    let mut wrong = Vec::new();
+    for row in agents.lines() {
+        let Some((file, rest)) = row.strip_prefix("| `src/").and_then(|r| r.split_once('`')) else {
+            continue;
+        };
+        let text = source(file);
+        let code = words(&code_lines(&text).join("\n"));
+        let mut known: std::collections::HashSet<String> = (code.windows(2))
+            .filter(|w| kinds.contains(&w[0].as_str()) || w[0] == "macro_rules")
+            .map(|w| w[1].clone())
+            .collect();
+        // The words inside string literals, outside comments: a program's name, say.
+        for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
+            known.extend(line.split('"').skip(1).step_by(2).flat_map(words));
+        }
+        let names = rest.split('`').skip(1).step_by(2).filter(plain);
+        wrong.extend(
+            names
+                .filter(|n| !known.contains(*n) && !feature(n))
+                .map(|n| format!("{file}: {n}")),
+        );
+    }
+    assert!(
+        wrong.is_empty(),
+        "AGENTS.md's code layout names what is not defined in that file:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
 /// and one file for each folder. A folder's file holds its `//!` doc and its `mod` lines and
 /// nothing else. A `pub use` there would let other files import a name through the folder, which
