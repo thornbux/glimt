@@ -992,6 +992,20 @@ impl crate::App {
         }
     }
 
+    /// Gives files in the list new names in place, for a file moved or renamed that keeps its
+    /// place. The list's version goes up and the search runs again, so the matches follow the
+    /// new names. The listing that follows finds the same names and would change nothing.
+    pub(crate) fn rename_in_list(&mut self, ctx: &egui::Context, names: Vec<(usize, OsString)>) {
+        if names.is_empty() {
+            return;
+        }
+        for (i, name) in names {
+            self.list.rename(i, name);
+        }
+        self.list.renamed_in_place();
+        self.update_search(ctx);
+    }
+
     /// Lets go of what holds places in the list, after files were taken out of it and its
     /// places shifted. This is the one place for it. (A list read again gets a new `List`
     /// instead.) It covers the selection (told to the status bar), the anchor, a rectangle or
@@ -1291,6 +1305,30 @@ mod tests {
         app.replace_files(&ctx, files, shown);
         assert_eq!((app.list.cur(), app.compare_other()), (5, Some(9)));
         assert!(both(&app, 5, 9));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A file renamed in a collection leaves the search's matches it no longer fits. The list's
+    /// names changed in place, and the listing that followed found nothing new.
+    #[test]
+    fn a_rename_in_a_collection_runs_the_search_again() {
+        let name = format!("glimt-test-col-rename-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("apple.png"), dir.join("banana.png"));
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let file = dir.join("c.gqv");
+        std::fs::write(&file, format!("#GQview collection\n\"{}\"\n", a.display())).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.open(&ctx, file);
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()
+            && !a.list.files().is_empty()));
+        app.search.set_query("apple");
+        app.update_search(&ctx);
+        assert_eq!(app.list.matches().map(<[usize]>::len), Some(1));
+        std::fs::rename(&a, &b).unwrap();
+        app.paths_moved(vec![(a, b)], false);
+        assert_eq!(app.list.matches().map(<[usize]>::len), Some(0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

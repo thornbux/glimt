@@ -102,6 +102,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   XDG_DATA_HOME.
 - A message from work in the background (a wallpaper set, Open With, the video player, a missing
   file dialog) shows at once, not only after the mouse moves.
+- A file renamed or moved in a collection, or renamed in place, leaves the search's matches it no
+  longer fits and joins those it now fits.
 
 ## [0.57.0] - 2026-11-05
 
