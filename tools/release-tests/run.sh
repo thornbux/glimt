@@ -96,10 +96,11 @@ for p in $pids; do wait $p || failed=1; done
 part $parts || failed=1
 for k in $(seq 0 $parts); do grep -v '^ *$' "$work/part-$k.log" | grep -v 'checks failed$'; done
 docker run --rm -e STEP=audit -v "$work:/t" -v glimt-cargo:/usr/local/cargo/registry $image \
-    bash /t/tests.sh || failed=1
+    bash /t/tests.sh > "$work/audit.log" 2>&1 || failed=1
+cat "$work/audit.log"
 docker rmi $image >/dev/null
 echo "-- not tested here, by hand: the Flatpak (two windows with Ctrl+N, --remote next to the"
 echo "   focused one, --remote-all next to both, --remote-all quit)"
-fails=$(cat "$work"/part-*.log | grep -c '^FAIL')
+fails=$(cat "$work"/part-*.log "$work/audit.log" | grep -c '^FAIL')
 if [ $failed = 1 ]; then echo "$fails checks failed"; exit 1; fi
 echo "every check passed"
