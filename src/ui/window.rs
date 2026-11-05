@@ -83,9 +83,10 @@ impl Window {
     }
 
     /// Whether `action` may run: a kiosk shows and browses, and does not change files, settings
-    /// or the window, until it may quit.
+    /// or the window. Once it may close, Quit passes too, but nothing else does.
     pub(crate) fn allows(&self, action: Action) -> bool {
-        !self.kiosk || KIOSK_ACTIONS.contains(&action) || self.kiosk_quit
+        let quits = action == Action::Quit && self.kiosk_quit;
+        !self.kiosk || KIOSK_ACTIONS.contains(&action) || quits
     }
 
     /// Window → Projector, open or closed; its size is learnt anew.
@@ -434,6 +435,17 @@ fn window_shown(ctx: &egui::Context) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// A kiosk that may close lets Quit through, but still refuses what changes the settings.
+    #[test]
+    fn a_kiosk_about_to_quit_stays_locked() {
+        use crate::ui::actions::Action;
+        let mut window = super::Window::new(true);
+        window.let_kiosk_quit();
+        assert!(window.allows(Action::Quit));
+        assert!(!window.allows(Action::HiddenFiles) && !window.allows(Action::Delete));
+        assert!(window.allows(Action::Next));
+    }
 
     /// The window title from the template in Preferences, and the default order when it is
     /// empty or all its fields are.

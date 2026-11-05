@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A kiosk whose quit is held back no longer lets every other action through.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
