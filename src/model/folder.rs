@@ -1109,8 +1109,12 @@ impl crate::App {
         }
         // The panes' places belong to other files now, so they are filled again from the list
         // as it is.
+        let version = self.list.version();
         self.list.remove(removed);
         self.list_changed(ctx);
+        if let Some(pan) = &mut self.pan_window {
+            pan.follow(removed, version, self.list.version());
+        }
         self.update_search(ctx);
         // The next remaining file after the shown one (or the last).
         let cur = self.list.cur() - removed.partition_point(|&r| r < self.list.cur());

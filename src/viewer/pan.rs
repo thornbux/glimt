@@ -64,12 +64,16 @@ pub(crate) struct Pan {
     exif: bool,
     /// The days, and the version of the file list they are for (`App::files_gen`).
     days: Option<(Vec<pan::Day>, usize)>,
-    /// The days so far, the list version they are for, and whether they are all of them.
-    days_rx: Receiving<(Vec<pan::Day>, usize, bool)>,
+    /// The days read so far, and whether they are all of them.
+    days_rx: Receiving<(Vec<pan::Day>, bool)>,
     /// Set when the days being made are no longer wanted: the thread stops reading.
     days_stop: Arc<AtomicBool>,
-    /// The list version the days being made are for.
-    days_for: usize,
+    /// The files deleted while the days are being read, as sorted places in the list the days
+    /// are read from. The second number is the list version the days will be for: the version
+    /// read from when the reading starts, and after each delete the version after it. The days
+    /// that come are moved through the deletes to the list as it is now, in one pass however
+    /// many deletes there were.
+    gone: (Vec<usize>, usize),
     /// The rows for this many columns, and their height.
     rows: Vec<(f32, pan::Row)>,
     columns: usize,
@@ -116,6 +120,40 @@ impl Pan {
                 ui.spinner();
             }
         });
+    }
+
+    /// Follows the list from version `old` to `version`, made without the sorted places
+    /// `removed`. The days keep their images at the new places, so a delete does not make the
+    /// view read every file's date again. Days of another version are left alone, and they are
+    /// made again as before.
+    pub(crate) fn follow(&mut self, removed: &[usize], old: usize, version: usize) {
+        if self.days_rx.is_some() {
+            // A delete while the days are being read lets the reading go on, because in a
+            // large folder it takes minutes. The days it sends are moved through the delete.
+            if self.gone.1 != old {
+                return;
+            }
+            self.gone = (add_gone(&self.gone.0, removed), version);
+        }
+        let Some((days, made)) = self.days.as_mut().filter(|d| d.1 == old) else {
+            return;
+        };
+        without(days, removed);
+        *made = version;
+        self.months = months(days);
+        (self.columns, self.jump) = (0, None);
+    }
+
+    /// Takes the days read so far and moves them through the deletes made since the reading
+    /// started. `done` says that they are all of them.
+    fn take_days(&mut self, mut days: Vec<Day>, done: bool) {
+        without(&mut days, &self.gone.0);
+        self.months = months(&days);
+        self.days = Some((days, self.gone.1));
+        self.columns = 0;
+        if done {
+            self.days_rx.clear();
+        }
     }
 }
 
@@ -182,7 +220,7 @@ impl crate::App {
         let stale = (pan.days.as_ref()).is_none_or(|d| d.1 != self.list.version());
         // Days still being made for a list that changed: stopped, so the new list's start now
         // instead of after every old file is read.
-        if pan.days_rx.is_some() && pan.days_for != self.list.version() {
+        if pan.days_rx.is_some() && pan.gone.1 != self.list.version() {
             pan.days_stop.store(true, Ordering::Relaxed);
             pan.days_rx.clear();
         }
@@ -193,14 +231,15 @@ impl crate::App {
                 self.list.files().to_vec(),
                 pan.exif,
             );
-            let (ctx, made) = (ctx.clone(), self.list.version());
-            pan.days_for = made;
+            let ctx = ctx.clone();
+            // The days are read from the list as it is now, which no file has left yet.
+            pan.gone = (Vec::new(), self.list.version());
             let pointer = Working::new(&self.busy);
             pan.days_stop = Arc::default();
             let stop = pan.days_stop.clone();
             std::thread::spawn(move || {
                 timeline(&dir, &files, exif, &stop, |days, done| {
-                    let _ = tx.send((days, made, done));
+                    let _ = tx.send((days, done));
                     ctx.request_repaint();
                 });
                 drop(pointer);
@@ -212,14 +251,7 @@ impl crate::App {
         let mut gone = false;
         loop {
             match pan.days_rx.next() {
-                Took::Answer((days, made, done)) => {
-                    pan.months = months(&days);
-                    pan.days = Some((days, made));
-                    pan.columns = 0;
-                    if done {
-                        pan.days_rx.clear();
-                    }
-                }
+                Took::Answer((days, done)) => pan.take_days(days, done),
                 Took::Nothing => break,
                 Took::Gone => {
                     gone = true;
@@ -607,6 +639,34 @@ fn weekday(y: i32, m: u32, d: u32) -> u32 {
     ((sunday0 + 6) % 7) as u32
 }
 
+/// Removes the sorted places `removed` from the days, moves the images after them to their new
+/// places, and drops a day left empty.
+fn without(days: &mut Vec<Day>, removed: &[usize]) {
+    for day in days.iter_mut() {
+        day.1.retain(|i| removed.binary_search(i).is_err());
+        for i in &mut day.1 {
+            *i -= removed.partition_point(|r| r < i);
+        }
+    }
+    days.retain(|d| !d.1.is_empty());
+}
+
+/// Adds the sorted places `removed`, in the list left after the files `gone` were removed, to
+/// `gone`, which holds sorted places in the list before any of them was. Returns the new `gone`,
+/// sorted.
+fn add_gone(gone: &[usize], removed: &[usize]) -> Vec<usize> {
+    let (mut all, mut j) = (gone.to_vec(), 0);
+    for &r in removed {
+        // The place before the removals is r plus the number of removed places at or before it.
+        while j < gone.len() && gone[j] <= r + j {
+            j += 1;
+        }
+        all.push(r + j);
+    }
+    all.sort_unstable();
+    all
+}
+
 fn days_in_month(y: i32, m: u32) -> u32 {
     match m {
         2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
@@ -620,6 +680,74 @@ fn days_in_month(y: i32, m: u32) -> u32 {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    /// A delete keeps the days of the files left, at their new places, and a day left empty
+    /// goes. Days of another version of the list are not touched.
+    #[test]
+    fn the_days_follow_a_delete() {
+        let mut pan = Pan::default();
+        let days = vec![
+            ("2024-01-01".into(), vec![0, 2]),
+            ("2024-01-02".into(), vec![1]),
+        ];
+        pan.days = Some((days, 5));
+        pan.follow(&[1], 5, 6);
+        assert_eq!(pan.days, Some((vec![("2024-01-01".into(), vec![0, 1])], 6)));
+        pan.follow(&[0], 5, 7);
+        assert_eq!(pan.days.as_ref().map(|d| d.1), Some(6));
+    }
+
+    /// A delete while the days are still being read keeps the reading going, and the days it
+    /// sends afterwards come at the new places, through every delete made meanwhile.
+    #[test]
+    fn the_days_being_read_follow_a_delete() {
+        let mut pan = Pan::default();
+        let (_tx, rx) = mpsc::channel();
+        (pan.days_rx, pan.gone) = (Receiving::of(rx), (Vec::new(), 5));
+        pan.days = Some((vec![("2024-01-01".into(), vec![2, 3])], 5));
+        pan.follow(&[2], 5, 6);
+        pan.follow(&[2], 6, 7);
+        assert_eq!(pan.days, Some((vec![], 7)));
+        // Places 0 and 2 of the list left are 0 and 4 of the list read, before and after the
+        // two deleted first.
+        pan.follow(&[0, 2], 7, 8);
+        assert_eq!(pan.gone, (vec![0, 2, 3, 4], 8));
+        let read = vec![
+            ("2024-01-01".into(), vec![0, 1]),
+            ("2024-01-02".into(), vec![2, 3]),
+            ("2024-01-03".into(), vec![4, 5]),
+        ];
+        pan.take_days(read, false);
+        let left = vec![
+            ("2024-01-01".into(), vec![0]),
+            ("2024-01-03".into(), vec![1]),
+        ];
+        assert_eq!(pan.days, Some((left, 8)));
+        // A delete in a list the reading is not for leaves it alone.
+        pan.follow(&[0], 3, 9);
+        assert_eq!(pan.gone.1, 8);
+    }
+
+    /// A delete in the window keeps Pan view's days for the new list, so they are not read
+    /// again for every file.
+    #[test]
+    fn a_delete_keeps_the_days() {
+        let name = format!("glimt-test-pan-delete-{}", std::process::id());
+        let dir = std::env::temp_dir().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.list
+            .set_files((0..3).map(|i| format!("{i}.png").into()).collect());
+        let mut pan = Pan::default();
+        let days = vec![("2024-01-01".into(), vec![0, 1, 2])];
+        pan.days = Some((days, app.list.version()));
+        app.pan_window = Some(pan);
+        app.remove_indices(&ctx, &[1]);
+        let pan = app.pan_window.as_ref().unwrap();
+        let days = vec![("2024-01-01".into(), vec![0, 1])];
+        assert_eq!(pan.days, Some((days, app.list.version())));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     /// Stopped, nothing more is read: every file after gets no value.
     #[test]

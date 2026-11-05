@@ -15,6 +15,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
   shortcut.
 - Preferences → Keyboard shortcuts can give an action Ctrl+C or Ctrl+X, which before left the
   row waiting for a key. A key given to Ctrl+X runs, and the keyboard's own Copy key runs Copy.
+- With the Pan view open, a delete or a move out of the list no longer makes it read the date of
+  every file again.
+- Deleting images while the Pan view still reads the days of a large folder no longer starts the
+  reading over.
 
 ## [0.57.0] - 2026-11-05
 
