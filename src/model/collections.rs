@@ -388,9 +388,11 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
     // Written whole or not at all; a new one never lands over a collection another window made
     // meanwhile. What else the file held (Geeqie's #geometry line) goes back in.
     let out = to_text(&all, &other_lines(&text));
+    // A collection opened from a downloaded folder may be a link to another file of the user's.
+    // The link itself is replaced, so the file it points to is never written over.
     match was_new {
         true => crate::files::file_io::create_file(file, out),
-        false => crate::files::file_io::replace_file(file, out),
+        false => crate::files::file_io::replace_name(file, out),
     }
 }
 
@@ -601,6 +603,27 @@ mod tests {
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("#geometry: 0 0 400 300\n") && text.contains("\"/b.jpg\""));
         assert!(!text.contains("/a.jpg") && text.ends_with("#end\n"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A collection that is a link is replaced by the edited list, and the file the link points
+    /// to stays as it was.
+    #[test]
+    fn an_edit_never_writes_through_a_link() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("notes.txt");
+        let text = "#GQview collection\n\"/a.jpg\"\n\"/b.jpg\"\n#end\n";
+        std::fs::write(&target, text).unwrap();
+        let file = dir.join("trip.gqv");
+        std::os::unix::fs::symlink(&target, &file).unwrap();
+        super::edit(&file, false, |all| {
+            all.retain(|p| p.as_os_str() != "/a.jpg")
+        })
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), text);
+        assert!(!std::fs::symlink_metadata(&file).unwrap().is_symlink());
+        assert_eq!(super::load(&file).unwrap(), [PathBuf::from("/b.jpg")]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
