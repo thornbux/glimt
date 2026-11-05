@@ -9,6 +9,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
 use crate::ui::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
+use crate::ui::menus::{radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
 use std::path::Path;
@@ -320,7 +321,7 @@ impl crate::App {
                     for name in theme::names() {
                         let c = &mut self.config.theme;
                         let shown = theme::shown_name(&name);
-                        chosen |= ui.selectable_value(c, name.clone(), shown).clicked();
+                        chosen |= crate::ui::menus::choice(ui, c, name.clone(), shown).clicked();
                     }
                 });
             ui.label(tr("Theme"));
@@ -352,9 +353,8 @@ impl crate::App {
                 .show_ui(ui, |ui| {
                     for code in codes {
                         let c = &mut self.config.language;
-                        chosen |= ui
-                            .selectable_value(c, code.to_owned(), name(code))
-                            .clicked();
+                        chosen |=
+                            crate::ui::menus::choice(ui, c, code.to_owned(), &name(code)).clicked();
                     }
                 });
             ui.label(tr("Language"));
@@ -426,8 +426,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             ui.label(tr("Fade to the next image:"));
             for (k, (_, label, _)) in FADES.iter().enumerate() {
-                changed |= ui
-                    .radio_value(&mut self.config.fade, k, tr(label))
+                changed |= radio_choice(ui, &mut self.config.fade, k, tr(label))
                     .on_hover_text(tr("Not with CPU use Power saving"))
                     .changed();
             }
@@ -491,7 +490,9 @@ impl crate::App {
                 .color_edit_button_srgb(&mut self.config.background.0)
                 .changed();
             ui.label(tr("Background behind the image"));
-            if self.config.background.0 != [0, 0, 0] && ui.small_button(tr("Black")).clicked() {
+            if self.config.background.0 != [0, 0, 0]
+                && crate::ui::menus::small_button(ui, tr("Black")).clicked()
+            {
                 self.config.background.0 = [0, 0, 0];
                 changed = true;
             }
@@ -512,7 +513,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             ui.label(tr("Histogram (K):"));
             for (n, name) in [(0, tr("Off")), (1, "RGB"), (2, tr("Brightness"))] {
-                changed |= ui.radio_value(&mut c.histogram, n, name).changed();
+                changed |= radio_choice(ui, &mut c.histogram, n, name).changed();
             }
             changed |= ui
                 .checkbox(&mut c.histogram_log, tr("Logarithmic (J)"))
@@ -536,7 +537,7 @@ impl crate::App {
                 tr("Regular expression, in list order (like Geeqie's file filter)"),
             ),
         ] {
-            if ui.radio(fuzzy == on, label).clicked() && fuzzy != on {
+            if radio(ui, fuzzy == on, label).clicked() && fuzzy != on {
                 self.config.fuzzy_search = on;
                 changed = true;
                 self.update_search(ctx);
@@ -560,7 +561,7 @@ impl crate::App {
             ui.label(tr("Thumbnail size:"));
             let mut size = self.config.thumb_size;
             for (n, name) in [(0, tr("Small")), (1, tr("Medium")), (2, tr("Large"))] {
-                if ui.radio_value(&mut size, n, name).changed() {
+                if radio_choice(ui, &mut size, n, name).changed() {
                     self.set_thumb_size(size);
                 }
             }
@@ -613,8 +614,7 @@ impl crate::App {
             ui.label(tr("Memory use:"));
             for l in &MEMORY_LEVELS {
                 let on = level.is_some_and(|m| m.name == l.name);
-                if ui
-                    .radio(on, tr(l.name))
+                if radio(ui, on, tr(l.name))
                     .on_hover_text(tr(l.hover))
                     .clicked()
                 {
@@ -622,7 +622,7 @@ impl crate::App {
                 }
             }
             // Chosen by changing the details, which it opens.
-            custom = ui.radio(level.is_none(), tr("Custom")).clicked();
+            custom = radio(ui, level.is_none(), tr("Custom")).clicked();
         });
         if let Some(l) = chosen {
             self.set_preload(l.preload);
@@ -672,8 +672,7 @@ impl crate::App {
         ui.horizontal(|ui| {
             ui.label(tr("CPU use:"));
             for (k, (name, hover)) in CPU_LEVELS.iter().enumerate() {
-                if ui
-                    .radio(self.config.cpu_use == k, tr(name))
+                if radio(ui, self.config.cpu_use == k, tr(name))
                     .on_hover_text(tr(hover))
                     .clicked()
                 {
@@ -703,7 +702,7 @@ impl crate::App {
             ui.label(tr("Images without a profile:"));
             let current = self.config.input_profile.clone();
             for (value, label) in INPUT_PROFILES {
-                if ui.radio(current == value, label).clicked() && current != value {
+                if radio(ui, current == value, label).clicked() && current != value {
                     self.set_input_profile(value.to_owned());
                 }
             }
@@ -712,7 +711,7 @@ impl crate::App {
             let label = file.map_or(tr("Profile file…").into(), |n| {
                 format!("{}…", n.to_string_lossy())
             });
-            if ui.radio(own_file, label).clicked() {
+            if radio(ui, own_file, &label).clicked() {
                 self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
             }
             let mut desktop = self.config.desktop_profile;
@@ -736,17 +735,19 @@ impl crate::App {
                 let file = Path::new(&self.config.screen_profile).file_name();
                 let name = file.map_or(tr("none, sRGB").into(), |n| n.to_string_lossy());
                 ui.label(name).on_hover_text(&self.config.screen_profile);
-                if ui.button(tr("Choose…")).clicked() {
+                if crate::ui::menus::button(ui, tr("Choose…")).clicked() {
                     self.pick(&ui.ctx().clone(), false, Pick::ScreenProfile);
                 }
-                if !self.config.screen_profile.is_empty() && ui.button(tr("None")).clicked() {
+                if !self.config.screen_profile.is_empty()
+                    && crate::ui::menus::button(ui, tr("None")).clicked()
+                {
                     self.set_screen_profile(String::new());
                 }
             });
             ui.label(tr("Rendering intent:"));
             let current = self.config.rendering_intent.clone();
             for (value, label, _) in INTENTS {
-                if ui.radio(current == value, tr(label)).clicked() && current != value {
+                if radio(ui, current == value, tr(label)).clicked() && current != value {
                     self.set_rendering_intent(value.to_owned());
                 }
             }
@@ -776,8 +777,7 @@ impl crate::App {
             changed = true;
         }
         // Geeqie's cache maintenance: thumbnails of files that are gone.
-        if ui
-            .button(tr("Remove thumbnails of deleted files"))
+        if crate::ui::menus::button(ui, tr("Remove thumbnails of deleted files"))
             .on_hover_text(tr(
                 "In ~/.cache/thumbnails; kept for disks that are not plugged in",
             ))
@@ -825,9 +825,7 @@ impl crate::App {
                 .into_iter()
                 .enumerate()
             {
-                changed |= ui
-                    .radio_value(&mut self.config.toolbar_icons, n, label)
-                    .changed();
+                changed |= radio_choice(ui, &mut self.config.toolbar_icons, n, label).changed();
             }
         });
         changed
@@ -861,7 +859,7 @@ impl crate::App {
              and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, \
              left out when its fields are empty.",
         ));
-        if ui.button(tr("Default")).clicked() {
+        if crate::ui::menus::button(ui, tr("Default")).clicked() {
             c.osd_template = OSD_TEMPLATE.to_owned();
             changed = true;
         }
@@ -982,7 +980,7 @@ impl crate::App {
                     ui.label(keys.join(", "));
                 }
                 ui.horizontal(|ui| {
-                    let change = ui.small_button(tr("Change"));
+                    let change = crate::ui::menus::small_button(ui, tr("Change"));
                     if crate::support::test_hooks::noted(
                         &change,
                         &format!("Change {}", action.label()),
@@ -992,7 +990,7 @@ impl crate::App {
                         self.prefs.capturing = Some(action);
                     }
                     let own = self.config.keys.0.iter().any(|k| k.0 == action);
-                    if own && ui.small_button(tr("Reset")).clicked() {
+                    if own && crate::ui::menus::small_button(ui, tr("Reset")).clicked() {
                         self.config.keys.0.retain(|k| k.0 != action);
                         self.config.save();
                         if let Ok(mut o) = OWN_KEYS.write() {

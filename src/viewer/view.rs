@@ -652,7 +652,9 @@ impl crate::App {
                     [1, 2] => theme::icon::ROWS,
                     _ => theme::icon::GRID_FOUR,
                 };
-                let radio = ui.radio(self.config.layout == key, iconed(ui, icon, tr(label)));
+                let text = iconed(ui, icon, tr(label));
+                #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
+                let radio = ui.radio(self.config.layout == key, text);
                 if noted(&radio, tr(label)).clicked() {
                     self.set_layout(key);
                 }
@@ -670,10 +672,18 @@ impl crate::App {
             ui.weak(tr("Slideshow in this layout:"));
             let turns = self.one_at_a_time();
             let mut chosen = turns;
-            let together = iconed(ui, theme::icon::TOGETHER, tr("All Images Change Together"));
-            ui.radio_value(&mut chosen, false, together);
-            let one = iconed(ui, theme::icon::CURSOR, tr("One Image at a Time"));
-            ui.radio_value(&mut chosen, true, one);
+            for (value, icon, label) in [
+                (
+                    false,
+                    theme::icon::TOGETHER,
+                    tr("All Images Change Together"),
+                ),
+                (true, theme::icon::CURSOR, tr("One Image at a Time")),
+            ] {
+                let text = iconed(ui, icon, label);
+                #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted here.
+                noted(&ui.radio_value(&mut chosen, value, text), label);
+            }
             if chosen != turns {
                 let layout = self.config.layout.clone();
                 let mut list: Vec<&str> = (self.config.layout_turns.split(','))

@@ -79,8 +79,7 @@ impl KeywordNode {
                     *tick = Some((path.clone(), on));
                 }
                 response.context_menu(|ui| {
-                    let remove = ui.button(tr("Remove from the tree"));
-                    if noted(&remove, tr("Remove from the tree")).clicked() {
+                    if crate::ui::menus::button(ui, tr("Remove from the tree")).clicked() {
                         *drop = Some(path.clone());
                     }
                 });
@@ -293,13 +292,12 @@ impl crate::App {
         let n = self.list.selected().len();
         if n > 1
             && !add.is_empty()
-            && ui
-                .button(tf!(
-                    "Add the keywords to the {n} selected",
-                    n = thousands(n)
-                ))
-                .on_hover_text(tr("Each file keeps its own keywords and gets these too"))
-                .clicked()
+            && crate::ui::menus::button(
+                ui,
+                &tf!("Add the keywords to the {n} selected", n = thousands(n)),
+            )
+            .on_hover_text(tr("Each file keeps its own keywords and gets these too"))
+            .clicked()
         {
             self.add_keywords(ui.ctx(), add);
         }
@@ -334,7 +332,7 @@ impl crate::App {
         let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
         let layout = egui::Layout::right_to_left(egui::Align::Center);
         ui.allocate_ui_with_layout(row, layout, |ui| {
-            let add = ui.button(tr("Add")).clicked();
+            let add = crate::ui::menus::button(ui, tr("Add")).clicked();
             let field = egui::TextEdit::singleline(&mut self.info.new_keyword)
                 .hint_text(tr("Places|Norway|Oslo"))
                 .desired_width(ui.available_width());
@@ -353,8 +351,7 @@ impl crate::App {
             .cloned()
             .collect();
         if !missing.is_empty()
-            && ui
-                .small_button(tr("Add this image's keywords to the tree"))
+            && crate::ui::menus::small_button(ui, tr("Add this image's keywords to the tree"))
                 .clicked()
         {
             self.change_keyword_tree(missing, None);

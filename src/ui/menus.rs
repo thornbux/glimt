@@ -72,6 +72,7 @@ impl crate::App {
             };
             // Chosen again too, so a theme file just edited shows.
             let shown = theme::shown_name(&name);
+            #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
             let radio = ui.radio(self.config.theme == name, iconed(ui, icon, shown));
             if noted(&radio, &name).clicked() {
                 self.config.theme = name;
@@ -88,16 +89,16 @@ impl crate::App {
 
     /// Save as Theme…, Open Themes Folder and Get More Themes…, in View → Theme and Preferences.
     pub(crate) fn theme_buttons(&mut self, ui: &mut egui::Ui) {
-        if ui.button(tr("Save as Theme…")).clicked() {
+        if button(ui, tr("Save as Theme…")).clicked() {
             self.dialogs.ask(Prompt::SaveTheme, String::new());
         }
-        if ui.button(tr("Open Themes Folder")).clicked()
+        if button(ui, tr("Open Themes Folder")).clicked()
             && let Some(dir) = theme::dir()
         {
             let _ = std::fs::create_dir_all(&dir);
             open_url(&dir.to_string_lossy());
         }
-        if ui.button(tr("Get More Themes…")).clicked() {
+        if button(ui, tr("Get More Themes…")).clicked() {
             open_url("https://github.com/thornbux/glimt/tree/main/themes");
         }
     }
@@ -363,6 +364,7 @@ impl crate::App {
             let icons = [CIRCLE, HALF, HALF_TILT, SUN_DIM];
             for (f, label) in FILTERS.iter().enumerate() {
                 let text = iconed(ui, icons[f.min(3)], tr(label));
+                #[allow(clippy::disallowed_methods)] // It has an icon before the text, noted below.
                 let radio = ui.radio(self.config.view_filter == f, text);
                 if noted(&radio, tr(label)).clicked() {
                     self.set_view_filter(f);
@@ -406,6 +408,7 @@ impl crate::App {
             (theme::icon::PLAY, tr("Start Slideshow"))
         };
         let text = iconed(ui, icon, label);
+        #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
         menu_button(ui, act, egui::Button::new(text), Action::Slideshow);
         menu_toggle(ui, act, self.slideshow.is_paused(), Action::Pause);
         menu_item(ui, act, Action::Faster);
@@ -450,7 +453,7 @@ impl crate::App {
             iconed(ui, theme::icon::STACK_PLUS, tr("Add to Collection")),
             |ui| {
                 for (name, file) in collections::list() {
-                    if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked() {
+                    if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         self.add_to_collection(ui.ctx(), &file);
                     }
                 }
@@ -476,8 +479,7 @@ impl crate::App {
             }
             let mut chosen = None;
             for (k, plugin) in self.plugins.iter().enumerate() {
-                let button = ui.button(iconed(ui, theme::icon::PLUGIN, &plugin.name));
-                if noted(&button, &plugin.name).clicked() {
+                if icon_button(ui, theme::icon::PLUGIN, &plugin.name).clicked() {
                     chosen = Some(k);
                 }
             }
@@ -489,7 +491,7 @@ impl crate::App {
             }
             for (name, pid) in running {
                 let text = tf!("Stop {name}", name);
-                if noted(&ui.button(iconed(ui, theme::icon::STOP, &text)), &text).clicked() {
+                if icon_button(ui, theme::icon::STOP, &text).clicked() {
                     let mut running = self.plugins_running.lock().unwrap();
                     let was = running.len();
                     running.retain(|r| r.1 != pid);
@@ -500,8 +502,7 @@ impl crate::App {
                 }
             }
             ui.separator();
-            let folder = iconed(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"));
-            if noted(&ui.button(folder), tr("Open the Plugins Folder"))
+            if icon_button(ui, theme::icon::FOLDER_OPEN, tr("Open the Plugins Folder"))
                 .on_hover_text(tr(
                     "Desktop files there, as Geeqie's, show in this menu after a restart",
                 ))
@@ -577,10 +578,7 @@ impl crate::App {
             #[cfg(feature = "portals")]
             if apps.is_empty() && crate::files::portal::in_flatpak() {
                 // The Flatpak, without the host's applications: the desktop's own chooser.
-                if ui
-                    .button(iconed(ui, theme::icon::APP, tr("Choose Application…")))
-                    .clicked()
-                {
+                if icon_button(ui, theme::icon::APP, tr("Choose Application…")).clicked() {
                     // Each selected file (or the shown one), the chooser asking for each.
                     let files: Vec<PathBuf> =
                         self.targets().iter().map(|&i| self.path(i)).collect();
@@ -603,7 +601,7 @@ impl crate::App {
             }
             let mut chosen = None;
             for (name, desktop) in apps.iter() {
-                if noted(&ui.button(iconed(ui, theme::icon::APP, name)), name).clicked() {
+                if icon_button(ui, theme::icon::APP, name).clicked() {
                     chosen = Some(desktop.clone());
                 }
             }
@@ -821,6 +819,71 @@ pub(crate) fn close_menus(ctx: &egui::Context, bar: egui::Rect, away: &mut Optio
     }
 }
 
+/// Draws a button of `text` and notes it for the release tests, which click it by its text.
+#[allow(clippy::disallowed_methods)] // The one place a plain button is drawn.
+pub(crate) fn button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    noted(&ui.button(text), text)
+}
+
+/// Draws a button of `icon` before `text`, noted by its text as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place a button with an icon is drawn.
+pub(crate) fn icon_button(ui: &mut egui::Ui, icon: &str, text: &str) -> egui::Response {
+    noted(&ui.button(iconed(ui, icon, text)), text)
+}
+
+/// Draws a button of `text` that can be clicked only when `on`, noted as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place a button that may be off is drawn.
+pub(crate) fn button_enabled(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+    noted(&ui.add_enabled(on, egui::Button::new(text)), text)
+}
+
+/// Draws a small button of `text`, noted as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place a small button is drawn.
+pub(crate) fn small_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    noted(&ui.small_button(text), text)
+}
+
+/// Draws a row of `text` that shows whether it is selected (`on`), noted as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place a selectable row is drawn.
+pub(crate) fn selectable(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+    noted(&ui.selectable_label(on, text), text)
+}
+
+/// Draws a row of `text` that sets `current` to `value` when clicked and shows whether it
+/// holds it, noted as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place a row tied to a value is drawn.
+pub(crate) fn choice<T: PartialEq>(
+    ui: &mut egui::Ui,
+    current: &mut T,
+    value: T,
+    text: &str,
+) -> egui::Response {
+    noted(&ui.selectable_value(current, value, text), text)
+}
+
+/// Draws a radio button of `text`, on when `on`, noted as `button` does.
+#[allow(clippy::disallowed_methods)] // The one place a radio button is drawn by its text.
+pub(crate) fn radio(ui: &mut egui::Ui, on: bool, text: &str) -> egui::Response {
+    noted(&ui.radio(on, text), text)
+}
+
+/// Draws a radio button of `text` that sets `current` to `value` when clicked, noted as
+/// `button` does. The response is marked changed when `current` changes, as egui's own
+/// radio_value does.
+pub(crate) fn radio_choice<T: PartialEq>(
+    ui: &mut egui::Ui,
+    current: &mut T,
+    value: T,
+    text: &str,
+) -> egui::Response {
+    let mut response = radio(ui, *current == value, text);
+    if response.clicked() && *current != value {
+        *current = value;
+        response.mark_changed();
+    }
+    response
+}
+
 /// `text` with the Phosphor `icon` before it, as every row of the menus shows: the icon in the
 /// weak colour, the text in the widget's own (Color32::PLACEHOLDER), so a selected row keeps
 /// its colours. Phosphor's glyphs are all one em wide, so the texts line up.
@@ -840,6 +903,7 @@ pub(crate) fn iconed(ui: &egui::Ui, icon: &str, text: &str) -> egui::text::Layou
 /// A menu entry showing the action's shortcut; sets `act` when clicked.
 pub(crate) fn menu_item(ui: &mut egui::Ui, act: &mut Option<Action>, action: Action) {
     let text = iconed(ui, action.icon(), action.label());
+    #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
     menu_button(ui, act, egui::Button::new(text), action);
 }
 
@@ -850,7 +914,9 @@ pub(crate) fn menu_toggle(ui: &mut egui::Ui, act: &mut Option<Action>, on: bool,
     if on {
         text.sections[0].format.color = egui::Color32::PLACEHOLDER;
     }
-    menu_button(ui, act, egui::Button::selectable(on, text), action);
+    #[allow(clippy::disallowed_methods)] // menu_button notes it by the action's label.
+    let button = egui::Button::selectable(on, text);
+    menu_button(ui, act, button, action);
 }
 
 pub(crate) fn menu_button(
@@ -879,9 +945,9 @@ pub(crate) fn tool_button(
         Some(keys) => format!("{label} ({keys})", label = action.label()),
         None => action.label().to_owned(),
     };
-    let response = ui
-        .add(egui::Button::selectable(on, icon))
-        .on_hover_text(tip);
+    #[allow(clippy::disallowed_methods)] // An icon alone, noted below by the action's label.
+    let button = egui::Button::selectable(on, icon);
+    let response = ui.add(button).on_hover_text(tip);
     if noted(&response, action.label()).clicked() {
         *act = Some(action);
     }

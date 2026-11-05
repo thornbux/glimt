@@ -258,8 +258,8 @@ impl crate::App {
                         tr("Print (Enter)")
                     };
                     let enter = !typing && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    go = ui.button(label).clicked() || enter;
-                    if ui.button(tr("Cancel (Esc)")).clicked() {
+                    go = crate::ui::menus::button(ui, label).clicked() || enter;
+                    if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -985,9 +985,9 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
             .selected_text(shown(&c.print_printer))
             .show_ui(ui, |ui| {
                 for p in dialog.printers.iter().flatten() {
-                    ui.selectable_value(&mut c.print_printer, p.clone(), shown(p));
+                    crate::ui::menus::choice(ui, &mut c.print_printer, p.clone(), &shown(p));
                 }
-                ui.selectable_value(&mut c.print_printer, String::new(), tr("PDF file"));
+                crate::ui::menus::choice(ui, &mut c.print_printer, String::new(), tr("PDF file"));
             });
         match &dialog.printers {
             None => drop(ui.spinner()),
@@ -1000,7 +1000,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
             .selected_text(c.print_paper.clone())
             .show_ui(ui, |ui| {
                 for (name, _) in print::PAPERS {
-                    ui.selectable_value(&mut c.print_paper, name.to_owned(), name);
+                    crate::ui::menus::choice(ui, &mut c.print_paper, name.to_owned(), name);
                 }
             });
         ui.end_row();
@@ -1017,7 +1017,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
             .selected_text(shown)
             .show_ui(ui, |ui| {
                 for (key, label) in turns {
-                    ui.selectable_value(&mut c.print_orientation, key.to_owned(), label);
+                    crate::ui::menus::choice(ui, &mut c.print_orientation, key.to_owned(), label);
                 }
             });
         ui.end_row();
@@ -1030,7 +1030,7 @@ fn print_fields(ui: &mut egui::Ui, dialog: &mut PrintDialog, c: &mut Config) {
                         1 => "1".to_owned(),
                         n => format!("{n} ({cols} × {rows})"),
                     };
-                    ui.selectable_value(&mut c.print_per_page, n, label);
+                    crate::ui::menus::choice(ui, &mut c.print_per_page, n, &label);
                 }
             });
         ui.end_row();

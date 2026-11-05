@@ -6,7 +6,6 @@
 use crate::model::folder::{drain, send_sizes};
 use crate::model::list::FileRow;
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::support::threads::small_alloc_threads;
 use crate::support::threads::{Receiving, Took, Working, background_threads, in_parts};
 use crate::{metadata::exif, metadata::xmp};
@@ -157,7 +156,9 @@ impl crate::App {
     /// Fuzzy search box above the file list.
     pub(crate) fn search_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if !self.search.query.is_empty() && ui.small_button(theme::icon::CLOSE).clicked() {
+            if !self.search.query.is_empty()
+                && crate::ui::menus::small_button(ui, theme::icon::CLOSE).clicked()
+            {
                 self.search.query.clear();
                 self.update_search(ui.ctx());
                 self.panel.scroll_to_current();
@@ -187,7 +188,7 @@ impl crate::App {
                     self.config.save();
                     changed = true;
                 }
-                if noted(&ui.selectable_label(geeqie, ".*"), ".*")
+                if crate::ui::menus::selectable(ui, geeqie, ".*")
                     .on_hover_text(tr("Regular expression instead of fuzzy search"))
                     .clicked()
                 {

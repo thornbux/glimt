@@ -90,10 +90,8 @@ impl Pan {
     /// list at `version`.
     fn tabs(&mut self, ui: &mut egui::Ui, version: usize) {
         ui.horizontal(|ui| {
-            let tab = ui.selectable_value(&mut self.calendar, false, tr("Timeline"));
-            crate::support::test_hooks::noted(&tab, tr("Timeline"));
-            let tab = ui.selectable_value(&mut self.calendar, true, tr("Calendar"));
-            crate::support::test_hooks::noted(&tab, tr("Calendar"));
+            crate::ui::menus::choice(ui, &mut self.calendar, false, tr("Timeline"));
+            crate::ui::menus::choice(ui, &mut self.calendar, true, tr("Calendar"));
             ui.separator();
             let exif = ui.checkbox(&mut self.exif, tr("EXIF date"));
             if crate::support::test_hooks::noted(&exif, tr("EXIF date")).changed() {

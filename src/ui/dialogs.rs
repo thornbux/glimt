@@ -8,7 +8,6 @@ use crate::files::file_ops::Deleted;
 use crate::model::listing::pattern_name;
 use crate::support::format::count;
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::{files::external, files::journal, images::save, model::collections, tf, ui::theme};
 use eframe::egui;
@@ -410,10 +409,10 @@ impl crate::App {
                     ui.weak(tf!("First: {name}", name = name.to_string_lossy()));
                 }
                 ui.horizontal(|ui| {
-                    if ui.button(tr("OK (Enter)")).clicked() || enter {
+                    if crate::ui::menus::button(ui, tr("OK (Enter)")).clicked() || enter {
                         answer = Some(text.clone());
                     }
-                    if ui.button(tr("Cancel (Esc)")).clicked() {
+                    if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -580,23 +579,13 @@ impl crate::App {
                 steps = count(files, "step")
             ));
             ui.horizontal(|ui| {
-                if noted(
-                    &ui.button(tr("Put the old names back")),
-                    tr("Put the old names back"),
-                )
-                .clicked()
-                {
+                if crate::ui::menus::button(ui, tr("Put the old names back")).clicked() {
                     choice = Some(true);
                 }
-                if noted(
-                    &ui.button(tr("Finish the renaming")),
-                    tr("Finish the renaming"),
-                )
-                .clicked()
-                {
+                if crate::ui::menus::button(ui, tr("Finish the renaming")).clicked() {
                     choice = Some(false);
                 }
-                if noted(&ui.button(tr("Later")), tr("Later")).clicked() {
+                if crate::ui::menus::button(ui, tr("Later")).clicked() {
                     choice = None;
                     self.work.take_cut_short();
                 }
@@ -676,8 +665,8 @@ impl crate::App {
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
-                    connect |= ui.button(tr("Connect (Enter)")).clicked();
-                    if ui.button(tr("Cancel (Esc)")).clicked() {
+                    connect |= crate::ui::menus::button(ui, tr("Connect (Enter)")).clicked();
+                    if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -713,9 +702,9 @@ impl crate::App {
                     ui.weak(tr("This cannot be undone."));
                 }
                 ui.horizontal(|ui| {
-                    delete = ui.button(tr("Delete (Enter)")).clicked()
+                    delete = crate::ui::menus::button(ui, tr("Delete (Enter)")).clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button(tr("Cancel (Esc)")).clicked() {
+                    if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -746,9 +735,9 @@ impl crate::App {
                     name
                 ));
                 ui.horizontal(|ui| {
-                    trash = ui.button(tr("Move to Trash (Enter)")).clicked()
+                    trash = crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button(tr("Cancel (Esc)")).clicked() {
+                    if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                         ui.close();
                     }
                 });
@@ -778,9 +767,9 @@ impl crate::App {
         let modal = egui::Modal::new(egui::Id::unique("confirm-collection")).show(ctx, |ui| {
             ui.label(question.as_str());
             ui.horizontal(|ui| {
-                trash = ui.button(tr("Move to Trash (Enter)")).clicked()
+                trash = crate::ui::menus::button(ui, tr("Move to Trash (Enter)")).clicked()
                     || ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if ui.button(tr("Cancel (Esc)")).clicked() {
+                if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                     ui.close();
                 }
             });

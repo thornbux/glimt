@@ -84,26 +84,20 @@ impl Dups {
         ));
         let mut trash = false;
         ui.horizontal(|ui| {
-            if ui
-                .button(tr("Check all but the first of each group"))
-                .clicked()
-            {
+            if crate::ui::menus::button(ui, tr("Check all but the first of each group")).clicked() {
                 self.checked = self
                     .groups
                     .iter()
                     .flat_map(|g| g[1..].iter().cloned())
                     .collect();
             }
-            if ui.button(tr("Uncheck all")).clicked() {
+            if crate::ui::menus::button(ui, tr("Uncheck all")).clicked() {
                 self.checked.clear();
             }
             let n = self.checked.len();
-            trash = ui
-                .add_enabled(
-                    n > 0,
-                    egui::Button::new(tf!("Move {n} checked to trash…", n)),
-                )
-                .clicked();
+            trash =
+                crate::ui::menus::button_enabled(ui, n > 0, &tf!("Move {n} checked to trash…", n))
+                    .clicked();
         });
         ui.separator();
         let row_h = ui.text_style_height(&egui::TextStyle::Body) + 6.0;
@@ -216,17 +210,16 @@ impl crate::App {
                         .selected_text(tr(label))
                         .show_ui(ui, |ui| {
                             for (by, label) in ALL {
-                                ui.selectable_value(&mut dups.by, by, tr(label));
+                                crate::ui::menus::choice(ui, &mut dups.by, by, tr(label));
                             }
                         });
                     if dups.groups_rx.is_some() {
-                        if ui.button(tr("Stop")).clicked() {
+                        if crate::ui::menus::button(ui, tr("Stop")).clicked() {
                             dups.progress.cancel.store(true, Ordering::Relaxed);
                         }
                     } else {
-                        start = ui
-                            .add_enabled(self.list.files().len() > 1, egui::Button::new(tr("Find")))
-                            .clicked();
+                        let on = self.list.files().len() > 1;
+                        start = crate::ui::menus::button_enabled(ui, on, tr("Find")).clicked();
                     }
                 });
                 if dups.groups_rx.is_some() {

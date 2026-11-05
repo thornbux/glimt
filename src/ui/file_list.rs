@@ -7,11 +7,10 @@ use crate::model::folder::drain;
 use crate::model::listing::{SORTS, Types, list_folder};
 use crate::support::format::{count, local_time, middle_cut, size_text, thousands};
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::scroll_menu;
+use crate::ui::menus::{radio_choice, scroll_menu, selectable};
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{broken_mark, pane_map};
 use crate::{files::config, model::collections, tf, ui::theme};
@@ -876,6 +875,7 @@ impl crate::App {
                         false => theme::icon::CARET_RIGHT,
                     };
                     let name = path.file_name().map_or("/".into(), |n| n.to_string_lossy());
+                    #[allow(clippy::disallowed_methods)] // A caret has no text to note.
                     let toggle = ui.add(egui::Button::new(caret).frame(false));
                     // Told to a screen reader by the folder's name and whether it is open, not
                     // by the icon's glyph.
@@ -886,8 +886,7 @@ impl crate::App {
                     if toggle.clicked() {
                         toggled = Some(path.to_path_buf());
                     }
-                    let label = ui.selectable_label(path == self.folder.dir(), name.as_ref());
-                    let label = noted(&label, &name);
+                    let label = selectable(ui, path == self.folder.dir(), name.as_ref());
                     if label.clicked() {
                         *open_dir = Some(path.to_path_buf());
                     }
@@ -928,7 +927,7 @@ impl crate::App {
                 self.folder.folders().contains(&dir.to_path_buf()) || dir == self.folder.dir();
             if !shown
                 && self.folder.collection().is_none()
-                && ui.button(tr("Show Together with These Images")).clicked()
+                && crate::ui::menus::button(ui, tr("Show Together with These Images")).clicked()
             {
                 let mut all = match self.folder.folders().is_empty() {
                     true => vec![self.folder.dir().to_path_buf()],
@@ -937,10 +936,10 @@ impl crate::App {
                 all.push(dir.to_path_buf());
                 self.folder.show_together(all);
             }
-            if ui.button(tr("Rename Folder…")).clicked() {
+            if crate::ui::menus::button(ui, tr("Rename Folder…")).clicked() {
                 self.dialogs.ask_rename_folder(dir);
             }
-            if ui.button(tr("Move Folder to Trash…")).clicked() {
+            if crate::ui::menus::button(ui, tr("Move Folder to Trash…")).clicked() {
                 self.dialogs.ask_trash_folder(dir);
             }
         });
@@ -957,10 +956,8 @@ impl crate::App {
                 ui.strong(tr("Sort Manager"));
                 ui.horizontal(|ui| {
                     let c = &mut self.config;
-                    let changed = ui
-                        .radio_value(&mut c.sort_move, false, tr("Copy"))
-                        .changed()
-                        | ui.radio_value(&mut c.sort_move, true, tr("Move")).changed();
+                    let changed = radio_choice(ui, &mut c.sort_move, false, tr("Copy")).changed()
+                        | radio_choice(ui, &mut c.sort_move, true, tr("Move")).changed();
                     if changed {
                         c.save();
                     }
@@ -969,8 +966,7 @@ impl crate::App {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (k, dir) in self.folder.sort_folders().to_vec().into_iter().enumerate() {
                         ui.horizontal(|ui| {
-                            if ui
-                                .small_button(theme::icon::CLOSE)
+                            if crate::ui::menus::small_button(ui, theme::icon::CLOSE)
                                 .on_hover_text(tr("Remove"))
                                 .clicked()
                             {
@@ -978,10 +974,9 @@ impl crate::App {
                             }
                             let name = dir.file_name().unwrap_or(dir.as_os_str());
                             let here = dir == self.folder.dir();
-                            let button = ui.add_enabled(
-                                !here && !self.list.files().is_empty(),
-                                egui::Button::new(name.to_string_lossy()),
-                            );
+                            let on = !here && !self.list.files().is_empty();
+                            let button =
+                                crate::ui::menus::button_enabled(ui, on, &name.to_string_lossy());
                             if button.on_hover_text(dir.display().to_string()).clicked() {
                                 let paths = self.targets().iter().map(|&i| self.path(i)).collect();
                                 self.transfer(ui.ctx(), paths, dir, !self.config.sort_move);
@@ -989,10 +984,10 @@ impl crate::App {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button(tr("Add This Folder")).clicked() {
+                        if crate::ui::menus::button(ui, tr("Add This Folder")).clicked() {
                             self.add_sort_folder(self.folder.dir().to_path_buf());
                         }
-                        if ui.button(tr("Add…")).clicked() {
+                        if crate::ui::menus::button(ui, tr("Add…")).clicked() {
                             self.pick(ui.ctx(), true, Pick::SortFolder);
                         }
                     });
@@ -1080,10 +1075,7 @@ impl crate::App {
         );
         scroll_menu(ui, title, |ui| {
             for (sort, _, label) in SORTS {
-                if ui
-                    .selectable_label(self.config.sort == sort, tr(label))
-                    .clicked()
-                {
+                if selectable(ui, self.config.sort == sort, tr(label)).clicked() {
                     self.config.sort = sort;
                     changed = true;
                 }
@@ -1205,7 +1197,7 @@ impl crate::App {
                         }
                     };
                     let target = target.clone();
-                    let response = ui.selectable_label(false, label);
+                    let response = selectable(ui, false, &label);
                     if response.clicked() {
                         *open_dir = Some(target.clone());
                     }
@@ -1299,13 +1291,13 @@ impl crate::App {
                     let name = self.name(i);
                     let marks = self.mark_text(i);
                     if marks.is_empty() {
-                        ui.selectable_label(marked, name)
+                        selectable(ui, marked, &name)
                     } else {
-                        ui.selectable_label(marked, format!("{name}   {marks}"))
+                        selectable(ui, marked, &format!("{name}   {marks}"))
                     }
                 };
                 // The release tests click a row by its file's name.
-                let row = noted(&row, &self.name(i));
+                let row = crate::support::test_hooks::noted(&row, &self.name(i));
                 if let Some(i) = self.row_clicked(ctx, &row, i) {
                     *go_to = Some(i);
                 }
@@ -1625,7 +1617,7 @@ impl crate::App {
                         total = thousands(job.total),
                         more
                     ));
-                    if ui.small_button(tr("Stop")).clicked() {
+                    if crate::ui::menus::small_button(ui, tr("Stop")).clicked() {
                         self.work.stop_jobs();
                     }
                 }
