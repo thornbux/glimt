@@ -82,8 +82,10 @@ pub(crate) fn restore(
     // A file that cannot come back is told, and left to be undone again with its sidecar.
     let (mut found, mut error): (Vec<Trashed>, Option<String>) = (Vec::new(), None);
     for path in &thrown.files {
-        if path.exists() {
-            error.get_or_insert(tf!("{name} exists already", name = path.display()));
+        // The rule of Copy, Move and Rename: a sidecar alone at the name (written by another
+        // program, or synced in) takes it too, as the file would come back with its keywords.
+        if let Some(at) = crate::files::file_ops::taken(path, &HashSet::new()) {
+            error.get_or_insert(tf!("{name} exists already", name = at.display()));
             continue;
         }
         match find(path) {
@@ -600,6 +602,45 @@ mod tests {
         assert_eq!(back, [x.join("a.jpg")]);
         assert!(error.is_some());
         assert!(x.join("a.jpg.xmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo from the trash leaves a file in the trash when a sidecar of its name has appeared
+    /// since, so the photo neither gets that sidecar's keywords nor loses its own.
+    #[test]
+    fn a_restore_is_refused_by_a_sidecar_that_took_the_name() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-stray-{}", std::process::id()));
+        let (trash, x) = (dir.join("trash"), dir.join("x"));
+        for d in [trash.join("files"), trash.join("info"), x.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let now = std::time::SystemTime::now();
+        let secs = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        let date = crate::support::format::local_time(secs).replacen(' ', "T", 1);
+        for kept in ["a.jpg", "a.jpg.xmp"] {
+            crate::files::file_io::create_file(&trash.join("files").join(kept), kept).unwrap();
+            let text = format!(
+                "[Trash Info]\nPath={}\nDeletionDate={date}\n",
+                x.join(kept).display()
+            );
+            let info = trash.join("info").join(format!("{kept}.trashinfo"));
+            crate::files::file_io::create_file(&info, text).unwrap();
+        }
+        crate::files::file_io::create_file(&x.join("a.jpg.xmp"), "stranger").unwrap();
+        let thrown = super::Thrown {
+            files: vec![x.join("a.jpg")],
+            sidecars: vec![x.join("a.jpg.xmp")],
+            since: now - std::time::Duration::from_secs(1),
+            marks: Vec::new(),
+            collection: None,
+        };
+        let dirs = |_: &std::path::Path| vec![(trash.clone(), std::path::PathBuf::from("/"))];
+        let (back, error) = super::restore(&thrown, dirs);
+        assert!(back.is_empty() && error.is_some());
+        assert!(!x.join("a.jpg").exists());
+        assert!(trash.join("files/a.jpg").exists() && trash.join("files/a.jpg.xmp").exists());
+        let stranger = std::fs::read_to_string(x.join("a.jpg.xmp")).unwrap();
+        assert_eq!(stranger, "stranger");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
