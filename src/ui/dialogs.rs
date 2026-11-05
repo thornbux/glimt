@@ -171,33 +171,7 @@ impl crate::App {
             return;
         }
         let (tx, rx) = mpsc::channel();
-        let start = match &purpose {
-            // A name for the file to save: the first image's, as a PDF.
-            Pick::SavePdf(job) => self.folder.dir().join(
-                (job.paths.first())
-                    .map_or("print".into(), |p| p.with_extension("pdf"))
-                    .file_name()
-                    .unwrap_or_default(),
-            ),
-            // "name-frame-3.png" beside the file.
-            Pick::SaveFrame(path, k) => {
-                (self.folder.dir()).join(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
-            }
-            Pick::SaveAs(_, _, start) => start.clone(),
-            // Made first: the file dialog cannot start in a folder that is not there.
-            Pick::Collection => (collections::dir())
-                .inspect(|d| drop(std::fs::create_dir_all(d)))
-                .unwrap_or_default()
-                .join(""),
-            // Where colord and the user keep them.
-            Pick::ScreenProfile | Pick::InputProfile => {
-                (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
-                    .filter(|d| d.is_dir())
-                    .unwrap_or_else(|| "/usr/share/color/icc".into())
-                    .join("")
-            }
-            _ => self.folder.dir().join(""),
-        };
+        let start = self.dialog_start(&purpose);
         let save = matches!(
             purpose,
             Pick::SavePdf(_) | Pick::SaveFrame(..) | Pick::SaveAs(..)
@@ -276,6 +250,38 @@ impl crate::App {
         });
         self.dialogs.file_dialog = Some(purpose);
         self.dialogs.file_dialog_rx = Receiving::of(rx);
+    }
+
+    /// Returns where the file dialog for `purpose` starts: the folder shown, or for a file to
+    /// save, its name beside the image it is made from.
+    fn dialog_start(&self, purpose: &Pick) -> PathBuf {
+        match purpose {
+            // A name for the file to save: the first image's as a PDF, beside it. In a
+            // collection, several folders or with subfolders the folder shown is not the
+            // image's.
+            Pick::SavePdf(job) => (job.paths.first()).map_or_else(
+                || self.folder.dir().join("print.pdf"),
+                |p| p.with_extension("pdf"),
+            ),
+            // "name-frame-3.png" beside the file.
+            Pick::SaveFrame(path, k) => {
+                path.with_file_name(save::stem_and(path, &format!("-frame-{}.png", k + 1)))
+            }
+            Pick::SaveAs(_, _, start) => start.clone(),
+            // Made first: the file dialog cannot start in a folder that is not there.
+            Pick::Collection => (collections::dir())
+                .inspect(|d| drop(std::fs::create_dir_all(d)))
+                .unwrap_or_default()
+                .join(""),
+            // Where colord and the user keep them.
+            Pick::ScreenProfile | Pick::InputProfile => {
+                (xdg_dir("XDG_DATA_HOME", ".local/share", "icc"))
+                    .filter(|d| d.is_dir())
+                    .unwrap_or_else(|| "/usr/share/color/icc".into())
+                    .join("")
+            }
+            _ => self.folder.dir().join(""),
+        }
     }
 
     /// The file dialog's answer, for what it was opened for.
@@ -780,5 +786,24 @@ mod tests {
         assert_eq!(app.delete_what(), "\"a.png\"");
         assert_eq!(app.asked_targets(), Some(vec![0]));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A frame and a PDF are saved beside their image, also in a collection, whose folder is
+    /// not the image's.
+    #[test]
+    fn a_frame_is_saved_beside_its_image() {
+        let d = std::env::temp_dir().join(format!("glimt-test-frame-start-{}", std::process::id()));
+        let images = d.join("images");
+        std::fs::create_dir_all(&images).unwrap();
+        let image = images.join("a.png");
+        image::RgbImage::new(4, 4).save(&image).unwrap();
+        let list = d.join("trip.gqv");
+        let entry = format!("#GQview collection\n\"{}\"\n#end\n", image.display());
+        std::fs::write(&list, entry).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        app.open(&ctx, list);
+        let start = app.dialog_start(&super::Pick::SaveFrame(image.clone(), 2));
+        assert_eq!(start, images.join("a-frame-3.png"));
+        std::fs::remove_dir_all(d).unwrap();
     }
 }

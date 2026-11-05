@@ -78,6 +78,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Find Duplicates by dimensions groups camera RAW files by the size of the photo, not of the small
   thumbnail in their header, which put a whole folder of NEFs in one group, and it reads only the
   first part of a RAW where it can; %dimensions% in a print caption shows the photo's size too.
+- Save This Frame and Save as PDF suggest a file beside the image, also in a collection, several
+  folders or with subfolders, where they suggested one in / or in the top folder.
 
 ## [0.57.0] - 2026-11-05
 
