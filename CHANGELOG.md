@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Printing a contact sheet of slow images (videos, HEIC, RAWs on a share) to a printer is no longer
+  cut off as "No answer from the print server".
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
