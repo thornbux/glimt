@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Alt+Right in Two Above Each Other (and Alt+Down in Two Side by Side) no longer goes to the other
+  pane as the other arrow does.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

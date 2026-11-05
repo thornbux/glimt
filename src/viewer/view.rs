@@ -1515,7 +1515,14 @@ impl crate::App {
     /// Alt+arrow. As with a click on that pane, its image becomes the shown one, in the first
     /// pane.
     pub(crate) fn go_to_pane(&mut self, ctx: &egui::Context, action: Action) {
-        let cols = layout_grid(&self.config.layout)[0] as isize;
+        let [cols, rows] = layout_grid(&self.config.layout);
+        // In one column there is no pane to the side, and in one row none above or below. The
+        // key does nothing there, rather than what another arrow does.
+        let across = matches!(action, Action::PaneLeft | Action::PaneRight);
+        if cols * rows > 1 && if across { cols == 1 } else { rows == 1 } {
+            return;
+        }
+        let cols = cols as isize;
         let step = match action {
             Action::PaneLeft => -1,
             Action::PaneRight => 1,
@@ -1944,6 +1951,33 @@ mod tests {
         let v = &app.viewing;
         assert_eq!((v.orient, v.page, v.frame), ((0, false), 0, None));
         assert!(v.turned.as_os_str().is_empty() && v.crop.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Alt+arrow goes to the pane in that direction, and does nothing where the layout has no
+    /// pane that way: Right in Two Above Each Other is not Down.
+    #[test]
+    fn a_pane_key_follows_the_grid() {
+        use crate::ui::actions::Action;
+        let dir = std::env::temp_dir().join(format!("glimt-test-panes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png", "c.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        app.config.save_orientation = false;
+        for (layout, dead, live) in [
+            ("1x2", Action::PaneRight, Action::PaneDown),
+            ("2x1", Action::PaneDown, Action::PaneRight),
+        ] {
+            app.config.layout = layout.into();
+            app.go(&ctx, 0);
+            app.list.set_panes(vec![1]);
+            app.go_to_pane(&ctx, dead);
+            assert_eq!(app.list.cur(), 0, "{layout}");
+            app.go_to_pane(&ctx, live);
+            assert_eq!(app.list.cur(), 1, "{layout}");
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
