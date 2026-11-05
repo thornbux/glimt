@@ -238,6 +238,10 @@ pub(crate) fn land(
     replace: bool,
     strip: bool,
 ) -> std::io::Result<()> {
+    // The lock of the copy's sidecar is held, as every writer of a sidecar holds it. A keyword
+    // written to the replaced file from another window then waits, rather than landing between
+    // the old sidecar's removal and the new one's creation.
+    let _held = crate::metadata::xmp::held(new);
     // The sidecar is read before the copy is written, so one that cannot be read leaves no copy
     // behind. A sidecar that is a link counts as none, because what it points to (a private key)
     // is not the photo's.
@@ -1231,6 +1235,30 @@ mod tests {
             (shown.dimensions(), shown.get_pixel(0, 0).0),
             ((2, 6), [0, 0, 255])
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A copy waits while the lock of its sidecar is held, as a keyword written from another
+    /// window holds it. Without the wait, that keyword's sidecar could land between the old
+    /// sidecar's removal and the copy's, and the copy failed after its image was written.
+    #[test]
+    fn a_copy_waits_for_its_sidecar_lock() {
+        let dir = std::env::temp_dir().join(format!("glimt-copy-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        std::fs::write(&a, b"a").unwrap();
+        std::fs::write(crate::metadata::xmp::sidecar(&a), "a's").unwrap();
+        let held = crate::metadata::xmp::held(&b);
+        let saver = {
+            let (a, b) = (a.clone(), b.clone());
+            std::thread::spawn(move || super::land(&a, &b, b"x", false, false))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!b.exists(), "saved while the sidecar was held");
+        drop(held);
+        saver.join().unwrap().unwrap();
+        let side = std::fs::read_to_string(crate::metadata::xmp::sidecar(&b)).unwrap();
+        assert_eq!(side, "a's");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
