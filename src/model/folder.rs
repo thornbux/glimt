@@ -1099,7 +1099,7 @@ impl crate::App {
         // go() clears the notice for a new image. A new list is not one, and a notice is often
         // why the list was read again.
         let notice = self.notice.take();
-        self.go(ctx, cur);
+        self.show(ctx, cur);
         self.notice = notice;
     }
 
@@ -1128,7 +1128,7 @@ impl crate::App {
         if self.list.files().is_empty() {
             self.title(ctx);
         } else {
-            self.go(ctx, self.list.cur());
+            self.show(ctx, self.list.cur());
         }
     }
 

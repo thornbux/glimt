@@ -51,9 +51,19 @@ impl crate::App {
         })
     }
 
-    /// Show file `idx`: the image before is left (its turn saved or dropped), the zoom reset
-    /// unless kept, and the images around the new one decoded.
+    /// Shows file `idx`. When it is the image shown already, nothing changes, so its zoom, turn
+    /// and page stay. This holds for every caller: a click, a pane, a slide or a remote command.
     pub(crate) fn go(&mut self, ctx: &egui::Context, idx: usize) {
+        let last = self.list.files().len().saturating_sub(1);
+        if !self.list.files().is_empty() && idx.min(last) != self.list.cur() {
+            self.show(ctx, idx);
+        }
+    }
+
+    /// Shows file `idx`, also when it is the image shown. The image before is left, with its
+    /// turn saved or dropped, the zoom is reset unless kept, and the images around the new one
+    /// are decoded. A new list calls it after it has set the shown file itself.
+    pub(crate) fn show(&mut self, ctx: &egui::Context, idx: usize) {
         if self.list.files().is_empty() {
             return;
         }
@@ -339,6 +349,30 @@ pub(crate) fn round_ends(row: Option<usize>, delta: usize, len: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+
+    /// Next on the last image, a click on the shown image's row, a pane step that clamps to it
+    /// and a shuffle keep the shown image as it is. Its turn is not dropped, or written into the
+    /// file, as when another image is shown.
+    #[test]
+    fn the_shown_image_stays_as_it_is_when_it_stays() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-stays-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list.set_files(vec!["a.png".into(), "b.png".into()]);
+        app.list.set_cur(1);
+        app.viewing.turn((1, false), dir.join("b.png"));
+        app.move_along(&ctx, crate::ui::actions::Action::Next);
+        assert_eq!((app.list.cur(), app.viewing.orient()), (1, (1, false)));
+        app.go(&ctx, 1);
+        assert_eq!(app.viewing.orient(), (1, false));
+        app.list.set_cur(0);
+        app.viewing.turn((1, false), dir.join("a.png"));
+        app.go_to_pane(&ctx, crate::ui::actions::Action::PaneLeft);
+        assert_eq!((app.list.cur(), app.viewing.orient()), (0, (1, false)));
+        app.shuffle_list(&ctx, true);
+        assert_eq!(app.viewing.orient(), (1, false));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// Moving the end of a Shift range changes the selection as selecting the range anew does,
     /// in the list and among search matches, also across the anchor.

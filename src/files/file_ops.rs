@@ -1521,12 +1521,7 @@ impl crate::App {
     pub(crate) fn start_rename(&mut self, ctx: &egui::Context) {
         // The one file selected, as Delete and Move take it (right-clicked in the list,
         // say), not the image shown beside it.
-        if let Some(&i) = self
-            .list
-            .selected()
-            .first()
-            .filter(|&&i| i != self.list.cur())
-        {
+        if let Some(&i) = self.list.selected().first() {
             self.go(ctx, i);
         }
         // Only the name, because in the list with subfolders the entry has its folders too.

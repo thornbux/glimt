@@ -130,7 +130,8 @@ impl crate::App {
         if self.list.files().is_empty() {
             return;
         }
-        self.leave_image(ctx);
+        // The shown image is not left, because replace_files and the listing keep its turn and
+        // zoom when it stays.
         self.slideshow.shuffled = on;
         // Back on while a random slideshow still reads its list, which random off asked for in
         // sort order: read again, shuffled whole.
