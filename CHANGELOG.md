@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The toolbar's Refresh and Show Thumbnails buttons show the same icons as their menu items.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

@@ -8,18 +8,9 @@ use std::sync::mpsc;
 
 /// Phosphor icons (regular), by code point.
 pub mod icon {
-    pub const BACK: &str = "\u{e058}";
-    pub const FORWARD: &str = "\u{e06c}";
     pub const UP: &str = "\u{e08e}";
-    pub const HOME: &str = "\u{e2c2}";
-    pub const REFRESH: &str = "\u{e036}";
-    pub const ZOOM_IN: &str = "\u{e310}";
-    pub const ZOOM_OUT: &str = "\u{e30e}";
-    pub const FIT: &str = "\u{e1d0}";
-    pub const THUMBNAILS: &str = "\u{e2ca}";
     pub const PLAY: &str = "\u{e3d0}";
     pub const STOP: &str = "\u{e46c}";
-    pub const SETTINGS: &str = "\u{e270}";
     pub const FOLDER: &str = "\u{e24a}";
     pub const CLOSE: &str = "\u{e4f6}";
     // The menus: submenu titles and rows that are no Action (those have Action::icon).

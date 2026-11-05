@@ -674,29 +674,25 @@ impl crate::App {
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.style_mut().override_font_id = Some(egui::FontId::proportional(size));
             ui.horizontal(|ui| {
-                tool_button(ui, act, theme::icon::BACK, Action::Back, false);
-                tool_button(ui, act, theme::icon::FORWARD, Action::Forward, false);
-                tool_button(ui, act, theme::icon::UP, Action::Up, false);
-                tool_button(ui, act, theme::icon::HOME, Action::Home, false);
-                tool_button(ui, act, theme::icon::REFRESH, Action::Refresh, false);
+                // The icons the menus show for the same actions.
+                for action in [Action::Back, Action::Forward, Action::Up, Action::Home] {
+                    tool_button(ui, act, action.icon(), action, false);
+                }
+                tool_button(ui, act, Action::Refresh.icon(), Action::Refresh, false);
                 ui.separator();
-                tool_button(ui, act, theme::icon::ZOOM_IN, Action::ZoomIn, false);
-                tool_button(ui, act, theme::icon::ZOOM_OUT, Action::ZoomOut, false);
+                tool_button(ui, act, Action::ZoomIn.icon(), Action::ZoomIn, false);
+                tool_button(ui, act, Action::ZoomOut.icon(), Action::ZoomOut, false);
                 tool_button(ui, act, "1:1", Action::Zoom1To1, false);
-                tool_button(
-                    ui,
-                    act,
-                    theme::icon::FIT,
-                    Action::ZoomFit,
-                    self.zoom.is_fitted(),
-                );
+                let fit = self.zoom.is_fitted();
+                tool_button(ui, act, Action::ZoomFit.icon(), Action::ZoomFit, fit);
                 ui.separator();
+                let thumbs = self.config.thumbnails;
                 tool_button(
                     ui,
                     act,
-                    theme::icon::THUMBNAILS,
+                    Action::Thumbnails.icon(),
                     Action::Thumbnails,
-                    self.config.thumbnails,
+                    thumbs,
                 );
                 let show = if self.slideshow.is_running() {
                     theme::icon::STOP
@@ -710,7 +706,13 @@ impl crate::App {
                     Action::Slideshow,
                     self.slideshow.is_running(),
                 );
-                tool_button(ui, act, theme::icon::SETTINGS, Action::Preferences, false);
+                tool_button(
+                    ui,
+                    act,
+                    Action::Preferences.icon(),
+                    Action::Preferences,
+                    false,
+                );
             });
         });
     }
