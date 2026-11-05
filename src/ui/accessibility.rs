@@ -18,11 +18,14 @@ impl App {
             // Read in the background, as for the EXIF panel: here once for each image.
             self.want_exif(ui.ctx());
             let path = self.path(self.list.cur());
-            let place = self.place().trim_matches(['[', ']']).replace('/', " of ");
+            let place = match self.place().trim_matches(['[', ']']).split_once('/') {
+                Some((done, total)) => crate::tf!("{done} of {total}", done, total),
+                None => self.place(),
+            };
             // The name the list shows, not the whole path a collection's entry holds.
             let mut text = format!("{}, {place}", self.name(self.list.cur()));
             if let Some(e) = self.list.decode_errors().get(&self.list.cur()) {
-                text += &format!(", could not be shown: {e}");
+                text += &crate::tf!(", could not be shown: {e}", e);
             }
             #[cfg(feature = "marks")]
             if let stars @ 1.. = self.marks.get(&path).1 {
@@ -33,7 +36,8 @@ impl App {
             }
             if let Some(meta) = self.info.meta_of(&path) {
                 if !meta.saved.keywords.is_empty() {
-                    text += &format!(", keywords: {}", meta.saved.keywords.join(", "));
+                    let keywords = meta.saved.keywords.join(", ");
+                    text += &crate::tf!(", keywords: {keywords}", keywords);
                 }
                 if !meta.saved.comment.is_empty() {
                     text += &format!(". {}", meta.saved.comment);

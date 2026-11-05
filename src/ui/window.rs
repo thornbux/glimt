@@ -191,8 +191,12 @@ impl crate::App {
             }
             self.notice = Some(
                 match self.window.closing {
-                    1 => "Glimt closes when the file operations are done; close again to stop them",
-                    _ => "Stopping after the files at hand; close once more to end at once",
+                    1 => crate::support::lang::tr(
+                        "Glimt closes when the file operations are done; close again to stop them",
+                    ),
+                    _ => crate::support::lang::tr(
+                        "Stopping after the files at hand; close once more to end at once",
+                    ),
                 }
                 .into(),
             );

@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The EXIF panel, the sort menu, the Types menu, theme and filter names, the CPU and memory
+  levels, several Preferences texts, dialogs and notices now show in the chosen language; a test
+  fails on a new text left untranslated.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

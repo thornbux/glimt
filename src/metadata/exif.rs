@@ -422,7 +422,7 @@ pub fn write_orientation(
 /// writes it.
 fn oriented(mut data: Vec<u8>, turns: u8, mirrored: bool, rotate: bool) -> Result<Vec<u8>, String> {
     if !data.starts_with(&[0xff, 0xd8]) {
-        return Err("only JPEG files can store the orientation".into());
+        return Err(crate::support::lang::tr("only JPEG files can store the orientation").into());
     }
     let (segments, _) = jpeg_segments(&data).ok_or("cut off")?;
     let exif = segments
@@ -833,6 +833,16 @@ fn parse(raw: &[u8]) -> Vec<(&'static str, String)> {
         rows.push(("GPS", format!("{lat:.5}, {lon:.5}")));
     }
     rows
+}
+
+/// Returns a row's value as the panel shows it, with the flash's in the language in use. The
+/// rows keep English, which the exif: search and the templates' %Flash% read.
+pub fn shown<'a>(label: &str, value: &'a str) -> &'a str {
+    match (label, value) {
+        ("Flash", "Fired") => crate::support::lang::tr("Fired"),
+        ("Flash", "No") => crate::support::lang::tr("No"),
+        _ => value,
+    }
 }
 
 #[cfg(test)]

@@ -91,7 +91,7 @@ fn root_names() -> Vec<String> {
 }
 
 /// The Rust files of `sources`.
-fn rust_sources() -> Vec<(String, String)> {
+pub(crate) fn rust_sources() -> Vec<(String, String)> {
     (sources().into_iter())
         .filter(|(name, _)| name.ends_with(".rs"))
         .collect()
@@ -164,6 +164,87 @@ fn literal_end(c: &[char], i: usize) -> Option<usize> {
         }
         _ => None,
     }
+}
+
+/// The string literals of Rust `code` outside its comments: where each starts, and its text
+/// with escapes and continued lines read. Byte strings and char literals are left out.
+pub(crate) fn literals(code: &str) -> Vec<(usize, String)> {
+    let b = code.as_bytes();
+    let word = |i: usize| i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_');
+    let (mut out, mut i) = (Vec::new(), 0);
+    while i < b.len() {
+        let rest = &code[i..];
+        let raw_hashes = (b[i] == b'r')
+            .then(|| rest[1..].find(|c| c != '#'))
+            .flatten()
+            .filter(|&n| rest[1 + n..].starts_with('"'));
+        if rest.starts_with("//") {
+            i += rest.find('\n').unwrap_or(rest.len());
+        } else if rest.starts_with("/*") {
+            i += rest.find("*/").map_or(rest.len(), |n| n + 2);
+        } else if b[i] == b'\'' {
+            // A char literal ('"', '\''), or a lifetime ('a), which has no end.
+            let end = match rest[1..].chars().next().unwrap_or(' ') {
+                '\\' => rest.get(3..).and_then(|r| r.find('\'')).map(|n| n + 3),
+                c => Some(1 + c.len_utf8()).filter(|&e| rest[e..].starts_with('\'')),
+            };
+            i += end.map_or(1, |e| e + 1);
+        } else if let Some(hashes) = raw_hashes
+            && (!word(i) || (b[i - 1] == b'b' && !word(i - 1)))
+        {
+            let close = format!("\"{}", "#".repeat(hashes));
+            let body = 2 + hashes;
+            let len = rest[body..].find(&close).unwrap_or(rest.len() - body);
+            if !word(i) {
+                out.push((i, rest[body..body + len].to_owned()));
+            }
+            i += body + len + close.len();
+        } else if b[i] == b'"' {
+            let (mut text, mut chars) = (String::new(), rest[1..].char_indices().peekable());
+            let mut end = rest.len();
+            while let Some((k, c)) = chars.next() {
+                if c == '"' {
+                    end = k + 2;
+                    break;
+                }
+                if c != '\\' {
+                    text.push(c);
+                    continue;
+                }
+                match chars.next().map(|e| e.1) {
+                    Some('n') => text.push('\n'),
+                    Some('t') => text.push('\t'),
+                    Some('\n') => while chars.next_if(|e| e.1.is_whitespace()).is_some() {},
+                    Some('u') => {
+                        let hex: String = (chars.by_ref().map(|e| e.1))
+                            .take_while(|&c| c != '}')
+                            .filter(char::is_ascii_hexdigit)
+                            .collect();
+                        text.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+                    }
+                    Some(c) => text.push(c),
+                    None => {}
+                }
+            }
+            if !(i > 0 && b[i - 1] == b'b' && !word(i - 1)) {
+                out.push((i, text));
+            }
+            i += end;
+        } else {
+            i += rest.chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    out
+}
+
+/// The literals read whole: escapes, continued lines, raw and byte strings, char literals
+/// and lifetimes, comments.
+#[test]
+fn reads_literals() {
+    let code = "tr(\"a \\\"b\\\" \\\n    c\\n\\u{e9}\"); // \"no\"\n/* \"no\" */ b\"no\" '\"' '\\'' \
+                &'static str r#\"x \"y\" z\"# br\"no\" '\\u{feff}' \"\"";
+    let texts: Vec<String> = literals(code).into_iter().map(|l| l.1).collect();
+    assert_eq!(texts, ["a \"b\" c\né", "x \"y\" z", ""]);
 }
 
 /// `line` without what may stand before `fn`, `struct` and the like: a visibility, `unsafe`,

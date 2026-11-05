@@ -338,16 +338,16 @@ impl crate::App {
     pub(crate) fn prompt_dialog(&mut self, ctx: &egui::Context) {
         if let Some((prompt, mut text)) = self.dialogs.prompt.take() {
             let title = match prompt {
-                Prompt::NewFolder => "New folder name:".to_owned(),
-                Prompt::RenameFolder => "New folder name:".to_owned(),
-                Prompt::SaveTheme => "Name of the new theme:".to_owned(),
+                Prompt::NewFolder => tr("New folder name:").to_owned(),
+                Prompt::RenameFolder => tr("New folder name:").to_owned(),
+                Prompt::SaveTheme => tr("Name of the new theme:").to_owned(),
                 Prompt::WindowTitle => tr(
                     "Title of this window (%name%, %path%, %folder%, %app%; empty: as in \
                      Preferences):",
                 )
                 .to_owned(),
-                Prompt::RenameCollection => "New name of the collection:".to_owned(),
-                Prompt::Rename => "New file name:".to_owned(),
+                Prompt::RenameCollection => tr("New name of the collection:").to_owned(),
+                Prompt::Rename => tr("New file name:").to_owned(),
                 Prompt::NewCollection => tf!(
                     "Name of a new collection with {count}:",
                     count = count(self.first_target().0, "image")
@@ -420,7 +420,7 @@ impl crate::App {
         }
         if let Prompt::SaveTheme = prompt {
             let file = theme::dir().map(|d| d.join(format!("{text}.theme")));
-            let saved = file.ok_or("no home folder".to_owned()).and_then(|f| {
+            let saved = file.ok_or(tr("no home folder").to_owned()).and_then(|f| {
                 // Never over a theme there, hand-edited perhaps, nor in the place of a built-in
                 // one, which a file of its name would hide for good.
                 if theme::built_in(text) {
@@ -522,10 +522,12 @@ impl crate::App {
         let mut choice = None;
         egui::Modal::new(egui::Id::unique("cut short")).show(ctx, |ui| {
             ui.strong(tr("Rename Many was cut short"));
-            ui.label(format!(
+            ui.label(tf!(
                 "A crash or a power cut stopped it in {folder}. Some files may have their new \
-                 names, some their old ones, and some hidden temporary names ({} to put right).",
-                count(files, "step")
+                 names, some their old ones, and some hidden temporary names ({steps} to put \
+                 right).",
+                folder,
+                steps = count(files, "step")
             ));
             ui.horizontal(|ui| {
                 if noted(

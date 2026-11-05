@@ -2356,3 +2356,423 @@ msgstr "Udskrivning annulleret"
 
 msgid "Choose Application…"
 msgstr "Vælg program …"
+
+#: src/metadata/exif.rs
+msgid "Camera"
+msgstr "Kamera"
+
+#: src/metadata/exif.rs
+msgid "Lens"
+msgstr "Objektiv"
+
+#: src/metadata/exif.rs
+msgid "Taken"
+msgstr "Taget"
+
+#: src/metadata/exif.rs
+msgid "Exposure"
+msgstr "Eksponering"
+
+#: src/metadata/exif.rs
+msgid "Aperture"
+msgstr "Blænde"
+
+#: src/metadata/exif.rs
+msgid "Focal length"
+msgstr "Brændvidde"
+
+#: src/metadata/exif.rs
+msgid "Exposure bias"
+msgstr "Eksponeringskompensation"
+
+#: src/metadata/exif.rs
+msgid "Flash"
+msgstr "Blitz"
+
+#: src/metadata/exif.rs
+msgid "Fired"
+msgstr "Udløst"
+
+#: src/metadata/exif.rs
+msgid "No"
+msgstr "Nej"
+
+#: src/ui/info_panel.rs
+msgid "File size"
+msgstr "Filstørrelse"
+
+#: src/ui/info_panel.rs
+msgid "Colour profile"
+msgstr "Farveprofil"
+
+#: src/images/colour.rs
+msgid "{name}, in the file"
+msgstr "{name}, i filen"
+
+#: src/images/colour.rs
+msgid "Adobe RGB, from its EXIF"
+msgstr "Adobe RGB, fra EXIF"
+
+#: src/images/colour.rs
+msgid "unnamed"
+msgstr "uden navn"
+
+#: src/images/colour.rs
+msgid "{own}; {input} used instead"
+msgstr "{own}; {input} bruges i stedet"
+
+#: src/images/colour.rs
+msgid "none: taken as {input}"
+msgstr "ingen: tolkes som {input}"
+
+#: src/model/listing.rs
+msgid "Sort by name"
+msgstr "Sortér efter navn"
+
+#: src/model/listing.rs
+msgid "Sort by number"
+msgstr "Sortér efter nummer"
+
+#: src/model/listing.rs
+msgid "Sort by date"
+msgstr "Sortér efter dato"
+
+#: src/model/listing.rs
+msgid "Sort by file creation date"
+msgstr "Sortér efter filens oprettelsesdato"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date original"
+msgstr "Sortér efter EXIF-dato for optagelse"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date digitized"
+msgstr "Sortér efter EXIF-dato for digitalisering"
+
+#: src/model/listing.rs
+msgid "Sort by size"
+msgstr "Sortér efter størrelse"
+
+#: src/model/listing.rs
+msgid "Sort by extension"
+msgstr "Sortér efter filendelse"
+
+#: src/ui/file_list.rs
+msgid "All types"
+msgstr "Alle typer"
+
+#: src/ui/file_list.rs
+msgid "No types"
+msgstr "Ingen typer"
+
+#: src/ui/theme.rs
+msgid "Desktop"
+msgstr "Skrivebord"
+
+#: src/ui/theme.rs
+msgid "Light"
+msgstr "Lyst"
+
+#: src/ui/theme.rs
+msgid "Dark"
+msgstr "Mørkt"
+
+#: src/ui/theme.rs
+msgid "High Contrast"
+msgstr "Høj kontrast"
+
+#: src/ui/theme.rs
+msgid "Contrast"
+msgstr "Kontrast"
+
+#: src/images/colour.rs
+msgid "Greyscale"
+msgstr "Gråtoner"
+
+#: src/images/colour.rs
+msgid "Inverted"
+msgstr "Inverteret"
+
+#: src/images/colour.rs
+msgid "More Contrast"
+msgstr "Mere kontrast"
+
+#: src/images/colour.rs
+msgid "Perceptual"
+msgstr "Perceptuel"
+
+#: src/images/colour.rs
+msgid "Relative colorimetric"
+msgstr "Relativ kolorimetrisk"
+
+#: src/images/colour.rs
+msgid "Saturation"
+msgstr "Mætning"
+
+#: src/images/colour.rs
+msgid "Absolute colorimetric"
+msgstr "Absolut kolorimetrisk"
+
+#: src/files/config.rs
+msgid "Power saving"
+msgstr "Strømbesparelse"
+
+#: src/files/config.rs
+msgid "Balanced"
+msgstr "Afbalanceret"
+
+#: src/files/config.rs
+msgid "Full"
+msgstr "Fuld"
+
+#: src/files/config.rs
+msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
+msgstr "Færre kerner ad gangen: én miniature ad gangen, søgninger og Find dubletter på to kerner. Langsommere i store mapper, skånsomt for en bærbars batteri."
+
+#: src/files/config.rs
+msgid "Two thumbnails at once; searches and Find Duplicates on every core."
+msgstr "To miniaturer ad gangen; søgninger og Find dubletter på alle kerner."
+
+#: src/files/config.rs
+msgid "Every core: thumbnails and searches as fast as the machine allows."
+msgstr "Alle kerner: miniaturer og søgninger så hurtigt, som maskinen tillader."
+
+#: src/files/config.rs
+msgid "Low"
+msgstr "Lav"
+
+#: src/files/config.rs
+msgid "High"
+msgstr "Høj"
+
+#: src/files/config.rs
+msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
+msgstr "Mindst hukommelse: ét billede afkodet ad gangen, ét forudindlæst på hver side. Langsom lagring (SMB, NFS, USB) får bladringen til at vente på hver fil."
+
+#: src/files/config.rs
+msgid "The default: four images decoded at once, two preloaded on each side."
+msgstr "Standard: fire billeder afkodet samtidig, to forudindlæst på hver side."
+
+#: src/files/config.rs
+msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
+msgstr "Hurtigst bladring: otte billeder afkodet samtidig, fem forudindlæst på hver side; skjuler bedst ventetiden ved langsom lagring (SMB, NFS)."
+
+#: src/files/config.rs
+msgid "Short"
+msgstr "Kort"
+
+#: src/files/config.rs
+msgid "Long"
+msgstr "Lang"
+
+#: src/ui/preferences.rs
+msgid "{name}, from the desktop"
+msgstr "{name}, fra skrivebordet"
+
+#: src/ui/preferences.rs
+msgid "none, sRGB"
+msgstr "ingen, sRGB"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Felter: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% og hver etiket i EXIF-panelet med sit engelske navn, som %Camera% eller %ISO%. En | starter en del, som udelades, når dens felter er tomme."
+
+#: src/ui/preferences.rs
+msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
+msgstr "Vinduestitel »Glimt - billednavn« (fra: »billednavn - Glimt«)"
+
+#: src/ui/preferences.rs
+msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
+msgstr "En kommandolinje, såsom mpv --fs; en sti med mellemrum skrives i \"anførselstegn\""
+
+#: src/ui/dialogs.rs
+msgid "New folder name:"
+msgstr "Navn på ny mappe:"
+
+#: src/ui/dialogs.rs
+msgid "Name of the new theme:"
+msgstr "Navn på det nye tema:"
+
+#: src/ui/dialogs.rs
+msgid "New name of the collection:"
+msgstr "Nyt navn på samlingen:"
+
+#: src/ui/dialogs.rs
+msgid "New file name:"
+msgstr "Nyt filnavn:"
+
+#: src/ui/dialogs.rs
+msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
+msgstr "Et nedbrud eller strømsvigt stoppede det i {folder}. Nogle filer kan have deres nye navne, nogle de gamle og nogle skjulte midlertidige navne ({steps} at rette op)."
+
+#: src/ui/dialogs.rs
+msgid "no home folder"
+msgstr "ingen hjemmemappe"
+
+#: src/ui/window.rs
+msgid "Glimt closes when the file operations are done; close again to stop them"
+msgstr "Glimt lukker, når filhandlingerne er færdige; luk igen for at stoppe dem"
+
+#: src/ui/window.rs
+msgid "Stopping after the files at hand; close once more to end at once"
+msgstr "Stopper efter de filer, der er i gang; luk én gang til for at afslutte straks"
+
+#: src/features/check.rs
+msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
+msgstr "Åbner hvert af de {count} på listen, som fremviseren ville, og viser dem, der ikke kan åbnes: ødelagte filer, filer afkortet under kopiering og filer, der ikke er billeder. De markeres også på listen."
+
+#: src/features/check.rs
+msgid "{done} of {total}"
+msgstr "{done} af {total}"
+
+#: src/features/check.rs
+msgid "None broken."
+msgstr "Ingen ødelagte."
+
+#: src/main.rs
+msgid "Settings file: {first}{more}"
+msgstr "Indstillingsfilen: {first}{more}"
+
+#: src/ui/accessibility.rs
+msgid ", could not be shown: {e}"
+msgstr ", kunne ikke vises: {e}"
+
+#: src/ui/accessibility.rs
+msgid ", keywords: {keywords}"
+msgstr ", nøgleord: {keywords}"
+
+#: src/files/config.rs
+msgid "Could not save {name}: {e}"
+msgstr "Kunne ikke gemme {name}: {e}"
+
+#: src/files/backup.rs
+msgid "{folder} is not a folder"
+msgstr "{folder} er ikke en mappe"
+
+#: src/files/backup.rs
+msgid "Nothing to back up: Glimt has no settings, marks or collections here"
+msgstr "Intet at sikkerhedskopiere: Glimt har ingen indstillinger, mærker eller samlinger her"
+
+#: src/files/backup.rs
+msgid "A backup cannot go inside {folder}, which it copies"
+msgstr "En sikkerhedskopi kan ikke ligge i {folder}, som den kopierer"
+
+#: src/files/backup.rs
+msgid "Glimt's data backed up to {folder}: {files}"
+msgstr "Glimts data er sikkerhedskopieret til {folder}: {files}"
+
+#: src/files/backup.rs
+msgid "The backup to {folder} is not whole: {e}"
+msgstr "Sikkerhedskopien til {folder} er ikke fuldstændig: {e}"
+
+#: src/files/file_io.rs
+msgid "the file was moved, renamed or deleted meanwhile"
+msgstr "filen blev flyttet, omdøbt eller slettet i mellemtiden"
+
+#: src/files/external.rs
+msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
+msgstr "HEIC og AVIF kræver ffprobe (ffmpeg): {e}"
+
+#: src/files/external.rs
+msgid "video, HEIC and AVIF need ffmpeg: {e}"
+msgstr "video, HEIC og AVIF kræver ffmpeg: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: not an address"
+msgstr "Kunne ikke montere {uri}: ikke en adresse"
+
+#: src/files/external.rs
+msgid "Could not run gio: {e}"
+msgstr "Kunne ikke køre gio: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: wrong user name or password"
+msgstr "Kunne ikke montere {uri}: forkert brugernavn eller adgangskode"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: {err}{hint}"
+msgstr "Kunne ikke montere {uri}: {err}{hint}"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found)"
+msgstr " (navnet {host} findes ikke)"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found; try {host}.local or its IP address)"
+msgstr " (navnet {host} findes ikke; prøv {host}.local eller dens IP-adresse)"
+
+#: src/files/file_ops.rs
+msgid "No such frame"
+msgstr "Der findes ingen sådan billedramme"
+
+#: src/files/file_ops.rs
+msgid "choose another name: the image itself is not changed"
+msgstr "vælg et andet navn: selve billedet ændres ikke"
+
+#: src/metadata/lightroom.rs
+msgid "Imported from Lightroom: {done}"
+msgstr "Importeret fra Lightroom: {done}"
+
+#: src/metadata/lightroom.rs
+msgid "; not saved: {names}"
+msgstr "; ikke gemt: {names}"
+
+#: src/metadata/lightroom.rs
+msgid " (no data folder: $HOME is not set)"
+msgstr " (ingen datamappe: $HOME er ikke sat)"
+
+#: src/metadata/lightroom.rs
+msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
+msgstr "Samlinger føjes til Glimts, nøgleord til nøgleordstræet og stjerner til mærkerne. Smarte samlinger udelades."
+
+#: src/metadata/lightroom.rs
+msgid "{names} and {n} more"
+msgstr "{names} og {n} mere"
+
+#: src/metadata/lightroom.rs
+msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
+msgstr "Nøgleordene for hvert billede i dets XMP-sidefil ({count}); dem, der allerede er der, bliver"
+
+#: src/metadata/lightroom.rs
+msgid "1 image has"
+msgstr "1 billede har"
+
+#: src/model/collections.rs
+msgid "no data folder ($HOME is not set)"
+msgstr "ingen datamappe ($HOME er ikke sat)"
+
+#: src/model/collections.rs
+msgid "Could not rename the collection: {e}"
+msgstr "Kunne ikke omdøbe samlingen: {e}"
+
+#: src/viewer/view.rs
+msgid "Could not open {name}:\n{e}"
+msgstr "Kunne ikke åbne {name}:\n{e}"
+
+#: src/images/save.rs
+msgid "only JPEG, PNG and WebP can store the rotation"
+msgstr "kun JPEG, PNG og WebP kan gemme rotationen"
+
+#: src/images/save.rs
+msgid "animated images are not turned"
+msgstr "animerede billeder roteres ikke"
+
+#: src/images/save.rs
+msgid "animated images are not saved as a copy"
+msgstr "animerede billeder gemmes ikke som kopi"
+
+#: src/images/save.rs
+msgid "the part is outside the image"
+msgstr "udsnittet er uden for billedet"
+
+#: src/images/save.rs
+msgid "a lossy WebP needs ffmpeg to be saved: {e}"
+msgstr "en WebP med tab kræver ffmpeg for at blive gemt: {e}"
+
+#: src/metadata/exif.rs
+msgid "only JPEG files can store the orientation"
+msgstr "kun JPEG-filer kan gemme retningen"
+
+#: src/metadata/xmp.rs
+msgid "the image was moved, renamed or deleted meanwhile"
+msgstr "billedet blev flyttet, omdøbt eller slettet i mellemtiden"

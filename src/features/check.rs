@@ -52,11 +52,11 @@ impl crate::App {
             .default_size([560.0, 400.0])
             .show(ctx, |ui| {
                 let Some(c) = &check else {
-                    ui.label(format!(
-                        "Opens each of the {} in the list, as the viewer would, and lists those \
-                         that cannot be: broken files, files cut off in copying, and files that \
-                         are no image. They are marked in the list too.",
-                        count(self.list.files().len(), "image")
+                    ui.label(tf!(
+                        "Opens each of the {count} in the list, as the viewer would, and lists \
+                         those that cannot be: broken files, files cut off in copying, and files \
+                         that are no image. They are marked in the list too.",
+                        count = count(self.list.files().len(), "image")
                     ));
                     start = noted(&ui.button(tr("Check")), tr("Check")).clicked();
                     return;
@@ -67,7 +67,11 @@ impl crate::App {
                 );
                 ui.horizontal(|ui| {
                     let progress = done as f32 / c.total.max(1) as f32;
-                    let line = format!("{} of {}", thousands(done), thousands(c.total));
+                    let line = tf!(
+                        "{done} of {total}",
+                        done = thousands(done),
+                        total = thousands(c.total)
+                    );
                     ui.add(
                         egui::ProgressBar::new(progress)
                             .text(line)
@@ -81,7 +85,7 @@ impl crate::App {
                     }
                 });
                 ui.label(match (c.broken.len(), working) {
-                    (0, 0) => "None broken.".to_owned(),
+                    (0, 0) => tr("None broken.").to_owned(),
                     (n, _) => tf!("{n} broken:", n = thousands(n)),
                 });
                 if !c.broken.is_empty() && ui.button(tr("Select Them")).clicked() {

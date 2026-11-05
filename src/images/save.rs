@@ -5,6 +5,7 @@ use crate::images::colour::to_srgb;
 use crate::images::decode::load_icc;
 use crate::metadata::exif;
 use crate::model::listing::has_ext;
+use crate::support::lang::tr;
 use image::ImageDecoder;
 use std::path::Path;
 
@@ -96,10 +97,10 @@ pub fn save_rotated(
     let path = &std::fs::canonicalize(path).map_err(|e| e.to_string())?;
     let png = has_ext(path, &["png"]);
     if !png && !has_ext(path, &["webp"]) {
-        return Err("only JPEG, PNG and WebP can store the rotation".into());
+        return Err(tr("only JPEG, PNG and WebP can store the rotation").into());
     }
     if animated(path)? {
-        return Err("animated images are not turned".into());
+        return Err(tr("animated images are not turned").into());
     }
     let kind = match png {
         true => Kind::Png,
@@ -118,7 +119,7 @@ pub fn save_rotated(
 /// WebP through ffmpeg), and PNG and lossless WebP are without loss.
 pub fn copy_bytes(path: &Path, how: &CopyAs) -> Result<(Vec<u8>, Format), String> {
     if animated(path)? {
-        return Err("animated images are not saved as a copy".into());
+        return Err(tr("animated images are not saved as a copy").into());
     }
     let format = how.format.unwrap_or_else(|| Format::of(path));
     let kind = match format {
@@ -152,7 +153,7 @@ fn pixels(path: &Path, how: &CopyAs) -> Result<(image::DynamicImage, Option<Vec<
     let mut img = turned(img, how.turns, how.mirrored);
     if let Some([x, y, width, height]) = how.crop {
         if width == 0 || height == 0 || x + width > img.width() || y + height > img.height() {
-            return Err("the part is outside the image".into());
+            return Err(tr("the part is outside the image").into());
         }
         img = img.crop_imm(x, y, width, height);
     }
@@ -304,7 +305,7 @@ pub fn save_as(path: &Path, how: &CopyAs, to: &Path) -> Result<std::path::PathBu
         }
     };
     if same_file(path, &to) {
-        return Err("choose another name: the image itself is not changed".into());
+        return Err(tr("choose another name: the image itself is not changed").into());
     }
     let (out, _) = copy_bytes(path, how)?;
     land(path, &to, &out, matches, how.strip).map_err(|e| format!("{}: {e}", to.display()))?;
@@ -607,7 +608,7 @@ pub fn lossy_webp(img: &image::DynamicImage, quality: u8) -> Result<Vec<u8>, Str
         ])
         .stdin(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("a lossy WebP needs ffmpeg to be saved: {e}"))?;
+        .map_err(|e| crate::tf!("a lossy WebP needs ffmpeg to be saved: {e}", e))?;
     // The image is written in a thread of its own while its output is read, so neither pipe
     // fills and stops it.
     let mut stdin = child.stdin.take();

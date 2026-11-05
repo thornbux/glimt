@@ -436,7 +436,7 @@ fn config_notice(problems: &[String]) -> Option<String> {
         0 => String::new(),
         n => tf!("; and {n} more (glimt --check-config)", n),
     };
-    Some(format!("Settings file: {first}{more}"))
+    Some(tf!("Settings file: {first}{more}", first, more))
 }
 
 fn main() -> eframe::Result {

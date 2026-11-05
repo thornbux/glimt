@@ -139,7 +139,7 @@ pub fn heif(
         .args(FILES_ONLY)
         .arg(path)
         .spawn()
-        .map_err(|e| format!("HEIC and AVIF need ffprobe (ffmpeg): {e}"))?;
+        .map_err(|e| crate::tf!("HEIC and AVIF need ffprobe (ffmpeg): {e}", e))?;
     let (probe, _, _) = output_of(&mut child, 1 << 20, LIMIT);
     let probe = probe.unwrap_or_default();
     let probe = String::from_utf8_lossy(&probe);
@@ -422,7 +422,7 @@ pub fn ffmpeg_ppm(
         .args(after)
         .args(["-frames:v", "1", "-f", "image2pipe", "-vcodec", "ppm", "-"])
         .spawn()
-        .map_err(|e| format!("video, HEIC and AVIF need ffmpeg: {e}"))?;
+        .map_err(|e| crate::tf!("video, HEIC and AVIF need ffmpeg: {e}", e))?;
     let limit = crate::images::decode::MAX_DECODE + 64;
     let (frame, err, ok) = output_of(&mut child, limit, LIMIT);
     let frame = frame.ok_or("image too large")?;
@@ -458,7 +458,10 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
     // An option is not a place, and -u or -e would unmount or eject. It is not given to gio at
     // all, rather than after a --, because `gio info` reads that as a file of its own as well.
     if uri.starts_with('-') {
-        return Err(Some(format!("Could not mount {uri}: not an address")));
+        return Err(Some(crate::tf!(
+            "Could not mount {uri}: not an address",
+            uri
+        )));
     }
     // This has the usual limit, because asked before the mount, it would otherwise wait on a
     // server that never answers, with no watchdog yet.
@@ -477,7 +480,7 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
         .args(["mount", uri])
         .stdin(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| Some(format!("Could not run gio: {e}")))?;
+        .map_err(|e| Some(crate::tf!("Could not run gio: {e}", e)))?;
     // When a server never answers (a NAS asleep, a VPN down), gio is ended after a minute and
     // the mount is told as failed, instead of "Connecting…" and the busy pointer for ever.
     let dog = Watchdog::new(child.id(), LIMIT * 2);
@@ -504,8 +507,9 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             if passwords > 1 {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(Some(format!(
-                    "Could not mount {uri}: wrong user name or password"
+                return Err(Some(crate::tf!(
+                    "Could not mount {uri}: wrong user name or password",
+                    uri
                 )));
             }
             &login.password
@@ -534,7 +538,12 @@ pub fn gio_mount(uri: &str, login: Option<&Login>) -> Mounted {
             .strip_prefix("gio: ")
             .and_then(|e| e.split_once(": "))
             .map_or(err, |e| e.1);
-        Some(format!("Could not mount {uri}: {err}{}", unknown_host(uri)))
+        Some(crate::tf!(
+            "Could not mount {uri}: {err}{hint}",
+            uri,
+            err,
+            hint = unknown_host(uri)
+        ))
     })
 }
 
@@ -552,8 +561,11 @@ fn unknown_host(uri: &str) -> String {
         return String::new();
     }
     match host.contains('.') {
-        true => format!(" (the name {host} is not found)"),
-        false => format!(" (the name {host} is not found; try {host}.local or its IP address)"),
+        true => crate::tf!(" (the name {host} is not found)", host),
+        false => crate::tf!(
+            " (the name {host} is not found; try {host}.local or its IP address)",
+            host
+        ),
     }
 }
 

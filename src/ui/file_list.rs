@@ -1054,8 +1054,8 @@ impl crate::App {
         }
         let on: Vec<&str> = all.iter().filter(|t| *t.1).map(|t| t.0).collect();
         let title = match on.len() {
-            n if n == all.len() => "All types".to_owned(),
-            0 => "No types".to_owned(),
+            n if n == all.len() => tr("All types").to_owned(),
+            0 => tr("No types").to_owned(),
             _ => on.join(", "),
         };
         let mut changed = false;
@@ -1073,11 +1073,15 @@ impl crate::App {
     /// Geeqie's sort menu in the status bar.
     pub(crate) fn sort_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         let mut changed = false;
-        let title = format!("{} {}", self.config.sort.row().2, theme::icon::CARET_DOWN);
+        let title = format!(
+            "{} {}",
+            tr(self.config.sort.row().2),
+            theme::icon::CARET_DOWN
+        );
         scroll_menu(ui, title, |ui| {
             for (sort, _, label) in SORTS {
                 if ui
-                    .selectable_label(self.config.sort == sort, label)
+                    .selectable_label(self.config.sort == sort, tr(label))
                     .clicked()
                 {
                     self.config.sort = sort;

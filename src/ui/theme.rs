@@ -284,6 +284,11 @@ pub fn built_in(name: &str) -> bool {
     BUILT_IN.iter().any(|b| b.0 == name)
 }
 
+/// Returns a theme's name as menus show it. A built-in theme's name is in the language in use.
+pub fn shown_name(name: &str) -> &str {
+    (BUILT_IN.iter().find(|b| b.0 == name)).map_or(name, |b| crate::support::lang::tr(b.0))
+}
+
 pub fn names() -> Vec<String> {
     let mut own: Vec<String> = (dir().and_then(|d| std::fs::read_dir(d).ok()))
         .into_iter()

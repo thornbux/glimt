@@ -2356,3 +2356,423 @@ msgstr "Drucken abgebrochen"
 
 msgid "Choose Application…"
 msgstr "Anwendung wählen …"
+
+#: src/metadata/exif.rs
+msgid "Camera"
+msgstr "Kamera"
+
+#: src/metadata/exif.rs
+msgid "Lens"
+msgstr "Objektiv"
+
+#: src/metadata/exif.rs
+msgid "Taken"
+msgstr "Aufgenommen"
+
+#: src/metadata/exif.rs
+msgid "Exposure"
+msgstr "Belichtung"
+
+#: src/metadata/exif.rs
+msgid "Aperture"
+msgstr "Blende"
+
+#: src/metadata/exif.rs
+msgid "Focal length"
+msgstr "Brennweite"
+
+#: src/metadata/exif.rs
+msgid "Exposure bias"
+msgstr "Belichtungskorrektur"
+
+#: src/metadata/exif.rs
+msgid "Flash"
+msgstr "Blitz"
+
+#: src/metadata/exif.rs
+msgid "Fired"
+msgstr "Ausgelöst"
+
+#: src/metadata/exif.rs
+msgid "No"
+msgstr "Nein"
+
+#: src/ui/info_panel.rs
+msgid "File size"
+msgstr "Dateigröße"
+
+#: src/ui/info_panel.rs
+msgid "Colour profile"
+msgstr "Farbprofil"
+
+#: src/images/colour.rs
+msgid "{name}, in the file"
+msgstr "{name}, in der Datei"
+
+#: src/images/colour.rs
+msgid "Adobe RGB, from its EXIF"
+msgstr "Adobe RGB, aus den EXIF-Daten"
+
+#: src/images/colour.rs
+msgid "unnamed"
+msgstr "unbenannt"
+
+#: src/images/colour.rs
+msgid "{own}; {input} used instead"
+msgstr "{own}; stattdessen wird {input} verwendet"
+
+#: src/images/colour.rs
+msgid "none: taken as {input}"
+msgstr "keins: als {input} angenommen"
+
+#: src/model/listing.rs
+msgid "Sort by name"
+msgstr "Nach Name sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by number"
+msgstr "Nach Nummer sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by date"
+msgstr "Nach Datum sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by file creation date"
+msgstr "Nach Erstellungsdatum der Datei sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date original"
+msgstr "Nach EXIF-Aufnahmedatum sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by EXIF date digitized"
+msgstr "Nach EXIF-Digitalisierungsdatum sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by size"
+msgstr "Nach Größe sortieren"
+
+#: src/model/listing.rs
+msgid "Sort by extension"
+msgstr "Nach Endung sortieren"
+
+#: src/ui/file_list.rs
+msgid "All types"
+msgstr "Alle Typen"
+
+#: src/ui/file_list.rs
+msgid "No types"
+msgstr "Keine Typen"
+
+#: src/ui/theme.rs
+msgid "Desktop"
+msgstr "Desktop"
+
+#: src/ui/theme.rs
+msgid "Light"
+msgstr "Hell"
+
+#: src/ui/theme.rs
+msgid "Dark"
+msgstr "Dunkel"
+
+#: src/ui/theme.rs
+msgid "High Contrast"
+msgstr "Hoher Kontrast"
+
+#: src/ui/theme.rs
+msgid "Contrast"
+msgstr "Kontrast"
+
+#: src/images/colour.rs
+msgid "Greyscale"
+msgstr "Graustufen"
+
+#: src/images/colour.rs
+msgid "Inverted"
+msgstr "Invertiert"
+
+#: src/images/colour.rs
+msgid "More Contrast"
+msgstr "Mehr Kontrast"
+
+#: src/images/colour.rs
+msgid "Perceptual"
+msgstr "Wahrnehmungsorientiert"
+
+#: src/images/colour.rs
+msgid "Relative colorimetric"
+msgstr "Relativ farbmetrisch"
+
+#: src/images/colour.rs
+msgid "Saturation"
+msgstr "Sättigung"
+
+#: src/images/colour.rs
+msgid "Absolute colorimetric"
+msgstr "Absolut farbmetrisch"
+
+#: src/files/config.rs
+msgid "Power saving"
+msgstr "Energiesparen"
+
+#: src/files/config.rs
+msgid "Balanced"
+msgstr "Ausgewogen"
+
+#: src/files/config.rs
+msgid "Full"
+msgstr "Voll"
+
+#: src/files/config.rs
+msgid "Fewer cores at once: thumbnails one at a time, searches and Find Duplicates on two cores. Slower in large folders, kinder to a laptop battery."
+msgstr "Weniger Kerne zugleich: Vorschaubilder einzeln, Suchen und Duplikate finden auf zwei Kernen. Langsamer in großen Ordnern, schont den Akku eines Laptops."
+
+#: src/files/config.rs
+msgid "Two thumbnails at once; searches and Find Duplicates on every core."
+msgstr "Zwei Vorschaubilder zugleich; Suchen und Duplikate finden auf allen Kernen."
+
+#: src/files/config.rs
+msgid "Every core: thumbnails and searches as fast as the machine allows."
+msgstr "Alle Kerne: Vorschaubilder und Suchen so schnell, wie der Rechner erlaubt."
+
+#: src/files/config.rs
+msgid "Low"
+msgstr "Niedrig"
+
+#: src/files/config.rs
+msgid "High"
+msgstr "Hoch"
+
+#: src/files/config.rs
+msgid "Least memory: one image decoded at a time, one preloaded on each side. Slow storage (SMB, NFS, USB) makes browsing wait for each file."
+msgstr "Am wenigsten Speicher: ein Bild zugleich dekodiert, eines auf jeder Seite vorab geladen. Langsamer Speicher (SMB, NFS, USB) lässt das Blättern auf jede Datei warten."
+
+#: src/files/config.rs
+msgid "The default: four images decoded at once, two preloaded on each side."
+msgstr "Die Voreinstellung: vier Bilder gleichzeitig dekodiert, zwei auf jeder Seite vorab geladen."
+
+#: src/files/config.rs
+msgid "Fastest browsing: eight images decoded at once, five preloaded on each side; hides the wait of slow storage (SMB, NFS) best."
+msgstr "Schnellstes Blättern: acht Bilder gleichzeitig dekodiert, fünf auf jeder Seite vorab geladen; verbirgt das Warten auf langsamen Speicher (SMB, NFS) am besten."
+
+#: src/files/config.rs
+msgid "Short"
+msgstr "Kurz"
+
+#: src/files/config.rs
+msgid "Long"
+msgstr "Lang"
+
+#: src/ui/preferences.rs
+msgid "{name}, from the desktop"
+msgstr "{name}, vom Desktop"
+
+#: src/ui/preferences.rs
+msgid "none, sRGB"
+msgstr "keins, sRGB"
+
+#: src/ui/preferences.rs
+msgid "Fields: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment%, and each label of the EXIF panel, such as %Camera% or %ISO%. A | starts a part, left out when its fields are empty."
+msgstr "Felder: %name%, %path%, %position%, %dimensions%, %marks%, %keywords%, %comment% und jede Bezeichnung der EXIF-Leiste mit ihrem englischen Namen, etwa %Camera% oder %ISO%. Ein | beginnt einen Teil, der wegfällt, wenn seine Felder leer sind."
+
+#: src/ui/preferences.rs
+msgid "Window title \"Glimt - image name\" (off: \"image name - Glimt\")"
+msgstr "Fenstertitel »Glimt - Bildname« (aus: »Bildname - Glimt«)"
+
+#: src/ui/preferences.rs
+msgid "A command line, such as mpv --fs; a path with spaces goes in \"quotes\""
+msgstr "Eine Befehlszeile wie mpv --fs; ein Pfad mit Leerzeichen kommt in \"Anführungszeichen\""
+
+#: src/ui/dialogs.rs
+msgid "New folder name:"
+msgstr "Name des neuen Ordners:"
+
+#: src/ui/dialogs.rs
+msgid "Name of the new theme:"
+msgstr "Name des neuen Themas:"
+
+#: src/ui/dialogs.rs
+msgid "New name of the collection:"
+msgstr "Neuer Name der Sammlung:"
+
+#: src/ui/dialogs.rs
+msgid "New file name:"
+msgstr "Neuer Dateiname:"
+
+#: src/ui/dialogs.rs
+msgid "A crash or a power cut stopped it in {folder}. Some files may have their new names, some their old ones, and some hidden temporary names ({steps} to put right)."
+msgstr "Ein Absturz oder Stromausfall hat es in {folder} unterbrochen. Manche Dateien haben vielleicht ihre neuen Namen, manche die alten und manche versteckte vorläufige Namen ({steps} zu beheben)."
+
+#: src/ui/dialogs.rs
+msgid "no home folder"
+msgstr "kein persönlicher Ordner"
+
+#: src/ui/window.rs
+msgid "Glimt closes when the file operations are done; close again to stop them"
+msgstr "Glimt schließt, wenn die Dateiaktionen fertig sind; erneut schließen, um sie anzuhalten"
+
+#: src/ui/window.rs
+msgid "Stopping after the files at hand; close once more to end at once"
+msgstr "Hält nach den laufenden Dateien an; noch einmal schließen, um sofort zu beenden"
+
+#: src/features/check.rs
+msgid "Opens each of the {count} in the list, as the viewer would, and lists those that cannot be: broken files, files cut off in copying, and files that are no image. They are marked in the list too."
+msgstr "Öffnet jedes der {count} in der Liste wie die Anzeige und listet die auf, die sich nicht öffnen lassen: kaputte Dateien, beim Kopieren abgeschnittene Dateien und Dateien, die kein Bild sind. Sie werden auch in der Liste markiert."
+
+#: src/features/check.rs
+msgid "{done} of {total}"
+msgstr "{done} von {total}"
+
+#: src/features/check.rs
+msgid "None broken."
+msgstr "Keine kaputten."
+
+#: src/main.rs
+msgid "Settings file: {first}{more}"
+msgstr "Einstellungsdatei: {first}{more}"
+
+#: src/ui/accessibility.rs
+msgid ", could not be shown: {e}"
+msgstr ", konnte nicht angezeigt werden: {e}"
+
+#: src/ui/accessibility.rs
+msgid ", keywords: {keywords}"
+msgstr ", Schlagwörter: {keywords}"
+
+#: src/files/config.rs
+msgid "Could not save {name}: {e}"
+msgstr "Konnte {name} nicht speichern: {e}"
+
+#: src/files/backup.rs
+msgid "{folder} is not a folder"
+msgstr "{folder} ist kein Ordner"
+
+#: src/files/backup.rs
+msgid "Nothing to back up: Glimt has no settings, marks or collections here"
+msgstr "Nichts zu sichern: Glimt hat hier keine Einstellungen, Markierungen oder Sammlungen"
+
+#: src/files/backup.rs
+msgid "A backup cannot go inside {folder}, which it copies"
+msgstr "Eine Sicherung kann nicht in {folder} liegen, das sie kopiert"
+
+#: src/files/backup.rs
+msgid "Glimt's data backed up to {folder}: {files}"
+msgstr "Glimts Daten in {folder} gesichert: {files}"
+
+#: src/files/backup.rs
+msgid "The backup to {folder} is not whole: {e}"
+msgstr "Die Sicherung nach {folder} ist unvollständig: {e}"
+
+#: src/files/file_io.rs
+msgid "the file was moved, renamed or deleted meanwhile"
+msgstr "die Datei wurde inzwischen verschoben, umbenannt oder gelöscht"
+
+#: src/files/external.rs
+msgid "HEIC and AVIF need ffprobe (ffmpeg): {e}"
+msgstr "HEIC und AVIF brauchen ffprobe (ffmpeg): {e}"
+
+#: src/files/external.rs
+msgid "video, HEIC and AVIF need ffmpeg: {e}"
+msgstr "Video, HEIC und AVIF brauchen ffmpeg: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: not an address"
+msgstr "Konnte {uri} nicht einhängen: keine Adresse"
+
+#: src/files/external.rs
+msgid "Could not run gio: {e}"
+msgstr "Konnte gio nicht ausführen: {e}"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: wrong user name or password"
+msgstr "Konnte {uri} nicht einhängen: falscher Benutzername oder falsches Passwort"
+
+#: src/files/external.rs
+msgid "Could not mount {uri}: {err}{hint}"
+msgstr "Konnte {uri} nicht einhängen: {err}{hint}"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found)"
+msgstr " (der Name {host} wurde nicht gefunden)"
+
+#: src/files/external.rs
+msgid " (the name {host} is not found; try {host}.local or its IP address)"
+msgstr " (der Name {host} wurde nicht gefunden; versuchen Sie {host}.local oder seine IP-Adresse)"
+
+#: src/files/file_ops.rs
+msgid "No such frame"
+msgstr "Kein solches Einzelbild"
+
+#: src/files/file_ops.rs
+msgid "choose another name: the image itself is not changed"
+msgstr "einen anderen Namen wählen: das Bild selbst wird nicht verändert"
+
+#: src/metadata/lightroom.rs
+msgid "Imported from Lightroom: {done}"
+msgstr "Aus Lightroom importiert: {done}"
+
+#: src/metadata/lightroom.rs
+msgid "; not saved: {names}"
+msgstr "; nicht gespeichert: {names}"
+
+#: src/metadata/lightroom.rs
+msgid " (no data folder: $HOME is not set)"
+msgstr " (kein Datenordner: $HOME ist nicht gesetzt)"
+
+#: src/metadata/lightroom.rs
+msgid "Collections are added to Glimt's, keywords to the keyword tree and stars to the marks. Smart collections are left out."
+msgstr "Sammlungen kommen zu denen von Glimt, Schlagwörter in den Schlagwortbaum und Sterne zu den Markierungen. Smarte Sammlungen bleiben außen vor."
+
+#: src/metadata/lightroom.rs
+msgid "{names} and {n} more"
+msgstr "{names} und {n} weitere"
+
+#: src/metadata/lightroom.rs
+msgid "The keywords of each image, into its XMP sidecar ({count}); those it has stay"
+msgstr "Die Schlagwörter jedes Bildes in seine XMP-Begleitdatei ({count}); vorhandene bleiben"
+
+#: src/metadata/lightroom.rs
+msgid "1 image has"
+msgstr "1 Bild hat"
+
+#: src/model/collections.rs
+msgid "no data folder ($HOME is not set)"
+msgstr "kein Datenordner ($HOME ist nicht gesetzt)"
+
+#: src/model/collections.rs
+msgid "Could not rename the collection: {e}"
+msgstr "Konnte die Sammlung nicht umbenennen: {e}"
+
+#: src/viewer/view.rs
+msgid "Could not open {name}:\n{e}"
+msgstr "Konnte {name} nicht öffnen:\n{e}"
+
+#: src/images/save.rs
+msgid "only JPEG, PNG and WebP can store the rotation"
+msgstr "nur JPEG, PNG und WebP können die Drehung speichern"
+
+#: src/images/save.rs
+msgid "animated images are not turned"
+msgstr "animierte Bilder werden nicht gedreht"
+
+#: src/images/save.rs
+msgid "animated images are not saved as a copy"
+msgstr "animierte Bilder werden nicht als Kopie gespeichert"
+
+#: src/images/save.rs
+msgid "the part is outside the image"
+msgstr "der Ausschnitt liegt außerhalb des Bildes"
+
+#: src/images/save.rs
+msgid "a lossy WebP needs ffmpeg to be saved: {e}"
+msgstr "ein verlustbehaftetes WebP braucht zum Speichern ffmpeg: {e}"
+
+#: src/metadata/exif.rs
+msgid "only JPEG files can store the orientation"
+msgstr "nur JPEG-Dateien können die Ausrichtung speichern"
+
+#: src/metadata/xmp.rs
+msgid "the image was moved, renamed or deleted meanwhile"
+msgstr "das Bild wurde inzwischen verschoben, umbenannt oder gelöscht"
