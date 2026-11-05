@@ -759,3 +759,32 @@ fn packages_install_the_same_files() {
     }
     assert!(wrong.is_empty(), "not installed:\n{}", wrong.join("\n"));
 }
+
+/// Every optional feature is in `full`, which the packages are built with, and has a row in
+/// README's table. CI builds with --all-features, so a feature left out of `full` would pass
+/// every check and still be missing from every package.
+#[test]
+fn full_has_every_feature() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let read = |name: &str| std::fs::read_to_string(root.join(name)).unwrap();
+    let cargo = read("Cargo.toml");
+    let readme = read("README.md");
+    let features = cargo.split_once("\n[features]\n").unwrap().1;
+    let features = features.split("\n[").next().unwrap();
+    let names = features
+        .lines()
+        .filter_map(|l| Some(l.split_once(" = ")?.0));
+    let full = features.lines().find(|l| l.starts_with("full = ")).unwrap();
+    let mut wrong = Vec::new();
+    for name in names.filter(|n| !["full", "test-hooks"].contains(n)) {
+        if !full.contains(&format!("\"{name}\"")) {
+            wrong.push(format!("Cargo.toml: {name} is not in full"));
+        }
+        if !readme.contains(&format!("\n| `{name}` |")) {
+            wrong.push(format!(
+                "README.md: {name} has no row in the features table"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
