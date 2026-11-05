@@ -788,3 +788,87 @@ fn comments_fit_the_width() {
         wrong.join("\n")
     );
 }
+
+/// The .deb and the .rpm install the same files, and the AppImage, the tar.gz and the Flatpak
+/// each of them that is not documentation: five lists kept in step by this test, not by memory.
+#[test]
+fn packages_install_the_same_files() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let read = |name: &str| std::fs::read_to_string(root.join(name)).unwrap();
+    let cargo = read("Cargo.toml");
+    let deb = cargo.split_once("[package.metadata.deb]").unwrap().1;
+    let (deb, rpm) = deb.split_once("[package.metadata.generate-rpm]").unwrap();
+    fn quoted<'a>(line: &'a str, start: &str) -> Option<&'a str> {
+        line.split_once(start)?.1.split('"').next()
+    }
+    // The .deb's license-file is its LICENSE.
+    let mut deb: Vec<&str> = deb.lines().filter_map(|l| quoted(l, "[\"")).collect();
+    let mut rpm: Vec<&str> = rpm
+        .lines()
+        .filter_map(|l| quoted(l, "source = \""))
+        .collect();
+    deb.sort();
+    rpm.sort();
+    assert_eq!(
+        deb, rpm,
+        "Cargo.toml: the .deb's and the .rpm's assets differ"
+    );
+    let release = read(".github/workflows/release.yml");
+    let step = |name: &str| {
+        let at = release.find(&format!("- name: {name}\n")).unwrap();
+        release[at..]
+            .split("\n      - name: ")
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    let others = [
+        ("the tar.gz", step("tar.gz")),
+        ("the AppImage", step("AppImage")),
+        ("the Flatpak", read("flatpak/io.github.thornbux.Glimt.yml")),
+    ];
+    let docs = ["README.md", "CHANGELOG.md", "examples/"];
+    let mut wrong = Vec::new();
+    for file in rpm
+        .iter()
+        .filter(|f| !docs.iter().any(|d| f.starts_with(d)))
+    {
+        // The binary is built to target/<the target>/release in the release workflow.
+        let name = file.trim_start_matches("target/");
+        for (package, text) in &others {
+            if !text.contains(name) {
+                wrong.push(format!("{package}: {file}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "not installed:\n{}", wrong.join("\n"));
+}
+
+/// Every optional feature is in `full`, which the packages are built with, and has a row in
+/// README's table. CI builds with --all-features, so a feature left out of `full` would pass
+/// every check and still be missing from every package.
+#[test]
+fn full_has_every_feature() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let read = |name: &str| std::fs::read_to_string(root.join(name)).unwrap();
+    let cargo = read("Cargo.toml");
+    let readme = read("README.md");
+    let features = cargo.split_once("\n[features]\n").unwrap().1;
+    let features = features.split("\n[").next().unwrap();
+    let names = features
+        .lines()
+        .filter_map(|l| Some(l.split_once(" = ")?.0));
+    let full = features.lines().find(|l| l.starts_with("full = ")).unwrap();
+    let mut wrong = Vec::new();
+    for name in names.filter(|n| !["full", "test-hooks"].contains(n)) {
+        if !full.contains(&format!("\"{name}\"")) {
+            wrong.push(format!("Cargo.toml: {name} is not in full"));
+        }
+        if !readme.contains(&format!("\n| `{name}` |")) {
+            wrong.push(format!(
+                "README.md: {name} has no row in the features table"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

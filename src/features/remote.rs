@@ -999,4 +999,28 @@ mod tests {
         assert!(String::from_utf8_lossy(&late.try_recv().unwrap()).contains("a.png"));
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    /// The man page describes each start option and remote command in an entry of its own (the
+    /// line after .TP) before its KEYS, whose EXAMPLES have entries too. So a new one cannot
+    /// ship without its page. `where` is left out, as only the release tests' build has it.
+    #[test]
+    fn man_page_names_every_option_and_command() {
+        let page = include_str!("../../docs/glimt.1").replace("\\-", "-");
+        let lines: Vec<&str> = page.split(".SH KEYS").next().unwrap().lines().collect();
+        let entries: std::collections::HashSet<&str> = (lines.windows(2))
+            .filter(|w| w[0] == ".TP")
+            .flat_map(|w| w[1].split([' ', '"', ',']))
+            .collect();
+        let options = (crate::cli::START_OPTIONS.iter())
+            .flat_map(|(o, _)| o.split([' ', ',']))
+            .filter(|w| w.starts_with('-'));
+        let commands = (super::COMMANDS.iter())
+            .filter_map(|(c, _)| c.split(' ').next())
+            .filter(|&c| c != "where");
+        let missing: Vec<&str> = options
+            .chain(commands)
+            .filter(|w| !entries.contains(w))
+            .collect();
+        assert!(missing.is_empty(), "docs/glimt.1 lacks {missing:?}");
+    }
 }
