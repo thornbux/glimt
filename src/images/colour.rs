@@ -105,6 +105,14 @@ pub struct Colour {
 /// Colour transforms by (source, to the screen); `None` where none can be made.
 pub type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecutor>>>;
 
+// What a test runs on its thread where an image's profile is about to be parsed, to see that the
+// transform cache is not locked then.
+#[cfg(test)]
+thread_local! {
+    static PARSING: std::cell::Cell<Option<fn(&Colour)>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// Colours from the image's own ICC profile (Adobe RGB, Display P3 …), or from the profile set
 /// for images without one, converted to sRGB: what the screen is taken to show without a screen
 /// profile, and what files and the shared thumbnail cache get. Without it such photos look dull.
@@ -166,7 +174,6 @@ pub fn convert(
     screen: bool,
     srgb: bool,
 ) -> image::DynamicImage {
-    use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
     if !COLOR_MANAGEMENT.load(Ordering::Relaxed) {
         return img;
     }
@@ -189,45 +196,24 @@ pub fn convert(
     if from == 0 && !screen {
         return img;
     }
-    let mut transforms = c.transforms.lock().unwrap_or_else(|e| e.into_inner());
-    // One for each profile the images have, and profiles that differ only in the date written
-    // into them (exports of one editor) count as others: a few dozen kept, then made again.
-    if transforms.len() >= 64 && !transforms.contains_key(&(from, screen)) {
-        transforms.clear();
-    }
-    let t = transforms.entry((from, screen)).or_insert_with(|| {
-        let source = match icc {
-            // One that cannot be read: sRGB on the way to the screen, left as it is for sRGB.
-            Some(bytes) => match ColorProfile::new_from_slice(bytes) {
-                Ok(p) => p,
-                Err(_) if screen => ColorProfile::new_srgb(),
-                Err(_) => return None,
-            },
-            None if from == 1 => c.input.clone().unwrap_or_else(ColorProfile::new_srgb),
-            None => ColorProfile::new_srgb(),
-        };
-        let target = match (&c.screen, screen) {
-            (Some(p), true) => p.clone(),
-            _ => ColorProfile::new_srgb(),
-        };
-        // An image's own profile that is sRGB (as most exports have) changes nothing on the way
-        // to sRGB: no pass over every pixel, and no second copy of a large image for it. Looked
-        // at once, as the transform is kept for that profile.
-        if !screen && from >= 2 && like_srgb(&source) {
-            return None;
+    let key = (from, screen);
+    let cached = (c.transforms.lock().unwrap_or_else(|e| e.into_inner()))
+        .get(&key)
+        .cloned();
+    let t = cached.unwrap_or_else(|| {
+        // The transform is made without the cache locked. A large or crafted profile can take
+        // long to parse, and the other decoding threads should not wait for it.
+        let t = make_transform(&c, icc, from, screen);
+        let mut transforms = c.transforms.lock().unwrap_or_else(|e| e.into_inner());
+        // The cache keeps a transform for each profile the images have. Profiles that differ
+        // only in the date written into them (exports of one editor) count as others, so a few
+        // dozen are kept and then all are made again.
+        if transforms.len() >= 64 && !transforms.contains_key(&key) {
+            transforms.clear();
         }
-        let make = |rendering_intent| {
-            let options = TransformOptions {
-                rendering_intent,
-                ..TransformOptions::default()
-            };
-            source.create_transform_8bit(Layout::Rgba, &target, Layout::Rgba, options)
-        };
-        // A profile without tables for the intent has the perceptual ones, as ICC says.
-        (make(c.intent).or_else(|_| make(RenderingIntent::Perceptual))).ok()
+        transforms.insert(key, t.clone());
+        t
     });
-    let t = t.clone();
-    drop(transforms);
     drop(c);
     match t {
         Some(t) => transformed(&*t, img),
@@ -419,6 +405,51 @@ pub fn desktop_screen_profile() -> Option<String> {
 /// Returns `None` for an empty list, "(@ao [],)".
 pub fn first_quoted(text: &str) -> Option<&str> {
     text.split('\'').nth(1).filter(|s| !s.is_empty())
+}
+
+/// Makes the transform of an image's colours from `icc` (or the profile `from` stands for, see
+/// `Colour::transforms`) to the screen with `screen`, else to sRGB. Returns `None` where none
+/// is needed or none can be made.
+fn make_transform(
+    c: &Colour,
+    icc: Option<&[u8]>,
+    from: u64,
+    screen: bool,
+) -> Option<Arc<moxcms::Transform8BitExecutor>> {
+    use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
+    #[cfg(test)]
+    if let Some(hook) = PARSING.get() {
+        hook(c);
+    }
+    let source = match icc {
+        // One that cannot be read: sRGB on the way to the screen, left as it is for sRGB.
+        Some(bytes) => match ColorProfile::new_from_slice(bytes) {
+            Ok(p) => p,
+            Err(_) if screen => ColorProfile::new_srgb(),
+            Err(_) => return None,
+        },
+        None if from == 1 => c.input.clone().unwrap_or_else(ColorProfile::new_srgb),
+        None => ColorProfile::new_srgb(),
+    };
+    let target = match (&c.screen, screen) {
+        (Some(p), true) => p.clone(),
+        _ => ColorProfile::new_srgb(),
+    };
+    // An image's own profile that is sRGB (as most exports have) changes nothing on the way
+    // to sRGB: no pass over every pixel, and no second copy of a large image for it. Looked
+    // at once, as the transform is kept for that profile.
+    if !screen && from >= 2 && like_srgb(&source) {
+        return None;
+    }
+    let make = |rendering_intent| {
+        let options = TransformOptions {
+            rendering_intent,
+            ..TransformOptions::default()
+        };
+        source.create_transform_8bit(Layout::Rgba, &target, Layout::Rgba, options)
+    };
+    // A profile without tables for the intent has the perceptual ones, as ICC says.
+    (make(c.intent).or_else(|_| make(RenderingIntent::Perceptual))).ok()
 }
 
 /// `img` through the colour transform `t`, a megabyte at a time through one small buffer: a
@@ -646,6 +677,42 @@ mod tests {
         assert_eq!(shown("saturation"), perceptual);
         super::set_input("srgb").unwrap();
         super::set_intent("perceptual");
+    }
+
+    /// Returns whether `free` comes true within two seconds. Other tests' threads take the
+    /// colour locks for a moment too.
+    fn soon(free: impl Fn() -> bool) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !free() {
+            if std::time::Instant::now() > deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        true
+    }
+
+    /// The transform cache is free while an image's profile is parsed, so that a slow one holds
+    /// up no other decoding thread.
+    #[test]
+    fn parses_a_profile_with_the_cache_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static PARSED: AtomicBool = AtomicBool::new(false);
+        fn check(c: &super::Colour) {
+            assert!(
+                soon(|| c.transforms.try_lock().is_ok()),
+                "the cache is locked"
+            );
+            PARSED.store(true, Ordering::Relaxed);
+        }
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        // A profile no other test has, so that it is not in the cache already.
+        let mut p3 = moxcms::ColorProfile::new_display_p3().encode().unwrap();
+        p3[31] = 177;
+        super::PARSING.set(Some(check));
+        super::to_srgb(image::DynamicImage::new_rgb8(1, 1), Some(&p3));
+        super::PARSING.set(None);
+        assert!(PARSED.load(Ordering::Relaxed));
     }
 
     /// Images for the screen wait for colord at start until the deadline, and not at all after.
