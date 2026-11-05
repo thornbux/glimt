@@ -128,13 +128,18 @@ impl crate::App {
         }
     }
 
-    /// Add the selected files, or the shown image, to the collection in `file`.
-    pub(crate) fn add_to_collection(&mut self, file: &Path) {
+    /// Add the selected files, or the shown image, to the collection in `file`. It is written
+    /// in the background, because Select All in a large folder adds hundreds of thousands of
+    /// files, and a home folder on a share may be slow to write.
+    pub(crate) fn add_to_collection(&mut self, ctx: &egui::Context, file: &Path) {
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-        let name = file.file_stem().unwrap_or_default().to_string_lossy();
-        self.notice = Some(match append(file, &paths) {
-            Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
-            Err(e) => tf!("Could not save the collection: {e}", e),
+        let file = file.to_path_buf();
+        self.background(ctx, Vec::new(), move || {
+            let name = file.file_stem().unwrap_or_default().to_string_lossy();
+            Some(match append(&file, &paths) {
+                Ok(n) => tf!("{n} added to the collection \"{name}\"", n, name),
+                Err(e) => tf!("Could not save the collection: {e}", e),
+            })
         });
     }
 
@@ -172,7 +177,7 @@ impl crate::App {
                     for (name, file) in all {
                         if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked()
                         {
-                            self.add_to_collection(&file);
+                            self.add_to_collection(ui.ctx(), &file);
                         }
                     }
                 },
@@ -524,6 +529,25 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// Add to Collection writes the collection in the background and tells how many it added.
+    #[test]
+    fn adds_to_a_collection_in_the_background() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-add-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        assert!(crate::support::test_support::settle(&mut app, &ctx, |a| !a
+            .folder
+            .is_listing()));
+        let file = dir.join("trip.gqv");
+        app.add_to_collection(&ctx, &file);
+        let told = |app: &crate::App| app.notice.as_deref().is_some_and(|n| n.contains("trip"));
+        assert!(crate::support::test_support::settle(&mut app, &ctx, told));
+        assert_eq!(super::load(&file).unwrap(), [a]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Editing a collection Geeqie wrote keeps Geeqie's own lines: its #geometry line was
     /// dropped the first time Glimt took an image out.
     #[test]

@@ -2224,6 +2224,10 @@ mod tests {
             ("trash_collection", "gio trash of the collection's own file"),
             ("back_up", "Glimt's own folders, no file of the user's"),
             (
+                "add_to_collection",
+                "Glimt's own collection file: adds_to_a_collection_in_the_background",
+            ),
+            (
                 "import_lightroom",
                 "needs sqlite3; a release check imports a catalog",
             ),
