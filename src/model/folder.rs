@@ -511,6 +511,11 @@ impl crate::App {
         if collections::is_collection(&path) {
             return self.open_collection(ctx, path);
         }
+        // A file of the folder shown is only gone to. The folder is not read again, and its
+        // thumbnails and EXIF index stay, which matters in a folder of 500,000 images.
+        if let Some(i) = self.listed_here(&path) {
+            return self.go(ctx, i);
+        }
         self.leave_image(ctx);
         self.folder.collection = None;
         self.folder.folders.clear();
@@ -992,6 +997,23 @@ impl crate::App {
         }
     }
 
+    /// Returns the place of `path` in the list when it is a file of the folder shown, and the
+    /// list is that folder's as it is listed now: not a collection or several folders, read
+    /// whole, with subfolders as the setting says. Returns `None` otherwise.
+    fn listed_here(&self, path: &Path) -> Option<usize> {
+        let folder = &self.folder;
+        let as_listed = folder.collection.is_none()
+            && folder.folders.is_empty()
+            && !folder.is_listing()
+            && folder.recursive == self.config.show_subfolders;
+        let parent = path.parent().filter(|_| as_listed)?;
+        if parent.canonicalize().ok()? != folder.dir {
+            return None;
+        }
+        let name = path.file_name()?;
+        self.list.files().iter().position(|f| f == name)
+    }
+
     /// Lets go of what holds places in the list, after files were taken out of it and its
     /// places shifted. This is the one place for it. (A list read again gets a new `List`
     /// instead.) It covers the selection (told to the status bar), the anchor, a rectangle or
@@ -1212,6 +1234,23 @@ pub(crate) fn total_size(paths: &[PathBuf]) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::{app_on, contract_folder, settle};
+
+    /// A file of the folder shown is gone to without reading the folder again.
+    #[test]
+    fn opening_a_file_of_the_folder_shown_keeps_the_list() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-reopen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.png", "b.png"] {
+            image::RgbImage::new(4, 4).save(dir.join(name)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        let version = app.list.version();
+        app.open(&ctx, dir.join("b.png"));
+        assert_eq!((app.list.cur(), app.list.version()), (1, version));
+        assert!(!app.folder.is_listing());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     /// A refresh of a collection that started before a rename landed (auto refresh saw the
     /// folder change first) loses neither the image in the list nor its entry in the file.

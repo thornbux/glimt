@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Opening a file of the folder already shown (File → Open File, a drop, --remote open, Back) goes to
+  it at once, without reading the folder, its thumbnails and its EXIF index again.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
