@@ -84,7 +84,8 @@ pub(crate) struct Deleted {
 /// A file's (device, inode), which stays the same through a rename on one disk.
 pub(crate) type FileId = (u64, u64);
 
-/// A file moved, `(from, to, id)`, as Undo moves it back. The id is the file's at `to`.
+/// A file moved, `(from, to, id)`, as Undo moves it back. The id is the file's at `to`, or
+/// `None` once Glimt itself wrote the file anew there (a turn saved), which gives it a new id.
 pub(crate) type Moved = (PathBuf, PathBuf, Option<FileId>);
 
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
@@ -1056,6 +1057,13 @@ impl crate::App {
         if paths.is_empty() {
             return;
         }
+        // A file written anew by Glimt has a new id, but it is still the file Undo moves back.
+        if let Some(Undo::Move(pairs)) = &mut self.work.undo {
+            let written: HashSet<&PathBuf> = paths.iter().collect();
+            (pairs.iter_mut())
+                .filter(|(_, to, _)| written.contains(to))
+                .for_each(|(_, _, id)| *id = None);
+        }
         for path in paths {
             if self.is_file(self.list.cur(), path) {
                 self.viewing.drop_turn();
@@ -1725,7 +1733,7 @@ fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
     for (from, to, id) in pairs {
         let _held = xmp::held(&to);
         // Another program may have put another file at `to` since the move.
-        if file_id(&to) != id {
+        if id.is_some_and(|id| file_id(&to) != Some(id)) {
             let other = tr("another file has taken its place");
             errors.push(format!("{}: {other}", to.display()));
             continue;
@@ -2355,6 +2363,15 @@ mod tests {
         assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
         assert!(!a.exists(), "the other file was moved back as a.png");
         assert_eq!(std::fs::read(&moved).unwrap(), b"another");
+        // A file Glimt itself wrote anew there (a turn saved) is still the one to move back.
+        app.transfer(&ctx, vec![b.clone()], dir.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |app| !b.exists() && !app.working()));
+        let saved = dir.join("sub/b.png");
+        std::fs::copy(&saved, dir.join("sub/new")).unwrap();
+        std::fs::rename(dir.join("sub/new"), &saved).unwrap();
+        app.files_changed(&ctx, std::slice::from_ref(&saved));
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
