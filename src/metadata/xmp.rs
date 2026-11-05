@@ -256,15 +256,20 @@ pub fn write_changed(
     Ok(meta)
 }
 
+/// Adds each of `keywords` that `have` lacks to it, at its end.
+pub fn add_to(have: &mut Vec<String>, keywords: &[String]) {
+    for k in keywords {
+        if !have.iter().any(|m| same(m, k)) {
+            have.push(k.clone());
+        }
+    }
+}
+
 /// Add `keywords` to those `path` has, read and written as one change.
 pub fn add_keywords(path: &Path, keywords: &[String]) -> Result<(), String> {
     let _held = held(path);
     let mut meta = read(path);
-    for k in keywords {
-        if !meta.keywords.iter().any(|m| same(m, k)) {
-            meta.keywords.push(k.clone());
-        }
-    }
+    add_to(&mut meta.keywords, keywords);
     update(path, meta == Meta::default(), |x| {
         set_keywords(x, &meta, false)
     })

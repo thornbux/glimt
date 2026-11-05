@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keywords added to many selected files show in the info panel at once. Before, the panel could
+  read the shown file before its keywords were written, and a later edit there took them off
+  again.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
