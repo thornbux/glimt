@@ -1093,14 +1093,21 @@ impl crate::App {
         if let Some(Undo::Move(pairs)) = &mut self.work.undo {
             let written: HashSet<&PathBuf> = paths.iter().collect();
             // A folder opened through a link spells the same file otherwise, so a pair of the
-            // same file name is compared by its real path too. Only those few are looked up.
-            let names: HashSet<&std::ffi::OsStr> =
-                paths.iter().filter_map(|p| p.file_name()).collect();
-            let real: HashSet<PathBuf> =
-                paths.iter().filter_map(|p| p.canonicalize().ok()).collect();
+            // same file name is compared by its real path too. Only the paths whose name a
+            // moved file has are looked up, so a plugin's report of 200,000 files after a move
+            // of one costs no look at the disk for the others.
+            let moved: HashSet<std::ffi::OsString> = (pairs.iter())
+                .filter(|(_, to, _)| !written.contains(to))
+                .filter_map(|(_, to, _)| to.file_name().map(|n| n.to_owned()))
+                .collect();
+            let real: HashSet<PathBuf> = (paths.iter())
+                .filter(|p| p.file_name().is_some_and(|n| moved.contains(n)))
+                .filter_map(|p| p.canonicalize().ok())
+                .collect();
             let same = |to: &PathBuf| {
                 written.contains(to)
-                    || (to.file_name().is_some_and(|n| names.contains(n))
+                    || (!real.is_empty()
+                        && to.file_name().is_some_and(|n| moved.contains(n))
                         && to.canonicalize().is_ok_and(|t| real.contains(&t)))
             };
             (pairs.iter_mut())
