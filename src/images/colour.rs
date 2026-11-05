@@ -111,6 +111,9 @@ pub type Transforms = HashMap<(u64, bool), Option<Arc<moxcms::Transform8BitExecu
 thread_local! {
     static PARSING: std::cell::Cell<Option<fn(&Colour)>> =
         const { std::cell::Cell::new(None) };
+    // What a test runs where colour_source is about to read the image file, to see that the
+    // colour settings are not locked then.
+    static READING: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
 }
 
 /// Colours from the image's own ICC profile (Adobe RGB, Display P3 …), or from the profile set
@@ -319,8 +322,13 @@ pub fn set_intent(name: &str) {
 /// its EXIF, or the one taken for images without a profile.
 pub fn colour_source(path: &Path) -> String {
     use moxcms::{ColorProfile, ProfileText};
-    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
-    let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
+    // The file is read before the colour settings are locked. On a stalled share the read can
+    // take long, and a change in Preferences would wait for it, with every decoding thread
+    // waiting behind that change.
+    #[cfg(test)]
+    if let Some(hook) = READING.get() {
+        hook();
+    }
     // The profile as the view reads it, also from a JPEG XL, which the image crate cannot open.
     let own = match crate::images::decode::icc_profile(path) {
         Some(icc) => ColorProfile::new_from_slice(&icc)
@@ -345,6 +353,8 @@ pub fn colour_source(path: &Path) -> String {
             None => tr("unnamed").to_owned(),
         }
     }
+    let c = COLOUR.read().unwrap_or_else(|e| e.into_inner());
+    let input = c.input.as_ref().map_or("sRGB".to_owned(), name_of);
     match own {
         Some(own) if c.own => own,
         Some(own) => crate::tf!("{own}; {input} used instead", own, input),
@@ -713,6 +723,26 @@ mod tests {
         super::to_srgb(image::DynamicImage::new_rgb8(1, 1), Some(&p3));
         super::PARSING.set(None);
         assert!(PARSED.load(Ordering::Relaxed));
+    }
+
+    /// The colour settings are free while the info panel's colour source reads the file, so that
+    /// a stalled share holds up no change in Preferences and no decoding thread.
+    #[test]
+    fn reads_the_colour_source_with_the_settings_free() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static READ: AtomicBool = AtomicBool::new(false);
+        fn check() {
+            assert!(
+                soon(|| super::COLOUR.try_write().is_ok()),
+                "the settings are locked"
+            );
+            READ.store(true, Ordering::Relaxed);
+        }
+        let _held = super::COLOUR_TEST.lock().unwrap_or_else(|e| e.into_inner());
+        super::READING.set(Some(check));
+        super::colour_source(std::path::Path::new("/nonexistent/glimt.jpg"));
+        super::READING.set(None);
+        assert!(READ.load(Ordering::Relaxed));
     }
 
     /// Images for the screen wait for colord at start until the deadline, and not at all after.
