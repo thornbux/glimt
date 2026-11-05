@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Every sidecar is read through xmp::own_sidecar, which skips a link.
 - The user's own keys and the animation limit have one setter each, and a source test keeps every
   process-wide copy of a setting written only by its setter.
 - Actions that need a file are refused once, at the top of App::run, and a test runs every action in

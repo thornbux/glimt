@@ -377,7 +377,7 @@ fn update(
     }
     // A sidecar that is there but cannot be read (no permission, not UTF-8) is not written
     // over, because it may hold another program's edits.
-    let old = match crate::files::file_io::read_or_none(&side) {
+    let old = match own_sidecar(path) {
         Err(e) => return Err(format!("{}: {e}", side.display())),
         Ok(Some(bytes)) => {
             String::from_utf8(bytes).map_err(|e| format!("{}: {e}", side.display()))?
