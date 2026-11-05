@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Niets om ongedaan te maken"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "een ander bestand heeft zijn plaats ingenomen"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Ongedaan maken mislukt ({count}): {first}"
 

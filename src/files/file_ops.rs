@@ -81,11 +81,18 @@ pub(crate) struct Deleted {
     pub(crate) folder_made: Option<PathBuf>,
 }
 
+/// A file's (device, inode), which stays the same through a rename on one disk.
+pub(crate) type FileId = (u64, u64);
+
+/// A file moved, `(from, to, id)`, as Undo moves it back. The id is the file's at `to`.
+pub(crate) type Moved = (PathBuf, PathBuf, Option<FileId>);
+
 /// What Edit → Undo puts back. It is the last files or folder moved to the trash, the last
-/// files moved `(from, to)`, or the last files renamed (old names, new names).
+/// files moved `(from, to, id)`, or the last files renamed (old names, new names). The id is
+/// the moved file's (device, inode), so an Undo leaves alone a file put at `to` after the move.
 pub(crate) enum Undo {
     Trash(Thrown),
-    Move(Vec<(PathBuf, PathBuf)>),
+    Move(Vec<Moved>),
     Rename(Vec<PathBuf>, Vec<PathBuf>),
 }
 
@@ -863,7 +870,8 @@ impl crate::App {
             // joined it, or that failed to go or were not reached after Stop. A copy to another
             // folder does not change the list.
             let relist = (listed || !keep) && (listed || !errors.is_empty() || job.stopped());
-            let undo = (!keep && !put.is_empty()).then(|| Undo::Move(put.clone()));
+            let undo =
+                (!keep && !put.is_empty()).then(|| Undo::Move(put.iter().map(moved).collect()));
             let _ = deleted_tx.send(Deleted {
                 paths: if keep { Vec::new() } else { paths },
                 gone,
@@ -1184,7 +1192,7 @@ impl crate::App {
         // sends back.
         let touches: Vec<PathBuf> = match &self.work.undo {
             Some(Undo::Move(pairs)) => (pairs.iter())
-                .flat_map(|(from, to)| [from.clone(), to.clone()])
+                .flat_map(|(from, to, _)| [from.clone(), to.clone()])
                 .collect(),
             Some(Undo::Trash(thrown)) => thrown.files.clone(),
             Some(Undo::Rename(from, to)) => from.iter().chain(to).cloned().collect(),
@@ -1206,23 +1214,7 @@ impl crate::App {
                 }
             }
             Undo::Move(pairs) => drop(self.background(ctx, touches, move || {
-                let (mut errors, mut back) = (Vec::new(), Vec::new());
-                for (from, to) in pairs {
-                    let _held = xmp::held(&to);
-                    let result = match taken(&from, &HashSet::new()) {
-                        Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
-                        None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
-                    };
-                    match result {
-                        Ok(()) => {
-                            if let Err(e) = xmp::follow(&to, &from, false) {
-                                errors.push(format!("{}: {e}", xmp::sidecar(&from).display()));
-                            }
-                            back.push((to, from));
-                        }
-                        Err((at, e)) => errors.push(format!("{}: {e}", at.display())),
-                    }
-                }
+                let (back, errors) = move_back(pairs);
                 let files = count(back.len(), "file");
                 let _ = deleted_tx.send(Deleted {
                     moved: back,
@@ -1725,6 +1717,47 @@ pub(crate) fn rename_files(from: Vec<PathBuf>, to: Vec<PathBuf>, job: &Job) -> R
     Ok(())
 }
 
+/// Moves the files of an Undo of a move back to where they came from, each with its sidecar.
+/// A file whose place another file has taken since the move is left where it is. Returns the
+/// pairs moved back, `(now, before)`, and the errors to tell.
+fn move_back(pairs: Vec<Moved>) -> (Vec<(PathBuf, PathBuf)>, Vec<String>) {
+    let (mut errors, mut back) = (Vec::new(), Vec::new());
+    for (from, to, id) in pairs {
+        let _held = xmp::held(&to);
+        // Another program may have put another file at `to` since the move.
+        if file_id(&to) != id {
+            let other = tr("another file has taken its place");
+            errors.push(format!("{}: {other}", to.display()));
+            continue;
+        }
+        let result = match taken(&from, &HashSet::new()) {
+            Some(at) => Err((at, std::io::ErrorKind::AlreadyExists.into())),
+            None => put_file(&to, &from, false).map_err(|e| (from.clone(), e)),
+        };
+        match result {
+            Ok(()) => {
+                if let Err(e) = xmp::follow(&to, &from, false) {
+                    errors.push(format!("{}: {e}", xmp::sidecar(&from).display()));
+                }
+                back.push((to, from));
+            }
+            Err((at, e)) => errors.push(format!("{}: {e}", at.display())),
+        }
+    }
+    (back, errors)
+}
+
+/// Returns a file just moved from `from` to `to` with its id, for Undo.
+fn moved((from, to): &(PathBuf, PathBuf)) -> Moved {
+    (from.clone(), to.clone(), file_id(to))
+}
+
+/// Returns the (device, inode) of the file or link at `path`, or `None` when nothing is there.
+fn file_id(path: &Path) -> Option<FileId> {
+    use std::os::unix::fs::MetadataExt;
+    (std::fs::symlink_metadata(path).ok()).map(|m| (m.dev(), m.ino()))
+}
+
 /// Checks that every name in the way of a rename is one of the files being renamed, under a
 /// name that differs only in case. On a file system that ignores case (FAT and exFAT on a camera
 /// card), IMG.JPG is also found as img.jpg. Such a name is freed by the step through hidden
@@ -1735,12 +1768,7 @@ fn ours_but_case(
     from: &[PathBuf],
     in_the_way: impl Iterator<Item = PathBuf>,
 ) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
-    let id = |p: &Path| {
-        std::fs::symlink_metadata(p)
-            .map(|m| (m.dev(), m.ino()))
-            .ok()
-    };
+    let id = file_id;
     let folded = |p: &Path| p.to_string_lossy().to_lowercase();
     // It is built once, so a rename of 20,000 files on a card does not compare every pair.
     let ours: HashSet<(String, (u64, u64))> = from
@@ -1938,7 +1966,11 @@ mod tests {
         app.delete_now(&ctx, false, vec![0]);
         assert!(a.exists() && app.notice.is_some());
         assert_eq!(app.list.files().len(), 2);
-        app.work.undo = Some(super::Undo::Move(vec![(a.clone(), dir.join("c.png"))]));
+        app.work.undo = Some(super::Undo::Move(vec![(
+            a.clone(),
+            dir.join("c.png"),
+            None,
+        )]));
         app.undo(&ctx);
         assert!(app.work.undo.is_some());
         // Once that work is over, the delete goes ahead.
@@ -2297,6 +2329,32 @@ mod tests {
         app.open(&ctx, empty.clone());
         app.undo(&ctx);
         assert!(settle(&mut app, &ctx, |a| !a.working()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Undo of a move leaves alone a file that another program put in the moved file's place
+    /// meanwhile, and still moves back the others.
+    #[test]
+    fn undo_of_a_move_leaves_a_file_put_in_its_place() {
+        let dir =
+            std::env::temp_dir().join(format!("glimt-test-undo-swapped-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for n in ["a.png", "b.png"] {
+            image::RgbImage::new(2, 2).save(dir.join(n)).unwrap();
+        }
+        let (mut app, ctx) = app_on(&dir);
+        let (a, b) = (dir.join("a.png"), dir.join("b.png"));
+        app.transfer(&ctx, vec![a.clone(), b.clone()], dir.join("sub"), false);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        // A file manager replaces sub/a.png with another file, written beside it first.
+        let moved = dir.join("sub/a.png");
+        std::fs::write(dir.join("sub/new"), b"another").unwrap();
+        std::fs::rename(dir.join("sub/new"), &moved).unwrap();
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
+        assert!(!a.exists(), "the other file was moved back as a.png");
+        assert_eq!(std::fs::read(&moved).unwrap(), b"another");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

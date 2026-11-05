@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Ekkert að afturkalla"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "önnur skrá hefur tekið sæti hennar"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Afturköllun mistókst ({count}): {first}"
 

@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Intet at fortryde"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "en anden fil har taget dens plads"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Fortryd mislykkedes ({count}): {first}"
 

@@ -2154,6 +2154,10 @@ msgid "Nothing to undo"
 msgstr "Ei mitään kumottavaa"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "toinen tiedosto on vienyt sen paikan"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Kumoaminen epäonnistui ({count}): {first}"
 

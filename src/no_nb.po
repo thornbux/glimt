@@ -693,6 +693,10 @@ msgid "Nothing to undo"
 msgstr "Ingenting å angre"
 
 #: src/files/file_ops.rs
+msgid "another file has taken its place"
+msgstr "en annen fil har tatt plassen"
+
+#: src/files/file_ops.rs
 msgid "Undo failed ({count}): {first}"
 msgstr "Angring mislyktes ({count}): {first}"
 
