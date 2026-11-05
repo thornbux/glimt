@@ -660,6 +660,15 @@ fn named(mut sh: std::process::Command, ids: &[&str]) -> Vec<(String, PathBuf)> 
         .collect()
 }
 
+/// Returns how the program `name` that failed with `out` is told: by what it printed on its
+/// errors, or by its exit status when it printed nothing, so the notice is never empty.
+pub(crate) fn failure(name: &str, out: &std::process::Output) -> String {
+    match String::from_utf8_lossy(&out.stderr).trim() {
+        "" => format!("{name}: {}", out.status),
+        err => err.to_owned(),
+    }
+}
+
 /// Open `url` in the default browser, in the background.
 pub fn open_url(url: &str) {
     let url = url.to_owned();
@@ -841,6 +850,24 @@ fn host_data_dirs(home: &str) -> [String; 2] {
 
 #[cfg(test)]
 mod tests {
+    /// A program that fails is told by what it printed on its errors, or by its exit status
+    /// when it printed nothing.
+    #[test]
+    fn a_failed_program_is_told() {
+        let run = |script: &str| {
+            #[allow(clippy::disallowed_methods)] // a test's own short script
+            super::command("sh").args(["-c", script]).output().unwrap()
+        };
+        assert_eq!(
+            super::failure("sh", &run("echo fine; echo oops >&2; exit 1")),
+            "oops"
+        );
+        assert_eq!(
+            super::failure("silent", &run("exit 3")),
+            "silent: exit status: 3"
+        );
+    }
+
     /// In a Flatpak, a host program goes through flatpak-spawn, and without the permission it
     /// fails saying how to give it. Outside a Flatpak it is just the program.
     #[test]

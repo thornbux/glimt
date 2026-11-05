@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A video player or Open With program that fails without printing why now shows its exit status,
+  where it showed an empty notice.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
