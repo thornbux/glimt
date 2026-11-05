@@ -156,6 +156,14 @@ impl Dups {
         }
     }
 
+    /// Stops the search and leaves it at once. A file being read on a stalled share holds its
+    /// thread, which then finishes on its own, and nobody waits for its answer.
+    fn stop(&mut self) {
+        self.progress.cancel.store(true, Ordering::Relaxed);
+        self.groups_rx = Receiving::none();
+        self.searched = 0;
+    }
+
     /// Take out files that are gone; groups of one are no groups.
     pub(crate) fn remove(&mut self, gone: &HashSet<&Path>) {
         for g in &mut self.groups {
@@ -215,7 +223,7 @@ impl crate::App {
                         });
                     if dups.groups_rx.is_some() {
                         if crate::ui::menus::button(ui, tr("Stop")).clicked() {
-                            dups.progress.cancel.store(true, Ordering::Relaxed);
+                            dups.stop();
                         }
                     } else {
                         let on = self.list.files().len() > 1;
@@ -330,7 +338,7 @@ pub fn find(
             // Only files of the same size can be the same; most are never read.
             let sizes = parallel(&paths, p, size);
             let candidates: Vec<PathBuf> = groups(paths, sizes).into_iter().flatten().collect();
-            let sums = parallel(&candidates, p, checksum);
+            let sums = parallel(&candidates, p, |path| checksum(path, p));
             // The hash only finds them: the files of a group are compared byte by byte, as two
             // that differ could share a 64-bit hash, and these are offered for the trash.
             // A second reading of each file: counted in the progress, and stopped by Cancel.
@@ -431,7 +439,7 @@ fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
             break;
         }
         p.done.fetch_add(1, Ordering::Relaxed);
-        match alike.iter_mut().find(|a| same_bytes(&a[0], &path)) {
+        match alike.iter_mut().find(|a| same_bytes(&a[0], &path, p)) {
             Some(a) => a.push(path),
             None => alike.push(vec![path]),
         }
@@ -440,8 +448,9 @@ fn same_contents(group: Vec<PathBuf>, p: &Progress) -> Vec<Vec<PathBuf>> {
     alike
 }
 
-/// Whether files `a` and `b` hold the same bytes; not when one cannot be read.
-fn same_bytes(a: &Path, b: &Path) -> bool {
+/// Whether files `a` and `b` hold the same bytes; not when one cannot be read. The answer is
+/// false once `p` is cancelled, which is looked at between the reads of a large file.
+fn same_bytes(a: &Path, b: &Path, p: &Progress) -> bool {
     let (Ok(mut a), Ok(mut b)) = (
         crate::images::decode::open(a),
         crate::images::decode::open(b),
@@ -450,6 +459,9 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
     };
     let (mut x, mut y) = (vec![0; 1 << 16], vec![0; 1 << 16]);
     loop {
+        if p.cancel.load(Ordering::Relaxed) {
+            return false;
+        }
         let Ok(n) = a.read(&mut x) else { return false };
         // A read may return less than asked: as much of `b` as `a` gave.
         if b.read_exact(&mut y[..n]).is_err() || x[..n] != y[..n] {
@@ -462,12 +474,16 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// A 64-bit hash of the whole file.
-fn checksum(path: &Path) -> Option<u64> {
+/// A 64-bit hash of the whole file. Returns `None` once `p` is cancelled, which is looked at
+/// between the reads of a large file.
+fn checksum(path: &Path, p: &Progress) -> Option<u64> {
     let mut file = crate::images::decode::open(path).ok()?;
     let mut hasher = std::hash::DefaultHasher::new();
     let mut buf = vec![0; 1 << 16];
     loop {
+        if p.cancel.load(Ordering::Relaxed) {
+            return None;
+        }
         match file.read(&mut buf).ok()? {
             0 => return Some(hasher.finish()),
             n => hasher.write(&buf[..n]),
@@ -673,6 +689,30 @@ mod tests {
         let groups = super::same_contents(files.clone(), &super::Progress::default());
         assert_eq!(groups, [files[..2].to_vec()]);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Stop leaves a file being read, and the search, at once: the reads look at Cancel, and
+    /// the window no longer waits for the thread's answer.
+    #[test]
+    fn stop_leaves_at_once() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-stop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a");
+        std::fs::write(&file, vec![7u8; 100_000]).unwrap();
+        let p = super::Progress::default();
+        assert!(super::checksum(&file, &p).is_some());
+        assert!(super::same_bytes(&file, &file, &p));
+        p.cancel.store(true, Ordering::Relaxed);
+        assert!(super::checksum(&file, &p).is_none());
+        assert!(!super::same_bytes(&file, &file, &p));
+        std::fs::remove_dir_all(dir).unwrap();
+        let mut dups = Dups::new();
+        let (_tx, rx) = std::sync::mpsc::channel();
+        dups.groups_rx = Receiving::of(rx);
+        dups.searched = 5;
+        dups.stop();
+        assert!(dups.progress.cancel.load(Ordering::Relaxed));
+        assert!(!dups.groups_rx.is_some() && dups.searched == 0);
     }
 
     use super::*;
