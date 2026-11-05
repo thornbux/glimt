@@ -200,7 +200,7 @@ jobs:
         run: |
           TAG="$TAG_GIVEN"
           flatpak-builder --install-deps-from=flathub --disable-rofiles-fuse --force-clean --repo=repo \
-              build flatpak/io.github.thornbux.Glimt.yml
+              build-flatpak flatpak/io.github.thornbux.Glimt.yml
           flatpak build-bundle repo "glimt-${TAG#v}-x86_64.flatpak" io.github.thornbux.Glimt \
               --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

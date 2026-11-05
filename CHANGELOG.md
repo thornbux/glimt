@@ -63,6 +63,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   each show in their own section that the keys reach the window.
 - The release tests' summary counted no failure of cargo audit, so an audit failing alone ended in
   "0 checks failed".
+- The release workflow built the Flatpak in a folder inside the source the manifest copies.
 
 ## [0.57.0] - 2026-11-05
 
