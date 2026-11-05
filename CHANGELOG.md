@@ -47,6 +47,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   script opened another one while the dialog was open.
 - A window opened just as another one finished a Rename Many no longer offers to put right renames
   that were already done.
+- Printing a contact sheet of slow images (videos, HEIC, RAWs on a share) to a printer is no longer
+  cut off as "No answer from the print server".
 
 ## [0.57.0] - 2026-11-05
 

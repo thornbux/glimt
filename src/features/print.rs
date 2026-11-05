@@ -694,18 +694,22 @@ pub fn pdf(
     let ([cols, rows], mut images) = (grid(layout.per_page), images.into_iter());
     let (mut kids, mut next) = (Vec::new(), 4);
     loop {
-        let on_page: Vec<_> = images.by_ref().take(cols * rows).collect();
+        let (page, contents) = (next, next + 1);
+        // Each image is written as soon as it is decoded, after the page's two numbers: a
+        // printer's watchdog then sees progress while a sheet of videos or RAWs decodes, and
+        // only one decoded image is held at a time. Only the page needs all their sizes.
+        let mut on_page: Vec<([u32; 2], Option<String>)> = Vec::new();
+        for (img, caption) in images.by_ref().take(cols * rows) {
+            on_page.push(([img.width(), img.height()], caption));
+            pdf.object(contents + on_page.len(), &image_object(img))?;
+        }
         if on_page.is_empty() {
             break;
         }
-        let sizes: Vec<[u32; 2]> = on_page
-            .iter()
-            .map(|i| [i.0.width(), i.0.height()])
-            .collect();
+        let sizes: Vec<[u32; 2]> = on_page.iter().map(|i| i.0).collect();
         let captions = on_page.iter().any(|i| i.1.is_some());
         let placed = place(layout, &sizes, captions);
         let [pw, ph] = placed.size;
-        let (page, contents) = (next, next + 1);
         next += 2;
         let (mut draw, mut names) = (Vec::new(), Vec::new());
         for (k, (cell, (_, caption))) in placed.cells.iter().zip(&on_page).enumerate() {
@@ -745,10 +749,7 @@ pub fn pdf(
         stream.extend(draw.as_bytes());
         stream.extend(b"\nendstream");
         pdf.object(contents, &stream)?;
-        for (img, _) in on_page {
-            pdf.object(next, &image_object(img))?;
-            next += 1;
-        }
+        next += on_page.len();
     }
     let tree = format!(
         "<< /Type /Pages /Kids [{}] /Count {} >>",
@@ -1386,5 +1387,30 @@ mod tests {
             };
             assert!(pdf[at..].starts_with(format!("{} 0 obj", i + 1).as_bytes()));
         }
+    }
+
+    /// Each image of a sheet is written before the next one is decoded, so a printer's
+    /// watchdog sees progress while a page of slow images decodes.
+    #[test]
+    fn writes_each_image_as_it_comes() {
+        struct Counted<'a>(&'a std::cell::Cell<usize>);
+        impl std::io::Write for Counted<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.set(self.0.get() + bytes.len());
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let (written, seen) = (std::cell::Cell::new(0), std::cell::RefCell::new(Vec::new()));
+        let images = (0..2).map(|_| {
+            seen.borrow_mut().push(written.get());
+            (image::RgbImage::new(60, 40).into(), None)
+        });
+        let layout = super::Layout::new(super::PAPERS[0].1, 4);
+        super::pdf(images, &layout, 1, Counted(&written)).unwrap();
+        let seen = seen.into_inner();
+        assert!(seen[1] > seen[0]);
     }
 }
