@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A delete, move or rename of files a plugin is still working on waits until the plugin ends,
+  as for every other file operation.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

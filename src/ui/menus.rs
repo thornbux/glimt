@@ -514,10 +514,11 @@ impl crate::App {
                 return;
             };
             let files: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
-            // A turned image still being saved would be written over the plugin's edit.
-            if !self.none_saving(&files) {
+            // A turned image still being saved would be written over the plugin's edit. The
+            // files are held while the plugin runs, so a delete, move or rename of them waits.
+            let Some(hold) = self.hold(files.clone()) else {
                 return;
-            }
+            };
             let plugin = self.plugins[k].clone();
             let (dir, running) = (
                 self.folder.dir().to_path_buf(),
@@ -529,6 +530,7 @@ impl crate::App {
             // and no busy pointer meanwhile, as for Open With.
             std::thread::spawn(move || {
                 let result = plugin.run(&files, &dir, &running);
+                drop(hold);
                 let _ = deleted.send(Deleted {
                     relist: true,
                     changed: files,
