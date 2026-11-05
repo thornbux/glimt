@@ -7,9 +7,10 @@ on:
     branches: ["**"]
   pull_request:
 
-# A new push to a branch makes its earlier run moot.
+# A new push to a branch makes its earlier run moot. A push and its pull request share the group
+# by the branch's name, so the branch is not checked twice at once.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 # Reads the code only; actions from others are pinned to a commit, as in release.yml.
