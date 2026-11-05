@@ -231,6 +231,11 @@ keys_arrive() {
 # Glimt's processor time over three seconds, in ticks of 1/100 s: near 0 when it waits.
 cpu() { awk '{print $14 + $15}' /proc/$GPID/stat; }
 busy() { local a=$(cpu); sleep 3; echo $(($(cpu) - a)); }
+# A part of the shown image chosen for Crop (Shift+C): a drag from 800,200 to 1200,600.
+crop_part() {
+    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
+    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+}
 
 cd /tmp
 
@@ -2077,15 +2082,19 @@ for v in new old; do
     as_version $v
     d=/tmp/kiosk-keys-$v
     mkdir -p $d
-    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
     config delay=5
     start --kiosk $d
     sleep 2
+    # The control: End, which a kiosk allows, reaches it. A settings file the keys never
+    # reached would also be as it was.
+    key End; arrived=$(remote current 2>/dev/null | tr -d '\0')
     key ctrl+equal; key r; key i; sleep 1    # faster, random order, overlay
     timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
     got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
-    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    if [ $v = new ]; then expect "a key reaches the kiosk (the control)" "$arrived" $d/c.png
+        expect "the delay as it was" "$got" 1
     else note "old: $(grep -E '^(delay|random|overlay)=' $XDG_CONFIG_HOME/glimt/config | tr '\n' ' ')"; fi
 done
 as_version new
@@ -2445,18 +2454,22 @@ for v in new old; do
     as_version $v
     d=/tmp/lock-new-window-$v
     mkdir -p $d
-    for f in a b; do convert -size 64x64 xc:red $d/$f.png; done
+    for f in a b c; do convert -size 64x64 xc:red $d/$f.png; done
     config delay=5
     start --lock-settings $d
     sleep 2
     key ctrl+n; sleep 3                   # a new window: Faster pressed there
     other=$(xdotool search --name Glimt 2>/dev/null | grep -vx "$WIN" | tail -1)
     [ $v = new ] && expect "a second window opened" "$([ -n "$other" ] && echo yes)" yes
+    # The control: End reaches the new window, whose title then names c.png, not the first one.
+    xdotool windowfocus $other key End 2>/dev/null; sleep 1
+    arrived="$(xdotool getwindowname $WIN 2>/dev/null) | $(xdotool getwindowname $other 2>/dev/null)"
     xdotool windowfocus $other key ctrl+equal 2>/dev/null; sleep 1
     timeout 30 $BIN --remote-all quit >/dev/null 2>&1; sleep 1
     quit
     got=$(grep -c 'delay=5$' $XDG_CONFIG_HOME/glimt/config)
-    if [ $v = new ]; then expect "the delay as it was" "$got" 1
+    if [ $v = new ]; then expect "a key reaches the second window (the control)" "$arrived" "a.png - Glimt | c.png - Glimt"
+        expect "the delay as it was" "$got" 1
     else note "old: $(grep '^delay=' $XDG_CONFIG_HOME/glimt/config)"; fi
 done
 as_version new
@@ -3009,13 +3022,12 @@ for v in new old; do
     start $d
     sleep 2
     # The right half, inside the image (the view fills 1040 wide around x 760).
-    drag() { xdotool mousemove $1 $2 mousedown 1; sleep 0.3; xdotool mousemove $3 $4; sleep 0.3; xdotool mousemove $5 $6; sleep 0.3; xdotool mouseup 1; sleep 0.5; }
     key shift+c; sleep 0.5
-    drag 800 200 1000 400 1200 600
+    crop_part
     key Escape
     [ $v = new ] && after_esc=$(ls $d | tr '\n' ' ')
     key shift+c; sleep 0.5
-    drag 800 200 1000 400 1200 600
+    crop_part
     key Return
     until_file $d/a-cropped.png 5
     [ $v = new ] && { files=$(ls $d | tr '\n' ' '); same=$([ "$(md5sum <$d/a.png)" = "$sum" ] && echo yes); }
@@ -3044,16 +3056,18 @@ for v in new old; do
     start $d/a.png
     sleep 2
     key shift+c; sleep 0.5
-    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
-    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+    crop_part
     shot crop-gone-chosen-$v
     # Another program deletes a.png; the folder is read again, b.png is shown in its place.
     rm $d/a.png
     until_current $d/b.png
     key Return; sleep 2
     files=$(ls $d | tr '\n' ' ')
+    # The control: a crop of b.png chosen now is saved by Enter.
+    key shift+c; sleep 0.5; crop_part; key Return; until_file $d/b-cropped.png 5
     quit
     if [ $v = new ]; then expect "nothing saved for b.png" "$files" "b.png "
+        expect "a crop chosen on b.png saved (the control)" "$(ls $d | grep -c cropped)" 1
     else note "old: $files"; fi
 done
 as_version new
@@ -3068,13 +3082,15 @@ for v in new old; do
     start $d/a.png
     sleep 2
     key shift+c; sleep 0.5
-    xdotool mousemove 800 200 mousedown 1; sleep 0.3; xdotool mousemove 1000 400; sleep 0.3
-    xdotool mousemove 1200 600; sleep 0.3; xdotool mouseup 1; sleep 0.5
+    crop_part
     key alt+x; sleep 1
     key Return; sleep 2
     files=$(ls $d | tr '\n' ' ')
+    # The control: a crop chosen after the change is saved by Enter.
+    key shift+c; sleep 0.5; crop_part; key Return; until_file $d/a-cropped.png 5
     quit
     if [ $v = new ]; then expect "nothing saved after Auto Rotate changed" "$files" "a.png "
+        expect "a crop chosen after it saved (the control)" "$(ls $d | grep -c cropped)" 1
     else note "old: $files"; fi
 done
 as_version new
@@ -3195,14 +3211,19 @@ for v in new old; do
     as_version $v
     rm -rf $d && mkdir -p $d
     echo "not a picture" >$d/a.jpg
+    convert -size 64x64 xc:red $d/b.jpg
     echo "keep" >$d/out.pdf
     config
     start $d/a.jpg
     sleep 2
     answer $d/out.pdf; key ctrl+p; sleep 1; key Return; sleep 4
+    # The control: b.jpg, which can be read, is printed by the same keys.
+    key Right; answer $d/b.pdf; key ctrl+p; sleep 1; key Return
+    until_ok "pdfinfo $d/b.pdf" 30
     quit
     got=$(cat $d/out.pdf | head -c 4)
     if [ $v = new ]; then expect "out.pdf untouched" "$got" "keep"
+        expect "b.jpg printed (the control)" "$(pdfinfo $d/b.pdf 2>/dev/null | awk '/^Pages:/ {print $2}')" 1
     else note "old: $got"; fi
 done
 as_version new
