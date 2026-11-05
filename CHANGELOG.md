@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A source test checks that each name in a row of AGENTS.md's code layout is defined in that row's
+  file, so a function moved to another module takes its name to that module's row.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
