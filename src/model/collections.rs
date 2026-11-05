@@ -3,9 +3,8 @@
 //! collections can be opened too.
 
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::ui::actions::Action;
-use crate::ui::menus::{iconed, menu_item, scroll_menu};
+use crate::ui::menus::{icon_button, iconed, menu_item, scroll_menu};
 use crate::{tf, ui::theme};
 use eframe::egui;
 use std::collections::HashSet;
@@ -154,7 +153,7 @@ impl crate::App {
                     ui.label(tr("No collections yet"));
                 }
                 for (name, file) in all {
-                    if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked() {
+                    if icon_button(ui, theme::icon::STACK, &name).clicked() {
                         open = Some(file);
                     }
                 }
@@ -170,8 +169,7 @@ impl crate::App {
                         ui.label(tr("No collections yet"));
                     }
                     for (name, file) in all {
-                        if noted(&ui.button(iconed(ui, theme::icon::STACK, &name)), &name).clicked()
-                        {
+                        if icon_button(ui, theme::icon::STACK, &name).clicked() {
                             self.add_to_collection(&file);
                         }
                     }

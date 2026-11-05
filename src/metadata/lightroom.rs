@@ -283,10 +283,8 @@ impl crate::App {
                          stars to the marks. Smart collections are left out.",
                     );
                     ui.horizontal(|ui| {
-                        next =
-                            crate::support::test_hooks::noted(&ui.button(tr("Next")), tr("Next"))
-                                .clicked();
-                        if ui.button(tr("Cancel (Esc)")).clicked() {
+                        next = crate::ui::menus::button(ui, tr("Next")).clicked();
+                        if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
                     });
@@ -324,21 +322,19 @@ impl crate::App {
                                 n => tf!("{count} have", count = count(n, "image")),
                             }
                         ));
-                        ui.radio_value(&mut plan.take_lightroom, false, tr("Keep Glimt's stars"));
-                        ui.radio_value(
-                            &mut plan.take_lightroom,
+                        let take = &mut plan.take_lightroom;
+                        crate::ui::menus::radio_choice(ui, take, false, tr("Keep Glimt's stars"));
+                        crate::ui::menus::radio_choice(
+                            ui,
+                            take,
                             true,
                             tr("Take Lightroom's stars"),
                         );
                     }
                     ui.horizontal(|ui| {
-                        go = crate::support::test_hooks::noted(
-                            &ui.button(tr("Import")),
-                            tr("Import"),
-                        )
-                        .clicked();
-                        back = ui.button(tr("Back")).clicked();
-                        if ui.button(tr("Cancel (Esc)")).clicked() {
+                        go = crate::ui::menus::button(ui, tr("Import")).clicked();
+                        back = crate::ui::menus::button(ui, tr("Back")).clicked();
+                        if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                             ui.close();
                         }
                     });

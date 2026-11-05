@@ -140,8 +140,8 @@ impl crate::App {
                 tr("Remove EXIF and GPS (camera, date, place), XMP and the sidecar"),
             );
             ui.horizontal(|ui| {
-                go = noted(&ui.button(tr("Save…")), tr("Save…")).clicked();
-                if ui.button(tr("Cancel (Esc)")).clicked() {
+                go = crate::ui::menus::button(ui, tr("Save…")).clicked();
+                if crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked() {
                     ui.close();
                 }
             });
@@ -225,34 +225,30 @@ fn save_as_fields(ui: &mut egui::Ui, dialog: &mut SaveAs) {
                 .selected_text(&shown)
                 .show_ui(ui, |ui| {
                     let text = tf!("As the original ({format})", format = format_name(original));
-                    ui.selectable_value(&mut c.format, None, text);
+                    crate::ui::menus::choice(ui, &mut c.format, None, &text);
                     for f in [Format::Jpeg, Format::Png, Format::WebP, Format::WebPLossy] {
-                        noted(
-                            &ui.selectable_value(&mut c.format, Some(f), format_name(f)),
-                            format_name(f),
-                        );
+                        crate::ui::menus::choice(ui, &mut c.format, Some(f), format_name(f));
                     }
                 });
             noted(&combo.response, &shown);
             ui.end_row();
             ui.label(tr("Size:"));
             ui.vertical(|ui| {
-                ui.radio_value(&mut c.size, 0, tf!("Original ({w} × {h})", w, h));
+                crate::ui::menus::radio_choice(
+                    ui,
+                    &mut c.size,
+                    0,
+                    &tf!("Original ({w} × {h})", w, h),
+                );
                 ui.horizontal(|ui| {
-                    noted(
-                        &ui.radio_value(&mut c.size, 1, tr("Longest side")),
-                        tr("Longest side"),
-                    );
+                    crate::ui::menus::radio_choice(ui, &mut c.size, 1, tr("Longest side"));
                     let drag = egui::DragValue::new(&mut c.long).range(1..=65535);
                     if ui.add(drag.suffix(" px")).changed() {
                         c.size = 1;
                     }
                 });
                 ui.horizontal(|ui| {
-                    noted(
-                        &ui.radio_value(&mut c.size, 2, tr("Percent")),
-                        tr("Percent"),
-                    );
+                    crate::ui::menus::radio_choice(ui, &mut c.size, 2, tr("Percent"));
                     let drag = egui::DragValue::new(&mut c.percent).range(1..=100);
                     if ui.add(drag.suffix(" %")).changed() {
                         c.size = 2;

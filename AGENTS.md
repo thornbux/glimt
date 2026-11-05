@@ -377,11 +377,13 @@ without a window: `crate::support::test_support::app_on(dir)` makes an `App` on 
 with settings of its own, listed, in milliseconds. A fix there gets such a test, in the tests of
 the module the fix is in, not in main.rs (`source_rules::tests_sit_beside_their_code`).
 
-A fix in the window code that a unit test cannot reach (painting, keys, clicks) gets a check in `tests.sh`: the steps
-with keys, `--remote` and clicks by text (`menu File "Open With"`, through the `test-hooks`
-build's `glimt --remote where LABEL`; a widget the tests need gets a `noted(…)` call), and the
-result read from the files or from a colour in a screenshot. Screen coordinates only where a
-click's place is the point. Run it against the last release as well, to see that it fails there.
+A fix in the window code that a unit test cannot reach (painting, keys, clicks) gets a check in
+`tests.sh`: the steps with keys, `--remote` and clicks by text (`menu File "Open With"`, through
+the `test-hooks` build's `glimt --remote where LABEL`; a button or selectable row is drawn through
+the `menus` helpers, which note it, as clippy refuses egui's own, and another widget the tests need
+gets a `noted(…)` call), and the result read from the files or from a colour in a screenshot.
+Screen coordinates only where a click's place is the point. Run it against the last release as
+well, to see that it fails there.
 
 ## Packages
 

@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Every button, selectable row and radio button is drawn through a menus helper (button,
+  icon_button, button_enabled, small_button, selectable, choice, radio, radio_choice) that names
+  it for the release tests, and clippy refuses egui's own elsewhere, so the folder list's rows,
+  Check Images' broken files and the choices in Preferences, Print and Save As can be clicked by
+  their text too.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

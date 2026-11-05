@@ -121,10 +121,10 @@ impl crate::App {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(tr("Drag over the image to choose the part to keep"));
-                        save = ui
-                            .add_enabled(chosen, egui::Button::new(tr("Save Copy (Enter)")))
-                            .clicked();
-                        cancel = ui.button(tr("Cancel (Esc)")).clicked();
+                        save =
+                            crate::ui::menus::button_enabled(ui, chosen, tr("Save Copy (Enter)"))
+                                .clicked();
+                        cancel = crate::ui::menus::button(ui, tr("Cancel (Esc)")).clicked();
                     });
                 });
             });

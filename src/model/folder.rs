@@ -10,7 +10,6 @@ use crate::model::listing::{
     Types, is_listed, list_folder, list_tree, merge_shuffled, shuffle, sort_files, walk,
 };
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::menus::{iconed, scroll_menu};
@@ -602,12 +601,12 @@ impl crate::App {
                 let mut chosen = None;
                 for path in &self.folder.recent {
                     let text = path.display().to_string();
-                    if noted(&ui.button(&text), &text).clicked() {
+                    if crate::ui::menus::button(ui, &text).clicked() {
                         chosen = Some(path.clone());
                     }
                 }
                 ui.separator();
-                if noted(&ui.button(tr("Clear Recent")), tr("Clear Recent")).clicked() {
+                if crate::ui::menus::button(ui, tr("Clear Recent")).clicked() {
                     self.clear_recent();
                 }
                 // When the path is gone since (deleted, or a stick taken out), a notice says so,

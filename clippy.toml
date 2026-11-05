@@ -1,5 +1,6 @@
-# Glimt's rules for what touches the disk and starts programs, checked by `cargo clippy`. The
-# one place that may do each has `#[allow(clippy::disallowed_methods)]` with its reason.
+# Glimt's rules for what touches the disk and starts programs, and how buttons and selectable
+# rows are drawn, checked by `cargo clippy`. The one place that may do each has
+# `#[allow(clippy::disallowed_methods)]` with its reason.
 disallowed-methods = [
     { path = "std::fs::read", reason = "decode::read_limited: a size cap, and no pipe or device" },
     { path = "std::fs::read_to_string", reason = "decode::read_text: a size cap, and no pipe or device" },
@@ -20,5 +21,13 @@ disallowed-methods = [
     { path = "image::open", reason = "decode::image_reader(path)?.decode(): the image crate's own open lets a pipe or device through" },
     { path = "std::process::Child::wait", reason = "external::output_of or a Watchdog: never wait for good" },
     { path = "std::process::Child::wait_with_output", reason = "external::output_of or a Watchdog: never wait for good" },
+    { path = "egui::Ui::button", reason = "menus::button or icon_button: noted by its text, which the release tests click" },
+    { path = "egui::Ui::small_button", reason = "menus::small_button: noted by its text, which the release tests click" },
+    { path = "egui::Ui::selectable_label", reason = "menus::selectable: noted by its text, which the release tests click" },
+    { path = "egui::Ui::selectable_value", reason = "menus::choice: noted by its text, which the release tests click" },
+    { path = "egui::Ui::radio", reason = "menus::radio: noted by its text, which the release tests click" },
+    { path = "egui::Ui::radio_value", reason = "menus::radio_choice: noted by its text, which the release tests click" },
+    { path = "egui::Button::selectable", reason = "menus::selectable: noted by its text, which the release tests click" },
+    { path = "egui::Button::new", reason = "menus::button_enabled, or a menus helper: noted by its text, which the release tests click" },
     { path = "glimt::files::file_io::file_lock", reason = "file_io::edit_shared: lock, read, change and write a shared file as one" },
 ]

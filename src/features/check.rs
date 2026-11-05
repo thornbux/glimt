@@ -2,7 +2,6 @@
 
 use crate::support::format::{count, thousands};
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::support::threads::{Working, background_threads};
 use crate::{images::decode, tf};
 use eframe::egui;
@@ -58,7 +57,7 @@ impl crate::App {
                          are no image. They are marked in the list too.",
                         count(self.list.files().len(), "image")
                     ));
-                    start = noted(&ui.button(tr("Check")), tr("Check")).clicked();
+                    start = crate::ui::menus::button(ui, tr("Check")).clicked();
                     return;
                 };
                 let (done, working) = (
@@ -74,7 +73,7 @@ impl crate::App {
                             .desired_width(260.0),
                     );
                     if working > 0 {
-                        if ui.button(tr("Stop")).clicked() {
+                        if crate::ui::menus::button(ui, tr("Stop")).clicked() {
                             c.stop.store(true, Ordering::Relaxed);
                         }
                         ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -84,7 +83,8 @@ impl crate::App {
                     (0, 0) => "None broken.".to_owned(),
                     (n, _) => tf!("{n} broken:", n = thousands(n)),
                 });
-                if !c.broken.is_empty() && ui.button(tr("Select Them")).clicked() {
+                if !c.broken.is_empty() && crate::ui::menus::button(ui, tr("Select Them")).clicked()
+                {
                     select = true;
                 }
                 let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
@@ -95,7 +95,7 @@ impl crate::App {
                     |ui, rows| {
                         for (name, why) in &c.broken[rows] {
                             let text = format!("{}: {why}", name.to_string_lossy());
-                            if ui.selectable_label(false, text).clicked() {
+                            if crate::ui::menus::selectable(ui, false, &text).clicked() {
                                 show = Some(name.clone());
                             }
                         }
