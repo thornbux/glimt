@@ -68,6 +68,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   lacked survives_broken; a source test now keeps every such test named so.
 - A source test checks that each name in a row of AGENTS.md's code layout is defined in that row's
   file, so a function moved to another module takes its name to that module's row.
+- Enter in a text field, such as the toolbar's folder path, no longer saves a crop being chosen.
 
 ## [0.57.0] - 2026-11-05
 
