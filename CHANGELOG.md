@@ -118,6 +118,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - CI, the release workflow and the release tests no longer install graphics development packages,
   which the build does not need.
+### Changed
+
+- Moving files to the trash has one function, trash::trash, so no caller can skip the Flatpak's
+  fallback for a file the portal refuses.
 
 ## [0.57.0] - 2026-11-05
 

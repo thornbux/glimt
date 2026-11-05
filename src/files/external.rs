@@ -307,15 +307,6 @@ pub fn run_limited(
     }
 }
 
-/// Moves `paths` to the trash with gio, within two minutes, because a share that stopped
-/// answering left the delete running for good, with no Stop. It makes one call for many files,
-/// so thousands of files do not become thousands of processes.
-pub fn trash<S: AsRef<std::ffi::OsStr>>(paths: &[S]) -> Result<(), String> {
-    let mut gio = stoppable_command("gio");
-    gio.args(["trash", "--"]).args(paths);
-    run_limited(gio, 64 << 10, LIMIT * 4).map(drop)
-}
-
 /// Ends the process group `group` (a negative process ID). It sends TERM first, because in a
 /// Flatpak flatpak-spawn passes it on to the program on the host, which a KILL of the group
 /// cannot reach. Then, unless `ended` says within a second that the group is over, it sends

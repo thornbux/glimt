@@ -149,8 +149,14 @@ fn first_of_each<K: Ord>(
 /// is not writable: GLib hands the portal a descriptor open for writing, though a move needs only
 /// the folder) by hand into the home trash, as gio on the host would.
 pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
-    let refused = crate::files::external::trash(paths);
-    let Err(e) = refused else {
+    // Within two minutes, because a share that stopped answering once left the delete running
+    // for good, with no Stop. One gio for every file, so thousands do not become thousands of
+    // processes.
+    let mut gio = crate::files::external::stoppable_command("gio");
+    gio.args(["trash", "--"]).args(paths);
+    let limit = crate::files::external::LIMIT * 4;
+    let refused = crate::files::external::run_limited(gio, 64 << 10, limit);
+    let Err(e) = refused.map(drop) else {
         return Ok(());
     };
     // The host's trash, also where the host has its own XDG_DATA_HOME.
