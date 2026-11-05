@@ -97,8 +97,10 @@ pub fn decode(
         Some(scaled) => scaled,
         None => {
             // HEIC, AVIF and video frames come from ffmpeg no larger than the box, with their
-            // real size from the probe. The other formats come whole and are shrunk here.
-            let to_box = crate::files::external::ffmpeg_decodes(path).then_some(max);
+            // real size from the probe, and an SVG is drawn at the box's size. The other
+            // formats come whole and are shrunk here.
+            let svg = has_ext(path, crate::model::listing::SVG_EXTS);
+            let to_box = (crate::files::external::ffmpeg_decodes(path) || svg).then_some(max);
             let (img, icc, turn, size) = if page > 0 {
                 (page_of(path, page)?, None, Orientation::NoTransforms, None)
             } else {
@@ -498,7 +500,8 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
     }
     #[cfg(feature = "svg")]
     if has_ext(path, crate::model::listing::SVG_EXTS) {
-        return Ok((svg(path, max)?, None, upright, None));
+        let (img, size) = svg(path, max)?;
+        return Ok((img, None, upright, size));
     }
     #[cfg(feature = "jxl")]
     if has_ext(path, crate::model::listing::JXL_EXTS) {
@@ -784,10 +787,14 @@ fn gunzip(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     }
 }
 
-/// An SVG drawn by resvg at its own size, but at least 2048 pixels on the longer side, so it
-/// stays sharp when fitted to the window. For a thumbnail it is fitted in `max`.
+/// Draws an SVG with resvg, fitted in `max`, or else at its own size but at least 2048 pixels
+/// on the longer side, so that it stays sharp when fitted to the window. Returns the picture,
+/// and with `max` also the size it has without `max`, which the view counts as its own.
 #[cfg(feature = "svg")]
-pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, String> {
+pub fn svg(
+    path: &Path,
+    max: Option<[u32; 2]>,
+) -> Result<(image::DynamicImage, Option<[usize; 2]>), String> {
     use resvg::{tiny_skia, usvg};
     use std::sync::Arc;
     // The system fonts, for text in SVGs, are read once, because it takes tens of milliseconds.
@@ -821,12 +828,16 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
     // The longer side has at most 8192 pixels, because an SVG may claim any size, and the
     // pixmap is 4 bytes per pixel (60000×60000 would be 14 GB).
     let longer = size.width().max(size.height());
+    let own = (2048.0 / longer).max(1.0).min(8192.0 / longer);
+    // It is drawn at the size it is shown, not at 2048 and shrunk, because an SVG of a few
+    // bytes may claim 100000×100000, which would be 256 MB for each image read ahead.
     let scale = match max {
-        // A thumbnail is drawn at its size, not at 2048 and then shrunk.
         Some([w, h]) => (w as f32 / size.width()).min(h as f32 / size.height()),
-        None => (2048.0 / longer).max(1.0),
+        None => own,
     }
     .min(8192.0 / longer);
+    let own_size = |side: f32| (side * own).ceil().max(1.0) as usize;
+    let own_size = max.map(|_| [own_size(size.width()), own_size(size.height())]);
     let (w, h) = (
         (size.width() * scale).ceil() as u32,
         (size.height() * scale).ceil() as u32,
@@ -837,16 +848,19 @@ pub fn svg(path: &Path, max: Option<[u32; 2]>) -> Result<image::DynamicImage, St
         tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
-    // tiny-skia keeps premultiplied alpha, but image wants it straight.
-    let rgba: Vec<u8> = (pixmap.pixels().iter())
-        .flat_map(|p| {
-            let c = p.demultiply();
-            [c.red(), c.green(), c.blue(), c.alpha()]
-        })
-        .collect();
-    image::RgbaImage::from_raw(w.max(1), h.max(1), rgba)
-        .map(image::DynamicImage::from)
-        .ok_or_else(|| "SVG size mismatch".into())
+    // tiny-skia keeps premultiplied alpha, and image wants it straight. It is changed in
+    // place, so the picture is not held twice.
+    let mut rgba = pixmap.take();
+    for p in rgba.as_chunks_mut::<4>().0 {
+        let a = u16::from(p[3]);
+        if a != 0 && a != 255 {
+            for c in &mut p[..3] {
+                *c = ((u16::from(*c) * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+    let img = image::RgbaImage::from_raw(w.max(1), h.max(1), rgba).ok_or("SVG size mismatch")?;
+    Ok((image::DynamicImage::from(img), own_size))
 }
 
 /// Whether Glimt can show `path`, for Check Images. The file is decoded small, as for the list's
@@ -1646,7 +1660,7 @@ mod tests {
         .unwrap();
         assert!(super::svg(&svg, None).is_ok());
         // For a thumbnail, at the thumbnail's size.
-        let thumb = super::svg(&svg, Some([128, 128])).unwrap();
+        let (thumb, _) = super::svg(&svg, Some([128, 128])).unwrap();
         assert_eq!((thumb.width(), thumb.height()), (128, 128));
         // One picture of 4 MB decoded is named again and again, and it is taken until a budget
         // is spent.
@@ -1862,6 +1876,25 @@ mod tests {
             Some(&super::ADOBE_RGB[..])
         );
         assert_eq!(super::icc_profile(&without), None);
+        std::fs::remove_dir_all(dir).unwrap();
+
+    /// An SVG that claims a huge size is drawn at the size it is shown, not at 8192 pixels and
+    /// shrunk, and its own size is still told. Its alpha is straight, so red stays red.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn draws_a_huge_svg_at_the_size_shown() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-svg-huge-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("huge.svg");
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100000\" height=\"50000\">\
+                   <rect width=\"100000\" height=\"50000\" fill=\"red\"/></svg>";
+        std::fs::write(&file, svg).unwrap();
+        let (frames, orig, _) = super::decode(&file, [64, 64], true, 0).unwrap();
+        let [w, h] = frames[0].0.size;
+        assert!(w <= 64 && h <= 33, "{w}×{h}");
+        assert!(orig[0] >= 8192 && orig[1] >= 4096, "{orig:?}");
+        let (img, _) = super::svg(&file, Some([8, 8])).unwrap();
+        assert_eq!(img.to_rgba8().get_pixel(2, 2).0, [255, 0, 0, 255]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

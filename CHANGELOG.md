@@ -93,6 +93,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Open With in the Flatpak no longer hangs on a pipe named in a collection or on the command line.
 - An animated GIF cut short in a download shows the frames that came, not only its first frame as a
   still.
+- An SVG that claims a huge size no longer takes hundreds of megabytes: it is drawn at the size it
+  is shown.
 
 ## [0.57.0] - 2026-11-05
 
