@@ -704,9 +704,16 @@ impl crate::App {
         }
     }
 
+    /// Returns whether Preferences or a modal dialog is open. The keys then go there, not to
+    /// the shortcuts.
     pub(crate) fn dialog_open(&self) -> bool {
-        self.prefs.is_open()
-            || self.dialogs.confirm_delete.is_some()
+        self.prefs.is_open() || self.modal_open()
+    }
+
+    /// Returns whether a modal dialog is open, which takes Esc before anything under it. This
+    /// is the one list of them, and Preferences leaves Esc to it.
+    pub(crate) fn modal_open(&self) -> bool {
+        self.dialogs.confirm_delete.is_some()
             || self.dialogs.confirm_folder
             || self.dialogs.prompt.is_some()
             || self.folder.asks_login()

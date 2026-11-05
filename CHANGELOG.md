@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Esc in a dialog shown over Preferences (a share's login, an interrupted Rename Many, a folder
+  delete) closes only that dialog, not Preferences with it.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
