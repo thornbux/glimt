@@ -121,6 +121,32 @@ impl Drop for Working {
     }
 }
 
+/// The way a background thread tells the user something: the text becomes the notice over the
+/// image. Sending also asks for a frame, because egui draws only when asked, and a notice sent
+/// without one waited in the channel until the mouse moved.
+#[derive(Clone)]
+pub(crate) struct Notices {
+    tx: mpsc::Sender<String>,
+    ctx: eframe::egui::Context,
+}
+
+impl Notices {
+    /// Returns the sending half for the window's `ctx`, and the half the window reads.
+    pub(crate) fn new(ctx: &eframe::egui::Context) -> (Self, mpsc::Receiver<String>) {
+        let (tx, rx) = mpsc::channel();
+        let ctx = ctx.clone();
+        (Notices { tx, ctx }, rx)
+    }
+
+    /// Sends `text` to the window and asks it to draw a frame. Returns an error only when the
+    /// window is gone, as `mpsc::Sender::send` does.
+    pub(crate) fn send(&self, text: String) -> Result<(), mpsc::SendError<String>> {
+        let sent = self.tx.send(text);
+        self.ctx.request_repaint();
+        sent
+    }
+}
+
 #[repr(C)]
 pub(crate) struct Timespec {
     sec: i64,
@@ -213,6 +239,26 @@ pub(crate) fn thread_cpu_us() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    /// A notice sent from a background thread asks the window for a frame, so it shows at
+    /// once, not when the mouse next moves.
+    #[test]
+    fn a_notice_asks_for_a_frame() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let ctx = eframe::egui::Context::default();
+        let asked = Arc::new(AtomicUsize::new(0));
+        let count = asked.clone();
+        ctx.set_request_repaint_callback(move |_| {
+            count.fetch_add(1, Ordering::Relaxed);
+        });
+        let (notices, rx) = super::Notices::new(&ctx);
+        std::thread::spawn(move || notices.send("done".into()).unwrap())
+            .join()
+            .unwrap();
+        assert_eq!(rx.try_recv().as_deref(), Ok("done"));
+        assert!(asked.load(Ordering::Relaxed) > 0);
+    }
+
     /// A part that panics is no shorter list of results, which the callers would zip with the
     /// wrong items, but a panic of the caller.
     #[test]

@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A message from work in the background (a wallpaper set, Open With, the video player, a missing
+  file dialog) shows at once, not only after the mouse moves.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

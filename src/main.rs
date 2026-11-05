@@ -118,7 +118,7 @@ struct App {
     /// The message shown over the image, until the next image.
     notice: Option<String>,
     /// Messages from background tasks (deleting, copying), to become the notice.
-    notices_tx: mpsc::Sender<String>,
+    notices_tx: crate::support::threads::Notices,
     notices_rx: mpsc::Receiver<String>,
 
     // ---- Menus, dialogs and windows ----
@@ -217,7 +217,7 @@ impl App {
         // kiosk listens too, because --remote quit is its way out.
         let listen =
             config.remote_control || crate::features::remote::given_name().is_some() || start.kiosk;
-        let (notices_tx, notices_rx) = mpsc::channel();
+        let (notices_tx, notices_rx) = crate::support::threads::Notices::new(ctx);
         let mut app = App {
             ctx: ctx.clone(),
             desktop: crate::ui::theme::FromDesktop::new(ctx, config.desktop_profile),
