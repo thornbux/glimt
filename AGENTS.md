@@ -42,10 +42,10 @@ test; new ones go at the end of that file.
 English for everything in the repository: UI text, identifiers, comments, commit messages and
 documentation.
 
-The interface ships in eleven languages: English and the translations in `src/*.po` (Danish,
+The interface ships in eleven languages: English and the translations in `po/*.po` (Danish,
 German, Spanish, Finnish, French, Icelandic, Italian, Dutch, Norwegian bokmål, Polish and
 Swedish), listed in `lang::LANGUAGES`. **Every new UI text, `tr("…")` or `tf!("…")`, is
-translated into all of them in the same commit**: `src/no_nb.po` first, then the others.
+translated into all of them in the same commit**: `po/no_nb.po` first, then the others.
 `lang::tests::every_language_has_every_text` fails while one lacks a text of `no_nb.po`, and
 `translations_keep_placeholders` while a translation drops a `{name}`. Keep the key names as the
 menus show them (Ctrl, Shift, Enter, Esc, Delete), `%field%` template names unchanged, and only
@@ -127,6 +127,7 @@ holds only its `mod` lines, and a new module goes into the folder of what it doe
 | `src/support/format.rs` | Text for the user: `human_size`, `size_text`, `thousands`, `count`, `middle_cut`, `local_time` (the trash's date form too), `fill_template` |
 | `src/support/lang.rs` | The interface's languages: the `.po` files, `tr`/`tf!`, each language's plural rule |
 | `src/support/source_rules.rs` | Tests of the source itself: the layout below, kept by a test rather than by memory; `sources()`, every source file and translation |
+| `po/` | The translations, one gettext `.po` file per language, built into the program (`lang::LANGUAGES`) |
 | `themes/` | The built-in themes |
 | `assets/` | Icons, the desktop and AppStream files, the fonts and their licenses |
 | `docs/` | The man page `glimt.1`, and `screenshots/` for README and the website |
@@ -232,7 +233,7 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
   goes into `List` (list.rs), never into `App`: a new list is a new `List`, so such state cannot outlive
   the list it was made for. What should follow a file to the new list is carried over by name
   in `replace_files`.
-- **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `src/*.po`
+- **A UI text:** in `tr("…")` or `tf!("…", name)`, with its translation in every `po/*.po`
   (see Language).
 - **Non-trivial logic** (a parser, a loop with edge cases) gets one small `#[test]` that fails
   if it breaks. Tests must clean up the files they create.

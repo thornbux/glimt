@@ -30,9 +30,9 @@ impl Place {
     }
 }
 
-/// Every source file's path below `src/` and its text: the Rust files and the translations
-/// (`.po`), also those in folders (`files/config.rs`). A file added is checked without being
-/// listed anywhere.
+/// Every source file and its text: the Rust files by their path below `src/`, also those in
+/// folders (`files/config.rs`), and the translations in `po/` as `po/da.po`. A file added is
+/// checked without being listed anywhere.
 pub(crate) fn sources() -> Vec<(String, String)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
@@ -50,9 +50,17 @@ pub(crate) fn sources() -> Vec<(String, String)> {
                 .to_str()
                 .unwrap()
                 .to_owned();
-            if name.ends_with(".rs") || name.ends_with(".po") {
+            if name.ends_with(".rs") {
                 files.push((name, std::fs::read_to_string(&path).unwrap()));
             }
+        }
+    }
+    let po = Path::new(env!("CARGO_MANIFEST_DIR")).join("po");
+    for entry in std::fs::read_dir(po).unwrap() {
+        let path = entry.unwrap().path();
+        let name = format!("po/{}", path.file_name().unwrap().to_str().unwrap());
+        if name.ends_with(".po") {
+            files.push((name, std::fs::read_to_string(&path).unwrap()));
         }
     }
     files.sort();
