@@ -194,8 +194,15 @@ pub fn finish(moves: &[(PathBuf, PathBuf)], done: usize) -> (usize, usize) {
 fn steps<'a>(steps: impl Iterator<Item = (&'a Path, &'a Path)>) -> (usize, usize) {
     let (mut renamed, mut left) = (0, 0);
     for (a, b) in steps {
-        if !a.exists() {
-            continue;
+        // Only a name that is surely not there is passed over. One that cannot be looked at
+        // (a share that answers EIO) may still hold a file, so the plan is kept for it.
+        match std::fs::symlink_metadata(a) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                left += 1;
+                continue;
+            }
+            Ok(_) => {}
         }
         match step(a, b) {
             Ok(()) => renamed += 1,
@@ -697,6 +704,22 @@ mod tests {
     /// The failing path and the recovery share one undo. Two steps of a swap are done and then
     /// undone, last first. One of them put back by hand already is left out, and not counted as
     /// stuck.
+    /// A step whose old name cannot be looked at counts as left, not as gone, so the plan is
+    /// kept. Here the error is "not a folder"; on a share it is EIO.
+    #[test]
+    fn a_name_that_cannot_be_read_is_left() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-eio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("f"), b"").unwrap();
+        let moves = [(dir.join("f/a.jpg"), dir.join("b.jpg"))];
+        assert_eq!(super::finish(&moves, 0), (0, 1));
+        assert_eq!(
+            super::finish(&[(dir.join("gone"), dir.join("b.jpg"))], 0),
+            (0, 0)
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn undoes_the_steps_done() {
         let dir = std::env::temp_dir().join(format!("glimt-test-undo-{}", std::process::id()));
