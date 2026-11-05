@@ -88,6 +88,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Alt+Right in Two Above Each Other (and Alt+Down in Two Side by Side) no longer goes to the other
   pane as the other arrow does.
 - In a build without video, Enter no longer runs Play Video, which did nothing there.
+- A kiosk whose quit is held back no longer lets every other action through.
 
 ## [0.57.0] - 2026-11-05
 
