@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The release workflow built the Flatpak in a folder inside the source the manifest copies.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
