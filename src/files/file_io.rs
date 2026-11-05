@@ -6,7 +6,6 @@
 //! order (`write_later`), and `flush` waits for them before Glimt ends.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A file Glimt could not save, for the window to tell: from any thread.
 static SAVE_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -109,15 +108,10 @@ pub(crate) fn put_file(from: &Path, to: &Path, keep: bool) -> std::io::Result<()
         }
         // Written under a hidden name and given its own when whole: a copy cut short (a full
         // disk, Glimt closed, a stick pulled out) never looks like the file.
-        static COPIES: AtomicUsize = AtomicUsize::new(0);
-        let k = COPIES.fetch_add(1, Ordering::Relaxed);
         // shortcut: a third close (which waits for nothing) or a stick pulled out leaves the
         // part under this hidden name, and nothing removes it later; a sweep of
-        // .glimt-copy-* at the next start if those are ever seen in numbers.
-        let part = to.with_file_name(format!(
-            ".glimt-copy-{}-{k}",
-            crate::files::file_io::own_tag()
-        ));
+        // .glimt-tmp-* at the next start if those are ever seen in numbers.
+        let part = tmp_path(to);
         // Private while written: a private photo copied into a shared folder is not readable
         // there until it gets its own permissions below.
         #[allow(clippy::disallowed_methods)] // a copy's hidden part, made new
@@ -347,16 +341,19 @@ pub fn create_file(path: &Path, bytes: impl AsRef<[u8]>) -> std::io::Result<()> 
     )
 }
 
-/// Where a new version of `path` is written before it is renamed over it: this Glimt's instance
-/// ID, a number of its own, a count and ".glimt-tmp" beside it, so that "a.png" and "a.webp",
-/// saved at the same time, or one file saved by two windows at once, never share one; also not
-/// two Glimts with the same process ID on two computers (a shared home) or in two containers,
-/// where one would remove the other's file. Not the file's own name with more after it: a name
-/// near the 255-byte limit could then not be saved turned, nor its sidecar written.
+/// Returns the name that a new version of `path`, or a copy, is written under before it is
+/// renamed to its own: ".glimt-tmp-", this Glimt's instance ID, a number of its own and a count,
+/// beside `path`. So "a.png" and "a.webp" saved at the same time never share one, nor does one
+/// file saved by two windows at once. Two Glimts with the same process ID on two computers (a
+/// shared home) or in two containers do not share one either, where one would remove the
+/// other's file. It is not the file's own name with more after it, because a name near the
+/// 255-byte limit could then not be saved turned, nor its sidecar written. The name is hidden,
+/// so a file manager does not show one left by a crash. It is the one pattern of every
+/// temporary file Glimt leaves, apart from Rename Many's, which its journal puts right.
 pub fn tmp_path(path: &Path) -> PathBuf {
     static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let k = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!("{}-{k}.glimt-tmp", own_tag()))
+    path.with_file_name(format!(".glimt-tmp-{}-{k}", own_tag()))
 }
 
 /// This Glimt's instance ID and a random number of its own, for the names of its temporary
@@ -670,7 +667,8 @@ mod tests {
         let (a, b) = (super::tmp_path(path), super::tmp_path(path));
         assert_ne!(a, b);
         let name = a.file_name().unwrap().to_str().unwrap();
-        let rest = name
+        let rest = name.strip_prefix(".glimt-tmp-").unwrap();
+        let rest = rest
             .strip_prefix(crate::features::remote::instance_id())
             .unwrap();
         let own = rest.strip_prefix('-').unwrap().split('-').next().unwrap();

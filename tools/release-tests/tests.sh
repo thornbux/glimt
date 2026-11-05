@@ -277,7 +277,7 @@ cd /tmp
 config save_orientation=true
 start $d
 key bracketright; key space; key bracketright; key space
-for i in $(seq 60); do sleep 1; ls $d | grep -q glimt-tmp || break; done
+for i in $(seq 60); do sleep 1; ls -A $d | grep -q glimt-tmp || break; done
 sleep 2
 quit
 for f in a.png a.webp; do
@@ -285,7 +285,7 @@ for f in a.png a.webp; do
         "$(identify -format '%wx%h' $d/$f) $(side $d/$f 2000,10) $(side $d/$f 2000,5990)" \
         "4000x6000 red blue"
 done
-expect "no temporary files left" "$(ls $d | tr '\n' ' ')" "a.png a.webp "
+expect "no temporary files left" "$(ls -A $d | tr '\n' ' ')" "a.png a.webp "
 
 echo "-- a turn saved when another folder opens: to the turned image, not the new folder's"
 for v in new old; do
@@ -857,7 +857,7 @@ for v in new old; do
     for i in $(seq 240); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
     quit
     whole=$(find $d/to -name '*.jpg' -size 24415k | wc -l)
-    parts=$(ls -A $d/to | grep -c glimt-copy)
+    parts=$(ls -A $d/to | grep -c glimt-tmp)
     rm -rf $d    # 6 GB
     if [ $v = new ]; then
         expect "the window waits for the copies" "$waited" waits
@@ -884,7 +884,7 @@ for v in new old; do
     key ctrl+q; key ctrl+q
     for i in $(seq 120); do kill -0 $GPID 2>/dev/null || break; sleep 0.5; done
     quit
-    parts=$(ls -A $d/to | grep -c glimt-copy)
+    parts=$(ls -A $d/to | grep -c glimt-tmp)
     copied=$(ls $d/to | grep -c jpg)
     whole=$(find $d/to -name '*.jpg' -size 24415k | wc -l)
     rm -rf $d    # 6 GB
@@ -3463,12 +3463,12 @@ for v in new old; do
     for i in $(seq 300); do kill -0 $GPID 2>/dev/null || break; sleep 1; done
     kill $GPID 2>/dev/null
     pages=$(pdfinfo $pdf 2>/dev/null | awk '/^Pages/ {print $2}')
-    left=$(ls /tmp | grep -c 'glimt-tmp')
+    left=$(ls -A /tmp | grep -c 'glimt-tmp')
     if [ $v = new ]; then
         expect "the PDF whole, 80 pages" "$pages" "80"
         expect "no temporary file left" "$left" 0
     else note "old: pages '$pages', temporary files $left"; fi
-    rm -f /tmp/*.glimt-tmp $pdf
+    rm -f /tmp/*.glimt-tmp /tmp/.glimt-tmp-* $pdf
 done
 as_version new
 

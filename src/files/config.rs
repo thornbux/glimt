@@ -998,7 +998,7 @@ mod tests {
         assert!(
             !left
                 .into_iter()
-                .any(|e| e.file_name().to_string_lossy().ends_with(".glimt-tmp"))
+                .any(|e| e.file_name().to_string_lossy().starts_with(".glimt-tmp-"))
         );
         // A name near the limit of 255 bytes is written again, and its sidecar too, because the
         // temporary name made from it was too long.

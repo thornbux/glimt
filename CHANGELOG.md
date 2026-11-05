@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Temporary files left by a crash are hidden (.glimt-tmp-*), so a file manager no longer shows them.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
