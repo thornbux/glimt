@@ -22,7 +22,8 @@ pub(crate) fn size_text(bytes: Option<u64>) -> String {
     bytes.map_or(tr("calculating…").to_owned(), human_size)
 }
 
-/// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units).
+/// Size as in the file manager: "850.0 kB", "2.3 MB", "1.2 GB" (decimal units), with the
+/// decimal mark of the language in use.
 pub(crate) fn human_size(bytes: u64) -> String {
     let (value, unit) = match bytes {
         b if b >= 1_000_000_000 => (b as f64 / 1e9, "GB"),
@@ -30,16 +31,22 @@ pub(crate) fn human_size(bytes: u64) -> String {
         b if b >= 1_000 => (b as f64 / 1e3, "kB"),
         b => return format!("{b} B"),
     };
-    format!("{value:.1} {unit}")
+    format!("{value:.1} {unit}").replacen('.', lang::number_marks().1, 1)
 }
 
-/// Integer with comma thousands separators: 300000 → "300,000".
+/// Integer with its thousands grouped as the language in use writes them: 300000 → "300,000"
+/// in English, "300.000" in German.
 pub(crate) fn thousands(n: usize) -> String {
+    grouped(n, lang::number_marks().0)
+}
+
+/// Returns `n` with `separator` between each group of three digits.
+fn grouped(n: usize, separator: &str) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
+            out.push_str(separator);
         }
         out.push(c);
     }
@@ -171,6 +178,7 @@ mod tests {
         assert_eq!(super::thousands(1000), "1,000");
         assert_eq!(super::thousands(300000), "300,000");
         assert_eq!(super::thousands(1234567), "1,234,567");
+        assert_eq!(super::grouped(1234567, "."), "1.234.567");
         assert_eq!(super::count(1, "image"), "1 image");
         // One letter is one unit wide here.
         let fits = |n: usize| move |s: &str| s.chars().count() <= n;
