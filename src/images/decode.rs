@@ -645,6 +645,12 @@ pub fn scaled(
     Some((img, icc, [uw as usize, uh as usize]))
 }
 
+/// Makes `mb` megabytes the most an animation's decoded frames may take, from the setting
+/// `animation_mb`, at start and when it changes in Preferences.
+pub fn set_animation_limit(mb: usize) {
+    MAX_ANIMATION.store(mb << 20, Ordering::Relaxed);
+}
+
 /// Decodes the image `dec` reads, after the size limit that `ImageReader` applies. The image
 /// crate's own `from_decoder` allocates whatever the header claims, so a few bytes that claim
 /// a huge image would make Glimt allocate gigabytes, which aborts the process. This is the one

@@ -667,6 +667,56 @@ fn panics_are_caught_in_one_place() {
     );
 }
 
+/// A process-wide copy of a setting is written only by its setter, so no place that changes the
+/// setting can leave the copy behind. A setting saved but not in effect until a restart was
+/// fixed three times for the user's own keys.
+#[test]
+fn copies_of_settings_have_one_writer() {
+    const WRITERS: &[(&str, &[(&str, &str)])] = &[
+        ("OWN_KEYS.write()", &[("ui/actions.rs", "use_own_keys")]),
+        (
+            "MAX_ANIMATION.store(",
+            &[("images/decode.rs", "set_animation_limit")],
+        ),
+        (
+            "VIEW_FILTER.store(",
+            &[
+                ("images/colour.rs", "set_up"),
+                ("ui/menus.rs", "set_view_filter"),
+            ],
+        ),
+        (
+            "COLOR_MANAGEMENT.store(",
+            &[
+                ("images/colour.rs", "set_up"),
+                ("ui/menus.rs", "set_color_management"),
+            ],
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let end = tests_start(&lines);
+        let mut function = String::new();
+        for (i, line) in lines[..end].iter().enumerate() {
+            if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
+                function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+            }
+            for (write, setters) in WRITERS {
+                let at_home = setters.iter().any(|(f, s)| file == *f && function == *s);
+                if line.contains(write) && !at_home {
+                    wrong.push(format!("{file}:{} ({write} outside its setter)", i + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a copy of a setting written by hand:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
 /// and one file for each folder. A folder's file holds its `//!` doc and its `mod` lines and
 /// nothing else. A `pub use` there would let other files import a name through the folder, which

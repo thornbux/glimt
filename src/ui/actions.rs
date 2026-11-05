@@ -1308,6 +1308,15 @@ impl crate::App {
     }
 }
 
+/// Makes the user's own keys in `keys` the ones in effect, at start and after each change in
+/// Preferences. The settings hold them, and `OWN_KEYS` holds the copy the key handling reads.
+/// Every change goes through this function, so the copy cannot fall behind the settings.
+pub(crate) fn use_own_keys(keys: &Keys) {
+    if let Ok(mut own) = OWN_KEYS.write() {
+        own.clone_from(&keys.0);
+    }
+}
+
 /// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
 /// alone, where a key pressed (and an own key read back) has both.
 pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {

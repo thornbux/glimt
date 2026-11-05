@@ -14,10 +14,8 @@ use crate::features::duplicates::Dups;
 use crate::features::print::PrintDialog;
 use crate::files::config::{Config, WindowState, parse_last_dir, state_path};
 use crate::files::file_io::write_atomic;
-use crate::images::decode::MAX_ANIMATION;
 use crate::model::list::List;
 use crate::support::threads::{ONE_ARENA, Receiving, cores, set_cpu_use, thread_cpu_us};
-use crate::ui::actions::OWN_KEYS;
 use crate::viewer::pan::Pan;
 use crate::viewer::view::View;
 use crate::viewer::view::frame_at;
@@ -186,9 +184,7 @@ impl App {
             config.save();
         }
         let screen_error = crate::images::colour::set_up(&config);
-        if let Ok(mut own) = OWN_KEYS.write() {
-            own.clone_from(&config.keys.0);
-        }
+        crate::ui::actions::use_own_keys(&config.keys);
         let path = path
             .or_else(|| {
                 let state = crate::images::decode::read_text(state_path()?).ok()?;
@@ -198,7 +194,7 @@ impl App {
                 })
             })
             .unwrap_or_else(|| ".".into());
-        MAX_ANIMATION.store(config.animation_mb << 20, Ordering::Relaxed);
+        crate::images::decode::set_animation_limit(config.animation_mb);
         set_cpu_use(config.cpu_use);
         crate::ui::theme::fonts(ctx);
         crate::ui::theme::apply(ctx, &crate::ui::theme::load(&config.theme), None, None);
