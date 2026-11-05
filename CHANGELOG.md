@@ -5,6 +5,51 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-11-06
+
+### Fixed
+
+- Undo of a move no longer moves back another image saved over the moved file with Save As or
+  Save This Frame, and still moves back a file whose turn was saved, also through a folder opened
+  by a link.
+- Undo of a move works on FAT, exFAT and FUSE file systems, whose files can get a new inode number
+  between the move and the Undo.
+- Undo from the trash puts a photo back beside its own sidecar when the delete could not trash the
+  sidecar, instead of refusing.
+- A collection whose file is a link is no longer written through: the link is replaced by the
+  collection, and the file it pointed to stays as it was, with none of its text copied in.
+- Save Every Frame always saves into a folder made new for it, never into one another export just
+  made.
+- A copy saved with Save As, Crop or Save This Frame waits while another write holds its sidecar.
+- A sidecar that is swapped for a link at the moment it is read is not read through.
+- Trash by hand in the Flatpak takes a file whose name is 246 bytes or longer.
+- Rename keeps a hard link whose name differs only in case from the file's on ext4, instead of
+  taking it for the same name.
+- A portal request (printing, Open With in the Flatpak) takes its answer only from the portal
+  itself, and one that gets no answer no longer leaves a thread waiting.
+- Find Duplicates: Stop leaves at once, also while a large file is read on a slow share, and
+  Similarity finds every match in a block and finds left-out matches again on all cores.
+- A slow or crafted colour profile no longer holds up the other images being decoded, and the
+  info panel's colour profile row no longer holds up Preferences.
+- A thumbnail of a file changed while its thumbnail was being made shows the new contents,
+  whichever worker answers first.
+- Open With asks again after an empty answer or a failed lookup, instead of showing no
+  applications for that type until Glimt is closed.
+- A collection is opened with one system call per entry instead of two.
+- Clean Thumbnails also removes the failure markers older versions of Glimt left.
+- A rename that a share, cloud folder or phone cannot do is told in plain words.
+
+### Changed
+
+- The translations are in `po/` instead of `src/`.
+- The checks before a commit build with `--profile quick`, and `tools/check.sh` runs them in
+  Docker with mold and sccache: a small change is checked in seconds instead of minutes. CI runs
+  on a push to any branch.
+- Every checkbox is drawn through a helper that names it for the release tests, and clippy refuses
+  egui's own checkbox and the other widgets that would draw an unnamed clickable text.
+- The release tests' search-panel check fails when a screenshot is missing, and the list-width
+  checks first see the image where it must be.
+
 ## [0.59.0] - 2026-11-05
 
 ### Fixed
@@ -2589,7 +2634,8 @@ The first release. Glimt is not 1.0 yet: it is in daily use, but expect rough ed
 - Remote control from the command line: `glimt --remote` and `--remote-all`.
 - Remembers the folder, window size and position.
 
-[Unreleased]: https://github.com/thornbux/glimt/compare/v0.59.0...HEAD
+[Unreleased]: https://github.com/thornbux/glimt/compare/v0.60.0...HEAD
+[0.60.0]: https://github.com/thornbux/glimt/compare/v0.59.0...v0.60.0
 [0.59.0]: https://github.com/thornbux/glimt/compare/v0.58.0...v0.59.0
 [0.58.0]: https://github.com/thornbux/glimt/compare/v0.57.0...v0.58.0
 [0.57.0]: https://github.com/thornbux/glimt/compare/v0.56.0...v0.57.0
