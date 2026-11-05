@@ -45,6 +45,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - New Folder and Rename Collection act on the folder or collection they asked about, also when a
   script opened another one while the dialog was open.
+- A window opened just as another one finished a Rename Many no longer offers to put right renames
+  that were already done.
 
 ## [0.57.0] - 2026-11-05
 
