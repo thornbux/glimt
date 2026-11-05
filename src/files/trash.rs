@@ -208,20 +208,8 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
         crate::images::thumbs::uri_path(path)
     );
     let name = path.file_name().unwrap_or_default();
-    let (stem, ext) = (Path::new(name).file_stem(), Path::new(name).extension());
     for n in 0..10_000 {
-        let mut taken = OsString::new();
-        match n {
-            0 => taken.push(name),
-            n => {
-                taken.push(stem.unwrap_or_default());
-                taken.push(format!(".{n}"));
-                if let Some(ext) = ext {
-                    taken.push(".");
-                    taken.push(ext);
-                }
-            }
-        }
+        let taken = trash_name(name, n);
         let mut trashinfo = taken.clone();
         trashinfo.push(".trashinfo");
         let trashinfo = info.join(trashinfo);
@@ -248,6 +236,36 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
         }
     }
     Err(std::io::ErrorKind::AlreadyExists.into())
+}
+
+/// Returns the name that a file called `name` takes in the trash's files/ folder at try `n`: the
+/// name itself, then name.1.ext, name.2.ext and so on. Its .trashinfo adds ten bytes to it, and
+/// a name may have no more than 255 bytes. So a long name loses the end of its stem, and also its
+/// extension when that is too long to leave any of the stem. The trash spec allows any name here,
+/// because the .trashinfo keeps the file's own path.
+fn trash_name(name: &std::ffi::OsStr, n: u32) -> OsString {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    const MAX: usize = 255 - ".trashinfo".len();
+    if n == 0 && name.len() <= MAX {
+        return name.to_owned();
+    }
+    let path = Path::new(name);
+    let stem = path.file_stem().unwrap_or_default().as_bytes();
+    let mut tail = if n == 0 {
+        Vec::new()
+    } else {
+        format!(".{n}").into_bytes()
+    };
+    if let Some(ext) = path.extension().filter(|e| tail.len() + e.len() + 1 < MAX) {
+        tail.push(b'.');
+        tail.extend(ext.as_bytes());
+    }
+    let mut cut = stem.len().min(MAX - tail.len());
+    // The cut moves back to the start of a character, so that a UTF-8 name stays UTF-8.
+    while cut > 0 && cut < stem.len() && stem[cut] & 0xC0 == 0x80 {
+        cut -= 1;
+    }
+    OsString::from_vec([&stem[..cut], &tail[..]].concat())
 }
 
 /// The trash folders a file at `path` may have gone to, each with the folder its relative paths
@@ -353,6 +371,39 @@ mod tests {
         let want: [(std::path::PathBuf, std::ffi::OsString); 2] =
             [(a, "a.png".into()), (b, "a.1.png".into())];
         assert_eq!(back, want);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A file whose name leaves no room for ".trashinfo" goes into the trash by hand under a
+    /// shorter name, a second of the same name beside it, and Undo finds both where they were.
+    #[test]
+    fn trashes_a_long_name_by_hand() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-longhand-{}", std::process::id()));
+        let (pics, trash) = (dir.join("pics"), dir.join("Trash"));
+        std::fs::create_dir_all(pics.join("sub")).unwrap();
+        let long = format!("{}.jpg", "ø".repeat(124));
+        let (a, b) = (pics.join(&long), pics.join("sub").join(&long));
+        for f in [&a, &b] {
+            std::fs::write(f, "x").unwrap();
+            super::trash_by_hand(f, &trash).unwrap();
+            assert!(!f.exists());
+        }
+        let mut names: Vec<_> = std::fs::read_dir(trash.join("info"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert!(names.iter().all(|n| n.len() <= 255), "{names:?}");
+        assert!(names[0].ends_with(".1.jpg.trashinfo"), "{names:?}");
+        let mut back: Vec<_> = (super::read_trash(&trash, std::path::Path::new("/")).into_iter())
+            .map(|t| t.from)
+            .collect();
+        back.sort();
+        assert_eq!(back, [b, a]);
+        assert_eq!(super::trash_name("a.png".as_ref(), 0), "a.png");
+        let ext = format!("a.{}", "e".repeat(250));
+        assert_eq!(super::trash_name(ext.as_ref(), 1), "a.1");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

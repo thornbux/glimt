@@ -32,22 +32,25 @@ where
     let e = |e: zbus::Error| e.to_string();
     let sender = conn.unique_name().ok_or("no D-Bus name")?;
     let sender = sender.trim_start_matches(':').replace('.', "_");
-    let path = format!("{PATH}/request/{sender}/{token}");
-    let handle = path.clone();
-    let rule = zbus::MatchRule::builder()
-        .msg_type(zbus::message::Type::Signal)
-        .interface("org.freedesktop.portal.Request")
-        .and_then(|r| r.member("Response"))
-        .and_then(|r| r.path(path))
-        .map_err(e)?
-        .build();
+    let handle = format!("{PATH}/request/{sender}/{token}");
+    // The portal's unique name is the sender of its answer to a Ping, which also starts it.
+    let peer = Some("org.freedesktop.DBus.Peer");
+    let pong = conn
+        .call_method(Some(DEST), PATH, peer, "Ping", &())
+        .map_err(e)?;
+    let owner = pong.header().sender().ok_or("no D-Bus name")?.to_string();
+    let rule = response_rule(&owner, &handle).map_err(e)?;
     let mut responses = MessageIterator::for_match_rule(rule, conn, Some(1)).map_err(e)?;
     conn.call_method(Some(DEST), PATH, Some(interface), method, body)
         .map_err(e)?;
-    let Some(message) = within(ANSWER_LIMIT, move || responses.next()) else {
+    let stop = || {
         // The dialog, if one is still open, goes too, so it cannot act after the time is up.
         let request = Some("org.freedesktop.portal.Request");
         let _ = conn.call_method(Some(DEST), handle.as_str(), request, "Close", &());
+        // A closed request sends no Response. Closing the connection ends the wait for one.
+        let _ = conn.clone().close();
+    };
+    let Some(message) = within(ANSWER_LIMIT, move || responses.next(), stop) else {
         return Err("no answer from the portal".into());
     };
     let message = message.ok_or("no answer from the portal")?.map_err(e)?;
@@ -60,15 +63,35 @@ where
     }
 }
 
+/// Returns the match rule for the Response to the request at `path`, sent by `owner`, the
+/// portal's unique name on the bus. The path is easy to guess, so another program on the bus
+/// could send a Response first. zbus checks the sender of a signal only by a unique name.
+fn response_rule<'a>(owner: &'a str, path: &'a str) -> zbus::Result<zbus::MatchRule<'a>> {
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(owner)?
+        .interface("org.freedesktop.portal.Request")?
+        .member("Response")?
+        .path(path)?;
+    Ok(rule.build())
+}
+
 /// Runs `wait` in a thread of its own. Returns what it gives, or `None` when it takes longer
-/// than `limit`; then the thread is left waiting, as a blocking call cannot be cut short.
+/// than `limit`. Then `stop` is called to end the wait, and the thread is given a second to
+/// end, so that it is not left blocked for good.
 fn within<T: Send + 'static>(
     limit: std::time::Duration,
     wait: impl FnOnce() -> T + Send + 'static,
+    stop: impl FnOnce(),
 ) -> Option<T> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || tx.send(wait()));
-    rx.recv_timeout(limit).ok()
+    let answer = rx.recv_timeout(limit).ok();
+    if answer.is_none() {
+        stop();
+        let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+    }
+    answer
 }
 
 /// A token for a request, new for each.
@@ -210,12 +233,41 @@ pub fn open_with(path: &std::path::Path) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    /// A wait for a portal's answer ends at its limit, also when the answer never comes.
+    /// A Response counts only when the portal itself sent it, not another program on the bus.
+    #[test]
+    fn only_the_portal_answers() {
+        let path = "/org/freedesktop/portal/desktop/request/1_2/glimt1_0";
+        let rule = super::response_rule(":1.5", path).unwrap();
+        let from = |sender: &str| {
+            let signal =
+                zbus::message::Message::signal(path, "org.freedesktop.portal.Request", "Response");
+            signal.unwrap().sender(sender).unwrap().build(&()).unwrap()
+        };
+        assert!(rule.matches(&from(":1.5")).unwrap());
+        assert!(!rule.matches(&from(":1.6")).unwrap());
+    }
+
+    /// A wait for a portal's answer ends at its limit, also when the answer never comes, and
+    /// the thread that waited ends too.
     #[test]
     fn a_wait_for_an_answer_ends() {
-        let (_keep, never) = std::sync::mpsc::channel::<()>();
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (keep, never) = std::sync::mpsc::channel::<()>();
+        let ended = std::sync::Arc::new(AtomicBool::new(false));
+        let waiting = ended.clone();
+        let wait = move || {
+            let answer = never.recv().ok();
+            waiting.store(true, Ordering::SeqCst);
+            answer
+        };
         let limit = std::time::Duration::from_millis(100);
-        assert_eq!(super::within(limit, move || never.recv().ok()), None);
-        assert_eq!(super::within(limit, || 7), Some(7));
+        // The stop sends the answer, while the channel stays open for the whole test.
+        let stop = || keep.send(()).unwrap();
+        assert_eq!(super::within(limit, wait, stop), None);
+        assert!(
+            ended.load(Ordering::SeqCst),
+            "the waiting thread is left blocked"
+        );
+        assert_eq!(super::within(limit, || 7, || ()), Some(7));
     }
 }
