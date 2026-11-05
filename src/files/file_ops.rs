@@ -1436,17 +1436,24 @@ impl crate::App {
             }
             // The name's own bytes, also when they are not UTF-8.
             let named = |more: &str| crate::images::save::stem_and(&path, more);
-            let folder = match only {
-                Some(_) => to.clone(),
+            // The frames go into a folder made new for them. A name that is taken, also by a
+            // folder another export made a moment ago or by a link, is passed over, so two
+            // exports never write into the same folder.
+            let (made, folder) = match only {
+                Some(_) => (Ok(()), to.clone()),
                 None => (1..)
                     .map(|n| match n {
                         1 => to.join(named("-frames")),
                         n => to.join(named(&format!("-frames-{n}"))),
                     })
-                    .find(|p| !p.exists())
-                    .unwrap_or_default(),
+                    .map(|p| (std::fs::create_dir(&p), p))
+                    .find(|(made, _)| {
+                        !(made.as_ref())
+                            .is_err_and(|e| e.kind() == std::io::ErrorKind::AlreadyExists)
+                    })
+                    .expect("the names never run out"),
             };
-            let saved = if only.is_none() && std::fs::create_dir_all(&folder).is_err() {
+            let saved = if made.is_err() {
                 Err(tf!("Could not make {folder}", folder = folder.display()))
             } else {
                 decode::survive(|| {
@@ -1460,13 +1467,15 @@ impl crate::App {
                         };
                         // The frame is written whole or not at all, also over a file the dialog
                         // let it replace. That file's sidecar is not the frame's, so a frame is
-                        // saved without one.
+                        // saved without one. Every frame goes into the new folder, where it never
+                        // replaces a file.
                         let mut png = std::io::Cursor::new(Vec::new());
                         (img.write_to(&mut png, image::ImageFormat::Png))
                             .map_err(|e| e.to_string())
                             .and_then(|_| {
                                 let png = png.into_inner();
-                                crate::images::save::land(&path, &file, &png, true, true)
+                                let replace = only.is_some();
+                                crate::images::save::land(&path, &file, &png, replace, true)
                                     .map_err(|e| e.to_string())
                             })
                             .map_err(|e| format!("{}: {e}", file.display()))
@@ -2245,6 +2254,32 @@ mod tests {
             );
             std::fs::remove_dir_all(d).unwrap();
         }
+    }
+
+    /// Save Every Frame passes over a name that is taken, also by a link that points nowhere,
+    /// and saves the frames into a new folder of their own.
+    #[test]
+    fn every_frame_goes_into_a_new_folder() {
+        let d = contract_folder("every-frame");
+        let gif = d.join("g.gif");
+        let mut enc = image::codecs::gif::GifEncoder::new(std::fs::File::create(&gif).unwrap());
+        for c in [10u8, 200] {
+            let pixel = image::Rgba([c, c, c, 255]);
+            let frame = image::Frame::new(image::RgbaImage::from_pixel(4, 4, pixel));
+            enc.encode_frame(frame).unwrap();
+        }
+        drop(enc);
+        std::os::unix::fs::symlink(d.join("nowhere"), d.join("g-frames")).unwrap();
+        let (mut app, ctx) = app_on(&d);
+        app.export_frames(&ctx, gif, None, d.clone());
+        let saved = |_: &crate::App| {
+            ["g-001.png", "g-002.png"]
+                .iter()
+                .all(|f| d.join("g-frames-2").join(f).exists())
+        };
+        assert!(settle(&mut app, &ctx, saved));
+        assert!(!d.join("nowhere").exists());
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     /// Every operation that starts a job or background work is in the contract above, or says
