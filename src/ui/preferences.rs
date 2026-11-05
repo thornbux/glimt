@@ -8,7 +8,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
 use crate::ui::actions::{Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{radio, radio_choice};
+use crate::ui::menus::{checkbox, radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
 use std::path::Path;
@@ -362,10 +362,7 @@ impl crate::App {
             }
         });
         let follow = tr("High Contrast when the desktop asks for high contrast");
-        if ui
-            .checkbox(&mut self.config.follow_contrast, follow)
-            .changed()
-        {
+        if checkbox(ui, &mut self.config.follow_contrast, follow).changed() {
             changed = true;
             self.apply_theme(ui.ctx());
         }
@@ -381,10 +378,7 @@ impl crate::App {
             }
         });
         let follow = tr("Larger still when the desktop's text is (GNOME's Large Text)");
-        if ui
-            .checkbox(&mut self.config.follow_text_scale, follow)
-            .changed()
-        {
+        if checkbox(ui, &mut self.config.follow_text_scale, follow).changed() {
             changed = true;
             self.apply_theme(ui.ctx());
         }
@@ -406,21 +400,21 @@ impl crate::App {
             self.title(ctx);
         }
         let mut random = self.config.random;
-        if ui.checkbox(&mut random, tr("Random order")).changed() {
+        if checkbox(ui, &mut random, tr("Random order")).changed() {
             self.set_random_order(ctx, random);
         }
-        changed |= ui
-            .checkbox(
-                &mut self.config.slideshow_subfolders,
-                tr("Include the images in subfolders"),
-            )
-            .changed();
-        changed |= ui
-            .checkbox(
-                &mut self.config.slideshow_repeat,
-                tr("Repeat: start again after the last image"),
-            )
-            .changed();
+        changed |= checkbox(
+            ui,
+            &mut self.config.slideshow_subfolders,
+            tr("Include the images in subfolders"),
+        )
+        .changed();
+        changed |= checkbox(
+            ui,
+            &mut self.config.slideshow_repeat,
+            tr("Repeat: start again after the last image"),
+        )
+        .changed();
         ui.horizontal(|ui| {
             ui.label(tr("Fade to the next image:"));
             for (k, (_, label, _)) in FADES.iter().enumerate() {
@@ -437,14 +431,10 @@ impl crate::App {
     pub(crate) fn image_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         let mut rotate = self.config.exif_rotate;
-        if ui
-            .checkbox(&mut rotate, tr("Auto rotate images using EXIF (Alt+X)"))
-            .changed()
-        {
+        if checkbox(ui, &mut rotate, tr("Auto rotate images using EXIF (Alt+X)")).changed() {
             self.set_exif_rotate(rotate);
         }
-        changed |= ui
-            .checkbox(
+        changed |= checkbox(ui,
                 &mut self.config.save_orientation,
                 tr("Save rotation to the file when changing image (JPEG; PNG and WebP are saved again)"),
             )
@@ -456,27 +446,30 @@ impl crate::App {
             .text(tr("quality of a cropped JPEG (Edit → Crop)"));
         changed |= ui.add(quality).changed();
         let c = &mut self.config;
-        changed |= ui
-            .checkbox(&mut c.enlarge, tr("Enlarge small images to fit the window"))
-            .changed();
-        changed |= ui
-            .checkbox(
-                &mut c.keep_zoom,
-                tr("Keep zoom and position when changing image"),
-            )
-            .changed();
-        changed |= ui
-            .checkbox(
-                &mut c.wheel_zoom,
-                tr("Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"),
-            )
-            .changed();
-        changed |= ui
-            .checkbox(
-                &mut c.hide_pointer,
-                tr("Hide the pointer in full screen when the mouse is still"),
-            )
-            .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.enlarge,
+            tr("Enlarge small images to fit the window"),
+        )
+        .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.keep_zoom,
+            tr("Keep zoom and position when changing image"),
+        )
+        .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.wheel_zoom,
+            tr("Mouse wheel zooms (off: next/previous image, Ctrl+wheel zooms)"),
+        )
+        .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.hide_pointer,
+            tr("Hide the pointer in full screen when the mouse is still"),
+        )
+        .changed();
         changed
     }
 
@@ -495,12 +488,12 @@ impl crate::App {
                 changed = true;
             }
         });
-        changed |= ui
-            .checkbox(
-                &mut self.config.checkerboard,
-                tr("Checkerboard behind transparent images"),
-            )
-            .changed();
+        changed |= checkbox(
+            ui,
+            &mut self.config.checkerboard,
+            tr("Checkerboard behind transparent images"),
+        )
+        .changed();
         changed
     }
 
@@ -513,13 +506,9 @@ impl crate::App {
             for (n, name) in [(0, tr("Off")), (1, "RGB"), (2, tr("Brightness"))] {
                 changed |= radio_choice(ui, &mut c.histogram, n, name).changed();
             }
-            changed |= ui
-                .checkbox(&mut c.histogram_log, tr("Logarithmic (J)"))
-                .changed();
+            changed |= checkbox(ui, &mut c.histogram_log, tr("Logarithmic (J)")).changed();
         });
-        changed |= ui
-            .checkbox(&mut c.animate, tr("Play animated GIF and WebP (A)"))
-            .changed();
+        changed |= checkbox(ui, &mut c.animate, tr("Play animated GIF and WebP (A)")).changed();
         changed
     }
 
@@ -549,10 +538,7 @@ impl crate::App {
     pub(crate) fn list_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let mut show = self.config.thumbnails;
-        if ui
-            .checkbox(&mut show, tr("Show thumbnails in the file list (T)"))
-            .changed()
-        {
+        if checkbox(ui, &mut show, tr("Show thumbnails in the file list (T)")).changed() {
             self.set_thumbnails(show);
         }
         ui.horizontal(|ui| {
@@ -565,37 +551,38 @@ impl crate::App {
             }
         });
         let c = &mut self.config;
-        changed |= ui
-            .checkbox(&mut c.icons, tr("Show the file list as icons (Ctrl+I)"))
-            .changed();
-        changed |= ui
-            .checkbox(&mut c.folder_tree, tr("Show folders as a tree (Ctrl+T)"))
-            .changed();
+        changed |= checkbox(ui, &mut c.icons, tr("Show the file list as icons (Ctrl+I)")).changed();
+        changed |= checkbox(
+            ui,
+            &mut c.folder_tree,
+            tr("Show folders as a tree (Ctrl+T)"),
+        )
+        .changed();
         let mut sub = c.show_subfolders;
-        if ui
-            .checkbox(
-                &mut sub,
-                tr("Include the images in subfolders in the file list"),
-            )
-            .changed()
+        if checkbox(
+            ui,
+            &mut sub,
+            tr("Include the images in subfolders in the file list"),
+        )
+        .changed()
         {
             self.set_subfolders(ctx, sub);
         }
         #[cfg(feature = "marks")]
         {
             let c = &mut self.config;
-            changed |= ui
-                .checkbox(
-                    &mut c.show_marks,
-                    tr("Show marks and stars in the file list"),
-                )
-                .changed();
-            changed |= ui
-                .checkbox(
-                    &mut c.xmp_stars,
-                    tr("Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"),
-                )
-                .changed();
+            changed |= checkbox(
+                ui,
+                &mut c.show_marks,
+                tr("Show marks and stars in the file list"),
+            )
+            .changed();
+            changed |= checkbox(
+                ui,
+                &mut c.xmp_stars,
+                tr("Also write stars to XMP sidecars (photo.jpg.xmp), for darktable and digiKam"),
+            )
+            .changed();
         }
         changed
     }
@@ -659,7 +646,7 @@ impl crate::App {
                     changed = true;
                 }
                 let low = tr("One malloc arena: much less memory, decoding up to ~8 % slower");
-                changed |= ui.checkbox(&mut c.low_memory, low).changed();
+                changed |= checkbox(ui, &mut c.low_memory, low).changed();
                 ui.weak(restart);
             });
         changed
@@ -686,15 +673,12 @@ impl crate::App {
     /// the profile of images without one, whether an image's own counts, and the screen profile.
     pub(crate) fn colour_settings(&mut self, ui: &mut egui::Ui) {
         let mut cm = self.config.color_management;
-        if ui.checkbox(&mut cm, tr("Colour management")).changed() {
+        if checkbox(ui, &mut cm, tr("Colour management")).changed() {
             self.set_color_management(cm);
         }
         ui.add_enabled_ui(cm, |ui| {
             let mut own = self.config.own_profile;
-            if ui
-                .checkbox(&mut own, tr("Use the image's own profile"))
-                .changed()
-            {
+            if checkbox(ui, &mut own, tr("Use the image's own profile")).changed() {
                 self.set_own_profile(own);
             }
             ui.label(tr("Images without a profile:"));
@@ -713,8 +697,7 @@ impl crate::App {
                 self.pick(&ui.ctx().clone(), false, Pick::InputProfile);
             }
             let mut desktop = self.config.desktop_profile;
-            if ui
-                .checkbox(&mut desktop, tr("Use the desktop's screen profile"))
+            if checkbox(ui, &mut desktop, tr("Use the desktop's screen profile"))
                 .on_hover_text(tr("From colord, which GNOME and KDE set"))
                 .changed()
             {
@@ -756,18 +739,17 @@ impl crate::App {
     pub(crate) fn cache_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
-        changed |= ui
-            .checkbox(
-                &mut c.file_details,
-                tr("Show file size and date in the file list"),
-            )
-            .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.file_details,
+            tr("Show file size and date in the file list"),
+        )
+        .changed();
         let save = tr("Save new thumbnails to ~/.cache/thumbnails (shared with other programs)");
         let kept = tr(
             "Copies of the pictures in your home folder: those of an encrypted volume or a stick stay readable there",
         );
-        if ui
-            .checkbox(&mut c.save_thumbnails, save)
+        if checkbox(ui, &mut c.save_thumbnails, save)
             .on_hover_text(kept)
             .changed()
         {
@@ -801,16 +783,9 @@ impl crate::App {
     pub(crate) fn bar_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let mut changed = false;
         let c = &mut self.config;
-        changed |= ui
-            .checkbox(&mut c.toolbar, tr("Show the toolbar"))
-            .changed();
-        changed |= ui
-            .checkbox(&mut c.path_bar, tr("Show the folder path"))
-            .changed();
-        if ui
-            .checkbox(&mut c.search_bar, tr("Show the file name search"))
-            .changed()
-        {
+        changed |= checkbox(ui, &mut c.toolbar, tr("Show the toolbar")).changed();
+        changed |= checkbox(ui, &mut c.path_bar, tr("Show the folder path")).changed();
+        if checkbox(ui, &mut c.search_bar, tr("Show the file name search")).changed() {
             changed = true;
             if !c.search_bar {
                 self.search.clear_query();
@@ -832,7 +807,7 @@ impl crate::App {
     /// Preferences → File list: the EXIF panel.
     fn exif_panel_setting(&mut self, ui: &mut egui::Ui) -> bool {
         let exif = tr("Show the EXIF panel (Ctrl+K; reads a little from each image shown)");
-        ui.checkbox(&mut self.config.exif_panel, exif).changed()
+        checkbox(ui, &mut self.config.exif_panel, exif).changed()
     }
 
     /// Preferences → Image: the full screen info and its template.
@@ -840,7 +815,7 @@ impl crate::App {
         let mut changed = false;
         let c = &mut self.config;
         let osd = tr("Show image info in full screen (I)");
-        changed |= ui.checkbox(&mut c.osd, osd).changed();
+        changed |= checkbox(ui, &mut c.osd, osd).changed();
         ui.label(tr("Image info template:"));
         // Kept on one line in the config file, with \n for each new line.
         let mut text = c.osd_template.replace("\\n", "\n");
@@ -869,23 +844,21 @@ impl crate::App {
     pub(crate) fn window_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> bool {
         let (mut changed, mut clear) = (false, false);
         let c = &mut self.config;
-        changed |= ui
-            .checkbox(&mut c.remember_dir, tr("Start in the last used folder"))
-            .changed();
+        changed |= checkbox(ui, &mut c.remember_dir, tr("Start in the last used folder")).changed();
         let recent = tr("Keep a list of recent folders (File → Open Recent)");
-        if ui.checkbox(&mut c.keep_recent, recent).changed() {
+        if checkbox(ui, &mut c.keep_recent, recent).changed() {
             changed = true;
             // Off: the list kept so far goes too, below, once `c` is done with.
             clear = !c.keep_recent;
         }
         let window = tr("Remember the window size and position");
-        changed |= ui.checkbox(&mut c.remember_window, window).changed();
+        changed |= checkbox(ui, &mut c.remember_window, window).changed();
         let remote = tr("Listen for glimt --remote commands (after restart)");
-        changed |= ui.checkbox(&mut c.remote_control, remote).changed();
+        changed |= checkbox(ui, &mut c.remote_control, remote).changed();
         let inhibit = tr("Keep the screen saver off in full screen");
-        changed |= ui.checkbox(&mut c.inhibit_screensaver, inhibit).changed();
+        changed |= checkbox(ui, &mut c.inhibit_screensaver, inhibit).changed();
         let order = tr("Window title \"Glimt - image name\" (off: \"image name - Glimt\")");
-        if ui.checkbox(&mut c.app_name_first, order).changed() {
+        if checkbox(ui, &mut c.app_name_first, order).changed() {
             changed = true;
             self.title(ctx);
         }
@@ -910,8 +883,7 @@ impl crate::App {
     /// Preferences → File list: the folder read again when its files change.
     fn refresh_setting(&mut self, ui: &mut egui::Ui) -> bool {
         let refresh = tr("Refresh the folder when files change");
-        ui.checkbox(&mut self.config.auto_refresh, refresh)
-            .changed()
+        checkbox(ui, &mut self.config.auto_refresh, refresh).changed()
     }
 
     /// Preferences → Keyboard shortcuts: every action with a key, which can be changed (the next
@@ -1001,18 +973,17 @@ impl crate::App {
     pub(crate) fn delete_settings(&mut self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
         let c = &mut self.config;
-        changed |= ui
-            .checkbox(&mut c.confirm_delete, tr("Confirm permanent file delete"))
-            .changed();
-        changed |= ui
-            .checkbox(&mut c.confirm_trash, tr("Confirm move file to Trash"))
-            .changed();
-        changed |= ui
-            .checkbox(&mut c.delete_key, tr("Enable Delete key"))
-            .changed();
+        changed |= checkbox(
+            ui,
+            &mut c.confirm_delete,
+            tr("Confirm permanent file delete"),
+        )
+        .changed();
+        changed |= checkbox(ui, &mut c.confirm_trash, tr("Confirm move file to Trash")).changed();
+        changed |= checkbox(ui, &mut c.delete_key, tr("Enable Delete key")).changed();
         let mut no_trash = !c.trash;
         let none = tr("Use no trash at all (Delete deletes permanently)");
-        if ui.checkbox(&mut no_trash, none).changed() {
+        if checkbox(ui, &mut no_trash, none).changed() {
             c.trash = !no_trash;
             changed = true;
         }
@@ -1025,10 +996,7 @@ impl crate::App {
         let mut changed = false;
         let c = &mut self.config;
         ui.weak(tr("Previews need ffmpeg"));
-        if ui
-            .checkbox(&mut c.videos, tr("Show videos in the file list"))
-            .changed()
-        {
+        if checkbox(ui, &mut c.videos, tr("Show videos in the file list")).changed() {
             changed = true;
             self.list(ctx);
         }

@@ -93,8 +93,7 @@ impl Pan {
             crate::ui::menus::choice(ui, &mut self.calendar, false, tr("Timeline"));
             crate::ui::menus::choice(ui, &mut self.calendar, true, tr("Calendar"));
             ui.separator();
-            let exif = ui.checkbox(&mut self.exif, tr("EXIF date"));
-            if crate::support::test_hooks::noted(&exif, tr("EXIF date")).changed() {
+            if crate::ui::menus::checkbox(ui, &mut self.exif, tr("EXIF date")).changed() {
                 self.days = None;
                 self.days_rx.clear();
                 self.days_stop.store(true, Ordering::Relaxed);

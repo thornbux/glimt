@@ -9,7 +9,6 @@ use crate::metadata::marks;
 use crate::metadata::xmp::Meta;
 use crate::support::format::{count, human_size, thousands};
 use crate::support::lang::tr;
-use crate::support::test_hooks::noted;
 use crate::{files::config, images::decode, metadata::exif, metadata::xmp, tf};
 use eframe::egui;
 use std::collections::HashSet;
@@ -74,7 +73,7 @@ impl KeywordNode {
             };
             let mut box_of = |ui: &mut egui::Ui| {
                 let mut on = xmp::has_tag(have.0, have.1, &path);
-                let response = noted(&ui.checkbox(&mut on, name), name);
+                let response = crate::ui::menus::checkbox(ui, &mut on, name);
                 if response.changed() {
                     *tick = Some((path.clone(), on));
                 }

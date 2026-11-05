@@ -313,7 +313,7 @@ impl crate::App {
                              it has stay",
                             count = count(plan.image_keywords.len(), "image")
                         );
-                        ui.checkbox(&mut self.config.lightroom_keywords, what);
+                        crate::ui::menus::checkbox(ui, &mut self.config.lightroom_keywords, &what);
                     }
                     if plan.differ > 0 {
                         ui.label(tf!(

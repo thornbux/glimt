@@ -119,7 +119,7 @@ impl Dups {
                     let path = &group[f];
                     ui.horizontal(|ui| {
                         let mut on = self.checked.contains(path);
-                        if ui.checkbox(&mut on, "").changed() {
+                        if crate::ui::menus::checkbox(ui, &mut on, "").changed() {
                             match on {
                                 true => self.checked.insert(path.clone()),
                                 false => self.checked.remove(path),

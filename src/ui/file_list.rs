@@ -10,7 +10,7 @@ use crate::support::lang::tr;
 use crate::support::threads::{Receiving, Took};
 use crate::ui::actions::Action;
 use crate::ui::dialogs::Pick;
-use crate::ui::menus::{radio_choice, scroll_menu, selectable};
+use crate::ui::menus::{checkbox, radio_choice, scroll_menu, selectable};
 use crate::ui::workers::spawn_thumbnailers;
 use crate::viewer::view::{broken_mark, pane_map};
 use crate::{files::config, model::collections, tf, ui::theme};
@@ -1056,7 +1056,7 @@ impl crate::App {
         let mut changed = false;
         ui.menu_button(format!("{title} {}", theme::icon::CARET_DOWN), |ui| {
             for (label, on) in all {
-                changed |= ui.checkbox(on, label).changed();
+                changed |= checkbox(ui, on, label).changed();
             }
         });
         if changed {
@@ -1081,12 +1081,8 @@ impl crate::App {
                 }
             }
             ui.separator();
-            changed |= ui
-                .checkbox(&mut self.config.sort_ascending, tr("Ascending"))
-                .changed();
-            changed |= ui
-                .checkbox(&mut self.config.sort_case, tr("Case"))
-                .changed();
+            changed |= checkbox(ui, &mut self.config.sort_ascending, tr("Ascending")).changed();
+            changed |= checkbox(ui, &mut self.config.sort_case, tr("Case")).changed();
         });
         if changed {
             self.config.save();
