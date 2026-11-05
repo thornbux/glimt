@@ -3255,8 +3255,11 @@ for v in new old; do
     sleep 2
     shot columns-$v
     quit
-    # Thumbnail, name and both columns: the list ends past x=465, where the red image was.
-    if [ $v = new ]; then differ "the list has room for the name" "$(colour columns-new 465 400)" red
+    # Thumbnail, name and both columns: the list ends past x=465, where the red image was. The
+    # image itself is shown at x=1200, so not red at 465 is the list, not an empty window.
+    if [ $v = new ]; then
+        expect "the image shown beside the list" "$(colour columns-new 1200 400)" red
+        differ "the list has room for the name" "$(colour columns-new 465 400)" red
     else note "old, at x=465: $(colour columns-old 465 400)"; fi
 done
 
@@ -3280,8 +3283,11 @@ for v in new old; do
     sleep 1
     shot narrow-$v
     quit
-    # A thumbnail is about 100 wide: at x=150 the list is still there, not the red view.
-    if [ $v = new ]; then differ "the list keeps a thumbnail's width" "$(colour narrow-new 150 400)" red
+    # A thumbnail is about 100 wide: at x=150 the list is still there, not the red view. The
+    # list's narrowest is about 190, so red at x=220 shows the drag made it narrower than 240.
+    if [ $v = new ]; then
+        expect "the list dragged narrower" "$(colour narrow-new 220 400)" red
+        differ "the list keeps a thumbnail's width" "$(colour narrow-new 150 400)" red
     else note "old, at x=150: $(colour narrow-old 150 400)"; fi
 done
 
