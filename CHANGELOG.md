@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Choosing a key in Preferences ends when the Keyboard shortcuts header or Preferences is closed.
+  Before, Esc stopped closing Preferences, and a key pressed later in another field became the
+  action's key.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
