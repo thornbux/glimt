@@ -863,8 +863,8 @@ pub fn quarter_turn(o: Orientation) -> bool {
 /// end the worker thread, because that would leave every later image or thumbnail waiting for
 /// ever.
 pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-        .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
+    crate::support::threads::caught(work)
+        .unwrap_or_else(|| Err("the decoder crashed on this file".into()))
 }
 
 /// As `read_limited`, as UTF-8 text.

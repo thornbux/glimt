@@ -428,9 +428,8 @@ fn parallel<T: Send>(
                         }
                         // A file that breaks its reader is left out alone, not the worker's
                         // whole share of the list with it.
-                        let found =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&paths[i])));
-                        out.push((i, found.ok().flatten()));
+                        let found = crate::support::threads::caught(|| f(&paths[i]));
+                        out.push((i, found.flatten()));
                         p.done.fetch_add(1, Ordering::Relaxed);
                     }
                 })

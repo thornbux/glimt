@@ -645,6 +645,28 @@ fn agents_md_lists_every_module() {
     );
 }
 
+/// A panic is caught only by `threads::caught`, the one function whose doc says why. A worker
+/// that caught panics its own way once forgot it, and a broken file ended the thread. Eight
+/// commits added the catch one path at a time.
+#[test]
+fn panics_are_caught_in_one_place() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        let lines = code_lines(&text);
+        let end = tests_start(&lines);
+        for (i, line) in lines[..end].iter().enumerate() {
+            if line.contains("catch_unwind") && !file.ends_with("threads.rs") {
+                wrong.push(format!("{file}:{}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "a panic caught outside threads::caught (use it instead):\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// Every module lives in the folder of what it does, so `src/` itself holds only main.rs, cli.rs
 /// and one file for each folder. A folder's file holds its `//!` doc and its `mod` lines and
 /// nothing else. A `pub use` there would let other files import a name through the folder, which

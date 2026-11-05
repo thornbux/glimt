@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
+  way.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

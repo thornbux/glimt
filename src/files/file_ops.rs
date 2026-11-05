@@ -1357,7 +1357,7 @@ impl crate::App {
         let work: Work = Box::new(move || {
             // A file that makes the writing panic ends this job, not the count or the busy
             // pointer.
-            let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let text = crate::support::threads::caught(|| {
                 let mut failed = 0;
                 for path in &paths {
                     if job.stopped() {
@@ -1367,8 +1367,8 @@ impl crate::App {
                     job.did(1);
                 }
                 report(failed, &job)
-            }))
-            .unwrap_or_else(|_| {
+            })
+            .unwrap_or_else(|| {
                 Some(tr("Writing the sidecars stopped at a file that broke it").into())
             });
             if let Some(text) = text {
