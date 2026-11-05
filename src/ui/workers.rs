@@ -185,10 +185,10 @@ pub(crate) fn spawn_thumbnailers(
     view: &ThumbView,
     save: &Arc<AtomicBool>,
 ) -> (
-    mpsc::Sender<(usize, PathBuf)>,
-    mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+    mpsc::Sender<(usize, PathBuf, u64)>,
+    mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
 ) {
-    let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf)>();
+    let (thumb_jobs, thumb_rx) = mpsc::channel::<(usize, PathBuf, u64)>();
     let (thumbs_tx, thumbs_done) = mpsc::channel();
     let thumb_rx = Arc::new(Mutex::new(thumb_rx));
     // As many as there are cores; CPU use (thumb_threads) says how many take jobs, so it
@@ -209,7 +209,7 @@ pub(crate) fn spawn_thumbnailers(
                     idle = CPU_CHANGED.1.wait(idle).unwrap();
                 }
                 drop(idle);
-                let Ok((idx, path)) = rx.lock().unwrap().recv() else {
+                let Ok((idx, path, n)) = rx.lock().unwrap().recv() else {
                     return;
                 };
                 let wanted = (view.lock().unwrap().iter()).any(|v| v.binary_search(&idx).is_ok());
@@ -222,7 +222,7 @@ pub(crate) fn spawn_thumbnailers(
                         // sRGB in the shared cache; to the screen only to be shown.
                         .map(|img| color_image(srgb_to_display(img.into())))
                 });
-                let _ = tx.send((path, result));
+                let _ = tx.send((path, n, result));
                 // SAFETY: as for the image workers above.
                 unsafe { malloc_trim(0) };
                 ctx.request_repaint();

@@ -23,30 +23,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends mold sccache \
     && rm -rf /var/lib/apt/lists/* && rustup component add rustfmt clippy
 DOCKERFILE
 fi
-# A turn among the others: a folder made is a slot taken, and it goes when this ends.
-gb=$(($(docker info --format '{{.MemTotal}}') / 1073741824))
+# A turn among the others: a folder made is a slot taken, and it goes when this ends. It holds
+# the taker's process id, so a slot left by a check that was killed is taken over.
+mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null)
+gb=$((${mem:-0} / 1073741824))
 slots=$((gb / 5 < 1 ? 1 : gb / 5))
 locks=$HOME/.cache/glimt-check-slots
 mkdir -p "$locks"
 slot=""
+told=""
 while [ -z "$slot" ]; do
     for s in $(seq 1 $slots); do
-        if mkdir "$locks/$s" 2>/dev/null; then slot=$s; break; fi
+        owner=$(cat "$locks/$s/pid" 2>/dev/null)
+        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+            rm -rf "$locks/$s"
+        fi
+        if mkdir "$locks/$s" 2>/dev/null; then
+            echo $$ >"$locks/$s/pid"
+            slot=$s
+            break
+        fi
     done
-    [ -z "$slot" ] && sleep 10
+    if [ -z "$slot" ]; then
+        [ -z "$told" ] && echo "waiting for one of $slots checks running in $locks to end" && told=1
+        sleep 10
+    fi
 done
-trap 'rmdir "$locks/$slot"' EXIT
+trap 'rm -rf "$locks/$slot"' EXIT
 checks='r=0
 step() { echo "-- $*"; "$@" || { echo "FAIL: $*"; r=1; }; }
 step cargo fmt
-step cargo clippy -q --profile quick --all-targets -- -D warnings
-step cargo test -q --profile quick
-step cargo clippy -q --profile quick --all-targets --all-features -- -D warnings
-step cargo test -q --profile quick --all-features
+step cargo clippy -q --locked --profile quick --all-targets -- -D warnings
+step cargo test -q --locked --profile quick
+step cargo clippy -q --locked --profile quick --all-targets --all-features -- -D warnings
+step cargo test -q --locked --profile quick --all-features
 [ $r = 0 ] && echo "every check passed"
 exit $r'
-docker run --rm -v "$here":/s -w /s \
+# --init passes Ctrl+C on to cargo, which bash as the container's first process would not.
+docker run --rm --init -v "$here":/s -w /s \
     -v glimt-target:/target -v glimt-cargo:/usr/local/cargo/registry -v glimt-sccache:/sccache \
-    -e CARGO_TARGET_DIR=/target/$name -e RUSTC_WRAPPER=sccache -e SCCACHE_DIR=/sccache \
+    -e "CARGO_TARGET_DIR=/target/$name" -e RUSTC_WRAPPER=sccache -e SCCACHE_DIR=/sccache \
     -e RUSTFLAGS="-C link-arg=-fuse-ld=mold" -e HOME=/tmp \
     glimt-check bash -c "${1:-$checks}"

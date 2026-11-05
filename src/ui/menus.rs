@@ -1021,7 +1021,10 @@ mod tests {
         // Within RETRY the empty answer stands.
         assert!(answer(&mut open_with, "jpg", one).is_empty());
         // After it, the type is asked about again.
-        let old = Instant::now() - OpenWith::RETRY;
+        // A computer started less than RETRY ago has no instant that long ago to stand for it.
+        let Some(old) = Instant::now().checked_sub(OpenWith::RETRY) else {
+            return;
+        };
         open_with
             .apps
             .insert("jpg".into(), Answer::Found(Vec::new(), old));

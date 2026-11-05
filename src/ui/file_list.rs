@@ -68,17 +68,19 @@ pub(crate) type ThumbView = Arc<Mutex<[Vec<usize>; 2]>>;
 /// The thumbnails for the file list. It holds those made, those being made, and the workers
 /// that make them.
 pub(crate) struct Thumbs {
-    /// The thumbnails still being made when a setting changed how they look. Their results are
-    /// dropped once, because they come back in the old look.
-    stale: HashSet<OsString>,
     /// The file list's thumbnails by file name. `None` means it could not be made.
     textures: HashMap<OsString, Option<egui::TextureHandle>>,
-    pending: HashSet<OsString>,
-    /// (image index, file)
-    jobs: mpsc::Sender<(usize, PathBuf)>,
-    /// The answers as (file, thumbnail). The outer `None` means it was skipped because it
-    /// scrolled out of view.
-    rx: mpsc::Receiver<(PathBuf, Option<Option<egui::ColorImage>>)>,
+    /// The thumbnails being made, by file name, with the number of the last request. An answer
+    /// to an earlier request, made before the file changed or a setting changed the look, is
+    /// dropped, also when it comes after the later one's: the workers run side by side.
+    pending: HashMap<OsString, u64>,
+    /// The number of the last request made.
+    asked: u64,
+    /// (image index, file, request number)
+    jobs: mpsc::Sender<(usize, PathBuf, u64)>,
+    /// The answers as (file, request number, thumbnail). The outer `None` means it was skipped
+    /// because it scrolled out of view.
+    rx: mpsc::Receiver<(PathBuf, u64, Option<Option<egui::ColorImage>>)>,
     /// The files the file list (or film strip) shows, with some rows around them, and those pan
     /// view shows, both sorted. A thumbnail job for another file is skipped. It holds files
     /// rather than a range, because the matches of a search, or pan view's days, are spread
@@ -103,9 +105,9 @@ impl Thumbs {
         let save = Arc::new(AtomicBool::new(save));
         let (jobs, rx) = spawn_thumbnailers(ctx, workers, rotate, &view, &save);
         Thumbs {
-            stale: HashSet::new(),
             textures: HashMap::new(),
-            pending: HashSet::new(),
+            pending: HashMap::new(),
+            asked: 0,
             jobs,
             rx,
             view,
@@ -119,20 +121,37 @@ impl Thumbs {
         self.textures.get(name)?.as_ref()
     }
 
-    /// Forgets the thumbnail of `name`, made or being made, so it is made again. One being
-    /// made is marked stale, because the worker's answer shows the file's old contents.
+    /// Forgets the thumbnail of `name`, made or being made, so it is made again. The answer of
+    /// one being made is dropped when it comes, because it shows the file's old contents.
     pub(crate) fn forget(&mut self, name: &OsStr) {
         self.textures.remove(name);
-        if self.pending.remove(name) {
-            self.stale.insert(name.to_owned());
-        }
+        self.pending.remove(name);
     }
 
     /// Forgets every thumbnail, as another folder opens.
     pub(crate) fn forget_all(&mut self) {
         self.textures.clear();
         self.pending.clear();
-        self.stale.clear();
+    }
+
+    /// Asks the workers for the thumbnail of file `i` at `path`, named `name` in the list,
+    /// unless it is being made already.
+    fn ask(&mut self, name: &OsStr, i: usize, path: PathBuf) {
+        if !self.pending.contains_key(name) {
+            self.asked += 1;
+            self.pending.insert(name.to_owned(), self.asked);
+            let _ = self.jobs.send((i, path, self.asked));
+        }
+    }
+
+    /// Returns whether the answer to request `n` for `name` is the one to show, and if so takes
+    /// the request as answered.
+    fn answered(&mut self, name: &OsStr, n: u64) -> bool {
+        let last = self.pending.get(name) == Some(&n);
+        if last {
+            self.pending.remove(name);
+        }
+        last
     }
 
     /// Whether the workers write new thumbnails to the shared cache.
@@ -463,7 +482,7 @@ impl crate::App {
     /// made again.
     pub(crate) fn thumbs_changed(&mut self) {
         self.thumbs.textures.clear();
-        self.thumbs.stale.extend(self.thumbs.pending.drain());
+        self.thumbs.pending.clear();
     }
 
     /// The size of a cell of the icon grid, the thumbnail with its name below.
@@ -498,16 +517,14 @@ impl crate::App {
     }
 
     pub(crate) fn receive_thumbs(&mut self, ctx: &egui::Context) {
-        while let Ok((path, result)) = self.thumbs.rx.try_recv() {
+        while let Ok((path, n, result)) = self.thumbs.rx.try_recv() {
             // The name is the one the list has, with its folders in a slideshow with
             // subfolders.
             let Ok(name) = path.strip_prefix(self.folder.dir()).map(Path::as_os_str) else {
                 continue;
             };
-            self.thumbs.pending.remove(name);
-            // A thumbnail made before a setting changed its look is asked for again, in the new
-            // look.
-            if self.thumbs.stale.remove(name) {
+            // A thumbnail asked for before the file or the look changed is asked for again.
+            if !self.thumbs.answered(name, n) {
                 continue;
             }
             if let Some(img) = result {
@@ -742,9 +759,8 @@ impl crate::App {
             }
             Some(None) => {}
             None => {
-                if self.thumbs.pending.insert(name.clone()) {
-                    let _ = self.thumbs.jobs.send((i, self.path(i)));
-                }
+                let path = self.path(i);
+                self.thumbs.ask(name, i, path);
             }
         }
     }
@@ -1734,16 +1750,26 @@ mod tests {
     }
 
     /// A thumbnail forgotten while a worker makes it is dropped when it comes, because it
-    /// shows the old contents. Another folder starts with nothing stale.
+    /// shows the old contents, also when the answer to the new request comes first.
     #[test]
     fn a_thumbnail_forgotten_while_made_is_stale() {
         let ctx = eframe::egui::Context::default();
-        let mut thumbs = super::Thumbs::new(&ctx, 1, &Default::default(), false);
+        let mut thumbs = super::Thumbs::new(&ctx, 0, &Default::default(), false);
         let name = std::ffi::OsStr::new("a.jpg");
-        thumbs.pending.insert(name.to_owned());
+        thumbs.ask(name, 0, "a.jpg".into());
+        let old = thumbs.asked;
         thumbs.forget(name);
-        assert!(thumbs.stale.contains(name));
-        thumbs.forget_all();
-        assert!(thumbs.stale.is_empty());
+        thumbs.ask(name, 0, "a.jpg".into());
+        let new = thumbs.asked;
+        assert!(thumbs.answered(name, new), "the new answer is dropped");
+        assert!(
+            !thumbs.answered(name, old),
+            "the old answer is shown after the new one"
+        );
+        // In the other order, the old answer neither shows nor ends the new request.
+        thumbs.forget(name);
+        thumbs.ask(name, 0, "a.jpg".into());
+        assert!(!thumbs.answered(name, new));
+        assert!(thumbs.answered(name, thumbs.asked));
     }
 }

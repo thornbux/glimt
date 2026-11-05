@@ -399,6 +399,8 @@ pub fn edit(file: &Path, new: bool, change: impl FnOnce(&mut Vec<PathBuf>)) -> s
 /// The lines of a collection that are not Glimt's to write: neither the header and the end
 /// marker it writes itself, nor an image's path, which it writes from its list. Geeqie's own
 /// lines (#geometry, its comments) stay as they were when Glimt edits one of its collections.
+/// Only lines starting with `#` are kept: a collection that is a link to another file of the
+/// user's would else copy that file's text into the collection written in the link's place.
 fn other_lines(text: &[u8]) -> Vec<&[u8]> {
     let ours = |line: &[u8]| {
         line.is_empty()
@@ -408,7 +410,7 @@ fn other_lines(text: &[u8]) -> Vec<&[u8]> {
             || line.starts_with(b"\"/")
     };
     text.split(|&b| b == b'\n')
-        .filter(|line| !ours(line))
+        .filter(|line| line.starts_with(b"#") && !ours(line))
         .collect()
 }
 
@@ -613,7 +615,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("glimt-test-gqv-link-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("notes.txt");
-        let text = "#GQview collection\n\"/a.jpg\"\n\"/b.jpg\"\n#end\n";
+        // The file linked to holds a line of its own, which must not be copied in.
+        let text = "#GQview collection\n\"/a.jpg\"\nsecret\n\"/b.jpg\"\n#end\n";
         std::fs::write(&target, text).unwrap();
         let file = dir.join("trip.gqv");
         std::os::unix::fs::symlink(&target, &file).unwrap();
@@ -624,6 +627,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), text);
         assert!(!std::fs::symlink_metadata(&file).unwrap().is_symlink());
         assert_eq!(super::load(&file).unwrap(), [PathBuf::from("/b.jpg")]);
+        assert!(!std::fs::read_to_string(&file).unwrap().contains("secret"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

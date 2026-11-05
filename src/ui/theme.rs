@@ -473,7 +473,7 @@ mod tests {
     fn every_glyph_of_the_ui_text_is_in_a_font_glimt_ships() {
         // What Inter has, of the signs the texts use; the Phosphor icons are U+E000–F8FF.
         const IN_INTER: &str = "©«°±·»¿×–“”„…⁴←↑→↓≈★✓⬆";
-        // Every source file and translation, read from src/: one added is checked unlisted.
+        // Every source file and translation, read from src/ and po/: one added is checked unlisted.
         for (name, text) in crate::support::source_rules::sources() {
             for c in text.chars() {
                 let fine = c.is_ascii()
