@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Open With in the Flatpak no longer hangs on a pipe named in a collection or on the command line.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
