@@ -129,6 +129,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The EXIF panel, the sort menu, the Types menu, theme and filter names, the CPU and memory
   levels, several Preferences texts, dialogs and notices now show in the chosen language; a test
   fails on a new text left untranslated.
+### Changed
+
+- The toolbar's Refresh and Show Thumbnails buttons show the same icons as their menu items.
 
 ## [0.57.0] - 2026-11-05
 
