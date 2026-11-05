@@ -520,14 +520,16 @@ pub fn read(file: &Path) -> Result<Catalog, String> {
     Ok(catalog)
 }
 
-/// Why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or the
-/// catalog.
+/// Tells why sqlite3 could not read a catalog, from what it wrote: one too old for -safe, or
+/// the catalog. Only the first line is told, because sqlite3 puts the reason there and then
+/// echoes the query with a caret under the error.
 fn failed(why: &str) -> String {
+    let first = (why.lines().map(str::trim)).find(|l| !l.is_empty());
     match why.contains("unknown option: -safe") {
         true => tr("Reading a Lightroom catalog needs sqlite3 3.37 or newer").into(),
         false => tf!(
             "Not a Lightroom Classic catalog Glimt can read: {why}",
-            why = why.trim()
+            why = first.unwrap_or("")
         ),
     }
 }
@@ -771,6 +773,8 @@ mod tests {
             "Reading a Lightroom catalog needs sqlite3 3.37 or newer"
         );
         assert!(super::failed("Error: file is not a database\n").ends_with("not a database"));
+        let parse = "Parse error: no such table: Adobe_images\n  SELECT id FROM Adobe_images\n";
+        assert!(super::failed(parse).ends_with("no such table: Adobe_images"));
     }
 
     /// sqlite3 not on the host of a Flatpak, or not in PATH, is told from a catalog it cannot read.

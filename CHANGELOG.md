@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A Lightroom catalog sqlite3 cannot read is told by its reason alone, without part of the query.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
