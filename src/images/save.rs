@@ -930,7 +930,9 @@ mod tests {
                 dec.orientation().unwrap(),
                 image::metadata::Orientation::NoTransforms
             );
-            let img = image::DynamicImage::from_decoder(dec).unwrap().into_rgb8();
+            let img = crate::images::decode::from_decoder(dec)
+                .unwrap()
+                .into_rgb8();
             assert_eq!((img.dimensions(), *img.get_pixel(0, 0)), ((1, 2), top));
         }
         std::fs::remove_dir_all(dir).unwrap();

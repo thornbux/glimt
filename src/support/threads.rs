@@ -237,6 +237,14 @@ pub(crate) fn thread_cpu_us() -> u64 {
     t.sec as u64 * 1_000_000 + t.nsec as u64 / 1000
 }
 
+/// Runs `work` and returns its result, or `None` when it panics. A worker uses this around
+/// each file it reads or writes, so that a file that breaks a decoder or a parser costs only
+/// that file, not the worker thread and every file after it. This is the one place Glimt
+/// catches a panic (`source_rules::panics_are_caught_in_one_place`).
+pub(crate) fn caught<T>(work: impl FnOnce() -> T) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).ok()
+}
+
 #[cfg(test)]
 mod tests {
     /// A notice sent from a background thread asks the window for a frame, so it shows at

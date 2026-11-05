@@ -180,6 +180,52 @@ pub const SHORTCUTS: &[(Action, egui::Modifiers, egui::Key)] = {
 pub static OWN_KEYS: std::sync::RwLock<Vec<(Action, egui::Modifiers, egui::Key)>> =
     std::sync::RwLock::new(Vec::new());
 
+/// The actions that act on the shown or selected files, and do nothing in an empty list. They
+/// are refused once, at the top of `run`, rather than by a guard in each arm, which a new
+/// action could leave out and then panic on `self.path(self.list.cur())` with no file.
+pub(crate) const NEEDS_A_FILE: &[Action] = &[
+    Action::NewCollection,
+    Action::Copy,
+    Action::Move,
+    Action::SetWallpaper,
+    Action::CopyPath,
+    Action::CopyPathUnquoted,
+    Action::CopyImage,
+    Action::CopyFiles,
+    Action::Print,
+    Action::RemoveFromCollection,
+    Action::SaveAs,
+    Action::RotateCw,
+    Action::RotateCcw,
+    Action::Rotate180,
+    Action::Mirror,
+    Action::Flip,
+    #[cfg(feature = "marks")]
+    Action::Mark1,
+    #[cfg(feature = "marks")]
+    Action::Mark2,
+    #[cfg(feature = "marks")]
+    Action::Mark3,
+    #[cfg(feature = "marks")]
+    Action::Mark4,
+    #[cfg(feature = "marks")]
+    Action::Mark5,
+    #[cfg(feature = "marks")]
+    Action::Mark6,
+    #[cfg(feature = "marks")]
+    Action::Rate0,
+    #[cfg(feature = "marks")]
+    Action::Rate1,
+    #[cfg(feature = "marks")]
+    Action::Rate2,
+    #[cfg(feature = "marks")]
+    Action::Rate3,
+    #[cfg(feature = "marks")]
+    Action::Rate4,
+    #[cfg(feature = "marks")]
+    Action::Rate5,
+];
+
 /// The actions a kiosk allows: showing and browsing, not changing files, settings or the
 /// window.
 pub(crate) const KIOSK_ACTIONS: &[Action] = &[
@@ -821,24 +867,25 @@ impl crate::App {
         if !self.window.allows(action) {
             return;
         }
+        if self.list.files().is_empty() && NEEDS_A_FILE.contains(&action) {
+            if action == Action::NewCollection {
+                self.notice = Some(tr("No images for a collection here").into());
+            }
+            return;
+        }
         let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(false);
         match action {
             Action::OpenFile => self.pick(ctx, false, Pick::Open),
             Action::OpenFolder => self.pick(ctx, true, Pick::Open),
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
-            Action::NewCollection if !self.list.files().is_empty() => {
+            Action::NewCollection => {
                 self.ask_about_targets();
                 self.dialogs.ask(Prompt::NewCollection, String::new());
             }
-            Action::NewCollection => {
-                self.notice = Some(tr("No images for a collection here").into())
-            }
             Action::OpenCollection => self.pick(ctx, false, Pick::Collection),
             Action::ImportLightroom => self.pick(ctx, false, Pick::Lightroom),
-            Action::RemoveFromCollection
-                if self.folder.collection().is_some() && !self.list.files().is_empty() =>
-            {
+            Action::RemoveFromCollection if self.folder.collection().is_some() => {
                 self.remove_from_collection(ctx)
             }
             Action::RemoveFromCollection => {}
@@ -866,14 +913,10 @@ impl crate::App {
             // A kiosk shows only the image.
             Action::FocusSearch if self.window.is_kiosk() => {}
             Action::FocusSearch => self.focus_search_field(ctx, fullscreen),
-            Action::Copy | Action::Move if !self.list.files().is_empty() => {
-                self.pick_copy_or_move(ctx, action)
-            }
-            Action::Copy | Action::Move => {}
+            Action::Copy | Action::Move => self.pick_copy_or_move(ctx, action),
             // The default application; the Open With submenu lists the others.
             Action::OpenWith => self.launch(""),
-            Action::SetWallpaper if !self.list.files().is_empty() => self.set_wallpaper(),
-            Action::SetWallpaper => {}
+            Action::SetWallpaper => self.set_wallpaper(),
             // Enter: videos play in a player (images have nothing to play).
             Action::Play => self.play_video(ctx),
             Action::Delete => self.request_delete(ctx, self.config.trash),
@@ -898,31 +941,23 @@ impl crate::App {
             }
             // Select All and Invert act on the files the list shows: the matches while searching.
             Action::SelectAll => {
-                self.list.select(self.shown_files().into_iter().collect());
-                self.selection_changed(ctx);
+                self.set_selection(ctx, self.shown_files().into_iter().collect());
             }
             Action::SelectNone => {
-                self.list.clear_selection();
-                self.selection_changed(ctx);
+                self.set_selection(ctx, Default::default());
             }
             Action::InvertSelection => {
                 let shown = self.shown_files().into_iter();
                 let inverted = shown
                     .filter(|i| !self.list.selected().contains(i))
                     .collect();
-                self.list.select(inverted);
-                self.selection_changed(ctx);
+                self.set_selection(ctx, inverted);
             }
-            Action::CopyPath | Action::CopyPathUnquoted if !self.list.files().is_empty() => {
-                self.copy_paths(ctx, action)
-            }
-            Action::CopyPath | Action::CopyPathUnquoted => {}
+            Action::CopyPath | Action::CopyPathUnquoted => self.copy_paths(ctx, action),
             // Decoded at full size in the background; egui hands it to the clipboard.
-            Action::CopyImage if !self.list.files().is_empty() => self.copy_image(ctx),
-            Action::CopyImage => {}
+            Action::CopyImage => self.copy_image(ctx),
             // As a list of files, which a file manager pastes as a copy.
-            Action::CopyFiles if !self.list.files().is_empty() => self.copy_files(),
-            Action::CopyFiles => {}
+            Action::CopyFiles => self.copy_files(),
             Action::Preferences if config::locked() => {
                 self.notice = Some(tr("The settings are locked (--lock-settings)").into());
             }
@@ -1008,7 +1043,7 @@ impl crate::App {
                 let dir = self.folder.dir().to_path_buf();
                 self.dialogs.ask_new_folder(&dir);
             }
-            Action::Print if !self.list.files().is_empty() => self.open_print(ctx),
+            Action::Print => self.open_print(ctx),
             Action::SaveFrame if self.frame_count() > 1 => {
                 let k = self.shown_frame();
                 self.pick(ctx, false, Pick::SaveFrame(self.path(self.list.cur()), k));
@@ -1017,7 +1052,6 @@ impl crate::App {
                 self.pick(ctx, true, Pick::ExportFrames(self.path(self.list.cur())));
             }
             Action::SaveFrame | Action::ExportFrames => {}
-            Action::Print => {}
             Action::Rename if self.targets().len() > 1 => {
                 self.ask_about_targets();
                 self.dialogs.ask(Prompt::RenameMany, "*_###".into());
@@ -1088,12 +1122,8 @@ impl crate::App {
             let picked = (self.shown_files().into_iter())
                 .filter(|&i| names.contains(self.list.files()[i].as_os_str()))
                 .collect();
-            self.list.select(picked);
             self.list.set_anchor(None);
-            self.selection_changed(ctx);
-            return;
-        }
-        if self.list.files().is_empty() {
+            self.set_selection(ctx, picked);
             return;
         }
         let paths: Vec<PathBuf> = self.targets().iter().map(|&i| self.path(i)).collect();
@@ -1290,6 +1320,15 @@ impl crate::App {
     }
 }
 
+/// Makes the user's own keys in `keys` the ones in effect, at start and after each change in
+/// Preferences. The settings hold them, and `OWN_KEYS` holds the copy the key handling reads.
+/// Every change goes through this function, so the copy cannot fall behind the settings.
+pub(crate) fn use_own_keys(keys: &Keys) {
+    if let Ok(mut own) = OWN_KEYS.write() {
+        own.clone_from(&keys.0);
+    }
+}
+
 /// Whether two shortcuts are the same keys. Not by `ctrl`: the defaults say Ctrl as `command`
 /// alone, where a key pressed (and an own key read back) has both.
 pub fn same_keys(a: &Shortcut, b: &Shortcut) -> bool {
@@ -1339,6 +1378,216 @@ pub(crate) fn clipboard_key(e: &egui::Event) -> Option<egui::Key> {
 
 #[cfg(test)]
 mod tests {
+    use super::Action;
+
+    /// Every action, in name order, for the tests that run each one. Kept whole by
+    /// `all_lists_every_action`.
+    const ALL: &[Action] = &[
+        Action::About,
+        Action::AboveEachOther,
+        Action::Animate,
+        Action::Back,
+        Action::BackUp,
+        Action::CheckImages,
+        Action::CloseWindow,
+        Action::Compare,
+        Action::Copy,
+        Action::CopyFiles,
+        Action::CopyImage,
+        Action::CopyPath,
+        Action::CopyPathUnquoted,
+        Action::Crop,
+        Action::Delete,
+        Action::DeletePermanently,
+        Action::Escape,
+        Action::ExifPanel,
+        Action::ExifRotate,
+        Action::ExifWindow,
+        Action::ExportFrames,
+        Action::Faster,
+        Action::FindDuplicates,
+        Action::First,
+        Action::FitFill,
+        Action::FitHeight,
+        Action::FitWidth,
+        Action::Flip,
+        Action::FocusSearch,
+        Action::FolderTree,
+        Action::Forward,
+        Action::FullScreen,
+        Action::Help,
+        Action::HiddenFiles,
+        Action::HideTools,
+        Action::Histogram,
+        Action::HistogramLog,
+        Action::Home,
+        Action::Icons,
+        Action::ImportLightroom,
+        Action::InvertSelection,
+        Action::KeyboardMap,
+        Action::Keywords,
+        Action::Last,
+        #[cfg(feature = "marks")]
+        Action::Mark1,
+        #[cfg(feature = "marks")]
+        Action::Mark2,
+        #[cfg(feature = "marks")]
+        Action::Mark3,
+        #[cfg(feature = "marks")]
+        Action::Mark4,
+        #[cfg(feature = "marks")]
+        Action::Mark5,
+        #[cfg(feature = "marks")]
+        Action::Mark6,
+        Action::Mirror,
+        Action::Move,
+        Action::MoveEarlier,
+        Action::MoveFirst,
+        Action::MoveLast,
+        Action::MoveLater,
+        Action::NewCollection,
+        Action::NewFolder,
+        Action::NewWindow,
+        Action::Next,
+        Action::NextLayout,
+        Action::NextPage,
+        Action::OneImage,
+        Action::OpenCollection,
+        Action::OpenFile,
+        Action::OpenFolder,
+        Action::OpenFolders,
+        Action::OpenRecursive,
+        Action::OpenWith,
+        Action::Overlay,
+        Action::PanView,
+        Action::PaneDown,
+        Action::PaneLeft,
+        Action::PaneRight,
+        Action::PaneUp,
+        Action::PathBar,
+        Action::Pause,
+        Action::Play,
+        Action::Preferences,
+        Action::Prev,
+        Action::PrevPage,
+        Action::Print,
+        Action::Projector,
+        Action::ProjectorPointer,
+        Action::Quit,
+        Action::RandomOrder,
+        #[cfg(feature = "marks")]
+        Action::Rate0,
+        #[cfg(feature = "marks")]
+        Action::Rate1,
+        #[cfg(feature = "marks")]
+        Action::Rate2,
+        #[cfg(feature = "marks")]
+        Action::Rate3,
+        #[cfg(feature = "marks")]
+        Action::Rate4,
+        #[cfg(feature = "marks")]
+        Action::Rate5,
+        Action::Refresh,
+        Action::RemoveFromCollection,
+        Action::Rename,
+        Action::RenameCollection,
+        Action::Rotate180,
+        Action::RotateCcw,
+        Action::RotateCw,
+        Action::SaveAs,
+        Action::SaveFrame,
+        Action::SaveOrientation,
+        Action::SelectAll,
+        #[cfg(feature = "marks")]
+        Action::SelectMark1,
+        #[cfg(feature = "marks")]
+        Action::SelectMark2,
+        #[cfg(feature = "marks")]
+        Action::SelectMark3,
+        #[cfg(feature = "marks")]
+        Action::SelectMark4,
+        #[cfg(feature = "marks")]
+        Action::SelectMark5,
+        #[cfg(feature = "marks")]
+        Action::SelectMark6,
+        Action::SelectNone,
+        Action::SetWallpaper,
+        Action::Shortcuts,
+        Action::Slideshow,
+        Action::Slower,
+        Action::SortManager,
+        Action::Subfolders,
+        Action::Thumbnails,
+        Action::Toolbar,
+        Action::TrashCollection,
+        Action::Undo,
+        Action::Up,
+        Action::ViewFilter,
+        Action::WindowTitle,
+        Action::Zoom1To1,
+        Action::ZoomFit,
+        Action::ZoomIn,
+        Action::ZoomOut,
+    ];
+
+    /// `ALL` names every variant of `Action`, in name order, so a new action is run by the test
+    /// below too. A variant behind the marks feature counts only in a build with it.
+    #[test]
+    fn all_lists_every_action() {
+        let src = include_str!("actions.rs");
+        let start = src.find("pub enum Action {").unwrap();
+        let body = &src[start..start + src[start..].find("\n}\n").unwrap()];
+        let (mut variants, mut marks_only) = (Vec::new(), false);
+        for line in body.lines().skip(1).map(str::trim) {
+            if line == "#[cfg(feature = \"marks\")]" {
+                marks_only = true;
+            } else if line.starts_with(|c: char| c.is_ascii_uppercase()) {
+                let name = line.split([',', ' ', '(', '{']).next().unwrap();
+                if !marks_only || cfg!(feature = "marks") {
+                    variants.push(name.to_owned());
+                }
+                marks_only = false;
+            }
+        }
+        let listed: Vec<String> = ALL.iter().map(|a| format!("{a:?}")).collect();
+        let missing: Vec<&String> = variants.iter().filter(|v| !listed.contains(v)).collect();
+        assert!(missing.is_empty(), "ALL lacks {missing:?}");
+        assert_eq!(listed.len(), variants.len(), "ALL names an action twice");
+        assert!(listed.is_sorted(), "ALL is not in name order");
+    }
+
+    /// Every action run in an empty folder does nothing harmful: none panics on a list with no
+    /// file. A new action that reads the shown file without a guard fails here.
+    #[test]
+    fn every_action_is_safe_in_an_empty_folder() {
+        // Those that open a file dialog or start a program of the desktop are left out, because
+        // a test run on a desktop would show the dialog or start the program.
+        const OPENS_SOMETHING: &[Action] = &[
+            Action::OpenFile,
+            Action::OpenFolder,
+            Action::OpenFolders,
+            Action::OpenRecursive,
+            Action::OpenCollection,
+            Action::ImportLightroom,
+            Action::BackUp,
+            Action::NewWindow,
+            Action::OpenWith,
+        ];
+        let dir = std::env::temp_dir().join(format!("glimt-test-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        // View → Filter and colour management are the process's. They are held from the colour
+        // tests while changed, and put back.
+        let held = (crate::images::colour::COLOUR_TEST.lock()).unwrap_or_else(|e| e.into_inner());
+        for &action in ALL.iter().filter(|a| !OPENS_SOMETHING.contains(a)) {
+            app.run(&ctx, action);
+        }
+        crate::images::colour::VIEW_FILTER.store(0, std::sync::atomic::Ordering::Relaxed);
+        crate::images::colour::COLOR_MANAGEMENT.store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(held);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Every action's name is in the translations: it reaches tr through `english`, where the
     /// translation test, which looks for tr("…"), cannot see it. The stars are the same in
     /// every language.

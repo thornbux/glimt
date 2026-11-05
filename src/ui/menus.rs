@@ -576,7 +576,7 @@ impl crate::App {
                 return;
             };
             #[cfg(feature = "portals")]
-            if apps.is_empty() && crate::files::portal::in_flatpak() {
+            if apps.is_empty() && crate::files::external::in_flatpak() {
                 // The Flatpak, without the host's applications: the desktop's own chooser.
                 if icon_button(ui, theme::icon::APP, tr("Choose Application…")).clicked() {
                     // Each selected file (or the shown one), the chooser asking for each.

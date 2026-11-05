@@ -508,18 +508,17 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let file = open(path).map_err(|e| e.to_string())?;
         let mut dec = jxl_oxide::integration::JxlDecoder::new(std::io::BufReader::new(file))
             .map_err(|e| e.to_string())?;
-        check_size(&dec)?;
         // jxl-oxide starts with no limit on what it allocates. A lossy JPEG XL needs some 24
         // bytes a pixel while it renders, so a camera photo of 24 MP takes about 600 MB. Four
         // times a decode's limit lets such photos through and stops a render of some 90 MP or
         // more. A header that claims a larger picture than a decode may hold is refused before
-        // that, by `check_size`.
+        // that, by `from_decoder`.
         let mut limits = image::Limits::default();
         limits.max_alloc = Some(4 * MAX_DECODE);
         dec.set_limits(limits).map_err(|e| e.to_string())?;
         // jxl-oxide already renders the image upright.
         let icc = dec.icc_profile().ok().flatten();
-        let img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
+        let img = from_decoder(dec)?;
         return Ok((img, icc, upright, None));
     }
     if let Some(decoder) = crate::images::decoder_plugins::for_path(path) {
@@ -538,8 +537,6 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         }
         dec => dec?,
     };
-    // from_decoder allocates what the header claims, without the reader's limit.
-    check_size(&dec)?;
     let orientation = dec
         .orientation()
         .unwrap_or(image::metadata::Orientation::NoTransforms);
@@ -548,7 +545,7 @@ fn load_unturned(path: &Path, rotate: bool, max: Option<[u32; 2]>) -> Result<Unt
         let exif = dec.exif_metadata().ok().flatten()?;
         exif::adobe_rgb(&exif).then(|| ADOBE_RGB.clone())
     });
-    let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string())?;
+    let mut img = from_decoder(dec)?;
     let turn = if rotate { orientation } else { upright };
     // Radiance HDR holds light as it was, far brighter than a screen, so it is brought into the
     // screen's range.
@@ -670,12 +667,21 @@ pub fn scaled(
     Some((img, icc, [uw as usize, uh as usize]))
 }
 
-/// The size limit `ImageReader` applies, for decoders made directly. A header that claims a
-/// huge image must not make Glimt allocate gigabytes, because that aborts the process.
-pub fn check_size(dec: &impl ImageDecoder) -> Result<(), String> {
+/// Makes `mb` megabytes the most an animation's decoded frames may take, from the setting
+/// `animation_mb`, at start and when it changes in Preferences.
+pub fn set_animation_limit(mb: usize) {
+    MAX_ANIMATION.store(mb << 20, Ordering::Relaxed);
+}
+
+/// Decodes the image `dec` reads, after the size limit that `ImageReader` applies. The image
+/// crate's own `from_decoder` allocates whatever the header claims, so a few bytes that claim
+/// a huge image would make Glimt allocate gigabytes, which aborts the process. This is the one
+/// way a decoder made directly is decoded; clippy refuses the image crate's.
+pub fn from_decoder(dec: impl ImageDecoder) -> Result<image::DynamicImage, String> {
     match dec.total_bytes() {
         n if n > MAX_DECODE => Err(format!("image too large ({})", human_size(n))),
-        _ => Ok(()),
+        #[allow(clippy::disallowed_methods)] // the one place, after the size limit
+        _ => image::DynamicImage::from_decoder(dec).map_err(|e| e.to_string()),
     }
 }
 
@@ -896,8 +902,8 @@ pub fn quarter_turn(o: Orientation) -> bool {
 /// end the worker thread, because that would leave every later image or thumbnail waiting for
 /// ever.
 pub fn survive<T>(work: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-        .unwrap_or_else(|_| Err("the decoder crashed on this file".into()))
+    crate::support::threads::caught(work)
+        .unwrap_or_else(|| Err("the decoder crashed on this file".into()))
 }
 
 /// As `read_limited`, as UTF-8 text.

@@ -325,6 +325,13 @@ fn stop_group(group: i32, ended: impl Fn() -> bool) {
     }
 }
 
+/// Returns whether Glimt runs in a Flatpak. There, programs run on the host through
+/// flatpak-spawn, portals stand in for some of them, and the XDG folders point into the
+/// sandbox. This is the one way it is asked, also in a build without the portals.
+pub(crate) fn in_flatpak() -> bool {
+    std::env::var_os("FLATPAK_ID").is_some()
+}
+
 /// Ends the program `pid`, started in a process group of its own and not yet waited for, with
 /// what it started. It is Stop for a plugin. Once its group is gone (waited for by its own
 /// thread), no KILL follows, because it could reach a group that took the number since. In a
@@ -336,7 +343,7 @@ pub fn stop(pid: u32) {
     let group = -(pid as i32);
     // In a Flatpak, flatpak-spawn passes INT on to the program's whole group on the host, but
     // TERM only to the program, so what it started (an ffmpeg, a speech) would go on.
-    if std::env::var_os("FLATPAK_ID").is_some() {
+    if in_flatpak() {
         // SAFETY: This is a signal to a group of ours, as in stop_group.
         unsafe { libc_kill(group, 2) };
     }

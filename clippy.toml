@@ -18,6 +18,7 @@ disallowed-methods = [
     { path = "std::fs::File::open", reason = "decode::open: no pipe or device, which would block or never end" },
     { path = "image::ImageReader::open", reason = "decode::image_reader: the image crate's own open lets a pipe or device through" },
     { path = "image::image_dimensions", reason = "decode::image_reader(path)?.into_dimensions(): the image crate's own open lets a pipe or device through" },
+    { path = "image::DynamicImage::from_decoder", reason = "decode::from_decoder: the size limit first, as a header may claim gigabytes" },
     { path = "image::open", reason = "decode::image_reader(path)?.decode(): the image crate's own open lets a pipe or device through" },
     { path = "std::process::Child::wait", reason = "external::output_of or a Watchdog: never wait for good" },
     { path = "std::process::Child::wait_with_output", reason = "external::output_of or a Watchdog: never wait for good" },

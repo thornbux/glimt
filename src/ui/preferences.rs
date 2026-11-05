@@ -3,17 +3,15 @@
 
 use crate::files::config::{CPU_LEVELS, FADES, MAX_DELAY, MEMORY_LEVELS, OSD_TEMPLATE};
 use crate::images::colour::{INPUT_PROFILES, INTENTS};
-use crate::images::decode::MAX_ANIMATION;
 use crate::support::format::thousands;
 use crate::support::lang::tr;
 use crate::support::threads::{Working, set_cpu_use};
-use crate::ui::actions::{Action, OWN_KEYS, SHORTCUTS, shortcuts};
+use crate::ui::actions::{Action, SHORTCUTS, shortcuts};
 use crate::ui::dialogs::Pick;
 use crate::ui::menus::{radio, radio_choice};
 use crate::{files::config, images::thumbs, support::lang, tf, ui::actions, ui::theme};
 use eframe::egui;
 use std::path::Path;
-use std::sync::atomic::Ordering;
 
 // The texts of each section that the search field looks in, its title first. The test
 // `the_search_knows_every_text` keeps them the same as the texts the section shows.
@@ -629,7 +627,7 @@ impl crate::App {
             (self.config.decode_threads, self.config.animation_mb) =
                 (l.decode_threads, l.animation_mb);
             self.config.low_memory = l.one_arena;
-            MAX_ANIMATION.store(l.animation_mb << 20, Ordering::Relaxed);
+            crate::images::decode::set_animation_limit(l.animation_mb);
         }
         let mut changed = chosen.is_some();
         let restart = tr("Decoding threads and one malloc arena take effect after a restart.");
@@ -657,7 +655,7 @@ impl crate::App {
                     .logarithmic(true)
                     .text(tr("MB at most for an animation's frames"));
                 if ui.add(animation).changed() {
-                    MAX_ANIMATION.store(c.animation_mb << 20, Ordering::Relaxed);
+                    crate::images::decode::set_animation_limit(c.animation_mb);
                     changed = true;
                 }
                 let low = tr("One malloc arena: much less memory, decoding up to ~8 % slower");
@@ -952,9 +950,7 @@ impl crate::App {
                         .retain(|k| k.0 != action && !actions::same_keys(k, &(action, mods, key)));
                     self.config.keys.0.push((action, mods, key));
                     self.config.save();
-                    if let Ok(mut own) = OWN_KEYS.write() {
-                        own.clone_from(&self.config.keys.0);
-                    }
+                    crate::ui::actions::use_own_keys(&self.config.keys);
                 }
             }
         }
@@ -993,9 +989,7 @@ impl crate::App {
                     if own && crate::ui::menus::small_button(ui, tr("Reset")).clicked() {
                         self.config.keys.0.retain(|k| k.0 != action);
                         self.config.save();
-                        if let Ok(mut o) = OWN_KEYS.write() {
-                            o.clone_from(&self.config.keys.0);
-                        }
+                        crate::ui::actions::use_own_keys(&self.config.keys);
                     }
                 });
                 ui.end_row();

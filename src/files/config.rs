@@ -678,7 +678,7 @@ pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
 /// `home_fallback` in the home. In a Flatpak the XDG folders point into the sandbox, so the
 /// host's own come from HOST_XDG_*. The shared thumbnail cache and the trash are the host's.
 pub fn host_xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
-    let flatpak = std::env::var_os("FLATPAK_ID").is_some();
+    let flatpak = crate::files::external::in_flatpak();
     xdg_dir(&host_var(var, flatpak), home_fallback, app)
 }
 

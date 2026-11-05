@@ -154,6 +154,28 @@ and versions follow [Semantic Versioning](https://semver.org/).
   it for the release tests, and clippy refuses egui's own elsewhere, so the folder list's rows,
   Check Images' broken files and the choices in Preferences, Print and Save As can be clicked by
   their text too.
+### Changed
+
+- A whole selection is set through set_selection, which also tells what follows it: the title, the
+  range's end and the size in the status bar.
+- Whether Glimt runs in a Flatpak is asked one way, external::in_flatpak, also in a build without
+  the portals, and the host's folders one way, config::host_xdg_dir.
+- An operation edits the open collection only through collections::edit_told, which keeps the plain-
+  list rule and the message for a collection gone.
+- Every sidecar is read through xmp::own_sidecar, which skips a link.
+- The user's own keys and the animation limit have one setter each, and a source test keeps every
+  process-wide copy of a setting written only by its setter.
+- Actions that need a file are refused once, at the top of App::run, and a test runs every action in
+  an empty folder.
+- A decoder made directly is decoded only through decode::from_decoder, after the size limit, and
+  clippy refuses the image crate's own from_decoder.
+- A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
+  way.
+
+### Fixed
+
+- In the Flatpak, Undo of a move to the trash finds the host's trash also where the host has its own
+  XDG_DATA_HOME.
 
 ## [0.57.0] - 2026-11-05
 

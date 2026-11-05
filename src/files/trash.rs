@@ -161,7 +161,7 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     };
     // The host's trash, also where the host has its own XDG_DATA_HOME.
     let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
-    let (Some(_), Some(home)) = (std::env::var_os("FLATPAK_ID"), home) else {
+    let (true, Some(home)) = (crate::files::external::in_flatpak(), home) else {
         return Err(e);
     };
     // Each one left tried, and the first that still fails told as it failed.

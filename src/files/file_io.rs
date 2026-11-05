@@ -202,7 +202,7 @@ pub fn write_later(work: impl FnOnce() + Send + 'static) {
     let writing = crate::support::threads::Working::new(&WRITING);
     let counted = move || {
         let _writing = writing;
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+        let _ = crate::support::threads::caught(work);
     };
     let _ = WRITER.get_or_init(serial).send(Box::new(counted));
 }
@@ -213,7 +213,7 @@ pub fn serial() -> std::sync::mpsc::Sender<Work> {
     let (works, rx) = std::sync::mpsc::channel::<Work>();
     std::thread::spawn(move || {
         for work in rx {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+            let _ = crate::support::threads::caught(work);
         }
     });
     works

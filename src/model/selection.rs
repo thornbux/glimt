@@ -217,6 +217,18 @@ impl crate::App {
         true
     }
 
+    /// Selects the files at `places` and nothing else, and tells what follows the selection
+    /// (`selection_changed`). This is the one way a whole selection is set, so no writer can
+    /// leave out the title, the range's end or the size in the status bar.
+    pub(crate) fn set_selection(
+        &mut self,
+        ctx: &egui::Context,
+        places: std::collections::BTreeSet<usize>,
+    ) {
+        self.list.select(places);
+        self.selection_changed(ctx);
+    }
+
     /// Called when the selection changes: update the title and compute the size in the background.
     pub(crate) fn selection_changed(&mut self, ctx: &egui::Context) {
         self.list.set_range_end(None);

@@ -1564,10 +1564,6 @@ impl crate::App {
     /// is on screen after a turn, it mirrors the image first and turns the other way. (A flip
     /// is a mirror and half a turn.)
     pub(crate) fn turn(&mut self, action: Action) {
-        // When nothing is shown, there is nothing to turn.
-        if self.list.files().is_empty() {
-            return;
-        }
         // Until the image is saved, the old picture shows. Turned again, it would be saved
         // twice, into the same temporary file.
         if self.work.is_saving(&self.path(self.list.cur())) {

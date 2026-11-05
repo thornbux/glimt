@@ -273,7 +273,7 @@ impl crate::App {
         let inhibitor = self.window.inhibitor.clone();
         std::thread::spawn(move || {
             #[cfg(feature = "portals")]
-            let portal = (crate::files::portal::in_flatpak())
+            let portal = (crate::files::external::in_flatpak())
                 .then(|| crate::files::portal::inhibit_idle("Glimt full screen"))
                 .and_then(|held| held.map_err(|e| eprintln!("inhibit portal: {e}")).ok());
             #[cfg(not(feature = "portals"))]
