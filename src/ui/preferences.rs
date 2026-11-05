@@ -971,7 +971,7 @@ impl crate::App {
         let all = shortcuts();
         let mut actions: Vec<Action> = Vec::new();
         for s in SHORTCUTS {
-            if !actions.contains(&s.0) && (s.0 != Action::Play || cfg!(feature = "video")) {
+            if !actions.contains(&s.0) && s.0.in_build() {
                 actions.push(s.0);
             }
         }

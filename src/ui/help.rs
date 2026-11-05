@@ -1041,9 +1041,6 @@ fn shortcuts(ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut rows: Vec<(Action, Vec<String>)> = Vec::new();
     for &(action, mods, key) in all_shortcuts().iter() {
-        if action == Action::Play && !cfg!(feature = "video") {
-            continue;
-        }
         let text = ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key));
         match rows.iter_mut().find(|r| r.0 == action) {
             Some(row) => row.1.push(text),
@@ -1080,7 +1077,7 @@ fn keymap(ui: &mut egui::Ui) {
             .map(|k| {
                 all.iter()
                     .copied()
-                    .filter(|s| s.2 == k && (s.0 != Action::Play || cfg!(feature = "video")))
+                    .filter(|s| s.2 == k)
                     .map(|(a, m, k)| {
                         let keys = ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(m, k));
                         format!("{keys}: {}", a.label())

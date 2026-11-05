@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- In a build without video, Enter no longer runs Play Video, which did nothing there.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

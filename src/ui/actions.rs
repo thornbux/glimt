@@ -368,6 +368,12 @@ pub enum Action {
 }
 
 impl Action {
+    /// Whether this build does something for the action. Play needs the video feature; without
+    /// it, Enter is not taken by an action that does nothing.
+    pub fn in_build(self) -> bool {
+        self != Action::Play || cfg!(feature = "video")
+    }
+
     /// For the marks actions: 'm' (toggle mark), 's' (select by mark) or 'r' (stars), and the
     /// number.
     #[cfg(feature = "marks")]
@@ -1297,6 +1303,7 @@ pub fn shortcuts() -> std::sync::Arc<[Shortcut]> {
     // Defaults of actions with own keys go, and so does a default whose key an own key took.
     let mut all = own.clone();
     all.extend((SHORTCUTS.iter()).filter(|s| !own.iter().any(|o| o.0 == s.0 || same_keys(o, s))));
+    all.retain(|s| s.0.in_build());
     let weight = |m: &egui::Modifiers| m.shift as u8 + m.alt as u8 + m.command as u8;
     all.sort_by_key(|s| std::cmp::Reverse(weight(&s.1)));
     let all: std::sync::Arc<[Shortcut]> = all.into();
@@ -1374,6 +1381,9 @@ mod tests {
         assert_eq!(keys.to_string().parse::<Keys>().unwrap(), keys);
         *super::OWN_KEYS.write().unwrap() = keys.0.clone();
         let all = super::shortcuts();
+        // Play has no shortcut in a build without video, so Enter is free there.
+        let play = all.iter().any(|s| s.0 == Action::Play);
+        assert_eq!(play, cfg!(feature = "video"));
         let next: Vec<_> = all.iter().filter(|s| s.0 == Action::Next).collect();
         assert_eq!(next.len(), 1);
         // More modifiers first, so Shift+R (rotate) is matched before R.
