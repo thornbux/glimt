@@ -119,16 +119,20 @@ impl Thumbs {
         self.textures.get(name)?.as_ref()
     }
 
-    /// Forgets the thumbnail of `name`, made or being made, so it is made again.
+    /// Forgets the thumbnail of `name`, made or being made, so it is made again. One being
+    /// made is marked stale, because the worker's answer shows the file's old contents.
     pub(crate) fn forget(&mut self, name: &OsStr) {
         self.textures.remove(name);
-        self.pending.remove(name);
+        if self.pending.remove(name) {
+            self.stale.insert(name.to_owned());
+        }
     }
 
     /// Forgets every thumbnail, as another folder opens.
     pub(crate) fn forget_all(&mut self) {
         self.textures.clear();
         self.pending.clear();
+        self.stale.clear();
     }
 
     /// Whether the workers write new thumbnails to the shared cache.
@@ -1731,5 +1735,19 @@ mod tests {
             super::thumbs_to_keep(&files, None, 500..510, 600).len(),
             410
         );
+    }
+
+    /// A thumbnail forgotten while a worker makes it is dropped when it comes, because it
+    /// shows the old contents. Another folder starts with nothing stale.
+    #[test]
+    fn a_thumbnail_forgotten_while_made_is_stale() {
+        let ctx = eframe::egui::Context::default();
+        let mut thumbs = super::Thumbs::new(&ctx, 1, &Default::default(), false);
+        let name = std::ffi::OsStr::new("a.jpg");
+        thumbs.pending.insert(name.to_owned());
+        thumbs.forget(name);
+        assert!(thumbs.stale.contains(name));
+        thumbs.forget_all();
+        assert!(thumbs.stale.is_empty());
     }
 }
