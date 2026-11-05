@@ -806,7 +806,7 @@ fn pdf_text(text: &str) -> String {
 /// print dialog.
 pub fn printers() -> (Vec<String>, Option<String>) {
     #[cfg(feature = "portals")]
-    if crate::files::portal::in_flatpak() {
+    if crate::files::external::in_flatpak() {
         return (vec![SYSTEM_DIALOG.into()], Some(SYSTEM_DIALOG.into()));
     }
     // This has the usual limit, because a CUPS server that does not answer would otherwise hold

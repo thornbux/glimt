@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Whether Glimt runs in a Flatpak is asked one way, external::in_flatpak, also in a build without
+  the portals, and the host's folders one way, config::host_xdg_dir.
 - An operation edits the open collection only through collections::edit_told, which keeps the plain-
   list rule and the message for a collection gone.
 - Every sidecar is read through xmp::own_sidecar, which skips a link.

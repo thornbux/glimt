@@ -572,7 +572,7 @@ impl crate::App {
                 return;
             };
             #[cfg(feature = "portals")]
-            if apps.is_empty() && crate::files::portal::in_flatpak() {
+            if apps.is_empty() && crate::files::external::in_flatpak() {
                 // The Flatpak, without the host's applications: the desktop's own chooser.
                 if ui
                     .button(iconed(ui, theme::icon::APP, tr("Choose Application…")))

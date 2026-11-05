@@ -344,8 +344,9 @@ fn own_or_none(dir: &std::path::Path, uid: u32) -> bool {
 pub fn instance_id() -> &'static str {
     static ME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ME.get_or_init(|| {
-        let info = std::env::var_os("FLATPAK_ID")
-            .and_then(|_| crate::images::decode::read_text("/.flatpak-info").ok());
+        let info = (crate::files::external::in_flatpak())
+            .then(|| crate::images::decode::read_text("/.flatpak-info").ok())
+            .flatten();
         let instance = info
             .as_deref()
             .and_then(|i| i.lines().find_map(|l| l.strip_prefix("instance-id=")));

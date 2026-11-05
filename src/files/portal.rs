@@ -11,11 +11,6 @@ const PATH: &str = "/org/freedesktop/portal/desktop";
 
 type Results = HashMap<String, OwnedValue>;
 
-/// Whether Glimt runs in a Flatpak, where these portals stand in for the host's programs.
-pub fn in_flatpak() -> bool {
-    std::env::var_os("FLATPAK_ID").is_some()
-}
-
 /// `method` of the portal `interface` called with `body`, whose options carry `token` as their
 /// handle_token, and its request's Response awaited: the results, or `None` when the user
 /// cancelled. The Response is listened for before the call, so it cannot come first.
