@@ -2367,3 +2367,7 @@ msgstr "Drukowanie anulowane"
 
 msgid "Choose Application…"
 msgstr "Wybierz aplikację…"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Przenieść kolekcję «{name}» do kosza? Jej obrazy zostaną na miejscu."

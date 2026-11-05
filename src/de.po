@@ -2356,3 +2356,7 @@ msgstr "Drucken abgebrochen"
 
 msgid "Choose Application…"
 msgstr "Anwendung wählen …"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Die Sammlung »{name}« in den Papierkorb verschieben? Ihre Bilder bleiben, wo sie sind."

@@ -2356,3 +2356,7 @@ msgstr "Tulostus peruttu"
 
 msgid "Choose Application…"
 msgstr "Valitse sovellus…"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Siirretäänkö kokoelma ”{name}” roskakoriin? Sen kuvat jäävät paikoilleen."

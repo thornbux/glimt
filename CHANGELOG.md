@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Move Collection to Trash asks before the collection's file goes to the trash, as Move Folder to
+  Trash does.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

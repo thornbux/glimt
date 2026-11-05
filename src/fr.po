@@ -2356,3 +2356,7 @@ msgstr "Impression annulée"
 
 msgid "Choose Application…"
 msgstr "Choisir une application…"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Mettre la collection « {name} » à la corbeille ? Ses images restent où elles sont."

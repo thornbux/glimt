@@ -2356,3 +2356,7 @@ msgstr "Afdrukken geannuleerd"
 
 msgid "Choose Application…"
 msgstr "Toepassing kiezen…"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "De verzameling “{name}” naar de prullenbak verplaatsen? De afbeeldingen blijven waar ze zijn."

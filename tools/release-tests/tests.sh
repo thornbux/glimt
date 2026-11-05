@@ -2860,10 +2860,13 @@ sleep 2
 menu File "Rename Collection…"
 key ctrl+a; xdotool type New; key Return
 renamed=$(ls $c | tr '\n' ' ')
-menu File "Move Collection to Trash"; sleep 2
+menu File "Move Collection to Trash"; sleep 1
+asked=$(ls $c | tr '\n' ' ')               # it asks first, and Enter answers
+key Return; sleep 2
 shot collection-trashed
 quit
 expect "renamed in its folder" "$renamed" "New.gqv "
+expect "kept while it asks" "$asked" "New.gqv "
 expect "the collection in the trash" "$(ls $c; ls $H/.local/share/Trash/files)" "New.gqv"
 expect "its image stays" "$(ls $d)" "a.jpg"
 echo "-- Ctrl+Z: a file back from the trash, a renamed one back to its old name"

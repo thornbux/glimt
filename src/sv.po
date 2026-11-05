@@ -2356,3 +2356,7 @@ msgstr "Utskriften avbröts"
 
 msgid "Choose Application…"
 msgstr "Välj program …"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Flytta samlingen ”{name}” till papperskorgen? Bilderna stannar där de är."

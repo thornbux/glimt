@@ -2356,3 +2356,7 @@ msgstr "Hætt við prentun"
 
 msgid "Choose Application…"
 msgstr "Velja forrit…"
+
+#: src/ui/dialogs.rs
+msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
+msgstr "Færa safnið „{name}“ í ruslið? Myndirnar í því verða áfram þar sem þær eru."
