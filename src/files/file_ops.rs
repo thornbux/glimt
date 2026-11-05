@@ -1089,8 +1089,19 @@ impl crate::App {
     pub(crate) fn written_anew(&mut self, paths: &[PathBuf]) {
         if let Some(Undo::Move(pairs)) = &mut self.work.undo {
             let written: HashSet<&PathBuf> = paths.iter().collect();
+            // A folder opened through a link spells the same file otherwise, so a pair of the
+            // same file name is compared by its real path too. Only those few are looked up.
+            let names: HashSet<&std::ffi::OsStr> =
+                paths.iter().filter_map(|p| p.file_name()).collect();
+            let real: HashSet<PathBuf> =
+                paths.iter().filter_map(|p| p.canonicalize().ok()).collect();
+            let same = |to: &PathBuf| {
+                written.contains(to)
+                    || (to.file_name().is_some_and(|n| names.contains(n))
+                        && to.canonicalize().is_ok_and(|t| real.contains(&t)))
+            };
             (pairs.iter_mut())
-                .filter(|(_, to, _)| written.contains(to))
+                .filter(|(_, to, _)| same(to))
                 .for_each(|(_, _, id)| *id = None);
         }
     }
@@ -2392,6 +2403,29 @@ mod tests {
         app.written_anew(std::slice::from_ref(&saved));
         app.undo(&ctx);
         assert!(settle(&mut app, &ctx, |app| !app.working() && b.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A turn saved through another spelling of the moved file's path, as in a folder opened
+    /// through a link, still keeps that file as the one Undo moves back.
+    #[test]
+    fn undo_of_a_move_follows_a_turn_saved_through_a_link() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-undo-link-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("real/sub")).unwrap();
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).unwrap();
+        let a = dir.join("real/a.png");
+        image::RgbImage::new(2, 2).save(&a).unwrap();
+        let (mut app, ctx) = app_on(&dir.join("real"));
+        app.transfer(&ctx, vec![a.clone()], dir.join("real/sub"), false);
+        assert!(settle(&mut app, &ctx, |app| app.work.undo.is_some()
+            && !app.working()));
+        // The turn is saved as a new file put in the old one's place, under the link's name.
+        let saved = dir.join("link/sub/a.png");
+        std::fs::copy(&saved, dir.join("real/sub/new")).unwrap();
+        std::fs::rename(dir.join("real/sub/new"), &saved).unwrap();
+        app.written_anew(std::slice::from_ref(&saved));
+        app.undo(&ctx);
+        assert!(settle(&mut app, &ctx, |app| !app.working() && a.exists()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
