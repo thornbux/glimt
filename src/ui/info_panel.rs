@@ -753,6 +753,13 @@ mod tests {
         app.files_changed(&ctx, std::slice::from_ref(&file));
         app.want_exif(&ctx);
         assert!(app.info.meta.is_some() && app.info.reread_after_write.is_some());
+        // Its fields show the file as it was, so they cannot be edited while it waits.
+        let mut enabled = true;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            app.meta_fields(ui);
+            enabled = ui.is_enabled();
+        });
+        assert!(!enabled, "the waiting panel's fields can be edited");
         drop(other);
         let written = |a: &crate::App| !a.work.writes_keywords();
         assert!(crate::support::test_support::settle(

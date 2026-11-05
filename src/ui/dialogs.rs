@@ -819,12 +819,23 @@ mod tests {
         app.list.select([0, 1].into());
         app.run(&ctx, crate::ui::actions::Action::NewCollection);
         app.list.set_range_end(Some(2));
-        app.answer_prompt(&ctx, super::Prompt::NewCollection, "trip");
+        // A name of its own, so a run never finds the collection of the run before.
+        let name = format!("trip-{}", std::process::id());
+        app.answer_prompt(&ctx, super::Prompt::NewCollection, &name);
         assert_eq!(
             app.list.selected().iter().copied().collect::<Vec<_>>(),
             [0, 1]
         );
         assert_eq!(app.list.range_end(), None);
+        // The collection is written in the background, and removed once it is.
+        let file = crate::model::collections::dir()
+            .unwrap()
+            .join(format!("{name}.gqv"));
+        let written = |a: &crate::App| !a.working_besides_image();
+        assert!(crate::support::test_support::settle(
+            &mut app, &ctx, written
+        ));
+        std::fs::remove_file(&file).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
