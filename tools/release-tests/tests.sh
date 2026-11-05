@@ -100,9 +100,12 @@ as_version() {
 }
 config() { printf '%s\n' "$@" >$XDG_CONFIG_HOME/glimt/config; }
 # The start of a section: its title, and NEW with nothing left by a section before, neither in
-# the homes nor in /tmp/stub, as run.sh may start a part at any section.
+# the homes nor in /tmp/stub, as run.sh may start a part at any section. The working folder and
+# the variables a section exports for itself are reset too; a new one of those goes in the list.
 section() {
     echo "-- $1"
+    cd /tmp
+    unset GLIMT_BFTOOLS LANG FLATPAK_ID
     rm -rf /tmp/stub/* /tmp/home-new /tmp/home-old
     as_version new
 }
