@@ -64,6 +64,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - The release tests' summary counted no failure of cargo audit, so an audit failing alone ended in
   "0 checks failed".
 - The release workflow built the Flatpak in a folder inside the source the manifest copies.
+- The weekly run with five million broken inputs skipped two tests that fed them, as their names
+  lacked survives_broken; a source test now keeps every such test named so.
 
 ## [0.57.0] - 2026-11-05
 

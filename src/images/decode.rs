@@ -1633,13 +1633,7 @@ mod tests {
     fn refuses_an_svg_of_growing_entities() {
         let dir = std::env::temp_dir().join(format!("glimt-test-svg-bomb-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let long = "x".repeat(100_000);
-        let bomb = format!(
-            "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY b \"{long}\"><!ENTITY a \"{}\">]>\
-             <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><desc>{}</desc></svg>",
-            "&b;".repeat(250),
-            "&a;".repeat(48)
-        );
+        let bomb = svg_bomb();
         let file = dir.join("bomb.svg");
         std::fs::write(&file, &bomb).unwrap();
         // The check refuses it, before usvg does. It is not refused by usvg after expanding it,
@@ -1678,10 +1672,29 @@ mod tests {
             let led = bomb.replacen(at, put, 1);
             assert!(super::entities_too_large(led.as_bytes()), "{put}");
         }
-        for broken in crate::support::test_support::broken(&bomb.as_bytes()[..400]) {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The start of an SVG of growing entities, broken in thousands of ways, is measured
+    /// without a panic or a loop.
+    #[cfg(feature = "svg")]
+    #[test]
+    fn survives_broken_svg_entities() {
+        for broken in crate::support::test_support::broken(&svg_bomb().as_bytes()[..400]) {
             let _ = super::entities_too_large(&broken);
         }
-        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An SVG whose entities would grow to gigabytes when expanded.
+    #[cfg(feature = "svg")]
+    fn svg_bomb() -> String {
+        let long = "x".repeat(100_000);
+        format!(
+            "<?xml version=\"1.0\"?><!DOCTYPE svg [<!ENTITY b \"{long}\"><!ENTITY a \"{}\">]>\
+             <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><desc>{}</desc></svg>",
+            "&b;".repeat(250),
+            "&a;".repeat(48)
+        )
     }
 
     /// CRC-32 as PNG chunks have it.

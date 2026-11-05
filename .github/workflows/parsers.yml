@@ -1,5 +1,5 @@
 # The parsers' tests with five million broken inputs each (GLIMT_FUZZ), every Sunday: more
-# than every test run can afford, and other ones each week (GLIMT_FUZZ_SEED, the run's number).
+# than every test run can afford, and other ones each week (GLIMT_FUZZ_SEED, the run's ID).
 # A failure names the test; run it with the same GLIMT_FUZZ and GLIMT_FUZZ_SEED to see it again.
 name: Parsers
 
@@ -24,7 +24,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable, 2026-10-09
         with:
           toolchain: stable
-      - run: cargo test --release --all-features survives_broken
+      - run: echo "GLIMT_FUZZ_SEED=$GLIMT_FUZZ_SEED" && cargo test --release --all-features survives_broken
         env:
           GLIMT_FUZZ: "5000000"
           GLIMT_FUZZ_SEED: ${{ github.run_id }}
