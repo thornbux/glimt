@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- run.sh and the screenshots' run.sh take tests.sh, samples.txt and shots.sh from the commit they
+  test, not from the working tree.
 - The release tests' kiosk, --lock-settings, Crop and printing checks that expect nothing to happen
   each show in their own section that the keys reach the window.
 - The release tests' summary counted no failure of cargo audit, so an audit failing alone ended in

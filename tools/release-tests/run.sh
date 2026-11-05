@@ -27,11 +27,12 @@ rm -rf "$work"
 mkdir -p "$work/new" "$work/old" "$work/out"
 git archive "$new" | tar -xm -C "$work/new"
 git archive "$old" | tar -xm -C "$work/old"
-cp tools/release-tests/tests.sh tools/release-tests/samples.txt "$work/"
+# The tests of NEW as committed, not the working tree's, so a run checks that commit only.
+cp "$work/new/tools/release-tests/tests.sh" "$work/new/tools/release-tests/samples.txt" "$work/"
 samples=${XDG_CACHE_HOME:-$HOME/.cache}/glimt-samples
 mkdir -p "$samples"
 sum() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1"; } | cut -d' ' -f1; }
-grep -v '^#' tools/release-tests/samples.txt | while read -r name sha url; do
+grep -v '^#' "$work/samples.txt" | while read -r name sha url; do
     f=$samples/$name
     [ -f "$f" ] && [ "$(sum "$f")" = "$sha" ] && continue
     if curl -fsSL -o "$f.part" "$url" && [ "$(sum "$f.part")" = "$sha" ]; then
