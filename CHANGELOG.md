@@ -73,6 +73,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   prints on its errors for as long as it stays open.
 - A video player or Open With program that fails without printing why now shows its exit status,
   where it showed an empty notice.
+- A damaged video or HEIC shows ffmpeg's last error line, not up to 64 KB of its errors over the
+  image and in Check Images.
 
 ## [0.57.0] - 2026-11-05
 
