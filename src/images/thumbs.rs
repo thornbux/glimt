@@ -155,11 +155,7 @@ fn write(file: &Path, img: &image::RgbaImage, uri: &str, mtime: u64) -> std::io:
 /// The shared cache. A Flatpak points XDG_CACHE_HOME to a folder of its own; the shared one is
 /// the host's.
 fn cache_dir() -> Option<std::path::PathBuf> {
-    let var = match std::env::var_os("FLATPAK_ID") {
-        Some(_) => "HOST_XDG_CACHE_HOME",
-        None => "XDG_CACHE_HOME",
-    };
-    crate::files::config::xdg_dir(var, ".cache", "thumbnails")
+    crate::files::config::host_xdg_dir("XDG_CACHE_HOME", ".cache", "thumbnails")
 }
 
 /// Remove the cached thumbnails of files that are gone: (removed, looked at). A thumbnail is

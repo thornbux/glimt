@@ -19,6 +19,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A panic in a worker is caught in one place, threads::caught, and a source test refuses a second
   way.
 
+### Fixed
+
+- In the Flatpak, Undo of a move to the trash finds the host's trash also where the host has its own
+  XDG_DATA_HOME.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
