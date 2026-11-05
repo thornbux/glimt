@@ -10,6 +10,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A file renamed or moved in a collection, or renamed in place, leaves the search's matches it no
   longer fits and joins those it now fits.
 
+### Changed
+
+- A test checks that the .deb, .rpm, tar.gz, AppImage and Flatpak install the same files.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed
