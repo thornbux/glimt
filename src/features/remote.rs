@@ -318,7 +318,7 @@ fn is_query(command: &str) -> bool {
 /// Glimt's runtime folder, which only the user can reach. It holds the sockets and the sidecar
 /// locks.
 pub(crate) fn dir() -> Option<PathBuf> {
-    let mut dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
+    let mut dir = runtime_dir(std::env::var_os("XDG_RUNTIME_DIR"))?;
     if let Some(id) = std::env::var_os("FLATPAK_ID") {
         dir = dir.join("app").join(id);
     }
@@ -327,6 +327,13 @@ pub(crate) fn dir() -> Option<PathBuf> {
     // should be (/tmp). Its sockets would be theirs to answer, and its locks theirs to hold.
     let uid = std::fs::metadata("/proc/self").ok()?.uid();
     own_or_none(&dir, uid).then_some(dir)
+}
+
+/// Returns `$XDG_RUNTIME_DIR` as given in `set`, or `None` when it is unset, empty or relative.
+/// A relative one would put the sockets and locks in the current folder, and the XDG spec says
+/// to ignore it, as `config::xdg_base` does for the other XDG folders.
+fn runtime_dir(set: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    set.map(PathBuf::from).filter(|p| p.is_absolute())
 }
 
 /// Whether `dir` is a folder of user `uid`, not a link, or not there yet (made by `listen`).
@@ -580,8 +587,8 @@ pub fn client(
 /// a query.
 pub fn listen(tx: mpsc::Sender<(String, Option<Reply>)>, ctx: eframe::egui::Context) {
     let Some(path) = socket(socket_id()) else {
-        return match std::env::var_os("XDG_RUNTIME_DIR") {
-            None => eprintln!("No remote control: $XDG_RUNTIME_DIR is not set"),
+        return match runtime_dir(std::env::var_os("XDG_RUNTIME_DIR")) {
+            None => eprintln!("No remote control: $XDG_RUNTIME_DIR is not set to a full path"),
             Some(_) => eprintln!("No remote control: its folder there is not this user's own"),
         };
     };
@@ -789,6 +796,16 @@ pub fn close() {
 #[cfg(test)]
 mod tests {
     use crate::support::test_support::app_on;
+
+    /// An empty or relative $XDG_RUNTIME_DIR is not used, so nothing goes into ./glimt.
+    #[test]
+    fn a_relative_runtime_dir_is_ignored() {
+        let dir = |s: &str| super::runtime_dir(Some(s.into()));
+        assert_eq!(dir(""), None);
+        assert_eq!(dir("run"), None);
+        assert_eq!(dir("/run/user/1000"), Some("/run/user/1000".into()));
+        assert_eq!(super::runtime_dir(None), None);
+    }
 
     /// Only the commands Glimt knows go out, with a path only where one is taken.
     #[test]
