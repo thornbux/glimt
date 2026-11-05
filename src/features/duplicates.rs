@@ -592,6 +592,7 @@ fn similar(
     p.done.store(0, Ordering::Relaxed);
     let mut grouped = vec![false; items.len()];
     let mut found = Vec::new();
+    let threads = crate::support::threads::background_threads();
     // Small while many match (thousands of copies of one picture), so the matches kept for a
     // block stay few; up to 512 pictures once they match few.
     let (mut k, mut block) = (0, 1);
@@ -602,37 +603,61 @@ fn similar(
         let ks: Vec<usize> = (k..(k + block).min(items.len()))
             .filter(|&k| !grouped[k])
             .collect();
-        let each = in_block(&ks, crate::support::threads::background_threads(), |k| {
-            matches(k, &grouped)
-        });
-        let mut kept = 0;
-        for (&k, alike) in ks.iter().zip(each) {
-            // Taken by a picture before it in the block: not a group of its own.
-            if grouped[k] {
-                continue;
-            }
-            // Left out as found by a picture before it, which another group took after all.
-            let alike = alike.unwrap_or_else(|| matches(k, &grouped));
-            kept += alike.len();
-            let mut group = vec![paths[items[k].at].clone()];
-            for n in alike {
-                if !grouped[n] {
-                    grouped[n] = true;
-                    group.push(paths[items[n].at].clone());
-                }
-            }
-            if group.len() > 1 {
-                found.push(group);
-            }
-        }
+        let held = group_block(&ks, threads, &mut grouped, &mut found, matches);
         k += block;
         p.done.store(k.min(items.len()), Ordering::Relaxed);
-        block = match kept > 1_000_000 {
+        block = match held > 1_000_000 {
             true => (block / 2).max(1),
             false => (block * 2).min(512),
         };
     }
-    found
+    (found.into_iter())
+        .map(|group| {
+            group
+                .into_iter()
+                .map(|n| paths[items[n].at].clone())
+                .collect()
+        })
+        .collect()
+}
+
+/// Groups the pictures `ks` of one block (in order, from low to high) as one thread would,
+/// from their matches found on `threads` at once, and adds the groups to `found`. Returns how
+/// many matches were held at once. A part's matches count even when its first picture went to
+/// a group before it, as they were held all the same, and the next block is chosen by them.
+fn group_block(
+    ks: &[usize],
+    threads: usize,
+    grouped: &mut [bool],
+    found: &mut Vec<Vec<usize>>,
+    matches: impl Fn(usize, &[bool]) -> Vec<usize> + Sync,
+) -> usize {
+    let now: &[bool] = grouped;
+    let each = in_block(ks, threads, |k| matches(k, now));
+    let mut held: usize = each.iter().flatten().map(Vec::len).sum();
+    for (&k, alike) in ks.iter().zip(each) {
+        // Taken by a picture before it in the block: not a group of its own.
+        if grouped[k] {
+            continue;
+        }
+        // Left out as found by a picture before it, which another group took after all.
+        let alike = alike.unwrap_or_else(|| {
+            let alike = matches(k, grouped);
+            held += alike.len();
+            alike
+        });
+        let mut group = vec![k];
+        for n in alike {
+            if !grouped[n] {
+                grouped[n] = true;
+                group.push(n);
+            }
+        }
+        if group.len() > 1 {
+            found.push(group);
+        }
+    }
+    held
 }
 
 /// `matches` of each of `ks` (in order, from low to high), on `threads` at once; `None` for one
@@ -756,6 +781,22 @@ mod tests {
         let kept: Vec<usize> = (each.iter().flatten()).map(Vec::len).collect();
         assert_eq!(kept, [4999, 4871, 4743, 4615]);
         assert_eq!(each.len(), 512);
+    }
+
+    /// The matches held for a part count toward the next block's size also when the part's
+    /// first picture went to a group before it: here 4 takes 1,000 that are never replayed.
+    #[test]
+    fn a_block_counts_what_its_parts_held() {
+        let ks: Vec<usize> = (0..8).collect();
+        let mut grouped = vec![false; 2000];
+        let mut found = Vec::new();
+        let held = group_block(&ks, 2, &mut grouped, &mut found, |k, _| match k {
+            0 => vec![4],
+            4 => (1000..2000).collect(),
+            _ => Vec::new(),
+        });
+        assert_eq!(found, [[0, 4]]);
+        assert_eq!(held, 1001);
     }
 
     /// Groups made on all cores are those one thread makes comparing every pair, also with
