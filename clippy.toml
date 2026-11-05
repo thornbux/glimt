@@ -11,7 +11,7 @@ disallowed-methods = [
     { path = "std::fs::OpenOptions::open", reason = "file_io's writers or decode::read_limited" },
     { path = "std::fs::rename", reason = "file_io::rename_never_over, or file_io::replace_file to replace" },
     { path = "std::fs::copy", reason = "file_io::put_file: never over a file, never half-copied" },
-    { path = "std::process::Command::new", reason = "external::command or stoppable_command, which also run on the host in a Flatpak" },
+    { path = "std::process::Command::new", reason = "external::command (Glimt's own programs, in a Flatpak's sandbox) or host_command (the user's, on the host), or their stoppable_ forms" },
     { path = "std::process::Command::output", reason = "external::run_limited or limited: never wait for good" },
     { path = "std::process::Command::status", reason = "external::run_limited or limited: never wait for good" },
     { path = "std::fs::File::open", reason = "decode::open: no pipe or device, which would block or never end" },

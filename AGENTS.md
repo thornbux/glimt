@@ -247,11 +247,14 @@ of that part. The exceptions are the tables of one arm per action (`Action::engl
     the windows share with `file_io::edit_shared` (lock, read, change and write as one; clippy
     refuses `file_lock` elsewhere);
   - rename with `file_io::rename_never_over` (never over a file), move or copy with `put_file`;
-  - start a program with `external::command` or `stoppable_command`, and wait for it only with
-    `run_limited`, `limited`, `output_of` or a `Watchdog` (never `.output()`/`.status()`);
+  - start Glimt's own program with `external::command` or `stoppable_command` (in a Flatpak's
+    sandbox), the user's with `host_command` or `stoppable_host_command` (on the host), and
+    wait for it only with `run_limited`, `limited`, `output_of` or a `Watchdog` (never
+    `.output()`/`.status()`);
   - make a copy of the shown image from `App::shown_copy` and save it with `save::land`.
-  A place that must do otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest
-  statement or function, with its reason on the same line.
+  `clippy.toml` has the whole list, each call with the way to take instead. A place that must
+  do otherwise gets `#[allow(clippy::disallowed_methods)]` on the narrowest statement or
+  function, with its reason on the same line or the next.
 - **A shortcut with a known limit** (work in the UI thread, a whole file rewritten) gets a
   comment `shortcut: <the limit>; <when to do more>`, so the next reader knows it was chosen.
 
