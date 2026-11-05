@@ -43,6 +43,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
   list changes while they are open, and New Collection adds those files, not the selection of the
   moment.
 
+- New Folder and Rename Collection act on the folder or collection they asked about, also when a
+  script opened another one while the dialog was open.
 
 ## [0.57.0] - 2026-11-05
 

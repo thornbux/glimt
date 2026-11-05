@@ -2576,12 +2576,20 @@ mod tests {
         let d = contract_folder("new-folder");
         let (mut app, ctx) = app_on(&d);
         assert!(settle(&mut app, &ctx, |a| !a.folder.is_listing()));
+        app.run(&ctx, crate::ui::actions::Action::NewFolder);
+        // Another folder opened while the dialog is open, by a script, say, does not change
+        // where the new folder is made.
+        let other = d.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        app.open(&ctx, other.clone());
         app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
+        app.open(&ctx, d.clone());
         assert!(settle(&mut app, &ctx, |a| {
             !a.folder.is_listing() && a.folder.subdirs().iter().any(|s| s.ends_with("trip"))
         }));
-        assert!(d.join("trip").is_dir());
+        assert!(d.join("trip").is_dir() && !other.join("trip").exists());
         // When the folder is there already, a notice says so, and nothing else is made.
+        app.run(&ctx, crate::ui::actions::Action::NewFolder);
         app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::NewFolder, "trip");
         assert!(settle(&mut app, &ctx, |a| a.notice.is_some()));
         std::fs::remove_dir_all(d).unwrap();

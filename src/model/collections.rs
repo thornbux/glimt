@@ -524,6 +524,26 @@ pub(crate) fn dropped(n: usize, picked: &HashSet<usize>, to: usize) -> Vec<usize
 
 #[cfg(test)]
 mod tests {
+    /// Rename Collection renames the collection it asked about, also when a script opened
+    /// another one while the dialog was open, and the window then keeps showing the other one.
+    #[test]
+    fn rename_collection_acts_on_the_one_it_asked_about() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-gqv-asked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (trip, home) = (dir.join("trip.gqv"), dir.join("home.gqv"));
+        for file in [&trip, &home] {
+            std::fs::write(file, "#GQview collection\n#end\n").unwrap();
+        }
+        let (mut app, ctx) = crate::support::test_support::app_on(&dir);
+        app.open(&ctx, trip.clone());
+        app.run(&ctx, crate::ui::actions::Action::RenameCollection);
+        app.open(&ctx, home.clone());
+        app.answer_prompt(&ctx, crate::ui::dialogs::Prompt::RenameCollection, "summer");
+        assert!(dir.join("summer.gqv").is_file() && !trip.exists() && home.is_file());
+        assert_eq!(app.folder.collection(), Some(home.as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Editing a collection Geeqie wrote keeps Geeqie's own lines: its #geometry line was
     /// dropped the first time Glimt took an image out.
     #[test]
