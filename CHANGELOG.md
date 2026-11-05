@@ -98,6 +98,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Add to Collection no longer holds up the window while it writes a large collection.
 - Esc in a dialog shown over Preferences (a share's login, an interrupted Rename Many, a folder
   delete) closes only that dialog, not Preferences with it.
+- In the Flatpak, Undo of a move to the trash finds the host's trash also where the host has its own
+  XDG_DATA_HOME.
 
 ## [0.57.0] - 2026-11-05
 

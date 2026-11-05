@@ -670,6 +670,22 @@ pub fn xdg_file(var: &str, home_fallback: &str, name: &str) -> Option<PathBuf> {
     Some(xdg_dir(var, home_fallback, "glimt")?.join(name))
 }
 
+/// Returns the host's folder `app` under the XDG folder `var` (such as XDG_DATA_HOME), or under
+/// `home_fallback` in the home. In a Flatpak the XDG folders point into the sandbox, so the
+/// host's own come from HOST_XDG_*. The shared thumbnail cache and the trash are the host's.
+pub fn host_xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
+    let flatpak = std::env::var_os("FLATPAK_ID").is_some();
+    xdg_dir(&host_var(var, flatpak), home_fallback, app)
+}
+
+/// Returns the variable that names the host's XDG folder `var`: HOST_ before it in a Flatpak.
+fn host_var(var: &str, flatpak: bool) -> String {
+    match flatpak {
+        true => format!("HOST_{var}"),
+        false => var.to_owned(),
+    }
+}
+
 pub fn xdg_dir(var: &str, home_fallback: &str, app: &str) -> Option<PathBuf> {
     // Tests have a home of their own, because an App made in a test removed the user's recent
     // list.
@@ -811,6 +827,14 @@ fn merged(ours: &str, saved: &str, on_disk: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// In a Flatpak the host's XDG folder is named by HOST_ before the variable, because the
+    /// variable itself points into the sandbox; outside one it is the variable itself.
+    #[test]
+    fn names_the_hosts_xdg_folder() {
+        assert_eq!(super::host_var("XDG_DATA_HOME", true), "HOST_XDG_DATA_HOME");
+        assert_eq!(super::host_var("XDG_DATA_HOME", false), "XDG_DATA_HOME");
+    }
+
     /// An XDG variable that holds a relative folder, or is empty, is passed over for the home
     /// folder's default, as the XDG spec says. With no absolute folder at all there is none.
     #[test]

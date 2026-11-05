@@ -153,7 +153,8 @@ pub(crate) fn trash(paths: &[PathBuf]) -> Result<(), String> {
     let Err(e) = refused else {
         return Ok(());
     };
-    let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/Trash"));
+    // The host's trash, also where the host has its own XDG_DATA_HOME.
+    let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
     let (Some(_), Some(home)) = (std::env::var_os("FLATPAK_ID"), home) else {
         return Err(e);
     };
@@ -241,10 +242,7 @@ fn trash_by_hand(path: &Path, trash: &Path) -> std::io::Result<()> {
 pub(crate) fn trash_dirs(path: &Path) -> Vec<(PathBuf, PathBuf)> {
     use std::os::unix::fs::MetadataExt;
     // In a Flatpak, gio trash goes through the trash portal, into the host's trash.
-    let home = match std::env::var_os("FLATPAK_ID") {
-        Some(_) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/Trash")),
-        None => config::xdg_dir("XDG_DATA_HOME", ".local/share", "Trash"),
-    };
+    let home = config::host_xdg_dir("XDG_DATA_HOME", ".local/share", "Trash");
     let mut dirs: Vec<(PathBuf, PathBuf)> = home.map(|h| (h, "/".into())).into_iter().collect();
     // The top of its file system: the last folder up on the same device.
     let dev = |p: &Path| std::fs::metadata(p).map(|m| m.dev()).ok();
