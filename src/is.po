@@ -2792,3 +2792,7 @@ msgstr "myndin var færð, endurnefnd eða henni eytt á meðan"
 #: src/ui/dialogs.rs
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Færa safnið „{name}“ í ruslið? Myndirnar í því verða áfram þar sem þær eru."
+
+#: src/files/file_io.rs
+msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "skráakerfið hér leyfir ekki þessa nafnbreytingu, eins og á sumum sameiginlegum möppum, skýjamöppum og símum ({e})"

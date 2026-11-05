@@ -33,7 +33,7 @@ pub(crate) fn rename_never_over(from: &Path, to: &Path) -> std::io::Result<()> {
             Ok(()) => unlink_linked(from, to),
             Err(e) if matches!(e.kind(), AlreadyExists | CrossesDevices) => Err(e),
             Err(_) if to.exists() => Err(AlreadyExists.into()),
-            Err(_) => std::fs::rename(from, to),
+            Err(_) => std::fs::rename(from, to).map_err(plain),
         },
         done => done,
     }
@@ -50,6 +50,23 @@ fn unlink_linked(from: &Path, to: &Path) -> std::io::Result<()> {
             Err(e)
         }
         _ => Ok(()),
+    }
+}
+
+/// Returns `e` told in plain words when it says that the file system cannot rename a file as
+/// Glimt does, which some shares, cloud folders and phones cannot. The system's own words follow
+/// in brackets, and the kind stays, so callers still match on it.
+fn plain(e: std::io::Error) -> std::io::Error {
+    // EPERM, EXDEV, ENOSYS and EOPNOTSUPP: what such file systems answer to a rename.
+    match e.raw_os_error() {
+        Some(1 | 18 | 38 | 95) => std::io::Error::new(
+            e.kind(),
+            crate::tf!(
+                "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})",
+                e
+            ),
+        ),
+        _ => e,
     }
 }
 
@@ -280,7 +297,7 @@ pub fn replace_name_with(
     before: impl FnOnce() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     #[allow(clippy::disallowed_methods)] // replaces on purpose, the name and never a link's target
-    let land = |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path));
+    let land = |tmp: &Path| before().and_then(|_| std::fs::rename(tmp, path).map_err(plain));
     write_beside(&tmp_path(path), path, write, land)
 }
 
@@ -304,7 +321,7 @@ fn replace(path: &Path, bytes: impl AsRef<[u8]>, existing: bool) -> std::io::Res
     there()?;
     #[allow(clippy::disallowed_methods)] // replaces on purpose: the one writer of a file again
     write_beside(&tmp_path(path), path, write, |tmp| {
-        there().and_then(|_| std::fs::rename(tmp, path))
+        there().and_then(|_| std::fs::rename(tmp, path).map_err(plain))
     })
 }
 
@@ -413,6 +430,21 @@ pub fn save_failed(error: String) {
 
 #[cfg(test)]
 mod tests {
+    /// A rename the file system cannot do is told in plain words with the system's own after
+    /// them, and keeps its kind. Another error, such as a permission denied, stays as it was.
+    #[test]
+    fn tells_a_rename_the_file_system_cannot_do_in_plain_words() {
+        for errno in [1, 18, 38, 95] {
+            let raw = std::io::Error::from_raw_os_error(errno);
+            let told = super::plain(std::io::Error::from_raw_os_error(errno));
+            assert_eq!(told.kind(), raw.kind());
+            let text = told.to_string();
+            assert!(text.contains("does not allow this rename") && text.contains(&raw.to_string()));
+        }
+        let denied = super::plain(std::io::Error::from_raw_os_error(13));
+        assert_eq!(denied.raw_os_error(), Some(13));
+    }
+
     /// A replace whose write fails never runs the step before the rename, so Save As over a file
     /// keeps that file's sidecar when the disk is full. A step that fails leaves the file as it
     /// was, with no temporary file beside it.

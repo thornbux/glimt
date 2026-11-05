@@ -2792,3 +2792,7 @@ msgstr "das Bild wurde inzwischen verschoben, umbenannt oder gelöscht"
 #: src/ui/dialogs.rs
 msgid "Move the collection \"{name}\" to the trash? Its images stay where they are."
 msgstr "Die Sammlung »{name}« in den Papierkorb verschieben? Ihre Bilder bleiben, wo sie sind."
+
+#: src/files/file_io.rs
+msgid "the file system here does not allow this rename, as on some shares, cloud folders and phones ({e})"
+msgstr "das Dateisystem hier erlaubt diese Umbenennung nicht, wie auf manchen Freigaben, Cloud-Ordnern und Telefonen ({e})"
