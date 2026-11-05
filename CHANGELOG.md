@@ -122,6 +122,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 - Moving files to the trash has one function, trash::trash, so no caller can skip the Flatpak's
   fallback for a file the portal refuses.
+### Changed
+
+- Opening a file of the folder already shown (File → Open File, a drop, --remote open, Back) goes to
+  it at once, without reading the folder, its thumbnails and its EXIF index again.
 
 ## [0.57.0] - 2026-11-05
 
