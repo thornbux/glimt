@@ -683,6 +683,38 @@ fn modules_live_in_their_folder() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// A test that feeds `test_support::broken` is named `survives_broken_*`. The weekly run with
+/// five million broken inputs (`.github/workflows/parsers.yml`) picks its tests by that name,
+/// and it would skip one named otherwise. Every spelling of the call counts, imported or by its
+/// whole path.
+#[test]
+fn broken_inputs_are_fed_by_survives_broken_tests() {
+    let mut wrong = Vec::new();
+    for (file, text) in rust_sources() {
+        if file.ends_with("test_support.rs") {
+            continue;
+        }
+        let mut function = String::new();
+        for (i, line) in code_lines(&text).iter().enumerate() {
+            if let Some(rest) = qualifiers_off(line.trim_start()).strip_prefix("fn ") {
+                function = rest.split(['(', '<']).next().unwrap_or("").to_owned();
+            }
+            let calls = line.match_indices("broken(").any(|(at, _)| {
+                let before = line[..at].chars().next_back();
+                !before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+            });
+            if calls && !function.starts_with("survives_broken") {
+                wrong.push(format!("{file}:{} in {function}", i + 1));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "test_support::broken fed outside a survives_broken_* test:\n{}",
+        wrong.join("\n")
+    );
+}
+
 /// A comment fits the 100 columns rustfmt keeps code to, which rustfmt does not wrap: a longer
 /// one is read sideways, or wrapped by an editor in the middle of a word. Also one at the end
 /// of a line of code.

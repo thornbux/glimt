@@ -5,6 +5,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The weekly run with five million broken inputs skipped two tests that fed them, as their names
+  lacked survives_broken; a source test now keeps every such test named so.
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

@@ -700,18 +700,29 @@ mod tests {
         }
     }
 
+    /// A PNG chunk named `name` holding `data`, with its length and CRC.
+    fn png_chunk(name: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut c = (data.len() as u32).to_be_bytes().to_vec();
+        let body = [name, data].concat();
+        c.extend(&body);
+        c.extend(super::crc32(&body).to_be_bytes());
+        c
+    }
+
+    /// A PNG of `width` by `height` black pixels.
+    fn black_png(width: u32, height: u32) -> Vec<u8> {
+        let mut png = Vec::new();
+        image::RgbImage::new(width, height)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        png
+    }
+
     /// A PNG turned keeps its text and DPI, and nothing tied to how the old pixels were stored.
-    /// Broken ones are survived.
     #[test]
     fn keeps_png_chunks() {
         use image::ImageEncoder;
-        let chunk = |name: &[u8], data: &[u8]| {
-            let mut c = (data.len() as u32).to_be_bytes().to_vec();
-            let body = [name, data].concat();
-            c.extend(&body);
-            c.extend(super::crc32(&body).to_be_bytes());
-            c
-        };
+        let chunk = png_chunk;
         let mut new = Vec::new();
         image::codecs::png::PngEncoder::new(&mut new)
             .write_image(&[0; 2 * 2 * 3], 2, 2, image::ExtendedColorType::Rgb8)
@@ -749,8 +760,16 @@ mod tests {
         let at = out.windows(4).position(|w| w == b"pHYs").unwrap();
         assert_eq!(&out[at + 4..at + 13], &[0, 0, 0, 98, 0, 0, 0, 204, 1]);
         image::codecs::png::PngDecoder::new(std::io::Cursor::new(&out)).unwrap();
+    }
+
+    /// A turned PNG given the chunks of a broken one keeps what it can read of them, without a
+    /// panic or a loop.
+    #[test]
+    fn survives_broken_png_chunks() {
+        let (tall, mut old) = (black_png(2, 3), black_png(3, 2));
+        old.splice(33..33, png_chunk(b"pHYs", &[0, 0, 0, 204, 0, 0, 0, 98, 1]));
         for broken in crate::support::test_support::broken(&old) {
-            super::png_with_chunks(&new, &broken, true);
+            super::png_with_chunks(&tall, &broken, true);
         }
     }
 
