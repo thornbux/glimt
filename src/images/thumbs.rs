@@ -267,10 +267,20 @@ fn md5(data: &[u8]) -> [u8; 16] {
 /// Whether a file that gave `error` is marked as having no thumbnail. Not when ffmpeg or a
 /// decoder plugin is not there: it may be installed later; nor when the file could not be read
 /// (a share or a stick away for a moment): the system's errors say "(os error N)", a file that
-/// is no picture does not. Others are marked, or tried again on every visit (2,000 TypeScript
-/// sources named .ts, which are video endings too, would start ffmpeg 4,000 times).
+/// is no picture does not. A program that read from such a share says so in its own words, or
+/// was ended by the time limit while the share woke up, and is not marked either. Others are
+/// marked, or tried again on every visit (2,000 TypeScript sources named .ts, which are video
+/// endings too, would start ffmpeg 4,000 times).
 fn worth_marking(path: &Path, error: &str) -> bool {
-    !(needs_program(path) && program_missing(error)) && !error.contains("(os error")
+    let away = [
+        crate::files::external::TIMED_OUT,
+        "Input/output error",
+        "Transport endpoint is not connected",
+        "Host is down",
+    ];
+    !(needs_program(path) && program_missing(error))
+        && !error.contains("(os error")
+        && !away.iter().any(|m| error.contains(m))
 }
 
 /// Whether `path` is read by another program: ffmpeg (HEIC, AVIF, video) or a decoder plugin.
@@ -329,6 +339,13 @@ mod tests {
         let jpg = std::path::Path::new("/a.jpg");
         let away = std::io::Error::from_raw_os_error(5).to_string();
         assert!(!super::worth_marking(jpg, &away));
+        // So is a video whose program said the share failed, or ran out of time while it woke.
+        let mp4 = std::path::Path::new("/a.mp4");
+        assert!(!super::worth_marking(mp4, "/a.mp4: Input/output error"));
+        assert!(!super::worth_marking(
+            mp4,
+            crate::files::external::TIMED_OUT
+        ));
         assert!(super::worth_marking(
             jpg,
             "Format error decoding Jpeg: invalid marker"
