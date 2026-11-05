@@ -91,6 +91,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - A kiosk whose quit is held back no longer lets every other action through.
 - The info panel names a JPEG XL's own colour profile instead of saying it is taken as sRGB.
 - Open With in the Flatpak no longer hangs on a pipe named in a collection or on the command line.
+- An animated GIF cut short in a download shows the frames that came, not only its first frame as a
+  still.
 
 ## [0.57.0] - 2026-11-05
 
