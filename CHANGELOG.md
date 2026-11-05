@@ -5,6 +5,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The delete, Rename Many and New Collection dialogs keep naming the files they asked about when the
+  list changes while they are open, and New Collection adds those files, not the selection of the
+  moment.
+
+
 ## [0.57.0] - 2026-11-05
 
 ### Fixed

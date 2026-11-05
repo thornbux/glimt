@@ -15,7 +15,11 @@ impl crate::App {
 
     /// Image `i`'s name as shown: relative to the folder, or in a collection the file name.
     pub(crate) fn name(&self, i: usize) -> std::borrow::Cow<'_, str> {
-        let name = self.list.files()[i].as_os_str();
+        self.name_shown(&self.list.files()[i])
+    }
+
+    /// Returns how the list shows `name`, an entry of the list's files.
+    pub(crate) fn name_shown<'a>(&self, name: &'a std::ffi::OsStr) -> std::borrow::Cow<'a, str> {
         // Several folders: the folder and the file, "Holiday/IMG_0012.jpg".
         if !self.folder.folders().is_empty() {
             let path = Path::new(name);
@@ -262,18 +266,6 @@ impl crate::App {
         } else {
             self.list.selected().iter().copied().collect()
         }
-    }
-
-    /// How many `targets` there are and the first, without listing them: for a dialog drawn in
-    /// every frame, with 500,000 selected.
-    pub(crate) fn first_target(&self) -> (usize, usize) {
-        let first = self
-            .list
-            .selected()
-            .first()
-            .copied()
-            .unwrap_or(self.list.cur());
-        (self.list.selected().len().max(1), first)
     }
 
     /// First, Previous, Next and Last, along the list as shown (the search matches while

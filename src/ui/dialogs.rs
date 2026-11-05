@@ -81,8 +81,9 @@ pub(crate) struct Dialogs {
     /// Answer from an open file dialog (zenity or kdialog).
     file_dialog: Option<Pick>,
     file_dialog_rx: Receiving<Option<PathBuf>>,
-    /// The files Rename or a delete asked about, by their names in the list, and where the list
-    /// was (`ask_about_targets`): the answer acts on those files, wherever a refresh put them.
+    /// The files a dialog asks about, by their names in the list, and where the list was
+    /// (`ask_about_targets`). The dialog names them, and its answer acts on them, wherever a
+    /// refresh put them.
     asked_for: (u64, Vec<OsString>),
 }
 
@@ -105,6 +106,11 @@ impl Dialogs {
     /// The files asked about, by their names, and where the list was when asked.
     pub(crate) fn asked_about(&mut self, place: u64, names: Vec<OsString>) {
         self.asked_for = (place, names);
+    }
+
+    /// Returns the names of the files asked about, which the dialog names while it is open.
+    pub(crate) fn asked_names(&self) -> &[OsString] {
+        &self.asked_for.1
     }
 
     /// The files asked about, taken for the answer to act on.
@@ -350,16 +356,15 @@ impl crate::App {
                 Prompt::Rename => "New file name:".to_owned(),
                 Prompt::NewCollection => tf!(
                     "Name of a new collection with {count}:",
-                    count = count(self.first_target().0, "image")
+                    count = count(self.dialogs.asked_names().len(), "image")
                 ),
                 Prompt::RenameMany => tf!(
                     "New names for {count} (* = old name, # = number, ### = 001):",
-                    count = count(self.first_target().0, "file")
+                    count = count(self.dialogs.asked_names().len(), "file")
                 ),
             };
             // The first new name, so the pattern can be checked before renaming.
-            let i = self.first_target().1;
-            let first = (i < self.list.files().len()).then(|| self.path(i));
+            let first = (self.dialogs.asked_names().first()).map(|n| self.folder.dir().join(n));
             let mut answer = None;
             let modal = egui::Modal::new(egui::Id::unique("prompt")).show(ctx, |ui| {
                 ui.label(title);
@@ -396,6 +401,11 @@ impl crate::App {
             return self.set_window_title(ctx, text);
         }
         if let Prompt::NewCollection = prompt {
+            // The images it asked about, wherever a refresh put them, not the selection now.
+            let Some(found) = self.asked_targets() else {
+                return;
+            };
+            self.list.select(found.into_iter().collect());
             return match collections::new_file(text) {
                 Ok(file) => self.add_to_collection(&file),
                 Err(e) => self.notice = Some(e),
@@ -638,13 +648,20 @@ impl crate::App {
         }
     }
 
+    /// Returns what the delete dialog names: the one file it asks about, or how many. These are
+    /// the files asked about, not the selection now, which a refresh or a script may have
+    /// changed while the dialog was open.
+    fn delete_what(&self) -> String {
+        match self.dialogs.asked_names() {
+            [name] => format!("\"{}\"", self.name_shown(name)),
+            many => count(many.len(), "file"),
+        }
+    }
+
     /// Asks before files go to the trash or are deleted for good.
     pub(crate) fn confirm_delete_dialog(&mut self, ctx: &egui::Context) {
         if let Some(trash) = self.dialogs.confirm_delete {
-            let what = match self.first_target() {
-                (1, i) => format!("\"{}\"", self.name(i)),
-                (many, _) => count(many, "file"),
-            };
+            let what = self.delete_what();
             let mut delete = false;
             let modal = egui::Modal::new(egui::Id::unique("confirm-delete")).show(ctx, |ui| {
                 if trash {
@@ -714,5 +731,28 @@ impl crate::App {
             || self.lightroom.is_some()
             || self.save_as.is_some()
             || !self.work.cut_short().is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::support::test_support::app_on;
+
+    /// The delete dialog names the files it asked about, also after the selection changed
+    /// while it was open, and its answer acts on those files.
+    #[test]
+    fn the_delete_dialog_names_the_files_it_asked_about() {
+        let dir = std::env::temp_dir().join(format!("glimt-test-asked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut app, ctx) = app_on(&dir);
+        app.list
+            .set_files(["a.png", "b.png", "c.png"].map(Into::into).to_vec());
+        app.list.select([0].into());
+        app.config.confirm_trash = true;
+        app.request_delete(&ctx, true);
+        app.list.select([1, 2].into());
+        assert_eq!(app.delete_what(), "\"a.png\"");
+        assert_eq!(app.asked_targets(), Some(vec![0]));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

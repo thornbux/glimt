@@ -822,6 +822,7 @@ impl crate::App {
             Action::OpenFolders => self.pick(ctx, true, Pick::Folders),
             Action::OpenRecursive => self.pick(ctx, true, Pick::Recursive),
             Action::NewCollection if !self.list.files().is_empty() => {
+                self.ask_about_targets();
                 self.dialogs.ask(Prompt::NewCollection, String::new());
             }
             Action::NewCollection => {
