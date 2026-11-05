@@ -7,6 +7,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A plugin that starts a program in the background (an editor, xdg-open) no longer counts as
+  running, holding its files, until that program closes.
 - A delete, move or rename of files a plugin is still working on waits until the plugin ends,
   as for every other file operation.
 
