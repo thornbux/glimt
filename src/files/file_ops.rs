@@ -616,14 +616,15 @@ impl crate::App {
                 let _ = tx.send(e);
                 Vec::new()
             });
+            let (sides_gone, sidecars_left): (Vec<PathBuf>, Vec<PathBuf>) =
+                (sides.into_iter()).partition(|s| std::fs::symlink_metadata(s).is_err());
             let undo = (trash && !gone.is_empty()).then(|| {
                 Undo::Trash(Thrown {
                     files: gone.clone(),
                     // Only the sidecars that are gone count, because a sidecar gio could not
-                    // move is still there.
-                    sidecars: (sides.into_iter())
-                        .filter(|s| std::fs::symlink_metadata(s).is_err())
-                        .collect(),
+                    // move is still there. Those are kept apart, as they are still the files'.
+                    sidecars: sides_gone,
+                    sidecars_left,
                     since,
                     marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
@@ -1205,6 +1206,7 @@ impl crate::App {
                 Undo::Trash(Thrown {
                     files: gone.clone(),
                     sidecars: Vec::new(),
+                    sidecars_left: Vec::new(),
                     since,
                     marks: Vec::new(),
                     collection: collection.zip(Some(removed)),
@@ -1296,6 +1298,7 @@ impl crate::App {
                     Undo::Trash(Thrown {
                         files: left,
                         sidecars: thrown.sidecars,
+                        sidecars_left: thrown.sidecars_left,
                         since: thrown.since,
                         marks: kept,
                         collection: (thrown.collection).map(|(file, removed)| {
@@ -2513,6 +2516,7 @@ mod tests {
         app.work.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
             files: vec![a.clone()],
             sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
             since: std::time::SystemTime::now(),
             marks: Vec::new(),
             collection: None,
@@ -2543,6 +2547,7 @@ mod tests {
         app.work.undo = Some(super::Undo::Trash(crate::files::trash::Thrown {
             files: vec![a.clone(), b.clone()],
             sidecars: Vec::new(),
+            sidecars_left: Vec::new(),
             since: std::time::SystemTime::now(),
             marks: vec![(a.clone(), (1, 3))],
             collection: Some((gqv.clone(), vec![(0, a.clone())])),
