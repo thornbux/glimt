@@ -32,6 +32,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Keywords added to many selected files show in the info panel at once. Before, the panel could
   read the shown file before its keywords were written, and a later edit there took them off
   again.
+- After a plugin changes the shown photo (describing it, say), the info panel shows its new
+  keywords, comment and alt text, and the screen reader reads them, not only after another
+  photo and back. Before, an edit in the panel could save the old ones over the plugin's.
 
 ## [0.57.0] - 2026-11-05
 

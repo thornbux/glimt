@@ -647,8 +647,8 @@ impl crate::App {
             // The moves are handled before their sources are taken for deleted files, so the
             // marks go along first.
             self.paths_moved(moved, copied);
-            self.files_changed(&changed);
-            self.files_changed(&overwritten);
+            self.files_changed(ctx, &changed);
+            self.files_changed(ctx, &overwritten);
             self.forget_names(&gone);
             // Deleted files lose their marks, so that a new file with the same name does not
             // get them. The marks are kept with the undo of a move to the trash, and it puts
@@ -1040,7 +1040,7 @@ impl crate::App {
     /// Reads again what is shown of `paths`, because they have other contents now (saved
     /// turned, edited by a plugin, written over). That covers the decoded images, thumbnails,
     /// size and date, EXIF and the `exif:` index.
-    pub(crate) fn files_changed(&mut self, paths: &[PathBuf]) {
+    pub(crate) fn files_changed(&mut self, ctx: &egui::Context, paths: &[PathBuf]) {
         if paths.is_empty() {
             return;
         }
@@ -1048,7 +1048,7 @@ impl crate::App {
             if self.is_file(self.list.cur(), path) {
                 self.viewing.drop_turn();
                 self.list.forget_decodes_of(self.list.cur());
-                self.info.forget_exif();
+                self.read_info_again(ctx);
             }
         }
         self.forget_names(paths);
